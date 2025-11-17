@@ -65,19 +65,19 @@ export function SearchBar({ onResults, onLoading, onError }: SearchBarProps) {
   return (
     <form onSubmit={handleSearch} className="w-full max-w-3xl mx-auto">
       <div className="relative">
-        <Search className="absolute left-5 top-1/2 -translate-y-1/2 w-5 h-5 text-white/40" />
+        <Search className="absolute left-5 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
         <Input
           type="text"
           placeholder="O que você quer aprender hoje?"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          className="h-14 pl-14 pr-32 bg-white/10 border-white/20 text-white placeholder:text-white/50 focus:bg-white/15 focus:border-white/30 transition-all text-lg"
+          className="h-14 pl-14 pr-32 bg-muted border-border text-foreground placeholder:text-muted-foreground focus:bg-muted focus:border-cinematic-accent transition-all text-lg"
           disabled={isSearching}
         />
         <Button
           type="submit"
           disabled={isSearching}
-          className="absolute right-2 top-1/2 -translate-y-1/2 bg-cinematic-accent hover:bg-cinematic-accent/90"
+          className="absolute right-2 top-1/2 -translate-y-1/2 bg-cinematic-accent hover:bg-cinematic-accent/90 text-white"
         >
           {isSearching ? (
             <>
