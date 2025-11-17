@@ -97,15 +97,18 @@ export const EditableAvatar = ({
 
       if (uploadError) throw uploadError;
 
-      // Get public URL
+      // Get public URL with timestamp to bust cache
+      const timestamp = Date.now();
       const { data: { publicUrl } } = supabase.storage
         .from('avatars')
         .getPublicUrl(fileName);
 
+      const avatarUrlWithTimestamp = `${publicUrl}?v=${timestamp}`;
+
       // Update profile with new avatar URL
       const { error: updateError } = await supabase
         .from('profiles')
-        .update({ avatar_url: publicUrl })
+        .update({ avatar_url: avatarUrlWithTimestamp })
         .eq('id', userId);
 
       if (updateError) throw updateError;
@@ -139,9 +142,8 @@ export const EditableAvatar = ({
       <Avatar className={sizeClasses[size]}>
         {avatarUrl && (
           <AvatarImage 
-            src={`${avatarUrl}?t=${Date.now()}`} 
+            src={avatarUrl} 
             alt={displayName}
-            key={avatarUrl} 
           />
         )}
         <AvatarFallback className="bg-primary text-primary-foreground">
