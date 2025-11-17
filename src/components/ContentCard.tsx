@@ -1,6 +1,6 @@
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Play, Clock, BookOpen } from "lucide-react";
+import { Play, Clock, BookOpen, Lock } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
 interface ContentCardProps {
@@ -35,6 +35,7 @@ export const ContentCard = ({
   contentType,
 }: ContentCardProps) => {
   const navigate = useNavigate();
+  const isRestricted = !isFree || requiredPlan;
 
   const getPlanBadgeColor = (plan?: string) => {
     switch (plan) {
@@ -59,12 +60,18 @@ export const ContentCard = ({
           alt={title}
           className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
         />
+        
+        {/* Overlay gradient */}
         <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
         
         {/* Play button overlay */}
         <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-300">
-          <div className="bg-primary/90 rounded-full p-4">
-            <Play className="w-8 h-8 text-primary-foreground" />
+          <div className="bg-primary/90 rounded-full p-4 backdrop-blur-sm">
+            {isRestricted ? (
+              <Lock className="w-8 h-8 text-primary-foreground" />
+            ) : (
+              <Play className="w-8 h-8 text-primary-foreground" />
+            )}
           </div>
         </div>
 
@@ -134,10 +141,18 @@ export const ContentCard = ({
           </p>
         )}
 
-        {/* Views */}
-        <p className="text-xs text-muted-foreground">
-          {views.toLocaleString()} visualizações
-        </p>
+        {/* Views & Earnings indicator */}
+        <div className="flex items-center justify-between">
+          <p className="text-xs text-muted-foreground">
+            {views.toLocaleString()} visualizações
+          </p>
+          {isRestricted && (
+            <Badge variant="outline" className="text-xs">
+              <Lock className="w-3 h-3 mr-1" />
+              Premium
+            </Badge>
+          )}
+        </div>
       </div>
     </Card>
   );
