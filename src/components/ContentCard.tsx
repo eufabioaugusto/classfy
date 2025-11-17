@@ -4,36 +4,54 @@ import { Play, Clock, BookOpen, Lock } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
 interface ContentCardProps {
-  id: string;
-  title: string;
+  id?: string;
+  title?: string;
   description?: string;
-  thumbnail: string;
-  creatorName: string;
+  thumbnail?: string;
+  creatorName?: string;
   creatorAvatar?: string;
   duration?: number;
   lessonCount?: number;
-  isFree: boolean;
+  isFree?: boolean;
   price?: number;
   requiredPlan?: "free" | "pro" | "premium";
-  views: number;
-  contentType: "video" | "course";
+  views?: number;
+  contentType?: "video" | "course";
+  content?: any;
+  onClick?: () => void;
 }
 
 export const ContentCard = ({
-  id,
-  title,
-  description,
-  thumbnail,
-  creatorName,
-  creatorAvatar,
-  duration,
-  lessonCount,
-  isFree,
-  price,
-  requiredPlan,
-  views,
-  contentType,
+  id: propId,
+  title: propTitle,
+  description: propDescription,
+  thumbnail: propThumbnail,
+  creatorName: propCreatorName,
+  creatorAvatar: propCreatorAvatar,
+  duration: propDuration,
+  lessonCount: propLessonCount,
+  isFree: propIsFree,
+  price: propPrice,
+  requiredPlan: propRequiredPlan,
+  views: propViews,
+  contentType: propContentType,
+  content,
+  onClick,
 }: ContentCardProps) => {
+  // Support both formats: direct props or content object
+  const id = propId || content?.id;
+  const title = propTitle || content?.title;
+  const description = propDescription || content?.description;
+  const thumbnail = propThumbnail || content?.thumbnail_url || "/placeholder.svg";
+  const creatorName = propCreatorName || content?.profiles?.display_name || "Creator";
+  const creatorAvatar = propCreatorAvatar || content?.profiles?.avatar_url;
+  const duration = propDuration || content?.duration_minutes;
+  const lessonCount = propLessonCount || content?.lesson_count;
+  const isFree = propIsFree !== undefined ? propIsFree : content?.is_free ?? true;
+  const price = propPrice || content?.price;
+  const requiredPlan = propRequiredPlan || content?.required_plan;
+  const views = propViews || content?.views_count || 0;
+  const contentType = propContentType || content?.content_type || "video";
   const navigate = useNavigate();
   const isRestricted = !isFree || requiredPlan;
 
@@ -48,10 +66,18 @@ export const ContentCard = ({
     }
   };
 
+  const handleClick = () => {
+    if (onClick) {
+      onClick();
+    } else {
+      navigate(`/player/${id}`);
+    }
+  };
+
   return (
     <Card
       className="group cursor-pointer overflow-hidden bg-cinematic-dark hover:bg-cinematic-dark/80 transition-all duration-500 border-white/5 hover:border-white/10 rounded-lg"
-      onClick={() => navigate(`/player/${id}`)}
+      onClick={handleClick}
     >
       {/* Thumbnail with aspect ratio 16:9 - MasterClass Style */}
       <div className="relative aspect-video overflow-hidden bg-cinematic-black">
