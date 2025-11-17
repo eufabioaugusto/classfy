@@ -27,7 +27,11 @@ export const ProfileAvatar = ({ size = "md", className = "" }: ProfileAvatarProp
   return (
     <Avatar className={`${sizeClasses[size]} ${className}`}>
       {profile?.avatar_url && (
-        <AvatarImage src={profile.avatar_url} alt={profile.display_name} />
+        <AvatarImage 
+          src={`${profile.avatar_url}?t=${Date.now()}`} 
+          alt={profile.display_name}
+          key={profile.avatar_url}
+        />
       )}
       <AvatarFallback className="bg-primary text-primary-foreground">
         {profile?.display_name ? getInitials(profile.display_name) : "U"}

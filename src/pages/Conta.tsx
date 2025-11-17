@@ -10,7 +10,7 @@ import { useToast } from "@/hooks/use-toast";
 import { ArrowLeft, Wallet, TrendingUp, DollarSign, Trophy, Sparkles, CheckCircle, Clock, XCircle, AlertCircle } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { BecomeCreatorModal } from "@/components/BecomeCreatorModal";
-import { AvatarUpload } from "@/components/AvatarUpload";
+import { EditableAvatar } from "@/components/EditableAvatar";
 
 export default function Conta() {
   const { user, loading: authLoading, role, profile: userProfile, refreshProfile } = useAuth();
@@ -147,10 +147,12 @@ export default function Conta() {
           {/* Profile Header */}
           <Card className="p-8">
             <div className="flex flex-col md:flex-row items-center gap-8">
-              <AvatarUpload 
+              <EditableAvatar 
                 userId={user?.id || ""} 
-                currentAvatarUrl={profile?.avatar_url}
-                onUploadSuccess={fetchData}
+                avatarUrl={profile?.avatar_url}
+                displayName={profile?.display_name || ""}
+                size="xl"
+                editable={true}
               />
               <div className="space-y-2 text-center md:text-left">
                 <h1 className="text-4xl font-bold">{profile?.display_name}</h1>
