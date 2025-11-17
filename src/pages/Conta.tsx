@@ -10,6 +10,7 @@ import { useToast } from "@/hooks/use-toast";
 import { ArrowLeft, Wallet, TrendingUp, DollarSign, Trophy, Sparkles, CheckCircle, Clock, XCircle, AlertCircle } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { BecomeCreatorModal } from "@/components/BecomeCreatorModal";
+import { ProfileAvatar } from "@/components/ProfileAvatar";
 
 export default function Conta() {
   const { user, loading: authLoading, role, profile: userProfile, refreshProfile } = useAuth();
@@ -145,9 +146,7 @@ export default function Conta() {
         <div className="space-y-8">
           {/* Profile Header */}
           <div className="flex items-center gap-6">
-            <div className="w-24 h-24 rounded-full bg-accent flex items-center justify-center text-4xl font-bold text-accent-foreground">
-              {profile?.display_name?.[0]?.toUpperCase()}
-            </div>
+            <ProfileAvatar size="lg" />
             <div className="space-y-2">
               <h1 className="text-4xl font-bold">{profile?.display_name}</h1>
               <div className="flex gap-2">

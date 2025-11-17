@@ -3,6 +3,7 @@ import { useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { useStudies } from "@/hooks/useStudies";
 import { BecomeCreatorModal } from "@/components/BecomeCreatorModal";
+import { ProfileAvatar } from "@/components/ProfileAvatar";
 import { useState } from "react";
 import {
   Home,
@@ -97,9 +98,25 @@ export function AppSidebar() {
     <Sidebar className="border-r border-border/20 bg-background">
       <SidebarContent>
         {/* Logo/Brand */}
-        <div className="p-6 flex items-center gap-2 cursor-pointer" onClick={() => navigate("/")}>
-          <Sparkles className="w-6 h-6 text-cinematic-accent" />
-          {!collapsed && <span className="text-xl font-bold text-foreground">CLASSFY</span>}
+        <div className="p-6 space-y-4">
+          <div className="flex items-center gap-2 cursor-pointer" onClick={() => navigate("/")}>
+            <Sparkles className="w-6 h-6 text-cinematic-accent" />
+            {!collapsed && <span className="text-xl font-bold text-foreground">CLASSFY</span>}
+          </div>
+          
+          {/* User Profile in Header */}
+          {user && !collapsed && (
+            <div 
+              className="flex items-center gap-3 p-3 rounded-lg bg-muted/50 hover:bg-muted cursor-pointer transition-colors"
+              onClick={() => navigate("/conta")}
+            >
+              <ProfileAvatar size="sm" />
+              <div className="flex flex-col gap-0.5 leading-none flex-1 min-w-0">
+                <span className="text-sm font-medium truncate">{profile?.display_name}</span>
+                <span className="text-xs text-muted-foreground capitalize">{profile?.plan}</span>
+              </div>
+            </div>
+          )}
         </div>
 
         <Separator className="bg-border/10" />
