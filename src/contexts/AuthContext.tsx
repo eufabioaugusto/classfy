@@ -12,6 +12,8 @@ interface UserProfile {
   plan_expires_at: string | null;
   creator_status: CreatorStatus;
   creator_channel_name: string | null;
+  avatar_url: string | null;
+  display_name: string;
 }
 
 interface AuthContextType {
@@ -41,7 +43,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       // Fetch profile data
       const { data: profileData } = await supabase
         .from('profiles')
-        .select('plan, plan_expires_at, creator_status, creator_channel_name')
+        .select('plan, plan_expires_at, creator_status, creator_channel_name, avatar_url, display_name')
         .eq('id', userId)
         .single();
 
