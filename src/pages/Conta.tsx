@@ -10,7 +10,7 @@ import { useToast } from "@/hooks/use-toast";
 import { ArrowLeft, Wallet, TrendingUp, DollarSign, Trophy, Sparkles, CheckCircle, Clock, XCircle, AlertCircle } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { BecomeCreatorModal } from "@/components/BecomeCreatorModal";
-import { ProfileAvatar } from "@/components/ProfileAvatar";
+import { AvatarUpload } from "@/components/AvatarUpload";
 
 export default function Conta() {
   const { user, loading: authLoading, role, profile: userProfile, refreshProfile } = useAuth();
@@ -145,17 +145,23 @@ export default function Conta() {
       <div className="container mx-auto px-4 py-12 max-w-4xl">
         <div className="space-y-8">
           {/* Profile Header */}
-          <div className="flex items-center gap-6">
-            <ProfileAvatar size="lg" />
-            <div className="space-y-2">
-              <h1 className="text-4xl font-bold">{profile?.display_name}</h1>
-              <div className="flex gap-2">
-                <Badge variant="secondary" className="uppercase">
-                  {profile?.plan || "free"}
-                </Badge>
+          <Card className="p-8">
+            <div className="flex flex-col md:flex-row items-center gap-8">
+              <AvatarUpload 
+                userId={user?.id || ""} 
+                currentAvatarUrl={profile?.avatar_url}
+                onUploadSuccess={fetchData}
+              />
+              <div className="space-y-2 text-center md:text-left">
+                <h1 className="text-4xl font-bold">{profile?.display_name}</h1>
+                <div className="flex gap-2 justify-center md:justify-start">
+                  <Badge variant="secondary" className="uppercase">
+                    {profile?.plan || "free"}
+                  </Badge>
+                </div>
               </div>
             </div>
-          </div>
+          </Card>
 
           {/* Wallet Stats */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
