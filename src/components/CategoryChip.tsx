@@ -1,4 +1,3 @@
-import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 
 interface CategoryChipProps {
@@ -10,18 +9,18 @@ interface CategoryChipProps {
 
 export const CategoryChip = ({ label, icon, active, onClick }: CategoryChipProps) => {
   return (
-    <Badge
+    <button
       onClick={onClick}
       className={cn(
-        "px-4 py-2 cursor-pointer transition-all duration-300 text-sm font-medium",
-        "hover:scale-105 hover:shadow-lg",
+        "px-5 py-2.5 rounded-full cursor-pointer transition-all duration-300 text-sm font-medium whitespace-nowrap",
+        "flex items-center gap-2",
         active
-          ? "bg-accent text-accent-foreground"
-          : "bg-card/50 text-foreground hover:bg-card border border-border/50"
+          ? "bg-white text-cinematic-black"
+          : "bg-white/10 text-white hover:bg-white/20 border border-white/10"
       )}
     >
-      {icon && <span className="mr-2">{icon}</span>}
+      {icon && <span className="w-4 h-4">{icon}</span>}
       {label}
-    </Badge>
+    </button>
   );
 };
