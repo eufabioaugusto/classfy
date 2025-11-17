@@ -15,6 +15,12 @@ import {
   DollarSign,
   Palette,
   Cpu,
+  Video,
+  BarChart,
+  Upload,
+  Settings,
+  Users,
+  CheckSquare,
 } from "lucide-react";
 import {
   Sidebar,
@@ -46,11 +52,23 @@ const categories = [
   { title: "Tecnologia", icon: Cpu },
 ];
 
+const studioItems = [
+  { title: "Dashboard", url: "/studio", icon: BarChart },
+  { title: "Meus Conteúdos", url: "/studio/contents", icon: Video },
+  { title: "Publicar Novo", url: "/studio/new", icon: Upload },
+];
+
+const adminItems = [
+  { title: "Aprovar Creators", url: "/admin/creators", icon: CheckSquare },
+  { title: "Gerenciar Usuários", url: "/admin/users", icon: Users },
+  { title: "Configurações", url: "/admin/settings", icon: Settings },
+];
+
 export function AppSidebar() {
   const { state } = useSidebar();
   const location = useLocation();
   const navigate = useNavigate();
-  const { user, signOut } = useAuth();
+  const { user, signOut, role } = useAuth();
   const collapsed = state === "collapsed";
 
   const isActive = (path: string) => location.pathname === path;
@@ -108,6 +126,62 @@ export function AppSidebar() {
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
+
+        {/* Studio (Creator only) */}
+        {user && (role === 'creator' || role === 'admin') && (
+          <>
+            <Separator className="bg-border my-2" />
+            <SidebarGroup>
+              {!collapsed && <SidebarGroupLabel className="text-muted-foreground">Studio Classfy</SidebarGroupLabel>}
+              <SidebarGroupContent>
+                <SidebarMenu>
+                  {studioItems.map((item) => (
+                    <SidebarMenuItem key={item.title}>
+                      <SidebarMenuButton asChild>
+                        <NavLink
+                          to={item.url}
+                          className="text-foreground/80 hover:bg-muted hover:text-foreground"
+                          activeClassName="bg-muted text-cinematic-accent font-medium"
+                        >
+                          <item.icon className="w-4 h-4" />
+                          {!collapsed && <span>{item.title}</span>}
+                        </NavLink>
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
+                  ))}
+                </SidebarMenu>
+              </SidebarGroupContent>
+            </SidebarGroup>
+          </>
+        )}
+
+        {/* Admin Panel */}
+        {user && role === 'admin' && (
+          <>
+            <Separator className="bg-border my-2" />
+            <SidebarGroup>
+              {!collapsed && <SidebarGroupLabel className="text-muted-foreground">Administração</SidebarGroupLabel>}
+              <SidebarGroupContent>
+                <SidebarMenu>
+                  {adminItems.map((item) => (
+                    <SidebarMenuItem key={item.title}>
+                      <SidebarMenuButton asChild>
+                        <NavLink
+                          to={item.url}
+                          className="text-foreground/80 hover:bg-muted hover:text-foreground"
+                          activeClassName="bg-muted text-cinematic-accent font-medium"
+                        >
+                          <item.icon className="w-4 h-4" />
+                          {!collapsed && <span>{item.title}</span>}
+                        </NavLink>
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
+                  ))}
+                </SidebarMenu>
+              </SidebarGroupContent>
+            </SidebarGroup>
+          </>
+        )}
 
         {/* User Actions */}
         {user && (
