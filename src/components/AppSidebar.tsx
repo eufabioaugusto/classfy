@@ -85,7 +85,11 @@ export function AppSidebar() {
   const [creatorModalOpen, setCreatorModalOpen] = useState(false);
   const collapsed = state === "collapsed";
   const limitText = limit === Infinity ? 'Ilimitado' : `${activeCount}/${limit}`;
-  const showBecomeCreator = user && role === 'user' && profile?.creator_status === 'none';
+  
+  // Visibilidade dos itens do menu
+  const showBecomeCreator = user && role !== 'creator' && role !== 'admin' && (profile?.creator_status === 'none' || profile?.creator_status === 'rejected');
+  const showStudio = user && (role === 'creator' || role === 'admin');
+  const showAdmin = user && role === 'admin';
 
   const isActive = (path: string) => location.pathname === path;
 
@@ -226,8 +230,8 @@ export function AppSidebar() {
           </>
         )}
 
-        {/* Studio (Creator only) */}
-        {user && (role === 'creator' || role === 'admin') && (
+        {/* Studio (Creator and Admin only) */}
+        {showStudio && (
           <>
             <Separator className="bg-border my-2" />
             <SidebarGroup>
@@ -255,7 +259,7 @@ export function AppSidebar() {
         )}
 
         {/* Admin Panel */}
-        {user && role === 'admin' && (
+        {showAdmin && (
           <>
             <Separator className="bg-border my-2" />
             <SidebarGroup>
