@@ -2,6 +2,7 @@ import { NavLink } from "@/components/NavLink";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { useStudies } from "@/hooks/useStudies";
+import { BecomeCreatorModal } from "@/components/BecomeCreatorModal";
 import { useState } from "react";
 import {
   Home,
@@ -78,11 +79,13 @@ export function AppSidebar() {
   const { state } = useSidebar();
   const location = useLocation();
   const navigate = useNavigate();
-  const { user, signOut, role } = useAuth();
+  const { user, signOut, role, profile } = useAuth();
   const { activeStudies, activeCount, limit, canCreateMore } = useStudies();
   const [studiesOpen, setStudiesOpen] = useState(true);
+  const [creatorModalOpen, setCreatorModalOpen] = useState(false);
   const collapsed = state === "collapsed";
   const limitText = limit === Infinity ? 'Ilimitado' : `${activeCount}/${limit}`;
+  const showBecomeCreator = user && role === 'user' && profile?.creator_status === 'none';
 
   const isActive = (path: string) => location.pathname === path;
 
@@ -114,25 +117,6 @@ export function AppSidebar() {
                       <item.icon className="w-4 h-4" />
                       {!collapsed && <span>{item.title}</span>}
                     </NavLink>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              ))}
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
-
-        <Separator className="bg-border my-2" />
-
-        {/* Categories */}
-        <SidebarGroup>
-          {!collapsed && <SidebarGroupLabel className="text-muted-foreground">Categorias</SidebarGroupLabel>}
-          <SidebarGroupContent>
-            <SidebarMenu>
-              {categories.map((category) => (
-                <SidebarMenuItem key={category.title}>
-                  <SidebarMenuButton className="text-foreground/80 hover:bg-muted hover:text-foreground">
-                    <category.icon className="w-4 h-4" />
-                    {!collapsed && <span>{category.title}</span>}
                   </SidebarMenuButton>
                 </SidebarMenuItem>
               ))}
@@ -200,6 +184,46 @@ export function AppSidebar() {
               </CollapsibleContent>
             </SidebarGroup>
           </Collapsible>
+        )}
+
+        <Separator className="bg-border my-2" />
+
+        {/* Categories */}
+        <SidebarGroup>
+          {!collapsed && <SidebarGroupLabel className="text-muted-foreground">Categorias</SidebarGroupLabel>}
+          <SidebarGroupContent>
+            <SidebarMenu>
+              {categories.map((category) => (
+                <SidebarMenuItem key={category.title}>
+                  <SidebarMenuButton className="text-foreground/80 hover:bg-muted hover:text-foreground">
+                    <category.icon className="w-4 h-4" />
+                    {!collapsed && <span>{category.title}</span>}
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              ))}
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
+
+        <Separator className="bg-border my-2" />
+
+        {/* Become Creator (Users only) */}
+        {showBecomeCreator && (
+          <>
+            <SidebarGroup>
+              <SidebarGroupContent>
+                <SidebarMenu>
+                  <SidebarMenuItem>
+                    <SidebarMenuButton onClick={() => setCreatorModalOpen(true)} className="text-foreground/80 hover:bg-muted hover:text-foreground">
+                      <Sparkles className="w-4 h-4" />
+                      {!collapsed && <span>Torne-se Creator</span>}
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                </SidebarMenu>
+              </SidebarGroupContent>
+            </SidebarGroup>
+            <Separator className="bg-border my-2" />
+          </>
         )}
 
         {/* Studio (Creator only) */}
@@ -290,6 +314,9 @@ export function AppSidebar() {
           </>
         )}
       </SidebarContent>
+
+      {/* Become Creator Modal */}
+      <BecomeCreatorModal open={creatorModalOpen} onOpenChange={setCreatorModalOpen} />
     </Sidebar>
   );
 }
