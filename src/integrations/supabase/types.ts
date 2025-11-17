@@ -270,6 +270,57 @@ export type Database = {
           },
         ]
       }
+      creator_requests: {
+        Row: {
+          admin_notes: string | null
+          bio: string | null
+          channel_name: string
+          created_at: string
+          id: string
+          reviewed_at: string | null
+          reviewed_by: string | null
+          status: Database["public"]["Enums"]["creator_status"]
+          user_id: string
+        }
+        Insert: {
+          admin_notes?: string | null
+          bio?: string | null
+          channel_name: string
+          created_at?: string
+          id?: string
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          status?: Database["public"]["Enums"]["creator_status"]
+          user_id: string
+        }
+        Update: {
+          admin_notes?: string | null
+          bio?: string | null
+          channel_name?: string
+          created_at?: string
+          id?: string
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          status?: Database["public"]["Enums"]["creator_status"]
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "creator_requests_reviewed_by_fkey"
+            columns: ["reviewed_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "creator_requests_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       favorites: {
         Row: {
           content_id: string
@@ -348,6 +399,9 @@ export type Database = {
           billing_id: string | null
           bio: string | null
           created_at: string
+          creator_bio: string | null
+          creator_channel_name: string | null
+          creator_status: Database["public"]["Enums"]["creator_status"]
           display_name: string
           id: string
           plan: Database["public"]["Enums"]["plan_type"]
@@ -359,6 +413,9 @@ export type Database = {
           billing_id?: string | null
           bio?: string | null
           created_at?: string
+          creator_bio?: string | null
+          creator_channel_name?: string | null
+          creator_status?: Database["public"]["Enums"]["creator_status"]
           display_name: string
           id: string
           plan?: Database["public"]["Enums"]["plan_type"]
@@ -370,6 +427,9 @@ export type Database = {
           billing_id?: string | null
           bio?: string | null
           created_at?: string
+          creator_bio?: string | null
+          creator_channel_name?: string | null
+          creator_status?: Database["public"]["Enums"]["creator_status"]
           display_name?: string
           id?: string
           plan?: Database["public"]["Enums"]["plan_type"]
@@ -699,6 +759,7 @@ export type Database = {
         | "IA_INTERACTION"
       app_role: "user" | "creator" | "admin"
       content_type: "video" | "course"
+      creator_status: "none" | "pending" | "approved" | "rejected"
       plan_type: "free" | "pro" | "premium"
       withdraw_status: "pending" | "approved" | "rejected"
     }
@@ -840,6 +901,7 @@ export const Constants = {
       ],
       app_role: ["user", "creator", "admin"],
       content_type: ["video", "course"],
+      creator_status: ["none", "pending", "approved", "rejected"],
       plan_type: ["free", "pro", "premium"],
       withdraw_status: ["pending", "approved", "rejected"],
     },

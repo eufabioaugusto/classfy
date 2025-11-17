@@ -7,11 +7,12 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
-import { ArrowLeft, Wallet, TrendingUp, DollarSign, Trophy } from "lucide-react";
+import { ArrowLeft, Wallet, TrendingUp, DollarSign, Trophy, Sparkles, CheckCircle, Clock, XCircle, AlertCircle } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { BecomeCreatorModal } from "@/components/BecomeCreatorModal";
 
 export default function Conta() {
-  const { user, loading: authLoading } = useAuth();
+  const { user, loading: authLoading, role, profile: userProfile, refreshProfile } = useAuth();
   const navigate = useNavigate();
   const { toast } = useToast();
   const [loading, setLoading] = useState(true);
@@ -20,6 +21,7 @@ export default function Conta() {
   const [withdrawAmount, setWithdrawAmount] = useState("");
   const [pixKey, setPixKey] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [creatorModalOpen, setCreatorModalOpen] = useState(false);
 
   useEffect(() => {
     if (!authLoading && !user) {
@@ -262,8 +264,78 @@ export default function Conta() {
               </Button>
             </div>
           </Card>
+
+          {/* Creator Section */}
+          {role !== 'creator' && role !== 'admin' && (
+            <Card className="p-8">
+              <div className="flex items-start justify-between gap-4">
+                <div className="flex-1">
+                  <h2 className="text-2xl font-bold mb-2 flex items-center gap-2">
+                    <Sparkles className="w-6 h-6 text-cinematic-accent" />
+                    Torne-se Creator
+                  </h2>
+                  <p className="text-muted-foreground mb-4">
+                    Publique seus conteúdos, ganhe seguidores e monetize seu conhecimento na Classfy
+                  </p>
+                  
+                  {userProfile?.creator_status === 'pending' && (
+                    <div className="flex items-center gap-2 p-3 rounded-lg bg-yellow-500/10 border border-yellow-500/20 mb-4">
+                      <Clock className="w-5 h-5 text-yellow-500" />
+                      <span className="text-sm font-medium text-yellow-500">
+                        Aguardando análise do admin...
+                      </span>
+                    </div>
+                  )}
+
+                  {userProfile?.creator_status === 'rejected' && (
+                    <div className="flex items-center gap-2 p-3 rounded-lg bg-red-500/10 border border-red-500/20 mb-4">
+                      <XCircle className="w-5 h-5 text-red-500" />
+                      <span className="text-sm font-medium text-red-500">
+                        Sua solicitação não foi aprovada
+                      </span>
+                    </div>
+                  )}
+                </div>
+                
+                {userProfile?.creator_status !== 'pending' && userProfile?.creator_status !== 'approved' && (
+                  <Button
+                    onClick={() => setCreatorModalOpen(true)}
+                    className="bg-cinematic-accent hover:bg-cinematic-accent/90 text-white"
+                  >
+                    <Sparkles className="w-4 h-4 mr-2" />
+                    Solicitar Acesso
+                  </Button>
+                )}
+              </div>
+            </Card>
+          )}
+
+          {(role === 'creator' || role === 'admin') && (
+            <Card className="p-8 border-green-500/20 bg-green-500/5">
+              <div className="flex items-start gap-3">
+                <CheckCircle className="w-6 h-6 text-green-500 mt-0.5" />
+                <div>
+                  <h3 className="text-xl font-bold mb-1">
+                    Você é um Creator!
+                  </h3>
+                  <p className="text-muted-foreground mb-4">
+                    Acesse o Studio Classfy no menu lateral para gerenciar seus conteúdos
+                  </p>
+                  <Button
+                    variant="outline"
+                    onClick={() => navigate("/studio")}
+                    className="border-green-500/20 hover:bg-green-500/10"
+                  >
+                    Ir para o Studio
+                  </Button>
+                </div>
+              </div>
+            </Card>
+          )}
         </div>
       </div>
+      
+      <BecomeCreatorModal open={creatorModalOpen} onOpenChange={setCreatorModalOpen} />
     </div>
   );
 }
