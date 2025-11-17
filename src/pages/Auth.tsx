@@ -67,30 +67,30 @@ export default function Auth() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-background via-background to-accent/5 p-4">
+    <div className="min-h-screen flex items-center justify-center bg-cinematic-black p-4">
       <div className="w-full max-w-md space-y-8">
         {/* Logo & Title */}
-        <div className="text-center space-y-2">
+        <div className="text-center space-y-4">
           <div className="flex justify-center">
-            <div className="p-4 rounded-2xl bg-accent/10 backdrop-blur-sm">
-              <Sparkles className="w-12 h-12 text-accent" />
+            <div className="p-5 rounded-2xl bg-cinematic-accent/10 backdrop-blur-sm border border-cinematic-accent/20">
+              <Sparkles className="w-14 h-14 text-cinematic-accent" />
             </div>
           </div>
-          <h1 className="text-4xl font-bold tracking-tight">
+          <h1 className="text-5xl font-bold tracking-tight text-white">
             CLASSFY
           </h1>
-          <p className="text-muted-foreground">
+          <p className="text-white/70 text-lg">
             Aprenda, evolua e ganhe com conhecimento
           </p>
         </div>
 
         {/* Auth Card */}
-        <Card className="p-8 backdrop-blur-sm bg-card/50 border-border/50">
+        <Card className="p-8 backdrop-blur-sm bg-cinematic-dark/50 border-white/10">
           <form onSubmit={handleSubmit} className="space-y-6">
             <div className="space-y-4">
               {!isLogin && (
                 <div className="space-y-2">
-                  <Label htmlFor="displayName">Nome Completo</Label>
+                  <Label htmlFor="displayName" className="text-white/90">Nome Completo</Label>
                   <Input
                     id="displayName"
                     type="text"
@@ -99,12 +99,13 @@ export default function Auth() {
                     onChange={(e) => setDisplayName(e.target.value)}
                     required={!isLogin}
                     disabled={loading}
+                    className="bg-white/10 border-white/20 text-white placeholder:text-white/40 focus:bg-white/15 focus:border-white/30"
                   />
                 </div>
               )}
 
               <div className="space-y-2">
-                <Label htmlFor="email">Email</Label>
+                <Label htmlFor="email" className="text-white/90">Email</Label>
                 <Input
                   id="email"
                   type="email"
@@ -113,11 +114,12 @@ export default function Auth() {
                   onChange={(e) => setEmail(e.target.value)}
                   required
                   disabled={loading}
+                  className="bg-white/10 border-white/20 text-white placeholder:text-white/40 focus:bg-white/15 focus:border-white/30"
                 />
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="password">Senha</Label>
+                <Label htmlFor="password" className="text-white/90">Senha</Label>
                 <Input
                   id="password"
                   type="password"
@@ -126,13 +128,14 @@ export default function Auth() {
                   onChange={(e) => setPassword(e.target.value)}
                   required
                   disabled={loading}
+                  className="bg-white/10 border-white/20 text-white placeholder:text-white/40 focus:bg-white/15 focus:border-white/30"
                 />
               </div>
             </div>
 
             <Button
               type="submit"
-              className="w-full"
+              className="w-full bg-cinematic-accent hover:bg-cinematic-accent/90 text-white h-12 text-base font-semibold"
               disabled={loading}
             >
               {loading ? (
@@ -149,18 +152,18 @@ export default function Auth() {
               <button
                 type="button"
                 onClick={() => setIsLogin(!isLogin)}
-                className="text-sm text-muted-foreground hover:text-accent transition-colors"
+                className="text-sm text-white/70 hover:text-white transition-colors"
                 disabled={loading}
               >
                 {isLogin ? (
                   <>
                     Não tem uma conta?{" "}
-                    <span className="font-semibold text-accent">Cadastre-se</span>
+                    <span className="font-semibold text-cinematic-accent">Cadastre-se</span>
                   </>
                 ) : (
                   <>
                     Já tem uma conta?{" "}
-                    <span className="font-semibold text-accent">Faça login</span>
+                    <span className="font-semibold text-cinematic-accent">Faça login</span>
                   </>
                 )}
               </button>

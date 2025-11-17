@@ -186,9 +186,9 @@ export default function Index() {
       {/* Conversion Modal */}
       <ConversionModal open={modalOpen} onOpenChange={setModalOpen} reason={modalReason} />
 
-      {/* Header */}
-      <header className="sticky top-0 z-50 border-b border-border/50 bg-background/95 backdrop-blur-xl">
-        <div className="container mx-auto px-4 py-4 flex items-center justify-between">
+      {/* Header - MasterClass Style */}
+      <header className="sticky top-0 z-50 border-b border-border/20 bg-cinematic-black/95 backdrop-blur-xl">
+        <div className="container mx-auto px-6 py-5 flex items-center justify-between">
           <div className="flex items-center gap-2 cursor-pointer" onClick={() => navigate("/")}>
             <Sparkles className="w-8 h-8 text-accent" />
             <h1 className="text-2xl font-bold">CLASSFY</h1>
@@ -247,144 +247,194 @@ export default function Index() {
         </div>
       </header>
 
-      {/* Hero Section - Classy AI */}
-      <section className="relative overflow-hidden">
-        {/* Background gradient */}
-        <div className="absolute inset-0 bg-gradient-to-b from-accent/5 via-transparent to-transparent" />
+      {/* Hero Section - MasterClass Cinematic Style */}
+      <section className="relative overflow-hidden bg-cinematic-black">
+        {/* Subtle gradient overlay */}
+        <div className="absolute inset-0 bg-gradient-to-b from-cinematic-black via-cinematic-darker to-cinematic-black" />
         
-        <div className="container mx-auto px-4 py-20 relative">
-          <div className="max-w-4xl mx-auto text-center space-y-8">
-            <div className="space-y-4">
-              <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-accent/10 text-accent border border-accent/20 backdrop-blur-sm">
-                <Sparkles className="w-4 h-4 animate-pulse" />
-                <span className="text-sm font-medium">Powered by Classy AI</span>
+        <div className="container mx-auto px-6 py-24 md:py-32 lg:py-40 relative">
+          <div className="max-w-6xl mx-auto">
+            <div className="grid lg:grid-cols-2 gap-12 lg:gap-16 items-center">
+              {/* Left side - Text content */}
+              <div className="space-y-8 text-left">
+                <div className="space-y-6">
+                  <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-white/5 text-white border border-white/10 backdrop-blur-sm">
+                    <Sparkles className="w-3.5 h-3.5" />
+                    <span className="text-xs font-medium uppercase tracking-wider">Powered by Classy AI</span>
+                  </div>
+                  
+                  <h1 className="text-5xl md:text-6xl lg:text-7xl xl:text-8xl font-bold tracking-tight text-white animate-fade-in leading-none">
+                    {user ? (
+                      <>
+                        APRENDA COM
+                        <br />
+                        <span className="text-cinematic-accent">OS MELHORES</span>
+                      </>
+                    ) : (
+                      <>
+                        VOCÊ JÁ
+                        <br />
+                        APRENDE.
+                        <br />
+                        <span className="text-cinematic-accent">AGORA GANHE.</span>
+                      </>
+                    )}
+                  </h1>
+                  
+                  <p className="text-lg md:text-xl text-white/70 max-w-xl leading-relaxed">
+                    {user 
+                      ? "Acesse aulas exclusivas com experts e evolua suas habilidades enquanto ganha recompensas."
+                      : "Aprenda, evolua e ganhe com conhecimento. Uma plataforma que recompensa seu aprendizado."
+                    }
+                  </p>
+                </div>
+
+                {/* Search Box - Cinematic */}
+                <form onSubmit={handleSearch} className="relative">
+                  <div className="relative">
+                    <Search className="absolute left-5 top-1/2 -translate-y-1/2 w-5 h-5 text-white/40" />
+                    <Input
+                      type="text"
+                      placeholder={user ? 'O que você quer aprender hoje?' : 'Buscar aulas...'}
+                      value={query}
+                      onChange={(e) => setQuery(e.target.value)}
+                      className="h-14 pl-14 pr-6 bg-white/10 border-white/20 text-white placeholder:text-white/50 focus:bg-white/15 focus:border-white/30 transition-all"
+                    />
+                  </div>
+                </form>
+
+                {!user && (
+                  <div className="flex flex-col sm:flex-row gap-4">
+                    <Button
+                      size="lg"
+                      onClick={() => navigate("/auth")}
+                      className="bg-cinematic-accent hover:bg-cinematic-accent/90 text-white px-8 h-14 text-base font-semibold"
+                    >
+                      Começar Grátis
+                    </Button>
+                    <button
+                      onClick={() => {
+                        setModalReason("rewards");
+                        setModalOpen(true);
+                      }}
+                      className="inline-flex items-center gap-2 text-white/70 hover:text-white transition-colors text-sm"
+                    >
+                      <TrendingUp className="w-4 h-4" />
+                      <span>Como funciona a remuneração?</span>
+                    </button>
+                  </div>
+                )}
               </div>
-              
-              <h2 className="text-5xl md:text-6xl lg:text-7xl font-bold tracking-tight animate-fade-in">
-                {user ? "O que você quer" : "Você já aprende."}
-                <br />
-                <span className="text-accent">
-                  {user ? "aprender hoje?" : "Agora também ganha por isso."}
-                </span>
-              </h2>
-              
-              <p className="text-xl text-muted-foreground max-w-2xl mx-auto">
-                {user 
-                  ? "Converse com Classy, a IA que entende seu momento e recomenda o melhor caminho para sua evolução."
-                  : "Aprenda, evolua e ganhe com conhecimento. Crie sua conta grátis e comece a ser recompensado por aprender."
-                }
-              </p>
 
-              {!user && (
-                <div 
-                  className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-badge-premium/10 text-cinematic-gold border border-cinematic-gold/20 cursor-pointer hover:bg-badge-premium/20 transition-colors"
-                  onClick={() => {
-                    setModalReason("rewards");
-                    setModalOpen(true);
-                  }}
-                >
-                  <TrendingUp className="w-4 h-4" />
-                  <span className="text-sm font-medium">Ganhe recompensas por aprender</span>
-                </div>
-              )}
+              {/* Right side - Hero visual placeholder */}
+              <div className="hidden lg:block relative">
+                <div className="aspect-square rounded-2xl bg-gradient-to-br from-white/5 to-white/0 border border-white/10 backdrop-blur-sm" />
+              </div>
             </div>
-
-            {/* Search/Chat Box */}
-            <form onSubmit={handleSearch} className="relative">
-              <Card className="p-6 bg-card/50 backdrop-blur-sm border-border/50 hover:border-accent/50 transition-colors">
-                <div className="flex gap-4">
-                  <Input
-                    type="text"
-                    placeholder={user ? 'Ex: "Quero aprender sobre propósito de vida"' : 'O que você quer aprender hoje?'}
-                    value={query}
-                    onChange={(e) => setQuery(e.target.value)}
-                    className="flex-1 text-lg h-14 bg-background"
-                  />
-                  <Button type="submit" size="lg" className="h-14 px-8">
-                    <Search className="w-5 h-5 mr-2" />
-                    Buscar
-                  </Button>
-                </div>
-              </Card>
-            </form>
-
-            {!user && (
-              <Button
-                size="lg"
-                onClick={() => navigate("/auth")}
-                className="animate-scale-in"
-              >
-                Criar Conta Grátis
-              </Button>
-            )}
           </div>
         </div>
       </section>
 
-      {/* Categories */}
-      <section className="container mx-auto px-4 py-8">
-        <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-hide">
-          {categories.map((category) => (
-            <CategoryChip
-              key={category.id}
-              label={category.label}
-              icon={category.icon}
-              active={selectedCategory === category.id}
-              onClick={() => handleCategoryClick(category.id)}
-            />
-          ))}
+      {/* Categories - MasterClass Style */}
+      <section className="bg-cinematic-darker border-y border-white/5">
+        <div className="container mx-auto px-6 py-6">
+          <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-hide">
+            {categories.map((category) => (
+              <CategoryChip
+                key={category.id}
+                label={category.label}
+                icon={category.icon}
+                active={selectedCategory === category.id}
+                onClick={() => handleCategoryClick(category.id)}
+              />
+            ))}
+          </div>
         </div>
       </section>
 
-      {/* Content Feed */}
-      <section className="container mx-auto px-4 py-12 space-y-16">
-        {/* Comece por aqui - Free Content */}
-        <ContentSection
-          title="Comece por aqui"
-          icon={<Play className="w-6 h-6 text-accent" />}
-          contents={freeContents}
-          loading={loading}
-          onContentClick={handleContentClick}
-        />
-
-        {/* Tendências - Most Viewed */}
-        <ContentSection
-          title="Tendências do momento"
-          icon={<Flame className="w-6 h-6 text-accent" />}
-          contents={trendingContents}
-          loading={loading}
-          onContentClick={handleContentClick}
-        />
-
-        {/* Shorts - Horizontal scroll */}
-        <ContentSection
-          title="Shorts mais vistos"
-          icon={<TrendingUp className="w-6 h-6 text-accent" />}
-          contents={shortsContents}
-          loading={loading}
-          horizontal
-          onContentClick={handleContentClick}
-        />
-
-        {/* CTA for logged out users */}
-        {!user && (
-          <Card className="p-12 text-center space-y-6 bg-gradient-to-br from-accent/10 to-accent/5 border-accent/20">
-            <div className="space-y-2">
-              <h3 className="text-3xl font-bold">Pronto para começar?</h3>
-              <p className="text-muted-foreground text-lg max-w-2xl mx-auto">
-                Crie sua conta gratuita e comece a ganhar recompensas por cada vídeo assistido, curso concluído e interação na plataforma.
-              </p>
+      {/* Content Feed - Cinematic Layout */}
+      <section className="bg-cinematic-black py-16 md:py-24">
+        <div className="container mx-auto px-6 space-y-20">
+          {/* Popular Now - Featured */}
+          <div className="space-y-8">
+            <div className="flex items-baseline justify-between">
+              <div>
+                <h2 className="text-4xl md:text-5xl font-bold text-white mb-2">Popular Agora</h2>
+                <p className="text-white/60">Os conteúdos mais assistidos da semana</p>
+              </div>
+              <button className="text-white/70 hover:text-white transition-colors text-sm uppercase tracking-wider hidden md:block">
+                Ver Todos
+              </button>
             </div>
-            <div className="flex flex-col sm:flex-row gap-4 justify-center">
-              <Button size="lg" onClick={() => navigate("/auth")}>
-                Criar Conta Grátis
-              </Button>
-              <Button size="lg" variant="outline" onClick={() => navigate("/auth")}>
-                Já tenho conta
-              </Button>
+            <ContentSection
+              title=""
+              contents={trendingContents}
+              loading={loading}
+              onContentClick={handleContentClick}
+            />
+          </div>
+
+          {/* Free to Start */}
+          <div className="space-y-8">
+            <div>
+              <h2 className="text-4xl md:text-5xl font-bold text-white mb-2">Comece Grátis</h2>
+              <p className="text-white/60">Conteúdo gratuito para você iniciar sua jornada</p>
             </div>
-          </Card>
-        )}
+            <ContentSection
+              title=""
+              contents={freeContents}
+              loading={loading}
+              onContentClick={handleContentClick}
+            />
+          </div>
+
+          {/* Quick Learn - Shorts */}
+          <div className="space-y-8">
+            <div>
+              <h2 className="text-4xl md:text-5xl font-bold text-white mb-2">Aprenda Rápido</h2>
+              <p className="text-white/60">Conteúdos curtos e diretos ao ponto</p>
+            </div>
+            <ContentSection
+              title=""
+              contents={shortsContents}
+              loading={loading}
+              horizontal
+              onContentClick={handleContentClick}
+            />
+          </div>
+
+          {/* CTA Section - MasterClass Style */}
+          {!user && (
+            <div className="relative rounded-3xl overflow-hidden bg-gradient-to-br from-cinematic-accent/20 to-cinematic-accent/5 border border-cinematic-accent/20 p-12 md:p-16 text-center">
+              <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,_var(--tw-gradient-stops))] from-cinematic-accent/10 to-transparent" />
+              <div className="relative space-y-6 max-w-3xl mx-auto">
+                <h3 className="text-4xl md:text-5xl font-bold text-white">
+                  Pronto para começar?
+                </h3>
+                <p className="text-xl text-white/70 max-w-2xl mx-auto leading-relaxed">
+                  Crie sua conta gratuita e comece a ganhar recompensas por cada vídeo assistido, curso concluído e interação na plataforma.
+                </p>
+                <div className="flex flex-col sm:flex-row gap-4 justify-center pt-4">
+                  <Button 
+                    size="lg" 
+                    onClick={() => navigate("/auth")}
+                    className="bg-cinematic-accent hover:bg-cinematic-accent/90 text-white px-10 h-14 text-base font-semibold"
+                  >
+                    Criar Conta Grátis
+                  </Button>
+                  <Button 
+                    size="lg" 
+                    variant="outline" 
+                    onClick={() => navigate("/auth")}
+                    className="border-white/20 text-white hover:bg-white/10 h-14 px-10"
+                  >
+                    Já tenho conta
+                  </Button>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
       </section>
     </div>
   );

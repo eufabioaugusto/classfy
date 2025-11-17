@@ -48,17 +48,18 @@ export default {
           foreground: "hsl(var(--card-foreground))",
         },
         cinematic: {
-          dark: "hsl(var(--cinematic-dark))",
+          black: "hsl(var(--cinematic-black))",
           darker: "hsl(var(--cinematic-darker))",
+          dark: "hsl(var(--cinematic-dark))",
           light: "hsl(var(--cinematic-light))",
-          gold: "hsl(var(--cinematic-gold))",
-          "gold-light": "hsl(var(--cinematic-gold-light))",
+          accent: "hsl(var(--cinematic-accent))",
         },
         badge: {
+          new: "hsl(var(--badge-new))",
+          hot: "hsl(var(--badge-hot))",
           free: "hsl(var(--badge-free))",
           pro: "hsl(var(--badge-pro))",
           premium: "hsl(var(--badge-premium))",
-          paid: "hsl(var(--badge-paid))",
         },
       },
       borderRadius: {

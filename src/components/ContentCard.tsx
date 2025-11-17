@@ -50,60 +50,60 @@ export const ContentCard = ({
 
   return (
     <Card
-      className="group cursor-pointer overflow-hidden bg-card hover:bg-card/80 transition-all duration-300 hover:scale-[1.02] hover:shadow-2xl border-border/50"
+      className="group cursor-pointer overflow-hidden bg-cinematic-dark hover:bg-cinematic-dark/80 transition-all duration-500 border-white/5 hover:border-white/10 rounded-lg"
       onClick={() => navigate(`/player/${id}`)}
     >
-      {/* Thumbnail with aspect ratio 16:9 */}
-      <div className="relative aspect-video overflow-hidden bg-muted">
+      {/* Thumbnail with aspect ratio 16:9 - MasterClass Style */}
+      <div className="relative aspect-video overflow-hidden bg-cinematic-black">
         <img
           src={thumbnail}
           alt={title}
-          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+          className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700 ease-out"
         />
         
-        {/* Overlay gradient */}
-        <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
+        {/* Cinematic gradient overlay */}
+        <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/30 to-transparent opacity-60 group-hover:opacity-80 transition-opacity duration-500" />
         
-        {/* Play button overlay */}
-        <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-300">
-          <div className="bg-primary/90 rounded-full p-4 backdrop-blur-sm">
+        {/* Play button overlay - subtle */}
+        <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all duration-500">
+          <div className="bg-white/95 backdrop-blur-sm rounded-full p-5 scale-90 group-hover:scale-100 transition-transform duration-500">
             {isRestricted ? (
-              <Lock className="w-8 h-8 text-primary-foreground" />
+              <Lock className="w-7 h-7 text-cinematic-black" />
             ) : (
-              <Play className="w-8 h-8 text-primary-foreground" />
+              <Play className="w-7 h-7 text-cinematic-black" />
             )}
           </div>
         </div>
 
-        {/* Badges */}
-        <div className="absolute top-3 left-3 flex gap-2">
+        {/* Badges - Top Left */}
+        <div className="absolute top-4 left-4 flex gap-2">
           {!isFree && price && (
-            <Badge className="bg-badge-paid text-white font-semibold">
+            <Badge className="bg-badge-hot text-white font-semibold text-xs px-3 py-1">
               R$ {price.toFixed(2)}
             </Badge>
           )}
           {requiredPlan && requiredPlan !== "free" && (
-            <Badge className={`${getPlanBadgeColor(requiredPlan)} text-white font-semibold uppercase`}>
+            <Badge className={`${getPlanBadgeColor(requiredPlan)} text-white font-semibold uppercase text-xs px-3 py-1`}>
               {requiredPlan}
             </Badge>
           )}
           {isFree && !requiredPlan && (
-            <Badge className="bg-badge-free text-white font-semibold">
+            <Badge className="bg-badge-free text-white font-semibold text-xs px-3 py-1">
               FREE
             </Badge>
           )}
         </div>
 
-        {/* Duration/Lessons */}
-        <div className="absolute bottom-3 right-3 flex gap-2">
+        {/* Duration/Lessons - Bottom Right */}
+        <div className="absolute bottom-4 right-4 flex gap-2">
           {duration && (
-            <Badge variant="secondary" className="bg-black/70 text-white backdrop-blur-sm">
+            <Badge variant="secondary" className="bg-black/80 text-white backdrop-blur-sm border-0 text-xs">
               <Clock className="w-3 h-3 mr-1" />
               {duration}min
             </Badge>
           )}
           {lessonCount && (
-            <Badge variant="secondary" className="bg-black/70 text-white backdrop-blur-sm">
+            <Badge variant="secondary" className="bg-black/80 text-white backdrop-blur-sm border-0 text-xs">
               <BookOpen className="w-3 h-3 mr-1" />
               {lessonCount} aulas
             </Badge>
@@ -111,46 +111,47 @@ export const ContentCard = ({
         </div>
       </div>
 
-      {/* Content Info */}
-      <div className="p-5 space-y-3">
-        {/* Creator info */}
+      {/* Content Info - MasterClass Typography */}
+      <div className="p-5 space-y-3 bg-cinematic-dark">
+        {/* Creator info - Prominent */}
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-full bg-muted overflow-hidden">
+          <div className="w-12 h-12 rounded-full bg-white/10 overflow-hidden ring-1 ring-white/10">
             {creatorAvatar ? (
               <img src={creatorAvatar} alt={creatorName} className="w-full h-full object-cover" />
             ) : (
-              <div className="w-full h-full flex items-center justify-center bg-accent text-accent-foreground font-bold">
+              <div className="w-full h-full flex items-center justify-center bg-cinematic-accent text-white font-bold text-lg">
                 {creatorName[0]?.toUpperCase()}
               </div>
             )}
           </div>
           <div className="flex-1 min-w-0">
-            <p className="text-sm font-medium text-muted-foreground truncate">{creatorName}</p>
+            <p className="text-sm font-medium text-white/90 truncate">{creatorName}</p>
+            <p className="text-xs text-white/50">Instructor</p>
           </div>
         </div>
 
-        {/* Title */}
-        <h3 className="font-bold text-lg line-clamp-2 group-hover:text-accent transition-colors">
+        {/* Title - Large and Bold */}
+        <h3 className="font-bold text-xl leading-tight line-clamp-2 text-white group-hover:text-cinematic-accent transition-colors duration-300">
           {title}
         </h3>
 
         {/* Description */}
         {description && (
-          <p className="text-sm text-muted-foreground line-clamp-2">
+          <p className="text-sm text-white/60 line-clamp-2 leading-relaxed">
             {description}
           </p>
         )}
 
-        {/* Views & Earnings indicator */}
-        <div className="flex items-center justify-between">
-          <p className="text-xs text-muted-foreground">
-            {views.toLocaleString()} visualizações
+        {/* Views & Lock indicator */}
+        <div className="flex items-center justify-between pt-2 border-t border-white/5">
+          <p className="text-xs text-white/50">
+            {views.toLocaleString()} views
           </p>
           {isRestricted && (
-            <Badge variant="outline" className="text-xs">
-              <Lock className="w-3 h-3 mr-1" />
-              Premium
-            </Badge>
+            <div className="flex items-center gap-1 text-white/50">
+              <Lock className="w-3 h-3" />
+              <span className="text-xs">Premium</span>
+            </div>
           )}
         </div>
       </div>
