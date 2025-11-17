@@ -56,19 +56,19 @@ export function AppSidebar() {
   const isActive = (path: string) => location.pathname === path;
 
   return (
-    <Sidebar className="border-r border-border/20 bg-cinematic-darker">
+    <Sidebar className="border-r border-border/20 bg-background">
       <SidebarContent>
         {/* Logo/Brand */}
         <div className="p-6 flex items-center gap-2 cursor-pointer" onClick={() => navigate("/")}>
           <Sparkles className="w-6 h-6 text-cinematic-accent" />
-          {!collapsed && <span className="text-xl font-bold">CLASSFY</span>}
+          {!collapsed && <span className="text-xl font-bold text-foreground">CLASSFY</span>}
         </div>
 
         <Separator className="bg-border/10" />
 
         {/* Main Navigation */}
         <SidebarGroup>
-          {!collapsed && <SidebarGroupLabel>Menu</SidebarGroupLabel>}
+          {!collapsed && <SidebarGroupLabel className="text-muted-foreground">Menu</SidebarGroupLabel>}
           <SidebarGroupContent>
             <SidebarMenu>
               {mainItems.map((item) => (
@@ -77,8 +77,8 @@ export function AppSidebar() {
                     <NavLink
                       to={item.url}
                       end
-                      className="hover:bg-white/5"
-                      activeClassName="bg-white/10 text-cinematic-accent font-medium"
+                      className="text-foreground/80 hover:bg-muted hover:text-foreground"
+                      activeClassName="bg-muted text-cinematic-accent font-medium"
                     >
                       <item.icon className="w-4 h-4" />
                       {!collapsed && <span>{item.title}</span>}
@@ -90,16 +90,16 @@ export function AppSidebar() {
           </SidebarGroupContent>
         </SidebarGroup>
 
-        <Separator className="bg-border/10 my-2" />
+        <Separator className="bg-border my-2" />
 
         {/* Categories */}
         <SidebarGroup>
-          {!collapsed && <SidebarGroupLabel>Categorias</SidebarGroupLabel>}
+          {!collapsed && <SidebarGroupLabel className="text-muted-foreground">Categorias</SidebarGroupLabel>}
           <SidebarGroupContent>
             <SidebarMenu>
               {categories.map((category) => (
                 <SidebarMenuItem key={category.title}>
-                  <SidebarMenuButton className="hover:bg-white/5">
+                  <SidebarMenuButton className="text-foreground/80 hover:bg-muted hover:text-foreground">
                     <category.icon className="w-4 h-4" />
                     {!collapsed && <span>{category.title}</span>}
                   </SidebarMenuButton>
@@ -113,7 +113,7 @@ export function AppSidebar() {
         {user && (
           <>
             <div className="mt-auto" />
-            <Separator className="bg-border/10 mb-2" />
+            <Separator className="bg-border mb-2" />
             <SidebarGroup>
               <SidebarGroupContent>
                 <SidebarMenu>
@@ -121,8 +121,8 @@ export function AppSidebar() {
                     <SidebarMenuButton asChild>
                       <NavLink
                         to="/conta"
-                        className="hover:bg-white/5"
-                        activeClassName="bg-white/10 text-cinematic-accent"
+                        className="text-foreground/80 hover:bg-muted hover:text-foreground"
+                        activeClassName="bg-muted text-cinematic-accent"
                       >
                         <User className="w-4 h-4" />
                         {!collapsed && <span>Minha Conta</span>}
@@ -130,7 +130,7 @@ export function AppSidebar() {
                     </SidebarMenuButton>
                   </SidebarMenuItem>
                   <SidebarMenuItem>
-                    <SidebarMenuButton onClick={signOut} className="hover:bg-white/5">
+                    <SidebarMenuButton onClick={signOut} className="text-foreground/80 hover:bg-muted hover:text-foreground">
                       <LogOut className="w-4 h-4" />
                       {!collapsed && <span>Sair</span>}
                     </SidebarMenuButton>

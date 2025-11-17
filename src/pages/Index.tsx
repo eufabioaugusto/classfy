@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useAuth } from "@/contexts/AuthContext";
+import { useTheme } from "@/contexts/ThemeContext";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { ContentCard } from "@/components/ContentCard";
@@ -7,7 +8,7 @@ import { ConversionModal } from "@/components/ConversionModal";
 import { SearchBar } from "@/components/SearchBar";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/AppSidebar";
-import { Sparkles, User, Menu, AlertCircle } from "lucide-react";
+import { Sparkles, User, Menu, AlertCircle, Moon, Sun } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -18,6 +19,7 @@ import {
 
 export default function Index() {
   const { user, loading: authLoading } = useAuth();
+  const { theme, toggleTheme } = useTheme();
   const navigate = useNavigate();
   
   // Search state
@@ -75,46 +77,61 @@ export default function Index() {
 
   return (
     <SidebarProvider defaultOpen={true}>
-      <div className="min-h-screen flex w-full bg-cinematic-black">
+      <div className="min-h-screen flex w-full bg-background">
         {/* Sidebar */}
         <AppSidebar />
 
         {/* Main Content */}
         <div className="flex-1 flex flex-col">
           {/* Header */}
-          <header className="sticky top-0 z-50 border-b border-border/20 bg-cinematic-black/95 backdrop-blur-xl">
+          <header className="sticky top-0 z-50 border-b border-border/20 bg-background/95 backdrop-blur-xl">
             <div className="flex items-center justify-between px-6 py-4">
               <div className="flex items-center gap-4">
                 <SidebarTrigger />
               </div>
 
               {/* User Actions */}
-              {user ? (
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button variant="ghost" size="icon">
-                      <Menu className="w-5 h-5" />
+              <div className="flex items-center gap-3">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={toggleTheme}
+                  className="text-foreground"
+                >
+                  {theme === "dark" ? (
+                    <Sun className="w-5 h-5" />
+                  ) : (
+                    <Moon className="w-5 h-5" />
+                  )}
+                </Button>
+                
+                {user ? (
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button variant="ghost" size="icon" className="text-foreground">
+                        <Menu className="w-5 h-5" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end" className="w-56">
+                      <DropdownMenuItem onClick={() => navigate("/conta")}>
+                        <User className="w-4 h-4 mr-2" />
+                        Minha Conta
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => navigate("/studio")}>
+                        <Sparkles className="w-4 h-4 mr-2" />
+                        Studio Creator
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                ) : (
+                  <>
+                    <Button variant="ghost" onClick={() => navigate("/auth")}>
+                      Entrar
                     </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end" className="w-56">
-                    <DropdownMenuItem onClick={() => navigate("/conta")}>
-                      <User className="w-4 h-4 mr-2" />
-                      Minha Conta
-                    </DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => navigate("/studio")}>
-                      <Sparkles className="w-4 h-4 mr-2" />
-                      Studio Creator
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              ) : (
-                <div className="flex items-center gap-3">
-                  <Button variant="ghost" onClick={() => navigate("/auth")}>
-                    Entrar
-                  </Button>
-                  <Button onClick={() => navigate("/auth")}>Criar Conta</Button>
-                </div>
-              )}
+                    <Button onClick={() => navigate("/auth")}>Criar Conta</Button>
+                  </>
+                )}
+              </div>
             </div>
           </header>
 
@@ -127,14 +144,14 @@ export default function Index() {
               {/* Title (only when no search) */}
               {!hasSearched && (
                 <div className="text-center mb-12 space-y-4">
-                  <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-white/5 text-white border border-white/10 backdrop-blur-sm mb-4">
-                    <Sparkles className="w-3.5 h-3.5" />
-                    <span className="text-xs font-medium uppercase tracking-wider">Powered by Classy AI</span>
+                  <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-muted border border-border backdrop-blur-sm mb-4">
+                    <Sparkles className="w-3.5 h-3.5 text-cinematic-accent" />
+                    <span className="text-xs font-medium uppercase tracking-wider text-foreground">Powered by Classy AI</span>
                   </div>
-                  <h1 className="text-5xl md:text-6xl font-bold text-white">
+                  <h1 className="text-5xl md:text-6xl font-bold text-foreground">
                     O que você quer aprender?
                   </h1>
-                  <p className="text-lg text-white/60 max-w-2xl mx-auto">
+                  <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
                     Busque por aulas, cursos e conteúdos de creators renomados
                   </p>
                 </div>
@@ -150,7 +167,7 @@ export default function Index() {
               {/* Status Messages - Inline below search */}
               {isLoading && (
                 <div className="mt-4 text-center">
-                  <p className="text-white/60 text-sm">Classy está processando sua busca...</p>
+                  <p className="text-muted-foreground text-sm">Classy está processando sua busca...</p>
                 </div>
               )}
 
@@ -164,13 +181,13 @@ export default function Index() {
               {/* Auth prompt for non-logged users */}
               {hasSearched && !user && searchResults.length > 0 && (
                 <div className="mt-6 p-4 bg-cinematic-accent/10 border border-cinematic-accent/20 rounded-lg text-center">
-                  <p className="text-white/80 text-sm mb-3">
+                  <p className="text-foreground/80 text-sm mb-3">
                     Crie sua conta grátis para ganhar recompensas com suas ações.
                   </p>
                   <Button
                     size="sm"
                     onClick={() => navigate("/auth")}
-                    className="bg-cinematic-accent hover:bg-cinematic-accent/90"
+                    className="bg-cinematic-accent hover:bg-cinematic-accent/90 text-white"
                   >
                     Criar Conta Grátis
                   </Button>
@@ -182,7 +199,7 @@ export default function Index() {
             {hasSearched && searchResults.length > 0 && (
               <div className="w-full max-w-5xl mt-12">
                 <div className="mb-6">
-                  <h2 className="text-2xl font-bold text-white">
+                  <h2 className="text-2xl font-bold text-foreground">
                     {searchResults.length} resultado{searchResults.length !== 1 ? 's' : ''} encontrado{searchResults.length !== 1 ? 's' : ''}
                   </h2>
                 </div>

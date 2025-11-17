@@ -9,7 +9,7 @@ All colors MUST be HSL.
 @layer base {
   :root {
     /* Light mode - cinematic minimalist */
-    --background: 0 0% 98%;
+    --background: 0 0% 100%;
     --foreground: 0 0% 5%;
     
     --card: 0 0% 100%;
@@ -21,11 +21,11 @@ All colors MUST be HSL.
     --primary: 0 0% 5%;
     --primary-foreground: 0 0% 98%;
     
-    --secondary: 0 0% 95%;
+    --secondary: 0 0% 96%;
     --secondary-foreground: 0 0% 10%;
     
-    --muted: 0 0% 95%;
-    --muted-foreground: 0 0% 40%;
+    --muted: 0 0% 96%;
+    --muted-foreground: 0 0% 45%;
     
     --accent: 347 77% 50%;
     --accent-foreground: 0 0% 100%;
@@ -40,9 +40,9 @@ All colors MUST be HSL.
     --radius: 0.5rem;
     
     /* Cinematic colors */
-    --cinematic-black: 0 0% 0%;
-    --cinematic-darker: 0 0% 3%;
-    --cinematic-dark: 0 0% 8%;
+    --cinematic-black: 0 0% 5%;
+    --cinematic-darker: 0 0% 96%;
+    --cinematic-dark: 0 0% 92%;
     --cinematic-light: 0 0% 98%;
     --cinematic-accent: 347 77% 50%;
     
