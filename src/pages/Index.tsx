@@ -8,7 +8,8 @@ import { ConversionModal } from "@/components/ConversionModal";
 import { SearchBar } from "@/components/SearchBar";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/AppSidebar";
-import { Sparkles, User, Menu, AlertCircle, Moon, Sun } from "lucide-react";
+import { Sparkles, User, Menu, AlertCircle, Moon, Sun, BookOpen } from "lucide-react";
+import { useStudies } from "@/hooks/useStudies";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -18,9 +19,10 @@ import {
 } from "@/components/ui/dropdown-menu";
 
 export default function Index() {
-  const { user, loading: authLoading } = useAuth();
+  const { user, loading: authLoading, profile } = useAuth();
   const { theme, toggleTheme } = useTheme();
   const navigate = useNavigate();
+  const { activeCount, limit, canCreateMore } = useStudies();
   
   // Search state
   const [searchResults, setSearchResults] = useState<any[]>([]);
@@ -31,6 +33,9 @@ export default function Index() {
   // Modal state
   const [modalOpen, setModalOpen] = useState(false);
   const [modalReason, setModalReason] = useState<"premium" | "rewards" | "save" | "progress">("premium");
+
+  const currentPlan = profile?.plan || 'free';
+  const limitText = limit === Infinity ? 'ilimitados' : `${activeCount}/${limit}`;
 
   const handleSearchResults = (results: any[]) => {
     setSearchResults(results);
@@ -152,8 +157,21 @@ export default function Index() {
                     O que você quer aprender?
                   </h1>
                   <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
-                    Busque por aulas, cursos e conteúdos de creators renomados
+                    Digite um tema e crie um estudo personalizado com a Classy
                   </p>
+                  
+                  {/* Study counter */}
+                  {user && (
+                    <div className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-muted/50 border border-border/50 mt-4">
+                      <BookOpen className="w-4 h-4 text-cinematic-accent" />
+                      <span className="text-sm text-muted-foreground">
+                        Você está usando <span className="font-semibold text-foreground">{limitText}</span> estudos
+                        {!canCreateMore && currentPlan !== 'premium' && (
+                          <span className="text-cinematic-accent ml-1">(limite atingido)</span>
+                        )}
+                      </span>
+                    </div>
+                  )}
                 </div>
               )}
 

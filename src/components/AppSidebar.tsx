@@ -140,6 +140,68 @@ export function AppSidebar() {
           </SidebarGroupContent>
         </SidebarGroup>
 
+        <Separator className="bg-border my-2" />
+
+        {/* Studies Section */}
+        {user && (
+          <Collapsible open={studiesOpen} onOpenChange={setStudiesOpen}>
+            <SidebarGroup>
+              <SidebarGroupLabel asChild>
+                <CollapsibleTrigger className="flex w-full items-center justify-between hover:bg-muted rounded-md px-2 py-1">
+                  <div className="flex items-center gap-2">
+                    <BookOpen className="h-4 w-4" />
+                    {!collapsed && <span>Estudos</span>}
+                  </div>
+                  {!collapsed && (
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs text-muted-foreground">{limitText}</span>
+                      <ChevronRight className="h-4 w-4 transition-transform data-[state=open]:rotate-90" />
+                    </div>
+                  )}
+                </CollapsibleTrigger>
+              </SidebarGroupLabel>
+              <CollapsibleContent>
+                <SidebarGroupContent>
+                  <SidebarMenu>
+                    {activeStudies.map((study) => (
+                      <SidebarMenuItem key={study.id}>
+                        <SidebarMenuButton asChild>
+                          <NavLink 
+                            to={`/c/${study.id}`} 
+                            className="text-foreground/80 hover:bg-muted hover:text-foreground" 
+                            activeClassName="bg-muted text-cinematic-accent font-medium"
+                          >
+                            <BookOpen className="h-4 w-4" />
+                            {!collapsed && <span className="truncate max-w-[160px]">{study.title}</span>}
+                          </NavLink>
+                        </SidebarMenuButton>
+                      </SidebarMenuItem>
+                    ))}
+                    {!collapsed && activeStudies.length === 0 && (
+                      <div className="px-4 py-2 text-sm text-muted-foreground">
+                        Nenhum estudo ativo
+                      </div>
+                    )}
+                    {!collapsed && canCreateMore && (
+                      <SidebarMenuItem>
+                        <SidebarMenuButton onClick={() => navigate("/")}>
+                          <Plus className="h-4 w-4" />
+                          <span>Novo Estudo</span>
+                        </SidebarMenuButton>
+                      </SidebarMenuItem>
+                    )}
+                    {!collapsed && !canCreateMore && (
+                      <div className="px-4 py-2 text-xs text-muted-foreground bg-muted/50 rounded-md mx-2 mb-2">
+                        Limite atingido. Arquive estudos ou faça upgrade.
+                      </div>
+                    )}
+                  </SidebarMenu>
+                </SidebarGroupContent>
+              </CollapsibleContent>
+            </SidebarGroup>
+          </Collapsible>
+        )}
+
         {/* Studio (Creator only) */}
         {user && (role === 'creator' || role === 'admin') && (
           <>
