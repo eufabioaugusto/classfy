@@ -49,15 +49,22 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         setProfile(profileData);
       }
 
-      // Fetch user role
-      const { data: roleData } = await supabase
+      // Fetch all user roles (user can have multiple)
+      const { data: rolesData } = await supabase
         .from('user_roles')
         .select('role')
-        .eq('user_id', userId)
-        .single();
+        .eq('user_id', userId);
 
-      if (roleData) {
-        setRole(roleData.role as AppRole);
+      if (rolesData && rolesData.length > 0) {
+        // Priority: admin > creator > user
+        const roles = rolesData.map(r => r.role);
+        if (roles.includes('admin')) {
+          setRole('admin');
+        } else if (roles.includes('creator')) {
+          setRole('creator');
+        } else {
+          setRole('user');
+        }
       }
     } catch (error) {
       console.error('Error fetching user profile:', error);
