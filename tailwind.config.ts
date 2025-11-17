@@ -47,15 +47,18 @@ export default {
           DEFAULT: "hsl(var(--card))",
           foreground: "hsl(var(--card-foreground))",
         },
-        sidebar: {
-          DEFAULT: "hsl(var(--sidebar-background))",
-          foreground: "hsl(var(--sidebar-foreground))",
-          primary: "hsl(var(--sidebar-primary))",
-          "primary-foreground": "hsl(var(--sidebar-primary-foreground))",
-          accent: "hsl(var(--sidebar-accent))",
-          "accent-foreground": "hsl(var(--sidebar-accent-foreground))",
-          border: "hsl(var(--sidebar-border))",
-          ring: "hsl(var(--sidebar-ring))",
+        cinematic: {
+          dark: "hsl(var(--cinematic-dark))",
+          darker: "hsl(var(--cinematic-darker))",
+          light: "hsl(var(--cinematic-light))",
+          gold: "hsl(var(--cinematic-gold))",
+          "gold-light": "hsl(var(--cinematic-gold-light))",
+        },
+        badge: {
+          free: "hsl(var(--badge-free))",
+          pro: "hsl(var(--badge-pro))",
+          premium: "hsl(var(--badge-premium))",
+          paid: "hsl(var(--badge-paid))",
         },
       },
       borderRadius: {
