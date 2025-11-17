@@ -13,6 +13,7 @@ import Favoritos from "./pages/Favoritos";
 import Salvos from "./pages/Salvos";
 import Studio from "./pages/Studio";
 import AdminCreators from "./pages/AdminCreators";
+import Study from "./pages/Study";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -38,6 +39,7 @@ const App = () => (
               <Route path="/admin/creators" element={<AdminCreators />} />
               <Route path="/admin/users" element={<AdminCreators />} />
               <Route path="/admin/settings" element={<AdminCreators />} />
+              <Route path="/c/:id" element={<Study />} />
               <Route path="*" element={<NotFound />} />
             </Routes>
           </AuthProvider>

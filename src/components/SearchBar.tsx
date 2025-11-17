@@ -4,6 +4,8 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
+import { useNavigate } from "react-router-dom";
+import { useStudies } from "@/hooks/useStudies";
 
 interface SearchBarProps {
   onResults: (results: any[]) => void;
@@ -14,13 +16,20 @@ interface SearchBarProps {
 export function SearchBar({ onResults, onLoading, onError }: SearchBarProps) {
   const [query, setQuery] = useState("");
   const [isSearching, setIsSearching] = useState(false);
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
+  const navigate = useNavigate();
+  const { createStudy, canCreateMore, activeCount, limit } = useStudies();
 
   const handleSearch = async (e: React.FormEvent) => {
     e.preventDefault();
     
     if (!query.trim()) {
       onError("Digite algo para buscar");
+      return;
+    }
+
+    if (!user) {
+      onError("Faça login para criar um estudo");
       return;
     }
 
@@ -31,31 +40,33 @@ export function SearchBar({ onResults, onLoading, onError }: SearchBarProps) {
     onLoading(true);
 
     try {
-      // Search in contents table
-      const { data, error } = await supabase
-        .from("contents")
-        .select(`
-          *,
-          profiles:creator_id (
-            display_name,
-            avatar_url
-          )
-        `)
-        .not("published_at", "is", null)
-        .or(`title.ilike.%${query}%,description.ilike.%${query}%`)
-        .order("views_count", { ascending: false })
-        .limit(20);
+      // Create study
+      const result = await createStudy(query.trim());
 
-      if (error) throw error;
+      if (result?.error === 'LIMIT_REACHED') {
+        const planName = profile?.plan === 'free' ? 'Free' : 'Pro';
+        const limitText = limit === Infinity ? 'ilimitados' : limit.toString();
+        onError(
+          `Você atingiu o limite de ${limitText} estudos ativos no plano ${planName}. Arquive um estudo ou ${
+            profile?.plan === 'free' ? 'migre para o plano Pro' : 'migre para o Premium'
+          } para criar mais.`
+        );
+        setIsSearching(false);
+        onLoading(false);
+        return;
+      }
 
-      onResults(data || []);
-      
-      if (!data || data.length === 0) {
-        onError(`Nenhum conteúdo encontrado para "${query}"`);
+      if (result?.error) {
+        throw result.error;
+      }
+
+      if (result?.data) {
+        // Navigate to study page
+        navigate(`/c/${result.data.id}`);
       }
     } catch (error: any) {
-      onError("Ocorreu um erro ao buscar. Tente novamente.");
-      console.error("Search error:", error);
+      onError("Ocorreu um erro ao criar o estudo. Tente novamente.");
+      console.error("Study creation error:", error);
     } finally {
       setIsSearching(false);
       onLoading(false);

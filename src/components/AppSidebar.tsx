@@ -1,6 +1,8 @@
 import { NavLink } from "@/components/NavLink";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
+import { useStudies } from "@/hooks/useStudies";
+import { useState } from "react";
 import {
   Home,
   Clock,
@@ -21,6 +23,9 @@ import {
   Settings,
   Users,
   CheckSquare,
+  BookOpen,
+  Plus,
+  ChevronRight,
 } from "lucide-react";
 import {
   Sidebar,
@@ -33,6 +38,11 @@ import {
   SidebarMenuItem,
   useSidebar,
 } from "@/components/ui/sidebar";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 
@@ -69,7 +79,10 @@ export function AppSidebar() {
   const location = useLocation();
   const navigate = useNavigate();
   const { user, signOut, role } = useAuth();
+  const { activeStudies, activeCount, limit, canCreateMore } = useStudies();
+  const [studiesOpen, setStudiesOpen] = useState(true);
   const collapsed = state === "collapsed";
+  const limitText = limit === Infinity ? 'Ilimitado' : `${activeCount}/${limit}`;
 
   const isActive = (path: string) => location.pathname === path;
 

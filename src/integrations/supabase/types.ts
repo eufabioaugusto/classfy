@@ -474,6 +474,74 @@ export type Database = {
           },
         ]
       }
+      studies: {
+        Row: {
+          created_at: string
+          description: string | null
+          id: string
+          last_activity_at: string
+          main_topic: string | null
+          plan_at_creation: Database["public"]["Enums"]["plan_type"]
+          status: string
+          title: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          description?: string | null
+          id?: string
+          last_activity_at?: string
+          main_topic?: string | null
+          plan_at_creation?: Database["public"]["Enums"]["plan_type"]
+          status?: string
+          title: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          description?: string | null
+          id?: string
+          last_activity_at?: string
+          main_topic?: string | null
+          plan_at_creation?: Database["public"]["Enums"]["plan_type"]
+          status?: string
+          title?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      study_messages: {
+        Row: {
+          content: string
+          created_at: string
+          id: string
+          role: string
+          study_id: string
+        }
+        Insert: {
+          content: string
+          created_at?: string
+          id?: string
+          role: string
+          study_id: string
+        }
+        Update: {
+          content?: string
+          created_at?: string
+          id?: string
+          role?: string
+          study_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "study_messages_study_id_fkey"
+            columns: ["study_id"]
+            isOneToOne: false
+            referencedRelation: "studies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       user_awards: {
         Row: {
           award_id: string
@@ -739,6 +807,7 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      count_active_studies: { Args: { p_user_id: string }; Returns: number }
       has_role: {
         Args: {
           _role: Database["public"]["Enums"]["app_role"]
