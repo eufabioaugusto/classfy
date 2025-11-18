@@ -61,6 +61,8 @@ export function SearchBar({ onResults, onLoading, onError }: SearchBarProps) {
       }
 
       if (result?.data) {
+        // Small delay to ensure database consistency
+        await new Promise(resolve => setTimeout(resolve, 500));
         // Navigate to study page
         navigate(`/c/${result.data.id}`);
       }
