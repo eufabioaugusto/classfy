@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { Heart, Bookmark, Star } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { ShareButton } from "@/components/ShareButton";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { useRewardSystem } from "@/hooks/useRewardSystem";
@@ -246,6 +247,13 @@ export function ContentActions({ contentId }: ContentActionsProps) {
           className={`h-5 w-5 ${isFavorited ? 'fill-yellow-500 text-yellow-500' : ''}`}
         />
       </Button>
+
+      <ShareButton 
+        contentId={contentId} 
+        contentTitle="Conteúdo" 
+        size="sm" 
+        variant="ghost"
+      />
     </div>
   );
 }
