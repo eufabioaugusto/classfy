@@ -17,6 +17,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { GlobalLoader } from "@/components/GlobalLoader";
 
 export default function Index() {
   const { user, loading: authLoading, profile } = useAuth();
@@ -71,13 +72,7 @@ export default function Index() {
   };
 
   if (authLoading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-cinematic-black">
-        <div className="animate-spin">
-          <Sparkles className="w-12 h-12 text-cinematic-accent" />
-        </div>
-      </div>
-    );
+    return <GlobalLoader />;
   }
 
   return (
