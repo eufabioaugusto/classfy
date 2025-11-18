@@ -20,6 +20,7 @@ export default function Study() {
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
+  const [initialMessageSent, setInitialMessageSent] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -37,6 +38,14 @@ export default function Study() {
   useEffect(() => {
     scrollToBottom();
   }, [messages]);
+
+  // Send initial message when chat is empty
+  useEffect(() => {
+    if (study && messages.length === 0 && !initialMessageSent && !loading && !sending) {
+      setInitialMessageSent(true);
+      sendInitialMessage();
+    }
+  }, [study, messages, initialMessageSent, loading, sending]);
 
   const scrollToBottom = () => {
     if (scrollRef.current) {
@@ -80,6 +89,61 @@ export default function Study() {
       setMessages((data || []) as StudyMessage[]);
     } catch (error) {
       console.error("Error fetching messages:", error);
+    }
+  };
+
+  const sendInitialMessage = async () => {
+    if (!id || !user || !study) return;
+    
+    setSending(true);
+
+    try {
+      // Send initial greeting to trigger AI response with content recommendations
+      const initialMessage = `Olá! Quero aprender sobre ${study.title}`;
+      
+      // Save user message
+      const { error: userError } = await supabase
+        .from("study_messages")
+        .insert({
+          study_id: id,
+          role: "user",
+          content: initialMessage,
+        });
+
+      if (userError) throw userError;
+
+      await fetchMessages();
+      await updateLastActivity(id);
+
+      // Call AI
+      const { data: aiData, error: aiError } = await supabase.functions.invoke(
+        "classy-chat",
+        {
+          body: {
+            studyId: id,
+            message: initialMessage,
+          },
+        }
+      );
+
+      if (aiError) throw aiError;
+
+      // Save AI response
+      const { error: aiMessageError } = await supabase
+        .from("study_messages")
+        .insert({
+          study_id: id,
+          role: "assistant",
+          content: aiData.message,
+        });
+
+      if (aiMessageError) throw aiMessageError;
+
+      await fetchMessages();
+    } catch (error: any) {
+      console.error("Error sending initial message:", error);
+    } finally {
+      setSending(false);
     }
   };
 
@@ -177,9 +241,10 @@ export default function Study() {
       {/* Messages */}
       <ScrollArea className="flex-1 px-6 py-4" ref={scrollRef}>
         <div className="max-w-4xl mx-auto space-y-6">
-          {messages.length === 0 ? (
+          {messages.length === 0 && !sending ? (
             <div className="text-center text-muted-foreground py-12">
-              <p>Comece uma conversa com a Classy sobre {study.title}</p>
+              <Loader2 className="w-8 h-8 animate-spin mx-auto mb-4" />
+              <p>Iniciando conversa sobre {study.title}...</p>
             </div>
           ) : (
             messages.map((message) => (
