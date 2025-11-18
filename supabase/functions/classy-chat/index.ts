@@ -82,12 +82,52 @@ serve(async (req) => {
       content: m.content,
     })) || [];
 
+    const isFirstMessage = !messages || messages.length === 0;
+
+    // Search for related content if this is the first message
+    let relatedContents = [];
+    if (isFirstMessage) {
+      const searchQuery = study.title.toLowerCase();
+      const { data: contents } = await supabaseServiceClient
+        .from("contents")
+        .select("id, title, description, content_type, thumbnail_url, visibility, required_plan")
+        .eq("status", "approved")
+        .limit(10);
+
+      if (contents && contents.length > 0) {
+        // Calculate match score for each content
+        relatedContents = contents
+          .map((content: any) => {
+            const titleLower = content.title.toLowerCase();
+            const descLower = (content.description || "").toLowerCase();
+            
+            // Simple matching algorithm
+            let score = 0;
+            const searchWords = searchQuery.split(" ");
+            
+            searchWords.forEach((word: string) => {
+              if (word.length < 3) return; // Skip very short words
+              if (titleLower.includes(word)) score += 3;
+              if (descLower.includes(word)) score += 1;
+            });
+
+            // Exact title match bonus
+            if (titleLower.includes(searchQuery)) score += 5;
+            
+            return { ...content, matchScore: score };
+          })
+          .filter((c: any) => c.matchScore > 0)
+          .sort((a: any, b: any) => b.matchScore - a.matchScore)
+          .slice(0, 5);
+      }
+    }
+
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     if (!LOVABLE_API_KEY) {
       throw new Error("LOVABLE_API_KEY not configured");
     }
 
-    const systemPrompt = `Você é a Classy, uma assistente de estudos inteligente e amigável da plataforma Classfy.
+    let systemPrompt = `Você é a Classy, uma assistente de estudos inteligente e amigável da plataforma Classfy.
 
 Contexto do Estudo: ${study?.title || "Sem título"}
 ${study?.description ? `Descrição: ${study.description}` : ""}
@@ -105,6 +145,21 @@ Diretrizes:
 - Explicações claras e objetivas
 - Use exemplos quando apropriado
 - Incentive o aprendizado contínuo`;
+
+    // Add content recommendations to system prompt if available
+    if (isFirstMessage && relatedContents.length > 0) {
+      systemPrompt += `\n\nCONTEÚDOS DISPONÍVEIS NA PLATAFORMA (recomende estes para o usuário):\n`;
+      relatedContents.forEach((content: any, index: number) => {
+        const matchPercent = Math.min(100, Math.round((content.matchScore / 10) * 100));
+        systemPrompt += `\n${index + 1}. "${content.title}" (Match: ${matchPercent}%)`;
+        systemPrompt += `\n   Tipo: ${content.content_type === 'aula' ? 'Aula' : content.content_type === 'podcast' ? 'Podcast' : 'Short'}`;
+        if (content.description) {
+          systemPrompt += `\n   Descrição: ${content.description.substring(0, 100)}${content.description.length > 100 ? '...' : ''}`;
+        }
+        systemPrompt += `\n   ID: ${content.id}\n`;
+      });
+      systemPrompt += `\n\nIMPORTANTE: Na sua primeira resposta, cumprimente o usuário, faça uma breve introdução sobre o tema "${study.title}" e SEMPRE recomende os conteúdos acima com uma breve explicação de cada um. Mencione a porcentagem de match e explique por que cada conteúdo é relevante para o estudo deles.`;
+    }
 
     const response = await fetch(
       "https://ai.gateway.lovable.dev/v1/chat/completions",
