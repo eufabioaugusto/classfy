@@ -45,15 +45,32 @@ serve(async (req) => {
       );
     }
 
-    // Verify study ownership
-    const { data: study, error: studyError } = await supabaseClient
-      .from("studies")
-      .select("*")
-      .eq("id", studyId)
-      .eq("user_id", user.id)
-      .single();
+    // Verify study ownership with retries for consistency
+    let study = null;
+    let attempts = 0;
+    const maxAttempts = 3;
+    
+    while (attempts < maxAttempts && !study) {
+      const { data, error } = await supabaseClient
+        .from("studies")
+        .select("*")
+        .eq("id", studyId)
+        .eq("user_id", user.id)
+        .single();
+      
+      if (data) {
+        study = data;
+        break;
+      }
+      
+      if (attempts < maxAttempts - 1) {
+        await new Promise(resolve => setTimeout(resolve, 300));
+      }
+      attempts++;
+    }
 
-    if (studyError || !study) {
+    if (!study) {
+      console.error('Study not found after retries:', { studyId, userId: user.id });
       return new Response(
         JSON.stringify({ error: 'Estudo não encontrado ou acesso negado' }),
         {
