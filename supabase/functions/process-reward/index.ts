@@ -40,7 +40,7 @@ Deno.serve(async (req) => {
 
     // FRAUD PREVENTION: Check if action was already tracked
     const dailyActions = ['DAILY_LOGIN', 'FIRST_CONTENT_WEEK'];
-    const uniqueActions = ['LIKE_CONTENT', 'SAVE_CONTENT', 'FAVORITE_CONTENT', 'WATCH_50', 'WATCH_100', 'COMPLETE_COURSE', 'COMMENT_CONTENT'];
+    const uniqueActions = ['LIKE_CONTENT', 'SAVE_CONTENT', 'FAVORITE_CONTENT', 'WATCH_50', 'WATCH_100', 'COMPLETE_COURSE', 'COMMENT_CONTENT', 'CONTENT_APPROVED', 'FIRST_UPLOAD'];
 
     let fraudCheckQuery = supabase
       .from('reward_action_tracking')
