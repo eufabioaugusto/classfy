@@ -273,6 +273,7 @@ export type Database = {
           published_at: string | null
           required_plan: Database["public"]["Enums"]["plan_type"] | null
           status: string | null
+          tags: string[] | null
           thumbnail_url: string | null
           title: string
           updated_at: string
@@ -298,6 +299,7 @@ export type Database = {
           published_at?: string | null
           required_plan?: Database["public"]["Enums"]["plan_type"] | null
           status?: string | null
+          tags?: string[] | null
           thumbnail_url?: string | null
           title: string
           updated_at?: string
@@ -323,6 +325,7 @@ export type Database = {
           published_at?: string | null
           required_plan?: Database["public"]["Enums"]["plan_type"] | null
           status?: string | null
+          tags?: string[] | null
           thumbnail_url?: string | null
           title?: string
           updated_at?: string

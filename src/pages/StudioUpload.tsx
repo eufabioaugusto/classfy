@@ -14,6 +14,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { Upload, Video, Music, Film, BookOpen, Radio, X, ImagePlus } from "lucide-react";
 import { Progress } from "@/components/ui/progress";
+import { TagsInput } from "@/components/TagsInput";
 
 type ContentType = "aula" | "short" | "podcast" | "curso" | "live";
 type Visibility = "free" | "pro" | "premium" | "paid";
@@ -46,6 +47,8 @@ export default function StudioUpload() {
   const [thumbnailProgress, setThumbnailProgress] = useState(0);
   const [filePreview, setFilePreview] = useState("");
   const [thumbnailPreview, setThumbnailPreview] = useState("");
+  const [tags, setTags] = useState<string[]>([]);
+  const [isGeneratingTags, setIsGeneratingTags] = useState(false);
 
   if (loading) {
     return <div className="min-h-screen flex items-center justify-center">Carregando...</div>;
@@ -219,6 +222,36 @@ export default function StudioUpload() {
     setThumbnailProgress(0);
   };
 
+  const handleGenerateTags = async () => {
+    if (!title.trim()) {
+      toast.error("Preencha o título primeiro para gerar tags");
+      return;
+    }
+
+    setIsGeneratingTags(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("generate-tags", {
+        body: {
+          title: title.trim(),
+          description: description.trim(),
+          contentType,
+        },
+      });
+
+      if (error) throw error;
+
+      if (data?.tags) {
+        setTags(data.tags);
+        toast.success(`${data.tags.length} tags geradas com sucesso!`);
+      }
+    } catch (error: any) {
+      console.error("Erro ao gerar tags:", error);
+      toast.error(error.message || "Erro ao gerar tags");
+    } finally {
+      setIsGeneratingTags(false);
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
@@ -247,7 +280,8 @@ export default function StudioUpload() {
           creator_id: user.id,
           status: 'pending',
           views_count: 0,
-          likes_count: 0
+          likes_count: 0,
+          tags: tags.length > 0 ? tags : null,
         });
 
       if (error) throw error;
@@ -481,6 +515,19 @@ export default function StudioUpload() {
                       />
                     </div>
                   )}
+
+                  <div>
+                    <Label>Tags</Label>
+                    <div className="mt-2">
+                      <TagsInput
+                        tags={tags}
+                        onChange={setTags}
+                        onGenerateTags={handleGenerateTags}
+                        isGenerating={isGeneratingTags}
+                        placeholder="Digite tags para melhorar a descoberta do conteúdo..."
+                      />
+                    </div>
+                  </div>
                 </Card>
 
                 {/* Visibilidade e Preço */}
