@@ -5,3 +5,6 @@ verify_jwt = true
 
 [functions.batch-transcribe-contents]
 verify_jwt = true
+
+[functions.generate-tags]
+verify_jwt = true
