@@ -2,6 +2,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { Navigate, useNavigate } from "react-router-dom";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/AppSidebar";
+import { Header } from "@/components/Header";
 import { useState, useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -210,18 +211,7 @@ export default function StudioContents() {
         <AppSidebar />
         
         <div className="flex-1 flex flex-col">
-          <header className="sticky top-0 z-50 border-b border-border/20 bg-background/95 backdrop-blur-xl">
-            <div className="flex items-center justify-between px-6 py-4">
-              <div className="flex items-center gap-4">
-                <SidebarTrigger />
-                <h1 className="text-2xl font-bold text-foreground">Meus Conteúdos</h1>
-              </div>
-              
-              <Button onClick={() => navigate('/studio/upload')}>
-                Criar Novo Conteúdo
-              </Button>
-            </div>
-          </header>
+          <Header variant="studio" title="Meus Conteúdos" />
 
           <main className="flex-1 p-6">
             <div className="max-w-full space-y-4">
