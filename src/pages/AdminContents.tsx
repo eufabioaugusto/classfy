@@ -12,6 +12,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Checkbox } from "@/components/ui/checkbox";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { useRewardSystem } from "@/hooks/useRewardSystem";
+import { GlobalLoader } from "@/components/GlobalLoader";
 
 interface Content {
   id: string;
@@ -125,7 +126,7 @@ export default function AdminContents() {
     }
   };
 
-  if (loading) return <div className="min-h-screen flex items-center justify-center"><div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div></div>;
+  if (loading) return <GlobalLoader />;
   if (!user || role !== 'admin') return <Navigate to="/" replace />;
 
   return (

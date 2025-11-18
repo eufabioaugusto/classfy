@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { CheckCircle, XCircle, Clock, Loader2, AlertCircle } from "lucide-react";
+import { GlobalLoader } from "@/components/GlobalLoader";
 
 interface CreatorRequest {
   id: string;
@@ -154,7 +155,7 @@ export default function AdminCreators() {
   };
 
   if (authLoading) {
-    return <div className="min-h-screen flex items-center justify-center">Carregando...</div>;
+    return <GlobalLoader />;
   }
 
   if (!user || role !== 'admin') {

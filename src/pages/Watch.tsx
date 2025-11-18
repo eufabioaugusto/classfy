@@ -11,6 +11,7 @@ import { ContentActions } from "@/components/ContentActions";
 import { ContentComments } from "@/components/ContentComments";
 import { FollowButton } from "@/components/FollowButton";
 import { useState, useEffect, useRef } from "react";
+import { GlobalLoader } from "@/components/GlobalLoader";
 
 interface Content {
   id: string;
@@ -159,11 +160,7 @@ export default function Watch() {
   };
 
   if (loading || loadingContent) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
-      </div>
-    );
+    return <GlobalLoader />;
   }
 
   if (!user) return <Navigate to="/auth" replace />;

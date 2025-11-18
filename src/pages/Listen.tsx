@@ -10,6 +10,7 @@ import { useRewardSystem } from "@/hooks/useRewardSystem";
 import { ContentActions } from "@/components/ContentActions";
 import { ContentComments } from "@/components/ContentComments";
 import { FollowButton } from "@/components/FollowButton";
+import { GlobalLoader } from "@/components/GlobalLoader";
 
 interface Content {
   id: string;
@@ -132,7 +133,7 @@ export default function Listen() {
     await trackProgress(user.id, content.id, percent, currentTime);
   };
 
-  if (loading || loadingContent) return <div className="min-h-screen flex items-center justify-center"><div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div></div>;
+  if (loading || loadingContent) return <GlobalLoader />;
   if (!user) return <Navigate to="/auth" replace />;
   if (!content) return <div className="p-8">Podcast não encontrado</div>;
   if (!hasAccess) return <div className="p-8">Sem acesso</div>;
