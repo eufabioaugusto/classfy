@@ -788,6 +788,41 @@ export type Database = {
           },
         ]
       }
+      transcriptions: {
+        Row: {
+          content_id: string
+          created_at: string | null
+          id: string
+          language: string | null
+          text: string
+          updated_at: string | null
+        }
+        Insert: {
+          content_id: string
+          created_at?: string | null
+          id?: string
+          language?: string | null
+          text: string
+          updated_at?: string | null
+        }
+        Update: {
+          content_id?: string
+          created_at?: string | null
+          id?: string
+          language?: string | null
+          text?: string
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "transcriptions_content_id_fkey"
+            columns: ["content_id"]
+            isOneToOne: true
+            referencedRelation: "contents"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       user_awards: {
         Row: {
           award_id: string

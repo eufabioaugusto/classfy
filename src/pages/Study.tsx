@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Loader2, Send, ArrowLeft, MoreVertical, Edit2, Share2, Trash2 } from "lucide-react";
+import { Loader2, Send, ArrowLeft, MoreVertical, Edit2, Share2, Trash2, X } from "lucide-react";
 import { StudyMessage } from "@/hooks/useStudies";
 import { useStudies } from "@/hooks/useStudies";
 import { ChatContentCard } from "@/components/ChatContentCard";
@@ -57,6 +57,9 @@ export default function Study() {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [newTitle, setNewTitle] = useState("");
   const [activeContent, setActiveContent] = useState<any>(null);
+  const [transcription, setTranscription] = useState<string>("");
+  const [transcriptionLoading, setTranscriptionLoading] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -327,10 +330,66 @@ export default function Study() {
 
       if (error) throw error;
       setActiveContent(data);
+      
+      // Load transcription if available
+      await loadTranscription(contentId);
     } catch (error) {
       console.error("Error loading content:", error);
       toast.error("Erro ao carregar conteúdo");
     }
+  };
+
+  const loadTranscription = async (contentId: string) => {
+    try {
+      const { data, error } = await supabase
+        .from("transcriptions")
+        .select("text")
+        .eq("content_id", contentId)
+        .maybeSingle();
+
+      if (error) throw error;
+      setTranscription(data?.text || "");
+    } catch (error) {
+      console.error("Error loading transcription:", error);
+      setTranscription("");
+    }
+  };
+
+  const generateTranscription = async () => {
+    if (!activeContent) return;
+    
+    setTranscriptionLoading(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("transcribe-content", {
+        body: { contentId: activeContent.id },
+      });
+
+      if (error) throw error;
+
+      if (data.error) {
+        toast.error(data.error);
+        return;
+      }
+
+      setTranscription(data.transcription.text);
+      toast.success("Transcrição gerada com sucesso!");
+    } catch (error: any) {
+      console.error("Error generating transcription:", error);
+      toast.error("Erro ao gerar transcrição");
+    } finally {
+      setTranscriptionLoading(false);
+    }
+  };
+
+  const highlightSearchResults = (text: string, query: string) => {
+    if (!query.trim()) return text;
+    
+    const regex = new RegExp(`(${query})`, "gi");
+    return text.split(regex).map((part, i) => 
+      regex.test(part) 
+        ? `<mark class="bg-primary/30 text-foreground">${part}</mark>` 
+        : part
+    ).join("");
   };
 
   if (loading) {
@@ -416,7 +475,12 @@ export default function Study() {
             <ResizablePanel defaultSize={60} minSize={40}>
               <StudyVideoPlayer
                 content={activeContent}
-                onClose={() => setActiveContent(null)}
+                onClose={() => {
+                  setActiveContent(null);
+                  setTranscription("");
+                  setSearchQuery("");
+                }}
+                onTranscriptionUpdate={() => loadTranscription(activeContent.id)}
               />
             </ResizablePanel>
             <ResizableHandle withHandle />
@@ -531,12 +595,50 @@ export default function Study() {
             </div>
             <div className="max-h-64 overflow-y-auto">
               <TabsContent value="transcription" className="px-6 py-4">
-                <div className="text-muted-foreground text-sm">
-                  <p>Transcrição automática em desenvolvimento...</p>
-                  <p className="mt-2">
-                    Em breve você poderá ver a transcrição completa do conteúdo aqui.
-                  </p>
-                </div>
+                {!transcription && !transcriptionLoading ? (
+                  <div className="space-y-4">
+                    <div className="text-muted-foreground text-sm">
+                      <p>Nenhuma transcrição disponível para este conteúdo.</p>
+                      <p className="mt-2">
+                        Gere uma transcrição automática usando IA para poder buscar e navegar pelo conteúdo.
+                      </p>
+                    </div>
+                    <Button onClick={generateTranscription} disabled={transcriptionLoading}>
+                      Gerar Transcrição com IA
+                    </Button>
+                  </div>
+                ) : transcriptionLoading ? (
+                  <div className="flex items-center gap-2 text-muted-foreground">
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <p className="text-sm">Gerando transcrição... Isso pode levar alguns minutos.</p>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {/* Search box */}
+                    <div className="flex gap-2">
+                      <Input
+                        placeholder="Buscar na transcrição..."
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                        className="flex-1"
+                      />
+                      {searchQuery && (
+                        <Button variant="ghost" size="icon" onClick={() => setSearchQuery("")}>
+                          <X className="h-4 w-4" />
+                        </Button>
+                      )}
+                    </div>
+                    
+                    {/* Transcription text */}
+                    <div className="prose prose-sm max-w-none text-foreground">
+                      <div 
+                        dangerouslySetInnerHTML={{ 
+                          __html: highlightSearchResults(transcription, searchQuery) 
+                        }}
+                      />
+                    </div>
+                  </div>
+                )}
               </TabsContent>
               <TabsContent value="notes" className="px-6 py-4">
                 <div className="text-muted-foreground text-sm">
