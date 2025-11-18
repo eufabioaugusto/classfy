@@ -15,6 +15,7 @@ import {
   ArrowLeft
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { GlobalLoader } from "@/components/GlobalLoader";
 
 interface RewardStats {
   totalPoints: number;
@@ -179,11 +180,7 @@ export default function AdminRewards() {
   };
 
   if (authLoading || loading) {
-    return (
-      <div className="container mx-auto p-6">
-        <p>Carregando...</p>
-      </div>
-    );
+    return <GlobalLoader />;
   }
 
   return (
