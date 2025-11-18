@@ -38,6 +38,39 @@ Deno.serve(async (req) => {
 
     console.log('Processing reward:', { actionKey, userId, contentId });
 
+    // FRAUD PREVENTION: Check if action was already tracked
+    const dailyActions = ['DAILY_LOGIN', 'FIRST_CONTENT_WEEK'];
+    const uniqueActions = ['LIKE_CONTENT', 'SAVE_CONTENT', 'FAVORITE_CONTENT', 'WATCH_50', 'WATCH_100', 'COMPLETE_COURSE', 'COMMENT_CONTENT'];
+
+    let fraudCheckQuery = supabase
+      .from('reward_action_tracking')
+      .select('id')
+      .eq('user_id', userId)
+      .eq('action_key', actionKey);
+
+    if (dailyActions.includes(actionKey)) {
+      // For daily actions, check if already done today
+      const today = new Date().toISOString().split('T')[0];
+      fraudCheckQuery = fraudCheckQuery.gte('created_at', `${today}T00:00:00Z`).lt('created_at', `${today}T23:59:59Z`);
+    } else if (uniqueActions.includes(actionKey) && contentId) {
+      // For unique actions per content, check if already done for this content
+      fraudCheckQuery = fraudCheckQuery.eq('content_id', contentId);
+    }
+
+    const { data: existingTracking } = await fraudCheckQuery.maybeSingle();
+
+    if (existingTracking) {
+      console.log('Action already tracked, skipping reward:', { actionKey, userId, contentId });
+      return new Response(
+        JSON.stringify({ 
+          success: false, 
+          message: 'Action already rewarded',
+          alreadyTracked: true 
+        }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
     // Get action config
     const { data: config, error: configError } = await supabase
       .from('reward_actions_config')
@@ -261,6 +294,16 @@ Deno.serve(async (req) => {
         }
       }
     }
+
+    // FRAUD PREVENTION: Track this action
+    await supabase
+      .from('reward_action_tracking')
+      .insert({
+        user_id: userId,
+        content_id: contentId || null,
+        action_key: actionKey,
+        metadata: metadata
+      });
 
     console.log('Rewards processed:', rewards.length, 'notifications created:', notifications.length);
 
