@@ -13,6 +13,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useStudies } from "@/hooks/useStudies";
+import { useNotificationToasts } from "@/hooks/useNotificationToasts";
 
 interface HeaderProps {
   variant?: "home" | "studio";
@@ -24,6 +25,8 @@ export function Header({ variant = "home", title }: HeaderProps) {
   const { theme, toggleTheme } = useTheme();
   const navigate = useNavigate();
   const { activeCount, limit } = useStudies();
+  
+  useNotificationToasts();
   
   const currentPlan = profile?.plan || 'free';
   const limitText = limit === Infinity ? 'ilimitados' : `${activeCount}/${limit}`;

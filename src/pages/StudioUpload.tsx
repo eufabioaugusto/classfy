@@ -3,6 +3,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { Navigate, useNavigate, useSearchParams } from "react-router-dom";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/AppSidebar";
+import { Header } from "@/components/Header";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -60,14 +61,7 @@ export default function StudioUpload() {
         <div className="min-h-screen flex w-full bg-background">
           <AppSidebar />
           <div className="flex-1 flex flex-col">
-            <header className="sticky top-0 z-50 border-b border-border/20 bg-background/95 backdrop-blur-xl">
-              <div className="flex items-center justify-between px-6 py-4">
-                <div className="flex items-center gap-4">
-                  <SidebarTrigger />
-                  <h1 className="text-2xl font-bold text-foreground">Publicar Conteúdo</h1>
-                </div>
-              </div>
-            </header>
+            <Header variant="studio" title="Publicar Conteúdo" />
             <main className="flex-1 p-6 md:p-12 flex items-center justify-center">
               <Card className="p-8 text-center max-w-md">
                 <Upload className="w-12 h-12 mx-auto mb-4 text-muted-foreground" />
@@ -273,20 +267,16 @@ export default function StudioUpload() {
         <AppSidebar />
         
         <div className="flex-1 flex flex-col">
-          <header className="sticky top-0 z-50 border-b border-border/20 bg-background/95 backdrop-blur-xl">
-            <div className="flex items-center justify-between px-6 py-4">
-              <div className="flex items-center gap-4">
-                <SidebarTrigger />
-                <h1 className="text-2xl font-bold text-foreground">
-                  {contentType === "aula" && "Publicar Aula"}
-                  {contentType === "curso" && "Criar Curso"}
-                  {contentType === "podcast" && "Enviar Podcast"}
-                  {contentType === "short" && "Postar Short"}
-                  {contentType === "live" && "Transmitir ao Vivo"}
-                </h1>
-              </div>
-            </div>
-          </header>
+          <Header
+            variant="studio"
+            title={
+              contentType === "aula" ? "Publicar Aula" :
+              contentType === "curso" ? "Criar Curso" :
+              contentType === "podcast" ? "Enviar Podcast" :
+              contentType === "short" ? "Postar Short" :
+              "Transmitir ao Vivo"
+            }
+          />
 
           <main className="flex-1 p-6 md:p-12">
             <div className="max-w-3xl mx-auto">
