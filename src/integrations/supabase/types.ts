@@ -440,6 +440,57 @@ export type Database = {
           },
         ]
       }
+      notifications: {
+        Row: {
+          created_at: string
+          id: string
+          is_read: boolean
+          message: string
+          related_content_id: string | null
+          related_reward_id: string | null
+          title: string
+          type: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          is_read?: boolean
+          message: string
+          related_content_id?: string | null
+          related_reward_id?: string | null
+          title: string
+          type?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          is_read?: boolean
+          message?: string
+          related_content_id?: string | null
+          related_reward_id?: string | null
+          title?: string
+          type?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "notifications_related_content_id_fkey"
+            columns: ["related_content_id"]
+            isOneToOne: false
+            referencedRelation: "contents"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "notifications_related_reward_id_fkey"
+            columns: ["related_reward_id"]
+            isOneToOne: false
+            referencedRelation: "reward_events"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       profiles: {
         Row: {
           avatar_url: string | null
@@ -484,6 +535,89 @@ export type Database = {
           updated_at?: string
         }
         Relationships: []
+      }
+      reward_actions_config: {
+        Row: {
+          action_key: string
+          active: boolean
+          created_at: string
+          description: string | null
+          id: string
+          points_creator: number
+          points_user: number
+          updated_at: string
+          value_creator: number
+          value_user: number
+        }
+        Insert: {
+          action_key: string
+          active?: boolean
+          created_at?: string
+          description?: string | null
+          id?: string
+          points_creator?: number
+          points_user?: number
+          updated_at?: string
+          value_creator?: number
+          value_user?: number
+        }
+        Update: {
+          action_key?: string
+          active?: boolean
+          created_at?: string
+          description?: string | null
+          id?: string
+          points_creator?: number
+          points_user?: number
+          updated_at?: string
+          value_creator?: number
+          value_user?: number
+        }
+        Relationships: []
+      }
+      reward_events: {
+        Row: {
+          action_key: string
+          content_id: string | null
+          created_at: string
+          id: string
+          metadata: Json | null
+          points: number
+          related_user_id: string | null
+          user_id: string
+          value: number
+        }
+        Insert: {
+          action_key: string
+          content_id?: string | null
+          created_at?: string
+          id?: string
+          metadata?: Json | null
+          points?: number
+          related_user_id?: string | null
+          user_id: string
+          value?: number
+        }
+        Update: {
+          action_key?: string
+          content_id?: string | null
+          created_at?: string
+          id?: string
+          metadata?: Json | null
+          points?: number
+          related_user_id?: string | null
+          user_id?: string
+          value?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "reward_events_content_id_fkey"
+            columns: ["content_id"]
+            isOneToOne: false
+            referencedRelation: "contents"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       saved_contents: {
         Row: {

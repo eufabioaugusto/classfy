@@ -8,16 +8,10 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { CheckCircle, XCircle, Clock, Video, Music, Film, Eye } from "lucide-react";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { useRewardSystem } from "@/hooks/useRewardSystem";
 
 interface Content {
   id: string;
@@ -27,10 +21,8 @@ interface Content {
   thumbnail_url: string;
   status: string;
   created_at: string;
-  creator: {
-    display_name: string;
-    avatar_url: string | null;
-  };
+  creator_id: string;
+  creator: { display_name: string; avatar_url: string | null };
 }
 
 export default function AdminContents() {
@@ -39,30 +31,13 @@ export default function AdminContents() {
   const [loadingData, setLoadingData] = useState(true);
   const [processingId, setProcessingId] = useState<string | null>(null);
   const [selectedContents, setSelectedContents] = useState<Set<string>>(new Set());
+  const { processReward } = useRewardSystem();
 
-  useEffect(() => {
-    if (user && role === 'admin') {
-      fetchPendingContents();
-    }
-  }, [user, role]);
+  useEffect(() => { if (user && role === 'admin') fetchPendingContents(); }, [user, role]);
 
   const fetchPendingContents = async () => {
     try {
-      const { data, error } = await supabase
-        .from('contents')
-        .select(`
-          id,
-          content_type,
-          title,
-          description,
-          thumbnail_url,
-          status,
-          created_at,
-          creator:profiles!creator_id(display_name, avatar_url)
-        `)
-        .eq('status', 'pending')
-        .order('created_at', { ascending: false });
-
+      const { data, error } = await supabase.from('contents').select(`id, content_type, title, description, thumbnail_url, status, created_at, creator_id, creator:profiles!creator_id(display_name, avatar_url)`).eq('status', 'pending').order('created_at', { ascending: false });
       if (error) throw error;
       setContents(data || []);
     } catch (error: any) {
@@ -74,14 +49,12 @@ export default function AdminContents() {
 
   const handleApprove = async (contentId: string) => {
     setProcessingId(contentId);
+    const content = contents.find((c) => c.id === contentId);
+    if (!content) return;
     try {
-      const { error } = await supabase
-        .from('contents')
-        .update({ status: 'approved' })
-        .eq('id', contentId);
-
+      const { error } = await supabase.from('contents').update({ status: 'approved', published_at: new Date().toISOString() }).eq('id', contentId);
       if (error) throw error;
-
+      await processReward({ actionKey: 'CONTENT_APPROVED', userId: content.creator_id, contentId: content.id, metadata: { content_title: content.title } });
       toast.success("Conteúdo aprovado!");
       setContents(prev => prev.filter(c => c.id !== contentId));
     } catch (error: any) {
@@ -94,13 +67,8 @@ export default function AdminContents() {
   const handleReject = async (contentId: string) => {
     setProcessingId(contentId);
     try {
-      const { error } = await supabase
-        .from('contents')
-        .update({ status: 'rejected' })
-        .eq('id', contentId);
-
+      const { error } = await supabase.from('contents').update({ status: 'rejected' }).eq('id', contentId);
       if (error) throw error;
-
       toast.success("Conteúdo reprovado");
       setContents(prev => prev.filter(c => c.id !== contentId));
     } catch (error: any) {
@@ -112,255 +80,55 @@ export default function AdminContents() {
 
   const handleBulkApprove = async () => {
     if (selectedContents.size === 0) return;
-    
     try {
-      const { error } = await supabase
-        .from('contents')
-        .update({ status: 'approved' })
-        .in('id', Array.from(selectedContents));
-
+      const { error } = await supabase.from('contents').update({ status: 'approved', published_at: new Date().toISOString() }).in('id', Array.from(selectedContents));
       if (error) throw error;
-
+      for (const contentId of Array.from(selectedContents)) {
+        const content = contents.find((c) => c.id === contentId);
+        if (content) await processReward({ actionKey: 'CONTENT_APPROVED', userId: content.creator_id, contentId: content.id, metadata: { content_title: content.title } });
+      }
       toast.success(`${selectedContents.size} conteúdos aprovados!`);
       setContents(prev => prev.filter(c => !selectedContents.has(c.id)));
       setSelectedContents(new Set());
     } catch (error: any) {
-      toast.error(error.message || "Erro ao aprovar em massa");
+      toast.error(error.message || "Erro ao aprovar");
     }
   };
 
   const handleBulkReject = async () => {
     if (selectedContents.size === 0) return;
-    
     try {
-      const { error } = await supabase
-        .from('contents')
-        .update({ status: 'rejected' })
-        .in('id', Array.from(selectedContents));
-
+      const { error } = await supabase.from('contents').update({ status: 'rejected' }).in('id', Array.from(selectedContents));
       if (error) throw error;
-
       toast.success(`${selectedContents.size} conteúdos reprovados`);
       setContents(prev => prev.filter(c => !selectedContents.has(c.id)));
       setSelectedContents(new Set());
     } catch (error: any) {
-      toast.error(error.message || "Erro ao reprovar em massa");
+      toast.error(error.message || "Erro ao reprovar");
     }
   };
 
-  const getTypeIcon = (type: string) => {
-    switch (type) {
-      case "aula": return Video;
-      case "short": return Film;
-      case "podcast": return Music;
-      default: return Video;
-    }
-  };
-
-  const getTypeLabel = (type: string) => {
-    switch (type) {
-      case 'aula': return 'Aula';
-      case 'podcast': return 'Podcast';
-      case 'short': return 'Short';
-      default: return type;
-    }
-  };
-
-  const formatDate = (dateString: string) => {
-    const date = new Date(dateString);
-    return date.toLocaleDateString('pt-BR', { 
-      day: '2-digit', 
-      month: 'short', 
-      year: 'numeric' 
-    });
+  const toggleSelection = (contentId: string) => {
+    setSelectedContents(prev => { const newSet = new Set(prev); if (newSet.has(contentId)) newSet.delete(contentId); else newSet.add(contentId); return newSet; });
   };
 
   const toggleSelectAll = () => {
-    if (selectedContents.size === contents.length) {
-      setSelectedContents(new Set());
-    } else {
-      setSelectedContents(new Set(contents.map(c => c.id)));
+    if (selectedContents.size === contents.length) setSelectedContents(new Set()); else setSelectedContents(new Set(contents.map(c => c.id)));
+  };
+
+  const getContentTypeIcon = (type: string) => {
+    switch (type) {
+      case 'aula': return <Video className="h-4 w-4" />;
+      case 'podcast': return <Music className="h-4 w-4" />;
+      case 'short': return <Film className="h-4 w-4" />;
+      default: return null;
     }
   };
 
-  const toggleSelect = (contentId: string) => {
-    const newSelected = new Set(selectedContents);
-    if (newSelected.has(contentId)) {
-      newSelected.delete(contentId);
-    } else {
-      newSelected.add(contentId);
-    }
-    setSelectedContents(newSelected);
-  };
-
-  if (loading) {
-    return <div className="min-h-screen flex items-center justify-center">Carregando...</div>;
-  }
-
-  if (!user || role !== 'admin') {
-    return <Navigate to="/" replace />;
-  }
+  if (loading) return <div className="min-h-screen flex items-center justify-center"><div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div></div>;
+  if (!user || role !== 'admin') return <Navigate to="/" replace />;
 
   return (
-    <SidebarProvider defaultOpen={true}>
-      <div className="min-h-screen flex w-full bg-background">
-        <AppSidebar />
-        
-        <div className="flex-1 flex flex-col">
-          <header className="sticky top-0 z-50 border-b border-border/20 bg-background/95 backdrop-blur-xl">
-            <div className="flex items-center justify-between px-6 py-4">
-              <div className="flex items-center gap-4">
-                <SidebarTrigger />
-                <h1 className="text-2xl font-bold text-foreground">Aprovar Conteúdos</h1>
-              </div>
-              
-              {selectedContents.size > 0 && (
-                <div className="flex items-center gap-2">
-                  <span className="text-sm text-muted-foreground">
-                    {selectedContents.size} selecionados
-                  </span>
-                  <Button onClick={handleBulkApprove} size="sm" className="gap-2">
-                    <CheckCircle className="w-4 h-4" />
-                    Aprovar Selecionados
-                  </Button>
-                  <Button onClick={handleBulkReject} size="sm" variant="destructive" className="gap-2">
-                    <XCircle className="w-4 h-4" />
-                    Reprovar Selecionados
-                  </Button>
-                </div>
-              )}
-            </div>
-          </header>
-
-          <main className="flex-1 p-6">
-            <div className="max-w-full space-y-4">
-              {loadingData ? (
-                <div className="text-center py-12">Carregando...</div>
-              ) : contents.length === 0 ? (
-                <div className="border border-dashed rounded-lg p-12 text-center">
-                  <Clock className="w-12 h-12 mx-auto mb-4 text-muted-foreground" />
-                  <h3 className="text-xl font-bold mb-2">Nenhum conteúdo pendente</h3>
-                  <p className="text-muted-foreground">
-                    Todos os conteúdos foram revisados
-                  </p>
-                </div>
-              ) : (
-                <div className="border rounded-lg overflow-hidden">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead className="w-12">
-                          <Checkbox 
-                            checked={selectedContents.size === contents.length}
-                            onCheckedChange={toggleSelectAll}
-                          />
-                        </TableHead>
-                        <TableHead className="w-[450px]">Conteúdo</TableHead>
-                        <TableHead>Creator</TableHead>
-                        <TableHead>Data</TableHead>
-                        <TableHead className="text-right">Ações</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {contents.map((content) => {
-                        const TypeIcon = getTypeIcon(content.content_type);
-                        return (
-                          <TableRow key={content.id} className="hover:bg-muted/50">
-                            <TableCell>
-                              <Checkbox 
-                                checked={selectedContents.has(content.id)}
-                                onCheckedChange={() => toggleSelect(content.id)}
-                              />
-                            </TableCell>
-                            <TableCell>
-                              <div className="flex items-center gap-3">
-                                {/* Thumbnail */}
-                                <div className="relative w-40 h-24 bg-muted rounded overflow-hidden flex-shrink-0">
-                                  <img 
-                                    src={content.thumbnail_url} 
-                                    alt={content.title}
-                                    className="w-full h-full object-cover"
-                                  />
-                                </div>
-                                
-                                {/* Info */}
-                                <div className="flex-1 min-w-0">
-                                  <div className="flex items-center gap-2 mb-1">
-                                    <TypeIcon className="w-4 h-4 text-muted-foreground" />
-                                    <Badge variant="secondary" className="text-xs">
-                                      {getTypeLabel(content.content_type)}
-                                    </Badge>
-                                  </div>
-                                  <h3 className="font-medium text-foreground line-clamp-2 mb-1">
-                                    {content.title}
-                                  </h3>
-                                  {content.description && (
-                                    <p className="text-sm text-muted-foreground line-clamp-2">
-                                      {content.description}
-                                    </p>
-                                  )}
-                                </div>
-                              </div>
-                            </TableCell>
-                            <TableCell>
-                              <div className="flex items-center gap-2">
-                                <Avatar className="w-8 h-8">
-                                  <AvatarImage src={content.creator.avatar_url || ''} />
-                                  <AvatarFallback>
-                                    {content.creator.display_name.charAt(0).toUpperCase()}
-                                  </AvatarFallback>
-                                </Avatar>
-                                <span className="text-sm font-medium">
-                                  {content.creator.display_name}
-                                </span>
-                              </div>
-                            </TableCell>
-                            <TableCell>
-                              <span className="text-sm text-muted-foreground">
-                                {formatDate(content.created_at)}
-                              </span>
-                            </TableCell>
-                            <TableCell>
-                              <div className="flex items-center justify-end gap-2">
-                                <Button
-                                  size="sm"
-                                  variant="ghost"
-                                  onClick={() => window.open(`/watch/${content.id}`, '_blank')}
-                                >
-                                  <Eye className="w-4 h-4" />
-                                </Button>
-                                <Button
-                                  size="sm"
-                                  onClick={() => handleApprove(content.id)}
-                                  disabled={processingId === content.id}
-                                  className="gap-2"
-                                >
-                                  <CheckCircle className="w-4 h-4" />
-                                  Aprovar
-                                </Button>
-                                <Button
-                                  size="sm"
-                                  variant="destructive"
-                                  onClick={() => handleReject(content.id)}
-                                  disabled={processingId === content.id}
-                                  className="gap-2"
-                                >
-                                  <XCircle className="w-4 h-4" />
-                                  Reprovar
-                                </Button>
-                              </div>
-                            </TableCell>
-                          </TableRow>
-                        );
-                      })}
-                    </TableBody>
-                  </Table>
-                </div>
-              )}
-            </div>
-          </main>
-        </div>
-      </div>
-    </SidebarProvider>
+    <SidebarProvider><div className="flex min-h-screen w-full"><AppSidebar /><main className="flex-1 overflow-hidden"><div className="p-6"><div className="flex items-center justify-between mb-6"><div className="flex items-center gap-4"><SidebarTrigger /><div><h1 className="text-3xl font-bold">Aprovar Conteúdos</h1><p className="text-muted-foreground">{contents.length} conteúdo{contents.length !== 1 ? 's' : ''} aguardando aprovação</p></div></div>{selectedContents.size > 0 && <div className="flex gap-2"><Button variant="default" onClick={handleBulkApprove}><CheckCircle className="h-4 w-4 mr-2" />Aprovar Selecionados ({selectedContents.size})</Button><Button variant="destructive" onClick={handleBulkReject}><XCircle className="h-4 w-4 mr-2" />Reprovar Selecionados ({selectedContents.size})</Button></div>}</div>{loadingData ? <div className="flex items-center justify-center py-12"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div></div> : contents.length === 0 ? <div className="text-center py-12"><Clock className="h-12 w-12 mx-auto mb-4 text-muted-foreground" /><h3 className="text-lg font-semibold mb-2">Nenhum conteúdo pendente</h3></div> : <div className="border rounded-lg overflow-hidden"><Table><TableHeader><TableRow><TableHead className="w-12"><Checkbox checked={selectedContents.size === contents.length} onCheckedChange={toggleSelectAll} /></TableHead><TableHead>Conteúdo</TableHead><TableHead>Creator</TableHead><TableHead>Data</TableHead><TableHead className="text-right">Ações</TableHead></TableRow></TableHeader><TableBody>{contents.map((content) => <TableRow key={content.id}><TableCell><Checkbox checked={selectedContents.has(content.id)} onCheckedChange={() => toggleSelection(content.id)} /></TableCell><TableCell><div className="flex items-center gap-3"><img src={content.thumbnail_url} alt={content.title} className="h-16 w-24 object-cover rounded" /><div className="flex-1 min-w-0"><p className="font-medium truncate">{content.title}</p><p className="text-sm text-muted-foreground truncate">{content.description || 'Sem descrição'}</p><div className="flex items-center gap-2 mt-1"><Badge variant="outline" className="flex items-center gap-1">{getContentTypeIcon(content.content_type)}{content.content_type}</Badge></div></div></div></TableCell><TableCell><div className="flex items-center gap-2"><Avatar className="h-8 w-8"><AvatarImage src={content.creator.avatar_url || undefined} /><AvatarFallback>{content.creator.display_name.charAt(0)}</AvatarFallback></Avatar><span className="text-sm">{content.creator.display_name}</span></div></TableCell><TableCell><span className="text-sm text-muted-foreground">{new Date(content.created_at).toLocaleDateString('pt-BR')}</span></TableCell><TableCell className="text-right"><div className="flex items-center justify-end gap-2"><Button variant="ghost" size="icon" onClick={() => window.open(`/watch/${content.id}`, '_blank')}><Eye className="h-4 w-4" /></Button><Button variant="default" size="sm" onClick={() => handleApprove(content.id)} disabled={processingId === content.id}><CheckCircle className="h-4 w-4 mr-1" />Aprovar</Button><Button variant="destructive" size="sm" onClick={() => handleReject(content.id)} disabled={processingId === content.id}><XCircle className="h-4 w-4 mr-1" />Reprovar</Button></div></TableCell></TableRow>)}</TableBody></Table></div>}</div></main></div></SidebarProvider>
   );
 }
