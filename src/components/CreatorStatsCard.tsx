@@ -40,12 +40,12 @@ export const CreatorStatsCard = ({ userId, collapsed }: CreatorStatsCardProps) =
         }
 
         // Busca pontos totais
-        const { data: actionsData } = await supabase
-          .from('actions')
+        const { data: rewardEventsData } = await supabase
+          .from('reward_events')
           .select('points')
           .eq('user_id', userId);
 
-        const totalPoints = actionsData?.reduce((sum, action) => sum + action.points, 0) || 0;
+        const totalPoints = rewardEventsData?.reduce((sum, event) => sum + event.points, 0) || 0;
 
         // Busca conteúdos criados
         const { count: contentCount } = await supabase
