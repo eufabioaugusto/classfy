@@ -7,6 +7,15 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { useRewardSystem } from "@/hooks/useRewardSystem";
 import { toast } from "@/hooks/use-toast";
+import { z } from "zod";
+
+const commentSchema = z.object({
+  text: z.string()
+    .trim()
+    .min(1, 'Comentário não pode estar vazio')
+    .max(1000, 'Comentário deve ter menos de 1000 caracteres')
+    .regex(/^[^<>]*$/, 'Caracteres inválidos detectados')
+});
 
 interface Comment {
   id: string;
@@ -69,17 +78,18 @@ export function ContentComments({ contentId }: ContentCommentsProps) {
       return;
     }
 
-    if (!newComment.trim()) return;
-
     setIsSubmitting(true);
 
     try {
+      // Validate comment input
+      const validated = commentSchema.parse({ text: newComment });
+
       const { error } = await supabase
         .from('comments')
         .insert({
           user_id: user.id,
           content_id: contentId,
-          text: newComment.trim(),
+          text: validated.text,
         });
 
       if (error) throw error;
@@ -96,11 +106,20 @@ export function ContentComments({ contentId }: ContentCommentsProps) {
       });
     } catch (error) {
       console.error('Error posting comment:', error);
-      toast({
-        title: "Erro",
-        description: "Não foi possível publicar seu comentário",
-        variant: "destructive",
-      });
+      
+      if (error instanceof z.ZodError) {
+        toast({
+          title: "Erro de validação",
+          description: error.errors[0]?.message || "Comentário inválido",
+          variant: "destructive",
+        });
+      } else {
+        toast({
+          title: "Erro",
+          description: "Não foi possível publicar seu comentário",
+          variant: "destructive",
+        });
+      }
     } finally {
       setIsSubmitting(false);
     }
