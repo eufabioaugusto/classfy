@@ -389,6 +389,9 @@ export default function Study() {
 
       setTranscription(data.transcription.text);
       toast.success("Transcrição gerada com sucesso!");
+      
+      // Reload transcription to show the newly generated one
+      await loadTranscription(activeContent.id);
     } catch (error: any) {
       console.error("Error generating transcription:", error);
       toast.error("Erro ao gerar transcrição");
@@ -614,13 +617,16 @@ export default function Study() {
                 {!transcription && !transcriptionLoading ? (
                   <div className="space-y-4">
                     <div className="text-muted-foreground text-sm">
-                      <p>Nenhuma transcrição disponível para este conteúdo.</p>
+                      <p>A transcrição deste conteúdo está sendo processada automaticamente.</p>
                       <p className="mt-2">
-                        Gere uma transcrição automática usando IA para poder buscar e navegar pelo conteúdo.
+                        Isso acontece em segundo plano quando o conteúdo é aprovado. Recarregue a página em alguns minutos.
+                      </p>
+                      <p className="mt-2 text-xs">
+                        Se a transcrição não aparecer após alguns minutos, você pode gerá-la manualmente:
                       </p>
                     </div>
-                    <Button onClick={generateTranscription} disabled={transcriptionLoading}>
-                      Gerar Transcrição com IA
+                    <Button onClick={generateTranscription} disabled={transcriptionLoading} variant="outline" size="sm">
+                      Tentar Gerar Novamente
                     </Button>
                   </div>
                 ) : transcriptionLoading ? (
