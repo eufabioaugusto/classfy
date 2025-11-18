@@ -51,10 +51,10 @@ export default function Watch() {
   const { processReward, trackProgress } = useRewardSystem();
 
   useEffect(() => {
-    if (id && user) {
+    if (id && user && role) {
       fetchContent();
     }
-  }, [id, user]);
+  }, [id, user, role]);
 
   const fetchContent = async () => {
     try {
