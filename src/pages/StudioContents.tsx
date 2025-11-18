@@ -41,6 +41,29 @@ export default function StudioContents() {
   useEffect(() => {
     if (user) {
       fetchContents();
+      
+      // Subscribe to realtime updates for creator's contents
+      const channel = supabase
+        .channel('studio-contents')
+        .on(
+          'postgres_changes',
+          {
+            event: 'UPDATE',
+            schema: 'public',
+            table: 'contents',
+            filter: `creator_id=eq.${user.id}`,
+          },
+          (payload) => {
+            console.log('Content updated:', payload);
+            // Refresh contents when any content is updated
+            fetchContents();
+          }
+        )
+        .subscribe();
+
+      return () => {
+        supabase.removeChannel(channel);
+      };
     }
   }, [user]);
   useEffect(() => {
