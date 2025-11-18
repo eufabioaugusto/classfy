@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Play, Pause, Volume2, VolumeX, Maximize, X } from "lucide-react";
 import { useRewardSystem } from "@/hooks/useRewardSystem";
 import { useAuth } from "@/contexts/AuthContext";
+import { supabase } from "@/integrations/supabase/client";
 
 interface StudyVideoPlayerProps {
   content: {
@@ -14,9 +15,10 @@ interface StudyVideoPlayerProps {
     duration_seconds?: number;
   };
   onClose: () => void;
+  onTranscriptionUpdate?: () => void;
 }
 
-export const StudyVideoPlayer = ({ content, onClose }: StudyVideoPlayerProps) => {
+export const StudyVideoPlayer = ({ content, onClose, onTranscriptionUpdate }: StudyVideoPlayerProps) => {
   const { user } = useAuth();
   const videoRef = useRef<HTMLVideoElement>(null);
   const audioRef = useRef<HTMLAudioElement>(null);
