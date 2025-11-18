@@ -5,10 +5,13 @@ import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Loader2, Send, ArrowLeft, MoreVertical, Edit2, Share2, Trash2 } from "lucide-react";
 import { StudyMessage } from "@/hooks/useStudies";
 import { useStudies } from "@/hooks/useStudies";
 import { ChatContentCard } from "@/components/ChatContentCard";
+import { StudyVideoPlayer } from "@/components/StudyVideoPlayer";
+import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/components/ui/resizable";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -53,6 +56,7 @@ export default function Study() {
   const [renameDialogOpen, setRenameDialogOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [newTitle, setNewTitle] = useState("");
+  const [activeContent, setActiveContent] = useState<any>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -313,6 +317,22 @@ export default function Study() {
     toast.success("Link copiado para a área de transferência!");
   };
 
+  const handlePlayContent = async (contentId: string) => {
+    try {
+      const { data, error } = await supabase
+        .from("contents")
+        .select("id, title, file_url, content_type, duration_seconds")
+        .eq("id", contentId)
+        .single();
+
+      if (error) throw error;
+      setActiveContent(data);
+    } catch (error) {
+      console.error("Error loading content:", error);
+      toast.error("Erro ao carregar conteúdo");
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
@@ -328,7 +348,7 @@ export default function Study() {
   return (
     <div className="flex flex-col h-screen bg-background">
       {/* Header */}
-      <header className="border-b border-border bg-card px-6 py-4">
+      <header className="border-b border-border bg-card px-6 py-4 flex-shrink-0">
         <div className="flex items-center justify-between gap-4">
           <div className="flex items-center gap-4 flex-1">
             <Button
@@ -378,7 +398,7 @@ export default function Study() {
               <DropdownMenuSeparator />
               <DropdownMenuItem
                 onClick={() => setDeleteDialogOpen(true)}
-                className="cursor-pointer text-destructive focus:text-destructive"
+                className="cursor-pointer text-destructive"
               >
                 <Trash2 className="w-4 h-4 mr-2" />
                 Excluir
@@ -388,92 +408,162 @@ export default function Study() {
         </div>
       </header>
 
-      {/* Messages */}
-      <ScrollArea className="flex-1 px-6 py-4" ref={scrollRef}>
-        <div className="max-w-4xl mx-auto space-y-6">
-          {messages.length === 0 && !sending ? (
-            <div className="text-center text-muted-foreground py-12">
-              <Loader2 className="w-8 h-8 animate-spin mx-auto mb-4" />
-              <p>Iniciando conversa sobre {study.title}...</p>
-            </div>
-          ) : (
-            messages.map((message) => (
-              <div key={message.id} className="space-y-4">
-                <div
-                  className={`flex ${
-                    message.role === "user" ? "justify-end" : "justify-start"
-                  }`}
-                >
-                  <div
-                    className={`max-w-[80%] rounded-lg px-4 py-3 ${
-                      message.role === "user"
-                        ? "bg-primary text-primary-foreground"
-                        : "bg-muted text-foreground"
-                    }`}
-                  >
-                    <p className="whitespace-pre-wrap">{message.content}</p>
+      {/* Main Content Area - Resizable Panels */}
+      <ResizablePanelGroup direction="horizontal" className="flex-1">
+        {/* Left Panel - Video Player (when active) */}
+        {activeContent && (
+          <>
+            <ResizablePanel defaultSize={60} minSize={40}>
+              <StudyVideoPlayer
+                content={activeContent}
+                onClose={() => setActiveContent(null)}
+              />
+            </ResizablePanel>
+            <ResizableHandle withHandle />
+          </>
+        )}
+
+        {/* Right Panel - Chat */}
+        <ResizablePanel defaultSize={activeContent ? 40 : 100} minSize={30}>
+          <div className="flex flex-col h-full">
+            {/* Chat Messages */}
+            <ScrollArea className="flex-1 px-6" ref={scrollRef}>
+              <div className="max-w-4xl mx-auto py-6 space-y-6">
+                {loading || (messages.length === 0 && !initialMessageSent) ? (
+                  <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
+                    <Loader2 className="w-8 h-8 animate-spin mx-auto mb-4" />
+                    <p>Iniciando conversa sobre {study.title}...</p>
                   </div>
-                </div>
-                
-                {/* Render content cards if available */}
-                {message.role === "assistant" && messageContents.has(message.id) && (
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-w-[80%]">
-                    {messageContents.get(message.id)?.map((content: any) => (
-                      <ChatContentCard
-                        key={content.id}
-                        id={content.id}
-                        title={content.title}
-                        description={content.description}
-                        thumbnail_url={content.thumbnail_url}
-                        content_type={content.content_type}
-                        duration_minutes={content.duration_minutes}
-                        required_plan={content.required_plan}
-                        is_free={content.is_free}
-                        matchScore={content.matchScore}
-                      />
-                    ))}
+                ) : (
+                  messages.map((message) => (
+                    <div key={message.id} className="space-y-4">
+                      <div
+                        className={`flex ${
+                          message.role === "user" ? "justify-end" : "justify-start"
+                        }`}
+                      >
+                        <div
+                          className={`max-w-[80%] rounded-lg px-4 py-3 ${
+                            message.role === "user"
+                              ? "bg-primary text-primary-foreground"
+                              : "bg-muted text-foreground"
+                          }`}
+                        >
+                          <p className="whitespace-pre-wrap">{message.content}</p>
+                        </div>
+                      </div>
+                      
+                      {/* Render content cards if available */}
+                      {message.role === "assistant" && messageContents.has(message.id) && (
+                        <div className="grid grid-cols-1 gap-4 max-w-[80%]">
+                          {messageContents.get(message.id)?.map((content: any) => (
+                            <ChatContentCard
+                              key={content.id}
+                              id={content.id}
+                              title={content.title}
+                              description={content.description}
+                              thumbnail_url={content.thumbnail_url}
+                              content_type={content.content_type}
+                              duration_minutes={content.duration_minutes}
+                              required_plan={content.required_plan}
+                              is_free={content.is_free}
+                              matchScore={content.matchScore}
+                              onPlay={handlePlayContent}
+                            />
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  ))
+                )}
+                {sending && (
+                  <div className="flex justify-start">
+                    <div className="bg-muted rounded-lg px-4 py-3">
+                      <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
+                    </div>
                   </div>
                 )}
               </div>
-            ))
-          )}
-          {sending && (
-            <div className="flex justify-start">
-              <div className="bg-muted rounded-lg px-4 py-3">
-                <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
+            </ScrollArea>
+
+            {/* Input */}
+            <div className="border-t border-border bg-card px-6 py-4 flex-shrink-0">
+              <div className="max-w-4xl mx-auto">
+                <form
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    handleSend();
+                  }}
+                  className="flex gap-2"
+                >
+                  <Input
+                    value={input}
+                    onChange={(e) => setInput(e.target.value)}
+                    placeholder="Digite sua mensagem..."
+                    disabled={sending}
+                    className="flex-1"
+                  />
+                  <Button type="submit" disabled={sending || !input.trim()}>
+                    {sending ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <Send className="w-4 h-4" />
+                    )}
+                  </Button>
+                </form>
               </div>
             </div>
-          )}
-        </div>
-      </ScrollArea>
+          </div>
+        </ResizablePanel>
+      </ResizablePanelGroup>
 
-      {/* Input */}
-      <div className="border-t border-border bg-card px-6 py-4">
-        <div className="max-w-4xl mx-auto">
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              handleSend();
-            }}
-            className="flex gap-2"
-          >
-            <Input
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              placeholder="Digite sua mensagem..."
-              disabled={sending}
-              className="flex-1"
-            />
-            <Button type="submit" disabled={sending || !input.trim()}>
-              {sending ? (
-                <Loader2 className="w-4 h-4 animate-spin" />
-              ) : (
-                <Send className="w-4 h-4" />
-              )}
-            </Button>
-          </form>
+      {/* Tabs Section - Only visible when content is active */}
+      {activeContent && (
+        <div className="border-t border-border bg-card flex-shrink-0">
+          <Tabs defaultValue="transcription" className="w-full">
+            <div className="border-b border-border px-6">
+              <TabsList className="bg-transparent">
+                <TabsTrigger value="transcription">Transcrição</TabsTrigger>
+                <TabsTrigger value="notes">Anotações</TabsTrigger>
+                <TabsTrigger value="comments">Comentários</TabsTrigger>
+                <TabsTrigger value="recommendations">Recomendações</TabsTrigger>
+              </TabsList>
+            </div>
+            <div className="max-h-64 overflow-y-auto">
+              <TabsContent value="transcription" className="px-6 py-4">
+                <div className="text-muted-foreground text-sm">
+                  <p>Transcrição automática em desenvolvimento...</p>
+                  <p className="mt-2">
+                    Em breve você poderá ver a transcrição completa do conteúdo aqui.
+                  </p>
+                </div>
+              </TabsContent>
+              <TabsContent value="notes" className="px-6 py-4">
+                <div className="text-muted-foreground text-sm">
+                  <p>Área de anotações em desenvolvimento...</p>
+                  <p className="mt-2">
+                    Em breve você poderá fazer anotações enquanto assiste.
+                  </p>
+                </div>
+              </TabsContent>
+              <TabsContent value="comments" className="px-6 py-4">
+                {/* Usar o componente ContentComments existente */}
+                <div className="text-muted-foreground text-sm">
+                  <p>Comentários disponíveis em breve...</p>
+                </div>
+              </TabsContent>
+              <TabsContent value="recommendations" className="px-6 py-4">
+                <div className="text-muted-foreground text-sm">
+                  <p>Recomendações personalizadas baseadas no seu progresso...</p>
+                  <p className="mt-2">
+                    A IA Classy analisará seu aprendizado e sugerirá próximos conteúdos.
+                  </p>
+                </div>
+              </TabsContent>
+            </div>
+          </Tabs>
         </div>
-      </div>
+      )}
 
       {/* Rename Dialog */}
       <Dialog open={renameDialogOpen} onOpenChange={setRenameDialogOpen}>

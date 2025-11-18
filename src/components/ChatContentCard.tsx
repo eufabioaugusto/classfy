@@ -18,6 +18,7 @@ interface ChatContentCardProps {
   required_plan?: "free" | "pro" | "premium";
   is_free?: boolean;
   matchScore?: number;
+  onPlay?: (contentId: string) => void;
 }
 
 export const ChatContentCard = ({
@@ -30,6 +31,7 @@ export const ChatContentCard = ({
   required_plan,
   is_free = true,
   matchScore,
+  onPlay,
 }: ChatContentCardProps) => {
   const navigate = useNavigate();
   const { user } = useAuth();
@@ -44,8 +46,12 @@ export const ChatContentCard = ({
   };
 
   const handleWatch = () => {
-    const route = content_type === "podcast" ? `/listen/${id}` : `/watch/${id}`;
-    navigate(route);
+    if (onPlay) {
+      onPlay(id);
+    } else {
+      const route = content_type === "podcast" ? `/listen/${id}` : `/watch/${id}`;
+      navigate(route);
+    }
   };
 
   const handleSave = async (e: React.MouseEvent) => {
