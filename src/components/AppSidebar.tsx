@@ -68,11 +68,12 @@ const categories = [
 const studioItems = [
   { title: "Dashboard", url: "/studio", icon: BarChart },
   { title: "Meus Conteúdos", url: "/studio/contents", icon: Video },
-  { title: "Publicar Novo", url: "/studio/new", icon: Upload },
+  { title: "Publicar Novo", url: "/studio/upload", icon: Upload },
 ];
 
 const adminItems = [
   { title: "Aprovar Creators", url: "/admin/creators", icon: CheckSquare },
+  { title: "Aprovar Conteúdos", url: "/admin/contents", icon: Video },
   { title: "Gerenciar Usuários", url: "/admin/users", icon: Users },
   { title: "Configurações", url: "/admin/settings", icon: Settings },
 ];
