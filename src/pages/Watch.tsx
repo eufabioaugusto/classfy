@@ -9,6 +9,7 @@ import { Card } from "@/components/ui/card";
 import { Eye, Heart, Clock } from "lucide-react";
 import { ContentActions } from "@/components/ContentActions";
 import { ContentComments } from "@/components/ContentComments";
+import { FollowButton } from "@/components/FollowButton";
 import { useState, useEffect, useRef } from "react";
 
 interface Content {
@@ -206,14 +207,17 @@ export default function Watch() {
             </div>
 
             <Card className="p-4">
-              <div className="flex items-center gap-3 mb-4">
-                <Avatar>
-                  <AvatarImage src={content.creator.avatar_url || ''} />
-                  <AvatarFallback>{content.creator.display_name[0]}</AvatarFallback>
-                </Avatar>
-                <div>
-                  <p className="font-semibold">{content.creator.display_name}</p>
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-3">
+                  <Avatar>
+                    <AvatarImage src={content.creator.avatar_url || ''} />
+                    <AvatarFallback>{content.creator.display_name[0]}</AvatarFallback>
+                  </Avatar>
+                  <div>
+                    <p className="font-semibold">{content.creator.display_name}</p>
+                  </div>
                 </div>
+                <FollowButton creatorId={content.creator.id} size="sm" />
               </div>
               {content.description && (
                 <div>
