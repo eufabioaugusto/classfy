@@ -75,20 +75,53 @@ Deno.serve(async (req) => {
 
     console.log('Content approved successfully');
 
-    // Process reward for content approval
-    const { data: rewardData, error: rewardError } = await supabase.functions.invoke('process-reward', {
-      body: {
-        actionKey: 'CONTENT_APPROVED',
-        userId: content.creator_id,
-        contentId: contentId,
-        metadata: { content_title: content.title }
-      }
-    });
+    // Get reward config to calculate points and value
+    const { data: rewardConfig } = await supabase
+      .from('reward_actions_config')
+      .select('*')
+      .eq('action_key', 'CONTENT_APPROVED')
+      .eq('active', true)
+      .single();
 
-    if (rewardError) {
-      console.error('Error processing reward:', rewardError);
+    const pointsAmount = rewardConfig?.points_creator || 50;
+    const valueAmount = rewardConfig?.value_creator || 5.00;
+
+    // ALWAYS create notification for content approval (independent of reward)
+    const { error: notificationError } = await supabase
+      .from('notifications')
+      .insert({
+        user_id: content.creator_id,
+        type: 'admin',
+        title: 'Conteúdo aprovado! ✅',
+        message: `Seu conteúdo "${content.title}" foi aprovado e publicado! Você ganhou ${pointsAmount} pontos e R$ ${valueAmount.toFixed(2)}!`,
+        related_content_id: contentId,
+        is_read: false
+      });
+
+    if (notificationError) {
+      console.error('Error creating notification:', notificationError);
     } else {
-      console.log('Reward processed:', rewardData);
+      console.log('Approval notification created successfully');
+    }
+
+    // Process reward (don't block response if it fails)
+    try {
+      const { data: rewardData, error: rewardError } = await supabase.functions.invoke('process-reward', {
+        body: {
+          actionKey: 'CONTENT_APPROVED',
+          userId: content.creator_id,
+          contentId: contentId,
+          metadata: { content_title: content.title }
+        }
+      });
+
+      if (rewardError) {
+        console.error('Error processing reward:', rewardError);
+      } else {
+        console.log('Reward processed:', rewardData);
+      }
+    } catch (err) {
+      console.error('Exception processing reward:', err);
     }
 
     return new Response(
