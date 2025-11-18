@@ -124,6 +124,28 @@ Deno.serve(async (req) => {
       console.error('Exception processing reward:', err);
     }
 
+    // Auto-generate transcription for video/audio content (don't block response)
+    if (content.content_type === 'aula' || content.content_type === 'podcast') {
+      console.log('Starting auto-transcription for content:', contentId);
+      
+      // Use EdgeRuntime.waitUntil to run transcription in background
+      try {
+        supabase.functions.invoke('transcribe-content', {
+          body: { contentId: contentId }
+        }).then(({ data, error }) => {
+          if (error) {
+            console.error('Error auto-generating transcription:', error);
+          } else {
+            console.log('Auto-transcription completed:', data);
+          }
+        }).catch(err => {
+          console.error('Exception in auto-transcription:', err);
+        });
+      } catch (err) {
+        console.error('Failed to start auto-transcription:', err);
+      }
+    }
+
     return new Response(
       JSON.stringify({ success: true, message: 'Content approved successfully' }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
