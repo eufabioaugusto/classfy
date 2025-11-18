@@ -269,8 +269,14 @@ IMPORTANTE: Sua recomendação deve ser natural, não uma lista mecânica. Conte
     const data = await response.json();
     const aiMessage = data.choices?.[0]?.message?.content || "Desculpe, não consegui processar sua mensagem.";
 
+    // Return both message and related contents (if this is the first message)
+    const responseData: any = { message: aiMessage };
+    if (isFirstMessage && relatedContents.length > 0) {
+      responseData.relatedContents = relatedContents;
+    }
+
     return new Response(
-      JSON.stringify({ message: aiMessage }),
+      JSON.stringify(responseData),
       {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       }
