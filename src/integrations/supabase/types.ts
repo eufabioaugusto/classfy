@@ -192,6 +192,38 @@ export type Database = {
           },
         ]
       }
+      content_metrics: {
+        Row: {
+          content_id: string
+          created_at: string
+          event: string
+          id: string
+          user_id: string
+        }
+        Insert: {
+          content_id: string
+          created_at?: string
+          event: string
+          id?: string
+          user_id: string
+        }
+        Update: {
+          content_id?: string
+          created_at?: string
+          event?: string
+          id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "content_metrics_content_id_fkey"
+            columns: ["content_id"]
+            isOneToOne: false
+            referencedRelation: "contents"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       contents: {
         Row: {
           category_id: string | null
@@ -199,7 +231,10 @@ export type Database = {
           created_at: string
           creator_id: string
           description: string | null
+          discount: number | null
           duration_minutes: number | null
+          duration_seconds: number | null
+          file_url: string | null
           id: string
           is_free: boolean
           lesson_count: number | null
@@ -207,11 +242,13 @@ export type Database = {
           price: number | null
           published_at: string | null
           required_plan: Database["public"]["Enums"]["plan_type"] | null
+          status: string | null
           thumbnail_url: string | null
           title: string
           updated_at: string
           video_url: string | null
           views_count: number | null
+          visibility: Database["public"]["Enums"]["content_visibility"] | null
         }
         Insert: {
           category_id?: string | null
@@ -219,7 +256,10 @@ export type Database = {
           created_at?: string
           creator_id: string
           description?: string | null
+          discount?: number | null
           duration_minutes?: number | null
+          duration_seconds?: number | null
+          file_url?: string | null
           id?: string
           is_free?: boolean
           lesson_count?: number | null
@@ -227,11 +267,13 @@ export type Database = {
           price?: number | null
           published_at?: string | null
           required_plan?: Database["public"]["Enums"]["plan_type"] | null
+          status?: string | null
           thumbnail_url?: string | null
           title: string
           updated_at?: string
           video_url?: string | null
           views_count?: number | null
+          visibility?: Database["public"]["Enums"]["content_visibility"] | null
         }
         Update: {
           category_id?: string | null
@@ -239,7 +281,10 @@ export type Database = {
           created_at?: string
           creator_id?: string
           description?: string | null
+          discount?: number | null
           duration_minutes?: number | null
+          duration_seconds?: number | null
+          file_url?: string | null
           id?: string
           is_free?: boolean
           lesson_count?: number | null
@@ -247,11 +292,13 @@ export type Database = {
           price?: number | null
           published_at?: string | null
           required_plan?: Database["public"]["Enums"]["plan_type"] | null
+          status?: string | null
           thumbnail_url?: string | null
           title?: string
           updated_at?: string
           video_url?: string | null
           views_count?: number | null
+          visibility?: Database["public"]["Enums"]["content_visibility"] | null
         }
         Relationships: [
           {
@@ -827,7 +874,8 @@ export type Database = {
         | "COURSE_COMPLETE"
         | "IA_INTERACTION"
       app_role: "user" | "creator" | "admin"
-      content_type: "video" | "course"
+      content_type: "aula" | "short" | "podcast"
+      content_visibility: "free" | "pro" | "premium" | "paid"
       creator_status: "none" | "pending" | "approved" | "rejected"
       plan_type: "free" | "pro" | "premium"
       withdraw_status: "pending" | "approved" | "rejected"
@@ -969,7 +1017,8 @@ export const Constants = {
         "IA_INTERACTION",
       ],
       app_role: ["user", "creator", "admin"],
-      content_type: ["video", "course"],
+      content_type: ["aula", "short", "podcast"],
+      content_visibility: ["free", "pro", "premium", "paid"],
       creator_status: ["none", "pending", "approved", "rejected"],
       plan_type: ["free", "pro", "premium"],
       withdraw_status: ["pending", "approved", "rejected"],

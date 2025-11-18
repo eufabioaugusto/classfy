@@ -12,8 +12,12 @@ import Historico from "./pages/Historico";
 import Favoritos from "./pages/Favoritos";
 import Salvos from "./pages/Salvos";
 import Studio from "./pages/Studio";
+import StudioUpload from "./pages/StudioUpload";
 import AdminCreators from "./pages/AdminCreators";
+import AdminContents from "./pages/AdminContents";
 import Study from "./pages/Study";
+import Watch from "./pages/Watch";
+import Listen from "./pages/Listen";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -34,11 +38,11 @@ const App = () => (
               <Route path="/favoritos" element={<Favoritos />} />
               <Route path="/salvos" element={<Salvos />} />
               <Route path="/studio" element={<Studio />} />
-              <Route path="/studio/contents" element={<Studio />} />
-              <Route path="/studio/new" element={<Studio />} />
+              <Route path="/studio/upload" element={<StudioUpload />} />
               <Route path="/admin/creators" element={<AdminCreators />} />
-              <Route path="/admin/users" element={<AdminCreators />} />
-              <Route path="/admin/settings" element={<AdminCreators />} />
+              <Route path="/admin/contents" element={<AdminContents />} />
+              <Route path="/watch/:id" element={<Watch />} />
+              <Route path="/listen/:id" element={<Listen />} />
               <Route path="/c/:id" element={<Study />} />
               <Route path="*" element={<NotFound />} />
             </Routes>

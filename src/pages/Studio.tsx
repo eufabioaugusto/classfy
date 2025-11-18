@@ -4,6 +4,7 @@ import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/AppSidebar";
 import { Video, Eye, Users, TrendingUp } from "lucide-react";
 import { Card } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
 
 export default function Studio() {
   const { user, role, loading } = useAuth();
@@ -40,11 +41,16 @@ export default function Studio() {
 
           <main className="flex-1 p-6 md:p-12">
             <div className="max-w-7xl mx-auto space-y-8">
-              <div>
-                <h2 className="text-3xl font-bold text-foreground mb-2">Bem-vindo ao Studio!</h2>
-                <p className="text-muted-foreground">
-                  Gerencie seus conteúdos, acompanhe métricas e publique novos materiais.
-                </p>
+              <div className="flex items-center justify-between">
+                <div>
+                  <h2 className="text-3xl font-bold text-foreground mb-2">Bem-vindo ao Studio!</h2>
+                  <p className="text-muted-foreground">
+                    Gerencie seus conteúdos, acompanhe métricas e publique novos materiais.
+                  </p>
+                </div>
+                <Button onClick={() => window.location.href = '/studio/upload'}>
+                  Publicar Conteúdo
+                </Button>
               </div>
 
               {/* Stats Grid */}
