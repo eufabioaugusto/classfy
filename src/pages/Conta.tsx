@@ -11,6 +11,7 @@ import { ArrowLeft, Wallet, TrendingUp, DollarSign, Trophy, Sparkles, CheckCircl
 import { Badge } from "@/components/ui/badge";
 import { BecomeCreatorModal } from "@/components/BecomeCreatorModal";
 import { EditableAvatar } from "@/components/EditableAvatar";
+import { UserBadges } from "@/components/UserBadges";
 
 export default function Conta() {
   const { user, loading: authLoading, role, profile: userProfile, refreshProfile } = useAuth();
@@ -316,6 +317,9 @@ export default function Conta() {
               </div>
             </Card>
           )}
+
+          {/* User Badges and Level */}
+          {user && <UserBadges userId={user.id} />}
 
           {(role === 'creator' || role === 'admin') && (
             <Card className="p-8 border-green-500/20 bg-green-500/5">

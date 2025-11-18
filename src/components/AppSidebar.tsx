@@ -28,6 +28,7 @@ import {
   CheckSquare,
   BookOpen,
   Plus,
+  Trophy,
   ChevronRight,
 } from "lucide-react";
 import {
@@ -74,6 +75,7 @@ const studioItems = [
 const adminItems = [
   { title: "Aprovar Creators", url: "/admin/creators", icon: CheckSquare },
   { title: "Aprovar Conteúdos", url: "/admin/contents", icon: Video },
+  { title: "Recompensas", url: "/admin/rewards", icon: Trophy },
   { title: "Gerenciar Usuários", url: "/admin/users", icon: Users },
   { title: "Configurações", url: "/admin/settings", icon: Settings },
 ];

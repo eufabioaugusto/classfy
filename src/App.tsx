@@ -17,6 +17,7 @@ import StudioUpload from "./pages/StudioUpload";
 import StudioContents from "./pages/StudioContents";
 import AdminCreators from "./pages/AdminCreators";
 import AdminContents from "./pages/AdminContents";
+import AdminRewards from "./pages/AdminRewards";
 import Study from "./pages/Study";
 import Watch from "./pages/Watch";
 import Listen from "./pages/Listen";
@@ -44,6 +45,7 @@ const App = () => (
               <Route path="/studio/contents" element={<StudioContents />} />
               <Route path="/admin/creators" element={<AdminCreators />} />
               <Route path="/admin/contents" element={<AdminContents />} />
+              <Route path="/admin/rewards" element={<AdminRewards />} />
               <Route path="/watch/:id" element={<Watch />} />
               <Route path="/listen/:id" element={<Listen />} />
               <Route path="/c/:id" element={<Study />} />

@@ -170,6 +170,26 @@ export function useRewardSystem() {
     }
   };
 
+  const checkProfileCompletion = async (userId: string) => {
+    try {
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('display_name, avatar_url, bio')
+        .eq('id', userId)
+        .single();
+
+      // Profile is complete if has all basic info
+      if (profile?.display_name && profile?.avatar_url && profile?.bio) {
+        await processReward({
+          actionKey: 'PROFILE_COMPLETE',
+          userId,
+        });
+      }
+    } catch (error) {
+      console.error('Error checking profile completion:', error);
+    }
+  };
+
   const trackProgress = async (
     userId: string,
     contentId: string,
@@ -236,5 +256,6 @@ export function useRewardSystem() {
     handleFollow,
     checkDailyLogin,
     checkCourseCompletion,
+    checkProfileCompletion,
   };
 }
