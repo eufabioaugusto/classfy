@@ -98,6 +98,7 @@ export default function Study() {
       setStudy(data);
     } catch (error) {
       console.error("Error fetching study:", error);
+      toast.error("Estudo não encontrado");
       navigate("/");
     } finally {
       setLoading(false);
@@ -172,6 +173,8 @@ export default function Study() {
       await fetchMessages();
     } catch (error: any) {
       console.error("Error sending initial message:", error);
+      toast.error("Erro ao iniciar conversa. Estudo não encontrado.");
+      navigate("/");
     } finally {
       setSending(false);
     }
