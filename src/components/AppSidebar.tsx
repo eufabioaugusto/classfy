@@ -4,6 +4,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useStudies } from "@/hooks/useStudies";
 import { BecomeCreatorModal } from "@/components/BecomeCreatorModal";
 import { ProfileAvatar } from "@/components/ProfileAvatar";
+import { CreatorStatsCard } from "@/components/CreatorStatsCard";
 import { useState } from "react";
 import {
   Home,
@@ -106,15 +107,39 @@ export function AppSidebar() {
           
           {/* User Profile in Header */}
           {user && !collapsed && (
-            <div 
-              className="flex items-center gap-3 p-3 rounded-lg bg-muted/50 hover:bg-muted cursor-pointer transition-colors"
-              onClick={() => navigate("/conta")}
-            >
-              <ProfileAvatar size="sm" />
-              <div className="flex flex-col gap-0.5 leading-none flex-1 min-w-0">
-                <span className="text-sm font-medium truncate">{profile?.display_name}</span>
-                <span className="text-xs text-muted-foreground capitalize">{profile?.plan}</span>
+            <>
+              <div 
+                className="flex items-center gap-3 p-3 rounded-lg bg-muted/50 hover:bg-muted cursor-pointer transition-colors"
+                onClick={() => navigate("/conta")}
+              >
+                <ProfileAvatar size="sm" />
+                <div className="flex flex-col gap-0.5 leading-none flex-1 min-w-0">
+                  <span className="text-sm font-medium truncate">{profile?.display_name}</span>
+                  <span className="text-xs text-muted-foreground capitalize">{profile?.plan}</span>
+                </div>
               </div>
+              
+              {/* Creator Stats Card */}
+              {(role === 'creator' || role === 'admin') && (
+                <CreatorStatsCard userId={user.id} collapsed={collapsed} />
+              )}
+            </>
+          )}
+          
+          {/* Mini avatar when collapsed */}
+          {user && collapsed && (
+            <div className="flex flex-col items-center gap-2">
+              <div 
+                className="cursor-pointer"
+                onClick={() => navigate("/conta")}
+              >
+                <ProfileAvatar size="sm" />
+              </div>
+              
+              {/* Creator Stats Mini */}
+              {(role === 'creator' || role === 'admin') && (
+                <CreatorStatsCard userId={user.id} collapsed={true} />
+              )}
             </div>
           )}
         </div>
