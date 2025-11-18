@@ -37,16 +37,10 @@ export default function StudioContents() {
   const [isLoading, setIsLoading] = useState(true);
   const [filterType, setFilterType] = useState<string>("all");
 
-  if (loading) {
-    return <div className="min-h-screen flex items-center justify-center">Carregando...</div>;
-  }
-
-  if (!user || (role !== 'creator' && role !== 'admin')) {
-    return <Navigate to="/" replace />;
-  }
-
   useEffect(() => {
-    fetchContents();
+    if (user) {
+      fetchContents();
+    }
   }, [user]);
 
   useEffect(() => {
@@ -132,6 +126,14 @@ export default function StudioContents() {
         return <Badge variant="outline">Desconhecido</Badge>;
     }
   };
+
+  if (loading) {
+    return <div className="min-h-screen flex items-center justify-center">Carregando...</div>;
+  }
+
+  if (!user || (role !== 'creator' && role !== 'admin')) {
+    return <Navigate to="/" replace />;
+  }
 
   return (
     <SidebarProvider defaultOpen={true}>
