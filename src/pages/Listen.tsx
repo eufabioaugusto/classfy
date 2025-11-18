@@ -115,6 +115,52 @@ export default function Listen() {
     }
   };
 
+  const checkBingeWatch = async () => {
+    if (!user) return;
+    
+    const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+    const { data: recentCompletions } = await supabase
+      .from('content_metrics')
+      .select('content_id')
+      .eq('user_id', user.id)
+      .eq('event', 'complete')
+      .gte('created_at', oneHourAgo)
+      .order('created_at', { ascending: false })
+      .limit(3);
+
+    if (recentCompletions && recentCompletions.length >= 3) {
+      await processReward({
+        actionKey: 'BINGE_WATCH',
+        userId: user.id,
+        metadata: { contentCount: recentCompletions.length },
+      });
+    }
+  };
+
+  const checkFirstContentWeek = async () => {
+    if (!user) return;
+    
+    const startOfWeek = new Date();
+    startOfWeek.setDate(startOfWeek.getDate() - startOfWeek.getDay());
+    startOfWeek.setHours(0, 0, 0, 0);
+    
+    const { data: weeklyViews } = await supabase
+      .from('content_metrics')
+      .select('id')
+      .eq('user_id', user.id)
+      .eq('event', 'start')
+      .gte('created_at', startOfWeek.toISOString())
+      .limit(1);
+
+    if (!weeklyViews || weeklyViews.length === 0) {
+      await processReward({
+        actionKey: 'FIRST_CONTENT_WEEK',
+        userId: user.id,
+        contentId: content.id,
+      });
+    }
+  };
+
   const handleTimeUpdate = async () => {
     if (!audioRef.current || !content || !user) return;
     const currentTime = audioRef.current.currentTime;
@@ -126,9 +172,15 @@ export default function Listen() {
       setView15sRecorded(true);
     }
 
-    if (!metricsRecorded.start && currentTime > 0) await recordMetric('start');
+    if (!metricsRecorded.start && currentTime > 0) {
+      await recordMetric('start');
+      await checkFirstContentWeek();
+    }
     if (!metricsRecorded.half && currentTime > duration / 2) await recordMetric('half');
-    if (!metricsRecorded.complete && currentTime > duration * 0.95) await recordMetric('complete');
+    if (!metricsRecorded.complete && currentTime > duration * 0.95) {
+      await recordMetric('complete');
+      await checkBingeWatch();
+    }
 
     await trackProgress(user.id, content.id, percent, currentTime);
   };

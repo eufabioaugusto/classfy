@@ -12,6 +12,7 @@ import { Badge } from "@/components/ui/badge";
 import { BecomeCreatorModal } from "@/components/BecomeCreatorModal";
 import { EditableAvatar } from "@/components/EditableAvatar";
 import { UserBadges } from "@/components/UserBadges";
+import { useProfileComplete } from "@/hooks/useProfileComplete";
 
 export default function Conta() {
   const { user, loading: authLoading, role, profile: userProfile, refreshProfile } = useAuth();
@@ -24,6 +25,9 @@ export default function Conta() {
   const [pixKey, setPixKey] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [creatorModalOpen, setCreatorModalOpen] = useState(false);
+
+  // Check if profile is complete and reward user
+  useProfileComplete(user?.id, profile);
 
   useEffect(() => {
     if (!authLoading && !user) {

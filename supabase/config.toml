@@ -1,5 +1,8 @@
 project_id = "vhmurjknxaacjmvfkjbw"
 
+[functions.check-view-milestones]
+verify_jwt = false
+
 [functions.classy-chat]
 verify_jwt = true
 
