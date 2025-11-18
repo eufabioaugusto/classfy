@@ -51,6 +51,7 @@ export default function Study() {
   const [messageContents, setMessageContents] = useState<Map<string, any[]>>(new Map());
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(true);
+  const [loadingMessages, setLoadingMessages] = useState(true);
   const [sending, setSending] = useState(false);
   const [initialMessageSent, setInitialMessageSent] = useState(false);
   const [renameDialogOpen, setRenameDialogOpen] = useState(false);
@@ -78,13 +79,25 @@ export default function Study() {
     scrollToBottom();
   }, [messages]);
 
-  // Send initial message when chat is empty
+  // Send initial message ONLY when:
+  // 1. Study is loaded
+  // 2. Messages have been loaded (not still loading)
+  // 3. There are truly no messages
+  // 4. We haven't sent initial message yet
+  // 5. We're not currently loading or sending
   useEffect(() => {
-    if (study && messages.length === 0 && !initialMessageSent && !loading && !sending) {
+    if (
+      study && 
+      !loadingMessages && 
+      messages.length === 0 && 
+      !initialMessageSent && 
+      !loading && 
+      !sending
+    ) {
       setInitialMessageSent(true);
       sendInitialMessage();
     }
-  }, [study, messages, initialMessageSent, loading, sending]);
+  }, [study, loadingMessages, messages.length, initialMessageSent, loading, sending]);
 
   const scrollToBottom = () => {
     if (scrollRef.current) {
@@ -117,6 +130,7 @@ export default function Study() {
   const fetchMessages = async () => {
     if (!id) return;
 
+    setLoadingMessages(true);
     try {
       const { data, error } = await supabase
         .from("study_messages")
@@ -129,6 +143,8 @@ export default function Study() {
       setMessages((data || []) as StudyMessage[]);
     } catch (error) {
       console.error("Error fetching messages:", error);
+    } finally {
+      setLoadingMessages(false);
     }
   };
 
