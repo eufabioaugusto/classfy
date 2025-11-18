@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useAuth } from "@/contexts/AuthContext";
-import { Navigate, useNavigate } from "react-router-dom";
+import { Navigate, useNavigate, useSearchParams } from "react-router-dom";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/AppSidebar";
 import { Button } from "@/components/ui/button";
@@ -11,16 +11,24 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Card } from "@/components/ui/card";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
-import { Upload, Video, Music, Film } from "lucide-react";
+import { Upload, Video, Music, Film, BookOpen, Radio } from "lucide-react";
 
-type ContentType = "aula" | "short" | "podcast";
+type ContentType = "aula" | "short" | "podcast" | "curso" | "live";
 type Visibility = "free" | "pro" | "premium" | "paid";
 
 export default function StudioUpload() {
   const { user, role, profile, loading } = useAuth();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   
   const [contentType, setContentType] = useState<ContentType>("aula");
+  
+  useEffect(() => {
+    const type = searchParams.get('type') as ContentType;
+    if (type && ["aula", "short", "podcast", "curso", "live"].includes(type)) {
+      setContentType(type);
+    }
+  }, [searchParams]);
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [visibility, setVisibility] = useState<Visibility>("free");
@@ -95,7 +103,7 @@ export default function StudioUpload() {
       };
     }
 
-    if (contentType === "aula") {
+    if (contentType === "aula" || contentType === "curso" || contentType === "live") {
       const video = document.createElement("video");
       video.src = URL.createObjectURL(file);
       video.onloadedmetadata = () => {
@@ -165,10 +173,13 @@ export default function StudioUpload() {
 
     setSubmitting(true);
     try {
+      // Map frontend content types to database types
+      const dbContentType = contentType === "curso" || contentType === "live" ? "aula" : contentType;
+      
       const { error } = await supabase
         .from('contents')
         .insert({
-          content_type: contentType,
+          content_type: dbContentType,
           title,
           description: description || null,
           file_url: fileUrl,
@@ -204,7 +215,13 @@ export default function StudioUpload() {
             <div className="flex items-center justify-between px-6 py-4">
               <div className="flex items-center gap-4">
                 <SidebarTrigger />
-                <h1 className="text-2xl font-bold text-foreground">Publicar Conteúdo</h1>
+                <h1 className="text-2xl font-bold text-foreground">
+                  {contentType === "aula" && "Publicar Aula"}
+                  {contentType === "curso" && "Criar Curso"}
+                  {contentType === "podcast" && "Enviar Podcast"}
+                  {contentType === "short" && "Postar Short"}
+                  {contentType === "live" && "Transmitir ao Vivo"}
+                </h1>
               </div>
             </div>
           </header>
@@ -215,7 +232,7 @@ export default function StudioUpload() {
                 {/* Tipo de Conteúdo */}
                 <Card className="p-6">
                   <Label>Tipo de Conteúdo</Label>
-                  <div className="grid grid-cols-3 gap-4 mt-4">
+                  <div className="grid grid-cols-3 md:grid-cols-5 gap-4 mt-4">
                     <Button
                       type="button"
                       variant={contentType === "aula" ? "default" : "outline"}
@@ -223,16 +240,16 @@ export default function StudioUpload() {
                       className="flex flex-col gap-2 h-auto py-4"
                     >
                       <Video className="w-6 h-6" />
-                      Aula
+                      <span className="text-xs">Aula</span>
                     </Button>
                     <Button
                       type="button"
-                      variant={contentType === "short" ? "default" : "outline"}
-                      onClick={() => setContentType("short")}
+                      variant={contentType === "curso" ? "default" : "outline"}
+                      onClick={() => setContentType("curso")}
                       className="flex flex-col gap-2 h-auto py-4"
                     >
-                      <Film className="w-6 h-6" />
-                      Short
+                      <BookOpen className="w-6 h-6" />
+                      <span className="text-xs">Curso</span>
                     </Button>
                     <Button
                       type="button"
@@ -241,7 +258,25 @@ export default function StudioUpload() {
                       className="flex flex-col gap-2 h-auto py-4"
                     >
                       <Music className="w-6 h-6" />
-                      Podcast
+                      <span className="text-xs">Podcast</span>
+                    </Button>
+                    <Button
+                      type="button"
+                      variant={contentType === "short" ? "default" : "outline"}
+                      onClick={() => setContentType("short")}
+                      className="flex flex-col gap-2 h-auto py-4"
+                    >
+                      <Film className="w-6 h-6" />
+                      <span className="text-xs">Short</span>
+                    </Button>
+                    <Button
+                      type="button"
+                      variant={contentType === "live" ? "default" : "outline"}
+                      onClick={() => setContentType("live")}
+                      className="flex flex-col gap-2 h-auto py-4"
+                    >
+                      <Radio className="w-6 h-6" />
+                      <span className="text-xs">Ao Vivo</span>
                     </Button>
                   </div>
                 </Card>
@@ -259,6 +294,11 @@ export default function StudioUpload() {
                   {fileUrl && <p className="text-sm text-green-500 mt-2">✓ Arquivo enviado</p>}
                   {contentType === "short" && (
                     <p className="text-xs text-muted-foreground mt-1">Máximo 180 segundos</p>
+                  )}
+                  {contentType === "live" && (
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Para transmissões ao vivo, faça upload de uma gravação ou configure a URL de streaming
+                    </p>
                   )}
                 </Card>
 
