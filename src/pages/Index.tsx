@@ -1,27 +1,19 @@
 import { useState } from "react";
 import { useAuth } from "@/contexts/AuthContext";
-import { useTheme } from "@/contexts/ThemeContext";
 import { useNavigate } from "react-router-dom";
-import { Button } from "@/components/ui/button";
 import { ContentCard } from "@/components/ContentCard";
 import { ConversionModal } from "@/components/ConversionModal";
 import { SearchBar } from "@/components/SearchBar";
-import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
+import { SidebarProvider } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/AppSidebar";
-import { Sparkles, User, Menu, AlertCircle, Moon, Sun, BookOpen } from "lucide-react";
+import { Header } from "@/components/Header";
+import { Sparkles, AlertCircle, BookOpen } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { useStudies } from "@/hooks/useStudies";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { GlobalLoader } from "@/components/GlobalLoader";
 
 export default function Index() {
   const { user, loading: authLoading, profile } = useAuth();
-  const { theme, toggleTheme } = useTheme();
   const navigate = useNavigate();
   const { activeCount, limit, canCreateMore } = useStudies();
   
@@ -83,57 +75,7 @@ export default function Index() {
 
         {/* Main Content */}
         <div className="flex-1 flex flex-col">
-          {/* Header */}
-          <header className="sticky top-0 z-50 border-b border-border/20 bg-background/95 backdrop-blur-xl">
-            <div className="flex items-center justify-between px-6 py-4">
-              <div className="flex items-center gap-4">
-                <SidebarTrigger />
-              </div>
-
-              {/* User Actions */}
-              <div className="flex items-center gap-3">
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={toggleTheme}
-                  className="text-foreground"
-                >
-                  {theme === "dark" ? (
-                    <Sun className="w-5 h-5" />
-                  ) : (
-                    <Moon className="w-5 h-5" />
-                  )}
-                </Button>
-                
-                {user ? (
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button variant="ghost" size="icon" className="text-foreground">
-                        <Menu className="w-5 h-5" />
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end" className="w-56">
-                      <DropdownMenuItem onClick={() => navigate("/conta")}>
-                        <User className="w-4 h-4 mr-2" />
-                        Minha Conta
-                      </DropdownMenuItem>
-                      <DropdownMenuItem onClick={() => navigate("/studio")}>
-                        <Sparkles className="w-4 h-4 mr-2" />
-                        Studio Creator
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                ) : (
-                  <>
-                    <Button variant="ghost" onClick={() => navigate("/auth")}>
-                      Entrar
-                    </Button>
-                    <Button onClick={() => navigate("/auth")}>Criar Conta</Button>
-                  </>
-                )}
-              </div>
-            </div>
-          </header>
+          <Header variant="home" />
 
           {/* Content Area */}
           <main className="flex-1 flex flex-col items-center justify-start p-6 md:p-12">
