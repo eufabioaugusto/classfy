@@ -25,6 +25,7 @@ interface Content {
   duration_seconds: number;
   views_count: number;
   likes_count: number;
+  status?: string;
   creator: {
     id: string;
     display_name: string;
@@ -34,7 +35,7 @@ interface Content {
 
 export default function Watch() {
   const { id } = useParams();
-  const { user, profile, loading } = useAuth();
+  const { user, profile, loading, role } = useAuth();
   const [content, setContent] = useState<Content | null>(null);
   const [loadingContent, setLoadingContent] = useState(true);
   const [hasAccess, setHasAccess] = useState(false);
@@ -55,7 +56,7 @@ export default function Watch() {
 
   const fetchContent = async () => {
     try {
-      const { data, error } = await supabase
+      let query = supabase
         .from('contents')
         .select(`
           id,
@@ -69,11 +70,17 @@ export default function Watch() {
           duration_seconds,
           views_count,
           likes_count,
+          status,
           creator:profiles!creator_id(id, display_name, avatar_url)
         `)
-        .eq('id', id)
-        .eq('status', 'approved')
-        .single();
+        .eq('id', id);
+
+      // Only filter by approved status if user is not admin
+      if (role !== 'admin') {
+        query = query.eq('status', 'approved');
+      }
+
+      const { data, error } = await query.single();
 
       if (error) throw error;
 
@@ -93,6 +100,12 @@ export default function Watch() {
 
   const checkAccess = (content: Content) => {
     if (!profile) return;
+
+    // Admins always have access
+    if (role === 'admin') {
+      setHasAccess(true);
+      return;
+    }
 
     const userPlan = profile.plan || 'free';
 
