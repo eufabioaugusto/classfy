@@ -190,33 +190,28 @@ TOM E ESTILO:
     // Add content recommendations to system prompt if available
     if (relatedContents.length > 0) {
       systemPrompt += `\n\n═══════════════════════════════════════════════════════════
-CONTEÚDOS ENCONTRADOS (serão exibidos em cards abaixo da sua mensagem):
+CONTEÚDOS ENCONTRADOS:
+Encontrei ${relatedContents.length} conteúdo(s) relevante(s) que serão exibidos automaticamente em CARDS VISUAIS abaixo da sua mensagem.
 ═══════════════════════════════════════════════════════════\n`;
       relatedContents.forEach((content: any, index: number) => {
-        const matchPercent = Math.min(100, Math.round((content.matchScore / 10) * 100));
-        systemPrompt += `\n${index + 1}. "${content.title}"`;
-        systemPrompt += `\n   Relevância: ${matchPercent}%`;
-        systemPrompt += `\n   Tipo: ${content.content_type === 'aula' ? 'Aula' : content.content_type === 'podcast' ? 'Podcast' : 'Short'}`;
-        if (content.description) {
-          systemPrompt += `\n   Sobre: ${content.description.substring(0, 100)}...`;
-        }
-        systemPrompt += `\n`;
+        systemPrompt += `${index + 1}. "${content.title}" (${content.content_type})\n`;
       });
       
       if (isFirstMessage) {
         systemPrompt += `\n═══════════════════════════════════════════════════════════
-INSTRUÇÕES PARA PRIMEIRA RESPOSTA:
+INSTRUÇÕES CRÍTICAS PARA PRIMEIRA RESPOSTA:
 - Apresente-se: "Olá ${userName}, sou a Classy, e estou aqui para guiar você nessa jornada de aprendizado dentro da Classfy."
-- Diga em 1 frase o que você encontrou sobre "${study.title}"
-- Mencione que os conteúdos aparecem em cards abaixo
-- SEJA BREVE: máximo 3 frases no total`;
+- Diga em 1 frase curta que encontrou conteúdos sobre "${study.title}"
+- **NUNCA LISTE OS CARDS EM TEXTO** - eles aparecem automaticamente como componentes visuais
+- Diga apenas "Veja os conteúdos abaixo:" ou similar
+- MÁXIMO 3 frases curtas`;
       } else {
         systemPrompt += `\n═══════════════════════════════════════════════════════════
-INSTRUÇÕES PARA ESTA RESPOSTA:
-- Reconheça o interesse do usuário em 1 frase
-- Mencione brevemente que encontrou conteúdos relevantes
-- Os cards aparecerão automaticamente abaixo
-- SEJA BREVE: máximo 2-3 frases no total`;
+INSTRUÇÕES CRÍTICAS PARA ESTA RESPOSTA:
+- Reconheça o interesse em 1 frase curta
+- **NUNCA LISTE OS CARDS EM TEXTO** - eles aparecem automaticamente como componentes visuais
+- Diga apenas "Separei alguns conteúdos:" ou "Confira abaixo:"
+- MÁXIMO 2 frases curtas`;
       }
     } else if (isFirstMessage) {
       systemPrompt += `\n\nINSTRUÇÕES PARA PRIMEIRA RESPOSTA SEM CONTEÚDOS:
