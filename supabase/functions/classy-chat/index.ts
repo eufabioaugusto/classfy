@@ -15,20 +15,62 @@ serve(async (req) => {
   try {
     const { studyId, message } = await req.json();
 
+    // Get authenticated user from JWT
+    const authHeader = req.headers.get('authorization');
+    if (!authHeader) {
+      return new Response(
+        JSON.stringify({ error: 'Não autorizado' }),
+        {
+          status: 401,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        }
+      );
+    }
+
+    const token = authHeader.replace('Bearer ', '');
     const supabaseClient = createClient(
+      Deno.env.get("SUPABASE_URL") ?? "",
+      Deno.env.get("SUPABASE_ANON_KEY") ?? ""
+    );
+
+    const { data: { user }, error: userError } = await supabaseClient.auth.getUser(token);
+    
+    if (userError || !user) {
+      return new Response(
+        JSON.stringify({ error: 'Não autorizado' }),
+        {
+          status: 401,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        }
+      );
+    }
+
+    // Verify study ownership
+    const { data: study, error: studyError } = await supabaseClient
+      .from("studies")
+      .select("*")
+      .eq("id", studyId)
+      .eq("user_id", user.id)
+      .single();
+
+    if (studyError || !study) {
+      return new Response(
+        JSON.stringify({ error: 'Estudo não encontrado ou acesso negado' }),
+        {
+          status: 404,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        }
+      );
+    }
+
+    // Use service role key for AI operations
+    const supabaseServiceClient = createClient(
       Deno.env.get("SUPABASE_URL") ?? "",
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? ""
     );
 
-    // Fetch study details
-    const { data: study } = await supabaseClient
-      .from("studies")
-      .select("*")
-      .eq("id", studyId)
-      .single();
-
     // Fetch conversation history
-    const { data: messages } = await supabaseClient
+    const { data: messages } = await supabaseServiceClient
       .from("study_messages")
       .select("*")
       .eq("study_id", studyId)
