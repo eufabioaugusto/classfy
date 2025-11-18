@@ -106,6 +106,16 @@ Deno.serve(async (req) => {
 
     // Process reward (don't block response if it fails)
     try {
+      // Check if this is the first approved content
+      const { count: approvedCount } = await supabase
+        .from('contents')
+        .select('*', { count: 'exact', head: true })
+        .eq('creator_id', content.creator_id)
+        .eq('status', 'approved');
+
+      const isFirstApproval = approvedCount === 1; // Including the one we just approved
+
+      // Process CONTENT_APPROVED reward
       const { data: rewardData, error: rewardError } = await supabase.functions.invoke('process-reward', {
         body: {
           actionKey: 'CONTENT_APPROVED',
@@ -119,6 +129,25 @@ Deno.serve(async (req) => {
         console.error('Error processing reward:', rewardError);
       } else {
         console.log('Reward processed:', rewardData);
+      }
+
+      // Process FIRST_UPLOAD reward if this is the first approval
+      if (isFirstApproval) {
+        console.log('First upload detected for creator:', content.creator_id);
+        const { error: firstUploadError } = await supabase.functions.invoke('process-reward', {
+          body: {
+            actionKey: 'FIRST_UPLOAD',
+            userId: content.creator_id,
+            contentId: contentId,
+            metadata: { first_content_title: content.title }
+          }
+        });
+
+        if (firstUploadError) {
+          console.error('Error processing first upload reward:', firstUploadError);
+        } else {
+          console.log('First upload reward processed');
+        }
       }
     } catch (err) {
       console.error('Exception processing reward:', err);

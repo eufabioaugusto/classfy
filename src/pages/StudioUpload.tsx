@@ -262,6 +262,14 @@ export default function StudioUpload() {
 
     setSubmitting(true);
     try {
+      // Check if this is the first upload
+      const { count: contentCount } = await supabase
+        .from('contents')
+        .select('*', { count: 'exact', head: true })
+        .eq('creator_id', user.id);
+
+      const isFirstUpload = contentCount === 0;
+
       // Map frontend content types to database types
       const dbContentType = contentType === "curso" || contentType === "live" ? "aula" : contentType;
       
