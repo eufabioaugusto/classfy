@@ -5,9 +5,36 @@ import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Loader2, Send, ArrowLeft } from "lucide-react";
+import { Loader2, Send, ArrowLeft, MoreVertical, Edit2, Share2, Trash2 } from "lucide-react";
 import { StudyMessage } from "@/hooks/useStudies";
 import { useStudies } from "@/hooks/useStudies";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { Label } from "@/components/ui/label";
+import { toast } from "sonner";
 
 export default function Study() {
   const { id } = useParams<{ id: string }>();
@@ -21,6 +48,9 @@ export default function Study() {
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [initialMessageSent, setInitialMessageSent] = useState(false);
+  const [renameDialogOpen, setRenameDialogOpen] = useState(false);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [newTitle, setNewTitle] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -196,9 +226,64 @@ export default function Study() {
       await fetchMessages();
     } catch (error: any) {
       console.error("Error sending message:", error);
+      toast.error("Erro ao enviar mensagem");
     } finally {
       setSending(false);
     }
+  };
+
+  const handleRename = async () => {
+    if (!newTitle.trim() || !id) return;
+
+    try {
+      const { error } = await supabase
+        .from("studies")
+        .update({ title: newTitle.trim() })
+        .eq("id", id);
+
+      if (error) throw error;
+
+      setStudy({ ...study, title: newTitle.trim() });
+      setRenameDialogOpen(false);
+      toast.success("Estudo renomeado com sucesso!");
+    } catch (error) {
+      console.error("Error renaming study:", error);
+      toast.error("Erro ao renomear estudo");
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!id) return;
+
+    try {
+      // Delete messages first
+      const { error: messagesError } = await supabase
+        .from("study_messages")
+        .delete()
+        .eq("study_id", id);
+
+      if (messagesError) throw messagesError;
+
+      // Delete study
+      const { error: studyError } = await supabase
+        .from("studies")
+        .delete()
+        .eq("id", id);
+
+      if (studyError) throw studyError;
+
+      toast.success("Estudo excluído com sucesso!");
+      navigate("/");
+    } catch (error) {
+      console.error("Error deleting study:", error);
+      toast.error("Erro ao excluir estudo");
+    }
+  };
+
+  const handleShare = () => {
+    const url = window.location.href;
+    navigator.clipboard.writeText(url);
+    toast.success("Link copiado para a área de transferência!");
   };
 
   if (loading) {
@@ -217,24 +302,62 @@ export default function Study() {
     <div className="flex flex-col h-screen bg-background">
       {/* Header */}
       <header className="border-b border-border bg-card px-6 py-4">
-        <div className="flex items-center gap-4">
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={() => navigate("/")}
-          >
-            <ArrowLeft className="w-5 h-5" />
-          </Button>
-          <div className="flex-1">
-            <h1 className="text-xl font-semibold text-foreground">
-              {study.title}
-            </h1>
-            {study.description && (
-              <p className="text-sm text-muted-foreground mt-1">
-                {study.description}
-              </p>
-            )}
+        <div className="flex items-center justify-between gap-4">
+          <div className="flex items-center gap-4 flex-1">
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => navigate("/")}
+            >
+              <ArrowLeft className="w-5 h-5" />
+            </Button>
+            <div className="flex-1">
+              <h1 className="text-xl font-semibold text-foreground">
+                {study.title}
+              </h1>
+              {study.description && (
+                <p className="text-sm text-muted-foreground mt-1">
+                  {study.description}
+                </p>
+              )}
+            </div>
           </div>
+
+          {/* Actions Menu */}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" size="icon">
+                <MoreVertical className="w-5 h-5" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-48">
+              <DropdownMenuItem
+                onClick={() => {
+                  setNewTitle(study.title);
+                  setRenameDialogOpen(true);
+                }}
+                className="cursor-pointer"
+              >
+                <Edit2 className="w-4 h-4 mr-2" />
+                Renomear
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={handleShare}
+                className="cursor-pointer"
+              >
+                <Share2 className="w-4 h-4 mr-2" />
+                Compartilhar
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                onClick={() => setDeleteDialogOpen(true)}
+                className="cursor-pointer text-destructive focus:text-destructive"
+              >
+                <Trash2 className="w-4 h-4 mr-2" />
+                Excluir
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </header>
 
@@ -303,6 +426,62 @@ export default function Study() {
           </form>
         </div>
       </div>
+
+      {/* Rename Dialog */}
+      <Dialog open={renameDialogOpen} onOpenChange={setRenameDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Renomear Estudo</DialogTitle>
+            <DialogDescription>
+              Digite o novo nome para este estudo.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <Label htmlFor="new-title">Novo nome</Label>
+            <Input
+              id="new-title"
+              value={newTitle}
+              onChange={(e) => setNewTitle(e.target.value)}
+              placeholder="Digite o novo nome..."
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  handleRename();
+                }
+              }}
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRenameDialogOpen(false)}>
+              Cancelar
+            </Button>
+            <Button onClick={handleRename} disabled={!newTitle.trim()}>
+              Renomear
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Confirmation Dialog */}
+      <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Excluir Estudo</AlertDialogTitle>
+            <AlertDialogDescription>
+              Tem certeza que deseja excluir este estudo? Esta ação não pode ser desfeita.
+              Todas as mensagens e conversas serão permanentemente removidas.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDelete}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              Excluir
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
