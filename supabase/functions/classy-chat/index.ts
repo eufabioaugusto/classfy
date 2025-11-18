@@ -45,32 +45,25 @@ serve(async (req) => {
       );
     }
 
-    // Verify study ownership with retries for consistency
-    let study = null;
-    let attempts = 0;
-    const maxAttempts = 3;
-    
-    while (attempts < maxAttempts && !study) {
-      const { data, error } = await supabaseClient
-        .from("studies")
-        .select("*")
-        .eq("id", studyId)
-        .eq("user_id", user.id)
-        .single();
-      
-      if (data) {
-        study = data;
-        break;
-      }
-      
-      if (attempts < maxAttempts - 1) {
-        await new Promise(resolve => setTimeout(resolve, 300));
-      }
-      attempts++;
-    }
+    // Use service role key for all DB operations (bypasses RLS; we validate manual ownership)
+    const supabaseServiceClient = createClient(
+      Deno.env.get("SUPABASE_URL") ?? "",
+      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? ""
+    );
 
-    if (!study) {
-      console.error('Study not found after retries:', { studyId, userId: user.id });
+    // Verify study ownership
+    const { data: study, error: studyError } = await supabaseServiceClient
+      .from("studies")
+      .select("*")
+      .eq("id", studyId)
+      .single();
+
+    if (studyError || !study || study.user_id !== user.id) {
+      console.error('Study not found or access denied:', {
+        studyId,
+        userId: user.id,
+        studyError,
+      });
       return new Response(
         JSON.stringify({ error: 'Estudo não encontrado ou acesso negado' }),
         {
@@ -80,11 +73,6 @@ serve(async (req) => {
       );
     }
 
-    // Use service role key for AI operations
-    const supabaseServiceClient = createClient(
-      Deno.env.get("SUPABASE_URL") ?? "",
-      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? ""
-    );
 
     // Fetch conversation history
     const { data: messages } = await supabaseServiceClient
