@@ -2,3 +2,6 @@ project_id = "vhmurjknxaacjmvfkjbw"
 
 [functions.classy-chat]
 verify_jwt = true
+
+[functions.batch-transcribe-contents]
+verify_jwt = true

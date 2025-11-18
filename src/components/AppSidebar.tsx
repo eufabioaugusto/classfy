@@ -30,6 +30,7 @@ import {
   Plus,
   Trophy,
   ChevronRight,
+  FileText,
 } from "lucide-react";
 import {
   Sidebar,
@@ -75,6 +76,7 @@ const studioItems = [
 const adminItems = [
   { title: "Aprovar Creators", url: "/admin/creators", icon: CheckSquare },
   { title: "Aprovar Conteúdos", url: "/admin/contents", icon: Video },
+  { title: "Transcrições", url: "/admin/transcriptions", icon: FileText },
   { title: "Recompensas", url: "/admin/rewards", icon: Trophy },
   { title: "Gerenciar Usuários", url: "/admin/users", icon: Users },
   { title: "Configurações", url: "/admin/settings", icon: Settings },

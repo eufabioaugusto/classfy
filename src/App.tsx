@@ -18,6 +18,7 @@ import StudioContents from "./pages/StudioContents";
 import AdminCreators from "./pages/AdminCreators";
 import AdminContents from "./pages/AdminContents";
 import AdminRewards from "./pages/AdminRewards";
+import AdminTranscriptions from "./pages/AdminTranscriptions";
 import RewardsHistory from "./pages/RewardsHistory";
 import Study from "./pages/Study";
 import Watch from "./pages/Watch";
@@ -47,6 +48,7 @@ const App = () => (
               <Route path="/admin/creators" element={<AdminCreators />} />
               <Route path="/admin/contents" element={<AdminContents />} />
               <Route path="/admin/rewards" element={<AdminRewards />} />
+              <Route path="/admin/transcriptions" element={<AdminTranscriptions />} />
               <Route path="/rewards" element={<RewardsHistory />} />
               <Route path="/watch/:id" element={<Watch />} />
               <Route path="/listen/:id" element={<Listen />} />
