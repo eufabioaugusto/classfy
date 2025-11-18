@@ -761,6 +761,7 @@ export type Database = {
           content: string
           created_at: string
           id: string
+          related_contents: Json | null
           role: string
           study_id: string
         }
@@ -768,6 +769,7 @@ export type Database = {
           content: string
           created_at?: string
           id?: string
+          related_contents?: Json | null
           role: string
           study_id: string
         }
@@ -775,6 +777,7 @@ export type Database = {
           content?: string
           created_at?: string
           id?: string
+          related_contents?: Json | null
           role?: string
           study_id?: string
         }

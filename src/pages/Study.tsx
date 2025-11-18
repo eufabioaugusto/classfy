@@ -141,6 +141,17 @@ export default function Study() {
       if (error) throw error;
 
       setMessages((data || []) as StudyMessage[]);
+      
+      // Load related contents from database
+      if (data) {
+        const newContentsMap = new Map();
+        data.forEach((msg: any) => {
+          if (msg.related_contents && msg.related_contents.length > 0) {
+            newContentsMap.set(msg.id, msg.related_contents);
+          }
+        });
+        setMessageContents(newContentsMap);
+      }
     } catch (error) {
       console.error("Error fetching messages:", error);
     } finally {
@@ -184,27 +195,19 @@ export default function Study() {
 
       if (aiError) throw aiError;
 
-      // Save AI response
+      // Save AI response with related contents
       const { data: aiMessageData, error: aiMessageError } = await supabase
         .from("study_messages")
         .insert({
           study_id: id,
           role: "assistant",
           content: aiData.message,
+          related_contents: aiData.relatedContents || null,
         })
         .select()
         .single();
 
       if (aiMessageError) throw aiMessageError;
-
-      // Store related contents if available
-      if (aiData.relatedContents && aiData.relatedContents.length > 0 && aiMessageData) {
-        setMessageContents(prev => {
-          const newMap = new Map(prev);
-          newMap.set(aiMessageData.id, aiData.relatedContents);
-          return newMap;
-        });
-      }
 
       await fetchMessages();
     } catch (error: any) {
@@ -251,27 +254,19 @@ export default function Study() {
 
       if (aiError) throw aiError;
 
-      // Save AI response
+      // Save AI response with related contents
       const { data: aiMessageData, error: aiMessageError } = await supabase
         .from("study_messages")
         .insert({
           study_id: id,
           role: "assistant",
           content: aiData.message,
+          related_contents: aiData.relatedContents || null,
         })
         .select()
         .single();
 
       if (aiMessageError) throw aiMessageError;
-
-      // Store related contents if available
-      if (aiData.relatedContents && aiData.relatedContents.length > 0 && aiMessageData) {
-        setMessageContents(prev => {
-          const newMap = new Map(prev);
-          newMap.set(aiMessageData.id, aiData.relatedContents);
-          return newMap;
-        });
-      }
 
       await fetchMessages();
     } catch (error: any) {
