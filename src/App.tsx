@@ -13,6 +13,7 @@ import Favoritos from "./pages/Favoritos";
 import Salvos from "./pages/Salvos";
 import Studio from "./pages/Studio";
 import StudioUpload from "./pages/StudioUpload";
+import StudioContents from "./pages/StudioContents";
 import AdminCreators from "./pages/AdminCreators";
 import AdminContents from "./pages/AdminContents";
 import Study from "./pages/Study";
@@ -39,6 +40,7 @@ const App = () => (
               <Route path="/salvos" element={<Salvos />} />
               <Route path="/studio" element={<Studio />} />
               <Route path="/studio/upload" element={<StudioUpload />} />
+              <Route path="/studio/contents" element={<StudioContents />} />
               <Route path="/admin/creators" element={<AdminCreators />} />
               <Route path="/admin/contents" element={<AdminContents />} />
               <Route path="/watch/:id" element={<Watch />} />

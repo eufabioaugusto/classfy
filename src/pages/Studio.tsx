@@ -5,6 +5,8 @@ import { AppSidebar } from "@/components/AppSidebar";
 import { Video, Eye, Users, TrendingUp, Plus, BookOpen, Podcast, Zap, Radio } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { useState, useEffect } from "react";
+import { supabase } from "@/integrations/supabase/client";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -24,11 +26,66 @@ export default function Studio() {
     return <Navigate to="/" replace />;
   }
 
-  const stats = [
-    { label: "Total de Conteúdos", value: "0", icon: Video, color: "text-blue-500" },
-    { label: "Visualizações Totais", value: "0", icon: Eye, color: "text-green-500" },
-    { label: "Seguidores", value: "0", icon: Users, color: "text-purple-500" },
-    { label: "Ganhos (em dobro)", value: "R$ 0,00", icon: TrendingUp, color: "text-cinematic-accent" },
+  const [stats, setStats] = useState({
+    totalContents: 0,
+    totalViews: 0,
+    followers: 0,
+    earnings: 0
+  });
+
+  useEffect(() => {
+    if (user) {
+      fetchStats();
+    }
+  }, [user]);
+
+  const fetchStats = async () => {
+    if (!user) return;
+
+    try {
+      // Total de conteúdos aprovados
+      const { count: contentsCount } = await supabase
+        .from('contents')
+        .select('*', { count: 'exact', head: true })
+        .eq('creator_id', user.id);
+
+      // Total de visualizações
+      const { data: contents } = await supabase
+        .from('contents')
+        .select('views_count')
+        .eq('creator_id', user.id);
+
+      const totalViews = contents?.reduce((sum, c) => sum + (c.views_count || 0), 0) || 0;
+
+      // Total de seguidores
+      const { count: followersCount } = await supabase
+        .from('follows')
+        .select('*', { count: 'exact', head: true })
+        .eq('following_id', user.id);
+
+      // Total ganhos
+      const { data: wallet } = await supabase
+        .from('wallets')
+        .select('total_earned')
+        .eq('user_id', user.id)
+        .single();
+
+      setStats({
+        totalContents: contentsCount || 0,
+        totalViews,
+        followers: followersCount || 0,
+        earnings: wallet?.total_earned || 0
+      });
+    } catch (error) {
+      console.error('Error fetching stats:', error);
+    }
+  };
+
+  const statsDisplay = [
+    { label: "Total de Conteúdos", value: stats.totalContents.toString(), icon: Video, color: "text-blue-500" },
+    { label: "Visualizações Totais", value: stats.totalViews.toString(), icon: Eye, color: "text-green-500" },
+    { label: "Seguidores", value: stats.followers.toString(), icon: Users, color: "text-purple-500" },
+    { label: "Ganhos (em dobro)", value: `R$ ${(stats.earnings * 2).toFixed(2)}`, icon: TrendingUp, color: "text-cinematic-accent" },
   ];
 
   return (
@@ -88,7 +145,7 @@ export default function Studio() {
 
               {/* Stats Grid */}
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-                {stats.map((stat) => (
+                {statsDisplay.map((stat) => (
                   <Card key={stat.label} className="p-6 bg-card border-border">
                     <div className="flex items-center justify-between">
                       <div>
