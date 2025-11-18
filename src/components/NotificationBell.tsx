@@ -14,6 +14,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { formatDistanceToNow } from "date-fns";
 import { ptBR } from "date-fns/locale";
+import { toast } from "@/hooks/use-toast";
 
 interface Notification {
   id: string;
@@ -36,7 +37,7 @@ export function NotificationBell() {
 
     fetchNotifications();
 
-    // Subscribe to new notifications
+    // Subscribe to new notifications in real-time
     const channel = supabase
       .channel('notifications')
       .on(
@@ -48,8 +49,16 @@ export function NotificationBell() {
           filter: `user_id=eq.${user.id}`,
         },
         (payload) => {
-          setNotifications((prev) => [payload.new as Notification, ...prev]);
+          const newNotification = payload.new as Notification;
+          setNotifications((prev) => [newNotification, ...prev]);
           setUnreadCount((prev) => prev + 1);
+          
+          // Show toast notification
+          toast({
+            title: newNotification.title,
+            description: newNotification.message,
+            duration: 5000,
+          });
         }
       )
       .subscribe();
