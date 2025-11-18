@@ -11,7 +11,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Card } from "@/components/ui/card";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
-import { Upload, Video, Music, Film, BookOpen, Radio } from "lucide-react";
+import { Upload, Video, Music, Film, BookOpen, Radio, X, ImagePlus } from "lucide-react";
+import { Progress } from "@/components/ui/progress";
 
 type ContentType = "aula" | "short" | "podcast" | "curso" | "live";
 type Visibility = "free" | "pro" | "premium" | "paid";
@@ -40,6 +41,10 @@ export default function StudioUpload() {
   const [thumbnailUrl, setThumbnailUrl] = useState("");
   const [duration, setDuration] = useState(0);
   const [submitting, setSubmitting] = useState(false);
+  const [fileProgress, setFileProgress] = useState(0);
+  const [thumbnailProgress, setThumbnailProgress] = useState(0);
+  const [filePreview, setFilePreview] = useState("");
+  const [thumbnailPreview, setThumbnailPreview] = useState("");
 
   if (loading) {
     return <div className="min-h-screen flex items-center justify-center">Carregando...</div>;
@@ -82,13 +87,18 @@ export default function StudioUpload() {
     const file = e.target.files?.[0];
     if (!file) return;
 
+    // Create preview
+    const previewUrl = URL.createObjectURL(file);
+    setFilePreview(previewUrl);
+
     // Validações
     if (contentType === "short") {
       const video = document.createElement("video");
-      video.src = URL.createObjectURL(file);
+      video.src = previewUrl;
       video.onloadedmetadata = () => {
         if (video.duration > 180) {
           toast.error("Shorts devem ter no máximo 180 segundos");
+          setFilePreview("");
           return;
         }
         setDuration(Math.floor(video.duration));
@@ -97,7 +107,7 @@ export default function StudioUpload() {
 
     if (contentType === "podcast") {
       const audio = document.createElement("audio");
-      audio.src = URL.createObjectURL(file);
+      audio.src = previewUrl;
       audio.onloadedmetadata = () => {
         setDuration(Math.floor(audio.duration));
       };
@@ -105,20 +115,36 @@ export default function StudioUpload() {
 
     if (contentType === "aula" || contentType === "curso" || contentType === "live") {
       const video = document.createElement("video");
-      video.src = URL.createObjectURL(file);
+      video.src = previewUrl;
       video.onloadedmetadata = () => {
         setDuration(Math.floor(video.duration));
       };
     }
 
     setFileUploading(true);
+    setFileProgress(0);
+
     try {
       const fileExt = file.name.split('.').pop();
       const fileName = `${user.id}/${Date.now()}.${fileExt}`;
       
+      // Simulate progress for better UX
+      const progressInterval = setInterval(() => {
+        setFileProgress(prev => {
+          if (prev >= 90) {
+            clearInterval(progressInterval);
+            return prev;
+          }
+          return prev + 10;
+        });
+      }, 200);
+
       const { error } = await supabase.storage
         .from('contents')
         .upload(fileName, file);
+
+      clearInterval(progressInterval);
+      setFileProgress(100);
 
       if (error) throw error;
 
@@ -130,23 +156,51 @@ export default function StudioUpload() {
       toast.success("Arquivo enviado com sucesso!");
     } catch (error: any) {
       toast.error(error.message || "Erro ao enviar arquivo");
+      setFilePreview("");
+      setFileProgress(0);
     } finally {
       setFileUploading(false);
     }
+  };
+
+  const handleRemoveFile = () => {
+    setFileUrl("");
+    setFilePreview("");
+    setFileProgress(0);
   };
 
   const handleThumbnailUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
+    // Create preview
+    const previewUrl = URL.createObjectURL(file);
+    setThumbnailPreview(previewUrl);
+
     setThumbnailUploading(true);
+    setThumbnailProgress(0);
+
     try {
       const fileExt = file.name.split('.').pop();
       const fileName = `thumbnails/${user.id}/${Date.now()}.${fileExt}`;
       
+      // Simulate progress for better UX
+      const progressInterval = setInterval(() => {
+        setThumbnailProgress(prev => {
+          if (prev >= 90) {
+            clearInterval(progressInterval);
+            return prev;
+          }
+          return prev + 10;
+        });
+      }, 200);
+
       const { error } = await supabase.storage
         .from('contents')
         .upload(fileName, file);
+
+      clearInterval(progressInterval);
+      setThumbnailProgress(100);
 
       if (error) throw error;
 
@@ -158,9 +212,17 @@ export default function StudioUpload() {
       toast.success("Thumbnail enviada com sucesso!");
     } catch (error: any) {
       toast.error(error.message || "Erro ao enviar thumbnail");
+      setThumbnailPreview("");
+      setThumbnailProgress(0);
     } finally {
       setThumbnailUploading(false);
     }
+  };
+
+  const handleRemoveThumbnail = () => {
+    setThumbnailUrl("");
+    setThumbnailPreview("");
+    setThumbnailProgress(0);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -281,42 +343,130 @@ export default function StudioUpload() {
                   </div>
                 </Card>
 
-                {/* Upload de Arquivo */}
-                <Card className="p-6">
-                  <Label>Arquivo {contentType === "podcast" ? "de Áudio" : "de Vídeo"} *</Label>
-                  <Input
-                    type="file"
-                    accept={contentType === "podcast" ? "audio/*" : "video/*"}
-                    onChange={handleFileUpload}
-                    disabled={fileUploading}
-                    className="mt-2"
-                  />
-                  {fileUrl && <p className="text-sm text-green-500 mt-2">✓ Arquivo enviado</p>}
-                  {contentType === "short" && (
-                    <p className="text-xs text-muted-foreground mt-1">Máximo 180 segundos</p>
-                  )}
-                  {contentType === "live" && (
-                    <p className="text-xs text-muted-foreground mt-1">
-                      Para transmissões ao vivo, faça upload de uma gravação ou configure a URL de streaming
-                    </p>
-                  )}
-                </Card>
+                {/* Upload de Arquivo e Thumbnail - Lado a Lado */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  {/* Upload de Arquivo */}
+                  <Card className="p-6">
+                    <Label>Arquivo {contentType === "podcast" ? "de Áudio" : "de Vídeo"} *</Label>
+                    
+                    <div className="mt-4">
+                      {!filePreview ? (
+                        <label className="flex flex-col items-center justify-center w-full h-64 border-2 border-dashed border-border rounded-lg cursor-pointer hover:border-primary transition-colors bg-muted/20">
+                          <div className="flex flex-col items-center justify-center pt-5 pb-6">
+                            {contentType === "podcast" ? (
+                              <Music className="w-12 h-12 mb-4 text-muted-foreground" />
+                            ) : (
+                              <Video className="w-12 h-12 mb-4 text-muted-foreground" />
+                            )}
+                            <p className="mb-2 text-sm text-muted-foreground font-medium">
+                              Enviar arquivo
+                            </p>
+                            <p className="text-xs text-muted-foreground">
+                              Clique ou arraste {contentType === "podcast" ? "o áudio" : "o vídeo"}
+                            </p>
+                          </div>
+                          <input
+                            type="file"
+                            className="hidden"
+                            accept={contentType === "podcast" ? "audio/*" : "video/*"}
+                            onChange={handleFileUpload}
+                            disabled={fileUploading}
+                          />
+                        </label>
+                      ) : (
+                        <div className={`relative w-full h-64 rounded-lg overflow-hidden ${fileUploading ? 'opacity-50' : ''}`}>
+                          {contentType === "podcast" ? (
+                            <div className="flex items-center justify-center w-full h-full bg-muted">
+                              <Music className="w-16 h-16 text-primary" />
+                            </div>
+                          ) : (
+                            <video
+                              src={filePreview}
+                              className="w-full h-full object-cover"
+                              controls={!fileUploading}
+                            />
+                          )}
+                          
+                          {!fileUploading && (
+                            <button
+                              onClick={handleRemoveFile}
+                              className="absolute top-2 right-2 p-2 bg-destructive text-destructive-foreground rounded-full hover:bg-destructive/90 transition-colors"
+                            >
+                              <X className="w-4 h-4" />
+                            </button>
+                          )}
+                        </div>
+                      )}
 
-                {/* Upload de Thumbnail */}
-                <Card className="p-6">
-                  <Label>Thumbnail *</Label>
-                  <Input
-                    type="file"
-                    accept="image/*"
-                    onChange={handleThumbnailUpload}
-                    disabled={thumbnailUploading}
-                    className="mt-2"
-                  />
-                  {thumbnailUrl && <p className="text-sm text-green-500 mt-2">✓ Thumbnail enviada</p>}
-                  {thumbnailUrl && (
-                    <img src={thumbnailUrl} alt="Preview" className="mt-4 max-h-40 rounded" />
-                  )}
-                </Card>
+                      {fileUploading && (
+                        <div className="mt-4 space-y-2">
+                          <Progress value={fileProgress} />
+                          <p className="text-xs text-center text-muted-foreground">
+                            Enviando... {fileProgress}%
+                          </p>
+                        </div>
+                      )}
+
+                      {contentType === "short" && (
+                        <p className="text-xs text-muted-foreground mt-2">Máximo 180 segundos</p>
+                      )}
+                    </div>
+                  </Card>
+
+                  {/* Upload de Thumbnail */}
+                  <Card className="p-6">
+                    <Label>Thumbnail *</Label>
+                    
+                    <div className="mt-4">
+                      {!thumbnailPreview ? (
+                        <label className="flex flex-col items-center justify-center w-full h-64 border-2 border-dashed border-border rounded-lg cursor-pointer hover:border-primary transition-colors bg-muted/20">
+                          <div className="flex flex-col items-center justify-center pt-5 pb-6">
+                            <ImagePlus className="w-12 h-12 mb-4 text-muted-foreground" />
+                            <p className="mb-2 text-sm text-muted-foreground font-medium">
+                              Enviar arquivo
+                            </p>
+                            <p className="text-xs text-muted-foreground">
+                              Clique ou arraste a imagem
+                            </p>
+                          </div>
+                          <input
+                            type="file"
+                            className="hidden"
+                            accept="image/*"
+                            onChange={handleThumbnailUpload}
+                            disabled={thumbnailUploading}
+                          />
+                        </label>
+                      ) : (
+                        <div className={`relative w-full h-64 rounded-lg overflow-hidden ${thumbnailUploading ? 'opacity-50' : ''}`}>
+                          <img
+                            src={thumbnailPreview}
+                            alt="Thumbnail preview"
+                            className="w-full h-full object-cover"
+                          />
+                          
+                          {!thumbnailUploading && (
+                            <button
+                              onClick={handleRemoveThumbnail}
+                              className="absolute top-2 right-2 p-2 bg-destructive text-destructive-foreground rounded-full hover:bg-destructive/90 transition-colors"
+                            >
+                              <X className="w-4 h-4" />
+                            </button>
+                          )}
+                        </div>
+                      )}
+
+                      {thumbnailUploading && (
+                        <div className="mt-4 space-y-2">
+                          <Progress value={thumbnailProgress} />
+                          <p className="text-xs text-center text-muted-foreground">
+                            Enviando... {thumbnailProgress}%
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  </Card>
+                </div>
 
                 {/* Informações */}
                 <Card className="p-6 space-y-4">
