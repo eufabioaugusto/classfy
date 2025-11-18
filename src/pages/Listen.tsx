@@ -9,6 +9,7 @@ import { Eye } from "lucide-react";
 import { useRewardSystem } from "@/hooks/useRewardSystem";
 import { ContentActions } from "@/components/ContentActions";
 import { ContentComments } from "@/components/ContentComments";
+import { FollowButton } from "@/components/FollowButton";
 
 interface Content {
   id: string;
@@ -161,13 +162,16 @@ export default function Listen() {
           <ContentActions contentId={content.id} />
 
           <Card className="p-4">
-            <div className="flex items-center gap-3 mb-4">
-              <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center">
-                {content.creator.display_name.charAt(0)}
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-3">
+                <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center">
+                  {content.creator.display_name.charAt(0)}
+                </div>
+                <div>
+                  <p className="font-semibold">{content.creator.display_name}</p>
+                </div>
               </div>
-              <div>
-                <p className="font-semibold">{content.creator.display_name}</p>
-              </div>
+              <FollowButton creatorId={content.creator.id} size="sm" />
             </div>
             {content.description && (
               <p className="text-sm text-muted-foreground">{content.description}</p>
