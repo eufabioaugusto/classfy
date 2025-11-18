@@ -1,13 +1,15 @@
 import { useParams, Navigate } from "react-router-dom";
-import { useAuth } from "@/contexts/AuthContext";
-import { useState, useEffect, useRef } from "react";
 import { supabase } from "@/integrations/supabase/client";
-import { Card } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { toast } from "sonner";
-import { Eye, ThumbsUp, Share2 } from "lucide-react";
+import { useAuth } from "@/contexts/AuthContext";
 import { useRewardSystem } from "@/hooks/useRewardSystem";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { Eye, Heart, Clock } from "lucide-react";
+import { ContentActions } from "@/components/ContentActions";
+import { ContentComments } from "@/components/ContentComments";
+import { useState, useEffect, useRef } from "react";
 
 interface Content {
   id: string;
@@ -81,7 +83,7 @@ export default function Watch() {
         .update({ views_count: (data.views_count || 0) + 1 })
         .eq('id', id);
     } catch (error: any) {
-      toast.error("Conteúdo não encontrado");
+      console.error(error);
     } finally {
       setLoadingContent(false);
     }
@@ -135,7 +137,7 @@ export default function Watch() {
         actionKey: 'VIEW_15S',
         userId: user.id,
         contentId: content.id,
-        metadata: { watch_time: currentTime },
+        metadata: { watch_time: currentTime }
       });
       setView15sRecorded(true);
     }
@@ -144,8 +146,6 @@ export default function Watch() {
       await recordMetric('start');
     }
 
-    await trackProgress(user.id, content.id, percent, currentTime);
-
     if (!metricsRecorded.half && currentTime > duration / 2) {
       await recordMetric('half');
     }
@@ -153,6 +153,8 @@ export default function Watch() {
     if (!metricsRecorded.complete && currentTime > duration * 0.95) {
       await recordMetric('complete');
     }
+
+    await trackProgress(user.id, content.id, percent, currentTime);
   };
 
   if (loading || loadingContent) {
@@ -163,42 +165,15 @@ export default function Watch() {
     );
   }
 
-  if (!user) {
-    return <Navigate to="/auth" replace />;
-  }
-
-  if (!content) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <Card className="p-8 text-center">
-          <h2 className="text-2xl font-bold mb-4">Conteúdo não encontrado</h2>
-          <p className="text-muted-foreground">Este vídeo pode ter sido removido ou não está mais disponível.</p>
-        </Card>
-      </div>
-    );
-  }
-
-  if (!hasAccess) {
-    return (
-      <div className="min-h-screen flex items-center justify-center p-4">
-        <Card className="p-8 text-center max-w-md">
-          <h2 className="text-2xl font-bold mb-4">Conteúdo Bloqueado</h2>
-          <p className="text-muted-foreground mb-4">
-            Este conteúdo requer um plano {content.visibility.toUpperCase()} para ser acessado.
-          </p>
-          <Button onClick={() => window.location.href = '/conta'}>
-            Fazer Upgrade
-          </Button>
-        </Card>
-      </div>
-    );
-  }
+  if (!user) return <Navigate to="/auth" replace />;
+  if (!content) return <div className="p-8">Conteúdo não encontrado</div>;
+  if (!hasAccess) return <div className="p-8">Sem acesso</div>;
 
   return (
     <div className="min-h-screen bg-background">
       <div className="max-w-7xl mx-auto p-4">
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-          <div className="lg:col-span-2">
+          <div className="lg:col-span-2 space-y-4">
             <Card className="overflow-hidden">
               <video
                 ref={videoRef}
@@ -210,45 +185,50 @@ export default function Watch() {
               />
             </Card>
 
-            <div className="mt-4">
-              <h1 className="text-2xl font-bold mb-2">{content.title}</h1>
-              <div className="flex items-center gap-4 text-muted-foreground mb-4">
+            <div>
+              <h1 className="text-3xl font-bold mb-2">{content.title}</h1>
+              <div className="flex items-center gap-4 text-sm text-muted-foreground mb-4">
                 <span className="flex items-center gap-1">
                   <Eye className="h-4 w-4" />
-                  {content.views_count} views
+                  {content.views_count || 0} visualizações
                 </span>
-                <Badge variant="outline">{content.content_type}</Badge>
+                <span className="flex items-center gap-1">
+                  <Heart className="h-4 w-4" />
+                  {content.likes_count || 0} curtidas
+                </span>
+                <span className="flex items-center gap-1">
+                  <Clock className="h-4 w-4" />
+                  {Math.floor((content.duration_seconds || 0) / 60)} min
+                </span>
               </div>
-
-              <Card className="p-4">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center">
-                      {content.creator.display_name.charAt(0)}
-                    </div>
-                    <div>
-                      <p className="font-semibold">{content.creator.display_name}</p>
-                    </div>
-                  </div>
-                  <div className="flex gap-2">
-                    <Button variant="outline" size="icon">
-                      <ThumbsUp className="h-4 w-4" />
-                    </Button>
-                    <Button variant="outline" size="icon">
-                      <Share2 className="h-4 w-4" />
-                    </Button>
-                  </div>
-                </div>
-                {content.description && (
-                  <p className="mt-4 text-sm text-muted-foreground">{content.description}</p>
-                )}
-              </Card>
+              
+              <ContentActions contentId={content.id} />
             </div>
+
+            <Card className="p-4">
+              <div className="flex items-center gap-3 mb-4">
+                <Avatar>
+                  <AvatarImage src={content.creator.avatar_url || ''} />
+                  <AvatarFallback>{content.creator.display_name[0]}</AvatarFallback>
+                </Avatar>
+                <div>
+                  <p className="font-semibold">{content.creator.display_name}</p>
+                </div>
+              </div>
+              {content.description && (
+                <div>
+                  <h2 className="text-xl font-semibold mb-2">Descrição</h2>
+                  <p className="text-muted-foreground">{content.description}</p>
+                </div>
+              )}
+            </Card>
+
+            <ContentComments contentId={content.id} />
           </div>
 
           <div className="lg:col-span-1">
             <Card className="p-4">
-              <h3 className="font-semibold mb-4">Conteúdos Relacionados</h3>
+              <h3 className="font-semibold mb-4">Relacionados</h3>
               <p className="text-sm text-muted-foreground">Em breve...</p>
             </Card>
           </div>

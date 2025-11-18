@@ -3,10 +3,9 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useState, useEffect, useRef } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Card } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
-import { Eye, ThumbsUp, Share2 } from "lucide-react";
+import { Eye } from "lucide-react";
 import { useRewardSystem } from "@/hooks/useRewardSystem";
 import { ContentActions } from "@/components/ContentActions";
 import { ContentComments } from "@/components/ContentComments";
@@ -124,18 +123,60 @@ export default function Listen() {
       await processReward({ actionKey: 'VIEW_15S', userId: user.id, contentId: content.id, metadata: { watch_time: currentTime } });
       setView15sRecorded(true);
     }
+
     if (!metricsRecorded.start && currentTime > 0) await recordMetric('start');
-    await trackProgress(user.id, content.id, percent, currentTime);
     if (!metricsRecorded.half && currentTime > duration / 2) await recordMetric('half');
     if (!metricsRecorded.complete && currentTime > duration * 0.95) await recordMetric('complete');
+
+    await trackProgress(user.id, content.id, percent, currentTime);
   };
 
   if (loading || loadingContent) return <div className="min-h-screen flex items-center justify-center"><div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div></div>;
   if (!user) return <Navigate to="/auth" replace />;
-  if (!content) return <div className="min-h-screen flex items-center justify-center"><Card className="p-8 text-center"><h2 className="text-2xl font-bold mb-4">Podcast não encontrado</h2></Card></div>;
-  if (!hasAccess) return <div className="min-h-screen flex items-center justify-center p-4"><Card className="p-8 text-center max-w-md"><h2 className="text-2xl font-bold mb-4">Conteúdo Bloqueado</h2><Button onClick={() => window.location.href = '/conta'}>Fazer Upgrade</Button></Card></div>;
+  if (!content) return <div className="p-8">Podcast não encontrado</div>;
+  if (!hasAccess) return <div className="p-8">Sem acesso</div>;
 
   return (
-    <div className="min-h-screen bg-background"><div className="max-w-4xl mx-auto p-4"><Card className="overflow-hidden"><div className="relative aspect-square max-w-md mx-auto"><img src={content.thumbnail_url} alt={content.title} className="w-full h-full object-cover" /></div><div className="p-6"><audio ref={audioRef} className="w-full" controls onTimeUpdate={handleTimeUpdate} src={content.file_url} /></div></Card><div className="mt-4"><h1 className="text-2xl font-bold mb-2">{content.title}</h1><div className="flex items-center gap-4 text-muted-foreground mb-4"><span className="flex items-center gap-1"><Eye className="h-4 w-4" />{content.views_count} plays</span><Badge variant="outline">{content.content_type}</Badge></div><Card className="p-4"><div className="flex items-center justify-between"><div className="flex items-center gap-3"><div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center">{content.creator.display_name.charAt(0)}</div><div><p className="font-semibold">{content.creator.display_name}</p></div></div><div className="flex gap-2"><Button variant="outline" size="icon"><ThumbsUp className="h-4 w-4" /></Button><Button variant="outline" size="icon"><Share2 className="h-4 w-4" /></Button></div></div>{content.description && <p className="mt-4 text-sm text-muted-foreground">{content.description}</p>}</Card></div></div></div>
+    <div className="min-h-screen bg-background">
+      <div className="max-w-4xl mx-auto p-4">
+        <Card className="overflow-hidden">
+          <div className="relative aspect-square max-w-md mx-auto">
+            <img src={content.thumbnail_url} alt={content.title} className="w-full h-full object-cover" />
+          </div>
+          <div className="p-6">
+            <audio ref={audioRef} className="w-full" controls onTimeUpdate={handleTimeUpdate} src={content.file_url} />
+          </div>
+        </Card>
+
+        <div className="mt-4 space-y-4">
+          <h1 className="text-2xl font-bold">{content.title}</h1>
+          <div className="flex items-center gap-4 text-muted-foreground">
+            <span className="flex items-center gap-1">
+              <Eye className="h-4 w-4" />
+              {content.views_count} plays
+            </span>
+            <Badge variant="outline">{content.content_type}</Badge>
+          </div>
+          
+          <ContentActions contentId={content.id} />
+
+          <Card className="p-4">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center">
+                {content.creator.display_name.charAt(0)}
+              </div>
+              <div>
+                <p className="font-semibold">{content.creator.display_name}</p>
+              </div>
+            </div>
+            {content.description && (
+              <p className="text-sm text-muted-foreground">{content.description}</p>
+            )}
+          </Card>
+
+          <ContentComments contentId={content.id} />
+        </div>
+      </div>
+    </div>
   );
 }
