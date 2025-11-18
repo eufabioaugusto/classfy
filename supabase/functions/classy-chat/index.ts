@@ -100,13 +100,14 @@ serve(async (req) => {
 
     // Search for related content based on user's message or study title
     const searchQuery = isFirstMessage ? study.title.toLowerCase() : message.toLowerCase();
-    let relatedContents = [];
+    let relatedContents: any[] = [];
     
     const { data: contents } = await supabaseServiceClient
       .from("contents")
-      .select("id, title, description, content_type, thumbnail_url, visibility, required_plan")
+      .select("id, title, description, content_type, thumbnail_url, visibility, required_plan, is_free, duration_minutes")
       .eq("status", "approved")
-      .limit(10);
+      .in("content_type", ["aula", "short", "podcast"])
+      .limit(20);
 
     if (contents && contents.length > 0) {
       // Calculate match score for each content
@@ -134,6 +135,13 @@ serve(async (req) => {
         .filter((c: any) => c.matchScore > 0)
         .sort((a: any, b: any) => b.matchScore - a.matchScore)
         .slice(0, 5);
+
+      // Fallback: if nothing matches, still show alguns conteúdos relevantes
+      if (relatedContents.length === 0) {
+        relatedContents = contents
+          .slice(0, 5)
+          .map((content: any) => ({ ...content, matchScore: 1 }));
+      }
     }
 
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
