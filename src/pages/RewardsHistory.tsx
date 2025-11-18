@@ -4,6 +4,8 @@ import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Header } from "@/components/Header";
 import { GlobalLoader } from "@/components/GlobalLoader";
+import { SidebarProvider } from "@/components/ui/sidebar";
+import { AppSidebar } from "@/components/AppSidebar";
 import {
   Table,
   TableBody,
@@ -178,10 +180,13 @@ export default function RewardsHistory() {
   }
 
   return (
-    <div className="min-h-screen bg-background">
-      <Header variant="home" title="Histórico de Recompensas" />
+    <SidebarProvider>
+      <div className="min-h-screen flex w-full">
+        <AppSidebar />
+        <div className="flex-1 flex flex-col">
+          <Header variant="home" title="Histórico de Recompensas" />
 
-      <main className="container mx-auto px-4 py-8 space-y-6">
+          <main className="container mx-auto px-4 py-8 space-y-6">
         {/* Stats Cards */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <Card>
@@ -327,7 +332,9 @@ export default function RewardsHistory() {
             </Table>
           </CardContent>
         </Card>
-      </main>
-    </div>
+          </main>
+        </div>
+      </div>
+    </SidebarProvider>
   );
 }
