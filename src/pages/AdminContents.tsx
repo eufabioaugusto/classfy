@@ -11,7 +11,6 @@ import { CheckCircle, XCircle, Clock, Video, Music, Film, Eye } from "lucide-rea
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { useRewardSystem } from "@/hooks/useRewardSystem";
 import { GlobalLoader } from "@/components/GlobalLoader";
 
 interface Content {
@@ -32,7 +31,6 @@ export default function AdminContents() {
   const [loadingData, setLoadingData] = useState(true);
   const [processingId, setProcessingId] = useState<string | null>(null);
   const [selectedContents, setSelectedContents] = useState<Set<string>>(new Set());
-  const { processReward } = useRewardSystem();
 
   useEffect(() => { if (user && role === 'admin') fetchPendingContents(); }, [user, role]);
 
@@ -53,49 +51,51 @@ export default function AdminContents() {
     const content = contents.find((c) => c.id === contentId);
     if (!content) return;
     try {
-      const { error } = await supabase.from('contents').update({ status: 'approved', published_at: new Date().toISOString() }).eq('id', contentId);
+      const { data, error } = await supabase.functions.invoke('approve-content', {
+        body: { contentId },
+      });
       if (error) throw error;
-      await processReward({ actionKey: 'CONTENT_APPROVED', userId: content.creator_id, contentId: content.id, metadata: { content_title: content.title } });
-      toast.success("Conteúdo aprovado!");
+      toast.success("Conteúdo aprovado! O criador foi notificado.");
       setContents(prev => prev.filter(c => c.id !== contentId));
     } catch (error: any) {
+      console.error('Error approving content:', error);
       toast.error(error.message || "Erro ao aprovar");
     } finally {
       setProcessingId(null);
     }
   };
-
   const handleReject = async (contentId: string) => {
     setProcessingId(contentId);
     try {
-      const { error } = await supabase.from('contents').update({ status: 'rejected' }).eq('id', contentId);
+      const { data, error } = await supabase.functions.invoke('reject-content', {
+        body: { contentId },
+      });
       if (error) throw error;
-      toast.success("Conteúdo reprovado");
+      toast.success("Conteúdo reprovado. O criador foi notificado.");
       setContents(prev => prev.filter(c => c.id !== contentId));
     } catch (error: any) {
+      console.error('Error rejecting content:', error);
       toast.error(error.message || "Erro ao reprovar");
     } finally {
       setProcessingId(null);
     }
   };
-
   const handleBulkApprove = async () => {
     if (selectedContents.size === 0) return;
     try {
-      const { error } = await supabase.from('contents').update({ status: 'approved', published_at: new Date().toISOString() }).in('id', Array.from(selectedContents));
-      if (error) throw error;
       for (const contentId of Array.from(selectedContents)) {
-        const content = contents.find((c) => c.id === contentId);
-        if (content) await processReward({ actionKey: 'CONTENT_APPROVED', userId: content.creator_id, contentId: content.id, metadata: { content_title: content.title } });
+        await supabase.functions.invoke('approve-content', {
+          body: { contentId },
+        });
       }
       toast.success(`${selectedContents.size} conteúdos aprovados!`);
       setContents(prev => prev.filter(c => !selectedContents.has(c.id)));
       setSelectedContents(new Set());
     } catch (error: any) {
+      console.error('Error bulk approving:', error);
       toast.error(error.message || "Erro ao aprovar");
     }
   };
-
   const handleBulkReject = async () => {
     if (selectedContents.size === 0) return;
     try {
