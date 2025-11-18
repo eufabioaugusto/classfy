@@ -8,6 +8,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Loader2, Send, ArrowLeft, MoreVertical, Edit2, Share2, Trash2 } from "lucide-react";
 import { StudyMessage } from "@/hooks/useStudies";
 import { useStudies } from "@/hooks/useStudies";
+import { ChatContentCard } from "@/components/ChatContentCard";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -44,6 +45,7 @@ export default function Study() {
   
   const [study, setStudy] = useState<any>(null);
   const [messages, setMessages] = useState<StudyMessage[]>([]);
+  const [messageContents, setMessageContents] = useState<Map<string, any[]>>(new Map());
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
@@ -160,15 +162,26 @@ export default function Study() {
       if (aiError) throw aiError;
 
       // Save AI response
-      const { error: aiMessageError } = await supabase
+      const { data: aiMessageData, error: aiMessageError } = await supabase
         .from("study_messages")
         .insert({
           study_id: id,
           role: "assistant",
           content: aiData.message,
-        });
+        })
+        .select()
+        .single();
 
       if (aiMessageError) throw aiMessageError;
+
+      // Store related contents if available
+      if (aiData.relatedContents && aiData.relatedContents.length > 0 && aiMessageData) {
+        setMessageContents(prev => {
+          const newMap = new Map(prev);
+          newMap.set(aiMessageData.id, aiData.relatedContents);
+          return newMap;
+        });
+      }
 
       await fetchMessages();
     } catch (error: any) {
@@ -216,15 +229,26 @@ export default function Study() {
       if (aiError) throw aiError;
 
       // Save AI response
-      const { error: aiMessageError } = await supabase
+      const { data: aiMessageData, error: aiMessageError } = await supabase
         .from("study_messages")
         .insert({
           study_id: id,
           role: "assistant",
           content: aiData.message,
-        });
+        })
+        .select()
+        .single();
 
       if (aiMessageError) throw aiMessageError;
+
+      // Store related contents if available
+      if (aiData.relatedContents && aiData.relatedContents.length > 0 && aiMessageData) {
+        setMessageContents(prev => {
+          const newMap = new Map(prev);
+          newMap.set(aiMessageData.id, aiData.relatedContents);
+          return newMap;
+        });
+      }
 
       await fetchMessages();
     } catch (error: any) {
@@ -374,21 +398,42 @@ export default function Study() {
             </div>
           ) : (
             messages.map((message) => (
-              <div
-                key={message.id}
-                className={`flex ${
-                  message.role === "user" ? "justify-end" : "justify-start"
-                }`}
-              >
+              <div key={message.id} className="space-y-4">
                 <div
-                  className={`max-w-[80%] rounded-lg px-4 py-3 ${
-                    message.role === "user"
-                      ? "bg-primary text-primary-foreground"
-                      : "bg-muted text-foreground"
+                  className={`flex ${
+                    message.role === "user" ? "justify-end" : "justify-start"
                   }`}
                 >
-                  <p className="whitespace-pre-wrap">{message.content}</p>
+                  <div
+                    className={`max-w-[80%] rounded-lg px-4 py-3 ${
+                      message.role === "user"
+                        ? "bg-primary text-primary-foreground"
+                        : "bg-muted text-foreground"
+                    }`}
+                  >
+                    <p className="whitespace-pre-wrap">{message.content}</p>
+                  </div>
                 </div>
+                
+                {/* Render content cards if available */}
+                {message.role === "assistant" && messageContents.has(message.id) && (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-w-[80%]">
+                    {messageContents.get(message.id)?.map((content: any) => (
+                      <ChatContentCard
+                        key={content.id}
+                        id={content.id}
+                        title={content.title}
+                        description={content.description}
+                        thumbnail_url={content.thumbnail_url}
+                        content_type={content.content_type}
+                        duration_minutes={content.duration_minutes}
+                        required_plan={content.required_plan}
+                        is_free={content.is_free}
+                        matchScore={content.matchScore}
+                      />
+                    ))}
+                  </div>
+                )}
               </div>
             ))
           )}
