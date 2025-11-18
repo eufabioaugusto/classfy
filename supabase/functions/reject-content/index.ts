@@ -78,14 +78,16 @@ Deno.serve(async (req) => {
       .insert({
         user_id: content.creator_id,
         type: 'admin',
-        title: 'Conteúdo Reprovado',
-        message: `Seu conteúdo "${content.title}" foi reprovado pela moderação.`,
+        title: 'Conteúdo Reprovado ❌',
+        message: `Seu conteúdo "${content.title}" foi reprovado pela moderação. Entre em contato para mais detalhes.`,
         related_content_id: contentId,
         is_read: false
       });
 
     if (notificationError) {
       console.error('Error creating notification:', notificationError);
+    } else {
+      console.log('Rejection notification created successfully');
     }
 
     return new Response(
