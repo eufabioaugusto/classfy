@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { Eye, ThumbsUp, Share2 } from "lucide-react";
+import { useRewardSystem } from "@/hooks/useRewardSystem";
 
 interface Content {
   id: string;
@@ -39,6 +40,8 @@ export default function Listen() {
     half: false,
     complete: false
   });
+  const [view15sRecorded, setView15sRecorded] = useState(false);
+  const { processReward, trackProgress } = useRewardSystem();
 
   useEffect(() => {
     if (id && user) {
@@ -74,7 +77,6 @@ export default function Listen() {
       setContent(data);
       checkAccess(data);
 
-      // Incrementar views
       await supabase
         .from('contents')
         .update({ views_count: (data.views_count || 0) + 1 })
@@ -88,17 +90,13 @@ export default function Listen() {
 
   const checkAccess = (content: Content) => {
     if (!profile) return;
-
     const userPlan = profile.plan || 'free';
-
     if (content.visibility === 'free') {
       setHasAccess(true);
     } else if (content.visibility === 'pro' && ['pro', 'premium'].includes(userPlan)) {
       setHasAccess(true);
     } else if (content.visibility === 'premium' && userPlan === 'premium') {
       setHasAccess(true);
-    } else if (content.visibility === 'paid') {
-      setHasAccess(false);
     } else {
       setHasAccess(false);
     }
@@ -106,145 +104,36 @@ export default function Listen() {
 
   const recordMetric = async (event: 'start' | 'half' | 'complete') => {
     if (metricsRecorded[event] || !user || !id) return;
-
     try {
-      await supabase
-        .from('content_metrics')
-        .insert({
-          content_id: id,
-          user_id: user.id,
-          event
-        });
-
+      await supabase.from('content_metrics').insert({ content_id: id, user_id: user.id, event });
       setMetricsRecorded(prev => ({ ...prev, [event]: true }));
     } catch (error) {
       console.error('Error recording metric:', error);
     }
   };
 
-  const handleTimeUpdate = () => {
-    if (!audioRef.current || !content) return;
-
+  const handleTimeUpdate = async () => {
+    if (!audioRef.current || !content || !user) return;
     const currentTime = audioRef.current.currentTime;
     const duration = content.duration_seconds;
+    const percent = (currentTime / duration) * 100;
 
-    if (!metricsRecorded.start && currentTime > 0) {
-      recordMetric('start');
+    if (!view15sRecorded && currentTime >= 15) {
+      await processReward({ actionKey: 'VIEW_15S', userId: user.id, contentId: content.id, metadata: { watch_time: currentTime } });
+      setView15sRecorded(true);
     }
-
-    if (!metricsRecorded.half && currentTime > duration / 2) {
-      recordMetric('half');
-    }
-
-    if (!metricsRecorded.complete && currentTime > duration * 0.95) {
-      recordMetric('complete');
-    }
+    if (!metricsRecorded.start && currentTime > 0) await recordMetric('start');
+    await trackProgress(user.id, content.id, percent, currentTime);
+    if (!metricsRecorded.half && currentTime > duration / 2) await recordMetric('half');
+    if (!metricsRecorded.complete && currentTime > duration * 0.95) await recordMetric('complete');
   };
 
-  if (loading || loadingContent) {
-    return <div className="min-h-screen flex items-center justify-center bg-background">Carregando...</div>;
-  }
-
-  if (!user) {
-    return <Navigate to="/auth" replace />;
-  }
-
-  if (!content) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-background">
-        <Card className="p-8 text-center">
-          <h2 className="text-xl font-bold mb-2">Podcast não encontrado</h2>
-        </Card>
-      </div>
-    );
-  }
-
-  if (!hasAccess) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-background p-4">
-        <Card className="p-8 text-center max-w-md">
-          <h2 className="text-xl font-bold mb-2">Conteúdo Bloqueado</h2>
-          <p className="text-muted-foreground mb-4">
-            Assine para acessar este podcast.
-          </p>
-          <Badge variant="secondary" className="mb-4">{content.visibility.toUpperCase()}</Badge>
-          <Button className="w-full">Assinar Agora</Button>
-        </Card>
-      </div>
-    );
-  }
+  if (loading || loadingContent) return <div className="min-h-screen flex items-center justify-center"><div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div></div>;
+  if (!user) return <Navigate to="/auth" replace />;
+  if (!content) return <div className="min-h-screen flex items-center justify-center"><Card className="p-8 text-center"><h2 className="text-2xl font-bold mb-4">Podcast não encontrado</h2></Card></div>;
+  if (!hasAccess) return <div className="min-h-screen flex items-center justify-center p-4"><Card className="p-8 text-center max-w-md"><h2 className="text-2xl font-bold mb-4">Conteúdo Bloqueado</h2><Button onClick={() => window.location.href = '/conta'}>Fazer Upgrade</Button></Card></div>;
 
   return (
-    <div className="min-h-screen bg-background">
-      <div className="max-w-4xl mx-auto p-4 md:p-8">
-        {/* Artwork */}
-        <div className="aspect-square max-w-md mx-auto bg-black rounded-lg overflow-hidden mb-6">
-          <img
-            src={content.thumbnail_url}
-            alt={content.title}
-            className="w-full h-full object-cover"
-          />
-        </div>
-
-        {/* Player */}
-        <div className="mb-6">
-          <audio
-            ref={audioRef}
-            src={content.file_url}
-            controls
-            autoPlay
-            className="w-full"
-            onTimeUpdate={handleTimeUpdate}
-          />
-        </div>
-
-        {/* Info */}
-        <div className="space-y-6">
-          <div>
-            <h1 className="text-3xl font-bold mb-2">{content.title}</h1>
-            <div className="flex items-center gap-4 text-sm text-muted-foreground">
-              <span className="flex items-center gap-1">
-                <Eye className="w-4 h-4" />
-                {content.views_count} plays
-              </span>
-              <span className="flex items-center gap-1">
-                <ThumbsUp className="w-4 h-4" />
-                {content.likes_count}
-              </span>
-            </div>
-          </div>
-
-          {/* Creator */}
-          <Card className="p-4">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                {content.creator.avatar_url && (
-                  <img
-                    src={content.creator.avatar_url}
-                    alt={content.creator.display_name}
-                    className="w-12 h-12 rounded-full"
-                  />
-                )}
-                <div>
-                  <p className="font-semibold">{content.creator.display_name}</p>
-                </div>
-              </div>
-              <Button variant="secondary" className="gap-2">
-                <Share2 className="w-4 h-4" />
-                Compartilhar
-              </Button>
-            </div>
-          </Card>
-
-          {/* Description */}
-          {content.description && (
-            <Card className="p-4">
-              <h3 className="font-semibold mb-2">Sobre este episódio</h3>
-              <p className="text-muted-foreground whitespace-pre-wrap">{content.description}</p>
-            </Card>
-          )}
-        </div>
-      </div>
-    </div>
+    <div className="min-h-screen bg-background"><div className="max-w-4xl mx-auto p-4"><Card className="overflow-hidden"><div className="relative aspect-square max-w-md mx-auto"><img src={content.thumbnail_url} alt={content.title} className="w-full h-full object-cover" /></div><div className="p-6"><audio ref={audioRef} className="w-full" controls onTimeUpdate={handleTimeUpdate} src={content.file_url} /></div></Card><div className="mt-4"><h1 className="text-2xl font-bold mb-2">{content.title}</h1><div className="flex items-center gap-4 text-muted-foreground mb-4"><span className="flex items-center gap-1"><Eye className="h-4 w-4" />{content.views_count} plays</span><Badge variant="outline">{content.content_type}</Badge></div><Card className="p-4"><div className="flex items-center justify-between"><div className="flex items-center gap-3"><div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center">{content.creator.display_name.charAt(0)}</div><div><p className="font-semibold">{content.creator.display_name}</p></div></div><div className="flex gap-2"><Button variant="outline" size="icon"><ThumbsUp className="h-4 w-4" /></Button><Button variant="outline" size="icon"><Share2 className="h-4 w-4" /></Button></div></div>{content.description && <p className="mt-4 text-sm text-muted-foreground">{content.description}</p>}</Card></div></div></div>
   );
 }

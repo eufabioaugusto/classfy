@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { Eye, ThumbsUp, Share2 } from "lucide-react";
+import { useRewardSystem } from "@/hooks/useRewardSystem";
 
 interface Content {
   id: string;
@@ -39,6 +40,8 @@ export default function Watch() {
     half: false,
     complete: false
   });
+  const [view15sRecorded, setView15sRecorded] = useState(false);
+  const { processReward, trackProgress } = useRewardSystem();
 
   useEffect(() => {
     if (id && user) {
@@ -73,7 +76,6 @@ export default function Watch() {
       setContent(data);
       checkAccess(data);
 
-      // Incrementar views
       await supabase
         .from('contents')
         .update({ views_count: (data.views_count || 0) + 1 })
@@ -97,7 +99,6 @@ export default function Watch() {
     } else if (content.visibility === 'premium' && userPlan === 'premium') {
       setHasAccess(true);
     } else if (content.visibility === 'paid') {
-      // TODO: verificar se comprou
       setHasAccess(false);
     } else {
       setHasAccess(false);
@@ -122,27 +123,44 @@ export default function Watch() {
     }
   };
 
-  const handleTimeUpdate = () => {
-    if (!videoRef.current || !content) return;
+  const handleTimeUpdate = async () => {
+    if (!videoRef.current || !content || !user) return;
 
     const currentTime = videoRef.current.currentTime;
     const duration = content.duration_seconds;
+    const percent = (currentTime / duration) * 100;
 
-    if (!metricsRecorded.start && currentTime > 0) {
-      recordMetric('start');
+    if (!view15sRecorded && currentTime >= 15) {
+      await processReward({
+        actionKey: 'VIEW_15S',
+        userId: user.id,
+        contentId: content.id,
+        metadata: { watch_time: currentTime },
+      });
+      setView15sRecorded(true);
     }
 
+    if (!metricsRecorded.start && currentTime > 0) {
+      await recordMetric('start');
+    }
+
+    await trackProgress(user.id, content.id, percent, currentTime);
+
     if (!metricsRecorded.half && currentTime > duration / 2) {
-      recordMetric('half');
+      await recordMetric('half');
     }
 
     if (!metricsRecorded.complete && currentTime > duration * 0.95) {
-      recordMetric('complete');
+      await recordMetric('complete');
     }
   };
 
   if (loading || loadingContent) {
-    return <div className="min-h-screen flex items-center justify-center bg-background">Carregando...</div>;
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
+      </div>
+    );
   }
 
   if (!user) {
@@ -151,9 +169,10 @@ export default function Watch() {
 
   if (!content) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-background">
+      <div className="min-h-screen flex items-center justify-center">
         <Card className="p-8 text-center">
-          <h2 className="text-xl font-bold mb-2">Conteúdo não encontrado</h2>
+          <h2 className="text-2xl font-bold mb-4">Conteúdo não encontrado</h2>
+          <p className="text-muted-foreground">Este vídeo pode ter sido removido ou não está mais disponível.</p>
         </Card>
       </div>
     );
@@ -161,14 +180,15 @@ export default function Watch() {
 
   if (!hasAccess) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-background p-4">
+      <div className="min-h-screen flex items-center justify-center p-4">
         <Card className="p-8 text-center max-w-md">
-          <h2 className="text-xl font-bold mb-2">Conteúdo Bloqueado</h2>
+          <h2 className="text-2xl font-bold mb-4">Conteúdo Bloqueado</h2>
           <p className="text-muted-foreground mb-4">
-            Assine para acessar este conteúdo.
+            Este conteúdo requer um plano {content.visibility.toUpperCase()} para ser acessado.
           </p>
-          <Badge variant="secondary" className="mb-4">{content.visibility.toUpperCase()}</Badge>
-          <Button className="w-full">Assinar Agora</Button>
+          <Button onClick={() => window.location.href = '/conta'}>
+            Fazer Upgrade
+          </Button>
         </Card>
       </div>
     );
@@ -176,64 +196,62 @@ export default function Watch() {
 
   return (
     <div className="min-h-screen bg-background">
-      <div className="max-w-7xl mx-auto p-4 md:p-8">
-        {/* Player */}
-        <div className="aspect-video bg-black rounded-lg overflow-hidden mb-6">
-          <video
-            ref={videoRef}
-            src={content.file_url}
-            poster={content.thumbnail_url}
-            controls
-            autoPlay
-            className="w-full h-full"
-            onTimeUpdate={handleTimeUpdate}
-          />
-        </div>
+      <div className="max-w-7xl mx-auto p-4">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+          <div className="lg:col-span-2">
+            <Card className="overflow-hidden">
+              <video
+                ref={videoRef}
+                className="w-full aspect-video"
+                controls
+                onTimeUpdate={handleTimeUpdate}
+                poster={content.thumbnail_url}
+                src={content.file_url}
+              />
+            </Card>
 
-        {/* Info */}
-        <div className="space-y-6">
-          <div>
-            <h1 className="text-3xl font-bold mb-2">{content.title}</h1>
-            <div className="flex items-center gap-4 text-sm text-muted-foreground">
-              <span className="flex items-center gap-1">
-                <Eye className="w-4 h-4" />
-                {content.views_count} visualizações
-              </span>
-              <span className="flex items-center gap-1">
-                <ThumbsUp className="w-4 h-4" />
-                {content.likes_count}
-              </span>
+            <div className="mt-4">
+              <h1 className="text-2xl font-bold mb-2">{content.title}</h1>
+              <div className="flex items-center gap-4 text-muted-foreground mb-4">
+                <span className="flex items-center gap-1">
+                  <Eye className="h-4 w-4" />
+                  {content.views_count} views
+                </span>
+                <Badge variant="outline">{content.content_type}</Badge>
+              </div>
+
+              <Card className="p-4">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center">
+                      {content.creator.display_name.charAt(0)}
+                    </div>
+                    <div>
+                      <p className="font-semibold">{content.creator.display_name}</p>
+                    </div>
+                  </div>
+                  <div className="flex gap-2">
+                    <Button variant="outline" size="icon">
+                      <ThumbsUp className="h-4 w-4" />
+                    </Button>
+                    <Button variant="outline" size="icon">
+                      <Share2 className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </div>
+                {content.description && (
+                  <p className="mt-4 text-sm text-muted-foreground">{content.description}</p>
+                )}
+              </Card>
             </div>
           </div>
 
-          {/* Creator */}
-          <Card className="p-4">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                {content.creator.avatar_url && (
-                  <img
-                    src={content.creator.avatar_url}
-                    alt={content.creator.display_name}
-                    className="w-12 h-12 rounded-full"
-                  />
-                )}
-                <div>
-                  <p className="font-semibold">{content.creator.display_name}</p>
-                </div>
-              </div>
-              <Button variant="secondary" className="gap-2">
-                <Share2 className="w-4 h-4" />
-                Compartilhar
-              </Button>
-            </div>
-          </Card>
-
-          {/* Description */}
-          {content.description && (
+          <div className="lg:col-span-1">
             <Card className="p-4">
-              <p className="text-muted-foreground whitespace-pre-wrap">{content.description}</p>
+              <h3 className="font-semibold mb-4">Conteúdos Relacionados</h3>
+              <p className="text-sm text-muted-foreground">Em breve...</p>
             </Card>
-          )}
+          </div>
         </div>
       </div>
     </div>
