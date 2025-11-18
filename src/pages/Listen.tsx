@@ -8,6 +8,8 @@ import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { Eye, ThumbsUp, Share2 } from "lucide-react";
 import { useRewardSystem } from "@/hooks/useRewardSystem";
+import { ContentActions } from "@/components/ContentActions";
+import { ContentComments } from "@/components/ContentComments";
 
 interface Content {
   id: string;

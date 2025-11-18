@@ -2,6 +2,7 @@ import React, { createContext, useContext, useEffect, useState } from "react";
 import { User, Session } from "@supabase/supabase-js";
 import { supabase } from "@/integrations/supabase/client";
 import { useNavigate } from "react-router-dom";
+import { useRewardSystem } from "@/hooks/useRewardSystem";
 
 type AppRole = 'user' | 'creator' | 'admin';
 type PlanType = 'free' | 'pro' | 'premium';
@@ -37,6 +38,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [role, setRole] = useState<AppRole>('user');
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const navigate = useNavigate();
+  const { checkDailyLogin } = useRewardSystem();
 
   const fetchUserProfile = async (userId: string) => {
     try {
@@ -90,6 +92,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         if (session?.user) {
           setTimeout(() => {
             fetchUserProfile(session.user.id);
+            checkDailyLogin(session.user.id);
           }, 0);
         } else {
           setProfile(null);
