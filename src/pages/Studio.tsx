@@ -23,7 +23,8 @@ export default function Studio() {
     totalContents: 0,
     totalViews: 0,
     followers: 0,
-    earnings: 0
+    earnings: 0,
+    points: 0
   });
 
   useEffect(() => {
@@ -63,11 +64,20 @@ export default function Studio() {
         .eq('user_id', user.id)
         .single();
 
+      // Total de pontos
+      const { data: rewardEvents } = await supabase
+        .from('reward_events')
+        .select('points')
+        .eq('user_id', user.id);
+
+      const totalPoints = rewardEvents?.reduce((sum, event) => sum + (event.points || 0), 0) || 0;
+
       setStats({
         totalContents: contentsCount || 0,
         totalViews,
         followers: followersCount || 0,
-        earnings: wallet?.total_earned || 0
+        earnings: wallet?.total_earned || 0,
+        points: totalPoints
       });
     } catch (error) {
       console.error('Error fetching stats:', error);
