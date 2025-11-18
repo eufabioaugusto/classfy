@@ -186,41 +186,51 @@ export default function Watch() {
 
   const handleApprove = async () => {
     if (!content) return;
+    
     try {
-      const { error } = await supabase
-        .from('contents')
-        .update({ status: 'approved', published_at: new Date().toISOString() })
-        .eq('id', content.id);
-      
-      if (error) throw error;
+      // Check if admin
+      if (role !== 'admin') {
+        toast.error("Apenas administradores podem aprovar conteúdo.");
+        return;
+      }
 
-      await processReward({
-        actionKey: 'CONTENT_APPROVED',
-        userId: content.creator_id,
-        contentId: content.id,
-        metadata: { content_title: content.title }
+      // Update content status using service role through edge function
+      const { data: updateData, error: updateError } = await supabase.functions.invoke('approve-content', {
+        body: { contentId: id }
       });
 
-      toast.success("Conteúdo aprovado com sucesso!");
+      if (updateError) throw updateError;
+
+      toast.success("Conteúdo aprovado! O criador foi notificado.");
       window.location.href = '/admin/contents';
     } catch (error: any) {
-      toast.error(error.message || "Erro ao aprovar conteúdo");
+      console.error('Error approving content:', error);
+      toast.error(error.message || "Não foi possível aprovar o conteúdo.");
     }
   };
 
   const handleReject = async () => {
     if (!content) return;
+    
     try {
-      const { error } = await supabase
-        .from('contents')
-        .update({ status: 'rejected' })
-        .eq('id', content.id);
-      
-      if (error) throw error;
-      toast.success("Conteúdo reprovado");
+      // Check if admin
+      if (role !== 'admin') {
+        toast.error("Apenas administradores podem reprovar conteúdo.");
+        return;
+      }
+
+      // Update content status using service role through edge function
+      const { data: updateData, error: updateError } = await supabase.functions.invoke('reject-content', {
+        body: { contentId: id }
+      });
+
+      if (updateError) throw updateError;
+
+      toast.success("Conteúdo reprovado. O criador foi notificado.");
       window.location.href = '/admin/contents';
     } catch (error: any) {
-      toast.error(error.message || "Erro ao reprovar conteúdo");
+      console.error('Error rejecting content:', error);
+      toast.error(error.message || "Não foi possível reprovar o conteúdo.");
     }
   };
 
