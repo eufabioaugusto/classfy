@@ -6,12 +6,13 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { Eye, Heart, Clock } from "lucide-react";
+import { Eye, Heart, Clock, CheckCircle, XCircle, AlertCircle } from "lucide-react";
 import { ContentActions } from "@/components/ContentActions";
 import { ContentComments } from "@/components/ContentComments";
 import { FollowButton } from "@/components/FollowButton";
 import { useState, useEffect, useRef } from "react";
 import { GlobalLoader } from "@/components/GlobalLoader";
+import { toast } from "sonner";
 
 interface Content {
   id: string;
@@ -26,6 +27,7 @@ interface Content {
   views_count: number;
   likes_count: number;
   status?: string;
+  creator_id: string;
   creator: {
     id: string;
     display_name: string;
@@ -71,6 +73,7 @@ export default function Watch() {
           views_count,
           likes_count,
           status,
+          creator_id,
           creator:profiles!creator_id(id, display_name, avatar_url)
         `)
         .eq('id', id);
@@ -80,17 +83,26 @@ export default function Watch() {
         query = query.eq('status', 'approved');
       }
 
-      const { data, error } = await query.single();
+      const { data, error } = await query.maybeSingle();
 
       if (error) throw error;
+      if (!data) {
+        setContent(null);
+        setLoadingContent(false);
+        return;
+      }
 
       setContent(data);
       checkAccess(data);
 
-      await supabase
-        .from('contents')
-        .update({ views_count: (data.views_count || 0) + 1 })
-        .eq('id', id);
+      // Only increment views if not admin previewing pending content
+      const isAdminPreview = role === 'admin' && data.status === 'pending';
+      if (!isAdminPreview) {
+        await supabase
+          .from('contents')
+          .update({ views_count: (data.views_count || 0) + 1 })
+          .eq('id', id);
+      }
     } catch (error: any) {
       console.error(error);
     } finally {
@@ -172,12 +184,60 @@ export default function Watch() {
     await trackProgress(user.id, content.id, percent, currentTime);
   };
 
+  const handleApprove = async () => {
+    if (!content) return;
+    try {
+      const { error } = await supabase
+        .from('contents')
+        .update({ status: 'approved', published_at: new Date().toISOString() })
+        .eq('id', content.id);
+      
+      if (error) throw error;
+
+      await processReward({
+        actionKey: 'CONTENT_APPROVED',
+        userId: content.creator_id,
+        contentId: content.id,
+        metadata: { content_title: content.title }
+      });
+
+      toast.success("Conteúdo aprovado com sucesso!");
+      window.location.href = '/admin/contents';
+    } catch (error: any) {
+      toast.error(error.message || "Erro ao aprovar conteúdo");
+    }
+  };
+
+  const handleReject = async () => {
+    if (!content) return;
+    try {
+      const { error } = await supabase
+        .from('contents')
+        .update({ status: 'rejected' })
+        .eq('id', content.id);
+      
+      if (error) throw error;
+      toast.success("Conteúdo reprovado");
+      window.location.href = '/admin/contents';
+    } catch (error: any) {
+      toast.error(error.message || "Erro ao reprovar conteúdo");
+    }
+  };
+
   if (loading || loadingContent) {
     return <GlobalLoader />;
   }
 
   if (!user) return <Navigate to="/auth" replace />;
-  if (!content) return <div className="p-8">Conteúdo não encontrado</div>;
+  if (!content) return (
+    <div className="min-h-screen flex items-center justify-center bg-background">
+      <Card className="p-8 text-center">
+        <AlertCircle className="h-12 w-12 mx-auto mb-4 text-muted-foreground" />
+        <h2 className="text-2xl font-bold mb-2">Conteúdo não encontrado</h2>
+        <p className="text-muted-foreground">O conteúdo que você está procurando não existe ou foi removido.</p>
+      </Card>
+    </div>
+  );
   if (!hasAccess) return <div className="p-8">Sem acesso</div>;
 
   return (
@@ -197,7 +257,16 @@ export default function Watch() {
             </Card>
 
             <div>
-              <h1 className="text-3xl font-bold mb-2">{content.title}</h1>
+              <div className="flex items-center gap-3 mb-2">
+                <h1 className="text-3xl font-bold">{content.title}</h1>
+                {content.status === 'pending' && role === 'admin' && (
+                  <Badge variant="outline" className="flex items-center gap-1 border-yellow-500 text-yellow-600 dark:text-yellow-400">
+                    <AlertCircle className="h-3 w-3" />
+                    PENDENTE
+                  </Badge>
+                )}
+              </div>
+              
               <div className="flex items-center gap-4 text-sm text-muted-foreground mb-4">
                 <span className="flex items-center gap-1">
                   <Eye className="h-4 w-4" />
@@ -212,8 +281,21 @@ export default function Watch() {
                   {Math.floor((content.duration_seconds || 0) / 60)} min
                 </span>
               </div>
-              
-              <ContentActions contentId={content.id} />
+
+              {content.status === 'pending' && role === 'admin' ? (
+                <div className="flex gap-2 mb-4">
+                  <Button onClick={handleApprove} className="flex items-center gap-2">
+                    <CheckCircle className="h-4 w-4" />
+                    Aprovar Conteúdo
+                  </Button>
+                  <Button onClick={handleReject} variant="destructive" className="flex items-center gap-2">
+                    <XCircle className="h-4 w-4" />
+                    Reprovar Conteúdo
+                  </Button>
+                </div>
+              ) : (
+                <ContentActions contentId={content.id} />
+              )}
             </div>
 
             <Card className="p-4">
