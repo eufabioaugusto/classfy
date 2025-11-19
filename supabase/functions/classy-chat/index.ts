@@ -180,12 +180,12 @@ serve(async (req) => {
           })
           .filter((c: any) => c.matchScore > 0)
           .sort((a: any, b: any) => b.matchScore - a.matchScore)
-          .slice(0, 5);
+          .slice(0, 12);
 
         // Fallback: if nothing matches, still show alguns conteúdos relevantes
         if (relatedContents.length === 0 && !isAskingAboutCurrentContent) {
           relatedContents = availableContents
-            .slice(0, 5)
+            .slice(0, 8)
             .map((content: any) => ({ ...content, matchScore: 1 }));
         }
       }
@@ -250,12 +250,19 @@ COMPORTAMENTO OBRIGATÓRIO:
    - Sugira aplicação: "Como você aplicaria isso na prática?"
    - Verifique dúvidas: "Ficou alguma dúvida sobre [conceito]?"
 
-4. QUANDO NÃO HOUVER CONTEÚDO ATIVO:
+4. QUANDO APRESENTAR MÚLTIPLOS CONTEÚDOS:
+   - Faça um breve resumo destacando ${relatedContents.length > 0 ? relatedContents.length : ''} conteúdos encontrados
+   - Agrupe por relevância ou tema quando possível
+   - Sugira uma ordem de estudo se fizer sentido
+   - Mencione a opção de criar uma lista de estudos
+   - Exemplo: "Encontrei ${relatedContents.length} conteúdos sobre [tema]! Você pode criar uma lista de estudos com eles ou assistir na ordem que preferir."
+
+5. QUANDO NÃO HOUVER CONTEÚDO ATIVO:
    - Ajude o usuário a encontrar conteúdos relevantes
    - Pergunte sobre interesses específicos
    - Seja guia na jornada de aprendizado
 
-5. RESPOSTAS INTELIGENTES:
+6. RESPOSTAS INTELIGENTES:
    ✓ Seja didática e explicativa quando necessário
    ✓ Use o contexto do vídeo para explicações
    ✓ Adapte o nível de complexidade ao usuário
@@ -263,7 +270,7 @@ COMPORTAMENTO OBRIGATÓRIO:
    ✗ Não seja evasiva ou genérica
    ✗ Não finja que sabe algo que não está na transcrição
 
-6. TOM E ESTILO:
+7. TOM E ESTILO:
    - Acolhedora mas profissional
    - Didática sem ser condescendente
    - Motivadora sem ser excessiva

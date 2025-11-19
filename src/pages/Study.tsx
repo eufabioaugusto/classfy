@@ -106,6 +106,44 @@ export default function Study() {
     }
   }, [study, loadingMessages, messages.length, initialMessageSent, loading, sending]);
 
+  const handleCreatePlaylist = async (contentIds: string[]) => {
+    if (!user || !id) return;
+    
+    try {
+      // Create a new study with the selected contents
+      const playlistTitle = `Lista: ${study?.title || 'Conteúdos Selecionados'}`;
+      
+      const { data: newStudy, error: studyError } = await supabase
+        .from('studies')
+        .insert({
+          title: playlistTitle,
+          description: `Lista de estudos com ${contentIds.length} conteúdos`,
+          user_id: user.id,
+          status: 'active'
+        })
+        .select()
+        .single();
+
+      if (studyError) throw studyError;
+
+      // Add a system message with content recommendations
+      await supabase
+        .from('study_messages')
+        .insert({
+          study_id: newStudy.id,
+          role: 'assistant',
+          content: `Ótimo! Preparei uma sequência de estudos com ${contentIds.length} conteúdos selecionados. Você pode assistir na ordem que preferir!`,
+          related_contents: contentIds
+        });
+
+      toast.success('Lista de estudos criada!');
+      navigate(`/study/${newStudy.id}`);
+    } catch (error) {
+      console.error('Error creating playlist:', error);
+      toast.error('Erro ao criar lista de estudos');
+    }
+  };
+
   const scrollToBottom = () => {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
@@ -588,22 +626,43 @@ export default function Study() {
                       
                       {/* Render content cards if available */}
                       {message.role === "assistant" && messageContents.has(message.id) && (
-                        <div className="grid grid-cols-1 gap-4 max-w-[80%]">
-                          {messageContents.get(message.id)?.map((content: any) => (
-                            <ChatContentCard
-                              key={content.id}
-                              id={content.id}
-                              title={content.title}
-                              description={content.description}
-                              thumbnail_url={content.thumbnail_url}
-                              content_type={content.content_type}
-                              duration_minutes={content.duration_minutes}
-                              required_plan={content.required_plan}
-                              is_free={content.is_free}
-                              matchScore={content.matchScore}
-                              onPlay={handlePlayContent}
-                            />
-                          ))}
+                        <div className="space-y-4">
+                          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 max-w-full">
+                            {messageContents.get(message.id)?.map((content: any) => (
+                              <ChatContentCard
+                                key={content.id}
+                                id={content.id}
+                                title={content.title}
+                                description={content.description}
+                                thumbnail_url={content.thumbnail_url}
+                                content_type={content.content_type}
+                                duration_minutes={content.duration_minutes}
+                                required_plan={content.required_plan}
+                                is_free={content.is_free}
+                                matchScore={content.matchScore}
+                                onPlay={handlePlayContent}
+                                compact={messageContents.get(message.id)!.length > 2}
+                              />
+                            ))}
+                          </div>
+                          {messageContents.get(message.id) && messageContents.get(message.id)!.length > 1 && (
+                            <div className="flex gap-2 justify-start">
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => {
+                                  const contentIds = messageContents.get(message.id)?.map(c => c.id) || [];
+                                  handleCreatePlaylist(contentIds);
+                                }}
+                                className="gap-2 shadow-sm hover:shadow-md transition-shadow"
+                              >
+                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+                                </svg>
+                                Criar Lista de Estudos ({messageContents.get(message.id)!.length} conteúdos)
+                              </Button>
+                            </div>
+                          )}
                         </div>
                       )}
                     </div>
