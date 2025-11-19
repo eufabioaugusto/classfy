@@ -84,26 +84,29 @@ export default function Index() {
             <div className={`w-full max-w-5xl ${!hasSearched ? 'mt-32' : 'mt-8'} transition-all duration-300`}>
               {/* Title (only when no search) */}
               {!hasSearched && <div className="text-center mb-12 space-y-4">
-                  
                   <h1 className="text-5xl font-bold text-foreground md:text-4xl">
                     O que você quer aprender?
                   </h1>
                   <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
                     Digite um tema e crie um estudo personalizado com a Classy
                   </p>
-                  
-                  {/* Study counter */}
-                  {user && <div className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-muted/50 border border-border/50 mt-4">
-                      <BookOpen className="w-4 h-4 text-cinematic-accent" />
-                      <span className="text-sm text-muted-foreground">
-                        Você está usando <span className="font-semibold text-foreground">{limitText}</span> estudos
-                        {!canCreateMore && currentPlan !== 'premium' && <span className="text-cinematic-accent ml-1">(limite atingido)</span>}
-                      </span>
-                    </div>}
                 </div>}
 
               {/* Search Bar */}
-              <SearchBar onResults={handleSearchResults} onLoading={handleSearchLoading} onError={handleSearchError} />
+              <div className="relative">
+                <SearchBar onResults={handleSearchResults} onLoading={handleSearchLoading} onError={handleSearchError} />
+                
+                {/* Study counter - Bottom left of search */}
+                {user && !hasSearched && (
+                  <div className="absolute -bottom-12 left-0 flex items-center gap-2 px-4 py-2 rounded-lg bg-muted/50 border border-border/50">
+                    <BookOpen className="w-4 h-4 text-cinematic-accent" />
+                    <span className="text-sm text-muted-foreground">
+                      <span className="font-semibold text-foreground">{limitText}</span> estudos
+                      {!canCreateMore && currentPlan !== 'premium' && <span className="text-cinematic-accent ml-1">(limite atingido)</span>}
+                    </span>
+                  </div>
+                )}
+              </div>
 
               {/* Status Messages - Inline below search */}
               {isLoading && <div className="mt-4 text-center">
