@@ -4,6 +4,7 @@ import { useNavigate } from "react-router-dom";
 import { ContentCard } from "@/components/ContentCard";
 import { ConversionModal } from "@/components/ConversionModal";
 import { SearchBar } from "@/components/SearchBar";
+import { ContinueStudyCard } from "@/components/ContinueStudyCard";
 import { SidebarProvider } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/AppSidebar";
 import { Header } from "@/components/Header";
@@ -98,6 +99,13 @@ export default function Index() {
 
               {/* Search Bar */}
               <SearchBar onResults={handleSearchResults} onLoading={handleSearchLoading} onError={handleSearchError} />
+
+              {/* Continue Study Card - Shows when user has active studies and no search */}
+              {user && !hasSearched && (
+                <div className="mt-8">
+                  <ContinueStudyCard userId={user.id} />
+                </div>
+              )}
 
               {/* Status Messages - Inline below search */}
               {isLoading && <div className="mt-6 text-center animate-fade-in">
