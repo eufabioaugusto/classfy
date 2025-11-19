@@ -1,5 +1,6 @@
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "@/hooks/use-toast";
+import { useRef } from "react";
 
 interface ProcessRewardParams {
   actionKey: string;
@@ -9,12 +10,27 @@ interface ProcessRewardParams {
 }
 
 export function useRewardSystem() {
+  // Track in-flight reward processing to prevent duplicates
+  const processingRewards = useRef<Set<string>>(new Set());
+
   const processReward = async ({
     actionKey,
     userId,
     contentId,
     metadata = {},
   }: ProcessRewardParams) => {
+    // Create unique key for this reward
+    const rewardKey = `${actionKey}_${userId}_${contentId || 'no-content'}`;
+    
+    // If already processing, skip
+    if (processingRewards.current.has(rewardKey)) {
+      console.log('Skipping duplicate reward call:', rewardKey);
+      return null;
+    }
+
+    // Mark as processing
+    processingRewards.current.add(rewardKey);
+
     try {
       const { data, error } = await supabase.functions.invoke('process-reward', {
         body: {
@@ -42,6 +58,11 @@ export function useRewardSystem() {
     } catch (error) {
       console.error('Error processing reward:', error);
       return null;
+    } finally {
+      // Remove from processing after 2 seconds to allow retry if needed
+      setTimeout(() => {
+        processingRewards.current.delete(rewardKey);
+      }, 2000);
     }
   };
 
@@ -197,49 +218,66 @@ export function useRewardSystem() {
     duration: number
   ) => {
     try {
-      // Check if user already has progress record
-      const { data: existingProgress } = await supabase
-        .from('user_progress')
-        .select('*')
-        .eq('user_id', userId)
-        .eq('content_id', contentId)
-        .single();
+      // Create unique key for this progress update
+      const progressKey = `progress_${userId}_${contentId}`;
+      
+      // Prevent multiple simultaneous updates
+      if (processingRewards.current.has(progressKey)) {
+        return;
+      }
+      
+      processingRewards.current.add(progressKey);
 
-      const progressData = {
-        user_id: userId,
-        content_id: contentId,
-        progress_percent: Math.floor(currentPercent),
-        last_position_seconds: Math.floor(duration),
-        completed: currentPercent >= 95,
-        completed_at: currentPercent >= 95 ? new Date().toISOString() : null,
-      };
-
-      if (existingProgress) {
-        await supabase
+      try {
+        // Check if user already has progress record
+        const { data: existingProgress } = await supabase
           .from('user_progress')
-          .update(progressData)
-          .eq('id', existingProgress.id);
-      } else {
-        await supabase.from('user_progress').insert(progressData);
-      }
+          .select('*')
+          .eq('user_id', userId)
+          .eq('content_id', contentId)
+          .single();
 
-      // Trigger rewards based on progress
-      if (currentPercent >= 50 && (!existingProgress || existingProgress.progress_percent < 50)) {
-        await processReward({
-          actionKey: 'WATCH_50',
-          userId,
-          contentId,
-          metadata: { progress: 50 },
-        });
-      }
+        const progressData = {
+          user_id: userId,
+          content_id: contentId,
+          progress_percent: Math.floor(currentPercent),
+          last_position_seconds: Math.floor(duration),
+          completed: currentPercent >= 95,
+          completed_at: currentPercent >= 95 ? new Date().toISOString() : null,
+        };
 
-      if (currentPercent >= 95 && (!existingProgress || existingProgress.progress_percent < 95)) {
-        await processReward({
-          actionKey: 'WATCH_100',
-          userId,
-          contentId,
-          metadata: { progress: 100 },
-        });
+        if (existingProgress) {
+          await supabase
+            .from('user_progress')
+            .update(progressData)
+            .eq('id', existingProgress.id);
+        } else {
+          await supabase.from('user_progress').insert(progressData);
+        }
+
+        // Trigger rewards based on progress (only if not already at that milestone)
+        if (currentPercent >= 50 && (!existingProgress || existingProgress.progress_percent < 50)) {
+          await processReward({
+            actionKey: 'WATCH_50',
+            userId,
+            contentId,
+            metadata: { progress: 50 },
+          });
+        }
+
+        if (currentPercent >= 95 && (!existingProgress || existingProgress.progress_percent < 95)) {
+          await processReward({
+            actionKey: 'WATCH_100',
+            userId,
+            contentId,
+            metadata: { progress: 100 },
+          });
+        }
+      } finally {
+        // Remove from processing after a short delay
+        setTimeout(() => {
+          processingRewards.current.delete(progressKey);
+        }, 1000);
       }
     } catch (error) {
       console.error('Error tracking progress:', error);

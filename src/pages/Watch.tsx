@@ -205,6 +205,16 @@ export default function Watch() {
     const duration = content.duration_seconds;
     const percent = (currentTime / duration) * 100;
 
+    // Only process every 2 seconds or at key milestones to prevent spam
+    const shouldProcess = 
+      Math.floor(currentTime) % 2 === 0 || // Every 2 seconds
+      (currentTime >= 15 && !view15sRecorded) ||
+      (currentTime > 0 && !metricsRecorded.start) ||
+      (currentTime > duration / 2 && !metricsRecorded.half) ||
+      (currentTime > duration * 0.95 && !metricsRecorded.complete);
+
+    if (!shouldProcess) return;
+
     if (!view15sRecorded && currentTime >= 15) {
       await processReward({
         actionKey: 'VIEW_15S',
@@ -228,9 +238,10 @@ export default function Watch() {
       await recordMetric('complete');
       await trackProgress(user.id, content.id, 100, currentTime);
       await checkBingeWatch();
+    } else if (currentTime > 0) {
+      // Regular progress tracking (throttled by shouldProcess check)
+      await trackProgress(user.id, content.id, percent, currentTime);
     }
-
-    await trackProgress(user.id, content.id, percent, currentTime);
   };
 
   const handleApprove = async () => {

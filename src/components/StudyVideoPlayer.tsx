@@ -61,9 +61,17 @@ export const StudyVideoPlayer = ({ content, studyId, onClose, onTranscriptionUpd
   }, []);
 
   const handleProgressTracking = async (currentTime: number) => {
-    if (!user || !content.id) return;
+    if (!user || !content.id || duration === 0) return;
 
     const percent = (currentTime / duration) * 100;
+
+    // Only track progress every 5 seconds or at key milestones
+    const shouldTrack = 
+      currentTime % 5 < 0.5 || // Every 5 seconds
+      (percent >= 50 && !metricsRecorded.half) ||
+      (percent >= 95 && !metricsRecorded.complete);
+
+    if (!shouldTrack) return;
 
     if (percent >= 1 && !metricsRecorded.start) {
       setMetricsRecorded((prev) => ({ ...prev, start: true }));
@@ -75,15 +83,10 @@ export const StudyVideoPlayer = ({ content, studyId, onClose, onTranscriptionUpd
 
     if (percent >= 95 && !metricsRecorded.complete) {
       setMetricsRecorded((prev) => ({ ...prev, complete: true }));
-      await processReward({
-        actionKey: "WATCH_100",
-        userId: user.id,
-        contentId: content.id,
-        metadata: { progress: 100 },
-      });
     }
 
-    await trackProgress(user.id, content.id, percent, duration);
+    // trackProgress now handles all reward logic internally
+    await trackProgress(user.id, content.id, percent, currentTime);
   };
 
   const togglePlay = () => {
