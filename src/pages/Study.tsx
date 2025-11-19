@@ -5,7 +5,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Loader2, Send, ArrowLeft, MoreVertical, Edit2, Share2, Trash2, X, List, FileText, Brain, StickyNote, MessageSquare, Lightbulb } from "lucide-react";
+import { Loader2, Send, ArrowLeft, MoreVertical, Edit2, Share2, Trash2, X, List, FileText, Brain, StickyNote, MessageSquare, Lightbulb, Minimize2, Maximize2 } from "lucide-react";
 import { StudyMessage } from "@/hooks/useStudies";
 import { useStudies } from "@/hooks/useStudies";
 import { ChatContentCard } from "@/components/ChatContentCard";
@@ -89,6 +89,10 @@ function StudyContent() {
   
   // Tool panels state
   const [activeToolPanel, setActiveToolPanel] = useState<'transcription' | 'quiz' | 'notes' | 'comments' | 'recommendations' | null>(null);
+  const [miniPlayerActive, setMiniPlayerActive] = useState(false);
+  const [miniPlayerPosition, setMiniPlayerPosition] = useState({ x: 20, y: 20 });
+  const miniPlayerRef = useRef<HTMLDivElement>(null);
+  const isDraggingRef = useRef(false);
 
   // Focus Mode: Auto-collapse sidebar when content is playing
   useEffect(() => {
@@ -731,8 +735,8 @@ function StudyContent() {
 
       {/* Main Content Area - Resizable Panels */}
       <ResizablePanelGroup direction="horizontal" className="flex-1">
-        {/* Left Panel - Video Player (when active) */}
-        {activeContent && (
+        {/* Left Panel - Video Player (when active and not minimized) */}
+        {activeContent && !miniPlayerActive && (
           <>
             <ResizablePanel defaultSize={activePlaylist ? 50 : 60} minSize={40}>
               <div className="relative h-full flex flex-col bg-background">
@@ -782,6 +786,19 @@ function StudyContent() {
                   >
                     <Lightbulb className="w-4 h-4" />
                     Recomendações
+                  </Button>
+                  
+                  <div className="flex-1" />
+                  
+                  {/* Mini Player Toggle */}
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setMiniPlayerActive(true)}
+                    className="gap-2"
+                  >
+                    <Minimize2 className="w-4 h-4" />
+                    Minimizar
                   </Button>
                 </div>
 
@@ -934,7 +951,10 @@ function StudyContent() {
         )}
 
         {/* Right Panel - Chat */}
-        <ResizablePanel defaultSize={activeContent ? (activePlaylist ? 25 : 40) : 100} minSize={20}>
+        <ResizablePanel 
+          defaultSize={miniPlayerActive ? 100 : (activeContent ? (activePlaylist ? 25 : 40) : 100)} 
+          minSize={20}
+        >
           <div className="flex flex-col h-full">
             {/* Chat Messages */}
             <ScrollArea className="flex-1 px-6" ref={scrollRef}>
@@ -1320,6 +1340,94 @@ function StudyContent() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Mini Player Flutuante */}
+      {miniPlayerActive && activeContent && (
+        <div
+          ref={miniPlayerRef}
+          className="fixed bottom-20 right-20 z-50 w-80 bg-card border-2 border-border rounded-lg shadow-2xl overflow-hidden"
+          style={{
+            transform: `translate(${miniPlayerPosition.x}px, ${miniPlayerPosition.y}px)`
+          }}
+        >
+          {/* Mini Player Header */}
+          <div className="flex items-center justify-between gap-2 px-3 py-2 bg-card/95 backdrop-blur-sm border-b border-border cursor-move"
+            onMouseDown={(e) => {
+              e.preventDefault();
+              isDraggingRef.current = true;
+              const startX = e.clientX - miniPlayerPosition.x;
+              const startY = e.clientY - miniPlayerPosition.y;
+
+              const handleMouseMove = (e: MouseEvent) => {
+                if (isDraggingRef.current) {
+                  setMiniPlayerPosition({
+                    x: e.clientX - startX,
+                    y: e.clientY - startY
+                  });
+                }
+              };
+
+              const handleMouseUp = () => {
+                isDraggingRef.current = false;
+                document.removeEventListener('mousemove', handleMouseMove);
+                document.removeEventListener('mouseup', handleMouseUp);
+              };
+
+              document.addEventListener('mousemove', handleMouseMove);
+              document.addEventListener('mouseup', handleMouseUp);
+            }}
+          >
+            <div className="flex-1 min-w-0">
+              <p className="text-xs font-medium text-foreground truncate">
+                {activeContent.title}
+              </p>
+            </div>
+            <div className="flex items-center gap-1">
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-6 w-6"
+                onClick={() => setMiniPlayerActive(false)}
+              >
+                <Maximize2 className="w-3 h-3" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-6 w-6"
+                onClick={() => {
+                  setMiniPlayerActive(false);
+                  setActiveContent(null);
+                  setActivePlaylist(null);
+                }}
+              >
+                <X className="w-3 h-3" />
+              </Button>
+            </div>
+          </div>
+
+          {/* Mini Video Player */}
+          <div className="aspect-video bg-black">
+            <StudyVideoPlayer
+              studyId={id!}
+              content={activeContent}
+              onClose={() => {}}
+              onTranscriptionUpdate={() => {}}
+              onCreateNote={() => {}}
+              onVideoEnded={handleVideoEnded}
+            />
+          </div>
+
+          {/* Mini Playlist (if active) */}
+          {activePlaylist && (
+            <div className="p-2 border-t border-border bg-muted/30">
+              <p className="text-xs text-muted-foreground mb-1">
+                Playlist: {activePlaylist.currentIndex + 1}/{(messageContents.get(activePlaylist.messageId) || []).length}
+              </p>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
