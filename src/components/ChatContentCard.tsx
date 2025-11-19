@@ -19,7 +19,6 @@ interface ChatContentCardProps {
   is_free?: boolean;
   matchScore?: number;
   onPlay?: (contentId: string) => void;
-  compact?: boolean;
 }
 
 export const ChatContentCard = ({
@@ -33,7 +32,6 @@ export const ChatContentCard = ({
   is_free = true,
   matchScore,
   onPlay,
-  compact = false,
 }: ChatContentCardProps) => {
   const navigate = useNavigate();
   const { user } = useAuth();
@@ -140,27 +138,27 @@ export const ChatContentCard = ({
   };
 
   return (
-    <Card className="overflow-hidden bg-card border-border/50 hover:border-primary/30 hover:shadow-lg transition-all duration-300 group">
+    <Card className="overflow-hidden bg-card/80 backdrop-blur-sm border border-border/30 hover:border-primary/40 hover:shadow-xl hover:shadow-primary/5 transition-all duration-300 group cursor-pointer">
       {/* Thumbnail */}
-      <div className={`relative overflow-hidden bg-muted ${compact ? 'aspect-[16/10]' : 'aspect-video'}`}>
+      <div className="relative overflow-hidden bg-muted aspect-[16/9]">
         <img
           src={thumbnail_url || "/placeholder.svg"}
           alt={title}
-          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+          className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"
         />
         
         {/* Badges */}
-        <div className="absolute top-2 left-2 flex gap-1.5 flex-wrap">
-          <Badge className="bg-primary/90 backdrop-blur-sm text-primary-foreground text-xs shadow-sm">
+        <div className="absolute top-2 left-2 flex gap-1.5 flex-wrap max-w-[calc(100%-4rem)]">
+          <Badge className="bg-primary/95 backdrop-blur-md text-primary-foreground text-[10px] font-medium px-2 py-0.5 shadow-md">
             {contentTypeLabel[content_type]}
           </Badge>
-          {matchScore && matchScore > 0 && (
-            <Badge className="bg-cinematic-accent/90 backdrop-blur-sm text-white text-xs shadow-sm">
-              {Math.min(100, Math.round((matchScore / 10) * 100))}% match
+          {matchScore && matchScore > 3 && (
+            <Badge className="bg-cinematic-accent/95 backdrop-blur-md text-white text-[10px] font-medium px-2 py-0.5 shadow-md">
+              {Math.min(100, Math.round((matchScore / 10) * 100))}% relevante
             </Badge>
           )}
           {required_plan && required_plan !== 'free' && (
-            <Badge className={`${getPlanBadgeColor(required_plan)} backdrop-blur-sm text-white text-xs shadow-sm`}>
+            <Badge className={`${getPlanBadgeColor(required_plan)} backdrop-blur-md text-white text-[10px] font-medium px-2 py-0.5 shadow-md`}>
               {required_plan.toUpperCase()}
             </Badge>
           )}
@@ -168,7 +166,7 @@ export const ChatContentCard = ({
 
         {/* Duration */}
         {duration_minutes && (
-          <div className="absolute bottom-2 right-2 bg-black/80 backdrop-blur-sm px-2 py-1 rounded text-xs text-white flex items-center gap-1 shadow-sm">
+          <div className="absolute bottom-2 right-2 bg-black/90 backdrop-blur-md px-2 py-1 rounded-md text-[10px] font-medium text-white flex items-center gap-1 shadow-lg">
             <Clock className="w-3 h-3" />
             {duration_minutes}min
           </div>
@@ -176,66 +174,66 @@ export const ChatContentCard = ({
 
         {/* Lock overlay */}
         {!is_free && (
-          <div className="absolute inset-0 bg-black/40 backdrop-blur-[2px] flex items-center justify-center">
-            <Lock className="w-8 h-8 text-white drop-shadow-lg" />
+          <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-black/30 backdrop-blur-[1px] flex items-center justify-center">
+            <div className="bg-black/40 backdrop-blur-md rounded-full p-4">
+              <Lock className="w-8 h-8 text-white drop-shadow-2xl" />
+            </div>
           </div>
         )}
 
         {/* Play overlay on hover */}
-        <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors duration-300 flex items-center justify-center">
-          <div className="opacity-0 group-hover:opacity-100 transition-opacity duration-300">
-            <div className="bg-primary rounded-full p-3 shadow-xl">
-              <Play className="w-6 h-6 text-primary-foreground fill-current" />
+        <div className="absolute inset-0 bg-black/0 group-hover:bg-gradient-to-t group-hover:from-black/30 group-hover:to-transparent transition-all duration-300 flex items-center justify-center">
+          <div className="opacity-0 group-hover:opacity-100 transition-all duration-300 transform group-hover:scale-100 scale-90">
+            <div className="bg-primary rounded-full p-4 shadow-2xl shadow-primary/50 ring-4 ring-primary/20">
+              <Play className="w-7 h-7 text-primary-foreground fill-current" />
             </div>
           </div>
         </div>
       </div>
 
       {/* Content */}
-      <div className={`${compact ? 'p-3' : 'p-4'} space-y-2`}>
-        <div>
-          <h3 className={`font-semibold text-foreground line-clamp-2 ${compact ? 'text-sm' : ''}`}>
+      <div className="p-3 space-y-2.5">
+        <div className="space-y-1">
+          <h3 className="font-semibold text-foreground text-sm leading-tight line-clamp-2 min-h-[2.5rem]">
             {title}
           </h3>
-          {description && !compact && (
-            <p className="text-sm text-muted-foreground line-clamp-2 mt-1">
+          {description && (
+            <p className="text-xs text-muted-foreground line-clamp-2 leading-relaxed">
               {description}
             </p>
           )}
         </div>
 
         {/* Action Buttons */}
-        <div className="flex gap-2">
+        <div className="flex gap-2 pt-1">
           <Button
             onClick={handleWatch}
-            className="flex-1 shadow-sm"
-            size={compact ? "sm" : "default"}
+            className="flex-1 h-8 text-xs font-medium shadow-sm hover:shadow-md transition-shadow"
+            size="sm"
           >
-            <Play className="w-4 h-4 mr-2" />
+            <Play className="w-3.5 h-3.5 mr-1.5 fill-current" />
             Assistir
           </Button>
-          {!compact && (
-            <>
-              <Button
-                onClick={handleSave}
-                variant="outline"
-                size="sm"
-                disabled={loading}
-                title={isSaved ? "Remover dos salvos" : "Salvar"}
-              >
-                <Bookmark className={`w-4 h-4 ${isSaved ? "fill-current" : ""}`} />
-              </Button>
-              <Button
-                onClick={handleFavorite}
-                variant="outline"
-                size="sm"
-                disabled={loading}
-                title={isFavorited ? "Remover dos favoritos" : "Favoritar"}
-              >
-                <Heart className={`w-4 h-4 ${isFavorited ? "fill-current text-red-500" : ""}`} />
-              </Button>
-            </>
-          )}
+          <Button
+            onClick={handleSave}
+            variant="outline"
+            size="sm"
+            className="h-8 w-8 p-0"
+            disabled={loading}
+            title={isSaved ? "Remover dos salvos" : "Salvar"}
+          >
+            <Bookmark className={`w-3.5 h-3.5 ${isSaved ? "fill-current" : ""}`} />
+          </Button>
+          <Button
+            onClick={handleFavorite}
+            variant="outline"
+            size="sm"
+            className="h-8 w-8 p-0"
+            disabled={loading}
+            title={isFavorited ? "Remover dos favoritos" : "Favoritar"}
+          >
+            <Heart className={`w-3.5 h-3.5 ${isFavorited ? "fill-current text-red-500" : ""}`} />
+          </Button>
         </div>
       </div>
     </Card>

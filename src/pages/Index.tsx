@@ -132,7 +132,7 @@ export default function Index() {
                     {searchResults.length} resultado{searchResults.length !== 1 ? 's' : ''} encontrado{searchResults.length !== 1 ? 's' : ''}
                   </h2>
                 </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                <div className="grid grid-cols-3 gap-4">
                   {searchResults.map(content => <ContentCard key={content.id} content={content} onClick={() => handleContentClick(content)} />)}
                 </div>
               </div>}
