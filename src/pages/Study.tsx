@@ -55,10 +55,18 @@ import { toast } from "sonner";
 
 function StudyContent() {
   const { id } = useParams<{ id: string }>();
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
   const navigate = useNavigate();
   const { updateLastActivity } = useStudies();
   const { setOpen, open } = useSidebar();
+
+  const currentPlan = (profile?.plan || 'free') as 'free' | 'pro' | 'premium';
+  const PLAYLIST_LIMITS: Record<'free' | 'pro' | 'premium', number> = {
+    free: 5,
+    pro: 50,
+    premium: Infinity,
+  };
+  const playlistLimit = PLAYLIST_LIMITS[currentPlan];
   
   const [study, setStudy] = useState<any>(null);
   const [messages, setMessages] = useState<StudyMessage[]>([]);
@@ -84,6 +92,7 @@ function StudyContent() {
   const [showPlaylistsDropdown, setShowPlaylistsDropdown] = useState(false);
   const [activePlaylist, setActivePlaylist] = useState<{messageId: string, currentIndex: number} | null>(null);
   const [autoplayCountdown, setAutoplayCountdown] = useState<number | null>(null);
+  const [playlistsCount, setPlaylistsCount] = useState(0);
   const autoplayTimerRef = useRef<NodeJS.Timeout | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   
@@ -115,6 +124,7 @@ function StudyContent() {
     if (id) {
       fetchStudy();
       fetchMessages();
+      fetchPlaylists();
     }
   }, [id, user]);
 
@@ -144,12 +154,29 @@ function StudyContent() {
 
   const handleCreatePlaylist = async (messageId: string, contentIds: string[]) => {
     if (!user || !id) return;
+
+    if (playlistsCount >= playlistLimit) {
+      toast.error("Você atingiu o limite de playlists para o seu plano.");
+      return;
+    }
     
     setSending(true);
     
     try {
-      // Mark this message as having a saved playlist
+      // Persist playlist for this study/message
+      const { error: playlistError } = await supabase
+        .from("study_playlists")
+        .insert({
+          user_id: user.id,
+          study_id: id,
+          message_id: messageId,
+        });
+
+      if (playlistError) throw playlistError;
+
+      // Mark this message as having a saved playlist locally
       setSavedPlaylists(prev => new Set(prev).add(messageId));
+      setPlaylistsCount(prev => prev + 1);
       
       // Fetch transcriptions for all contents
       const { data: transcriptions } = await supabase
@@ -219,6 +246,27 @@ function StudyContent() {
   const scrollToBottom = () => {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    }
+  };
+
+  const fetchPlaylists = async () => {
+    if (!user) return;
+
+    try {
+      const { data, error } = await supabase
+        .from("study_playlists")
+        .select("id, study_id, message_id")
+        .eq("user_id", user.id);
+
+      if (error) throw error;
+
+      const allPlaylists = (data || []) as { id: string; study_id: string; message_id: string }[];
+      const currentStudyPlaylists = allPlaylists.filter(p => p.study_id === id);
+
+      setSavedPlaylists(new Set(currentStudyPlaylists.map(p => p.message_id)));
+      setPlaylistsCount(allPlaylists.length);
+    } catch (error) {
+      console.error("Error fetching playlists:", error);
     }
   };
 
