@@ -189,6 +189,7 @@ export default function Study() {
           body: {
             studyId: id,
             message: initialMessage,
+            activeContentId: activeContent?.id,
           },
         }
       );
@@ -242,12 +243,23 @@ export default function Study() {
       await updateLastActivity(id);
 
       // Call AI
+      // Get current video time if there's active content
+      let currentVideoTime: number | undefined;
+      if (activeContent) {
+        const videoElement = document.querySelector('video');
+        if (videoElement) {
+          currentVideoTime = videoElement.currentTime;
+        }
+      }
+
       const { data: aiData, error: aiError } = await supabase.functions.invoke(
         "classy-chat",
         {
           body: {
             studyId: id,
             message: userMessage,
+            activeContentId: activeContent?.id,
+            currentVideoTime
           },
         }
       );
