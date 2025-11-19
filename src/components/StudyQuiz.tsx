@@ -42,8 +42,19 @@ export function StudyQuiz({ studyId, contentId, contentTitle }: StudyQuizProps) 
         body: { studyId, contentId }
       });
 
-      if (error) throw error;
+      if (error) {
+        console.error("Edge function error:", error);
+        throw new Error(error.message || "Erro ao gerar quiz");
+      }
+
+      if (data?.error) {
+        throw new Error(data.error);
+      }
       
+      if (!data || !data.questions) {
+        throw new Error("Quiz não foi gerado corretamente");
+      }
+
       setQuiz(data);
       setStartTime(new Date());
       setCurrentQuestion(0);
@@ -55,7 +66,15 @@ export function StudyQuiz({ studyId, contentId, contentTitle }: StudyQuizProps) 
       toast.success("Quiz gerado com sucesso!");
     } catch (error: any) {
       console.error("Error generating quiz:", error);
-      toast.error(error.message || "Erro ao gerar quiz");
+      
+      let errorMessage = "Erro ao gerar quiz";
+      if (error.message?.includes("Transcrição não disponível")) {
+        errorMessage = "Este conteúdo ainda não possui transcrição. Por favor, aguarde o processamento ou selecione outro conteúdo.";
+      } else if (error.message) {
+        errorMessage = error.message;
+      }
+      
+      toast.error(errorMessage, { duration: 5000 });
     } finally {
       setLoading(false);
     }
@@ -157,6 +176,9 @@ export function StudyQuiz({ studyId, contentId, contentTitle }: StudyQuizProps) 
           <p className="text-center text-muted-foreground">
             Pronto para testar seu aprendizado? Classy vai gerar questões inteligentes baseadas no conteúdo!
           </p>
+          <div className="text-sm text-center text-muted-foreground bg-muted p-3 rounded-md">
+            ℹ️ O quiz é gerado a partir da transcrição do vídeo/áudio. Se o conteúdo foi adicionado recentemente, aguarde alguns minutos para a transcrição ser processada.
+          </div>
         </CardContent>
         <CardFooter>
           <Button 
@@ -167,7 +189,7 @@ export function StudyQuiz({ studyId, contentId, contentTitle }: StudyQuizProps) 
             {loading ? (
               <>
                 <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                Gerando quiz...
+                Gerando quiz com Classy...
               </>
             ) : (
               "Gerar Quiz"
