@@ -13,7 +13,7 @@ serve(async (req) => {
   }
 
   try {
-    const { studyId, message, activeContentId, currentVideoTime } = await req.json();
+    const { studyId, message, activeContentId, currentVideoTime, playlistSummary } = await req.json();
 
     // Get authenticated user from JWT
     const authHeader = req.headers.get('authorization');
@@ -124,7 +124,7 @@ serve(async (req) => {
 
     const isFirstMessage = !messages || messages.length === 0;
 
-    // Search for related content ONLY if user is not asking about current content
+    // Search for related content ONLY if user is not asking about current content AND not a playlist summary
     const isAskingAboutCurrentContent = activeContentData && (
       message.toLowerCase().includes("vídeo") ||
       message.toLowerCase().includes("conteúdo") ||
@@ -139,8 +139,8 @@ serve(async (req) => {
 
     let relatedContents: any[] = [];
     
-    // Only search for new content if NOT asking about current content
-    if (!isAskingAboutCurrentContent || isFirstMessage) {
+    // Only search for new content if NOT asking about current content AND NOT a playlist summary
+    if ((!isAskingAboutCurrentContent || isFirstMessage) && !playlistSummary) {
       const searchQuery = isFirstMessage ? study.title.toLowerCase() : message.toLowerCase();
       
       const { data: contents } = await supabaseServiceClient
@@ -331,6 +331,27 @@ REGRAS PROIBIDAS:
 ❌ NUNCA sugira links externos
 
 FOCO: Transformar consumo de conteúdo em APRENDIZADO REAL`;
+
+    // Special handling for playlist summary
+    if (playlistSummary) {
+      systemPrompt += `\n\n🎯 TAREFA ESPECIAL: RESUMO DE PLAYLIST
+
+O usuário acabou de SALVAR UMA PLAYLIST com múltiplos conteúdos.
+Sua tarefa: Analisar os conteúdos fornecidos e gerar um resumo contextualizado.
+
+INSTRUÇÕES:
+✓ Analise os títulos, descrições e transcrições fornecidas
+✓ Identifique os temas principais que serão abordados
+✓ Explique o que o usuário pode aprender com essa sequência
+✓ Seja específico e mencione os principais tópicos que serão cobertos
+✓ Use um tom encorajador e motivador
+✓ Mantenha o resumo entre 3-5 linhas
+✗ NUNCA liste os títulos individualmente
+✗ NUNCA recomende novos conteúdos
+
+FORMATO DA RESPOSTA:
+"[Nome], playlist está salva e pronta pra você assistir em forma de trilha. Com esse material você pode aprender [principais tópicos e habilidades]. Se precisar de algo é só avisar."`;
+    }
 
     // Add instructions based on context
     if (isAskingAboutCurrentContent && activeContentData) {
