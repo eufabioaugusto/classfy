@@ -81,41 +81,37 @@ export default function Index() {
             <ConversionModal open={modalOpen} onOpenChange={setModalOpen} reason={modalReason} />
 
             {/* Search Component - Always visible and centered */}
-            <div className={`w-full max-w-5xl ${!hasSearched ? 'mt-32' : 'mt-8'} transition-all duration-300`}>
+            <div className={`w-full max-w-5xl ${!hasSearched ? 'mt-32' : 'mt-8'} transition-all duration-500`}>
               {/* Title (only when no search) */}
-              {!hasSearched && <div className="text-center mb-12 space-y-4">
-                  <h1 className="text-5xl font-bold text-foreground md:text-4xl">
+              {!hasSearched && <div className="text-center mb-16 space-y-6 animate-fade-in">
+                  <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-cinematic-accent/10 border border-cinematic-accent/20 text-cinematic-accent text-sm font-medium mb-4">
+                    <Sparkles className="w-4 h-4" />
+                    <span>Powered by AI</span>
+                  </div>
+                  <h1 className="text-6xl font-bold text-foreground md:text-5xl bg-gradient-to-br from-foreground to-foreground/70 bg-clip-text text-transparent">
                     O que você quer aprender?
                   </h1>
-                  <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
+                  <p className="text-xl text-muted-foreground max-w-2xl mx-auto font-medium">
                     Digite um tema e crie um estudo personalizado com a Classy
                   </p>
                 </div>}
 
               {/* Search Bar */}
-              <div className="relative">
-                <SearchBar onResults={handleSearchResults} onLoading={handleSearchLoading} onError={handleSearchError} />
-                
-                {/* Study counter - Bottom left of search */}
-                {user && !hasSearched && (
-                  <div className="absolute -bottom-12 left-0 flex items-center gap-2 px-4 py-2 rounded-lg bg-muted/50 border border-border/50">
-                    <BookOpen className="w-4 h-4 text-cinematic-accent" />
-                    <span className="text-sm text-muted-foreground">
-                      <span className="font-semibold text-foreground">{limitText}</span> estudos
-                      {!canCreateMore && currentPlan !== 'premium' && <span className="text-cinematic-accent ml-1">(limite atingido)</span>}
-                    </span>
-                  </div>
-                )}
-              </div>
+              <SearchBar onResults={handleSearchResults} onLoading={handleSearchLoading} onError={handleSearchError} />
 
               {/* Status Messages - Inline below search */}
-              {isLoading && <div className="mt-4 text-center">
-                  <p className="text-muted-foreground text-sm">Classy está processando sua busca...</p>
+              {isLoading && <div className="mt-6 text-center animate-fade-in">
+                  <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-muted/50 border border-border/30">
+                    <div className="w-2 h-2 rounded-full bg-cinematic-accent animate-pulse" />
+                    <p className="text-muted-foreground text-sm font-medium">Classy está processando sua busca...</p>
+                  </div>
                 </div>}
 
-              {error && <div className="mt-4 flex items-center justify-center gap-2 text-cinematic-accent">
-                  <AlertCircle className="w-4 h-4" />
-                  <p className="text-sm">{error}</p>
+              {error && <div className="mt-6 flex items-center justify-center gap-2 animate-fade-in">
+                  <div className="flex items-center gap-2 px-4 py-3 rounded-xl bg-destructive/10 border border-destructive/20 text-destructive">
+                    <AlertCircle className="w-4 h-4" />
+                    <p className="text-sm font-medium">{error}</p>
+                  </div>
                 </div>}
 
               {/* Auth prompt for non-logged users */}
