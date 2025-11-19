@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Search, Loader2, Mic, Sparkles, TrendingUp, BookOpen } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/contexts/AuthContext";
@@ -15,10 +15,12 @@ interface SearchBarProps {
 export function SearchBar({ onResults, onLoading, onError }: SearchBarProps) {
   const [query, setQuery] = useState("");
   const [isSearching, setIsSearching] = useState(false);
+  const [isRecording, setIsRecording] = useState(false);
   const [placeholderIndex, setPlaceholderIndex] = useState(0);
   const { user, profile } = useAuth();
   const navigate = useNavigate();
   const { createStudy, canCreateMore, activeCount, limit } = useStudies();
+  const recognitionRef = useRef<any>(null);
 
   const placeholders = [
     "O que você quer aprender hoje?",
@@ -43,6 +45,68 @@ export function SearchBar({ onResults, onLoading, onError }: SearchBarProps) {
     }, 3000);
     return () => clearInterval(interval);
   }, []);
+
+  useEffect(() => {
+    // Initialize Web Speech API
+    if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
+      const SpeechRecognition = (window as any).webkitSpeechRecognition || (window as any).SpeechRecognition;
+      recognitionRef.current = new SpeechRecognition();
+      recognitionRef.current.continuous = true;
+      recognitionRef.current.interimResults = true;
+      recognitionRef.current.lang = 'pt-BR';
+
+      recognitionRef.current.onresult = (event: any) => {
+        let interimTranscript = '';
+        let finalTranscript = '';
+
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+          const transcript = event.results[i][0].transcript;
+          if (event.results[i].isFinal) {
+            finalTranscript += transcript + ' ';
+          } else {
+            interimTranscript += transcript;
+          }
+        }
+
+        setQuery((finalTranscript + interimTranscript).trim());
+      };
+
+      recognitionRef.current.onerror = (event: any) => {
+        console.error('Speech recognition error:', event.error);
+        setIsRecording(false);
+        onError('Erro ao capturar áudio. Tente novamente.');
+      };
+
+      recognitionRef.current.onend = () => {
+        if (isRecording) {
+          recognitionRef.current?.start();
+        }
+      };
+    }
+
+    return () => {
+      if (recognitionRef.current) {
+        recognitionRef.current.stop();
+      }
+    };
+  }, [isRecording]);
+
+  const toggleVoiceRecording = () => {
+    if (!('webkitSpeechRecognition' in window || 'SpeechRecognition' in window)) {
+      onError('Seu navegador não suporta reconhecimento de voz.');
+      return;
+    }
+
+    if (isRecording) {
+      recognitionRef.current?.stop();
+      setIsRecording(false);
+    } else {
+      setQuery('');
+      onError(null);
+      setIsRecording(true);
+      recognitionRef.current?.start();
+    }
+  };
 
   const handleSearch = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -170,10 +234,16 @@ export function SearchBar({ onResults, onLoading, onError }: SearchBarProps) {
                 <Button
                   type="button"
                   size="sm"
-                  variant="ghost"
-                  className="h-9 w-9 p-0 rounded-xl text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-all"
+                  variant={isRecording ? "default" : "ghost"}
+                  onClick={toggleVoiceRecording}
+                  className={cn(
+                    "h-9 w-9 p-0 rounded-xl transition-all",
+                    isRecording 
+                      ? "bg-destructive hover:bg-destructive/90 text-destructive-foreground animate-pulse" 
+                      : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
+                  )}
                   disabled={isSearching}
-                  title="Busca por voz"
+                  title={isRecording ? "Parar gravação" : "Busca por voz"}
                 >
                   <Mic className="w-4 h-4" />
                 </Button>
@@ -181,7 +251,7 @@ export function SearchBar({ onResults, onLoading, onError }: SearchBarProps) {
                 <Button
                   type="submit"
                   size="sm"
-                  disabled={isSearching || !query.trim()}
+                  disabled={isSearching || !query.trim() || isRecording}
                   className={cn(
                     "h-9 px-5 rounded-xl font-medium shadow-lg shadow-cinematic-accent/20",
                     "bg-gradient-to-r from-cinematic-accent to-cinematic-accent/90",
