@@ -162,7 +162,7 @@ export function ContinueStudyCard({ userId }: ContinueStudyCardProps) {
   };
 
   const handleContinueStudy = (studyId: string) => {
-    navigate(`/study/${studyId}`);
+    navigate(`/c/${studyId}`);
   };
 
   if (loading) {
