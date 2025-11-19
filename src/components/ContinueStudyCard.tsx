@@ -18,6 +18,7 @@ interface StudyMetrics {
   totalStudyTime: number;
   totalRewards: number;
   progressPercent: number;
+  thumbnailUrl: string | null;
 }
 
 interface ContinueStudyCardProps {
@@ -65,20 +66,40 @@ export function ContinueStudyCard({ userId }: ContinueStudyCardProps) {
             .select("*", { count: "exact", head: true })
             .eq("study_id", study.id);
 
-          // Messages count (to estimate videos watched)
+          // Messages count (to estimate videos watched) and get first content thumbnail
           const { data: messages } = await supabase
             .from("study_messages")
             .select("related_contents")
             .eq("study_id", study.id)
-            .eq("role", "assistant");
+            .eq("role", "assistant")
+            .order("created_at", { ascending: true });
 
           let videosWatchedCount = 0;
-          if (messages) {
+          let firstContentId = null;
+          let thumbnailUrl = null;
+
+          if (messages && messages.length > 0) {
             messages.forEach((msg) => {
               if (msg.related_contents && Array.isArray(msg.related_contents)) {
+                if (!firstContentId && msg.related_contents.length > 0) {
+                  firstContentId = msg.related_contents[0];
+                }
                 videosWatchedCount += msg.related_contents.length;
               }
             });
+
+            // Fetch thumbnail from first content
+            if (firstContentId) {
+              const { data: content } = await supabase
+                .from("contents")
+                .select("thumbnail_url")
+                .eq("id", firstContentId)
+                .single();
+              
+              if (content) {
+                thumbnailUrl = content.thumbnail_url;
+              }
+            }
           }
 
           // Estimate study time (10 minutes per video + 2 minutes per note)
@@ -106,6 +127,7 @@ export function ContinueStudyCard({ userId }: ContinueStudyCardProps) {
             totalStudyTime,
             totalRewards: 0, // TODO: Calculate from reward_events
             progressPercent,
+            thumbnailUrl,
           };
         })
       );
@@ -125,16 +147,9 @@ export function ContinueStudyCard({ userId }: ContinueStudyCardProps) {
 
   if (loading) {
     return (
-      <Card className="w-full p-8 bg-gradient-to-br from-background to-muted/30 border-border/50">
-        <Skeleton className="h-8 w-64 mb-4" />
-        <Skeleton className="h-4 w-96 mb-8" />
-        <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-6">
-          <Skeleton className="h-20" />
-          <Skeleton className="h-20" />
-          <Skeleton className="h-20" />
-        </div>
-        <Skeleton className="h-12 w-48" />
-      </Card>
+      <div className="w-full h-[500px] rounded-2xl overflow-hidden relative">
+        <Skeleton className="w-full h-full" />
+      </div>
     );
   }
 
@@ -142,81 +157,102 @@ export function ContinueStudyCard({ userId }: ContinueStudyCardProps) {
 
   return (
     <div className="w-full space-y-4">
-      {/* Main Study Card */}
-      <Card className="w-full p-8 bg-gradient-to-br from-background to-muted/30 border-border/50 hover:border-primary/30 transition-all duration-300">
-        <div className="space-y-6">
-          {/* Header */}
-          <div className="space-y-2">
-            <h2 className="text-3xl font-bold text-foreground">{mainStudy.title}</h2>
-            <p className="text-muted-foreground text-lg">
+      {/* Main Study Card - Cinematic Design */}
+      <Card className="w-full h-[500px] rounded-2xl overflow-hidden relative group border-border/50 hover:border-primary/30 transition-all duration-300 cursor-pointer"
+        onClick={() => handleContinueStudy(mainStudy.id)}
+      >
+        {/* Background Image with Overlay */}
+        <div className="absolute inset-0">
+          {mainStudy.thumbnailUrl ? (
+            <img
+              src={mainStudy.thumbnailUrl}
+              alt={mainStudy.title}
+              className="w-full h-full object-cover"
+            />
+          ) : (
+            <div className="w-full h-full bg-gradient-to-br from-primary/20 to-primary/5" />
+          )}
+          {/* Dark overlay gradient - stronger at bottom */}
+          <div className="absolute inset-0 bg-gradient-to-t from-black via-black/60 to-black/20" />
+        </div>
+
+        {/* Content Container - Positioned at bottom */}
+        <div className="absolute inset-0 flex flex-col justify-end p-8 md:p-10">
+          {/* Badge */}
+          <div className="mb-4">
+            <span className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/10 backdrop-blur-sm border border-white/20 text-white text-xs font-medium">
+              <Trophy className="w-3 h-3" />
+              {mainStudy.progressPercent}% Concluído
+            </span>
+          </div>
+
+          {/* Title and Description */}
+          <div className="space-y-3 mb-6">
+            <h2 className="text-4xl md:text-5xl font-bold text-white leading-tight">
+              {mainStudy.title}
+            </h2>
+            <p className="text-white/80 text-lg max-w-2xl">
               Você já começou essa jornada. Vamos continuar?
             </p>
           </div>
 
           {/* Progress Bar */}
-          <div className="space-y-2">
-            <div className="flex items-center justify-between text-sm">
-              <span className="text-muted-foreground">Progresso da jornada</span>
-              <span className="font-semibold text-foreground">{mainStudy.progressPercent}%</span>
-            </div>
-            <Progress value={mainStudy.progressPercent} className="h-2" />
+          <div className="mb-6 max-w-xl">
+            <Progress value={mainStudy.progressPercent} className="h-1.5 bg-white/20" />
           </div>
 
-          {/* Metrics Grid */}
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
-            <MetricCard
-              icon={<PlayCircle className="w-5 h-5" />}
-              value={mainStudy.playlistsCount}
-              label="Playlists"
-            />
-            <MetricCard
-              icon={<BookOpen className="w-5 h-5" />}
-              value={mainStudy.videosWatchedCount}
-              label="Vídeos"
-            />
-            <MetricCard
-              icon={<StickyNote className="w-5 h-5" />}
-              value={mainStudy.notesCount}
-              label="Anotações"
-            />
-            <MetricCard
-              icon={<Clock className="w-5 h-5" />}
-              value={`${mainStudy.totalStudyTime}m`}
-              label="Tempo"
-            />
-            <MetricCard
-              icon={<Coins className="w-5 h-5" />}
-              value={`R$ ${mainStudy.totalRewards.toFixed(2)}`}
-              label="Ganhos"
-            />
-            <MetricCard
-              icon={<Trophy className="w-5 h-5" />}
-              value={mainStudy.progressPercent}
-              label="Conclusão"
-            />
+          {/* Metrics Row */}
+          <div className="flex flex-wrap gap-6 mb-6 text-white/90">
+            <div className="flex items-center gap-2">
+              <PlayCircle className="w-4 h-4" />
+              <span className="text-sm font-medium">{mainStudy.playlistsCount} Playlists</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <BookOpen className="w-4 h-4" />
+              <span className="text-sm font-medium">{mainStudy.videosWatchedCount} Vídeos</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <StickyNote className="w-4 h-4" />
+              <span className="text-sm font-medium">{mainStudy.notesCount} Anotações</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <Clock className="w-4 h-4" />
+              <span className="text-sm font-medium">{mainStudy.totalStudyTime}min</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <Coins className="w-4 h-4" />
+              <span className="text-sm font-medium">R$ {mainStudy.totalRewards.toFixed(2)}</span>
+            </div>
           </div>
 
           {/* Action Buttons */}
-          <div className="flex items-center gap-4 pt-2">
+          <div className="flex items-center gap-4">
             <Button
               size="lg"
-              className="bg-primary hover:bg-primary/90 text-primary-foreground"
-              onClick={() => handleContinueStudy(mainStudy.id)}
+              className="bg-white hover:bg-white/90 text-black font-semibold"
+              onClick={(e) => {
+                e.stopPropagation();
+                handleContinueStudy(mainStudy.id);
+              }}
             >
               Continuar estudo
             </Button>
             <Button
               size="lg"
-              variant="outline"
-              onClick={() => handleContinueStudy(mainStudy.id)}
+              variant="ghost"
+              className="text-white border border-white/30 hover:bg-white/10"
+              onClick={(e) => {
+                e.stopPropagation();
+                handleContinueStudy(mainStudy.id);
+              }}
             >
               Ver detalhes
             </Button>
           </div>
 
           {/* AI Message */}
-          <div className="pt-4 border-t border-border/50">
-            <p className="text-sm text-muted-foreground italic">
+          <div className="mt-6 pt-4 border-t border-white/10">
+            <p className="text-sm text-white/70 italic">
               <span className="font-semibold text-cinematic-accent">Classy:</span> Você está a{" "}
               {mainStudy.progressPercent}% de concluir este estudo. Continue assim!
             </p>
@@ -232,19 +268,34 @@ export function ContinueStudyCard({ userId }: ContinueStudyCardProps) {
             {otherStudies.map((study) => (
               <Card
                 key={study.id}
-                className="p-4 bg-background border-border/50 hover:border-primary/30 transition-all cursor-pointer"
+                className="h-[180px] rounded-xl overflow-hidden relative group border-border/50 hover:border-primary/30 transition-all cursor-pointer"
                 onClick={() => handleContinueStudy(study.id)}
               >
-                <div className="space-y-3">
-                  <h4 className="font-semibold text-foreground line-clamp-1">{study.title}</h4>
-                  <div className="space-y-1">
-                    <div className="flex items-center justify-between text-xs text-muted-foreground">
+                {/* Background */}
+                <div className="absolute inset-0">
+                  {study.thumbnailUrl ? (
+                    <img
+                      src={study.thumbnailUrl}
+                      alt={study.title}
+                      className="w-full h-full object-cover"
+                    />
+                  ) : (
+                    <div className="w-full h-full bg-gradient-to-br from-primary/10 to-muted" />
+                  )}
+                  <div className="absolute inset-0 bg-gradient-to-t from-black via-black/50 to-transparent" />
+                </div>
+
+                {/* Content */}
+                <div className="absolute inset-0 flex flex-col justify-end p-4">
+                  <h4 className="font-semibold text-white line-clamp-2 mb-2">{study.title}</h4>
+                  <div className="space-y-1 mb-3">
+                    <div className="flex items-center justify-between text-xs text-white/80">
                       <span>Progresso</span>
                       <span className="font-medium">{study.progressPercent}%</span>
                     </div>
-                    <Progress value={study.progressPercent} className="h-1.5" />
+                    <Progress value={study.progressPercent} className="h-1 bg-white/20" />
                   </div>
-                  <Button size="sm" variant="ghost" className="w-full">
+                  <Button size="sm" variant="ghost" className="w-full text-white border-white/30 hover:bg-white/10">
                     Continuar
                   </Button>
                 </div>
@@ -253,22 +304,6 @@ export function ContinueStudyCard({ userId }: ContinueStudyCardProps) {
           </div>
         </div>
       )}
-    </div>
-  );
-}
-
-interface MetricCardProps {
-  icon: React.ReactNode;
-  value: string | number;
-  label: string;
-}
-
-function MetricCard({ icon, value, label }: MetricCardProps) {
-  return (
-    <div className="flex flex-col items-center gap-2 p-4 rounded-lg bg-muted/50 border border-border/30">
-      <div className="text-primary">{icon}</div>
-      <div className="text-xl font-bold text-foreground">{value}</div>
-      <div className="text-xs text-muted-foreground text-center">{label}</div>
     </div>
   );
 }
