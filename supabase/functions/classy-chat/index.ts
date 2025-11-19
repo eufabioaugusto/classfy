@@ -148,7 +148,7 @@ serve(async (req) => {
         .select("id, title, description, content_type, thumbnail_url, visibility, required_plan, is_free, duration_minutes")
         .eq("status", "approved")
         .in("content_type", ["aula", "short", "podcast"])
-        .limit(20);
+        .limit(50);
 
       if (contents && contents.length > 0) {
         // Filter out the currently active content
@@ -180,13 +180,22 @@ serve(async (req) => {
           })
           .filter((c: any) => c.matchScore > 0)
           .sort((a: any, b: any) => b.matchScore - a.matchScore)
-          .slice(0, 12);
+          .slice(0, 15);
 
-        // Fallback: if nothing matches, still show alguns conteúdos relevantes
+        // Fallback: if nothing matches, still show alguns conteúdos relevantes (minimum 3 when available)
         if (relatedContents.length === 0 && !isAskingAboutCurrentContent) {
+          const minimumResults = Math.min(availableContents.length, 3);
           relatedContents = availableContents
-            .slice(0, 8)
+            .slice(0, Math.max(minimumResults, 10))
             .map((content: any) => ({ ...content, matchScore: 1 }));
+        } else if (relatedContents.length > 0 && relatedContents.length < 3 && !isAskingAboutCurrentContent) {
+          // If we have some matches but less than 3, add more to reach minimum of 3
+          const needed = 3 - relatedContents.length;
+          const additional = availableContents
+            .filter((c: any) => !relatedContents.find((r: any) => r.id === c.id))
+            .slice(0, needed)
+            .map((content: any) => ({ ...content, matchScore: 1 }));
+          relatedContents = [...relatedContents, ...additional];
         }
       }
     }
@@ -251,11 +260,13 @@ COMPORTAMENTO OBRIGATÓRIO:
    - Verifique dúvidas: "Ficou alguma dúvida sobre [conceito]?"
 
 4. QUANDO APRESENTAR MÚLTIPLOS CONTEÚDOS:
-   - Faça um breve resumo destacando ${relatedContents.length > 0 ? relatedContents.length : ''} conteúdos encontrados
+   - Faça um breve resumo destacando os ${relatedContents.length > 0 ? relatedContents.length : ''} conteúdos encontrados
    - Agrupe por relevância ou tema quando possível
    - Sugira uma ordem de estudo se fizer sentido
-   - Mencione a opção de criar uma lista de estudos
-   - Exemplo: "Encontrei ${relatedContents.length} conteúdos sobre [tema]! Você pode criar uma lista de estudos com eles ou assistir na ordem que preferir."
+   - SEMPRE mencione a opção de "Salvar Playlist" quando houver 2 ou mais conteúdos
+   - Exemplos:
+     * "Encontrei ${relatedContents.length} conteúdos sobre [tema]! Use o botão 'Salvar Playlist' abaixo para organizar sua sequência de estudos."
+     * "Separei ${relatedContents.length} aulas para você. Você pode salvar como playlist ou assistir na ordem que preferir!"
 
 5. QUANDO NÃO HOUVER CONTEÚDO ATIVO:
    - Ajude o usuário a encontrar conteúdos relevantes

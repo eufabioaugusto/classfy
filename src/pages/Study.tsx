@@ -15,6 +15,7 @@ import { StudyQuiz } from "@/components/StudyQuiz";
 import { StudyNotes } from "@/components/StudyNotes";
 import { Textarea } from "@/components/ui/textarea";
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/components/ui/resizable";
+import { Carousel, CarouselContent, CarouselItem, CarouselNext, CarouselPrevious } from "@/components/ui/carousel";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -110,37 +111,36 @@ export default function Study() {
     if (!user || !id) return;
     
     try {
-      // Create a new study with the selected contents
-      const playlistTitle = `Lista: ${study?.title || 'Conteúdos Selecionados'}`;
+      // Instead of creating a new study, add a playlist message to current study
+      const playlistMessage = `📚 Ótimo! Preparei uma sequência de estudos com ${contentIds.length} conteúdos selecionados. Você pode assistir na ordem que preferir! Clique nos cards abaixo para começar.`;
       
-      const { data: newStudy, error: studyError } = await supabase
-        .from('studies')
-        .insert({
-          title: playlistTitle,
-          description: `Lista de estudos com ${contentIds.length} conteúdos`,
-          user_id: user.id,
-          status: 'active'
-        })
-        .select()
-        .single();
-
-      if (studyError) throw studyError;
-
-      // Add a system message with content recommendations
-      await supabase
+      // Insert assistant message with playlist
+      const { error: messageError } = await supabase
         .from('study_messages')
         .insert({
-          study_id: newStudy.id,
+          study_id: id,
           role: 'assistant',
-          content: `Ótimo! Preparei uma sequência de estudos com ${contentIds.length} conteúdos selecionados. Você pode assistir na ordem que preferir!`,
+          content: playlistMessage,
           related_contents: contentIds
         });
 
-      toast.success('Lista de estudos criada!');
-      navigate(`/study/${newStudy.id}`);
+      if (messageError) throw messageError;
+
+      // Fetch the contents to add to messageContents
+      const { data: contents } = await supabase
+        .from('contents')
+        .select('*')
+        .in('id', contentIds);
+
+      if (contents) {
+        // Reload messages to show the new playlist
+        await fetchMessages();
+      }
+
+      toast.success('Playlist criada no estudo atual!');
     } catch (error) {
       console.error('Error creating playlist:', error);
-      toast.error('Erro ao criar lista de estudos');
+      toast.error('Erro ao criar playlist');
     }
   };
 
@@ -627,23 +627,66 @@ export default function Study() {
                       {/* Render content cards if available */}
                       {message.role === "assistant" && messageContents.has(message.id) && (
                         <div className="space-y-4 w-full">
-                          <div className="grid grid-cols-3 gap-3 w-full">
-                            {messageContents.get(message.id)?.map((content: any) => (
-                              <ChatContentCard
-                                key={content.id}
-                                id={content.id}
-                                title={content.title}
-                                description={content.description}
-                                thumbnail_url={content.thumbnail_url}
-                                content_type={content.content_type}
-                                duration_minutes={content.duration_minutes}
-                                required_plan={content.required_plan}
-                                is_free={content.is_free}
-                                matchScore={content.matchScore}
-                                onPlay={handlePlayContent}
-                              />
-                            ))}
-                          </div>
+                          {messageContents.get(message.id)!.length >= 4 ? (
+                            /* Carousel for 4+ cards */
+                            <div className="relative px-12">
+                              <Carousel
+                                opts={{
+                                  align: "start",
+                                  loop: false,
+                                }}
+                                className="w-full"
+                              >
+                                <CarouselContent className="-ml-3">
+                                  {messageContents.get(message.id)?.map((content: any) => (
+                                    <CarouselItem key={content.id} className="pl-3 basis-1/3">
+                                      <ChatContentCard
+                                        id={content.id}
+                                        title={content.title}
+                                        description={content.description}
+                                        thumbnail_url={content.thumbnail_url}
+                                        content_type={content.content_type}
+                                        duration_minutes={content.duration_minutes}
+                                        required_plan={content.required_plan}
+                                        is_free={content.is_free}
+                                        matchScore={content.matchScore}
+                                        onPlay={handlePlayContent}
+                                      />
+                                    </CarouselItem>
+                                  ))}
+                                </CarouselContent>
+                                <CarouselPrevious className="absolute left-0 top-1/2 -translate-y-1/2" />
+                                <CarouselNext className="absolute right-0 top-1/2 -translate-y-1/2" />
+                              </Carousel>
+                            </div>
+                          ) : (
+                            /* Grid for 1-3 cards */
+                            <div 
+                              className={`grid gap-3 w-full ${
+                                messageContents.get(message.id)!.length === 1 
+                                  ? 'grid-cols-1' 
+                                  : messageContents.get(message.id)!.length === 2 
+                                  ? 'grid-cols-2' 
+                                  : 'grid-cols-3'
+                              }`}
+                            >
+                              {messageContents.get(message.id)?.map((content: any) => (
+                                <ChatContentCard
+                                  key={content.id}
+                                  id={content.id}
+                                  title={content.title}
+                                  description={content.description}
+                                  thumbnail_url={content.thumbnail_url}
+                                  content_type={content.content_type}
+                                  duration_minutes={content.duration_minutes}
+                                  required_plan={content.required_plan}
+                                  is_free={content.is_free}
+                                  matchScore={content.matchScore}
+                                  onPlay={handlePlayContent}
+                                />
+                              ))}
+                            </div>
+                          )}
                           {messageContents.get(message.id) && messageContents.get(message.id)!.length > 1 && (
                             <div className="flex gap-2 justify-start pt-2">
                               <Button
@@ -658,7 +701,7 @@ export default function Study() {
                                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
                                 </svg>
-                                Criar Lista com {messageContents.get(message.id)!.length} Conteúdos
+                                Salvar Playlist ({messageContents.get(message.id)!.length} conteúdos)
                               </Button>
                             </div>
                           )}
