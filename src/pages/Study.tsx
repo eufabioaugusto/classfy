@@ -16,6 +16,9 @@ import { StudyNotes } from "@/components/StudyNotes";
 import { Textarea } from "@/components/ui/textarea";
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/components/ui/resizable";
 import { Carousel, CarouselContent, CarouselItem, CarouselNext, CarouselPrevious } from "@/components/ui/carousel";
+import { SidebarProvider } from "@/components/ui/sidebar";
+import { AppSidebar } from "@/components/AppSidebar";
+import { Header } from "@/components/Header";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -499,9 +502,17 @@ export default function Study() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-screen">
-        <Loader2 className="w-8 h-8 animate-spin text-primary" />
-      </div>
+      <SidebarProvider>
+        <div className="flex min-h-screen w-full">
+          <AppSidebar />
+          <div className="flex-1">
+            <Header />
+            <div className="flex items-center justify-center min-h-[calc(100vh-4rem)]">
+              <Loader2 className="w-8 h-8 animate-spin text-primary" />
+            </div>
+          </div>
+        </div>
+      </SidebarProvider>
     );
   }
 
@@ -510,67 +521,63 @@ export default function Study() {
   }
 
   return (
-    <div className="flex flex-col h-screen bg-background">
-      {/* Header */}
-      <header className="border-b border-border bg-card px-6 py-4 flex-shrink-0">
-        <div className="flex items-center justify-between gap-4">
-          <div className="flex items-center gap-4 flex-1">
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={() => navigate("/")}
-            >
-              <ArrowLeft className="w-5 h-5" />
-            </Button>
-            <div className="flex-1">
-              <h1 className="text-xl font-semibold text-foreground">
-                {study.title}
-              </h1>
-              {study.description && (
-                <p className="text-sm text-muted-foreground mt-1">
-                  {study.description}
-                </p>
-              )}
-            </div>
-          </div>
+    <SidebarProvider>
+      <div className="flex min-h-screen w-full">
+        <AppSidebar />
+        <div className="flex-1 flex flex-col h-screen">
+          <Header />
+          
+          {/* Study Header */}
+          <header className="border-b border-border bg-card px-6 py-4 flex-shrink-0">
+            <div className="flex items-center justify-between gap-4">
+              <div className="flex-1">
+                <h1 className="text-xl font-semibold text-foreground">
+                  {study.title}
+                </h1>
+                {study.description && (
+                  <p className="text-sm text-muted-foreground mt-1">
+                    {study.description}
+                  </p>
+                )}
+              </div>
 
-          {/* Actions Menu */}
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="icon">
-                <MoreVertical className="w-5 h-5" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-48">
-              <DropdownMenuItem
-                onClick={() => {
-                  setNewTitle(study.title);
-                  setRenameDialogOpen(true);
-                }}
-                className="cursor-pointer"
-              >
-                <Edit2 className="w-4 h-4 mr-2" />
-                Renomear
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                onClick={handleShare}
-                className="cursor-pointer"
-              >
-                <Share2 className="w-4 h-4 mr-2" />
-                Compartilhar
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem
-                onClick={() => setDeleteDialogOpen(true)}
-                className="cursor-pointer text-destructive"
-              >
-                <Trash2 className="w-4 h-4 mr-2" />
-                Excluir
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </div>
-      </header>
+              {/* Actions Menu */}
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="ghost" size="icon">
+                    <MoreVertical className="w-5 h-5" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-48">
+                  <DropdownMenuItem
+                    onClick={() => {
+                      setNewTitle(study.title);
+                      setRenameDialogOpen(true);
+                    }}
+                    className="cursor-pointer"
+                  >
+                    <Edit2 className="w-4 h-4 mr-2" />
+                    Renomear
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onClick={handleShare}
+                    className="cursor-pointer"
+                  >
+                    <Share2 className="w-4 h-4 mr-2" />
+                    Compartilhar
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    onClick={() => setDeleteDialogOpen(true)}
+                    className="cursor-pointer text-destructive"
+                  >
+                    <Trash2 className="w-4 h-4 mr-2" />
+                    Excluir
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
+          </header>
 
       {/* Main Content Area - Resizable Panels */}
       <ResizablePanelGroup direction="horizontal" className="flex-1">
@@ -935,6 +942,8 @@ export default function Study() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </div>
+        </div>
+      </div>
+    </SidebarProvider>
   );
 }
