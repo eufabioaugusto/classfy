@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams, useNavigate, useLocation } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
@@ -57,6 +57,7 @@ function StudyContent() {
   const { id } = useParams<{ id: string }>();
   const { user, profile } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
   const { updateLastActivity } = useStudies();
   const { setOpen, open } = useSidebar();
 
@@ -151,6 +152,26 @@ function StudyContent() {
       sendInitialMessage();
     }
   }, [study, loadingMessages, messages.length, initialMessageSent, loading, sending]);
+
+  // Auto-open playlist when coming from "Continue Study" button
+  useEffect(() => {
+    const autoOpenPlaylistId = location.state?.autoOpenPlaylist;
+    if (autoOpenPlaylistId && savedPlaylists.has(autoOpenPlaylistId) && !activePlaylist) {
+      // Find the message with this playlist
+      const playlistMessage = messages.find(msg => msg.id === autoOpenPlaylistId);
+      if (playlistMessage) {
+        const contents = messageContents.get(playlistMessage.id);
+        if (contents && contents.length > 0) {
+          setActivePlaylist({ messageId: playlistMessage.id, currentIndex: 0 });
+          setActiveContent(contents[0]);
+          setShowPlaylistsDropdown(false);
+          
+          // Clear the state to avoid re-opening on refresh
+          navigate(location.pathname, { replace: true, state: {} });
+        }
+      }
+    }
+  }, [savedPlaylists, messages, messageContents, location.state, activePlaylist]);
 
   const handleCreatePlaylist = async (messageId: string, contentIds: string[]) => {
     if (!user || !id) return;
