@@ -80,12 +80,15 @@ export function ContinueStudyCard({ userId }: ContinueStudyCardProps) {
           let thumbnailUrl = null;
           let videoUrl = null;
 
+          console.log('Study messages:', messages);
+
           if (messages && messages.length > 0) {
             // Find the first message with content IDs
             for (const msg of messages) {
               if (msg.related_contents && Array.isArray(msg.related_contents) && msg.related_contents.length > 0) {
                 if (!firstContentId) {
                   firstContentId = msg.related_contents[0];
+                  console.log('First content ID found:', firstContentId);
                 }
                 videosWatchedCount += msg.related_contents.length;
               }
@@ -96,13 +99,17 @@ export function ContinueStudyCard({ userId }: ContinueStudyCardProps) {
               try {
                 const { data: content, error: contentError } = await supabase
                   .from("contents")
-                  .select("thumbnail_url, video_url")
+                  .select("thumbnail_url, video_url, file_url")
                   .eq("id", firstContentId)
-                  .single();
+                  .maybeSingle();
+                
+                console.log('Content fetched:', content, 'Error:', contentError);
                 
                 if (!contentError && content) {
                   thumbnailUrl = content.thumbnail_url;
-                  videoUrl = content.video_url;
+                  // Try video_url first, then file_url as fallback
+                  videoUrl = content.video_url || content.file_url;
+                  console.log('Media URLs - Thumbnail:', thumbnailUrl, 'Video:', videoUrl);
                 }
               } catch (error) {
                 console.error("Error fetching content media:", error);
@@ -171,17 +178,25 @@ export function ContinueStudyCard({ userId }: ContinueStudyCardProps) {
         onClick={() => handleContinueStudy(mainStudy.id)}
       >
         {/* Background Video/Image with Overlay */}
-        <div className="absolute inset-0">
+        <div className="absolute inset-0 bg-black">
           {mainStudy.videoUrl ? (
             <>
               <video
-                src={mainStudy.videoUrl}
+                key={mainStudy.videoUrl}
                 autoPlay
                 loop
                 muted
                 playsInline
-                className="w-full h-full object-cover"
-              />
+                preload="metadata"
+                className="w-full h-full object-cover opacity-70"
+                onError={(e) => {
+                  console.error('Video failed to load:', mainStudy.videoUrl);
+                  e.currentTarget.style.display = 'none';
+                }}
+                onLoadedData={() => console.log('Video loaded successfully')}
+              >
+                <source src={mainStudy.videoUrl} type="video/mp4" />
+              </video>
               {/* Dark overlay gradient - stronger at bottom */}
               <div className="absolute inset-0 bg-gradient-to-t from-black via-black/70 to-black/30" />
             </>
@@ -191,6 +206,11 @@ export function ContinueStudyCard({ userId }: ContinueStudyCardProps) {
                 src={mainStudy.thumbnailUrl}
                 alt={mainStudy.title}
                 className="w-full h-full object-cover"
+                onError={(e) => {
+                  console.error('Thumbnail failed to load:', mainStudy.thumbnailUrl);
+                  e.currentTarget.style.display = 'none';
+                }}
+                onLoad={() => console.log('Thumbnail loaded successfully')}
               />
               {/* Dark overlay gradient - stronger at bottom */}
               <div className="absolute inset-0 bg-gradient-to-t from-black via-black/60 to-black/20" />
