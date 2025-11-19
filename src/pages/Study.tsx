@@ -545,7 +545,23 @@ function StudyContent() {
         .single();
 
       if (error) throw error;
-      setActiveContent(data);
+
+      // Fetch saved progress to restore position
+      if (user) {
+        const { data: progressData } = await supabase
+          .from("user_progress")
+          .select("last_position_seconds")
+          .eq("user_id", user.id)
+          .eq("content_id", contentId)
+          .maybeSingle();
+
+        setActiveContent({
+          ...data,
+          savedPosition: progressData?.last_position_seconds || 0
+        });
+      } else {
+        setActiveContent(data);
+      }
       
       // Load transcription if available
       await loadTranscription(contentId);

@@ -16,6 +16,7 @@ interface StudyVideoPlayerProps {
     file_url: string;
     content_type: "aula" | "short" | "podcast";
     duration_seconds?: number;
+    savedPosition?: number;
   };
   studyId: string;
   onClose: () => void;
@@ -49,6 +50,30 @@ export const StudyVideoPlayer = ({ content, studyId, onClose, onTranscriptionUpd
   const mediaRef = content.content_type === "podcast" ? audioRef : videoRef;
   const isVideo = content.content_type !== "podcast";
 
+  // Restore saved position when content loads
+  useEffect(() => {
+    const media = mediaRef.current;
+    if (!media || !content.savedPosition) return;
+
+    const restorePosition = () => {
+      if (content.savedPosition && content.savedPosition > 0) {
+        media.currentTime = content.savedPosition;
+        setCurrentTime(content.savedPosition);
+      }
+    };
+
+    // Restore once metadata is loaded
+    if (media.readyState >= 1) {
+      restorePosition();
+    } else {
+      media.addEventListener("loadedmetadata", restorePosition, { once: true });
+    }
+
+    return () => {
+      media.removeEventListener("loadedmetadata", restorePosition);
+    };
+  }, [content.id, content.savedPosition]);
+
   useEffect(() => {
     const media = mediaRef.current;
     if (!media) return;
@@ -69,16 +94,46 @@ export const StudyVideoPlayer = ({ content, studyId, onClose, onTranscriptionUpd
       }
     };
 
+    const handlePause = () => {
+      // Save position when video is paused
+      saveCurrentPosition(media.currentTime);
+    };
+
     media.addEventListener("loadedmetadata", handleLoadedMetadata);
     media.addEventListener("timeupdate", handleTimeUpdate);
     media.addEventListener("ended", handleEnded);
+    media.addEventListener("pause", handlePause);
 
     return () => {
+      // Save position when component unmounts
+      saveCurrentPosition(media.currentTime);
+      
       media.removeEventListener("loadedmetadata", handleLoadedMetadata);
       media.removeEventListener("timeupdate", handleTimeUpdate);
       media.removeEventListener("ended", handleEnded);
+      media.removeEventListener("pause", handlePause);
     };
   }, [onVideoEnded]);
+
+  const saveCurrentPosition = async (currentTime: number) => {
+    if (!user || !content.id || !currentTime || currentTime < 1) return;
+
+    try {
+      await supabase
+        .from("user_progress")
+        .upsert({
+          user_id: user.id,
+          content_id: content.id,
+          last_position_seconds: Math.floor(currentTime),
+          progress_percent: duration > 0 ? Math.floor((currentTime / duration) * 100) : 0,
+          updated_at: new Date().toISOString(),
+        }, {
+          onConflict: 'user_id,content_id'
+        });
+    } catch (error) {
+      console.error("Error saving position:", error);
+    }
+  };
 
   const handleProgressTracking = async (currentTime: number) => {
     if (!user || !content.id || duration === 0) return;
