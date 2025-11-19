@@ -27,8 +27,8 @@ export const ContentSection = ({
             <h3 className="text-3xl md:text-4xl font-bold text-white">{title}</h3>
           </div>
         )}
-        <div className={horizontal ? "flex gap-6 overflow-x-auto pb-4" : "grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6"}>
-          {[...Array(horizontal ? 6 : 4)].map((_, i) => (
+        <div className={horizontal ? "flex gap-6 overflow-x-auto pb-4" : "grid grid-cols-3 gap-4"}>
+          {[...Array(horizontal ? 6 : 3)].map((_, i) => (
             <Card
               key={i}
               className={`${horizontal ? "min-w-[300px]" : ""} h-96 animate-pulse bg-white/5 border-white/10`}
@@ -51,7 +51,7 @@ export const ContentSection = ({
           <h3 className="text-3xl md:text-4xl font-bold text-white">{title}</h3>
         </div>
       )}
-      <div className={horizontal ? "flex gap-6 overflow-x-auto pb-4 scrollbar-hide" : "grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6"}>
+      <div className={horizontal ? "flex gap-6 overflow-x-auto pb-4 scrollbar-hide" : "grid grid-cols-3 gap-4"}>
         {contents.map((content) => (
           <div
             key={content.id}

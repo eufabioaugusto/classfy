@@ -626,8 +626,8 @@ export default function Study() {
                       
                       {/* Render content cards if available */}
                       {message.role === "assistant" && messageContents.has(message.id) && (
-                        <div className="space-y-4">
-                          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 max-w-full">
+                        <div className="space-y-4 w-full">
+                          <div className="grid grid-cols-3 gap-3 w-full">
                             {messageContents.get(message.id)?.map((content: any) => (
                               <ChatContentCard
                                 key={content.id}
@@ -641,12 +641,11 @@ export default function Study() {
                                 is_free={content.is_free}
                                 matchScore={content.matchScore}
                                 onPlay={handlePlayContent}
-                                compact={messageContents.get(message.id)!.length > 2}
                               />
                             ))}
                           </div>
                           {messageContents.get(message.id) && messageContents.get(message.id)!.length > 1 && (
-                            <div className="flex gap-2 justify-start">
+                            <div className="flex gap-2 justify-start pt-2">
                               <Button
                                 size="sm"
                                 variant="outline"
@@ -654,12 +653,12 @@ export default function Study() {
                                   const contentIds = messageContents.get(message.id)?.map(c => c.id) || [];
                                   handleCreatePlaylist(contentIds);
                                 }}
-                                className="gap-2 shadow-sm hover:shadow-md transition-shadow"
+                                className="gap-2 shadow-sm hover:shadow-md transition-all hover:border-primary/50"
                               >
                                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
                                 </svg>
-                                Criar Lista de Estudos ({messageContents.get(message.id)!.length} conteúdos)
+                                Criar Lista com {messageContents.get(message.id)!.length} Conteúdos
                               </Button>
                             </div>
                           )}

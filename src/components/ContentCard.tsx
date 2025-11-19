@@ -76,60 +76,59 @@ export const ContentCard = ({
 
   return (
     <Card
-      className="group cursor-pointer overflow-hidden bg-cinematic-dark hover:bg-cinematic-dark/80 transition-all duration-500 border-white/5 hover:border-white/10 rounded-lg"
+      className="group cursor-pointer overflow-hidden bg-card/80 backdrop-blur-sm border border-border/30 hover:border-primary/40 hover:shadow-xl hover:shadow-primary/5 transition-all duration-300 rounded-lg"
       onClick={handleClick}
     >
-      {/* Thumbnail with aspect ratio 16:9 - MasterClass Style */}
-      <div className="relative aspect-video overflow-hidden bg-cinematic-black">
+      {/* Thumbnail with aspect ratio 16:9 */}
+      <div className="relative aspect-[16/9] overflow-hidden bg-muted">
         <img
           src={thumbnail}
           alt={title}
-          className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700 ease-out"
+          className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500 ease-out"
         />
         
-        {/* Cinematic gradient overlay */}
-        <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/30 to-transparent opacity-60 group-hover:opacity-80 transition-opacity duration-500" />
-        
-        {/* Play button overlay - subtle */}
-        <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all duration-500">
-          <div className="bg-white/95 backdrop-blur-sm rounded-full p-5 scale-90 group-hover:scale-100 transition-transform duration-500">
-            {isRestricted ? (
-              <Lock className="w-7 h-7 text-cinematic-black" />
-            ) : (
-              <Play className="w-7 h-7 text-cinematic-black" />
-            )}
+        {/* Play button overlay */}
+        <div className="absolute inset-0 bg-black/0 group-hover:bg-gradient-to-t group-hover:from-black/30 group-hover:to-transparent flex items-center justify-center transition-all duration-300">
+          <div className="opacity-0 group-hover:opacity-100 transition-all duration-300 transform group-hover:scale-100 scale-90">
+            <div className="bg-primary rounded-full p-4 shadow-2xl shadow-primary/50 ring-4 ring-primary/20">
+              {isRestricted ? (
+                <Lock className="w-7 h-7 text-primary-foreground" />
+              ) : (
+                <Play className="w-7 h-7 text-primary-foreground fill-current" />
+              )}
+            </div>
           </div>
         </div>
 
         {/* Badges - Top Left */}
-        <div className="absolute top-4 left-4 flex gap-2">
+        <div className="absolute top-2 left-2 flex gap-1.5 flex-wrap max-w-[calc(100%-4rem)]">
           {!isFree && price && (
-            <Badge className="bg-badge-hot text-white font-semibold text-xs px-3 py-1">
+            <Badge className="bg-badge-hot/95 backdrop-blur-md text-white font-semibold text-[10px] px-2 py-0.5 shadow-md">
               R$ {price.toFixed(2)}
             </Badge>
           )}
           {requiredPlan && requiredPlan !== "free" && (
-            <Badge className={`${getPlanBadgeColor(requiredPlan)} text-white font-semibold uppercase text-xs px-3 py-1`}>
+            <Badge className={`${getPlanBadgeColor(requiredPlan)} backdrop-blur-md text-white font-semibold uppercase text-[10px] px-2 py-0.5 shadow-md`}>
               {requiredPlan}
             </Badge>
           )}
           {isFree && !requiredPlan && (
-            <Badge className="bg-badge-free text-white font-semibold text-xs px-3 py-1">
+            <Badge className="bg-badge-free/95 backdrop-blur-md text-white font-semibold text-[10px] px-2 py-0.5 shadow-md">
               FREE
             </Badge>
           )}
         </div>
 
         {/* Duration/Lessons - Bottom Right */}
-        <div className="absolute bottom-4 right-4 flex gap-2">
+        <div className="absolute bottom-2 right-2 flex gap-1.5">
           {duration && (
-            <Badge variant="secondary" className="bg-black/80 text-white backdrop-blur-sm border-0 text-xs">
+            <Badge variant="secondary" className="bg-black/90 backdrop-blur-md text-white border-0 text-[10px] font-medium px-2 py-1 shadow-lg">
               <Clock className="w-3 h-3 mr-1" />
               {duration}min
             </Badge>
           )}
           {lessonCount && (
-            <Badge variant="secondary" className="bg-black/80 text-white backdrop-blur-sm border-0 text-xs">
+            <Badge variant="secondary" className="bg-black/90 backdrop-blur-md text-white border-0 text-[10px] font-medium px-2 py-1 shadow-lg">
               <BookOpen className="w-3 h-3 mr-1" />
               {lessonCount} aulas
             </Badge>
@@ -137,46 +136,46 @@ export const ContentCard = ({
         </div>
       </div>
 
-      {/* Content Info - MasterClass Typography */}
-      <div className="p-5 space-y-3 bg-cinematic-dark">
-        {/* Creator info - Prominent */}
-        <div className="flex items-center gap-3">
-          <div className="w-12 h-12 rounded-full bg-white/10 overflow-hidden ring-1 ring-white/10">
+      {/* Content Info */}
+      <div className="p-3 space-y-2.5 bg-card">
+        {/* Creator info */}
+        <div className="flex items-center gap-2">
+          <div className="w-8 h-8 rounded-full bg-muted overflow-hidden ring-1 ring-border/50">
             {creatorAvatar ? (
               <img src={creatorAvatar} alt={creatorName} className="w-full h-full object-cover" />
             ) : (
-              <div className="w-full h-full flex items-center justify-center bg-cinematic-accent text-white font-bold text-lg">
+              <div className="w-full h-full flex items-center justify-center bg-primary text-primary-foreground font-bold text-xs">
                 {creatorName[0]?.toUpperCase()}
               </div>
             )}
           </div>
           <div className="flex-1 min-w-0">
-            <p className="text-sm font-medium text-white/90 truncate">{creatorName}</p>
-            <p className="text-xs text-white/50">Instructor</p>
+            <p className="text-xs font-medium text-foreground truncate">{creatorName}</p>
+            <p className="text-[10px] text-muted-foreground">Instrutor</p>
           </div>
         </div>
 
-        {/* Title - Large and Bold */}
-        <h3 className="font-bold text-xl leading-tight line-clamp-2 text-white group-hover:text-cinematic-accent transition-colors duration-300">
+        {/* Title */}
+        <h3 className="font-semibold text-sm leading-tight line-clamp-2 text-foreground group-hover:text-primary transition-colors duration-300 min-h-[2.5rem]">
           {title}
         </h3>
 
         {/* Description */}
         {description && (
-          <p className="text-sm text-white/60 line-clamp-2 leading-relaxed">
+          <p className="text-xs text-muted-foreground line-clamp-2 leading-relaxed">
             {description}
           </p>
         )}
 
         {/* Views & Lock indicator */}
-        <div className="flex items-center justify-between pt-2 border-t border-white/5">
-          <p className="text-xs text-white/50">
-            {views.toLocaleString()} views
+        <div className="flex items-center justify-between pt-1 border-t border-border/30">
+          <p className="text-[10px] text-muted-foreground">
+            {views.toLocaleString()} visualizações
           </p>
           {isRestricted && (
-            <div className="flex items-center gap-1 text-white/50">
+            <div className="flex items-center gap-1 text-muted-foreground">
               <Lock className="w-3 h-3" />
-              <span className="text-xs">Premium</span>
+              <span className="text-[10px] font-medium">Premium</span>
             </div>
           )}
         </div>
