@@ -162,12 +162,19 @@ function StudyContent() {
       if (playlistMessage) {
         const contents = messageContents.get(playlistMessage.id);
         if (contents && contents.length > 0) {
-          setActivePlaylist({ messageId: playlistMessage.id, currentIndex: 0 });
-          setActiveContent(contents[0]);
-          setShowPlaylistsDropdown(false);
-          
-          // Clear the state to avoid re-opening on refresh
-          navigate(location.pathname, { replace: true, state: {} });
+          const firstContent = contents[0];
+          const firstContentId = typeof firstContent === 'string' ? firstContent : firstContent.id;
+
+          if (firstContentId) {
+            setActivePlaylist({ messageId: playlistMessage.id, currentIndex: 0 });
+            setShowPlaylistsDropdown(false);
+            
+            // Load the content and transcription via existing handler
+            handlePlayContent(firstContentId);
+            
+            // Clear the state to avoid re-opening on refresh
+            navigate(location.pathname, { replace: true, state: {} });
+          }
         }
       }
     }
