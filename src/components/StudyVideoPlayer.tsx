@@ -1,10 +1,13 @@
 import { useEffect, useRef, useState } from "react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Play, Pause, Volume2, VolumeX, Maximize, X, StickyNote } from "lucide-react";
+import { Play, Pause, Volume2, VolumeX, Maximize, X, Settings, Maximize2 } from "lucide-react";
 import { useRewardSystem } from "@/hooks/useRewardSystem";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Textarea } from "@/components/ui/textarea";
+import { toast } from "sonner";
 
 interface StudyVideoPlayerProps {
   content: {
@@ -29,12 +32,19 @@ export const StudyVideoPlayer = ({ content, studyId, onClose, onTranscriptionUpd
   const [isMuted, setIsMuted] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
+  const [showControls, setShowControls] = useState(false);
+  const [playbackRate, setPlaybackRate] = useState(1);
+  const [showPlaybackMenu, setShowPlaybackMenu] = useState(false);
+  const [noteModalOpen, setNoteModalOpen] = useState(false);
+  const [noteText, setNoteText] = useState("");
+  const [noteTimestamp, setNoteTimestamp] = useState(0);
   const [metricsRecorded, setMetricsRecorded] = useState({
     start: false,
     half: false,
     complete: false,
   });
   const { processReward, trackProgress } = useRewardSystem();
+  const controlsTimeoutRef = useRef<NodeJS.Timeout>();
 
   const mediaRef = content.content_type === "podcast" ? audioRef : videoRef;
   const isVideo = content.content_type !== "podcast";
@@ -145,88 +155,231 @@ export const StudyVideoPlayer = ({ content, studyId, onClose, onTranscriptionUpd
     return `${mins}:${secs.toString().padStart(2, "0")}`;
   };
 
-  const handleCreateNote = () => {
-    if (onCreateNote) {
-      onCreateNote(Math.floor(currentTime));
+  const handleMouseMove = () => {
+    setShowControls(true);
+    if (controlsTimeoutRef.current) {
+      clearTimeout(controlsTimeoutRef.current);
+    }
+    controlsTimeoutRef.current = setTimeout(() => {
+      if (isPlaying) {
+        setShowControls(false);
+      }
+    }, 3000);
+  };
+
+  const handleMouseLeave = () => {
+    if (isPlaying) {
+      if (controlsTimeoutRef.current) {
+        clearTimeout(controlsTimeoutRef.current);
+      }
+      controlsTimeoutRef.current = setTimeout(() => {
+        setShowControls(false);
+      }, 1000);
+    }
+  };
+
+  const changePlaybackRate = (rate: number) => {
+    const media = mediaRef.current;
+    if (!media) return;
+    media.playbackRate = rate;
+    setPlaybackRate(rate);
+    setShowPlaybackMenu(false);
+  };
+
+  const openNoteModal = () => {
+    setNoteTimestamp(Math.floor(currentTime));
+    setNoteModalOpen(true);
+  };
+
+  const handleSaveNote = async () => {
+    if (!noteText.trim() || !user) {
+      toast.error("Digite uma anotação válida");
+      return;
+    }
+
+    try {
+      const { error } = await supabase.from("study_notes").insert({
+        user_id: user.id,
+        study_id: studyId,
+        content_id: content.id,
+        note_text: noteText,
+        timestamp_seconds: noteTimestamp,
+      });
+
+      if (error) throw error;
+
+      toast.success("Anotação salva com sucesso!");
+      setNoteText("");
+      setNoteModalOpen(false);
+    } catch (error) {
+      console.error("Error saving note:", error);
+      toast.error("Erro ao salvar anotação");
     }
   };
 
   return (
-    <Card className="h-full flex flex-col bg-background border-border">
-      {/* Header */}
-      <div className="flex items-center justify-between p-4 border-b border-border">
-        <h3 className="font-semibold text-foreground line-clamp-1">{content.title}</h3>
-        <Button variant="ghost" size="icon" onClick={onClose}>
-          <X className="h-4 w-4" />
-        </Button>
-      </div>
+    <>
+      <Card className="h-full flex flex-col bg-background border-border">
+        {/* Header */}
+        <div className="flex items-center justify-between p-4 border-b border-border">
+          <h3 className="font-semibold text-foreground line-clamp-1">{content.title}</h3>
+          <Button variant="ghost" size="icon" onClick={onClose}>
+            <X className="h-4 w-4" />
+          </Button>
+        </div>
 
-      {/* Media Player */}
-      <div className="flex-1 bg-black relative flex items-center justify-center">
-        {isVideo ? (
-          <video
-            ref={videoRef}
-            src={content.file_url}
-            className="w-full h-full object-contain"
-            onClick={togglePlay}
-          />
-        ) : (
-          <div className="w-full h-full flex items-center justify-center">
-            <audio ref={audioRef} src={content.file_url} />
-            <div className="text-white text-center">
-              <Play className="h-20 w-20 mx-auto mb-4 opacity-50" />
-              <p className="text-lg">Podcast em reprodução</p>
+        {/* Media Player */}
+        <div 
+          className="flex-1 bg-black relative flex items-center justify-center group"
+          onMouseMove={handleMouseMove}
+          onMouseLeave={handleMouseLeave}
+        >
+          {isVideo ? (
+            <video
+              ref={videoRef}
+              src={content.file_url}
+              className="w-full h-full object-contain cursor-pointer"
+              onClick={togglePlay}
+            />
+          ) : (
+            <div className="w-full h-full flex items-center justify-center">
+              <audio ref={audioRef} src={content.file_url} />
+              <div className="text-white text-center">
+                <Play className="h-20 w-20 mx-auto mb-4 opacity-50" />
+                <p className="text-lg">Podcast em reprodução</p>
+              </div>
+            </div>
+          )}
+
+          {/* Fixed Note Button - Top Right */}
+          <button
+            onClick={openNoteModal}
+            className="absolute top-4 right-4 px-3 py-1.5 bg-black/70 hover:bg-black/90 text-white text-sm rounded transition-all duration-200 z-10"
+          >
+            Inserir Anotação
+          </button>
+
+          {/* YouTube-style Controls Overlay */}
+          <div 
+            className={`absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/90 via-black/60 to-transparent transition-opacity duration-300 ${
+              showControls || !isPlaying ? 'opacity-100' : 'opacity-0 pointer-events-none'
+            }`}
+          >
+            {/* Progress Bar */}
+            <div className="px-4 pt-2">
+              <input
+                type="range"
+                min="0"
+                max={duration || 0}
+                value={currentTime}
+                onChange={handleSeek}
+                className="w-full h-1 bg-white/30 rounded-lg appearance-none cursor-pointer hover:h-1.5 transition-all"
+                style={{
+                  background: `linear-gradient(to right, hsl(var(--primary)) 0%, hsl(var(--primary)) ${
+                    (currentTime / duration) * 100
+                  }%, rgba(255,255,255,0.3) ${(currentTime / duration) * 100}%, rgba(255,255,255,0.3) 100%)`,
+                }}
+              />
+            </div>
+
+            {/* Control Buttons */}
+            <div className="flex items-center justify-between px-4 pb-3 pt-2">
+              <div className="flex items-center gap-2">
+                <Button 
+                  variant="ghost" 
+                  size="icon" 
+                  onClick={togglePlay}
+                  className="text-white hover:bg-white/20 h-10 w-10"
+                >
+                  {isPlaying ? <Pause className="h-6 w-6" /> : <Play className="h-6 w-6" />}
+                </Button>
+                <Button 
+                  variant="ghost" 
+                  size="icon" 
+                  onClick={toggleMute}
+                  className="text-white hover:bg-white/20 h-10 w-10"
+                >
+                  {isMuted ? <VolumeX className="h-5 w-5" /> : <Volume2 className="h-5 w-5" />}
+                </Button>
+                <span className="text-white text-sm font-medium ml-2">
+                  {formatTime(currentTime)} / {formatTime(duration)}
+                </span>
+              </div>
+
+              <div className="flex items-center gap-2">
+                {/* Playback Speed */}
+                <div className="relative">
+                  <Button 
+                    variant="ghost" 
+                    size="sm"
+                    onClick={() => setShowPlaybackMenu(!showPlaybackMenu)}
+                    className="text-white hover:bg-white/20 h-10 px-3"
+                  >
+                    {playbackRate}x
+                  </Button>
+                  {showPlaybackMenu && (
+                    <div className="absolute bottom-full right-0 mb-2 bg-black/95 rounded-lg p-2 min-w-[100px]">
+                      {[0.5, 0.75, 1, 1.25, 1.5, 1.75, 2].map((rate) => (
+                        <button
+                          key={rate}
+                          onClick={() => changePlaybackRate(rate)}
+                          className={`block w-full text-left px-3 py-2 text-sm rounded transition-colors ${
+                            playbackRate === rate 
+                              ? 'bg-white/20 text-white font-semibold' 
+                              : 'text-white/80 hover:bg-white/10 hover:text-white'
+                          }`}
+                        >
+                          {rate}x
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {isVideo && (
+                  <Button 
+                    variant="ghost" 
+                    size="icon" 
+                    onClick={toggleFullscreen}
+                    className="text-white hover:bg-white/20 h-10 w-10"
+                  >
+                    <Maximize2 className="h-5 w-5" />
+                  </Button>
+                )}
+              </div>
             </div>
           </div>
-        )}
-      </div>
+        </div>
+      </Card>
 
-      {/* Controls */}
-      <div className="p-4 bg-muted border-t border-border">
-        {/* Timeline */}
-        <div className="mb-3">
-          <input
-            type="range"
-            min="0"
-            max={duration || 0}
-            value={currentTime}
-            onChange={handleSeek}
-            className="w-full h-1 bg-border rounded-lg appearance-none cursor-pointer"
-            style={{
-              background: `linear-gradient(to right, hsl(var(--primary)) 0%, hsl(var(--primary)) ${
-                (currentTime / duration) * 100
-              }%, hsl(var(--border)) ${(currentTime / duration) * 100}%, hsl(var(--border)) 100%)`,
-            }}
-          />
-          <div className="flex justify-between text-xs text-muted-foreground mt-1">
-            <span>{formatTime(currentTime)}</span>
-            <span>{formatTime(duration)}</span>
+      {/* Note Modal */}
+      <Dialog open={noteModalOpen} onOpenChange={setNoteModalOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Criar Anotação</DialogTitle>
+            <DialogDescription>
+              Adicione uma anotação no momento {formatTime(noteTimestamp)}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 pt-4">
+            <Textarea
+              placeholder="Digite sua anotação..."
+              value={noteText}
+              onChange={(e) => setNoteText(e.target.value)}
+              rows={6}
+              className="resize-none"
+            />
+            <div className="flex gap-2 justify-end">
+              <Button variant="outline" onClick={() => setNoteModalOpen(false)}>
+                Cancelar
+              </Button>
+              <Button onClick={handleSaveNote}>
+                Salvar Anotação
+              </Button>
+            </div>
           </div>
-        </div>
-
-        {/* Control Buttons */}
-        <div className="flex items-center gap-2">
-          <Button variant="ghost" size="icon" onClick={togglePlay}>
-            {isPlaying ? <Pause className="h-5 w-5" /> : <Play className="h-5 w-5" />}
-          </Button>
-          <Button variant="ghost" size="icon" onClick={toggleMute}>
-            {isMuted ? <VolumeX className="h-5 w-5" /> : <Volume2 className="h-5 w-5" />}
-          </Button>
-          <Button 
-            variant="ghost" 
-            size="icon" 
-            onClick={handleCreateNote}
-            title="Criar anotação neste momento"
-          >
-            <StickyNote className="h-5 w-5" />
-          </Button>
-          {isVideo && (
-            <Button variant="ghost" size="icon" onClick={toggleFullscreen} className="ml-auto">
-              <Maximize className="h-5 w-5" />
-            </Button>
-          )}
-        </div>
-      </div>
-    </Card>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 };
