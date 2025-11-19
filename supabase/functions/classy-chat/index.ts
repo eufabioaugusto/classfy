@@ -145,7 +145,7 @@ serve(async (req) => {
       
       const { data: contents } = await supabaseServiceClient
         .from("contents")
-        .select("id, title, description, content_type, thumbnail_url, visibility, required_plan, is_free, duration_minutes")
+        .select("id, title, description, content_type, thumbnail_url, visibility, required_plan, is_free, duration_minutes, tags")
         .eq("status", "approved")
         .in("content_type", ["aula", "short", "podcast"])
         .limit(50);
@@ -156,25 +156,61 @@ serve(async (req) => {
           !activeContentId || c.id !== activeContentId
         );
 
-        // Calculate match score for each content
+        // Calculate match score for each content with improved algorithm
         relatedContents = availableContents
           .map((content: any) => {
             const titleLower = content.title.toLowerCase();
             const descLower = (content.description || "").toLowerCase();
+            const contentTags = (content.tags || []).map((tag: string) => tag.toLowerCase());
             
-            // Simple matching algorithm
+            // Normalize search query - remove accents and special chars
+            const normalizeText = (text: string) => {
+              return text
+                .normalize("NFD")
+                .replace(/[\u0300-\u036f]/g, "")
+                .toLowerCase();
+            };
+            
+            const searchNormalized = normalizeText(searchQuery);
+            const titleNormalized = normalizeText(titleLower);
+            const descNormalized = normalizeText(descLower);
+            const tagsNormalized = contentTags.map((tag: string) => normalizeText(tag));
+            
             let score = 0;
-            const searchWords = searchQuery.split(" ");
+            const searchWords = searchNormalized.split(" ").filter((w: string) => w.length >= 2);
             
+            // Score each search word
             searchWords.forEach((word: string) => {
-              if (word.length < 3) return; // Skip very short words
-              if (titleLower.includes(word)) score += 3;
-              if (descLower.includes(word)) score += 1;
+              // Title matches (highest priority)
+              if (titleNormalized.includes(word)) score += 10;
+              
+              // Tags matches (very high priority - CRITICAL)
+              tagsNormalized.forEach((tag: string) => {
+                if (tag.includes(word) || word.includes(tag)) {
+                  score += 15; // Tags are most important
+                }
+              });
+              
+              // Description matches
+              if (descNormalized.includes(word)) score += 3;
             });
 
-            // Exact match bonus
-            if (titleLower.includes(searchQuery)) score += 5;
-            if (descLower.includes(searchQuery)) score += 2;
+            // Exact phrase match bonuses
+            if (titleNormalized.includes(searchNormalized)) score += 20;
+            if (descNormalized.includes(searchNormalized)) score += 10;
+            tagsNormalized.forEach((tag: string) => {
+              if (tag === searchNormalized || tag.includes(searchNormalized)) {
+                score += 30; // Exact tag match is critical
+              }
+            });
+            
+            // Common variations and synonyms for IA
+            const iaVariations = ["ia", "inteligencia artificial", "artificial intelligence", "ai", "machine learning", "ml"];
+            if (iaVariations.some(v => searchNormalized.includes(v))) {
+              if (iaVariations.some(v => titleNormalized.includes(v))) score += 15;
+              if (iaVariations.some(v => tagsNormalized.some((tag: string) => tag.includes(v)))) score += 25;
+              if (iaVariations.some(v => descNormalized.includes(v))) score += 8;
+            }
             
             return { ...content, matchScore: score };
           })
@@ -384,10 +420,13 @@ ${isFirstMessage ?
     const data = await response.json();
     const aiMessage = data.choices?.[0]?.message?.content || "Desculpe, não consegui processar sua mensagem.";
 
-    // Return both message and related contents
+    // Return both message and related contents (including matchScore for debugging)
     const responseData: any = { message: aiMessage };
     if (relatedContents.length > 0) {
-      responseData.relatedContents = relatedContents;
+      responseData.relatedContents = relatedContents.map((c: any) => ({
+        ...c,
+        matchScore: c.matchScore // Keep score for debugging/logging
+      }));
     }
 
     return new Response(
