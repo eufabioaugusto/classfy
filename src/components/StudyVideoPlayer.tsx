@@ -18,9 +18,10 @@ interface StudyVideoPlayerProps {
   onClose: () => void;
   onTranscriptionUpdate?: () => void;
   onCreateNote?: (timestamp: number) => void;
+  onVideoEnded?: () => void;
 }
 
-export const StudyVideoPlayer = ({ content, studyId, onClose, onTranscriptionUpdate, onCreateNote }: StudyVideoPlayerProps) => {
+export const StudyVideoPlayer = ({ content, studyId, onClose, onTranscriptionUpdate, onCreateNote, onVideoEnded }: StudyVideoPlayerProps) => {
   const { user } = useAuth();
   const videoRef = useRef<HTMLVideoElement>(null);
   const audioRef = useRef<HTMLAudioElement>(null);
@@ -51,14 +52,23 @@ export const StudyVideoPlayer = ({ content, studyId, onClose, onTranscriptionUpd
       handleProgressTracking(media.currentTime);
     };
 
+    const handleEnded = () => {
+      setIsPlaying(false);
+      if (onVideoEnded) {
+        onVideoEnded();
+      }
+    };
+
     media.addEventListener("loadedmetadata", handleLoadedMetadata);
     media.addEventListener("timeupdate", handleTimeUpdate);
+    media.addEventListener("ended", handleEnded);
 
     return () => {
       media.removeEventListener("loadedmetadata", handleLoadedMetadata);
       media.removeEventListener("timeupdate", handleTimeUpdate);
+      media.removeEventListener("ended", handleEnded);
     };
-  }, []);
+  }, [onVideoEnded]);
 
   const handleProgressTracking = async (currentTime: number) => {
     if (!user || !content.id || duration === 0) return;

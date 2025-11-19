@@ -77,6 +77,8 @@ function StudyContent() {
   const [savedPlaylists, setSavedPlaylists] = useState<Set<string>>(new Set());
   const [showPlaylistsDropdown, setShowPlaylistsDropdown] = useState(false);
   const [activePlaylist, setActivePlaylist] = useState<{messageId: string, currentIndex: number} | null>(null);
+  const [autoplayCountdown, setAutoplayCountdown] = useState<number | null>(null);
+  const autoplayTimerRef = useRef<NodeJS.Timeout | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   // Focus Mode: Auto-collapse sidebar when content is playing
@@ -464,6 +466,65 @@ function StudyContent() {
     }
   };
 
+  const handleVideoEnded = () => {
+    if (!activePlaylist) return;
+
+    const playlistContents = messageContents.get(activePlaylist.messageId) || [];
+    const nextIndex = activePlaylist.currentIndex + 1;
+
+    // Check if there's a next video in the playlist
+    if (nextIndex < playlistContents.length) {
+      startAutoplayCountdown(nextIndex);
+    }
+  };
+
+  const startAutoplayCountdown = (nextIndex: number) => {
+    setAutoplayCountdown(5);
+    
+    const interval = setInterval(() => {
+      setAutoplayCountdown((prev) => {
+        if (prev === null || prev <= 1) {
+          clearInterval(interval);
+          playNextVideo(nextIndex);
+          return null;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+    
+    autoplayTimerRef.current = interval;
+  };
+
+  const cancelAutoplay = () => {
+    if (autoplayTimerRef.current) {
+      clearInterval(autoplayTimerRef.current);
+      autoplayTimerRef.current = null;
+    }
+    setAutoplayCountdown(null);
+  };
+
+  const playNextVideo = (nextIndex: number) => {
+    if (!activePlaylist) return;
+
+    const playlistContents = messageContents.get(activePlaylist.messageId) || [];
+    const nextContent = playlistContents[nextIndex];
+
+    if (nextContent) {
+      setActivePlaylist({ ...activePlaylist, currentIndex: nextIndex });
+      handlePlayContent(nextContent.id);
+    }
+    setAutoplayCountdown(null);
+  };
+
+  // Cleanup autoplay timer on unmount
+  useEffect(() => {
+    return () => {
+      if (autoplayTimerRef.current) {
+        clearInterval(autoplayTimerRef.current);
+      }
+    };
+  }, []);
+
   const loadTranscription = async (contentId: string) => {
     try {
       const { data, error } = await supabase
@@ -665,18 +726,78 @@ function StudyContent() {
         {activeContent && (
           <>
             <ResizablePanel defaultSize={activePlaylist ? 50 : 60} minSize={40}>
-              <StudyVideoPlayer
-                studyId={id!}
-                content={activeContent}
-                onClose={() => {
-                  setActiveContent(null);
-                  setActivePlaylist(null);
-                  setTranscription("");
-                  setSearchQuery("");
-                }}
-                onTranscriptionUpdate={() => loadTranscription(activeContent.id)}
-                onCreateNote={handleCreateNote}
-              />
+              <div className="relative h-full">
+                <StudyVideoPlayer
+                  studyId={id!}
+                  content={activeContent}
+                  onClose={() => {
+                    setActiveContent(null);
+                    setActivePlaylist(null);
+                    setTranscription("");
+                    setSearchQuery("");
+                    cancelAutoplay();
+                  }}
+                  onTranscriptionUpdate={() => loadTranscription(activeContent.id)}
+                  onCreateNote={handleCreateNote}
+                  onVideoEnded={handleVideoEnded}
+                />
+
+                {/* Autoplay Countdown Overlay */}
+                {autoplayCountdown !== null && activePlaylist && (
+                  <div className="absolute inset-0 bg-background/90 backdrop-blur-sm flex items-center justify-center z-50">
+                    <div className="bg-card border border-border rounded-lg p-8 text-center space-y-4 max-w-md mx-4">
+                      <div className="space-y-2">
+                        <h3 className="text-2xl font-bold text-foreground">Próximo Vídeo</h3>
+                        <p className="text-muted-foreground">
+                          {(() => {
+                            const playlistContents = messageContents.get(activePlaylist.messageId) || [];
+                            const nextContent = playlistContents[activePlaylist.currentIndex + 1];
+                            return nextContent?.title || "Carregando...";
+                          })()}
+                        </p>
+                      </div>
+                      
+                      <div className="flex items-center justify-center">
+                        <div className="relative w-24 h-24">
+                          <svg className="w-24 h-24 transform -rotate-90">
+                            <circle
+                              cx="48"
+                              cy="48"
+                              r="40"
+                              stroke="currentColor"
+                              strokeWidth="4"
+                              fill="none"
+                              className="text-muted"
+                            />
+                            <circle
+                              cx="48"
+                              cy="48"
+                              r="40"
+                              stroke="currentColor"
+                              strokeWidth="4"
+                              fill="none"
+                              strokeDasharray={`${2 * Math.PI * 40}`}
+                              strokeDashoffset={`${2 * Math.PI * 40 * (1 - autoplayCountdown / 5)}`}
+                              className="text-primary transition-all duration-1000 ease-linear"
+                            />
+                          </svg>
+                          <div className="absolute inset-0 flex items-center justify-center">
+                            <span className="text-4xl font-bold text-foreground">{autoplayCountdown}</span>
+                          </div>
+                        </div>
+                      </div>
+                      
+                      <Button 
+                        variant="outline" 
+                        onClick={cancelAutoplay}
+                        className="w-full"
+                      >
+                        Cancelar
+                      </Button>
+                    </div>
+                  </div>
+                )}
+              </div>
             </ResizablePanel>
             <ResizableHandle withHandle />
 
