@@ -19,6 +19,7 @@ interface StudyMetrics {
   totalRewards: number;
   progressPercent: number;
   thumbnailUrl: string | null;
+  videoUrl: string | null;
 }
 
 interface ContinueStudyCardProps {
@@ -77,6 +78,7 @@ export function ContinueStudyCard({ userId }: ContinueStudyCardProps) {
           let videosWatchedCount = 0;
           let firstContentId = null;
           let thumbnailUrl = null;
+          let videoUrl = null;
 
           if (messages && messages.length > 0) {
             // Find the first message with content IDs
@@ -89,20 +91,21 @@ export function ContinueStudyCard({ userId }: ContinueStudyCardProps) {
               }
             }
 
-            // Fetch thumbnail from first content
+            // Fetch thumbnail and video from first content
             if (firstContentId) {
               try {
                 const { data: content, error: contentError } = await supabase
                   .from("contents")
-                  .select("thumbnail_url")
+                  .select("thumbnail_url, video_url")
                   .eq("id", firstContentId)
                   .single();
                 
-                if (!contentError && content && content.thumbnail_url) {
+                if (!contentError && content) {
                   thumbnailUrl = content.thumbnail_url;
+                  videoUrl = content.video_url;
                 }
               } catch (error) {
-                console.error("Error fetching content thumbnail:", error);
+                console.error("Error fetching content media:", error);
               }
             }
           }
@@ -133,6 +136,7 @@ export function ContinueStudyCard({ userId }: ContinueStudyCardProps) {
             totalRewards: 0, // TODO: Calculate from reward_events
             progressPercent,
             thumbnailUrl,
+            videoUrl,
           };
         })
       );
@@ -166,19 +170,38 @@ export function ContinueStudyCard({ userId }: ContinueStudyCardProps) {
       <Card className="w-full h-[420px] rounded-2xl overflow-hidden relative group border-border/50 hover:border-primary/30 transition-all duration-300 cursor-pointer"
         onClick={() => handleContinueStudy(mainStudy.id)}
       >
-        {/* Background Image with Overlay */}
+        {/* Background Video/Image with Overlay */}
         <div className="absolute inset-0">
-          {mainStudy.thumbnailUrl ? (
-            <img
-              src={mainStudy.thumbnailUrl}
-              alt={mainStudy.title}
-              className="w-full h-full object-cover"
-            />
+          {mainStudy.videoUrl ? (
+            <>
+              <video
+                src={mainStudy.videoUrl}
+                autoPlay
+                loop
+                muted
+                playsInline
+                className="w-full h-full object-cover"
+              />
+              {/* Dark overlay gradient - stronger at bottom */}
+              <div className="absolute inset-0 bg-gradient-to-t from-black via-black/70 to-black/30" />
+            </>
+          ) : mainStudy.thumbnailUrl ? (
+            <>
+              <img
+                src={mainStudy.thumbnailUrl}
+                alt={mainStudy.title}
+                className="w-full h-full object-cover"
+              />
+              {/* Dark overlay gradient - stronger at bottom */}
+              <div className="absolute inset-0 bg-gradient-to-t from-black via-black/60 to-black/20" />
+            </>
           ) : (
-            <div className="w-full h-full bg-gradient-to-br from-primary/20 to-primary/5" />
+            <>
+              <div className="w-full h-full bg-gradient-to-br from-primary/20 to-primary/5" />
+              {/* Dark overlay gradient */}
+              <div className="absolute inset-0 bg-gradient-to-t from-black via-black/50 to-black/10" />
+            </>
           )}
-          {/* Dark overlay gradient - stronger at bottom */}
-          <div className="absolute inset-0 bg-gradient-to-t from-black via-black/60 to-black/20" />
         </div>
 
         {/* Content Container - Positioned at bottom */}
@@ -278,16 +301,33 @@ export function ContinueStudyCard({ userId }: ContinueStudyCardProps) {
               >
                 {/* Background */}
                 <div className="absolute inset-0">
-                  {study.thumbnailUrl ? (
-                    <img
-                      src={study.thumbnailUrl}
-                      alt={study.title}
-                      className="w-full h-full object-cover"
-                    />
+                  {study.videoUrl ? (
+                    <>
+                      <video
+                        src={study.videoUrl}
+                        autoPlay
+                        loop
+                        muted
+                        playsInline
+                        className="w-full h-full object-cover"
+                      />
+                      <div className="absolute inset-0 bg-gradient-to-t from-black via-black/60 to-transparent" />
+                    </>
+                  ) : study.thumbnailUrl ? (
+                    <>
+                      <img
+                        src={study.thumbnailUrl}
+                        alt={study.title}
+                        className="w-full h-full object-cover"
+                      />
+                      <div className="absolute inset-0 bg-gradient-to-t from-black via-black/50 to-transparent" />
+                    </>
                   ) : (
-                    <div className="w-full h-full bg-gradient-to-br from-primary/10 to-muted" />
+                    <>
+                      <div className="w-full h-full bg-gradient-to-br from-primary/10 to-muted" />
+                      <div className="absolute inset-0 bg-gradient-to-t from-black via-black/40 to-transparent" />
+                    </>
                   )}
-                  <div className="absolute inset-0 bg-gradient-to-t from-black via-black/50 to-transparent" />
                 </div>
 
                 {/* Content */}
