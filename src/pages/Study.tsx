@@ -5,8 +5,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Loader2, Send, ArrowLeft, MoreVertical, Edit2, Share2, Trash2, X, List } from "lucide-react";
+import { Loader2, Send, ArrowLeft, MoreVertical, Edit2, Share2, Trash2, X, List, FileText, Brain, StickyNote, MessageSquare, Lightbulb } from "lucide-react";
 import { StudyMessage } from "@/hooks/useStudies";
 import { useStudies } from "@/hooks/useStudies";
 import { ChatContentCard } from "@/components/ChatContentCard";
@@ -34,6 +33,13 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -80,6 +86,9 @@ function StudyContent() {
   const [autoplayCountdown, setAutoplayCountdown] = useState<number | null>(null);
   const autoplayTimerRef = useRef<NodeJS.Timeout | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+  
+  // Tool panels state
+  const [activeToolPanel, setActiveToolPanel] = useState<'transcription' | 'quiz' | 'notes' | 'comments' | 'recommendations' | null>(null);
 
   // Focus Mode: Auto-collapse sidebar when content is playing
   useEffect(() => {
@@ -726,77 +735,130 @@ function StudyContent() {
         {activeContent && (
           <>
             <ResizablePanel defaultSize={activePlaylist ? 50 : 60} minSize={40}>
-              <div className="relative h-full">
-                <StudyVideoPlayer
-                  studyId={id!}
-                  content={activeContent}
-                  onClose={() => {
-                    setActiveContent(null);
-                    setActivePlaylist(null);
-                    setTranscription("");
-                    setSearchQuery("");
-                    cancelAutoplay();
-                  }}
-                  onTranscriptionUpdate={() => loadTranscription(activeContent.id)}
-                  onCreateNote={handleCreateNote}
-                  onVideoEnded={handleVideoEnded}
-                />
+              <div className="relative h-full flex flex-col bg-background">
+                {/* Video Tools Bar */}
+                <div className="flex items-center gap-1 p-2 bg-card/50 backdrop-blur-sm border-b border-border">
+                  <Button
+                    variant={activeToolPanel === 'transcription' ? 'secondary' : 'ghost'}
+                    size="sm"
+                    onClick={() => setActiveToolPanel(activeToolPanel === 'transcription' ? null : 'transcription')}
+                    className="gap-2"
+                  >
+                    <FileText className="w-4 h-4" />
+                    Transcrição
+                  </Button>
+                  <Button
+                    variant={activeToolPanel === 'quiz' ? 'secondary' : 'ghost'}
+                    size="sm"
+                    onClick={() => setActiveToolPanel(activeToolPanel === 'quiz' ? null : 'quiz')}
+                    className="gap-2"
+                  >
+                    <Brain className="w-4 h-4" />
+                    Quiz
+                  </Button>
+                  <Button
+                    variant={activeToolPanel === 'notes' ? 'secondary' : 'ghost'}
+                    size="sm"
+                    onClick={() => setActiveToolPanel(activeToolPanel === 'notes' ? null : 'notes')}
+                    className="gap-2"
+                  >
+                    <StickyNote className="w-4 h-4" />
+                    Anotações
+                  </Button>
+                  <Button
+                    variant={activeToolPanel === 'comments' ? 'secondary' : 'ghost'}
+                    size="sm"
+                    onClick={() => setActiveToolPanel(activeToolPanel === 'comments' ? null : 'comments')}
+                    className="gap-2"
+                  >
+                    <MessageSquare className="w-4 h-4" />
+                    Comentários
+                  </Button>
+                  <Button
+                    variant={activeToolPanel === 'recommendations' ? 'secondary' : 'ghost'}
+                    size="sm"
+                    onClick={() => setActiveToolPanel(activeToolPanel === 'recommendations' ? null : 'recommendations')}
+                    className="gap-2"
+                  >
+                    <Lightbulb className="w-4 h-4" />
+                    Recomendações
+                  </Button>
+                </div>
 
-                {/* Autoplay Countdown Overlay */}
-                {autoplayCountdown !== null && activePlaylist && (
-                  <div className="absolute inset-0 bg-background/90 backdrop-blur-sm flex items-center justify-center z-50">
-                    <div className="bg-card border border-border rounded-lg p-8 text-center space-y-4 max-w-md mx-4">
-                      <div className="space-y-2">
-                        <h3 className="text-2xl font-bold text-foreground">Próximo Vídeo</h3>
-                        <p className="text-muted-foreground">
-                          {(() => {
-                            const playlistContents = messageContents.get(activePlaylist.messageId) || [];
-                            const nextContent = playlistContents[activePlaylist.currentIndex + 1];
-                            return nextContent?.title || "Carregando...";
-                          })()}
-                        </p>
-                      </div>
-                      
-                      <div className="flex items-center justify-center">
-                        <div className="relative w-24 h-24">
-                          <svg className="w-24 h-24 transform -rotate-90">
-                            <circle
-                              cx="48"
-                              cy="48"
-                              r="40"
-                              stroke="currentColor"
-                              strokeWidth="4"
-                              fill="none"
-                              className="text-muted"
-                            />
-                            <circle
-                              cx="48"
-                              cy="48"
-                              r="40"
-                              stroke="currentColor"
-                              strokeWidth="4"
-                              fill="none"
-                              strokeDasharray={`${2 * Math.PI * 40}`}
-                              strokeDashoffset={`${2 * Math.PI * 40 * (1 - autoplayCountdown / 5)}`}
-                              className="text-primary transition-all duration-1000 ease-linear"
-                            />
-                          </svg>
-                          <div className="absolute inset-0 flex items-center justify-center">
-                            <span className="text-4xl font-bold text-foreground">{autoplayCountdown}</span>
+                {/* Video Player */}
+                <div className="flex-1 relative">
+                  <StudyVideoPlayer
+                    studyId={id!}
+                    content={activeContent}
+                    onClose={() => {
+                      setActiveContent(null);
+                      setActivePlaylist(null);
+                      setTranscription("");
+                      setSearchQuery("");
+                      cancelAutoplay();
+                      setActiveToolPanel(null);
+                    }}
+                    onTranscriptionUpdate={() => loadTranscription(activeContent.id)}
+                    onCreateNote={handleCreateNote}
+                    onVideoEnded={handleVideoEnded}
+                  />
+
+                  {/* Autoplay Countdown Overlay */}
+                  {autoplayCountdown !== null && activePlaylist && (
+                    <div className="absolute inset-0 bg-background/90 backdrop-blur-sm flex items-center justify-center z-50">
+                      <div className="bg-card border border-border rounded-lg p-8 text-center space-y-4 max-w-md mx-4">
+                        <div className="space-y-2">
+                          <h3 className="text-2xl font-bold text-foreground">Próximo Vídeo</h3>
+                          <p className="text-muted-foreground">
+                            {(() => {
+                              const playlistContents = messageContents.get(activePlaylist.messageId) || [];
+                              const nextContent = playlistContents[activePlaylist.currentIndex + 1];
+                              return nextContent?.title || "Carregando...";
+                            })()}
+                          </p>
+                        </div>
+                        
+                        <div className="flex items-center justify-center">
+                          <div className="relative w-24 h-24">
+                            <svg className="w-24 h-24 transform -rotate-90">
+                              <circle
+                                cx="48"
+                                cy="48"
+                                r="40"
+                                stroke="currentColor"
+                                strokeWidth="4"
+                                fill="none"
+                                className="text-muted"
+                              />
+                              <circle
+                                cx="48"
+                                cy="48"
+                                r="40"
+                                stroke="currentColor"
+                                strokeWidth="4"
+                                fill="none"
+                                strokeDasharray={`${2 * Math.PI * 40}`}
+                                strokeDashoffset={`${2 * Math.PI * 40 * (1 - autoplayCountdown / 5)}`}
+                                className="text-primary transition-all duration-1000 ease-linear"
+                              />
+                            </svg>
+                            <div className="absolute inset-0 flex items-center justify-center">
+                              <span className="text-4xl font-bold text-foreground">{autoplayCountdown}</span>
+                            </div>
                           </div>
                         </div>
+                        
+                        <Button 
+                          variant="outline" 
+                          onClick={cancelAutoplay}
+                          className="w-full"
+                        >
+                          Cancelar
+                        </Button>
                       </div>
-                      
-                      <Button 
-                        variant="outline" 
-                        onClick={cancelAutoplay}
-                        className="w-full"
-                      >
-                        Cancelar
-                      </Button>
                     </div>
-                  </div>
-                )}
+                  )}
+                </div>
               </div>
             </ResizablePanel>
             <ResizableHandle withHandle />
@@ -1046,21 +1108,17 @@ function StudyContent() {
         </ResizablePanel>
       </ResizablePanelGroup>
 
-      {/* Tabs Section - Only visible when content is active */}
+      {/* Tool Panels - Sheets */}
       {activeContent && (
-        <div className="border-t border-border bg-card flex-shrink-0">
-          <Tabs defaultValue="transcription" className="w-full">
-            <div className="border-b border-border px-6">
-              <TabsList className="bg-transparent">
-                <TabsTrigger value="transcription">Transcrição</TabsTrigger>
-                <TabsTrigger value="quiz">Quiz</TabsTrigger>
-                <TabsTrigger value="notes">Anotações</TabsTrigger>
-                <TabsTrigger value="comments">Comentários</TabsTrigger>
-                <TabsTrigger value="recommendations">Recomendações</TabsTrigger>
-              </TabsList>
-            </div>
-            <div className="max-h-64 overflow-y-auto">
-              <TabsContent value="transcription" className="px-6 py-4">
+        <>
+          {/* Transcription Sheet */}
+          <Sheet open={activeToolPanel === 'transcription'} onOpenChange={(open) => !open && setActiveToolPanel(null)}>
+            <SheetContent side="right" className="w-[500px] sm:w-[600px] overflow-y-auto">
+              <SheetHeader>
+                <SheetTitle>Transcrição</SheetTitle>
+                <SheetDescription>{activeContent.title}</SheetDescription>
+              </SheetHeader>
+              <div className="mt-6 space-y-4">
                 {!transcription && !transcriptionLoading ? (
                   <div className="space-y-4">
                     <div className="text-muted-foreground text-sm">
@@ -1083,7 +1141,6 @@ function StudyContent() {
                   </div>
                 ) : (
                   <div className="space-y-4">
-                    {/* Search box */}
                     <div className="flex gap-2">
                       <Input
                         placeholder="Buscar na transcrição..."
@@ -1097,8 +1154,6 @@ function StudyContent() {
                         </Button>
                       )}
                     </div>
-                    
-                    {/* Transcription text */}
                     <div className="prose prose-sm max-w-none text-foreground">
                       <div 
                         dangerouslySetInnerHTML={{ 
@@ -1108,39 +1163,74 @@ function StudyContent() {
                     </div>
                   </div>
                 )}
-              </TabsContent>
-              <TabsContent value="quiz" className="px-6 py-4">
+              </div>
+            </SheetContent>
+          </Sheet>
+
+          {/* Quiz Sheet */}
+          <Sheet open={activeToolPanel === 'quiz'} onOpenChange={(open) => !open && setActiveToolPanel(null)}>
+            <SheetContent side="right" className="w-[500px] sm:w-[600px] overflow-y-auto">
+              <SheetHeader>
+                <SheetTitle>Quiz</SheetTitle>
+                <SheetDescription>Teste seus conhecimentos sobre {activeContent.title}</SheetDescription>
+              </SheetHeader>
+              <div className="mt-6">
                 <StudyQuiz 
                   studyId={id!}
                   contentId={activeContent.id}
                   contentTitle={activeContent.title}
                 />
-              </TabsContent>
-              <TabsContent value="notes" className="px-6 py-4">
+              </div>
+            </SheetContent>
+          </Sheet>
+
+          {/* Notes Sheet */}
+          <Sheet open={activeToolPanel === 'notes'} onOpenChange={(open) => !open && setActiveToolPanel(null)}>
+            <SheetContent side="right" className="w-[500px] sm:w-[600px] overflow-y-auto">
+              <SheetHeader>
+                <SheetTitle>Anotações</SheetTitle>
+                <SheetDescription>Suas anotações de estudo</SheetDescription>
+              </SheetHeader>
+              <div className="mt-6">
                 <StudyNotes
                   studyId={id!}
                   activeContentId={activeContent?.id || null}
                   onSeekToTimestamp={handleSeekToTimestamp}
                   key={notesRefresh}
                 />
-              </TabsContent>
-              <TabsContent value="comments" className="px-6 py-4">
-                {/* Usar o componente ContentComments existente */}
-                <div className="text-muted-foreground text-sm">
-                  <p>Comentários disponíveis em breve...</p>
-                </div>
-              </TabsContent>
-              <TabsContent value="recommendations" className="px-6 py-4">
-                <div className="text-muted-foreground text-sm">
-                  <p>Recomendações personalizadas baseadas no seu progresso...</p>
-                  <p className="mt-2">
-                    A IA Classy analisará seu aprendizado e sugerirá próximos conteúdos.
-                  </p>
-                </div>
-              </TabsContent>
-            </div>
-          </Tabs>
-        </div>
+              </div>
+            </SheetContent>
+          </Sheet>
+
+          {/* Comments Sheet */}
+          <Sheet open={activeToolPanel === 'comments'} onOpenChange={(open) => !open && setActiveToolPanel(null)}>
+            <SheetContent side="right" className="w-[500px] sm:w-[600px] overflow-y-auto">
+              <SheetHeader>
+                <SheetTitle>Comentários</SheetTitle>
+                <SheetDescription>Discussões sobre {activeContent.title}</SheetDescription>
+              </SheetHeader>
+              <div className="mt-6 text-muted-foreground text-sm">
+                <p>Comentários disponíveis em breve...</p>
+              </div>
+            </SheetContent>
+          </Sheet>
+
+          {/* Recommendations Sheet */}
+          <Sheet open={activeToolPanel === 'recommendations'} onOpenChange={(open) => !open && setActiveToolPanel(null)}>
+            <SheetContent side="right" className="w-[500px] sm:w-[600px] overflow-y-auto">
+              <SheetHeader>
+                <SheetTitle>Recomendações</SheetTitle>
+                <SheetDescription>Conteúdos sugeridos para você</SheetDescription>
+              </SheetHeader>
+              <div className="mt-6 text-muted-foreground text-sm">
+                <p>Recomendações personalizadas baseadas no seu progresso...</p>
+                <p className="mt-2">
+                  A IA Classy analisará seu aprendizado e sugerirá próximos conteúdos.
+                </p>
+              </div>
+            </SheetContent>
+          </Sheet>
+        </>
       )}
 
       {/* Rename Dialog */}
