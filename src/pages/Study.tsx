@@ -11,6 +11,7 @@ import { StudyMessage } from "@/hooks/useStudies";
 import { useStudies } from "@/hooks/useStudies";
 import { ChatContentCard } from "@/components/ChatContentCard";
 import { StudyVideoPlayer } from "@/components/StudyVideoPlayer";
+import { StudyQuiz } from "@/components/StudyQuiz";
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/components/ui/resizable";
 import {
   DropdownMenu,
@@ -614,6 +615,7 @@ export default function Study() {
             <div className="border-b border-border px-6">
               <TabsList className="bg-transparent">
                 <TabsTrigger value="transcription">Transcrição</TabsTrigger>
+                <TabsTrigger value="quiz">Quiz</TabsTrigger>
                 <TabsTrigger value="notes">Anotações</TabsTrigger>
                 <TabsTrigger value="comments">Comentários</TabsTrigger>
                 <TabsTrigger value="recommendations">Recomendações</TabsTrigger>
@@ -668,6 +670,13 @@ export default function Study() {
                     </div>
                   </div>
                 )}
+              </TabsContent>
+              <TabsContent value="quiz" className="px-6 py-4">
+                <StudyQuiz 
+                  studyId={id!}
+                  contentId={activeContent.id}
+                  contentTitle={activeContent.title}
+                />
               </TabsContent>
               <TabsContent value="notes" className="px-6 py-4">
                 <div className="text-muted-foreground text-sm">

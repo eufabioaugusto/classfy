@@ -569,6 +569,54 @@ export type Database = {
         }
         Relationships: []
       }
+      quiz_attempts: {
+        Row: {
+          answers: Json
+          completed_at: string | null
+          id: string
+          max_score: number
+          quiz_id: string
+          score: number
+          time_spent_seconds: number | null
+          user_id: string
+        }
+        Insert: {
+          answers: Json
+          completed_at?: string | null
+          id?: string
+          max_score: number
+          quiz_id: string
+          score: number
+          time_spent_seconds?: number | null
+          user_id: string
+        }
+        Update: {
+          answers?: Json
+          completed_at?: string | null
+          id?: string
+          max_score?: number
+          quiz_id?: string
+          score?: number
+          time_spent_seconds?: number | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "quiz_attempts_quiz_id_fkey"
+            columns: ["quiz_id"]
+            isOneToOne: false
+            referencedRelation: "study_quizzes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "quiz_attempts_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       reward_action_tracking: {
         Row: {
           action_key: string
@@ -787,6 +835,48 @@ export type Database = {
         Relationships: [
           {
             foreignKeyName: "study_messages_study_id_fkey"
+            columns: ["study_id"]
+            isOneToOne: false
+            referencedRelation: "studies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      study_quizzes: {
+        Row: {
+          content_id: string | null
+          created_at: string | null
+          id: string
+          metadata: Json | null
+          questions: Json
+          study_id: string
+        }
+        Insert: {
+          content_id?: string | null
+          created_at?: string | null
+          id?: string
+          metadata?: Json | null
+          questions: Json
+          study_id: string
+        }
+        Update: {
+          content_id?: string | null
+          created_at?: string | null
+          id?: string
+          metadata?: Json | null
+          questions?: Json
+          study_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "study_quizzes_content_id_fkey"
+            columns: ["content_id"]
+            isOneToOne: false
+            referencedRelation: "contents"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "study_quizzes_study_id_fkey"
             columns: ["study_id"]
             isOneToOne: false
             referencedRelation: "studies"
