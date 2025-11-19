@@ -328,7 +328,7 @@ export default function StudioContents() {
                                     <Eye className="w-4 h-4 mr-2" />
                                     Ver
                                   </DropdownMenuItem>
-                                  <DropdownMenuItem onClick={() => {}}>
+                                  <DropdownMenuItem onClick={() => navigate(`/studio/upload?edit=${content.id}`)}>
                                     <Edit className="w-4 h-4 mr-2" />
                                     Editar
                                   </DropdownMenuItem>

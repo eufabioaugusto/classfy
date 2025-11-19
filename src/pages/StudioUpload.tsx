@@ -24,6 +24,9 @@ export default function StudioUpload() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   
+  const editId = searchParams.get('edit');
+  const [isEditMode, setIsEditMode] = useState(false);
+  const [originalStatus, setOriginalStatus] = useState<string | null>(null);
   const [contentType, setContentType] = useState<ContentType>("aula");
   
   useEffect(() => {
@@ -32,6 +35,7 @@ export default function StudioUpload() {
       setContentType(type);
     }
   }, [searchParams]);
+  
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [visibility, setVisibility] = useState<Visibility>("free");
@@ -49,6 +53,51 @@ export default function StudioUpload() {
   const [thumbnailPreview, setThumbnailPreview] = useState("");
   const [tags, setTags] = useState<string[]>([]);
   const [isGeneratingTags, setIsGeneratingTags] = useState(false);
+  
+  // Load content data if editing
+  useEffect(() => {
+    if (editId && user) {
+      loadContentForEdit();
+    }
+  }, [editId, user]);
+  
+  const loadContentForEdit = async () => {
+    if (!editId || !user) return;
+    
+    try {
+      const { data, error } = await supabase
+        .from('contents')
+        .select('*')
+        .eq('id', editId)
+        .eq('creator_id', user.id)
+        .single();
+      
+      if (error) throw error;
+      
+      if (data) {
+        setIsEditMode(true);
+        setOriginalStatus(data.status);
+        setTitle(data.title);
+        setDescription(data.description || "");
+        setContentType(data.content_type as ContentType);
+        setVisibility(data.visibility as Visibility);
+        setPrice(data.price?.toString() || "0");
+        setDiscount(data.discount?.toString() || "0");
+        setFileUrl(data.file_url || "");
+        setThumbnailUrl(data.thumbnail_url || "");
+        setDuration(data.duration_seconds || 0);
+        setTags(data.tags || []);
+        setFilePreview(data.file_url || "");
+        setThumbnailPreview(data.thumbnail_url || "");
+        setFileProgress(100);
+        setThumbnailProgress(100);
+      }
+    } catch (error: any) {
+      console.error("Erro ao carregar conteúdo:", error);
+      toast.error("Erro ao carregar conteúdo para edição");
+      navigate('/studio/contents');
+    }
+  };
 
   if (loading) {
     return <div className="min-h-screen flex items-center justify-center">Carregando...</div>;
@@ -262,40 +311,62 @@ export default function StudioUpload() {
 
     setSubmitting(true);
     try {
-      // Check if this is the first upload
-      const { count: contentCount } = await supabase
-        .from('contents')
-        .select('*', { count: 'exact', head: true })
-        .eq('creator_id', user.id);
-
-      const isFirstUpload = contentCount === 0;
-
       // Map frontend content types to database types
       const dbContentType = contentType === "curso" || contentType === "live" ? "aula" : contentType;
       
-      const { error } = await supabase
-        .from('contents')
-        .insert({
-          content_type: dbContentType,
-          title,
-          description: description || null,
-          file_url: fileUrl,
-          thumbnail_url: thumbnailUrl,
-          duration_seconds: duration,
-          visibility,
-          price: visibility === 'paid' ? parseFloat(price) : 0,
-          discount: visibility === 'paid' ? parseFloat(discount) : 0,
-          creator_id: user.id,
-          status: 'pending',
-          views_count: 0,
-          likes_count: 0,
-          tags: tags.length > 0 ? tags : null,
-        });
+      const contentData = {
+        content_type: dbContentType,
+        title,
+        description: description || null,
+        file_url: fileUrl,
+        thumbnail_url: thumbnailUrl,
+        duration_seconds: duration,
+        visibility,
+        price: visibility === 'paid' ? parseFloat(price) : 0,
+        discount: visibility === 'paid' ? parseFloat(discount) : 0,
+        tags: tags.length > 0 ? tags : null,
+      };
 
-      if (error) throw error;
+      if (isEditMode && editId) {
+        // UPDATE existing content
+        // If content was approved, set back to pending for re-approval
+        const newStatus = originalStatus === 'approved' ? 'pending' : originalStatus;
+        
+        const { error } = await supabase
+          .from('contents')
+          .update({
+            ...contentData,
+            status: newStatus,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', editId)
+          .eq('creator_id', user.id);
 
-      toast.success("Seu conteúdo foi enviado e aguarda aprovação!");
-      navigate('/studio');
+        if (error) throw error;
+
+        if (originalStatus === 'approved') {
+          toast.success("Conteúdo atualizado! Como estava aprovado, voltará para revisão do admin.");
+        } else {
+          toast.success("Conteúdo atualizado com sucesso!");
+        }
+      } else {
+        // INSERT new content
+        const { error } = await supabase
+          .from('contents')
+          .insert({
+            ...contentData,
+            creator_id: user.id,
+            status: 'pending',
+            views_count: 0,
+            likes_count: 0,
+          });
+
+        if (error) throw error;
+
+        toast.success("Seu conteúdo foi enviado e aguarda aprovação!");
+      }
+      
+      navigate('/studio/contents');
     } catch (error: any) {
       toast.error(error.message || "Erro ao publicar conteúdo");
     } finally {
@@ -312,6 +383,7 @@ export default function StudioUpload() {
           <Header
             variant="studio"
             title={
+              isEditMode ? "Editar Conteúdo" :
               contentType === "aula" ? "Publicar Aula" :
               contentType === "curso" ? "Criar Curso" :
               contentType === "podcast" ? "Enviar Podcast" :
@@ -582,7 +654,10 @@ export default function StudioUpload() {
                 </Card>
 
                 <Button type="submit" disabled={submitting} className="w-full">
-                  {submitting ? "Publicando..." : "Publicar Conteúdo"}
+                  {submitting 
+                    ? (isEditMode ? "Salvando..." : "Publicando...") 
+                    : (isEditMode ? "Salvar Alterações" : "Publicar Conteúdo")
+                  }
                 </Button>
               </form>
             </div>
