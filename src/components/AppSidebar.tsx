@@ -56,6 +56,7 @@ const mainItems = [
   { title: "Histórico", url: "/historico", icon: Clock },
   { title: "Favoritos", url: "/favoritos", icon: Star },
   { title: "Salvos", url: "/salvos", icon: Bookmark },
+  { title: "Recompensas", url: "/rewards", icon: Trophy },
 ];
 
 const categories = [
