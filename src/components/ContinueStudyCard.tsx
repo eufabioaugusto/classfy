@@ -250,7 +250,7 @@ export function ContinueStudyCard({ userId }: ContinueStudyCardProps) {
 
           {/* Progress Bar */}
           <div className="mb-6 max-w-xl">
-            <Progress value={mainStudy.progressPercent} className="h-1.5 bg-white/20" />
+            <Progress value={mainStudy.progressPercent} className="h-1.5 bg-red-600/80" />
           </div>
 
           {/* Metrics Row */}
@@ -362,7 +362,7 @@ export function ContinueStudyCard({ userId }: ContinueStudyCardProps) {
                       <span>Progresso</span>
                       <span className="font-medium">{study.progressPercent}%</span>
                     </div>
-                    <Progress value={study.progressPercent} className="h-1 bg-white/20" />
+                    <Progress value={study.progressPercent} className="h-1 bg-red-600/80" />
                   </div>
                   <Button size="sm" variant="ghost" className="w-full text-white border-white/30 hover:bg-white/10">
                     Continuar
