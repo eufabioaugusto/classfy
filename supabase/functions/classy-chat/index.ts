@@ -163,7 +163,7 @@ serve(async (req) => {
             const descLower = (content.description || "").toLowerCase();
             const contentTags = (content.tags || []).map((tag: string) => tag.toLowerCase());
             
-            // Normalize search query - remove accents and special chars
+            // Normalize helper - remove accents and special chars
             const normalizeText = (text: string) => {
               return text
                 .normalize("NFD")
@@ -177,14 +177,25 @@ serve(async (req) => {
             const tagsNormalized = contentTags.map((tag: string) => normalizeText(tag));
             
             let score = 0;
-            const searchWords = searchNormalized.split(" ").filter((w: string) => w.length >= 2);
+            
+            // Remove very comuns palavras vazias da busca (stopwords)
+            const stopwords = [
+              "o","a","os","as","um","uma","de","da","do","das","dos",
+              "em","no","na","nos","nas","por","para","com","e","ou",
+              "que","como","sobre","quero","quero","aprender","aprendizado",
+              "curso","estudo","estudar"
+            ];
+            const searchWords = searchNormalized
+              .split(" ")
+              .map((w: string) => w.trim())
+              .filter((w: string) => w.length >= 2 && !stopwords.includes(w));
             
             // Score each search word
             searchWords.forEach((word: string) => {
               // Title matches (highest priority)
               if (titleNormalized.includes(word)) score += 10;
               
-              // Tags matches (very high priority - CRITICAL)
+              // Tags matches (very high priority)
               tagsNormalized.forEach((tag: string) => {
                 if (tag.includes(word) || word.includes(tag)) {
                   score += 15; // Tags are most important
@@ -203,14 +214,6 @@ serve(async (req) => {
                 score += 30; // Exact tag match is critical
               }
             });
-            
-            // Common variations and synonyms for IA
-            const iaVariations = ["ia", "inteligencia artificial", "artificial intelligence", "ai", "machine learning", "ml"];
-            if (iaVariations.some(v => searchNormalized.includes(v))) {
-              if (iaVariations.some(v => titleNormalized.includes(v))) score += 15;
-              if (iaVariations.some(v => tagsNormalized.some((tag: string) => tag.includes(v)))) score += 25;
-              if (iaVariations.some(v => descNormalized.includes(v))) score += 8;
-            }
             
             return { ...content, matchScore: score };
           })
