@@ -214,24 +214,17 @@ serve(async (req) => {
             
             return { ...content, matchScore: score };
           })
-          .filter((c: any) => c.matchScore > 0)
+          .filter((c: any) => c.matchScore >= 10) // Require meaningful match (at least one title match)
           .sort((a: any, b: any) => b.matchScore - a.matchScore)
           .slice(0, 15);
 
-        // Fallback: if nothing matches, still show alguns conteúdos relevantes (minimum 3 when available)
-        if (relatedContents.length === 0 && !isAskingAboutCurrentContent) {
-          const minimumResults = Math.min(availableContents.length, 3);
-          relatedContents = availableContents
-            .slice(0, Math.max(minimumResults, 10))
-            .map((content: any) => ({ ...content, matchScore: 1 }));
-        } else if (relatedContents.length > 0 && relatedContents.length < 3 && !isAskingAboutCurrentContent) {
-          // If we have some matches but less than 3, add more to reach minimum of 3
-          const needed = 3 - relatedContents.length;
-          const additional = availableContents
-            .filter((c: any) => !relatedContents.find((r: any) => r.id === c.id))
-            .slice(0, needed)
-            .map((content: any) => ({ ...content, matchScore: 1 }));
-          relatedContents = [...relatedContents, ...additional];
+        // Only show content if it's actually relevant - no random fallbacks
+        console.log(`Found ${relatedContents.length} contents with scores >= 10 for query: "${searchQuery}"`);
+        if (relatedContents.length > 0) {
+          console.log('Top matches:', relatedContents.slice(0, 3).map((c: any) => ({ 
+            title: c.title, 
+            score: c.matchScore 
+          })));
         }
       }
     }
@@ -389,6 +382,17 @@ ${isFirstMessage ?
 - Apresente-se: "Olá ${userName}! Sou a Classy, sua tutora de IA aqui na Classfy 😊"
 - Pergunte: "O que você gostaria de aprender sobre ${study.title}?"
 - Seja acolhedora e motivadora`;
+    } else {
+      systemPrompt += `\n\n🚫 NENHUM CONTEÚDO RELEVANTE ENCONTRADO:
+Você NÃO encontrou conteúdos na plataforma relacionados à pergunta do usuário.
+
+INSTRUÇÕES OBRIGATÓRIAS:
+✓ Responda a pergunta do usuário da melhor forma possível com seu conhecimento
+✓ Seja HONESTA: "No momento, não temos conteúdos específicos sobre ${message} na plataforma."
+✓ Sugira temas relacionados disponíveis: "Posso te ajudar com [temas disponíveis relacionados]?"
+✓ Mantenha o tom educacional e útil
+✗ NUNCA invente que existem conteúdos quando não existem
+✗ NUNCA mostre cards de vídeos vazios ou aleatórios`;
     }
 
     const response = await fetch(
