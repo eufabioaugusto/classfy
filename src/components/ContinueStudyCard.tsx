@@ -79,25 +79,30 @@ export function ContinueStudyCard({ userId }: ContinueStudyCardProps) {
           let thumbnailUrl = null;
 
           if (messages && messages.length > 0) {
-            messages.forEach((msg) => {
-              if (msg.related_contents && Array.isArray(msg.related_contents)) {
-                if (!firstContentId && msg.related_contents.length > 0) {
+            // Find the first message with content IDs
+            for (const msg of messages) {
+              if (msg.related_contents && Array.isArray(msg.related_contents) && msg.related_contents.length > 0) {
+                if (!firstContentId) {
                   firstContentId = msg.related_contents[0];
                 }
                 videosWatchedCount += msg.related_contents.length;
               }
-            });
+            }
 
             // Fetch thumbnail from first content
             if (firstContentId) {
-              const { data: content } = await supabase
-                .from("contents")
-                .select("thumbnail_url")
-                .eq("id", firstContentId)
-                .single();
-              
-              if (content) {
-                thumbnailUrl = content.thumbnail_url;
+              try {
+                const { data: content, error: contentError } = await supabase
+                  .from("contents")
+                  .select("thumbnail_url")
+                  .eq("id", firstContentId)
+                  .single();
+                
+                if (!contentError && content && content.thumbnail_url) {
+                  thumbnailUrl = content.thumbnail_url;
+                }
+              } catch (error) {
+                console.error("Error fetching content thumbnail:", error);
               }
             }
           }
@@ -147,7 +152,7 @@ export function ContinueStudyCard({ userId }: ContinueStudyCardProps) {
 
   if (loading) {
     return (
-      <div className="w-full h-[500px] rounded-2xl overflow-hidden relative">
+      <div className="w-full h-[420px] rounded-2xl overflow-hidden relative">
         <Skeleton className="w-full h-full" />
       </div>
     );
@@ -158,7 +163,7 @@ export function ContinueStudyCard({ userId }: ContinueStudyCardProps) {
   return (
     <div className="w-full space-y-4">
       {/* Main Study Card - Cinematic Design */}
-      <Card className="w-full h-[500px] rounded-2xl overflow-hidden relative group border-border/50 hover:border-primary/30 transition-all duration-300 cursor-pointer"
+      <Card className="w-full h-[420px] rounded-2xl overflow-hidden relative group border-border/50 hover:border-primary/30 transition-all duration-300 cursor-pointer"
         onClick={() => handleContinueStudy(mainStudy.id)}
       >
         {/* Background Image with Overlay */}
