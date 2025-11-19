@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Play, Pause, Volume2, VolumeX, Maximize, X } from "lucide-react";
+import { Play, Pause, Volume2, VolumeX, Maximize, X, StickyNote } from "lucide-react";
 import { useRewardSystem } from "@/hooks/useRewardSystem";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
@@ -14,11 +14,13 @@ interface StudyVideoPlayerProps {
     content_type: "aula" | "short" | "podcast";
     duration_seconds?: number;
   };
+  studyId: string;
   onClose: () => void;
   onTranscriptionUpdate?: () => void;
+  onCreateNote?: (timestamp: number) => void;
 }
 
-export const StudyVideoPlayer = ({ content, onClose, onTranscriptionUpdate }: StudyVideoPlayerProps) => {
+export const StudyVideoPlayer = ({ content, studyId, onClose, onTranscriptionUpdate, onCreateNote }: StudyVideoPlayerProps) => {
   const { user } = useAuth();
   const videoRef = useRef<HTMLVideoElement>(null);
   const audioRef = useRef<HTMLAudioElement>(null);
@@ -130,6 +132,12 @@ export const StudyVideoPlayer = ({ content, onClose, onTranscriptionUpdate }: St
     return `${mins}:${secs.toString().padStart(2, "0")}`;
   };
 
+  const handleCreateNote = () => {
+    if (onCreateNote) {
+      onCreateNote(Math.floor(currentTime));
+    }
+  };
+
   return (
     <Card className="h-full flex flex-col bg-background border-border">
       {/* Header */}
@@ -190,6 +198,14 @@ export const StudyVideoPlayer = ({ content, onClose, onTranscriptionUpdate }: St
           </Button>
           <Button variant="ghost" size="icon" onClick={toggleMute}>
             {isMuted ? <VolumeX className="h-5 w-5" /> : <Volume2 className="h-5 w-5" />}
+          </Button>
+          <Button 
+            variant="ghost" 
+            size="icon" 
+            onClick={handleCreateNote}
+            title="Criar anotação neste momento"
+          >
+            <StickyNote className="h-5 w-5" />
           </Button>
           {isVideo && (
             <Button variant="ghost" size="icon" onClick={toggleFullscreen} className="ml-auto">

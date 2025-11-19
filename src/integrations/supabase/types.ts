@@ -842,6 +842,54 @@ export type Database = {
           },
         ]
       }
+      study_notes: {
+        Row: {
+          content_id: string | null
+          created_at: string | null
+          id: string
+          note_text: string
+          study_id: string
+          timestamp_seconds: number | null
+          updated_at: string | null
+          user_id: string
+        }
+        Insert: {
+          content_id?: string | null
+          created_at?: string | null
+          id?: string
+          note_text: string
+          study_id: string
+          timestamp_seconds?: number | null
+          updated_at?: string | null
+          user_id: string
+        }
+        Update: {
+          content_id?: string | null
+          created_at?: string | null
+          id?: string
+          note_text?: string
+          study_id?: string
+          timestamp_seconds?: number | null
+          updated_at?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "study_notes_content_id_fkey"
+            columns: ["content_id"]
+            isOneToOne: false
+            referencedRelation: "contents"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "study_notes_study_id_fkey"
+            columns: ["study_id"]
+            isOneToOne: false
+            referencedRelation: "studies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       study_quizzes: {
         Row: {
           content_id: string | null

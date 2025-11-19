@@ -12,6 +12,8 @@ import { useStudies } from "@/hooks/useStudies";
 import { ChatContentCard } from "@/components/ChatContentCard";
 import { StudyVideoPlayer } from "@/components/StudyVideoPlayer";
 import { StudyQuiz } from "@/components/StudyQuiz";
+import { StudyNotes } from "@/components/StudyNotes";
+import { Textarea } from "@/components/ui/textarea";
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/components/ui/resizable";
 import {
   DropdownMenu,
@@ -62,6 +64,10 @@ export default function Study() {
   const [transcription, setTranscription] = useState<string>("");
   const [transcriptionLoading, setTranscriptionLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  const [noteDialogOpen, setNoteDialogOpen] = useState(false);
+  const [noteTimestamp, setNoteTimestamp] = useState<number>(0);
+  const [noteText, setNoteText] = useState("");
+  const [notesRefresh, setNotesRefresh] = useState(0);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -375,8 +381,42 @@ export default function Study() {
       setTranscription(data?.text || "");
     } catch (error) {
       console.error("Error loading transcription:", error);
-      setTranscription("");
     }
+  };
+
+  const handleCreateNote = (timestamp: number) => {
+    setNoteTimestamp(timestamp);
+    setNoteText("");
+    setNoteDialogOpen(true);
+  };
+
+  const handleSaveNote = async () => {
+    if (!user || !id || !noteText.trim()) return;
+
+    try {
+      const { error } = await supabase.from("study_notes").insert({
+        study_id: id,
+        content_id: activeContent?.id || null,
+        user_id: user.id,
+        note_text: noteText.trim(),
+        timestamp_seconds: noteTimestamp,
+      });
+
+      if (error) throw error;
+
+      toast.success("Anotação salva com sucesso!");
+      setNoteDialogOpen(false);
+      setNoteText("");
+      setNotesRefresh((prev) => prev + 1);
+    } catch (error) {
+      console.error("Error saving note:", error);
+      toast.error("Erro ao salvar anotação");
+    }
+  };
+
+  const handleSeekToTimestamp = (seconds: number) => {
+    // Future: Implement seek functionality if needed
+    toast.info(`Saltar para ${Math.floor(seconds / 60)}:${(seconds % 60).toString().padStart(2, "0")}`);
   };
 
   const generateTranscription = async () => {
@@ -501,6 +541,7 @@ export default function Study() {
           <>
             <ResizablePanel defaultSize={60} minSize={40}>
               <StudyVideoPlayer
+                studyId={id!}
                 content={activeContent}
                 onClose={() => {
                   setActiveContent(null);
@@ -508,6 +549,7 @@ export default function Study() {
                   setSearchQuery("");
                 }}
                 onTranscriptionUpdate={() => loadTranscription(activeContent.id)}
+                onCreateNote={handleCreateNote}
               />
             </ResizablePanel>
             <ResizableHandle withHandle />
@@ -679,12 +721,12 @@ export default function Study() {
                 />
               </TabsContent>
               <TabsContent value="notes" className="px-6 py-4">
-                <div className="text-muted-foreground text-sm">
-                  <p>Área de anotações em desenvolvimento...</p>
-                  <p className="mt-2">
-                    Em breve você poderá fazer anotações enquanto assiste.
-                  </p>
-                </div>
+                <StudyNotes
+                  studyId={id!}
+                  activeContentId={activeContent?.id || null}
+                  onSeekToTimestamp={handleSeekToTimestamp}
+                  key={notesRefresh}
+                />
               </TabsContent>
               <TabsContent value="comments" className="px-6 py-4">
                 {/* Usar o componente ContentComments existente */}
@@ -760,6 +802,38 @@ export default function Study() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Create Note Dialog */}
+      <Dialog open={noteDialogOpen} onOpenChange={setNoteDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Nova Anotação</DialogTitle>
+            <DialogDescription>
+              Adicione uma anotação {noteTimestamp > 0 ? `no momento ${Math.floor(noteTimestamp / 60)}:${(noteTimestamp % 60).toString().padStart(2, "0")}` : "geral"}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <Label htmlFor="note-text">Anotação</Label>
+              <Textarea
+                id="note-text"
+                value={noteText}
+                onChange={(e) => setNoteText(e.target.value)}
+                placeholder="Digite sua anotação..."
+                className="min-h-[120px] mt-2"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setNoteDialogOpen(false)}>
+              Cancelar
+            </Button>
+            <Button onClick={handleSaveNote} disabled={!noteText.trim()}>
+              Salvar Anotação
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
