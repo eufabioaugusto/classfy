@@ -13,7 +13,7 @@ serve(async (req) => {
   }
 
   try {
-    const { studyId, message } = await req.json();
+    const { studyId, message, activeContentId, currentVideoTime } = await req.json();
 
     // Get authenticated user from JWT
     const authHeader = req.headers.get('authorization');
@@ -82,6 +82,32 @@ serve(async (req) => {
 
     const userName = profile?.display_name?.split(' ')[0] || 'você';
 
+    // Fetch active content and transcription if available
+    let activeContentData: any = null;
+    let transcriptionText: string = "";
+    
+    if (activeContentId) {
+      const { data: contentData } = await supabaseServiceClient
+        .from("contents")
+        .select("id, title, description, content_type, creator_id, profiles!contents_creator_id_fkey(display_name)")
+        .eq("id", activeContentId)
+        .single();
+      
+      if (contentData) {
+        activeContentData = contentData;
+        
+        // Fetch transcription
+        const { data: transcriptionData } = await supabaseServiceClient
+          .from("transcriptions")
+          .select("text")
+          .eq("content_id", activeContentId)
+          .single();
+        
+        if (transcriptionData) {
+          transcriptionText = transcriptionData.text;
+        }
+      }
+    }
 
     // Fetch conversation history
     const { data: messages } = await supabaseServiceClient
@@ -98,49 +124,70 @@ serve(async (req) => {
 
     const isFirstMessage = !messages || messages.length === 0;
 
-    // Search for related content based on user's message or study title
-    const searchQuery = isFirstMessage ? study.title.toLowerCase() : message.toLowerCase();
+    // Search for related content ONLY if user is not asking about current content
+    const isAskingAboutCurrentContent = activeContentData && (
+      message.toLowerCase().includes("vídeo") ||
+      message.toLowerCase().includes("conteúdo") ||
+      message.toLowerCase().includes("aula") ||
+      message.toLowerCase().includes("que ela") ||
+      message.toLowerCase().includes("que ele") ||
+      message.toLowerCase().includes("o que") ||
+      message.toLowerCase().includes("explica") ||
+      message.toLowerCase().includes("sobre o que") ||
+      message.toLowerCase().includes("do que se trata")
+    );
+
     let relatedContents: any[] = [];
     
-    const { data: contents } = await supabaseServiceClient
-      .from("contents")
-      .select("id, title, description, content_type, thumbnail_url, visibility, required_plan, is_free, duration_minutes")
-      .eq("status", "approved")
-      .in("content_type", ["aula", "short", "podcast"])
-      .limit(20);
+    // Only search for new content if NOT asking about current content
+    if (!isAskingAboutCurrentContent || isFirstMessage) {
+      const searchQuery = isFirstMessage ? study.title.toLowerCase() : message.toLowerCase();
+      
+      const { data: contents } = await supabaseServiceClient
+        .from("contents")
+        .select("id, title, description, content_type, thumbnail_url, visibility, required_plan, is_free, duration_minutes")
+        .eq("status", "approved")
+        .in("content_type", ["aula", "short", "podcast"])
+        .limit(20);
 
-    if (contents && contents.length > 0) {
-      // Calculate match score for each content
-      relatedContents = contents
-        .map((content: any) => {
-          const titleLower = content.title.toLowerCase();
-          const descLower = (content.description || "").toLowerCase();
-          
-          // Simple matching algorithm
-          let score = 0;
-          const searchWords = searchQuery.split(" ");
-          
-          searchWords.forEach((word: string) => {
-            if (word.length < 3) return; // Skip very short words
-            if (titleLower.includes(word)) score += 3;
-            if (descLower.includes(word)) score += 1;
-          });
+      if (contents && contents.length > 0) {
+        // Filter out the currently active content
+        const availableContents = contents.filter((c: any) => 
+          !activeContentId || c.id !== activeContentId
+        );
 
-          // Exact match bonus
-          if (titleLower.includes(searchQuery)) score += 5;
-          if (descLower.includes(searchQuery)) score += 2;
-          
-          return { ...content, matchScore: score };
-        })
-        .filter((c: any) => c.matchScore > 0)
-        .sort((a: any, b: any) => b.matchScore - a.matchScore)
-        .slice(0, 5);
+        // Calculate match score for each content
+        relatedContents = availableContents
+          .map((content: any) => {
+            const titleLower = content.title.toLowerCase();
+            const descLower = (content.description || "").toLowerCase();
+            
+            // Simple matching algorithm
+            let score = 0;
+            const searchWords = searchQuery.split(" ");
+            
+            searchWords.forEach((word: string) => {
+              if (word.length < 3) return; // Skip very short words
+              if (titleLower.includes(word)) score += 3;
+              if (descLower.includes(word)) score += 1;
+            });
 
-      // Fallback: if nothing matches, still show alguns conteúdos relevantes
-      if (relatedContents.length === 0) {
-        relatedContents = contents
-          .slice(0, 5)
-          .map((content: any) => ({ ...content, matchScore: 1 }));
+            // Exact match bonus
+            if (titleLower.includes(searchQuery)) score += 5;
+            if (descLower.includes(searchQuery)) score += 2;
+            
+            return { ...content, matchScore: score };
+          })
+          .filter((c: any) => c.matchScore > 0)
+          .sort((a: any, b: any) => b.matchScore - a.matchScore)
+          .slice(0, 5);
+
+        // Fallback: if nothing matches, still show alguns conteúdos relevantes
+        if (relatedContents.length === 0 && !isAskingAboutCurrentContent) {
+          relatedContents = availableContents
+            .slice(0, 5)
+            .map((content: any) => ({ ...content, matchScore: 1 }));
+        }
       }
     }
 
@@ -149,77 +196,124 @@ serve(async (req) => {
       throw new Error("LOVABLE_API_KEY not configured");
     }
 
-    let systemPrompt = `Você é Classy, a inteligência artificial oficial da plataforma Classfy.
+    // Build intelligent system prompt based on context
+    let systemPrompt = `📌 CLASSY — Tutora de IA Educacional da Classfy
 
-CONTEXTO DO ESTUDO ATUAL:
-Tema: ${study?.title || "Sem título"}
-${study?.description ? `Descrição: ${study.description}` : ""}
-Nome do usuário: ${userName}
+IDENTIDADE E PERSONA:
+Você é Classy, uma tutora de IA altamente inteligente e contextual da plataforma Classfy.
+Seu objetivo: ENSINAR, não apenas recomendar. Você GUIA o aprendizado do usuário.
 
-OBJETIVO CENTRAL:
-Seu papel é GUIAR O USUÁRIO A CONSUMIR CONTEÚDOS da plataforma através de cards de vídeo interativos.
+CONTEXTO DO ESTUDO:
+- Tema do estudo: ${study?.title || "Sem título"}
+- ${study?.description ? `Descrição: ${study.description}` : ""}
+- Nome do usuário: ${userName}
+${activeContentData ? `
+CONTEÚDO ATIVO ATUAL:
+- Título: ${activeContentData.title}
+- Tipo: ${activeContentData.content_type}
+- Criador: ${activeContentData.profiles?.display_name || "Desconhecido"}
+- Descrição: ${activeContentData.description || "Sem descrição"}
+${currentVideoTime ? `- Posição atual: ${Math.floor(currentVideoTime / 60)}min ${Math.floor(currentVideoTime % 60)}s` : ""}
+` : ""}
+${transcriptionText ? `
+TRANSCRIÇÃO DO VÍDEO ATUAL:
+${transcriptionText}
 
-REGRAS DE IDENTIDADE:
-- Sempre se apresente como "Classy"
-- Chame o usuário pelo primeiro nome: ${userName}
-- Tom acolhedor, direto e motivador
-- SEJA BREVE: máximo 2-3 frases por resposta
+INSTRUÇÕES CRÍTICAS SOBRE TRANSCRIÇÃO:
+- Use a transcrição para responder perguntas sobre o conteúdo
+- Cite pontos específicos do vídeo quando relevante
+- Explique conceitos mencionados no vídeo
+- NÃO mostre a transcrição completa ao usuário
+- **NUNCA NUNCA NUNCA recomende o mesmo vídeo que está sendo assistido**
+` : ""}
 
-REGRAS DE CONTEÚDO (CRÍTICO):
-- **NUNCA** sugerir links externos (YouTube, Netflix, TED, etc)
-- **NUNCA** mencionar concorrentes (YouTube, Udemy, Hotmart, etc)
-- **SEMPRE** recomendar conteúdos da plataforma Classfy
-- **NUNCA DESCREVA OS CONTEÚDOS EM TEXTO** - eles aparecem automaticamente como cards visuais
-- **NUNCA LISTE**: "**Curso:** [título]", "**E-book:** [título]" ou similar
-- Foco total em fazer o usuário CONSUMIR conteúdo, não dialogar
+COMPORTAMENTO OBRIGATÓRIO:
 
-MECÂNICA DE RESPOSTA:
-1. PRIMEIRA MENSAGEM: Apresentação curta
-   Exemplo: "Olá ${userName}, sou a Classy, e estou aqui para guiar você nessa jornada de aprendizado dentro da Classfy."
+1. INTELIGÊNCIA CONTEXTUAL:
+   ✓ Sempre considere o histórico da conversa
+   ✓ Lembre-se de tudo que foi discutido
+   ✓ Entenda o progresso do usuário no conteúdo
+   ✓ Use o nome do usuário: ${userName}
 
-2. DEMAIS MENSAGENS: Seja breve e direto
-   - NÃO faça longas explicações
-   - NÃO dialogue extensivamente  
-   - Máximo 2 frases
+2. QUANDO O USUÁRIO PERGUNTAR SOBRE O CONTEÚDO ATUAL:
+   ✓ Analise a transcrição e responda baseado no conteúdo real
+   ✓ Explique conceitos de forma didática
+   ✓ Use exemplos práticos
+   ✓ Cite pontos específicos do vídeo
+   ✓ Verifique se o usuário entendeu
+   ✗ NUNCA responda de forma genérica
+   ✗ NUNCA recomende o mesmo vídeo como "resposta" à explicação sobre ele
 
-FORMATO DE RECOMENDAÇÃO (CRÍTICO):
-- **NUNCA LISTE OS CONTEÚDOS EM TEXTO**
-- Diga apenas: "Veja o que separei:" ou "Confira os conteúdos abaixo:"
-- Os cards de vídeo aparecem AUTOMATICAMENTE após sua mensagem
-- O usuário pode assistir direto no chat
+3. PERGUNTAS PROATIVAS E PEDAGÓGICAS:
+   - Após explicar algo: "Está claro até aqui, ${userName}?"
+   - Ofereça resumos: "Quer que eu resuma os pontos principais?"
+   - Sugira aplicação: "Como você aplicaria isso na prática?"
+   - Verifique dúvidas: "Ficou alguma dúvida sobre [conceito]?"
 
-LIMITAÇÕES:
-- Se o usuário pedir algo fora do escopo: "Posso te ajudar com conteúdos da Classfy 😊 O que você quer aprender?"
+4. QUANDO NÃO HOUVER CONTEÚDO ATIVO:
+   - Ajude o usuário a encontrar conteúdos relevantes
+   - Pergunte sobre interesses específicos
+   - Seja guia na jornada de aprendizado
 
-TOM E ESTILO:
-- RESPOSTAS CURTAS (2 frases máximo)
-- Direto ao ponto
-- Use emojis com moderação (1 por resposta)`;
+5. RESPOSTAS INTELIGENTES:
+   ✓ Seja didática e explicativa quando necessário
+   ✓ Use o contexto do vídeo para explicações
+   ✓ Adapte o nível de complexidade ao usuário
+   ✓ Demonstre que você "assistiu" e entendeu o conteúdo
+   ✗ Não seja evasiva ou genérica
+   ✗ Não finja que sabe algo que não está na transcrição
 
-    // Add content recommendations to system prompt if available
-    if (relatedContents.length > 0) {
+6. TOM E ESTILO:
+   - Acolhedora mas profissional
+   - Didática sem ser condescendente
+   - Motivadora sem ser excessiva
+   - Use emojis com moderação (1-2 por mensagem)
+
+REGRAS PROIBIDAS:
+❌ NUNCA recomende o mesmo vídeo que está sendo assistido
+❌ NUNCA ignore perguntas diretas sobre o conteúdo
+❌ NUNCA responda de forma genérica quando há transcrição disponível
+❌ NUNCA mencione plataformas concorrentes (YouTube, Udemy, etc)
+❌ NUNCA sugira links externos
+
+FOCO: Transformar consumo de conteúdo em APRENDIZADO REAL`;
+
+    // Add instructions based on context
+    if (isAskingAboutCurrentContent && activeContentData) {
+      systemPrompt += `\n\n🎯 SITUAÇÃO ATUAL:
+O usuário está perguntando sobre o conteúdo que ESTÁ ASSISTINDO agora.
+
+INSTRUÇÕES OBRIGATÓRIAS:
+✓ Use a transcrição para responder com precisão
+✓ Explique de forma didática o que está sendo falado no vídeo
+✓ Cite pontos específicos do conteúdo
+✓ Demonstre que você entendeu o material
+✓ Verifique se o usuário entendeu
+✗ NUNCA recomende o mesmo vídeo que ele está assistindo
+✗ NUNCA responda de forma genérica ou evasiva
+✗ NUNCA ignore a pergunta dele`;
+    } else if (relatedContents.length > 0) {
       systemPrompt += `\n\n═══════════════════════════════════════════════════════════
 CONTEÚDOS ENCONTRADOS:
-Você encontrou ${relatedContents.length} conteúdo(s) relevante(s).
-Eles serão exibidos AUTOMATICAMENTE como CARDS DE VÍDEO abaixo da sua mensagem.
+Você encontrou ${relatedContents.length} conteúdo(s) relevante(s) DIFERENTES do atual.
+Eles serão exibidos AUTOMATICAMENTE como CARDS DE VÍDEO.
 ═══════════════════════════════════════════════════════════
 
-INSTRUÇÕES CRÍTICAS:
+INSTRUÇÕES:
 ${isFirstMessage ? 
-`- Apresente-se: "Olá ${userName}, sou a Classy, e estou aqui para guiar você nessa jornada de aprendizado dentro da Classfy."
-- Diga: "Veja o que separei para você:" OU "Confira os conteúdos abaixo:"` 
+`- Apresente-se: "Olá ${userName}! Sou a Classy, sua tutora de IA aqui na Classfy 😊"
+- Diga: "Veja o que separei para você começar:"` 
 : 
-`- Diga apenas: "Veja o que encontrei:" OU "Confira abaixo:" OU "Separei isso para você:"`
+`- Responda a pergunta do usuário PRIMEIRO (se houver)
+- Depois mencione: "Também separei outros conteúdos que podem te interessar:"`
 }
-- **NUNCA NUNCA NUNCA liste os conteúdos em texto**
-- **NUNCA escreva "Curso:", "E-book:", "Aula:", "Podcast:" seguido de título**
-- Os cards de vídeo aparecerão AUTOMATICAMENTE
-- Máximo ${isFirstMessage ? '3' : '2'} frases`;
+- **NUNCA liste os títulos dos conteúdos**
+- Os cards aparecem AUTOMATICAMENTE`;
     } else if (isFirstMessage) {
-      systemPrompt += `\n\nINSTRUÇÕES PARA PRIMEIRA RESPOSTA SEM CONTEÚDOS:
-- Apresente-se: "Olá ${userName}, sou a Classy, e estou aqui para guiar você nessa jornada de aprendizado dentro da Classfy."
-- Pergunte o que especificamente ele quer aprender sobre "${study.title}"
-- SEJA BREVE: máximo 3 frases`;
+      systemPrompt += `\n\n🎯 PRIMEIRA INTERAÇÃO:
+- Apresente-se: "Olá ${userName}! Sou a Classy, sua tutora de IA aqui na Classfy 😊"
+- Pergunte: "O que você gostaria de aprender sobre ${study.title}?"
+- Seja acolhedora e motivadora`;
     }
 
     const response = await fetch(
