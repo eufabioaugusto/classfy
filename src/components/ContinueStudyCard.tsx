@@ -76,19 +76,23 @@ export function ContinueStudyCard({ userId }: ContinueStudyCardProps) {
             .order("created_at", { ascending: true });
 
           let videosWatchedCount = 0;
-          let firstContentId = null;
+          let firstContentId: string | null = null;
           let thumbnailUrl = null;
           let videoUrl = null;
-
-          console.log('Study messages:', messages);
 
           if (messages && messages.length > 0) {
             // Find the first message with content IDs
             for (const msg of messages) {
               if (msg.related_contents && Array.isArray(msg.related_contents) && msg.related_contents.length > 0) {
                 if (!firstContentId) {
-                  firstContentId = msg.related_contents[0];
-                  console.log('First content ID found:', firstContentId);
+                  // Extract ID from content object or use string directly
+                  const firstContent = msg.related_contents[0];
+                  if (typeof firstContent === 'object' && firstContent !== null && 'id' in firstContent) {
+                    firstContentId = firstContent.id as string;
+                  } else if (typeof firstContent === 'string') {
+                    firstContentId = firstContent;
+                  }
+                  console.log('First content ID extracted:', firstContentId);
                 }
                 videosWatchedCount += msg.related_contents.length;
               }
@@ -103,7 +107,7 @@ export function ContinueStudyCard({ userId }: ContinueStudyCardProps) {
                   .eq("id", firstContentId)
                   .maybeSingle();
                 
-                console.log('Content fetched:', content, 'Error:', contentError);
+                console.log('Content media fetched:', content, 'Error:', contentError);
                 
                 if (!contentError && content) {
                   thumbnailUrl = content.thumbnail_url;
