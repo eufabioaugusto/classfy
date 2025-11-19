@@ -20,6 +20,7 @@ interface StudyMetrics {
   progressPercent: number;
   thumbnailUrl: string | null;
   videoUrl: string | null;
+  lastPlaylistMessageId?: string | null;
 }
 
 interface ContinueStudyCardProps {
@@ -51,6 +52,18 @@ export function ContinueStudyCard({ userId }: ContinueStudyCardProps) {
         setLoading(false);
         return;
       }
+
+      // Fetch saved playlists for the first study to auto-open
+      const firstStudyId = studies[0].id;
+      const { data: playlists } = await supabase
+        .from("study_playlists")
+        .select("message_id")
+        .eq("study_id", firstStudyId)
+        .eq("user_id", userId)
+        .order("created_at", { ascending: false })
+        .limit(1);
+      
+      const lastPlaylistMessageId = playlists?.[0]?.message_id || null;
 
       // Fetch metrics for each study
       const studiesWithMetrics = await Promise.all(
@@ -152,7 +165,12 @@ export function ContinueStudyCard({ userId }: ContinueStudyCardProps) {
         })
       );
 
-      setMainStudy(studiesWithMetrics[0]);
+      const mainStudyWithPlaylist = {
+        ...studiesWithMetrics[0],
+        lastPlaylistMessageId
+      };
+
+      setMainStudy(mainStudyWithPlaylist);
       setOtherStudies(studiesWithMetrics.slice(1));
     } catch (error) {
       console.error("Error fetching studies:", error);
@@ -161,8 +179,10 @@ export function ContinueStudyCard({ userId }: ContinueStudyCardProps) {
     }
   };
 
-  const handleContinueStudy = (studyId: string) => {
-    navigate(`/c/${studyId}`);
+  const handleContinueStudy = (studyId: string, playlistMessageId?: string) => {
+    navigate(`/c/${studyId}`, { 
+      state: { autoOpenPlaylist: playlistMessageId } 
+    });
   };
 
   if (loading) {
@@ -179,7 +199,7 @@ export function ContinueStudyCard({ userId }: ContinueStudyCardProps) {
     <div className="w-full space-y-4">
       {/* Main Study Card - Cinematic Design */}
       <Card className="w-full h-[420px] rounded-2xl overflow-hidden relative group border-border/50 hover:border-primary/30 transition-all duration-300 cursor-pointer"
-        onClick={() => handleContinueStudy(mainStudy.id)}
+        onClick={() => handleContinueStudy(mainStudy.id, mainStudy.lastPlaylistMessageId)}
       >
         {/* Background Video/Image with Overlay */}
         <div className="absolute inset-0 bg-black">
@@ -284,7 +304,7 @@ export function ContinueStudyCard({ userId }: ContinueStudyCardProps) {
               className="bg-white hover:bg-white/90 text-black font-semibold"
               onClick={(e) => {
                 e.stopPropagation();
-                handleContinueStudy(mainStudy.id);
+                handleContinueStudy(mainStudy.id, mainStudy.lastPlaylistMessageId);
               }}
             >
               Continuar estudo
@@ -295,7 +315,7 @@ export function ContinueStudyCard({ userId }: ContinueStudyCardProps) {
               className="text-white border border-white/30 hover:bg-white/10"
               onClick={(e) => {
                 e.stopPropagation();
-                handleContinueStudy(mainStudy.id);
+                handleContinueStudy(mainStudy.id, mainStudy.lastPlaylistMessageId);
               }}
             >
               Ver detalhes
