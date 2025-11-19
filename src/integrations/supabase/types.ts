@@ -890,6 +890,52 @@ export type Database = {
           },
         ]
       }
+      study_playlists: {
+        Row: {
+          created_at: string
+          id: string
+          message_id: string
+          study_id: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          message_id: string
+          study_id: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          message_id?: string
+          study_id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "study_playlists_message_id_fkey"
+            columns: ["message_id"]
+            isOneToOne: false
+            referencedRelation: "study_messages"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "study_playlists_study_id_fkey"
+            columns: ["study_id"]
+            isOneToOne: false
+            referencedRelation: "studies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "study_playlists_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       study_quizzes: {
         Row: {
           content_id: string | null
