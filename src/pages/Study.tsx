@@ -16,7 +16,7 @@ import { StudyNotes } from "@/components/StudyNotes";
 import { Textarea } from "@/components/ui/textarea";
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/components/ui/resizable";
 import { Carousel, CarouselContent, CarouselItem, CarouselNext, CarouselPrevious } from "@/components/ui/carousel";
-import { SidebarProvider } from "@/components/ui/sidebar";
+import { SidebarProvider, useSidebar } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/AppSidebar";
 import { Header } from "@/components/Header";
 import {
@@ -47,11 +47,12 @@ import {
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 
-export default function Study() {
+function StudyContent() {
   const { id } = useParams<{ id: string }>();
   const { user } = useAuth();
   const navigate = useNavigate();
   const { updateLastActivity } = useStudies();
+  const { setOpen, open } = useSidebar();
   
   const [study, setStudy] = useState<any>(null);
   const [messages, setMessages] = useState<StudyMessage[]>([]);
@@ -72,7 +73,20 @@ export default function Study() {
   const [noteTimestamp, setNoteTimestamp] = useState<number>(0);
   const [noteText, setNoteText] = useState("");
   const [notesRefresh, setNotesRefresh] = useState(0);
+  const [wasOpenBeforeFocus, setWasOpenBeforeFocus] = useState(true);
   const scrollRef = useRef<HTMLDivElement>(null);
+
+  // Focus Mode: Auto-collapse sidebar when content is playing
+  useEffect(() => {
+    if (activeContent && open) {
+      // Store sidebar state before closing
+      setWasOpenBeforeFocus(true);
+      setOpen(false);
+    } else if (!activeContent && wasOpenBeforeFocus) {
+      // Restore sidebar when content closes
+      setOpen(true);
+    }
+  }, [activeContent]);
 
   useEffect(() => {
     if (!user) {
@@ -502,17 +516,12 @@ export default function Study() {
 
   if (loading) {
     return (
-      <SidebarProvider>
-        <div className="flex min-h-screen w-full">
-          <AppSidebar />
-          <div className="flex-1">
-            <Header />
-            <div className="flex items-center justify-center min-h-[calc(100vh-4rem)]">
-              <Loader2 className="w-8 h-8 animate-spin text-primary" />
-            </div>
-          </div>
+      <div className="flex-1">
+        <Header />
+        <div className="flex items-center justify-center min-h-[calc(100vh-4rem)]">
+          <Loader2 className="w-8 h-8 animate-spin text-primary" />
         </div>
-      </SidebarProvider>
+      </div>
     );
   }
 
@@ -521,11 +530,8 @@ export default function Study() {
   }
 
   return (
-    <SidebarProvider>
-      <div className="flex min-h-screen w-full">
-        <AppSidebar />
-        <div className="flex-1 flex flex-col h-screen">
-          <Header />
+    <div className="flex-1 flex flex-col h-screen">
+      <Header />
           
           {/* Study Header */}
           <header className="border-b border-border bg-card px-6 py-4 flex-shrink-0">
@@ -942,7 +948,16 @@ export default function Study() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-        </div>
+    </div>
+  );
+}
+
+export default function Study() {
+  return (
+    <SidebarProvider>
+      <div className="flex min-h-screen w-full">
+        <AppSidebar />
+        <StudyContent />
       </div>
     </SidebarProvider>
   );
