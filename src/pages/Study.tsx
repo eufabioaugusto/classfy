@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Loader2, Send, ArrowLeft, MoreVertical, Edit2, Share2, Trash2, X } from "lucide-react";
+import { Loader2, Send, ArrowLeft, MoreVertical, Edit2, Share2, Trash2, X, List } from "lucide-react";
 import { StudyMessage } from "@/hooks/useStudies";
 import { useStudies } from "@/hooks/useStudies";
 import { ChatContentCard } from "@/components/ChatContentCard";
@@ -74,6 +74,8 @@ function StudyContent() {
   const [noteText, setNoteText] = useState("");
   const [notesRefresh, setNotesRefresh] = useState(0);
   const [wasOpenBeforeFocus, setWasOpenBeforeFocus] = useState(true);
+  const [savedPlaylists, setSavedPlaylists] = useState<Set<string>>(new Set());
+  const [showPlaylistsDropdown, setShowPlaylistsDropdown] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   // Focus Mode: Auto-collapse sidebar when content is playing
@@ -124,41 +126,35 @@ function StudyContent() {
     }
   }, [study, loadingMessages, messages.length, initialMessageSent, loading, sending]);
 
-  const handleCreatePlaylist = async (contentIds: string[]) => {
+  const handleCreatePlaylist = async (messageId: string, contentIds: string[]) => {
     if (!user || !id) return;
     
     try {
-      // Instead of creating a new study, add a playlist message to current study
-      const playlistMessage = `📚 Ótimo! Preparei uma sequência de estudos com ${contentIds.length} conteúdos selecionados. Você pode assistir na ordem que preferir! Clique nos cards abaixo para começar.`;
+      // Mark this message as having a saved playlist
+      setSavedPlaylists(prev => new Set(prev).add(messageId));
       
-      // Insert assistant message with playlist
-      const { error: messageError } = await supabase
-        .from('study_messages')
-        .insert({
-          study_id: id,
-          role: 'assistant',
-          content: playlistMessage,
-          related_contents: contentIds
-        });
-
-      if (messageError) throw messageError;
-
-      // Fetch the contents to add to messageContents
+      // Get content titles for contextual message
       const { data: contents } = await supabase
         .from('contents')
-        .select('*')
+        .select('title')
         .in('id', contentIds);
 
-      if (contents) {
-        // Reload messages to show the new playlist
-        await fetchMessages();
-      }
-
-      toast.success('Playlist criada no estudo atual!');
+      const contentTitles = contents?.map(c => c.title).join(', ') || 'os conteúdos selecionados';
+      
+      toast.success('Playlist salva com sucesso!');
     } catch (error) {
       console.error('Error creating playlist:', error);
-      toast.error('Erro ao criar playlist');
+      toast.error('Erro ao salvar playlist');
     }
+  };
+
+  const getPlaylistMessages = () => {
+    return messages.filter(msg => 
+      msg.role === 'assistant' && 
+      messageContents.get(msg.id) && 
+      messageContents.get(msg.id)!.length > 1 &&
+      savedPlaylists.has(msg.id)
+    );
   };
 
   const scrollToBottom = () => {
@@ -547,41 +543,75 @@ function StudyContent() {
                 )}
               </div>
 
-              {/* Actions Menu */}
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button variant="ghost" size="icon">
-                    <MoreVertical className="w-5 h-5" />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="w-48">
-                  <DropdownMenuItem
-                    onClick={() => {
-                      setNewTitle(study.title);
-                      setRenameDialogOpen(true);
-                    }}
-                    className="cursor-pointer"
-                  >
-                    <Edit2 className="w-4 h-4 mr-2" />
-                    Renomear
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    onClick={handleShare}
-                    className="cursor-pointer"
-                  >
-                    <Share2 className="w-4 h-4 mr-2" />
-                    Compartilhar
-                  </DropdownMenuItem>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem
-                    onClick={() => setDeleteDialogOpen(true)}
-                    className="cursor-pointer text-destructive"
-                  >
-                    <Trash2 className="w-4 h-4 mr-2" />
-                    Excluir
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
+              <div className="flex items-center gap-2">
+                {/* Playlists Button */}
+                {savedPlaylists.size > 0 && (
+                  <DropdownMenu open={showPlaylistsDropdown} onOpenChange={setShowPlaylistsDropdown}>
+                    <DropdownMenuTrigger asChild>
+                      <Button variant="outline" size="sm" className="gap-2">
+                        <List className="w-4 h-4" />
+                        Playlists ({savedPlaylists.size})
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end" className="w-64">
+                      {getPlaylistMessages().map((msg, idx) => {
+                        const contents = messageContents.get(msg.id) || [];
+                        return (
+                          <DropdownMenuItem
+                            key={msg.id}
+                            onClick={() => {
+                              // Scroll to the message
+                              const msgElement = document.getElementById(`msg-${msg.id}`);
+                              msgElement?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                              setShowPlaylistsDropdown(false);
+                            }}
+                            className="cursor-pointer flex-col items-start gap-1 py-3"
+                          >
+                            <div className="font-medium text-sm">Playlist {idx + 1}</div>
+                            <div className="text-xs text-muted-foreground">{contents.length} conteúdos</div>
+                          </DropdownMenuItem>
+                        );
+                      })}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                )}
+
+                {/* Actions Menu */}
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="ghost" size="icon">
+                      <MoreVertical className="w-5 h-5" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-48">
+                    <DropdownMenuItem
+                      onClick={() => {
+                        setNewTitle(study.title);
+                        setRenameDialogOpen(true);
+                      }}
+                      className="cursor-pointer"
+                    >
+                      <Edit2 className="w-4 h-4 mr-2" />
+                      Renomear
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      onClick={handleShare}
+                      className="cursor-pointer"
+                    >
+                      <Share2 className="w-4 h-4 mr-2" />
+                      Compartilhar
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem
+                      onClick={() => setDeleteDialogOpen(true)}
+                      className="cursor-pointer text-destructive"
+                    >
+                      <Trash2 className="w-4 h-4 mr-2" />
+                      Excluir
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
             </div>
           </header>
 
@@ -702,20 +732,37 @@ function StudyContent() {
                           )}
                           {messageContents.get(message.id) && messageContents.get(message.id)!.length > 1 && (
                             <div className="flex gap-2 justify-start pt-2">
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                onClick={() => {
-                                  const contentIds = messageContents.get(message.id)?.map(c => c.id) || [];
-                                  handleCreatePlaylist(contentIds);
-                                }}
-                                className="gap-2 shadow-sm hover:shadow-md transition-all hover:border-primary/50"
-                              >
-                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
-                                </svg>
-                                Salvar Playlist ({messageContents.get(message.id)!.length} conteúdos)
-                              </Button>
+                              {savedPlaylists.has(message.id) ? (
+                                <Button
+                                  size="sm"
+                                  variant="default"
+                                  onClick={() => {
+                                    const firstContent = messageContents.get(message.id)?.[0];
+                                    if (firstContent) handlePlayContent(firstContent.id);
+                                  }}
+                                  className="gap-2 shadow-sm hover:shadow-md transition-all"
+                                >
+                                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                                  </svg>
+                                  Playlist Criada - Assistir
+                                </Button>
+                              ) : (
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => {
+                                    const contentIds = messageContents.get(message.id)?.map(c => c.id) || [];
+                                    handleCreatePlaylist(message.id, contentIds);
+                                  }}
+                                  className="gap-2 shadow-sm hover:shadow-md transition-all hover:border-primary/50"
+                                >
+                                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+                                  </svg>
+                                  Salvar Playlist ({messageContents.get(message.id)!.length} conteúdos)
+                                </Button>
+                              )}
                             </div>
                           )}
                         </div>
