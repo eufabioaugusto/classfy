@@ -76,6 +76,7 @@ function StudyContent() {
   const [wasOpenBeforeFocus, setWasOpenBeforeFocus] = useState(true);
   const [savedPlaylists, setSavedPlaylists] = useState<Set<string>>(new Set());
   const [showPlaylistsDropdown, setShowPlaylistsDropdown] = useState(false);
+  const [activePlaylist, setActivePlaylist] = useState<{messageId: string, currentIndex: number} | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   // Focus Mode: Auto-collapse sidebar when content is playing
@@ -129,22 +130,65 @@ function StudyContent() {
   const handleCreatePlaylist = async (messageId: string, contentIds: string[]) => {
     if (!user || !id) return;
     
+    setSending(true);
+    
     try {
       // Mark this message as having a saved playlist
       setSavedPlaylists(prev => new Set(prev).add(messageId));
       
-      // Get content titles for contextual message
+      // Fetch transcriptions for all contents
+      const { data: transcriptions } = await supabase
+        .from('transcriptions')
+        .select('content_id, text')
+        .in('content_id', contentIds);
+
       const { data: contents } = await supabase
         .from('contents')
-        .select('title')
+        .select('id, title, description')
         .in('id', contentIds);
 
-      const contentTitles = contents?.map(c => c.title).join(', ') || 'os conteúdos selecionados';
-      
-      toast.success('Playlist salva com sucesso!');
+      // Build context for AI
+      const transcriptionsMap = new Map(transcriptions?.map(t => [t.content_id, t.text]) || []);
+      const contentsInfo = contents?.map(c => ({
+        title: c.title,
+        description: c.description,
+        transcription: transcriptionsMap.get(c.id)?.substring(0, 2000) // Limit to avoid token limits
+      })) || [];
+
+      toast.success('Playlist salva! Gerando resumo...');
+
+      // Call AI to generate summary
+      const { data: aiData, error: aiError } = await supabase.functions.invoke(
+        "classy-chat",
+        {
+          body: {
+            studyId: id,
+            message: `Analise esses ${contentIds.length} conteúdos e gere um resumo contextual do que a pessoa pode aprender com essa playlist: ${JSON.stringify(contentsInfo)}`,
+            playlistSummary: true,
+            activeContentId: null,
+          },
+        }
+      );
+
+      if (aiError) throw aiError;
+
+      // Save AI response
+      await supabase
+        .from("study_messages")
+        .insert({
+          study_id: id,
+          role: "assistant",
+          content: aiData.message,
+          related_contents: null,
+        });
+
+      await fetchMessages();
+      scrollToBottom();
     } catch (error) {
       console.error('Error creating playlist:', error);
       toast.error('Erro ao salvar playlist');
+    } finally {
+      setSending(false);
     }
   };
 
@@ -560,9 +604,9 @@ function StudyContent() {
                           <DropdownMenuItem
                             key={msg.id}
                             onClick={() => {
-                              // Scroll to the message
-                              const msgElement = document.getElementById(`msg-${msg.id}`);
-                              msgElement?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                              setActivePlaylist({ messageId: msg.id, currentIndex: 0 });
+                              const firstContent = contents[0];
+                              if (firstContent) handlePlayContent(firstContent.id);
                               setShowPlaylistsDropdown(false);
                             }}
                             className="cursor-pointer flex-col items-start gap-1 py-3"
@@ -620,12 +664,13 @@ function StudyContent() {
         {/* Left Panel - Video Player (when active) */}
         {activeContent && (
           <>
-            <ResizablePanel defaultSize={60} minSize={40}>
+            <ResizablePanel defaultSize={activePlaylist ? 50 : 60} minSize={40}>
               <StudyVideoPlayer
                 studyId={id!}
                 content={activeContent}
                 onClose={() => {
                   setActiveContent(null);
+                  setActivePlaylist(null);
                   setTranscription("");
                   setSearchQuery("");
                 }}
@@ -634,11 +679,79 @@ function StudyContent() {
               />
             </ResizablePanel>
             <ResizableHandle withHandle />
+
+            {/* Playlist Panel */}
+            {activePlaylist && (
+              <>
+                <ResizablePanel defaultSize={25} minSize={20} maxSize={35}>
+                  <div className="h-full bg-card border-l border-border flex flex-col">
+                    <div className="p-4 border-b border-border">
+                      <div className="flex items-center justify-between mb-2">
+                        <h3 className="font-semibold text-foreground">Playlist</h3>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => setActivePlaylist(null)}
+                          className="h-8 w-8"
+                        >
+                          <X className="h-4 w-4" />
+                        </Button>
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        {messageContents.get(activePlaylist.messageId)?.length || 0} conteúdos
+                      </p>
+                    </div>
+                    
+                    <ScrollArea className="flex-1">
+                      <div className="p-2 space-y-2">
+                        {messageContents.get(activePlaylist.messageId)?.map((content, idx) => (
+                          <button
+                            key={content.id}
+                            onClick={() => {
+                              setActivePlaylist({ ...activePlaylist, currentIndex: idx });
+                              handlePlayContent(content.id);
+                            }}
+                            className={`w-full text-left p-3 rounded-lg transition-all ${
+                              idx === activePlaylist.currentIndex
+                                ? 'bg-primary text-primary-foreground'
+                                : 'bg-muted hover:bg-muted/80'
+                            }`}
+                          >
+                            <div className="flex items-start gap-2">
+                              <span className={`text-xs font-semibold mt-1 ${
+                                idx === activePlaylist.currentIndex ? 'text-primary-foreground' : 'text-muted-foreground'
+                              }`}>
+                                {idx + 1}
+                              </span>
+                              <div className="flex-1 min-w-0">
+                                <p className={`text-sm font-medium line-clamp-2 ${
+                                  idx === activePlaylist.currentIndex ? 'text-primary-foreground' : 'text-foreground'
+                                }`}>
+                                  {content.title}
+                                </p>
+                                {content.description && (
+                                  <p className={`text-xs mt-1 line-clamp-1 ${
+                                    idx === activePlaylist.currentIndex ? 'text-primary-foreground/80' : 'text-muted-foreground'
+                                  }`}>
+                                    {content.description}
+                                  </p>
+                                )}
+                              </div>
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                    </ScrollArea>
+                  </div>
+                </ResizablePanel>
+                <ResizableHandle withHandle />
+              </>
+            )}
           </>
         )}
 
         {/* Right Panel - Chat */}
-        <ResizablePanel defaultSize={activeContent ? 40 : 100} minSize={30}>
+        <ResizablePanel defaultSize={activeContent ? (activePlaylist ? 25 : 40) : 100} minSize={20}>
           <div className="flex flex-col h-full">
             {/* Chat Messages */}
             <ScrollArea className="flex-1 px-6" ref={scrollRef}>
@@ -737,6 +850,7 @@ function StudyContent() {
                                   size="sm"
                                   variant="default"
                                   onClick={() => {
+                                    setActivePlaylist({ messageId: message.id, currentIndex: 0 });
                                     const firstContent = messageContents.get(message.id)?.[0];
                                     if (firstContent) handlePlayContent(firstContent.id);
                                   }}
