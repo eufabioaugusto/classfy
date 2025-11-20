@@ -559,6 +559,69 @@ INSTRUÇÕES OBRIGATÓRIAS:
     const data = await response.json();
     const aiMessage = data.choices?.[0]?.message?.content || "Desculpe, não consegui processar sua mensagem.";
 
+    // Generate intelligent title after first interaction
+    if (isFirstMessage && aiMessage) {
+      try {
+        // Generate a smart title based on the conversation context
+        const titlePrompt = `Baseado nesta primeira interação de um estudo educacional:
+
+Usuário perguntou: "${message}"
+Assistente respondeu: "${aiMessage.substring(0, 500)}"
+
+Gere um título curto, claro e descritivo (máximo 50 caracteres) que capture a essência do que o usuário quer aprender. 
+O título deve ser objetivo e profissional, sem usar aspas ou pontos finais.
+
+Exemplos de bons títulos:
+- "Fundamentos de Espiritualidade"
+- "Introdução à Inteligência Artificial"
+- "Marketing Digital para Iniciantes"
+- "Filosofia Oriental e Meditação"
+
+Responda APENAS com o título, sem explicações adicionais.`;
+
+        const titleResponse = await fetch(
+          "https://ai.gateway.lovable.dev/v1/chat/completions",
+          {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${LOVABLE_API_KEY}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              model: "google/gemini-2.5-flash",
+              messages: [
+                { role: "user", content: titlePrompt }
+              ],
+              temperature: 0.7,
+            }),
+          }
+        );
+
+        if (titleResponse.ok) {
+          const titleData = await titleResponse.json();
+          const generatedTitle = titleData.choices?.[0]?.message?.content?.trim();
+          
+          if (generatedTitle && generatedTitle.length > 0 && generatedTitle.length <= 100) {
+            // Update study title in background (don't wait for it)
+            supabaseServiceClient
+              .from("studies")
+              .update({ title: generatedTitle })
+              .eq("id", studyId)
+              .then(({ error: updateError }) => {
+                if (updateError) {
+                  console.error("Error updating study title:", updateError);
+                } else {
+                  console.log("Study title updated successfully:", generatedTitle);
+                }
+              });
+          }
+        }
+      } catch (titleError) {
+        // Log error but don't fail the main request
+        console.error("Error generating study title:", titleError);
+      }
+    }
+
     // Return both message and related contents (including matchScore for debugging)
     const responseData: any = { message: aiMessage };
     if (relatedContents.length > 0) {
