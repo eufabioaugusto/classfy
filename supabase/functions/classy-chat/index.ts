@@ -156,7 +156,7 @@ serve(async (req) => {
           !activeContentId || c.id !== activeContentId
         );
 
-        // PHASE 1: Basic keyword matching for initial filtering
+        // PHASE 1: Keyword matching with semantic expansion
         const candidateContents = availableContents
           .map((content: any) => {
             const titleLower = content.title.toLowerCase();
@@ -178,48 +178,88 @@ serve(async (req) => {
             
             let score = 0;
             
-            // Remove palavras muito genéricas da busca (stopwords)
+            // Remove apenas palavras muito genéricas (stopwords reduzidas)
             const stopwords = [
               "o","a","os","as","um","uma","de","da","do","das","dos",
-              "em","no","na","nos","nas","por","para","com","e","ou",
-              "que","como","sobre","quero","aprender","aprendizado",
-              "curso","estudo","estudar"
+              "em","no","na","nos","nas","por","para","com","e","ou","que"
             ];
-            const searchWords = searchNormalized
-              .split(" ")
-              .map((w: string) => w.trim())
-              .filter((w: string) => w.length >= 2 && !stopwords.includes(w));
             
-            // Score each search word
+            const searchWords = searchNormalized
+              .split(/\s+/)
+              .map((w: string) => w.trim().replace(/[!?,;.]/g, ""))
+              .filter((w: string) => w.length >= 3 && !stopwords.includes(w));
+            
+            console.log(`[SEARCH] Query: "${searchQuery}" -> Words: [${searchWords.join(", ")}]`);
+            console.log(`[CONTENT] "${content.title}" - Tags: [${contentTags.join(", ")}]`);
+            
+            // Semantic expansions - termos relacionados
+            const semanticMap: Record<string, string[]> = {
+              "deus": ["divino", "divina", "espiritual", "fe", "sagrado", "sagrada", "religiao", "crenca"],
+              "divino": ["deus", "espiritual", "sagrado", "celeste"],
+              "espiritual": ["deus", "divino", "alma", "espirito", "fe"],
+              "ia": ["inteligencia artificial", "machine learning", "aprendizado maquina", "ai", "artificial"],
+              "inteligencia": ["ia", "artificial", "machine learning", "ai"],
+              "programacao": ["codigo", "programar", "desenvolvimento", "dev", "software"],
+              "codigo": ["programacao", "programar", "desenvolvimento", "software"],
+            };
+            
+            // Expand search words with related terms
+            const expandedWords = new Set(searchWords);
             searchWords.forEach((word: string) => {
+              const related = semanticMap[word];
+              if (related) {
+                related.forEach((r: string) => expandedWords.add(r));
+              }
+            });
+            
+            // Score each search word and related terms
+            expandedWords.forEach((word: string) => {
+              const isOriginal = searchWords.includes(word);
+              const weightMultiplier = isOriginal ? 1 : 0.5; // Related terms get 50% weight
+              
               // Title matches (highest priority)
-              if (titleNormalized.includes(word)) score += 10;
+              if (titleNormalized.includes(word)) {
+                score += Math.floor(15 * weightMultiplier);
+                console.log(`  ✓ Title match: "${word}" +${Math.floor(15 * weightMultiplier)}`);
+              }
               
               // Tags matches (very high priority)
               tagsNormalized.forEach((tag: string) => {
                 if (tag.includes(word) || word.includes(tag)) {
-                  score += 15;
+                  score += Math.floor(20 * weightMultiplier);
+                  console.log(`  ✓ Tag match: "${word}" in "${tag}" +${Math.floor(20 * weightMultiplier)}`);
                 }
               });
               
-              // Description matches
-              if (descNormalized.includes(word)) score += 3;
+              // Description matches (medium priority)
+              if (descNormalized.includes(word)) {
+                score += Math.floor(8 * weightMultiplier);
+                console.log(`  ✓ Description match: "${word}" +${Math.floor(8 * weightMultiplier)}`);
+              }
             });
 
             // Exact phrase match bonuses
-            if (titleNormalized.includes(searchNormalized)) score += 20;
-            if (descNormalized.includes(searchNormalized)) score += 10;
+            if (titleNormalized.includes(searchNormalized)) {
+              score += 30;
+              console.log(`  ✓ Exact title phrase match +30`);
+            }
+            if (descNormalized.includes(searchNormalized)) {
+              score += 15;
+              console.log(`  ✓ Exact description phrase match +15`);
+            }
             tagsNormalized.forEach((tag: string) => {
               if (tag === searchNormalized || tag.includes(searchNormalized)) {
-                score += 30;
+                score += 40;
+                console.log(`  ✓ Exact tag match "${tag}" +40`);
               }
             });
             
+            console.log(`  → Total keywordScore: ${score}`);
             return { ...content, keywordScore: score };
           })
-          .filter((c: any) => c.keywordScore > 0) // Keep any with some keyword match
+          .filter((c: any) => c.keywordScore > 0)
           .sort((a: any, b: any) => b.keywordScore - a.keywordScore)
-          .slice(0, 20); // Top 20 candidates for semantic analysis
+          .slice(0, 25); // Top 25 candidates for semantic analysis
 
         // PHASE 2: Semantic relevance with AI (only if we have candidates)
         if (candidateContents.length > 0) {
@@ -321,9 +361,9 @@ Responda APENAS com um JSON array de objetos no formato: [{"index": 0, "score": 
             });
           }
 
-          // Final ranking
+          // Final ranking with lower threshold
           relatedContents = candidateContents
-            .filter((c: any) => c.matchScore >= 10)
+            .filter((c: any) => c.matchScore >= 5) // Lowered from 10 to capture more relevant content
             .sort((a: any, b: any) => b.matchScore - a.matchScore)
             .slice(0, 15);
         } else {
