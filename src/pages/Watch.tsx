@@ -11,7 +11,11 @@ import { ContentActions } from "@/components/ContentActions";
 import { ContentComments } from "@/components/ContentComments";
 import { FollowButton } from "@/components/FollowButton";
 import { AddToStudyModal } from "@/components/AddToStudyModal";
-import { useState, useEffect, useRef } from "react";
+import { WatchVideoPlayer } from "@/components/WatchVideoPlayer";
+import { Header } from "@/components/Header";
+import { AppSidebar } from "@/components/AppSidebar";
+import { SidebarProvider } from "@/components/ui/sidebar";
+import { useState, useEffect } from "react";
 import { GlobalLoader } from "@/components/GlobalLoader";
 import { toast } from "sonner";
 import { UpgradeModal } from "@/components/UpgradeModal";
@@ -48,7 +52,6 @@ export default function Watch() {
   const [showPurchaseModal, setShowPurchaseModal] = useState(false);
   const [requiredUpgradePlan, setRequiredUpgradePlan] = useState<"pro" | "premium">("pro");
   const [isPurchased, setIsPurchased] = useState(false);
-  const videoRef = useRef<HTMLVideoElement>(null);
   const [metricsRecorded, setMetricsRecorded] = useState({
     start: false,
     half: false,
@@ -56,7 +59,7 @@ export default function Watch() {
   });
   const [view15sRecorded, setView15sRecorded] = useState(false);
   const [showAddToStudyModal, setShowAddToStudyModal] = useState(false);
-  const { processReward, trackProgress } = useRewardSystem();
+  const { processReward } = useRewardSystem();
 
   useEffect(() => {
     if (id && user && !loading && role) {
@@ -215,7 +218,7 @@ export default function Watch() {
   };
 
   const checkFirstContentWeek = async () => {
-    if (!user) return;
+    if (!user || !content) return;
     
     const startOfWeek = new Date();
     startOfWeek.setDate(startOfWeek.getDate() - startOfWeek.getDay());
@@ -238,22 +241,11 @@ export default function Watch() {
     }
   };
 
-  const handleTimeUpdate = async () => {
-    if (!videoRef.current || !content || !user) return;
+  const handleTimeUpdate = async (currentTime: number) => {
+    if (!content || !user) return;
 
-    const currentTime = videoRef.current.currentTime;
-    const duration = content.duration_seconds;
+    const duration = content.duration_seconds || 0;
     const percent = (currentTime / duration) * 100;
-
-    // Only process every 2 seconds or at key milestones to prevent spam
-    const shouldProcess = 
-      Math.floor(currentTime) % 2 === 0 || // Every 2 seconds
-      (currentTime >= 15 && !view15sRecorded) ||
-      (currentTime > 0 && !metricsRecorded.start) ||
-      (currentTime > duration / 2 && !metricsRecorded.half) ||
-      (currentTime > duration * 0.95 && !metricsRecorded.complete);
-
-    if (!shouldProcess) return;
 
     if (!view15sRecorded && currentTime >= 15) {
       await processReward({
@@ -276,11 +268,7 @@ export default function Watch() {
 
     if (!metricsRecorded.complete && currentTime > duration * 0.95) {
       await recordMetric('complete');
-      await trackProgress(user.id, content.id, 100, currentTime);
       await checkBingeWatch();
-    } else if (currentTime > 0) {
-      // Regular progress tracking (throttled by shouldProcess check)
-      await trackProgress(user.id, content.id, percent, currentTime);
     }
   };
 
@@ -388,28 +376,35 @@ export default function Watch() {
   }
 
   return (
-    <>
-      <AddToStudyModal
-        open={showAddToStudyModal}
-        onOpenChange={setShowAddToStudyModal}
-        contentId={content.id}
-        contentTitle={content.title}
-      />
-      
-      <div className="min-h-screen bg-background">
-        <div className="max-w-7xl mx-auto p-4">
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-          <div className="lg:col-span-2 space-y-4">
-            <Card className="overflow-hidden">
-              <video
-                ref={videoRef}
-                className="w-full aspect-video"
-                controls
-                onTimeUpdate={handleTimeUpdate}
-                poster={content.thumbnail_url}
-                src={content.file_url}
-              />
-            </Card>
+    <SidebarProvider defaultOpen={true}>
+      <div className="min-h-screen flex w-full bg-background">
+        <AppSidebar />
+        
+        <div className="flex-1 flex flex-col">
+          <Header />
+          
+          <AddToStudyModal
+            open={showAddToStudyModal}
+            onOpenChange={setShowAddToStudyModal}
+            contentId={content.id}
+            contentTitle={content.title}
+          />
+
+          <main className="flex-1 overflow-auto">
+            <div className="max-w-7xl mx-auto p-6">
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <div className="lg:col-span-2 space-y-4">
+                  <WatchVideoPlayer
+                    content={{
+                      id: content.id,
+                      title: content.title,
+                      file_url: content.file_url,
+                      thumbnail_url: content.thumbnail_url,
+                      content_type: content.content_type,
+                      duration_seconds: content.duration_seconds,
+                    }}
+                    onTimeUpdate={handleTimeUpdate}
+                  />
 
             <div>
               <div className="flex items-center gap-3 mb-2">
@@ -485,18 +480,20 @@ export default function Watch() {
               )}
             </Card>
 
-            <ContentComments contentId={content.id} />
-          </div>
+                  <ContentComments contentId={content.id} />
+                </div>
 
-          <div className="lg:col-span-1">
-            <Card className="p-4">
-              <h3 className="font-semibold mb-4">Relacionados</h3>
-              <p className="text-sm text-muted-foreground">Em breve...</p>
-            </Card>
-          </div>
+                <div className="lg:col-span-1">
+                  <Card className="p-4">
+                    <h3 className="font-semibold mb-4">Relacionados</h3>
+                    <p className="text-sm text-muted-foreground">Em breve...</p>
+                  </Card>
+                </div>
+              </div>
+            </div>
+          </main>
         </div>
       </div>
-    </div>
-    </>
+    </SidebarProvider>
   );
 }
