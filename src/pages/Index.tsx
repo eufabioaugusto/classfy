@@ -1,17 +1,21 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useNavigate } from "react-router-dom";
 import { ContentCard } from "@/components/ContentCard";
 import { ConversionModal } from "@/components/ConversionModal";
 import { SearchBar } from "@/components/SearchBar";
 import { ContinueStudyCard } from "@/components/ContinueStudyCard";
+import { ContentSection } from "@/components/ContentSection";
 import { SidebarProvider } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/AppSidebar";
 import { Header } from "@/components/Header";
-import { Sparkles, AlertCircle, BookOpen } from "lucide-react";
+import { Sparkles, AlertCircle, BookOpen, Compass, Target } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Switch } from "@/components/ui/switch";
+import { Label } from "@/components/ui/label";
 import { useStudies } from "@/hooks/useStudies";
 import { GlobalLoader } from "@/components/GlobalLoader";
+import { supabase } from "@/integrations/supabase/client";
 export default function Index() {
   const {
     user,
@@ -25,11 +29,19 @@ export default function Index() {
     canCreateMore
   } = useStudies();
 
+  // Mode toggle state
+  const [isExploreMode, setIsExploreMode] = useState(false);
+
   // Search state
   const [searchResults, setSearchResults] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [hasSearched, setHasSearched] = useState(false);
+
+  // Explore mode state
+  const [categories, setCategories] = useState<any[]>([]);
+  const [contentsByCategory, setContentsByCategory] = useState<Record<string, any[]>>({});
+  const [exploreLoading, setExploreLoading] = useState(false);
 
   // Modal state
   const [modalOpen, setModalOpen] = useState(false);
@@ -49,6 +61,57 @@ export default function Index() {
   const handleSearchError = (error: string | null) => {
     setError(error);
   };
+  // Load explore mode data
+  useEffect(() => {
+    if (isExploreMode) {
+      loadExploreData();
+    }
+  }, [isExploreMode]);
+
+  const loadExploreData = async () => {
+    setExploreLoading(true);
+    try {
+      // Fetch all categories
+      const { data: categoriesData, error: categoriesError } = await supabase
+        .from('categories')
+        .select('*')
+        .order('name');
+
+      if (categoriesError) throw categoriesError;
+
+      setCategories(categoriesData || []);
+
+      // Fetch contents for each category
+      const contentsByCat: Record<string, any[]> = {};
+      
+      for (const category of categoriesData || []) {
+        const { data: contentsData } = await supabase
+          .from('contents')
+          .select(`
+            *,
+            profiles:creator_id (
+              display_name,
+              avatar_url
+            )
+          `)
+          .eq('category_id', category.id)
+          .eq('status', 'approved')
+          .order('created_at', { ascending: false })
+          .limit(12);
+
+        if (contentsData && contentsData.length > 0) {
+          contentsByCat[category.id] = contentsData;
+        }
+      }
+
+      setContentsByCategory(contentsByCat);
+    } catch (error) {
+      console.error('Error loading explore data:', error);
+    } finally {
+      setExploreLoading(false);
+    }
+  };
+
   const handleContentClick = (content: any) => {
     // Check if user is logged in
     if (!user) {
@@ -81,8 +144,34 @@ export default function Index() {
           <main className="flex-1 flex flex-col items-center justify-start p-6 md:p-12">
             <ConversionModal open={modalOpen} onOpenChange={setModalOpen} reason={modalReason} />
 
-            {/* Search Component - Always visible and centered */}
-            <div className={`w-full max-w-5xl ${!hasSearched ? 'mt-32' : 'mt-8'} transition-all duration-500`}>
+            {/* Mode Toggle */}
+            <div className="w-full max-w-5xl mb-8">
+              <div className="flex items-center justify-center gap-4 p-4 bg-card rounded-xl border border-border">
+                <div className="flex items-center gap-2">
+                  <Target className="w-5 h-5 text-muted-foreground" />
+                  <Label htmlFor="mode-toggle" className="text-sm font-medium cursor-pointer">
+                    Modo Foco
+                  </Label>
+                </div>
+                <Switch
+                  id="mode-toggle"
+                  checked={isExploreMode}
+                  onCheckedChange={setIsExploreMode}
+                />
+                <div className="flex items-center gap-2">
+                  <Compass className="w-5 h-5 text-muted-foreground" />
+                  <Label htmlFor="mode-toggle" className="text-sm font-medium cursor-pointer">
+                    Modo Explorar
+                  </Label>
+                </div>
+              </div>
+            </div>
+
+            {/* Modo Foco (Original) */}
+            {!isExploreMode && (
+              <>
+                {/* Search Component - Always visible and centered */}
+                <div className={`w-full max-w-5xl ${!hasSearched ? 'mt-32' : 'mt-8'} transition-all duration-500`}>
               {/* Title (only when no search) */}
               {!hasSearched && <div className="text-center mb-16 space-y-6 animate-fade-in">
                   <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-cinematic-accent/10 border border-cinematic-accent/20 text-cinematic-accent text-sm font-medium mb-4">
@@ -100,50 +189,87 @@ export default function Index() {
               {/* Search Bar */}
               <SearchBar onResults={handleSearchResults} onLoading={handleSearchLoading} onError={handleSearchError} />
 
-              {/* Continue Study Card - Shows when user has active studies and no search */}
-              {user && !hasSearched && (
-                <div className="mt-8">
-                  <ContinueStudyCard userId={user.id} />
-                </div>
-              )}
+                  {/* Continue Study Card - Shows when user has active studies and no search */}
+                  {user && !hasSearched && (
+                    <div className="mt-8">
+                      <ContinueStudyCard userId={user.id} />
+                    </div>
+                  )}
 
-              {/* Status Messages - Inline below search */}
-              {isLoading && <div className="mt-6 text-center animate-fade-in">
-                  <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-muted/50 border border-border/30">
-                    <div className="w-2 h-2 rounded-full bg-cinematic-accent animate-pulse" />
-                    <p className="text-muted-foreground text-sm font-medium">Classy está processando sua busca...</p>
+                  {/* Status Messages - Inline below search */}
+                  {isLoading && <div className="mt-6 text-center animate-fade-in">
+                      <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-muted/50 border border-border/30">
+                        <div className="w-2 h-2 rounded-full bg-cinematic-accent animate-pulse" />
+                        <p className="text-muted-foreground text-sm font-medium">Classy está processando sua busca...</p>
+                      </div>
+                    </div>}
+
+                  {error && <div className="mt-6 flex items-center justify-center gap-2 animate-fade-in">
+                      <div className="flex items-center gap-2 px-4 py-3 rounded-xl bg-destructive/10 border border-destructive/20 text-destructive">
+                        <AlertCircle className="w-4 h-4" />
+                        <p className="text-sm font-medium">{error}</p>
+                      </div>
+                    </div>}
+
+                  {/* Auth prompt for non-logged users */}
+                  {hasSearched && !user && searchResults.length > 0 && <div className="mt-6 p-4 bg-cinematic-accent/10 border border-cinematic-accent/20 rounded-lg text-center">
+                      <p className="text-foreground/80 text-sm mb-3">
+                        Crie sua conta grátis para ganhar recompensas com suas ações.
+                      </p>
+                      <Button size="sm" onClick={() => navigate("/auth")} className="bg-cinematic-accent hover:bg-cinematic-accent/90 text-white">
+                        Criar Conta Grátis
+                      </Button>
+                    </div>}
+                </div>
+
+                {/* Results Feed */}
+                {hasSearched && searchResults.length > 0 && <div className="w-full max-w-5xl mt-12">
+                    <div className="mb-6">
+                      <h2 className="text-2xl font-bold text-foreground">
+                        {searchResults.length} resultado{searchResults.length !== 1 ? 's' : ''} encontrado{searchResults.length !== 1 ? 's' : ''}
+                      </h2>
+                    </div>
+                    <div className="grid grid-cols-3 gap-4">
+                      {searchResults.map(content => <ContentCard key={content.id} content={content} onClick={() => handleContentClick(content)} />)}
+                    </div>
+                  </div>}
+              </>
+            )}
+
+            {/* Modo Explorar (YouTube-style feed) */}
+            {isExploreMode && (
+              <div className="w-full max-w-7xl space-y-12">
+                {exploreLoading ? (
+                  <div className="text-center py-20">
+                    <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-muted/50 border border-border/30">
+                      <div className="w-2 h-2 rounded-full bg-cinematic-accent animate-pulse" />
+                      <p className="text-muted-foreground text-sm font-medium">Carregando conteúdos...</p>
+                    </div>
                   </div>
-                </div>}
-
-              {error && <div className="mt-6 flex items-center justify-center gap-2 animate-fade-in">
-                  <div className="flex items-center gap-2 px-4 py-3 rounded-xl bg-destructive/10 border border-destructive/20 text-destructive">
-                    <AlertCircle className="w-4 h-4" />
-                    <p className="text-sm font-medium">{error}</p>
+                ) : categories.length === 0 ? (
+                  <div className="text-center py-20">
+                    <Compass className="w-16 h-16 mx-auto mb-4 text-muted-foreground" />
+                    <h3 className="text-2xl font-bold text-foreground mb-2">Nenhuma categoria disponível</h3>
+                    <p className="text-muted-foreground">Conteúdos serão exibidos aqui quando disponíveis.</p>
                   </div>
-                </div>}
+                ) : (
+                  categories.map((category) => {
+                    const categoryContents = contentsByCategory[category.id] || [];
+                    if (categoryContents.length === 0) return null;
 
-              {/* Auth prompt for non-logged users */}
-              {hasSearched && !user && searchResults.length > 0 && <div className="mt-6 p-4 bg-cinematic-accent/10 border border-cinematic-accent/20 rounded-lg text-center">
-                  <p className="text-foreground/80 text-sm mb-3">
-                    Crie sua conta grátis para ganhar recompensas com suas ações.
-                  </p>
-                  <Button size="sm" onClick={() => navigate("/auth")} className="bg-cinematic-accent hover:bg-cinematic-accent/90 text-white">
-                    Criar Conta Grátis
-                  </Button>
-                </div>}
-            </div>
-
-            {/* Results Feed */}
-            {hasSearched && searchResults.length > 0 && <div className="w-full max-w-5xl mt-12">
-                <div className="mb-6">
-                  <h2 className="text-2xl font-bold text-foreground">
-                    {searchResults.length} resultado{searchResults.length !== 1 ? 's' : ''} encontrado{searchResults.length !== 1 ? 's' : ''}
-                  </h2>
-                </div>
-                <div className="grid grid-cols-3 gap-4">
-                  {searchResults.map(content => <ContentCard key={content.id} content={content} onClick={() => handleContentClick(content)} />)}
-                </div>
-              </div>}
+                    return (
+                      <ContentSection
+                        key={category.id}
+                        title={category.name}
+                        contents={categoryContents}
+                        horizontal={true}
+                        onContentClick={handleContentClick}
+                      />
+                    );
+                  })
+                )}
+              </div>
+            )}
           </main>
         </div>
       </div>
