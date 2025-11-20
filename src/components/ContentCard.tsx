@@ -85,7 +85,7 @@ export const ContentCard = ({
     if (onClick) {
       onClick();
     } else {
-      navigate(`/player/${id}`);
+      navigate(`/watch/${id}`);
     }
   };
 

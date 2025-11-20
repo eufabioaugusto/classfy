@@ -6,10 +6,11 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { Eye, Heart, Clock, CheckCircle, XCircle, AlertCircle } from "lucide-react";
+import { Eye, Heart, Clock, CheckCircle, XCircle, AlertCircle, BookmarkPlus } from "lucide-react";
 import { ContentActions } from "@/components/ContentActions";
 import { ContentComments } from "@/components/ContentComments";
 import { FollowButton } from "@/components/FollowButton";
+import { AddToStudyModal } from "@/components/AddToStudyModal";
 import { useState, useEffect, useRef } from "react";
 import { GlobalLoader } from "@/components/GlobalLoader";
 import { toast } from "sonner";
@@ -54,6 +55,7 @@ export default function Watch() {
     complete: false
   });
   const [view15sRecorded, setView15sRecorded] = useState(false);
+  const [showAddToStudyModal, setShowAddToStudyModal] = useState(false);
   const { processReward, trackProgress } = useRewardSystem();
 
   useEffect(() => {
@@ -386,8 +388,16 @@ export default function Watch() {
   }
 
   return (
-    <div className="min-h-screen bg-background">
-      <div className="max-w-7xl mx-auto p-4">
+    <>
+      <AddToStudyModal
+        open={showAddToStudyModal}
+        onOpenChange={setShowAddToStudyModal}
+        contentId={content.id}
+        contentTitle={content.title}
+      />
+      
+      <div className="min-h-screen bg-background">
+        <div className="max-w-7xl mx-auto p-4">
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
           <div className="lg:col-span-2 space-y-4">
             <Card className="overflow-hidden">
@@ -439,7 +449,18 @@ export default function Watch() {
                   </Button>
                 </div>
               ) : (
-                <ContentActions contentId={content.id} />
+                <div className="flex items-center gap-2">
+                  <ContentActions contentId={content.id} />
+                  <Button 
+                    variant="outline" 
+                    size="sm"
+                    onClick={() => setShowAddToStudyModal(true)}
+                    className="flex items-center gap-2"
+                  >
+                    <BookmarkPlus className="h-4 w-4" />
+                    Adicionar ao Estudo
+                  </Button>
+                </div>
               )}
             </div>
 
@@ -476,5 +497,6 @@ export default function Watch() {
         </div>
       </div>
     </div>
+    </>
   );
 }
