@@ -569,6 +569,41 @@ export type Database = {
         }
         Relationships: []
       }
+      purchased_contents: {
+        Row: {
+          content_id: string
+          discount_applied: number | null
+          id: string
+          price_paid: number
+          purchased_at: string | null
+          user_id: string
+        }
+        Insert: {
+          content_id: string
+          discount_applied?: number | null
+          id?: string
+          price_paid: number
+          purchased_at?: string | null
+          user_id: string
+        }
+        Update: {
+          content_id?: string
+          discount_applied?: number | null
+          id?: string
+          price_paid?: number
+          purchased_at?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "purchased_contents_content_id_fkey"
+            columns: ["content_id"]
+            isOneToOne: false
+            referencedRelation: "contents"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       quiz_attempts: {
         Row: {
           answers: Json
