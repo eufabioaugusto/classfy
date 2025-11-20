@@ -24,6 +24,7 @@ interface ContentCardProps {
   discount?: number;
   isPurchased?: boolean;
   onPurchaseClick?: () => void;
+  aspectRatio?: "default" | "square" | "vertical";
 }
 
 export const ContentCard = ({
@@ -46,6 +47,7 @@ export const ContentCard = ({
   discount: propDiscount,
   isPurchased: propIsPurchased,
   onPurchaseClick,
+  aspectRatio = "default",
 }: ContentCardProps) => {
   // Support both formats: direct props or content object
   const id = propId || content?.id;
@@ -92,8 +94,12 @@ export const ContentCard = ({
       className="group cursor-pointer overflow-hidden bg-card/80 backdrop-blur-sm border border-border/30 hover:border-primary/40 hover:shadow-xl hover:shadow-primary/5 transition-all duration-300 rounded-lg"
       onClick={handleClick}
     >
-      {/* Thumbnail with aspect ratio 16:9 */}
-      <div className="relative aspect-[16/9] overflow-hidden bg-muted">
+      {/* Thumbnail with dynamic aspect ratio */}
+      <div className={`relative overflow-hidden bg-muted ${
+        aspectRatio === "square" ? "aspect-square" :
+        aspectRatio === "vertical" ? "aspect-[9/16]" :
+        "aspect-[16/9]"
+      }`}>
         <img
           src={thumbnail}
           alt={title}
