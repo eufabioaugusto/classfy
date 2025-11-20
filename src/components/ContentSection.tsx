@@ -55,23 +55,11 @@ export const ContentSection = ({
         {contents.map((content) => (
           <div
             key={content.id}
-            onClick={() => onContentClick(content)}
             className={horizontal ? "min-w-[320px] flex-shrink-0" : ""}
           >
             <ContentCard
-              id={content.id}
-              title={content.title}
-              description={content.description}
-              thumbnail={content.thumbnail_url || "https://images.unsplash.com/photo-1501504905252-473c47e087f8?w=800"}
-              creatorName={content.profiles?.display_name || "Creator"}
-              creatorAvatar={content.profiles?.avatar_url}
-              duration={content.duration_minutes}
-              lessonCount={content.lesson_count}
-              isFree={content.is_free}
-              price={content.price}
-              requiredPlan={content.required_plan}
-              views={content.views_count}
-              contentType={content.content_type}
+              content={content}
+              onClick={() => onContentClick(content)}
             />
           </div>
         ))}
