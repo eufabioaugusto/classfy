@@ -65,12 +65,12 @@ export const WatchNotes = ({ contentId, onSeekTo, refreshTrigger }: WatchNotesPr
   };
 
   return (
-    <Card className="overflow-hidden">
+    <Card className="overflow-hidden bg-muted/30">
       <Collapsible open={isOpen} onOpenChange={setIsOpen}>
         <CollapsibleTrigger asChild>
-          <Button variant="ghost" className="w-full flex items-center justify-between p-4 hover:bg-muted/50">
+          <Button variant="ghost" className="w-full flex items-center justify-between p-4 hover:bg-accent/50">
             <div className="flex items-center gap-2">
-              <FileText className="h-5 w-5 text-primary" />
+              <FileText className="h-6 w-6 text-primary" />
               <h5 className="font-semibold">Minhas Notas</h5>
               {!loading && <span className="text-sm text-muted-foreground">({notes.length})</span>}
             </div>
