@@ -7,6 +7,7 @@ interface ContentSectionProps {
   contents: any[];
   loading?: boolean;
   horizontal?: boolean;
+  aspectRatio?: "default" | "square" | "vertical";
   onContentClick: (content: any) => void;
 }
 
@@ -16,6 +17,7 @@ export const ContentSection = ({
   contents,
   loading,
   horizontal,
+  aspectRatio = "default",
   onContentClick,
 }: ContentSectionProps) => {
   if (loading) {
@@ -55,11 +57,16 @@ export const ContentSection = ({
         {contents.map((content) => (
           <div
             key={content.id}
-            className={horizontal ? "min-w-[320px] flex-shrink-0" : ""}
+            className={horizontal ? (
+              aspectRatio === "vertical" ? "min-w-[240px] flex-shrink-0" :
+              aspectRatio === "square" ? "min-w-[280px] flex-shrink-0" :
+              "min-w-[320px] flex-shrink-0"
+            ) : ""}
           >
             <ContentCard
               content={content}
               onClick={() => onContentClick(content)}
+              aspectRatio={aspectRatio}
             />
           </div>
         ))}

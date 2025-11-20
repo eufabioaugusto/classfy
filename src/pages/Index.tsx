@@ -39,10 +39,11 @@ export default function Index() {
   const [hasSearched, setHasSearched] = useState(false);
 
   // Explore mode state
-  const [categories, setCategories] = useState<any[]>([]);
-  const [contentsByCategory, setContentsByCategory] = useState<Record<string, any[]>>({});
-  const [recentContents, setRecentContents] = useState<any[]>([]);
-  const [popularContents, setPopularContents] = useState<any[]>([]);
+  const [trendingClasses, setTrendingClasses] = useState<any[]>([]);
+  const [proContents, setProContents] = useState<any[]>([]);
+  const [trendingPodcasts, setTrendingPodcasts] = useState<any[]>([]);
+  const [shorts, setShorts] = useState<any[]>([]);
+  const [premiumContents, setPremiumContents] = useState<any[]>([]);
   const [exploreLoading, setExploreLoading] = useState(false);
 
   // Modal state
@@ -73,8 +74,8 @@ export default function Index() {
   const loadExploreData = async () => {
     setExploreLoading(true);
     try {
-      // Fetch recent contents (Adicionados Recentemente)
-      const { data: recentData } = await supabase
+      // 1. Em Alta - 4 cards (Apenas Aulas)
+      const { data: trendingData } = await supabase
         .from('contents')
         .select(`
           *,
@@ -84,61 +85,81 @@ export default function Index() {
           )
         `)
         .eq('status', 'approved')
-        .order('created_at', { ascending: false })
-        .limit(12);
-
-      setRecentContents(recentData || []);
-
-      // Fetch popular contents (Mais Populares)
-      const { data: popularData } = await supabase
-        .from('contents')
-        .select(`
-          *,
-          profiles:creator_id (
-            display_name,
-            avatar_url
-          )
-        `)
-        .eq('status', 'approved')
+        .eq('content_type', 'aula')
         .order('views_count', { ascending: false })
-        .limit(12);
+        .limit(4);
 
-      setPopularContents(popularData || []);
+      setTrendingClasses(trendingData || []);
 
-      // Fetch all categories
-      const { data: categoriesData, error: categoriesError } = await supabase
-        .from('categories')
-        .select('*')
-        .order('name');
+      // 2. Itens PRO - 4 cards (Aulas, Cursos)
+      const { data: proData } = await supabase
+        .from('contents')
+        .select(`
+          *,
+          profiles:creator_id (
+            display_name,
+            avatar_url
+          )
+        `)
+        .eq('status', 'approved')
+        .eq('visibility', 'pro')
+        .in('content_type', ['aula'])
+        .order('created_at', { ascending: false })
+        .limit(4);
 
-      if (categoriesError) throw categoriesError;
+      setProContents(proData || []);
 
-      setCategories(categoriesData || []);
+      // 3. Podcasts em Alta - 6 itens (cards square)
+      const { data: podcastData } = await supabase
+        .from('contents')
+        .select(`
+          *,
+          profiles:creator_id (
+            display_name,
+            avatar_url
+          )
+        `)
+        .eq('status', 'approved')
+        .eq('content_type', 'podcast')
+        .order('views_count', { ascending: false })
+        .limit(6);
 
-      // Fetch contents for each category
-      const contentsByCat: Record<string, any[]> = {};
-      
-      for (const category of categoriesData || []) {
-        const { data: contentsData } = await supabase
-          .from('contents')
-          .select(`
-            *,
-            profiles:creator_id (
-              display_name,
-              avatar_url
-            )
-          `)
-          .eq('category_id', category.id)
-          .eq('status', 'approved')
-          .order('created_at', { ascending: false })
-          .limit(12);
+      setTrendingPodcasts(podcastData || []);
 
-        if (contentsData && contentsData.length > 0) {
-          contentsByCat[category.id] = contentsData;
-        }
-      }
+      // 4. Shorts - 6 itens (cards verticais 9:16)
+      const { data: shortsData } = await supabase
+        .from('contents')
+        .select(`
+          *,
+          profiles:creator_id (
+            display_name,
+            avatar_url
+          )
+        `)
+        .eq('status', 'approved')
+        .eq('content_type', 'short')
+        .order('created_at', { ascending: false })
+        .limit(6);
 
-      setContentsByCategory(contentsByCat);
+      setShorts(shortsData || []);
+
+      // 5. Itens Premium - 4 cards
+      const { data: premiumData } = await supabase
+        .from('contents')
+        .select(`
+          *,
+          profiles:creator_id (
+            display_name,
+            avatar_url
+          )
+        `)
+        .eq('status', 'approved')
+        .eq('visibility', 'premium')
+        .order('created_at', { ascending: false })
+        .limit(4);
+
+      setPremiumContents(premiumData || []);
+
     } catch (error) {
       console.error('Error loading explore data:', error);
     } finally {
@@ -282,51 +303,60 @@ export default function Index() {
                   </div>
                 ) : (
                   <>
-                    {/* Seção: Mais Populares */}
-                    {popularContents.length > 0 && (
+                    {/* 1. Em Alta - 4 cards (Apenas Aulas) */}
+                    {trendingClasses.length > 0 && (
                       <ContentSection
-                        title="🔥 Mais Populares"
-                        contents={popularContents}
+                        title="🔥 Em Alta"
+                        contents={trendingClasses}
                         horizontal={true}
                         onContentClick={handleContentClick}
                       />
                     )}
 
-                    {/* Seção: Adicionados Recentemente */}
-                    {recentContents.length > 0 && (
+                    {/* 2. Itens PRO - 4 cards */}
+                    {proContents.length > 0 && (
                       <ContentSection
-                        title="✨ Adicionados Recentemente"
-                        contents={recentContents}
+                        title="👑 Itens PRO"
+                        contents={proContents}
                         horizontal={true}
                         onContentClick={handleContentClick}
                       />
                     )}
 
-                    {/* Seções por Categoria */}
-                    {categories.length > 0 ? (
-                      categories.map((category) => {
-                        const categoryContents = contentsByCategory[category.id] || [];
-                        if (categoryContents.length === 0) return null;
+                    {/* 3. Podcasts em Alta - 6 itens (cards square) */}
+                    {trendingPodcasts.length > 0 && (
+                      <ContentSection
+                        title="🎙️ Podcasts em Alta"
+                        contents={trendingPodcasts}
+                        horizontal={true}
+                        aspectRatio="square"
+                        onContentClick={handleContentClick}
+                      />
+                    )}
 
-                        return (
-                          <ContentSection
-                            key={category.id}
-                            title={category.name}
-                            contents={categoryContents}
-                            horizontal={true}
-                            onContentClick={handleContentClick}
-                          />
-                        );
-                      })
-                    ) : (
-                      <div className="text-center py-12">
-                        <Compass className="w-12 h-12 mx-auto mb-4 text-muted-foreground/50" />
-                        <p className="text-muted-foreground text-sm">Mais categorias em breve...</p>
-                      </div>
+                    {/* 4. Shorts - 6 itens (cards verticais 9:16) */}
+                    {shorts.length > 0 && (
+                      <ContentSection
+                        title="⚡ Shorts"
+                        contents={shorts}
+                        horizontal={true}
+                        aspectRatio="vertical"
+                        onContentClick={handleContentClick}
+                      />
+                    )}
+
+                    {/* 5. Itens Premium - 4 cards */}
+                    {premiumContents.length > 0 && (
+                      <ContentSection
+                        title="💎 Itens Premium"
+                        contents={premiumContents}
+                        horizontal={true}
+                        onContentClick={handleContentClick}
+                      />
                     )}
 
                     {/* Empty state se não houver nenhum conteúdo */}
-                    {popularContents.length === 0 && recentContents.length === 0 && categories.length === 0 && (
+                    {trendingClasses.length === 0 && proContents.length === 0 && trendingPodcasts.length === 0 && shorts.length === 0 && premiumContents.length === 0 && (
                       <div className="text-center py-20">
                         <Compass className="w-16 h-16 mx-auto mb-4 text-muted-foreground" />
                         <h3 className="text-2xl font-bold text-foreground mb-2">Nenhum conteúdo disponível</h3>
