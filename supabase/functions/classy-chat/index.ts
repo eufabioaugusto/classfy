@@ -157,7 +157,7 @@ serve(async (req) => {
         );
 
         // Calculate match score for each content with improved algorithm
-        relatedContents = availableContents
+          relatedContents = availableContents
           .map((content: any) => {
             const titleLower = content.title.toLowerCase();
             const descLower = (content.description || "").toLowerCase();
@@ -178,11 +178,11 @@ serve(async (req) => {
             
             let score = 0;
             
-            // Remove very comuns palavras vazias da busca (stopwords)
+            // Remove palavras muito genéricas da busca (stopwords)
             const stopwords = [
               "o","a","os","as","um","uma","de","da","do","das","dos",
               "em","no","na","nos","nas","por","para","com","e","ou",
-              "que","como","sobre","quero","quero","aprender","aprendizado",
+              "que","como","sobre","quero","aprender","aprendizado",
               "curso","estudo","estudar"
             ];
             const searchWords = searchNormalized
@@ -214,6 +214,42 @@ serve(async (req) => {
                 score += 30; // Exact tag match is critical
               }
             });
+
+            // Domain-level semantic alignment (espiritualidade x IA x negócios, etc.)
+            const spiritualityKeywords = [
+              "deus","espiritual","espiritualidade","fe","fé","oracao","oração",
+              "meditacao","meditação","alma","divino","divina","cristo","jesus",
+              "biblia","bíblia","orar","igreja","religiao","religião"
+            ];
+            const aiKeywords = [
+              "ia","inteligencia artificial","artificial intelligence","ai",
+              "machine learning","ml","modelo generativo","chatgpt"
+            ];
+            const businessKeywords = [
+              "venda","vendas","marketing","copy","lancamento","lançamento",
+              "negocio","negócio","empreender","empreendedor","shopify"
+            ];
+
+            const textBlobs = [titleNormalized, descNormalized, ...tagsNormalized];
+
+            const queryHasSpirituality = spiritualityKeywords.some(k => searchNormalized.includes(k));
+            const queryHasAI = aiKeywords.some(k => searchNormalized.includes(k));
+            const queryHasBusiness = businessKeywords.some(k => searchNormalized.includes(k));
+
+            const contentHasSpirituality = spiritualityKeywords.some(k =>
+              textBlobs.some(t => t.includes(k))
+            );
+            const contentHasAI = aiKeywords.some(k => textBlobs.some(t => t.includes(k)));
+            const contentHasBusiness = businessKeywords.some(k => textBlobs.some(t => t.includes(k)));
+
+            // Alinha domínios: se o tema do estudo é espiritualidade, favorece conteúdos espirituais
+            if (queryHasSpirituality && contentHasSpirituality) score += 40;
+            if (queryHasAI && contentHasAI) score += 30;
+            if (queryHasBusiness && contentHasBusiness) score += 25;
+
+            // Penaliza cruzamentos muito diferentes (ex: usuário pede Deus e conteúdo é de IA ou vendas)
+            if (queryHasSpirituality && (contentHasAI || contentHasBusiness)) score -= 40;
+            if (queryHasAI && contentHasSpirituality) score -= 30;
             
             return { ...content, matchScore: score };
           })
