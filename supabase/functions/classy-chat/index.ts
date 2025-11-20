@@ -17,9 +17,13 @@ serve(async (req) => {
 
     // Get authenticated user from JWT
     const authHeader = req.headers.get('authorization');
+    
+    console.log('[CLASSY-CHAT] Auth header present:', !!authHeader);
+    
     if (!authHeader) {
+      console.error('[CLASSY-CHAT] No authorization header');
       return new Response(
-        JSON.stringify({ error: 'Não autorizado' }),
+        JSON.stringify({ error: 'Não autorizado - sem header de autorização' }),
         {
           status: 401,
           headers: { ...corsHeaders, 'Content-Type': 'application/json' }
@@ -28,22 +32,48 @@ serve(async (req) => {
     }
 
     const token = authHeader.replace('Bearer ', '');
+    console.log('[CLASSY-CHAT] Token extracted, length:', token.length);
+    
     const supabaseClient = createClient(
       Deno.env.get("SUPABASE_URL") ?? "",
-      Deno.env.get("SUPABASE_ANON_KEY") ?? ""
+      Deno.env.get("SUPABASE_ANON_KEY") ?? "",
+      {
+        auth: {
+          autoRefreshToken: false,
+          persistSession: false
+        }
+      }
     );
 
+    console.log('[CLASSY-CHAT] Validating user token...');
     const { data: { user }, error: userError } = await supabaseClient.auth.getUser(token);
     
-    if (userError || !user) {
+    if (userError) {
+      console.error('[CLASSY-CHAT] Auth error:', userError.message, userError.status);
       return new Response(
-        JSON.stringify({ error: 'Não autorizado' }),
+        JSON.stringify({ 
+          error: 'Não autorizado - token inválido',
+          details: userError.message 
+        }),
         {
           status: 401,
           headers: { ...corsHeaders, 'Content-Type': 'application/json' }
         }
       );
     }
+    
+    if (!user) {
+      console.error('[CLASSY-CHAT] No user found from token');
+      return new Response(
+        JSON.stringify({ error: 'Não autorizado - usuário não encontrado' }),
+        {
+          status: 401,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        }
+      );
+    }
+
+    console.log('[CLASSY-CHAT] User authenticated:', user.id);
 
     // Use service role key for all DB operations (bypasses RLS; we validate manual ownership)
     const supabaseServiceClient = createClient(
