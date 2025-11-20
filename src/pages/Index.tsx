@@ -41,6 +41,8 @@ export default function Index() {
   // Explore mode state
   const [categories, setCategories] = useState<any[]>([]);
   const [contentsByCategory, setContentsByCategory] = useState<Record<string, any[]>>({});
+  const [recentContents, setRecentContents] = useState<any[]>([]);
+  const [popularContents, setPopularContents] = useState<any[]>([]);
   const [exploreLoading, setExploreLoading] = useState(false);
 
   // Modal state
@@ -71,6 +73,38 @@ export default function Index() {
   const loadExploreData = async () => {
     setExploreLoading(true);
     try {
+      // Fetch recent contents (Adicionados Recentemente)
+      const { data: recentData } = await supabase
+        .from('contents')
+        .select(`
+          *,
+          profiles:creator_id (
+            display_name,
+            avatar_url
+          )
+        `)
+        .eq('status', 'approved')
+        .order('created_at', { ascending: false })
+        .limit(12);
+
+      setRecentContents(recentData || []);
+
+      // Fetch popular contents (Mais Populares)
+      const { data: popularData } = await supabase
+        .from('contents')
+        .select(`
+          *,
+          profiles:creator_id (
+            display_name,
+            avatar_url
+          )
+        `)
+        .eq('status', 'approved')
+        .order('views_count', { ascending: false })
+        .limit(12);
+
+      setPopularContents(popularData || []);
+
       // Fetch all categories
       const { data: categoriesData, error: categoriesError } = await supabase
         .from('categories')
@@ -246,27 +280,60 @@ export default function Index() {
                       <p className="text-muted-foreground text-sm font-medium">Carregando conteúdos...</p>
                     </div>
                   </div>
-                ) : categories.length === 0 ? (
-                  <div className="text-center py-20">
-                    <Compass className="w-16 h-16 mx-auto mb-4 text-muted-foreground" />
-                    <h3 className="text-2xl font-bold text-foreground mb-2">Nenhuma categoria disponível</h3>
-                    <p className="text-muted-foreground">Conteúdos serão exibidos aqui quando disponíveis.</p>
-                  </div>
                 ) : (
-                  categories.map((category) => {
-                    const categoryContents = contentsByCategory[category.id] || [];
-                    if (categoryContents.length === 0) return null;
-
-                    return (
+                  <>
+                    {/* Seção: Mais Populares */}
+                    {popularContents.length > 0 && (
                       <ContentSection
-                        key={category.id}
-                        title={category.name}
-                        contents={categoryContents}
+                        title="🔥 Mais Populares"
+                        contents={popularContents}
                         horizontal={true}
                         onContentClick={handleContentClick}
                       />
-                    );
-                  })
+                    )}
+
+                    {/* Seção: Adicionados Recentemente */}
+                    {recentContents.length > 0 && (
+                      <ContentSection
+                        title="✨ Adicionados Recentemente"
+                        contents={recentContents}
+                        horizontal={true}
+                        onContentClick={handleContentClick}
+                      />
+                    )}
+
+                    {/* Seções por Categoria */}
+                    {categories.length > 0 ? (
+                      categories.map((category) => {
+                        const categoryContents = contentsByCategory[category.id] || [];
+                        if (categoryContents.length === 0) return null;
+
+                        return (
+                          <ContentSection
+                            key={category.id}
+                            title={category.name}
+                            contents={categoryContents}
+                            horizontal={true}
+                            onContentClick={handleContentClick}
+                          />
+                        );
+                      })
+                    ) : (
+                      <div className="text-center py-12">
+                        <Compass className="w-12 h-12 mx-auto mb-4 text-muted-foreground/50" />
+                        <p className="text-muted-foreground text-sm">Mais categorias em breve...</p>
+                      </div>
+                    )}
+
+                    {/* Empty state se não houver nenhum conteúdo */}
+                    {popularContents.length === 0 && recentContents.length === 0 && categories.length === 0 && (
+                      <div className="text-center py-20">
+                        <Compass className="w-16 h-16 mx-auto mb-4 text-muted-foreground" />
+                        <h3 className="text-2xl font-bold text-foreground mb-2">Nenhum conteúdo disponível</h3>
+                        <p className="text-muted-foreground">Conteúdos serão exibidos aqui quando disponíveis.</p>
+                      </div>
+                    )}
+                  </>
                 )}
               </div>
             )}
