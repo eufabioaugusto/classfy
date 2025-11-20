@@ -488,12 +488,17 @@ export default function Watch() {
                   <ContentComments contentId={content.id} />
                 </div>
 
-                <div className="lg:col-span-1">
+                <div className="lg:col-span-1 space-y-4">
                   <WatchNotes 
                     contentId={content.id}
                     onSeekTo={(seconds) => setSeekToTime(seconds)}
                     refreshTrigger={notesRefreshTrigger}
                   />
+                  
+                  <Card className="p-4">
+                    <h3 className="font-semibold mb-4">Relacionados</h3>
+                    <p className="text-sm text-muted-foreground">Em breve...</p>
+                  </Card>
                 </div>
               </div>
             </div>
