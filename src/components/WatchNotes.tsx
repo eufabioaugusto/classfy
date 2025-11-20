@@ -60,7 +60,10 @@ export const WatchNotes = ({ contentId, onSeekTo, refreshTrigger }: WatchNotesPr
 
   const handleNoteClick = (timestamp: number | null) => {
     if (timestamp !== null && onSeekTo) {
+      console.log(`🎬 Clicando na nota: ${timestamp}s`);
       onSeekTo(timestamp);
+      // Reset após um pequeno delay para permitir múltiplos cliques
+      setTimeout(() => onSeekTo(null), 100);
     }
   };
 

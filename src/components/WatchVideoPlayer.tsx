@@ -89,6 +89,7 @@ export const WatchVideoPlayer = ({ content, onTimeUpdate, onCreateNote, seekToTi
         if (error) throw error;
 
         const markers = data.map(note => note.timestamp_seconds as number);
+        console.log("📌 Marcadores carregados:", markers);
         setNoteMarkers(markers);
       } catch (error) {
         console.error("Error loading note markers:", error);
@@ -331,40 +332,48 @@ export const WatchVideoPlayer = ({ content, onTimeUpdate, onCreateNote, seekToTi
         >
           {/* Progress Bar */}
           <div className="relative w-full mb-4">
-            {/* Note markers */}
-            {duration > 0 && noteMarkers.map((timestamp, index) => {
-              if (timestamp == null || timestamp < 0 || timestamp > duration) return null;
-              return (
-                <div
-                  key={`marker-${timestamp}-${index}`}
-                  className="absolute top-0 w-0.5 h-3 bg-primary z-10 cursor-pointer"
-                  style={{
-                    left: `${(timestamp / duration) * 100}%`,
-                    transform: "translateX(-50%)",
-                  }}
-                  title={`Nota em ${formatTime(timestamp)}`}
-                  onClick={() => {
-                    const media = mediaRef.current;
-                    if (media) {
-                      media.currentTime = timestamp;
-                      setCurrentTime(timestamp);
-                    }
-                  }}
-                />
-              );
-            })}
-            
             <input
               type="range"
               min="0"
               max={duration}
               value={currentTime}
               onChange={handleSeek}
-              className="w-full h-1 bg-white/30 rounded-lg appearance-none cursor-pointer slider"
+              className="w-full h-1 bg-white/30 rounded-lg appearance-none cursor-pointer slider relative z-0"
               style={{
                 background: `linear-gradient(to right, hsl(var(--primary)) 0%, hsl(var(--primary)) ${(currentTime / Math.max(duration, 1)) * 100}%, rgba(255,255,255,0.3) ${(currentTime / Math.max(duration, 1)) * 100}%, rgba(255,255,255,0.3) 100%)`
               }}
             />
+            
+            {/* Note markers - rendered after input to be on top */}
+            {duration > 0 && noteMarkers.length > 0 && noteMarkers.map((timestamp, index) => {
+              if (timestamp == null || timestamp < 0 || timestamp > duration) return null;
+              const position = (timestamp / duration) * 100;
+              console.log(`📍 Marcador ${index + 1}: ${timestamp}s = ${position}%`);
+              return (
+                <div
+                  key={`marker-${timestamp}-${index}`}
+                  className="absolute bottom-0 w-1 h-5 bg-red-500 z-20 cursor-pointer hover:bg-red-600 transition-colors"
+                  style={{
+                    left: `${position}%`,
+                    transform: "translateX(-50%)",
+                  }}
+                  title={`Nota em ${formatTime(timestamp)}`}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    console.log(`🎯 Clicou no marcador: ${timestamp}s`);
+                    const media = mediaRef.current;
+                    if (media) {
+                      media.currentTime = timestamp;
+                      setCurrentTime(timestamp);
+                      if (!isPlaying) {
+                        media.play();
+                        setIsPlaying(true);
+                      }
+                    }
+                  }}
+                />
+              );
+            })}
           </div>
 
           <div className="flex items-center justify-between gap-4">
