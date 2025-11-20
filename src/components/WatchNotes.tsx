@@ -68,18 +68,11 @@ export const WatchNotes = ({ contentId, onSeekTo, refreshTrigger }: WatchNotesPr
     <Card className="overflow-hidden">
       <Collapsible open={isOpen} onOpenChange={setIsOpen}>
         <CollapsibleTrigger asChild>
-          <Button
-            variant="ghost"
-            className="w-full flex items-center justify-between p-4 hover:bg-muted/50"
-          >
+          <Button variant="ghost" className="w-full flex items-center justify-between p-4 hover:bg-muted/50">
             <div className="flex items-center gap-2">
               <FileText className="h-5 w-5 text-primary" />
-              <h3 className="font-semibold">Minhas Notas</h3>
-              {!loading && (
-                <span className="text-sm text-muted-foreground">
-                  ({notes.length})
-                </span>
-              )}
+              <h5 className="font-semibold">Minhas Notas</h5>
+              {!loading && <span className="text-sm text-muted-foreground">({notes.length})</span>}
             </div>
             <ChevronDown
               className={`h-5 w-5 text-muted-foreground transition-transform duration-200 ${
@@ -108,19 +101,15 @@ export const WatchNotes = ({ contentId, onSeekTo, refreshTrigger }: WatchNotesPr
                     >
                       <div className="flex items-center gap-2 mb-2">
                         <Clock className="h-4 w-4 text-primary" />
-                        <span className="text-sm font-medium text-primary">
-                          {formatTime(note.timestamp_seconds)}
-                        </span>
+                        <span className="text-sm font-medium text-primary">{formatTime(note.timestamp_seconds)}</span>
                       </div>
-                      <p className="text-sm text-foreground whitespace-pre-wrap break-words">
-                        {note.note_text}
-                      </p>
+                      <p className="text-sm text-foreground whitespace-pre-wrap break-words">{note.note_text}</p>
                       <span className="text-xs text-muted-foreground mt-2 block">
-                        {new Date(note.created_at).toLocaleDateString('pt-BR', {
-                          day: '2-digit',
-                          month: 'short',
-                          hour: '2-digit',
-                          minute: '2-digit'
+                        {new Date(note.created_at).toLocaleDateString("pt-BR", {
+                          day: "2-digit",
+                          month: "short",
+                          hour: "2-digit",
+                          minute: "2-digit",
                         })}
                       </span>
                     </div>
