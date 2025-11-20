@@ -52,17 +52,7 @@ export function ContinueStudyCard({ userId }: ContinueStudyCardProps) {
         return;
       }
 
-      // Fetch saved playlists for the first study to auto-open
-      const firstStudyId = studies[0].id;
-      const { data: playlists } = await supabase
-        .from("study_playlists")
-        .select("message_id")
-        .eq("study_id", firstStudyId)
-        .eq("user_id", userId)
-        .order("created_at", { ascending: false })
-        .limit(1);
-      
-      const lastPlaylistMessageId = playlists?.[0]?.message_id || null;
+      // No need to fetch playlists here anymore - will be done per study
 
       // Fetch metrics for each study
       const studiesWithMetrics = await Promise.all(
@@ -79,10 +69,18 @@ export function ContinueStudyCard({ userId }: ContinueStudyCardProps) {
             .select("*", { count: "exact", head: true })
             .eq("study_id", study.id);
 
-          // Messages count (to estimate videos watched) and get first content thumbnail
+          // Fetch playlists for this specific study
+          const { data: studyPlaylists } = await supabase
+            .from("study_playlists")
+            .select("message_id")
+            .eq("study_id", study.id)
+            .eq("user_id", userId)
+            .order("created_at", { ascending: false });
+
+          // Get messages with their related contents for THIS study
           const { data: messages } = await supabase
             .from("study_messages")
-            .select("related_contents")
+            .select("id, related_contents")
             .eq("study_id", study.id)
             .eq("role", "assistant")
             .order("created_at", { ascending: true });
@@ -92,10 +90,14 @@ export function ContinueStudyCard({ userId }: ContinueStudyCardProps) {
           let thumbnailUrl = null;
           let videoUrl = null;
 
+          console.log(`[Study ${study.title}] Messages found:`, messages?.length);
+
           if (messages && messages.length > 0) {
             // Find the first message with content IDs
             for (const msg of messages) {
               if (msg.related_contents && Array.isArray(msg.related_contents) && msg.related_contents.length > 0) {
+                console.log(`[Study ${study.title}] Message ${msg.id} has contents:`, msg.related_contents);
+                
                 if (!firstContentId) {
                   // Extract ID from content object or use string directly
                   const firstContent = msg.related_contents[0];
@@ -104,33 +106,53 @@ export function ContinueStudyCard({ userId }: ContinueStudyCardProps) {
                   } else if (typeof firstContent === 'string') {
                     firstContentId = firstContent;
                   }
-                  console.log('First content ID extracted:', firstContentId);
+                  console.log(`[Study ${study.title}] First content ID extracted:`, firstContentId);
                 }
                 videosWatchedCount += msg.related_contents.length;
               }
             }
 
-            // Fetch thumbnail and video from first content
+            // Fetch thumbnail and video from first content of THIS study
             if (firstContentId) {
               try {
+                console.log(`[Study ${study.title}] Fetching content details for:`, firstContentId);
+                
                 const { data: content, error: contentError } = await supabase
                   .from("contents")
-                  .select("thumbnail_url, video_url, file_url")
+                  .select("id, title, thumbnail_url, video_url, file_url")
                   .eq("id", firstContentId)
                   .maybeSingle();
                 
-                console.log('Content media fetched:', content, 'Error:', contentError);
-                
-                if (!contentError && content) {
+                if (contentError) {
+                  console.error(`[Study ${study.title}] Error fetching content:`, contentError);
+                } else if (content) {
+                  console.log(`[Study ${study.title}] Content found:`, {
+                    id: content.id,
+                    title: content.title,
+                    hasThumbnail: !!content.thumbnail_url,
+                    hasVideo: !!content.video_url,
+                    hasFile: !!content.file_url
+                  });
+                  
                   thumbnailUrl = content.thumbnail_url;
                   // Try video_url first, then file_url as fallback
                   videoUrl = content.video_url || content.file_url;
-                  console.log('Media URLs - Thumbnail:', thumbnailUrl, 'Video:', videoUrl);
+                  
+                  console.log(`[Study ${study.title}] Final media URLs:`, {
+                    thumbnail: thumbnailUrl,
+                    video: videoUrl
+                  });
+                } else {
+                  console.warn(`[Study ${study.title}] No content found for ID:`, firstContentId);
                 }
               } catch (error) {
-                console.error("Error fetching content media:", error);
+                console.error(`[Study ${study.title}] Exception fetching content:`, error);
               }
+            } else {
+              console.warn(`[Study ${study.title}] No content ID found in messages`);
             }
+          } else {
+            console.warn(`[Study ${study.title}] No messages found`);
           }
 
           // Estimate study time (10 minutes per video + 2 minutes per note)
@@ -147,6 +169,9 @@ export function ContinueStudyCard({ userId }: ContinueStudyCardProps) {
             100
           );
 
+          // Get last playlist message ID for this study
+          const lastPlaylistMessageId = studyPlaylists?.[0]?.message_id || null;
+
           return {
             id: study.id,
             title: study.title,
@@ -160,15 +185,10 @@ export function ContinueStudyCard({ userId }: ContinueStudyCardProps) {
             progressPercent,
             thumbnailUrl,
             videoUrl,
-            lastPlaylistMessageId: null,
+            lastPlaylistMessageId,
           };
         })
       );
-
-      // Add playlist message ID to first study
-      if (studiesWithMetrics.length > 0) {
-        studiesWithMetrics[0].lastPlaylistMessageId = lastPlaylistMessageId;
-      }
 
       setStudies(studiesWithMetrics);
     } catch (error) {
