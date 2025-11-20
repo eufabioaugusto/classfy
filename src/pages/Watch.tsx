@@ -20,6 +20,7 @@ import { GlobalLoader } from "@/components/GlobalLoader";
 import { toast } from "sonner";
 import { UpgradeModal } from "@/components/UpgradeModal";
 import { PurchaseModal } from "@/components/PurchaseModal";
+import { WatchNotes } from "@/components/WatchNotes";
 
 interface Content {
   id: string;
@@ -59,6 +60,8 @@ export default function Watch() {
   });
   const [view15sRecorded, setView15sRecorded] = useState(false);
   const [showAddToStudyModal, setShowAddToStudyModal] = useState(false);
+  const [notesRefreshTrigger, setNotesRefreshTrigger] = useState(0);
+  const [seekToTime, setSeekToTime] = useState<number | null>(null);
   const { processReward } = useRewardSystem();
 
   useEffect(() => {
@@ -404,6 +407,8 @@ export default function Watch() {
                       duration_seconds: content.duration_seconds,
                     }}
                     onTimeUpdate={handleTimeUpdate}
+                    onCreateNote={() => setNotesRefreshTrigger(prev => prev + 1)}
+                    seekToTime={seekToTime}
                   />
 
             <div>
@@ -484,10 +489,11 @@ export default function Watch() {
                 </div>
 
                 <div className="lg:col-span-1">
-                  <Card className="p-4">
-                    <h3 className="font-semibold mb-4">Relacionados</h3>
-                    <p className="text-sm text-muted-foreground">Em breve...</p>
-                  </Card>
+                  <WatchNotes 
+                    contentId={content.id}
+                    onSeekTo={(seconds) => setSeekToTime(seconds)}
+                    refreshTrigger={notesRefreshTrigger}
+                  />
                 </div>
               </div>
             </div>
