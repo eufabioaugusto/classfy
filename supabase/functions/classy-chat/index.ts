@@ -156,8 +156,8 @@ serve(async (req) => {
           !activeContentId || c.id !== activeContentId
         );
 
-        // Calculate match score for each content with improved algorithm
-          relatedContents = availableContents
+        // PHASE 1: Basic keyword matching for initial filtering
+        const candidateContents = availableContents
           .map((content: any) => {
             const titleLower = content.title.toLowerCase();
             const descLower = (content.description || "").toLowerCase();
@@ -198,7 +198,7 @@ serve(async (req) => {
               // Tags matches (very high priority)
               tagsNormalized.forEach((tag: string) => {
                 if (tag.includes(word) || word.includes(tag)) {
-                  score += 15; // Tags are most important
+                  score += 15;
                 }
               });
               
@@ -211,58 +211,133 @@ serve(async (req) => {
             if (descNormalized.includes(searchNormalized)) score += 10;
             tagsNormalized.forEach((tag: string) => {
               if (tag === searchNormalized || tag.includes(searchNormalized)) {
-                score += 30; // Exact tag match is critical
+                score += 30;
               }
             });
-
-            // Domain-level semantic alignment (espiritualidade x IA x negócios, etc.)
-            const spiritualityKeywords = [
-              "deus","espiritual","espiritualidade","fe","fé","oracao","oração",
-              "meditacao","meditação","alma","divino","divina","cristo","jesus",
-              "biblia","bíblia","orar","igreja","religiao","religião"
-            ];
-            const aiKeywords = [
-              "ia","inteligencia artificial","artificial intelligence","ai",
-              "machine learning","ml","modelo generativo","chatgpt"
-            ];
-            const businessKeywords = [
-              "venda","vendas","marketing","copy","lancamento","lançamento",
-              "negocio","negócio","empreender","empreendedor","shopify"
-            ];
-
-            const textBlobs = [titleNormalized, descNormalized, ...tagsNormalized];
-
-            const queryHasSpirituality = spiritualityKeywords.some(k => searchNormalized.includes(k));
-            const queryHasAI = aiKeywords.some(k => searchNormalized.includes(k));
-            const queryHasBusiness = businessKeywords.some(k => searchNormalized.includes(k));
-
-            const contentHasSpirituality = spiritualityKeywords.some(k =>
-              textBlobs.some(t => t.includes(k))
-            );
-            const contentHasAI = aiKeywords.some(k => textBlobs.some(t => t.includes(k)));
-            const contentHasBusiness = businessKeywords.some(k => textBlobs.some(t => t.includes(k)));
-
-            // Alinha domínios: se o tema do estudo é espiritualidade, favorece conteúdos espirituais
-            if (queryHasSpirituality && contentHasSpirituality) score += 40;
-            if (queryHasAI && contentHasAI) score += 30;
-            if (queryHasBusiness && contentHasBusiness) score += 25;
-
-            // Penaliza cruzamentos muito diferentes (ex: usuário pede Deus e conteúdo é de IA ou vendas)
-            if (queryHasSpirituality && (contentHasAI || contentHasBusiness)) score -= 40;
-            if (queryHasAI && contentHasSpirituality) score -= 30;
             
-            return { ...content, matchScore: score };
+            return { ...content, keywordScore: score };
           })
-          .filter((c: any) => c.matchScore >= 10) // Require meaningful match (at least one title match)
-          .sort((a: any, b: any) => b.matchScore - a.matchScore)
-          .slice(0, 15);
+          .filter((c: any) => c.keywordScore > 0) // Keep any with some keyword match
+          .sort((a: any, b: any) => b.keywordScore - a.keywordScore)
+          .slice(0, 20); // Top 20 candidates for semantic analysis
+
+        // PHASE 2: Semantic relevance with AI (only if we have candidates)
+        if (candidateContents.length > 0) {
+          const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
+          
+          // Build batch semantic analysis prompt
+          const contentsForAnalysis = candidateContents.map((c: any, idx: number) => ({
+            index: idx,
+            id: c.id,
+            title: c.title,
+            description: c.description || "",
+            tags: (c.tags || []).join(", ")
+          }));
+
+          const semanticPrompt = `Você é um especialista em análise de relevância de conteúdo educacional.
+
+QUERY DO USUÁRIO: "${message}"
+
+Analise a relevância de cada conteúdo abaixo para essa query. Para cada um, retorne um score de 0 a 100 baseado em:
+- Alinhamento temático (o conteúdo realmente é sobre o que o usuário procura?)
+- Relevância semântica (os conceitos são relacionados?)
+- Adequação ao nível de conhecimento implícito na query
+
+CONTEÚDOS:
+${contentsForAnalysis.map(c => `[${c.index}] "${c.title}" - ${c.description} (Tags: ${c.tags})`).join('\n')}
+
+Responda APENAS com um JSON array de objetos no formato: [{"index": 0, "score": 85}, {"index": 1, "score": 42}, ...]`;
+
+          try {
+            const aiResponse = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+              method: "POST",
+              headers: {
+                Authorization: `Bearer ${LOVABLE_API_KEY}`,
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({
+                model: "google/gemini-2.5-flash",
+                messages: [
+                  { role: "system", content: "You are a semantic relevance analyzer. Respond only with valid JSON." },
+                  { role: "user", content: semanticPrompt }
+                ],
+              }),
+            });
+
+            if (aiResponse.ok) {
+              const aiData = await aiResponse.json();
+              const aiContent = aiData.choices?.[0]?.message?.content || "[]";
+              
+              // Try to parse AI response
+              try {
+                // Extract JSON from response (handle markdown code blocks)
+                let jsonText = aiContent.trim();
+                if (jsonText.startsWith('```json')) {
+                  jsonText = jsonText.replace(/^```json\s*/, '').replace(/\s*```$/, '');
+                } else if (jsonText.startsWith('```')) {
+                  jsonText = jsonText.replace(/^```\s*/, '').replace(/\s*```$/, '');
+                }
+                
+                const semanticScores = JSON.parse(jsonText);
+                
+                // Merge semantic scores with candidates
+                candidateContents.forEach((content: any) => {
+                  const scoreData = semanticScores.find((s: any) => 
+                    s.index === contentsForAnalysis.findIndex(c => c.id === content.id)
+                  );
+                  content.semanticScore = scoreData?.score || 0;
+                  // Final score: 60% semantic, 40% keyword
+                  content.matchScore = Math.floor((content.semanticScore * 0.6) + (content.keywordScore * 0.4));
+                });
+
+                console.log('Semantic analysis completed:', candidateContents.map(c => ({
+                  title: c.title,
+                  keywordScore: c.keywordScore,
+                  semanticScore: c.semanticScore,
+                  finalScore: c.matchScore
+                })));
+              } catch (parseError) {
+                console.error('Failed to parse AI semantic scores:', parseError, 'Response:', aiContent);
+                // Fallback to keyword scores only
+                candidateContents.forEach((c: any) => {
+                  c.semanticScore = 0;
+                  c.matchScore = c.keywordScore;
+                });
+              }
+            } else {
+              console.error('AI semantic analysis failed:', aiResponse.status);
+              // Fallback to keyword scores only
+              candidateContents.forEach((c: any) => {
+                c.semanticScore = 0;
+                c.matchScore = c.keywordScore;
+              });
+            }
+          } catch (aiError) {
+            console.error('Error calling AI for semantic analysis:', aiError);
+            // Fallback to keyword scores only
+            candidateContents.forEach((c: any) => {
+              c.semanticScore = 0;
+              c.matchScore = c.keywordScore;
+            });
+          }
+
+          // Final ranking
+          relatedContents = candidateContents
+            .filter((c: any) => c.matchScore >= 10)
+            .sort((a: any, b: any) => b.matchScore - a.matchScore)
+            .slice(0, 15);
+        } else {
+          relatedContents = [];
+        }
 
         // Only show content if it's actually relevant - no random fallbacks
-        console.log(`Found ${relatedContents.length} contents with scores >= 10 for query: "${searchQuery}"`);
+        console.log(`Found ${relatedContents.length} contents for query: "${searchQuery}"`);
         if (relatedContents.length > 0) {
           console.log('Top matches:', relatedContents.slice(0, 3).map((c: any) => ({ 
             title: c.title, 
-            score: c.matchScore 
+            keywordScore: c.keywordScore || 0,
+            semanticScore: c.semanticScore || 0,
+            finalScore: c.matchScore 
           })));
         }
       }
