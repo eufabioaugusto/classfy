@@ -177,10 +177,10 @@ export default function Index() {
         return;
       }
       // Allow free content for non-logged users
-      navigate(`/player/${content.id}`);
+      navigate(`/watch/${content.id}`);
     } else {
       // Logged in users can navigate normally
-      navigate(`/player/${content.id}`);
+      navigate(`/watch/${content.id}`);
     }
   };
   if (authLoading) {
