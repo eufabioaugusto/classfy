@@ -109,11 +109,11 @@ export const ContentCard = ({
         {/* Play button overlay */}
         <div className="absolute inset-0 bg-black/0 group-hover:bg-gradient-to-t group-hover:from-black/30 group-hover:to-transparent flex items-center justify-center transition-all duration-300">
           <div className="opacity-0 group-hover:opacity-100 transition-all duration-300 transform group-hover:scale-100 scale-90">
-            <div className="bg-primary rounded-full p-4 shadow-2xl shadow-primary/50 ring-4 ring-primary/20">
+            <div className="bg-primary rounded-full p-2.5 shadow-2xl shadow-primary/50 ring-2 ring-primary/20">
               {isRestricted ? (
-                <Lock className="w-7 h-7 text-primary-foreground" />
+                <Lock className="w-5 h-5 text-primary-foreground" />
               ) : (
-                <Play className="w-7 h-7 text-primary-foreground fill-current" />
+                <Play className="w-5 h-5 text-primary-foreground fill-current" />
               )}
             </div>
           </div>
@@ -121,9 +121,9 @@ export const ContentCard = ({
 
         {/* Plan Badge - Top Right */}
         {(visibility === "pro" || visibility === "premium") && (
-          <div className="absolute top-2 right-2">
+          <div className="absolute top-1.5 right-1.5">
             <Crown 
-              className={`w-6 h-6 drop-shadow-lg ${
+              className={`w-5 h-5 drop-shadow-lg ${
                 visibility === "pro" ? "text-yellow-400" : "text-red-500"
               }`}
               fill="currentColor"
@@ -132,102 +132,94 @@ export const ContentCard = ({
         )}
 
         {/* Badges - Top Left */}
-        <div className="absolute top-2 left-2 flex gap-1.5 flex-wrap max-w-[calc(100%-4rem)]">
+        <div className="absolute top-1.5 left-1.5 flex gap-1 flex-wrap max-w-[calc(100%-3rem)]">
           {isPaid && (
             <>
-              <Badge className="bg-badge-hot/95 backdrop-blur-md text-white font-semibold text-[10px] px-2 py-0.5 shadow-md">
-                Material Pago
+              <Badge className="bg-badge-hot/95 backdrop-blur-md text-white font-semibold text-[9px] px-1.5 py-0.5 shadow-md">
+                Pago
               </Badge>
               {discount > 0 && (
-                <Badge className="bg-green-600/95 backdrop-blur-md text-white font-semibold text-[10px] px-2 py-0.5 shadow-md">
-                  -{discount}% OFF
+                <Badge className="bg-green-600/95 backdrop-blur-md text-white font-semibold text-[9px] px-1.5 py-0.5 shadow-md">
+                  -{discount}%
                 </Badge>
               )}
             </>
           )}
           {!isPaid && requiredPlan && requiredPlan !== "free" && (
-            <Badge className={`${getPlanBadgeColor(requiredPlan)} backdrop-blur-md text-white font-semibold uppercase text-[10px] px-2 py-0.5 shadow-md`}>
+            <Badge className={`${getPlanBadgeColor(requiredPlan)} backdrop-blur-md text-white font-semibold uppercase text-[9px] px-1.5 py-0.5 shadow-md`}>
               {requiredPlan}
             </Badge>
           )}
           {visibility === "free" && !requiredPlan && (
-            <Badge className="bg-badge-free/95 backdrop-blur-md text-white font-semibold text-[10px] px-2 py-0.5 shadow-md">
+            <Badge className="bg-badge-free/95 backdrop-blur-md text-white font-semibold text-[9px] px-1.5 py-0.5 shadow-md">
               FREE
             </Badge>
           )}
         </div>
 
         {/* Duration/Lessons - Bottom Right */}
-        <div className="absolute bottom-2 right-2 flex gap-1.5">
+        <div className="absolute bottom-1.5 right-1.5 flex gap-1">
           {duration && (
-            <Badge variant="secondary" className="bg-black/90 backdrop-blur-md text-white border-0 text-[10px] font-medium px-2 py-1 shadow-lg">
-              <Clock className="w-3 h-3 mr-1" />
+            <Badge variant="secondary" className="bg-black/90 backdrop-blur-md text-white border-0 text-[9px] font-medium px-1.5 py-0.5 shadow-lg">
+              <Clock className="w-2.5 h-2.5 mr-0.5" />
               {duration}min
             </Badge>
           )}
           {lessonCount && (
-            <Badge variant="secondary" className="bg-black/90 backdrop-blur-md text-white border-0 text-[10px] font-medium px-2 py-1 shadow-lg">
-              <BookOpen className="w-3 h-3 mr-1" />
-              {lessonCount} aulas
+            <Badge variant="secondary" className="bg-black/90 backdrop-blur-md text-white border-0 text-[9px] font-medium px-1.5 py-0.5 shadow-lg">
+              <BookOpen className="w-2.5 h-2.5 mr-0.5" />
+              {lessonCount}
             </Badge>
           )}
         </div>
       </div>
 
       {/* Content Info */}
-      <div className="p-3 space-y-2.5 bg-card">
+      <div className="p-2 space-y-1.5 bg-card">
         {/* Creator info */}
-        <div className="flex items-center gap-2">
-          <div className="w-8 h-8 rounded-full bg-muted overflow-hidden ring-1 ring-border/50">
+        <div className="flex items-center gap-1.5">
+          <div className="w-6 h-6 rounded-full bg-muted overflow-hidden ring-1 ring-border/50">
             {creatorAvatar ? (
               <img src={creatorAvatar} alt={creatorName} className="w-full h-full object-cover" />
             ) : (
-              <div className="w-full h-full flex items-center justify-center bg-primary text-primary-foreground font-bold text-xs">
+              <div className="w-full h-full flex items-center justify-center bg-primary text-primary-foreground font-bold text-[10px]">
                 {creatorName[0]?.toUpperCase()}
               </div>
             )}
           </div>
           <div className="flex-1 min-w-0">
-            <p className="text-xs font-medium text-foreground truncate">{creatorName}</p>
-            <p className="text-[10px] text-muted-foreground">Instrutor</p>
+            <p className="text-[10px] font-medium text-foreground truncate">{creatorName}</p>
           </div>
         </div>
 
         {/* Title */}
-        <h3 className="font-semibold text-sm leading-tight line-clamp-2 text-foreground group-hover:text-primary transition-colors duration-300 min-h-[2.5rem]">
+        <h3 className="font-semibold text-xs leading-tight line-clamp-2 text-foreground group-hover:text-primary transition-colors duration-300">
           {title}
         </h3>
 
-        {/* Description */}
-        {description && (
-          <p className="text-xs text-muted-foreground line-clamp-2 leading-relaxed">
-            {description}
-          </p>
-        )}
-
         {/* Price & Actions */}
         {isPaid && (
-          <div className="pt-2 border-t border-border/30 space-y-2">
+          <div className="pt-1.5 border-t border-border/30 space-y-1.5">
             <div className="flex items-center justify-between">
               <div>
                 {discount > 0 ? (
-                  <div className="flex items-baseline gap-2">
-                    <span className="text-sm font-bold text-primary">
+                  <div className="flex items-baseline gap-1">
+                    <span className="text-xs font-bold text-primary">
                       R$ {(price * (1 - discount / 100)).toFixed(2)}
                     </span>
-                    <span className="text-[10px] line-through text-muted-foreground">
+                    <span className="text-[9px] line-through text-muted-foreground">
                       R$ {price.toFixed(2)}
                     </span>
                   </div>
                 ) : (
-                  <span className="text-sm font-bold">R$ {price.toFixed(2)}</span>
+                  <span className="text-xs font-bold">R$ {price.toFixed(2)}</span>
                 )}
               </div>
             </div>
             {!isPurchased && (
               <Button 
                 size="sm" 
-                className="w-full h-8 text-xs"
+                className="w-full h-7 text-[10px]"
                 onClick={(e) => {
                   e.stopPropagation();
                   onPurchaseClick?.();
@@ -242,15 +234,9 @@ export const ContentCard = ({
 
         {!isPaid && (
           <div className="flex items-center justify-between pt-1 border-t border-border/30">
-            <p className="text-[10px] text-muted-foreground">
-              {views.toLocaleString()} visualizações
+            <p className="text-[9px] text-muted-foreground">
+              {views.toLocaleString()} views
             </p>
-            {isRestricted && (
-              <div className="flex items-center gap-1 text-muted-foreground">
-                <Lock className="w-3 h-3" />
-                <span className="text-[10px] font-medium">Premium</span>
-              </div>
-            )}
           </div>
         )}
       </div>

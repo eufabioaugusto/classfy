@@ -6,7 +6,6 @@ interface ContentSectionProps {
   icon?: React.ReactNode;
   contents: any[];
   loading?: boolean;
-  horizontal?: boolean;
   aspectRatio?: "default" | "square" | "vertical";
   onContentClick: (content: any) => void;
 }
@@ -16,24 +15,29 @@ export const ContentSection = ({
   icon,
   contents,
   loading,
-  horizontal,
   aspectRatio = "default",
   onContentClick,
 }: ContentSectionProps) => {
+  const getGridCols = () => {
+    if (aspectRatio === "vertical") return "grid-cols-6"; // Shorts - 6 por linha
+    if (aspectRatio === "square") return "grid-cols-6"; // Podcasts - 6 por linha
+    return "grid-cols-4"; // Default - 4 por linha
+  };
+
   if (loading) {
     return (
-      <section className="space-y-6">
+      <section className="space-y-4">
         {title && (
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
             {icon}
-            <h3 className="text-3xl md:text-4xl font-bold text-white">{title}</h3>
+            <h3 className="text-xl font-bold text-foreground">{title}</h3>
           </div>
         )}
-        <div className={horizontal ? "flex gap-6 overflow-x-auto pb-4" : "grid grid-cols-3 gap-4"}>
-          {[...Array(horizontal ? 6 : 3)].map((_, i) => (
+        <div className={`grid ${getGridCols()} gap-4`}>
+          {[...Array(aspectRatio === "vertical" || aspectRatio === "square" ? 6 : 4)].map((_, i) => (
             <Card
               key={i}
-              className={`${horizontal ? "min-w-[300px]" : ""} h-96 animate-pulse bg-white/5 border-white/10`}
+              className="h-64 animate-pulse bg-muted border-border"
             />
           ))}
         </div>
@@ -46,29 +50,21 @@ export const ContentSection = ({
   }
 
   return (
-    <section className="space-y-6">
+    <section className="space-y-4">
       {title && (
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2">
           {icon}
-          <h3 className="text-3xl md:text-4xl font-bold text-white">{title}</h3>
+          <h3 className="text-xl font-bold text-foreground">{title}</h3>
         </div>
       )}
-      <div className={horizontal ? "flex gap-6 overflow-x-auto pb-4 scrollbar-hide" : "grid grid-cols-3 gap-4"}>
+      <div className={`grid ${getGridCols()} gap-4`}>
         {contents.map((content) => (
-          <div
+          <ContentCard
             key={content.id}
-            className={horizontal ? (
-              aspectRatio === "vertical" ? "min-w-[240px] flex-shrink-0" :
-              aspectRatio === "square" ? "min-w-[280px] flex-shrink-0" :
-              "min-w-[320px] flex-shrink-0"
-            ) : ""}
-          >
-            <ContentCard
-              content={content}
-              onClick={() => onContentClick(content)}
-              aspectRatio={aspectRatio}
-            />
-          </div>
+            content={content}
+            onClick={() => onContentClick(content)}
+            aspectRatio={aspectRatio}
+          />
         ))}
       </div>
     </section>

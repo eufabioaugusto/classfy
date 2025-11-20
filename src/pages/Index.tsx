@@ -308,7 +308,6 @@ export default function Index() {
                       <ContentSection
                         title="🔥 Em Alta"
                         contents={trendingClasses}
-                        horizontal={true}
                         onContentClick={handleContentClick}
                       />
                     )}
@@ -318,7 +317,6 @@ export default function Index() {
                       <ContentSection
                         title="👑 Itens PRO"
                         contents={proContents}
-                        horizontal={true}
                         onContentClick={handleContentClick}
                       />
                     )}
@@ -328,7 +326,6 @@ export default function Index() {
                       <ContentSection
                         title="🎙️ Podcasts em Alta"
                         contents={trendingPodcasts}
-                        horizontal={true}
                         aspectRatio="square"
                         onContentClick={handleContentClick}
                       />
@@ -339,7 +336,6 @@ export default function Index() {
                       <ContentSection
                         title="⚡ Shorts"
                         contents={shorts}
-                        horizontal={true}
                         aspectRatio="vertical"
                         onContentClick={handleContentClick}
                       />
@@ -350,7 +346,6 @@ export default function Index() {
                       <ContentSection
                         title="💎 Itens Premium"
                         contents={premiumContents}
-                        horizontal={true}
                         onContentClick={handleContentClick}
                       />
                     )}
