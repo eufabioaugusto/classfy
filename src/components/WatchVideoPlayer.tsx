@@ -244,13 +244,54 @@ export const WatchVideoPlayer = ({ content, onTimeUpdate, onCreateNote, seekToTi
     }
 
     try {
-      await supabase.from("study_notes").insert({
+      // Garantir que exista um estudo vinculado ao usuário para associar as notas
+      const { data: existingStudy, error: studyError } = await supabase
+        .from("studies")
+        .select("id")
+        .eq("user_id", user.id)
+        .order("last_activity_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (studyError) {
+        console.error("Error fetching study for note:", studyError);
+      }
+
+      let studyId = existingStudy?.id as string | undefined;
+
+      if (!studyId) {
+        const { data: newStudy, error: createStudyError } = await supabase
+          .from("studies")
+          .insert({
+            user_id: user.id,
+            title: "Notas de vídeo",
+            status: "active",
+          })
+          .select("id")
+          .maybeSingle();
+
+        if (createStudyError || !newStudy) {
+          console.error("Error creating study for note:", createStudyError);
+          toast.error("Erro ao preparar espaço de estudo para salvar a nota");
+          return;
+        }
+
+        studyId = newStudy.id;
+      }
+
+      const { error: insertError } = await supabase.from("study_notes").insert({
         user_id: user.id,
         content_id: content.id,
-        study_id: content.id, // Using content_id as study_id for standalone notes
+        study_id: studyId,
         note_text: noteText,
         timestamp_seconds: noteTimestamp,
       });
+
+      if (insertError) {
+        console.error("Error saving note:", insertError);
+        toast.error("Erro ao salvar nota");
+        return;
+      }
 
       toast.success("Nota salva!");
       setNoteModalOpen(false);
