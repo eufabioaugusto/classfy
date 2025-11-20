@@ -332,17 +332,27 @@ export const WatchVideoPlayer = ({ content, onTimeUpdate, onCreateNote, seekToTi
           {/* Progress Bar */}
           <div className="relative w-full mb-4">
             {/* Note markers */}
-            {noteMarkers.map((timestamp, index) => (
-              <div
-                key={`marker-${timestamp}-${index}`}
-                className="absolute top-0 w-0.5 h-3 bg-primary z-10"
-                style={{
-                  left: `${(timestamp / duration) * 100}%`,
-                  transform: 'translateX(-50%)',
-                }}
-                title={`Nota em ${formatTime(timestamp)}`}
-              />
-            ))}
+            {duration > 0 && noteMarkers.map((timestamp, index) => {
+              if (timestamp == null || timestamp < 0 || timestamp > duration) return null;
+              return (
+                <div
+                  key={`marker-${timestamp}-${index}`}
+                  className="absolute top-0 w-0.5 h-3 bg-primary z-10 cursor-pointer"
+                  style={{
+                    left: `${(timestamp / duration) * 100}%`,
+                    transform: "translateX(-50%)",
+                  }}
+                  title={`Nota em ${formatTime(timestamp)}`}
+                  onClick={() => {
+                    const media = mediaRef.current;
+                    if (media) {
+                      media.currentTime = timestamp;
+                      setCurrentTime(timestamp);
+                    }
+                  }}
+                />
+              );
+            })}
             
             <input
               type="range"
@@ -352,7 +362,7 @@ export const WatchVideoPlayer = ({ content, onTimeUpdate, onCreateNote, seekToTi
               onChange={handleSeek}
               className="w-full h-1 bg-white/30 rounded-lg appearance-none cursor-pointer slider"
               style={{
-                background: `linear-gradient(to right, hsl(var(--primary)) 0%, hsl(var(--primary)) ${(currentTime / duration) * 100}%, rgba(255,255,255,0.3) ${(currentTime / duration) * 100}%, rgba(255,255,255,0.3) 100%)`
+                background: `linear-gradient(to right, hsl(var(--primary)) 0%, hsl(var(--primary)) ${(currentTime / Math.max(duration, 1)) * 100}%, rgba(255,255,255,0.3) ${(currentTime / Math.max(duration, 1)) * 100}%, rgba(255,255,255,0.3) 100%)`
               }}
             />
           </div>
