@@ -21,6 +21,7 @@ import { toast } from "sonner";
 import { UpgradeModal } from "@/components/UpgradeModal";
 import { PurchaseModal } from "@/components/PurchaseModal";
 import { WatchNotes } from "@/components/WatchNotes";
+import { WatchRelated } from "@/components/WatchRelated";
 
 interface Content {
   id: string;
@@ -36,6 +37,8 @@ interface Content {
   likes_count: number;
   status?: string;
   creator_id: string;
+  category_id: string | null;
+  tags: string[] | null;
   creator: {
     id: string;
     display_name: string;
@@ -88,6 +91,8 @@ export default function Watch() {
           likes_count,
           status,
           creator_id,
+          category_id,
+          tags,
           creator:profiles!creator_id(id, display_name, avatar_url)
         `)
         .eq('id', id);
@@ -495,10 +500,12 @@ export default function Watch() {
                     refreshTrigger={notesRefreshTrigger}
                   />
                   
-                  <Card className="p-4">
-                    <h3 className="font-semibold mb-4">Relacionados</h3>
-                    <p className="text-sm text-muted-foreground">Em breve...</p>
-                  </Card>
+                  <WatchRelated 
+                    contentId={content.id}
+                    categoryId={content.category_id}
+                    tags={content.tags}
+                    contentType={content.content_type}
+                  />
                 </div>
               </div>
             </div>
