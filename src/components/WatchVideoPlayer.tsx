@@ -21,9 +21,10 @@ interface WatchVideoPlayerProps {
   };
   onTimeUpdate?: (currentTime: number) => void;
   onCreateNote?: () => void;
+  seekToTime?: number | null;
 }
 
-export const WatchVideoPlayer = ({ content, onTimeUpdate, onCreateNote }: WatchVideoPlayerProps) => {
+export const WatchVideoPlayer = ({ content, onTimeUpdate, onCreateNote, seekToTime }: WatchVideoPlayerProps) => {
   const { user } = useAuth();
   const videoRef = useRef<HTMLVideoElement>(null);
   const audioRef = useRef<HTMLAudioElement>(null);
@@ -70,6 +71,21 @@ export const WatchVideoPlayer = ({ content, onTimeUpdate, onCreateNote }: WatchV
 
     loadSavedPosition();
   }, [content.id, user]);
+
+  // Handle seek from external trigger (notes)
+  useEffect(() => {
+    if (seekToTime !== null && seekToTime !== undefined) {
+      const media = mediaRef.current;
+      if (media) {
+        media.currentTime = seekToTime;
+        setCurrentTime(seekToTime);
+        if (!isPlaying) {
+          media.play();
+          setIsPlaying(true);
+        }
+      }
+    }
+  }, [seekToTime]);
 
   useEffect(() => {
     const media = mediaRef.current;
