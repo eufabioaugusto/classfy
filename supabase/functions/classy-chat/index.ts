@@ -143,150 +143,144 @@ serve(async (req) => {
     if ((!isAskingAboutCurrentContent || isFirstMessage) && !playlistSummary) {
       const searchQuery = isFirstMessage ? study.title.toLowerCase() : message.toLowerCase();
       
+      console.log(`\n========== CLASSY SEARCH: "${searchQuery}" ==========`);
+
+      // Fetch all approved contents with transcriptions
       const { data: contents } = await supabaseServiceClient
         .from("contents")
-        .select("id, title, description, content_type, thumbnail_url, visibility, required_plan, is_free, duration_minutes, tags")
+        .select(`
+          id, title, description, content_type, thumbnail_url, 
+          visibility, required_plan, is_free, duration_minutes, tags,
+          transcriptions (text)
+        `)
         .eq("status", "approved")
         .in("content_type", ["aula", "short", "podcast"])
-        .limit(50);
+        .limit(100);
 
       if (contents && contents.length > 0) {
-        // Filter out the currently active content
         const availableContents = contents.filter((c: any) => 
           !activeContentId || c.id !== activeContentId
         );
 
-        // PHASE 1: Keyword matching with semantic expansion
-        const candidateContents = availableContents
-          .map((content: any) => {
-            const titleLower = content.title.toLowerCase();
-            const descLower = (content.description || "").toLowerCase();
-            const contentTags = (content.tags || []).map((tag: string) => tag.toLowerCase());
-            
-            // Normalize helper - remove accents and special chars
-            const normalizeText = (text: string) => {
-              return text
-                .normalize("NFD")
-                .replace(/[\u0300-\u036f]/g, "")
-                .toLowerCase();
-            };
-            
-            const searchNormalized = normalizeText(searchQuery);
-            const titleNormalized = normalizeText(titleLower);
-            const descNormalized = normalizeText(descLower);
-            const tagsNormalized = contentTags.map((tag: string) => normalizeText(tag));
-            
-            let score = 0;
-            
-            // Remove apenas palavras muito genéricas (stopwords reduzidas)
-            const stopwords = [
-              "o","a","os","as","um","uma","de","da","do","das","dos",
-              "em","no","na","nos","nas","por","para","com","e","ou","que"
-            ];
-            
-            const searchWords = searchNormalized
-              .split(/\s+/)
-              .map((w: string) => w.trim().replace(/[!?,;.]/g, ""))
-              .filter((w: string) => w.length >= 3 && !stopwords.includes(w));
-            
-            console.log(`[SEARCH] Query: "${searchQuery}" -> Words: [${searchWords.join(", ")}]`);
-            console.log(`[CONTENT] "${content.title}" - Tags: [${contentTags.join(", ")}]`);
-            
-            // Semantic expansions - termos relacionados
-            const semanticMap: Record<string, string[]> = {
-              "deus": ["divino", "divina", "espiritual", "fe", "sagrado", "sagrada", "religiao", "crenca"],
-              "divino": ["deus", "espiritual", "sagrado", "celeste"],
-              "espiritual": ["deus", "divino", "alma", "espirito", "fe"],
-              "ia": ["inteligencia artificial", "machine learning", "aprendizado maquina", "ai", "artificial"],
-              "inteligencia": ["ia", "artificial", "machine learning", "ai"],
-              "programacao": ["codigo", "programar", "desenvolvimento", "dev", "software"],
-              "codigo": ["programacao", "programar", "desenvolvimento", "software"],
-            };
-            
-            // Expand search words with related terms
-            const expandedWords = new Set(searchWords);
-            searchWords.forEach((word: string) => {
-              const related = semanticMap[word];
-              if (related) {
-                related.forEach((r: string) => expandedWords.add(r));
-              }
-            });
-            
-            // Score each search word and related terms
-            expandedWords.forEach((word: string) => {
-              const isOriginal = searchWords.includes(word);
-              const weightMultiplier = isOriginal ? 1 : 0.5; // Related terms get 50% weight
-              
-              // Title matches (highest priority)
-              if (titleNormalized.includes(word)) {
-                score += Math.floor(15 * weightMultiplier);
-                console.log(`  ✓ Title match: "${word}" +${Math.floor(15 * weightMultiplier)}`);
-              }
-              
-              // Tags matches (very high priority)
-              tagsNormalized.forEach((tag: string) => {
-                if (tag.includes(word) || word.includes(tag)) {
-                  score += Math.floor(20 * weightMultiplier);
-                  console.log(`  ✓ Tag match: "${word}" in "${tag}" +${Math.floor(20 * weightMultiplier)}`);
-                }
-              });
-              
-              // Description matches (medium priority)
-              if (descNormalized.includes(word)) {
-                score += Math.floor(8 * weightMultiplier);
-                console.log(`  ✓ Description match: "${word}" +${Math.floor(8 * weightMultiplier)}`);
-              }
-            });
+        console.log(`Total de conteúdos disponíveis: ${availableContents.length}`);
 
-            // Exact phrase match bonuses
-            if (titleNormalized.includes(searchNormalized)) {
-              score += 30;
-              console.log(`  ✓ Exact title phrase match +30`);
+        // ===== PHASE 1: DIRECT KEYWORD MATCHING (No AI, No Cost) =====
+        console.log('\n🔍 PHASE 1: Busca por palavras-chave direta...');
+
+        const normalizeText = (text: string) => text
+          .toLowerCase()
+          .normalize("NFD")
+          .replace(/[\u0300-\u036f]/g, "");
+
+        const queryNorm = normalizeText(searchQuery);
+        const stopwords = ['o', 'a', 'de', 'da', 'do', 'em', 'no', 'na', 'por', 'para', 'com', 'quero', 'quer', 'aprender', 'sobre'];
+        
+        const keywords = queryNorm
+          .split(/\s+/)
+          .map((w: string) => w.replace(/[!?,;.]/g, ""))
+          .filter((w: string) => w.length >= 3 && !stopwords.includes(w));
+
+        console.log(`Keywords extraídas: [${keywords.join(', ')}]`);
+
+        const keywordMatches = availableContents.map((content: any) => {
+          const titleNorm = normalizeText(content.title);
+          const descNorm = normalizeText(content.description || "");
+          const tagsNorm = (content.tags || []).map((t: string) => normalizeText(t));
+          const transcriptionNorm = content.transcriptions?.[0]?.text 
+            ? normalizeText(content.transcriptions[0].text) 
+            : "";
+
+          let score = 0;
+          const matches: string[] = [];
+
+          // 1. Exact phrase match (altíssima prioridade)
+          if (titleNorm.includes(queryNorm)) {
+            score += 100;
+            matches.push('exact_title');
+          }
+          if (descNorm.includes(queryNorm)) {
+            score += 60;
+            matches.push('exact_desc');
+          }
+          if (transcriptionNorm && transcriptionNorm.includes(queryNorm)) {
+            score += 40;
+            matches.push('exact_transcription');
+          }
+
+          // 2. Individual keyword matches
+          keywords.forEach((keyword: string) => {
+            if (titleNorm.includes(keyword)) {
+              score += 25;
+              matches.push(`title:${keyword}`);
             }
-            if (descNormalized.includes(searchNormalized)) {
-              score += 15;
-              console.log(`  ✓ Exact description phrase match +15`);
+            if (descNorm.includes(keyword)) {
+              score += 12;
+              matches.push(`desc:${keyword}`);
             }
-            tagsNormalized.forEach((tag: string) => {
-              if (tag === searchNormalized || tag.includes(searchNormalized)) {
-                score += 40;
-                console.log(`  ✓ Exact tag match "${tag}" +40`);
+            if (transcriptionNorm && transcriptionNorm.includes(keyword)) {
+              score += 8;
+              matches.push(`transcription:${keyword}`);
+            }
+            tagsNorm.forEach((tag: string) => {
+              if (tag.includes(keyword) || keyword.includes(tag)) {
+                score += 30;
+                matches.push(`tag:${keyword}`);
               }
             });
-            
-            console.log(`  → Total keywordScore: ${score}`);
-            return { ...content, keywordScore: score };
-          })
+          });
+
+          if (score > 0) {
+            console.log(`✓ "${content.title}" - Score: ${score} | Matches: ${matches.join(', ')}`);
+          }
+
+          return { ...content, keywordScore: score, matches };
+        });
+
+        const directMatches = keywordMatches
           .filter((c: any) => c.keywordScore > 0)
-          .sort((a: any, b: any) => b.keywordScore - a.keywordScore)
-          .slice(0, 25); // Top 25 candidates for semantic analysis
+          .sort((a: any, b: any) => b.keywordScore - a.keywordScore);
 
-        // PHASE 2: Semantic relevance with AI (only if we have candidates)
-        if (candidateContents.length > 0) {
+        console.log(`\n✅ PHASE 1: ${directMatches.length} matches diretos encontrados`);
+
+        // Se encontrou pelo menos 3 matches diretos, use apenas eles
+        if (directMatches.length >= 3) {
+          relatedContents = directMatches.slice(0, 15);
+          console.log(`✓ Suficientes! Usando ${relatedContents.length} matches diretos (sem IA)`);
+        } else {
+          // ===== PHASE 2: AI SEMANTIC ANALYSIS (Only if needed) =====
+          console.log(`\n🤖 PHASE 2: Poucos matches (${directMatches.length}). Ativando análise semântica com IA...`);
+
           const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
           
-          // Build batch semantic analysis prompt
-          const contentsForAnalysis = candidateContents.map((c: any, idx: number) => ({
-            index: idx,
-            id: c.id,
-            title: c.title,
-            description: c.description || "",
-            tags: (c.tags || []).join(", ")
-          }));
+          // Pega top 20 candidatos (mesmo com score baixo) para análise IA
+          const topCandidates = keywordMatches
+            .sort((a: any, b: any) => b.keywordScore - a.keywordScore)
+            .slice(0, 20);
 
-          const semanticPrompt = `Você é um especialista em análise de relevância de conteúdo educacional.
+          console.log(`Analisando ${topCandidates.length} candidatos com IA...`);
 
-QUERY DO USUÁRIO: "${message}"
+          const semanticPrompt = `Você é um analisador de relevância semântica para conteúdos educacionais.
 
-Analise a relevância de cada conteúdo abaixo para essa query. Para cada um, retorne um score de 0 a 100 baseado em:
-- Alinhamento temático (o conteúdo realmente é sobre o que o usuário procura?)
-- Relevância semântica (os conceitos são relacionados?)
-- Adequação ao nível de conhecimento implícito na query
+BUSCA DO USUÁRIO: "${searchQuery}"
 
 CONTEÚDOS:
-${contentsForAnalysis.map(c => `[${c.index}] "${c.title}" - ${c.description} (Tags: ${c.tags})`).join('\n')}
+${topCandidates.map((c: any, i: number) => `
+${i + 1}. "${c.title}"
+   Descrição: ${c.description || 'Sem descrição'}
+   Tags: ${(c.tags || []).join(', ') || 'Sem tags'}
+`).join('')}
 
-Responda APENAS com um JSON array de objetos no formato: [{"index": 0, "score": 85}, {"index": 1, "score": 42}, ...]`;
+TAREFA:
+Retorne APENAS os números (separados por vírgula) dos conteúdos que são SEMANTICAMENTE RELEVANTES.
+
+EXEMPLO:
+- Busca "Deus" → Relevante: "Espiritualidade", "Luz Divina", "Fé"
+- Busca "IA" → Relevante: "Inteligência Artificial", "Machine Learning"
+
+Se NENHUM for relevante: retorne "NENHUM"
+Se houver relevantes: retorne apenas números separados por vírgula (ex: "1,3,5")
+
+SUA RESPOSTA (apenas números ou NENHUM):`;
 
           try {
             const aiResponse = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
@@ -297,89 +291,60 @@ Responda APENAS com um JSON array de objetos no formato: [{"index": 0, "score": 
               },
               body: JSON.stringify({
                 model: "google/gemini-2.5-flash",
-                messages: [
-                  { role: "system", content: "You are a semantic relevance analyzer. Respond only with valid JSON." },
-                  { role: "user", content: semanticPrompt }
-                ],
+                messages: [{ role: "user", content: semanticPrompt }],
+                temperature: 0.2,
               }),
             });
 
-            if (aiResponse.ok) {
-              const aiData = await aiResponse.json();
-              const aiContent = aiData.choices?.[0]?.message?.content || "[]";
-              
-              // Try to parse AI response
-              try {
-                // Extract JSON from response (handle markdown code blocks)
-                let jsonText = aiContent.trim();
-                if (jsonText.startsWith('```json')) {
-                  jsonText = jsonText.replace(/^```json\s*/, '').replace(/\s*```$/, '');
-                } else if (jsonText.startsWith('```')) {
-                  jsonText = jsonText.replace(/^```\s*/, '').replace(/\s*```$/, '');
-                }
-                
-                const semanticScores = JSON.parse(jsonText);
-                
-                // Merge semantic scores with candidates
-                candidateContents.forEach((content: any) => {
-                  const scoreData = semanticScores.find((s: any) => 
-                    s.index === contentsForAnalysis.findIndex(c => c.id === content.id)
-                  );
-                  content.semanticScore = scoreData?.score || 0;
-                  // Final score: 60% semantic, 40% keyword
-                  content.matchScore = Math.floor((content.semanticScore * 0.6) + (content.keywordScore * 0.4));
-                });
-
-                console.log('Semantic analysis completed:', candidateContents.map(c => ({
-                  title: c.title,
-                  keywordScore: c.keywordScore,
-                  semanticScore: c.semanticScore,
-                  finalScore: c.matchScore
-                })));
-              } catch (parseError) {
-                console.error('Failed to parse AI semantic scores:', parseError, 'Response:', aiContent);
-                // Fallback to keyword scores only
-                candidateContents.forEach((c: any) => {
-                  c.semanticScore = 0;
-                  c.matchScore = c.keywordScore;
-                });
-              }
+            if (!aiResponse.ok) {
+              console.error('❌ IA falhou:', await aiResponse.text());
+              relatedContents = directMatches.slice(0, 15);
             } else {
-              console.error('AI semantic analysis failed:', aiResponse.status);
-              // Fallback to keyword scores only
-              candidateContents.forEach((c: any) => {
-                c.semanticScore = 0;
-                c.matchScore = c.keywordScore;
-              });
+              const aiData = await aiResponse.json();
+              const aiResult = aiData.choices[0]?.message?.content?.trim() || "NENHUM";
+              console.log(`IA respondeu: ${aiResult}`);
+
+              if (aiResult === "NENHUM") {
+                relatedContents = directMatches.slice(0, 15);
+                console.log('IA não encontrou matches semânticos. Usando keywords.');
+              } else {
+                const indices = aiResult
+                  .split(',')
+                  .map((n: string) => parseInt(n.trim()) - 1)
+                  .filter((idx: number) => !isNaN(idx) && idx >= 0 && idx < topCandidates.length);
+
+                const semanticMatches = indices.map((idx: number) => ({
+                  ...topCandidates[idx],
+                  keywordScore: topCandidates[idx].keywordScore + 50, // Boost semântico
+                  semanticMatch: true,
+                }));
+
+                console.log(`✅ IA encontrou ${semanticMatches.length} matches semânticos`);
+
+                // Combina matches diretos + semânticos
+                const combined = [...directMatches, ...semanticMatches];
+                const unique = Array.from(new Map(combined.map((c: any) => [c.id, c])).values());
+                
+                relatedContents = unique
+                  .sort((a: any, b: any) => b.keywordScore - a.keywordScore)
+                  .slice(0, 15);
+              }
             }
           } catch (aiError) {
-            console.error('Error calling AI for semantic analysis:', aiError);
-            // Fallback to keyword scores only
-            candidateContents.forEach((c: any) => {
-              c.semanticScore = 0;
-              c.matchScore = c.keywordScore;
-            });
+            console.error('❌ Erro na IA:', aiError);
+            relatedContents = directMatches.slice(0, 15);
           }
-
-          // Final ranking with lower threshold
-          relatedContents = candidateContents
-            .filter((c: any) => c.matchScore >= 5) // Lowered from 10 to capture more relevant content
-            .sort((a: any, b: any) => b.matchScore - a.matchScore)
-            .slice(0, 15);
-        } else {
-          relatedContents = [];
         }
 
-        // Only show content if it's actually relevant - no random fallbacks
-        console.log(`Found ${relatedContents.length} contents for query: "${searchQuery}"`);
+        console.log(`\n🎯 RESULTADO FINAL: ${relatedContents.length} conteúdos selecionados`);
         if (relatedContents.length > 0) {
-          console.log('Top matches:', relatedContents.slice(0, 3).map((c: any) => ({ 
-            title: c.title, 
-            keywordScore: c.keywordScore || 0,
-            semanticScore: c.semanticScore || 0,
-            finalScore: c.matchScore 
+          console.log('Top 3:', relatedContents.slice(0, 3).map((c: any) => ({
+            title: c.title,
+            score: c.keywordScore,
+            semantic: c.semanticMatch || false
           })));
         }
+        console.log('========================================\n');
       }
     }
 
