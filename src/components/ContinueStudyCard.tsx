@@ -30,8 +30,7 @@ interface ContinueStudyCardProps {
 export function ContinueStudyCard({ userId }: ContinueStudyCardProps) {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
-  const [mainStudy, setMainStudy] = useState<StudyMetrics | null>(null);
-  const [otherStudies, setOtherStudies] = useState<StudyMetrics[]>([]);
+  const [studies, setStudies] = useState<StudyMetrics[]>([]);
 
   useEffect(() => {
     fetchStudiesWithMetrics();
@@ -161,17 +160,17 @@ export function ContinueStudyCard({ userId }: ContinueStudyCardProps) {
             progressPercent,
             thumbnailUrl,
             videoUrl,
+            lastPlaylistMessageId: null,
           };
         })
       );
 
-      const mainStudyWithPlaylist = {
-        ...studiesWithMetrics[0],
-        lastPlaylistMessageId
-      };
+      // Add playlist message ID to first study
+      if (studiesWithMetrics.length > 0) {
+        studiesWithMetrics[0].lastPlaylistMessageId = lastPlaylistMessageId;
+      }
 
-      setMainStudy(mainStudyWithPlaylist);
-      setOtherStudies(studiesWithMetrics.slice(1));
+      setStudies(studiesWithMetrics);
     } catch (error) {
       console.error("Error fetching studies:", error);
     } finally {
@@ -193,206 +192,147 @@ export function ContinueStudyCard({ userId }: ContinueStudyCardProps) {
     );
   }
 
-  if (!mainStudy) return null;
+  if (studies.length === 0) return null;
 
   return (
-    <div className="w-full space-y-4">
-      {/* Main Study Card - Cinematic Design */}
-      <Card className="w-full h-[420px] rounded-2xl overflow-hidden relative group border-border/50 hover:border-primary/30 transition-all duration-300 cursor-pointer"
-        onClick={() => handleContinueStudy(mainStudy.id, mainStudy.lastPlaylistMessageId)}
-      >
-        {/* Background Video/Image with Overlay */}
-        <div className="absolute inset-0 bg-black">
-          {mainStudy.videoUrl ? (
-            <>
-              <video
-                key={mainStudy.videoUrl}
-                autoPlay
-                loop
-                muted
-                playsInline
-                preload="metadata"
-                className="w-full h-full object-cover opacity-70"
-                onError={(e) => {
-                  console.error('Video failed to load:', mainStudy.videoUrl);
-                  e.currentTarget.style.display = 'none';
+    <div className="w-full space-y-6">
+      {studies.map((study, index) => (
+        <Card 
+          key={study.id}
+          className="w-full h-[420px] rounded-2xl overflow-hidden relative group border-border/50 hover:border-primary/30 transition-all duration-300 cursor-pointer"
+          onClick={() => handleContinueStudy(study.id, study.lastPlaylistMessageId)}
+        >
+          {/* Background Video/Image with Overlay */}
+          <div className="absolute inset-0 bg-black">
+            {study.videoUrl ? (
+              <>
+                <video
+                  key={study.videoUrl}
+                  autoPlay
+                  loop
+                  muted
+                  playsInline
+                  preload="metadata"
+                  className="w-full h-full object-cover opacity-70"
+                  onError={(e) => {
+                    console.error('Video failed to load:', study.videoUrl);
+                    e.currentTarget.style.display = 'none';
+                  }}
+                  onLoadedData={() => console.log('Video loaded successfully')}
+                >
+                  <source src={study.videoUrl} type="video/mp4" />
+                </video>
+                {/* Dark overlay gradient - stronger at bottom */}
+                <div className="absolute inset-0 bg-gradient-to-t from-black via-black/70 to-black/30" />
+              </>
+            ) : study.thumbnailUrl ? (
+              <>
+                <img
+                  src={study.thumbnailUrl}
+                  alt={study.title}
+                  className="w-full h-full object-cover"
+                  onError={(e) => {
+                    console.error('Thumbnail failed to load:', study.thumbnailUrl);
+                    e.currentTarget.style.display = 'none';
+                  }}
+                  onLoad={() => console.log('Thumbnail loaded successfully')}
+                />
+                {/* Dark overlay gradient - stronger at bottom */}
+                <div className="absolute inset-0 bg-gradient-to-t from-black via-black/60 to-black/20" />
+              </>
+            ) : (
+              <>
+                <div className="w-full h-full bg-gradient-to-br from-primary/20 to-primary/5" />
+                {/* Dark overlay gradient */}
+                <div className="absolute inset-0 bg-gradient-to-t from-black via-black/50 to-black/10" />
+              </>
+            )}
+          </div>
+
+          {/* Content Container - Positioned at bottom */}
+          <div className="absolute inset-0 flex flex-col justify-end p-8 md:p-10">
+            {/* Badge */}
+            <div className="mb-4">
+              <span className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/10 backdrop-blur-sm border border-white/20 text-white text-xs font-medium">
+                <Trophy className="w-3 h-3" />
+                {study.progressPercent}% Concluído
+              </span>
+            </div>
+
+            {/* Title and Description */}
+            <div className="space-y-3 mb-6">
+              <h2 className="text-4xl md:text-5xl font-bold text-white leading-tight">
+                {study.title}
+              </h2>
+              <p className="text-white/80 text-lg max-w-2xl">
+                {index === 0 ? "Você já começou essa jornada. Vamos continuar?" : "Continue de onde parou"}
+              </p>
+            </div>
+
+            {/* Progress Bar */}
+            <div className="mb-6 max-w-xl">
+              <Progress value={study.progressPercent} className="h-1.5 bg-white/20" indicatorClassName="bg-red-600" />
+            </div>
+
+            {/* Metrics Row */}
+            <div className="flex flex-wrap gap-6 mb-6 text-white/90">
+              <div className="flex items-center gap-2">
+                <PlayCircle className="w-4 h-4" />
+                <span className="text-sm font-medium">{study.playlistsCount} Playlists</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <BookOpen className="w-4 h-4" />
+                <span className="text-sm font-medium">{study.videosWatchedCount} Vídeos</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <StickyNote className="w-4 h-4" />
+                <span className="text-sm font-medium">{study.notesCount} Anotações</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <Clock className="w-4 h-4" />
+                <span className="text-sm font-medium">{study.totalStudyTime}min</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <Coins className="w-4 h-4" />
+                <span className="text-sm font-medium">R$ {study.totalRewards.toFixed(2)}</span>
+              </div>
+            </div>
+
+            {/* Action Buttons */}
+            <div className="flex items-center gap-4">
+              <Button
+                size="lg"
+                className="bg-white hover:bg-white/90 text-black font-semibold"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleContinueStudy(study.id, study.lastPlaylistMessageId);
                 }}
-                onLoadedData={() => console.log('Video loaded successfully')}
               >
-                <source src={mainStudy.videoUrl} type="video/mp4" />
-              </video>
-              {/* Dark overlay gradient - stronger at bottom */}
-              <div className="absolute inset-0 bg-gradient-to-t from-black via-black/70 to-black/30" />
-            </>
-          ) : mainStudy.thumbnailUrl ? (
-            <>
-              <img
-                src={mainStudy.thumbnailUrl}
-                alt={mainStudy.title}
-                className="w-full h-full object-cover"
-                onError={(e) => {
-                  console.error('Thumbnail failed to load:', mainStudy.thumbnailUrl);
-                  e.currentTarget.style.display = 'none';
+                Continuar estudo
+              </Button>
+              <Button
+                size="lg"
+                variant="ghost"
+                className="text-white border border-white/30 hover:bg-white/10"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleContinueStudy(study.id, study.lastPlaylistMessageId);
                 }}
-                onLoad={() => console.log('Thumbnail loaded successfully')}
-              />
-              {/* Dark overlay gradient - stronger at bottom */}
-              <div className="absolute inset-0 bg-gradient-to-t from-black via-black/60 to-black/20" />
-            </>
-          ) : (
-            <>
-              <div className="w-full h-full bg-gradient-to-br from-primary/20 to-primary/5" />
-              {/* Dark overlay gradient */}
-              <div className="absolute inset-0 bg-gradient-to-t from-black via-black/50 to-black/10" />
-            </>
-          )}
-        </div>
-
-        {/* Content Container - Positioned at bottom */}
-        <div className="absolute inset-0 flex flex-col justify-end p-8 md:p-10">
-          {/* Badge */}
-          <div className="mb-4">
-            <span className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/10 backdrop-blur-sm border border-white/20 text-white text-xs font-medium">
-              <Trophy className="w-3 h-3" />
-              {mainStudy.progressPercent}% Concluído
-            </span>
-          </div>
-
-          {/* Title and Description */}
-          <div className="space-y-3 mb-6">
-            <h2 className="text-4xl md:text-5xl font-bold text-white leading-tight">
-              {mainStudy.title}
-            </h2>
-            <p className="text-white/80 text-lg max-w-2xl">
-              Você já começou essa jornada. Vamos continuar?
-            </p>
-          </div>
-
-          {/* Progress Bar */}
-          <div className="mb-6 max-w-xl">
-            <Progress value={mainStudy.progressPercent} className="h-1.5 bg-white/20" indicatorClassName="bg-red-600" />
-          </div>
-
-          {/* Metrics Row */}
-          <div className="flex flex-wrap gap-6 mb-6 text-white/90">
-            <div className="flex items-center gap-2">
-              <PlayCircle className="w-4 h-4" />
-              <span className="text-sm font-medium">{mainStudy.playlistsCount} Playlists</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <BookOpen className="w-4 h-4" />
-              <span className="text-sm font-medium">{mainStudy.videosWatchedCount} Vídeos</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <StickyNote className="w-4 h-4" />
-              <span className="text-sm font-medium">{mainStudy.notesCount} Anotações</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <Clock className="w-4 h-4" />
-              <span className="text-sm font-medium">{mainStudy.totalStudyTime}min</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <Coins className="w-4 h-4" />
-              <span className="text-sm font-medium">R$ {mainStudy.totalRewards.toFixed(2)}</span>
-            </div>
-          </div>
-
-          {/* Action Buttons */}
-          <div className="flex items-center gap-4">
-            <Button
-              size="lg"
-              className="bg-white hover:bg-white/90 text-black font-semibold"
-              onClick={(e) => {
-                e.stopPropagation();
-                handleContinueStudy(mainStudy.id, mainStudy.lastPlaylistMessageId);
-              }}
-            >
-              Continuar estudo
-            </Button>
-            <Button
-              size="lg"
-              variant="ghost"
-              className="text-white border border-white/30 hover:bg-white/10"
-              onClick={(e) => {
-                e.stopPropagation();
-                handleContinueStudy(mainStudy.id, mainStudy.lastPlaylistMessageId);
-              }}
-            >
-              Ver detalhes
-            </Button>
-          </div>
-
-          {/* AI Message */}
-          <div className="mt-6 pt-4 border-t border-white/10">
-            <p className="text-sm text-white/70 italic">
-              <span className="font-semibold text-cinematic-accent">Classy:</span> Você está a{" "}
-              {mainStudy.progressPercent}% de concluir este estudo. Continue assim!
-            </p>
-          </div>
-        </div>
-      </Card>
-
-      {/* Other Studies */}
-      {otherStudies.length > 0 && (
-        <div className="space-y-3">
-          <h3 className="text-lg font-semibold text-foreground">Outros estudos em andamento</h3>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-            {otherStudies.map((study) => (
-              <Card
-                key={study.id}
-                className="h-[180px] rounded-xl overflow-hidden relative group border-border/50 hover:border-primary/30 transition-all cursor-pointer"
-                onClick={() => handleContinueStudy(study.id)}
               >
-                {/* Background */}
-                <div className="absolute inset-0">
-                  {study.videoUrl ? (
-                    <>
-                      <video
-                        src={study.videoUrl}
-                        autoPlay
-                        loop
-                        muted
-                        playsInline
-                        className="w-full h-full object-cover"
-                      />
-                      <div className="absolute inset-0 bg-gradient-to-t from-black via-black/60 to-transparent" />
-                    </>
-                  ) : study.thumbnailUrl ? (
-                    <>
-                      <img
-                        src={study.thumbnailUrl}
-                        alt={study.title}
-                        className="w-full h-full object-cover"
-                      />
-                      <div className="absolute inset-0 bg-gradient-to-t from-black via-black/50 to-transparent" />
-                    </>
-                  ) : (
-                    <>
-                      <div className="w-full h-full bg-gradient-to-br from-primary/10 to-muted" />
-                      <div className="absolute inset-0 bg-gradient-to-t from-black via-black/40 to-transparent" />
-                    </>
-                  )}
-                </div>
+                Ver detalhes
+              </Button>
+            </div>
 
-                {/* Content */}
-                <div className="absolute inset-0 flex flex-col justify-end p-4">
-                  <h4 className="font-semibold text-white line-clamp-2 mb-2">{study.title}</h4>
-                  <div className="space-y-1 mb-3">
-                    <div className="flex items-center justify-between text-xs text-white/80">
-                      <span>Progresso</span>
-                      <span className="font-medium">{study.progressPercent}%</span>
-                    </div>
-                    <Progress value={study.progressPercent} className="h-1 bg-white/20" indicatorClassName="bg-red-600" />
-                  </div>
-                  <Button size="sm" variant="ghost" className="w-full text-white border-white/30 hover:bg-white/10">
-                    Continuar
-                  </Button>
-                </div>
-              </Card>
-            ))}
+            {/* AI Message */}
+            <div className="mt-6 pt-4 border-t border-white/10">
+              <p className="text-sm text-white/70 italic">
+                <span className="font-semibold text-cinematic-accent">Classy:</span> Você está a{" "}
+                {study.progressPercent}% de concluir este estudo. Continue assim!
+              </p>
+            </div>
           </div>
-        </div>
-      )}
+        </Card>
+      ))}
     </div>
   );
 }
