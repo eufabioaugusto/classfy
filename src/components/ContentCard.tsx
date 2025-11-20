@@ -1,7 +1,8 @@
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Play, Clock, BookOpen, Lock } from "lucide-react";
+import { Play, Clock, BookOpen, Lock, Crown, ShoppingCart } from "lucide-react";
 import { useNavigate } from "react-router-dom";
+import { Button } from "@/components/ui/button";
 
 interface ContentCardProps {
   id?: string;
@@ -19,6 +20,10 @@ interface ContentCardProps {
   contentType?: "video" | "course";
   content?: any;
   onClick?: () => void;
+  visibility?: "free" | "pro" | "premium" | "paid";
+  discount?: number;
+  isPurchased?: boolean;
+  onPurchaseClick?: () => void;
 }
 
 export const ContentCard = ({
@@ -37,6 +42,10 @@ export const ContentCard = ({
   contentType: propContentType,
   content,
   onClick,
+  visibility: propVisibility,
+  discount: propDiscount,
+  isPurchased: propIsPurchased,
+  onPurchaseClick,
 }: ContentCardProps) => {
   // Support both formats: direct props or content object
   const id = propId || content?.id;
@@ -52,8 +61,12 @@ export const ContentCard = ({
   const requiredPlan = propRequiredPlan || content?.required_plan;
   const views = propViews || content?.views_count || 0;
   const contentType = propContentType || content?.content_type || "video";
+  const visibility = propVisibility || content?.visibility || "free";
+  const discount = propDiscount !== undefined ? propDiscount : content?.discount || 0;
+  const isPurchased = propIsPurchased !== undefined ? propIsPurchased : false;
   const navigate = useNavigate();
   const isRestricted = !isFree || requiredPlan;
+  const isPaid = visibility === "paid";
 
   const getPlanBadgeColor = (plan?: string) => {
     switch (plan) {
@@ -100,19 +113,38 @@ export const ContentCard = ({
           </div>
         </div>
 
+        {/* Plan Badge - Top Right */}
+        {(visibility === "pro" || visibility === "premium") && (
+          <div className="absolute top-2 right-2">
+            <Crown 
+              className={`w-6 h-6 drop-shadow-lg ${
+                visibility === "pro" ? "text-yellow-400" : "text-red-500"
+              }`}
+              fill="currentColor"
+            />
+          </div>
+        )}
+
         {/* Badges - Top Left */}
         <div className="absolute top-2 left-2 flex gap-1.5 flex-wrap max-w-[calc(100%-4rem)]">
-          {!isFree && price && (
-            <Badge className="bg-badge-hot/95 backdrop-blur-md text-white font-semibold text-[10px] px-2 py-0.5 shadow-md">
-              R$ {price.toFixed(2)}
-            </Badge>
+          {isPaid && (
+            <>
+              <Badge className="bg-badge-hot/95 backdrop-blur-md text-white font-semibold text-[10px] px-2 py-0.5 shadow-md">
+                Material Pago
+              </Badge>
+              {discount > 0 && (
+                <Badge className="bg-green-600/95 backdrop-blur-md text-white font-semibold text-[10px] px-2 py-0.5 shadow-md">
+                  -{discount}% OFF
+                </Badge>
+              )}
+            </>
           )}
-          {requiredPlan && requiredPlan !== "free" && (
+          {!isPaid && requiredPlan && requiredPlan !== "free" && (
             <Badge className={`${getPlanBadgeColor(requiredPlan)} backdrop-blur-md text-white font-semibold uppercase text-[10px] px-2 py-0.5 shadow-md`}>
               {requiredPlan}
             </Badge>
           )}
-          {isFree && !requiredPlan && (
+          {visibility === "free" && !requiredPlan && (
             <Badge className="bg-badge-free/95 backdrop-blur-md text-white font-semibold text-[10px] px-2 py-0.5 shadow-md">
               FREE
             </Badge>
@@ -167,18 +199,54 @@ export const ContentCard = ({
           </p>
         )}
 
-        {/* Views & Lock indicator */}
-        <div className="flex items-center justify-between pt-1 border-t border-border/30">
-          <p className="text-[10px] text-muted-foreground">
-            {views.toLocaleString()} visualizações
-          </p>
-          {isRestricted && (
-            <div className="flex items-center gap-1 text-muted-foreground">
-              <Lock className="w-3 h-3" />
-              <span className="text-[10px] font-medium">Premium</span>
+        {/* Price & Actions */}
+        {isPaid && (
+          <div className="pt-2 border-t border-border/30 space-y-2">
+            <div className="flex items-center justify-between">
+              <div>
+                {discount > 0 ? (
+                  <div className="flex items-baseline gap-2">
+                    <span className="text-sm font-bold text-primary">
+                      R$ {(price * (1 - discount / 100)).toFixed(2)}
+                    </span>
+                    <span className="text-[10px] line-through text-muted-foreground">
+                      R$ {price.toFixed(2)}
+                    </span>
+                  </div>
+                ) : (
+                  <span className="text-sm font-bold">R$ {price.toFixed(2)}</span>
+                )}
+              </div>
             </div>
-          )}
-        </div>
+            {!isPurchased && (
+              <Button 
+                size="sm" 
+                className="w-full h-8 text-xs"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onPurchaseClick?.();
+                }}
+              >
+                <ShoppingCart className="w-3 h-3 mr-1" />
+                Comprar
+              </Button>
+            )}
+          </div>
+        )}
+
+        {!isPaid && (
+          <div className="flex items-center justify-between pt-1 border-t border-border/30">
+            <p className="text-[10px] text-muted-foreground">
+              {views.toLocaleString()} visualizações
+            </p>
+            {isRestricted && (
+              <div className="flex items-center gap-1 text-muted-foreground">
+                <Lock className="w-3 h-3" />
+                <span className="text-[10px] font-medium">Premium</span>
+              </div>
+            )}
+          </div>
+        )}
       </div>
     </Card>
   );

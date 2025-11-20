@@ -5,12 +5,14 @@ import { supabase } from "@/integrations/supabase/client";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
-import { Eye } from "lucide-react";
+import { Eye, AlertCircle } from "lucide-react";
 import { useRewardSystem } from "@/hooks/useRewardSystem";
 import { ContentActions } from "@/components/ContentActions";
 import { ContentComments } from "@/components/ContentComments";
 import { FollowButton } from "@/components/FollowButton";
 import { GlobalLoader } from "@/components/GlobalLoader";
+import { UpgradeModal } from "@/components/UpgradeModal";
+import { PurchaseModal } from "@/components/PurchaseModal";
 
 interface Content {
   id: string;
@@ -37,6 +39,10 @@ export default function Listen() {
   const [content, setContent] = useState<Content | null>(null);
   const [loadingContent, setLoadingContent] = useState(true);
   const [hasAccess, setHasAccess] = useState(false);
+  const [showUpgradeModal, setShowUpgradeModal] = useState(false);
+  const [showPurchaseModal, setShowPurchaseModal] = useState(false);
+  const [requiredUpgradePlan, setRequiredUpgradePlan] = useState<"pro" | "premium">("pro");
+  const [isPurchased, setIsPurchased] = useState(false);
   const audioRef = useRef<HTMLAudioElement>(null);
   const [metricsRecorded, setMetricsRecorded] = useState({
     start: false,
@@ -91,15 +97,51 @@ export default function Listen() {
     }
   };
 
-  const checkAccess = (content: Content) => {
-    if (!profile) return;
+  const checkAccess = async (content: Content) => {
+    if (!profile || !user) return;
+    
     const userPlan = profile.plan || 'free';
+    
+    // Check if content is paid and user has purchased it
+    if (content.visibility === 'paid') {
+      const { data: purchase } = await supabase
+        .from('purchased_contents')
+        .select('id')
+        .eq('user_id', user.id)
+        .eq('content_id', content.id)
+        .maybeSingle();
+      
+      if (purchase) {
+        setIsPurchased(true);
+        setHasAccess(true);
+        return;
+      } else {
+        setIsPurchased(false);
+        setHasAccess(false);
+        setShowPurchaseModal(true);
+        return;
+      }
+    }
+    
+    // Check plan-based access
     if (content.visibility === 'free') {
       setHasAccess(true);
-    } else if (content.visibility === 'pro' && ['pro', 'premium'].includes(userPlan)) {
-      setHasAccess(true);
-    } else if (content.visibility === 'premium' && userPlan === 'premium') {
-      setHasAccess(true);
+    } else if (content.visibility === 'pro') {
+      if (['pro', 'premium'].includes(userPlan)) {
+        setHasAccess(true);
+      } else {
+        setHasAccess(false);
+        setRequiredUpgradePlan('pro');
+        setShowUpgradeModal(true);
+      }
+    } else if (content.visibility === 'premium') {
+      if (userPlan === 'premium') {
+        setHasAccess(true);
+      } else {
+        setHasAccess(false);
+        setRequiredUpgradePlan('premium');
+        setShowUpgradeModal(true);
+      }
     } else {
       setHasAccess(false);
     }
@@ -188,7 +230,44 @@ export default function Listen() {
   if (loading || loadingContent) return <GlobalLoader />;
   if (!user) return <Navigate to="/auth" replace />;
   if (!content) return <div className="p-8">Podcast não encontrado</div>;
-  if (!hasAccess) return <div className="p-8">Sem acesso</div>;
+  if (!hasAccess) {
+    return (
+      <>
+        <UpgradeModal 
+          open={showUpgradeModal} 
+          onOpenChange={setShowUpgradeModal}
+          requiredPlan={requiredUpgradePlan}
+        />
+        {content && (
+          <PurchaseModal
+            open={showPurchaseModal}
+            onOpenChange={setShowPurchaseModal}
+            content={{
+              id: content.id,
+              title: content.title,
+              thumbnail_url: content.thumbnail_url,
+              price: content.price,
+              discount: 0,
+              creator_name: content.creator.display_name
+            }}
+            onPurchaseComplete={() => {
+              setShowPurchaseModal(false);
+              fetchContent();
+            }}
+          />
+        )}
+        <div className="min-h-screen flex items-center justify-center bg-background p-4">
+          <Card className="p-8 text-center max-w-md">
+            <AlertCircle className="h-12 w-12 mx-auto mb-4 text-primary" />
+            <h2 className="text-2xl font-bold mb-2">Acesso Restrito</h2>
+            <p className="text-muted-foreground mb-4">
+              Este conteúdo requer {content?.visibility === 'paid' ? 'compra' : 'assinatura'} para ser acessado.
+            </p>
+          </Card>
+        </div>
+      </>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-background">
