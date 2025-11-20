@@ -262,6 +262,13 @@ export const WatchVideoPlayer = ({ content, onTimeUpdate, onCreateNote, seekToTi
   const openNoteModal = () => {
     setNoteTimestamp(Math.floor(currentTime));
     setNoteModalOpen(true);
+    
+    // Pausar o player ao abrir o modal de nota
+    const media = mediaRef.current;
+    if (media && isPlaying) {
+      media.pause();
+      setIsPlaying(false);
+    }
   };
 
   const handleSaveNote = async () => {
@@ -292,6 +299,13 @@ export const WatchVideoPlayer = ({ content, onTimeUpdate, onCreateNote, seekToTi
       setNoteModalOpen(false);
       setNoteText("");
       onCreateNote?.();
+      
+      // Dar play novamente após salvar a nota
+      const media = mediaRef.current;
+      if (media) {
+        media.play();
+        setIsPlaying(true);
+      }
     } catch (error) {
       console.error("Error saving note:", error);
       toast.error("Erro ao salvar nota");
