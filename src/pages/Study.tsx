@@ -404,6 +404,19 @@ function StudyContent() {
       if (aiMessageError) throw aiMessageError;
 
       await fetchMessages();
+      
+      // Refetch study after a short delay to get the updated title
+      setTimeout(async () => {
+        const { data: updatedStudy } = await supabase
+          .from("studies")
+          .select("*")
+          .eq("id", id)
+          .single();
+        
+        if (updatedStudy) {
+          setStudy(updatedStudy);
+        }
+      }, 2000); // Wait 2 seconds for the AI to generate the title
     } catch (error: any) {
       console.error("Error sending initial message:", error);
       toast.error("Erro ao iniciar conversa. Estudo não encontrado.");
