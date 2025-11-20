@@ -1,9 +1,11 @@
 import { useEffect, useState } from "react";
 import { Card } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Clock, FileText } from "lucide-react";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { Clock, FileText, ChevronDown } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
+import { Button } from "@/components/ui/button";
 
 interface Note {
   id: string;
@@ -22,6 +24,7 @@ export const WatchNotes = ({ contentId, onSeekTo, refreshTrigger }: WatchNotesPr
   const { user } = useAuth();
   const [notes, setNotes] = useState<Note[]>([]);
   const [loading, setLoading] = useState(true);
+  const [isOpen, setIsOpen] = useState(false);
 
   useEffect(() => {
     fetchNotes();
@@ -61,68 +64,73 @@ export const WatchNotes = ({ contentId, onSeekTo, refreshTrigger }: WatchNotesPr
     }
   };
 
-  if (loading) {
-    return (
-      <Card className="p-4">
-        <div className="flex items-center gap-2 mb-4">
-          <FileText className="h-5 w-5 text-primary" />
-          <h3 className="font-semibold">Notas</h3>
-        </div>
-        <p className="text-sm text-muted-foreground">Carregando notas...</p>
-      </Card>
-    );
-  }
-
-  if (notes.length === 0) {
-    return (
-      <Card className="p-4">
-        <div className="flex items-center gap-2 mb-4">
-          <FileText className="h-5 w-5 text-primary" />
-          <h3 className="font-semibold">Notas</h3>
-        </div>
-        <p className="text-sm text-muted-foreground">
-          Nenhuma nota salva ainda. Use o botão "Adicionar Nota" no player para criar suas anotações.
-        </p>
-      </Card>
-    );
-  }
-
   return (
-    <Card className="p-4">
-      <div className="flex items-center gap-2 mb-4">
-        <FileText className="h-5 w-5 text-primary" />
-        <h3 className="font-semibold">Notas ({notes.length})</h3>
-      </div>
-      
-      <ScrollArea className="h-[600px]">
-        <div className="space-y-3">
-          {notes.map((note) => (
-            <div
-              key={note.id}
-              onClick={() => handleNoteClick(note.timestamp_seconds)}
-              className="p-3 rounded-lg bg-muted/50 hover:bg-muted cursor-pointer transition-colors border border-border/50 hover:border-primary/50"
-            >
-              <div className="flex items-center gap-2 mb-2">
-                <Clock className="h-4 w-4 text-primary" />
-                <span className="text-sm font-medium text-primary">
-                  {formatTime(note.timestamp_seconds)}
+    <Card className="overflow-hidden">
+      <Collapsible open={isOpen} onOpenChange={setIsOpen}>
+        <CollapsibleTrigger asChild>
+          <Button
+            variant="ghost"
+            className="w-full flex items-center justify-between p-4 hover:bg-muted/50"
+          >
+            <div className="flex items-center gap-2">
+              <FileText className="h-5 w-5 text-primary" />
+              <h3 className="font-semibold">Minhas Notas</h3>
+              {!loading && (
+                <span className="text-sm text-muted-foreground">
+                  ({notes.length})
                 </span>
-              </div>
-              <p className="text-sm text-foreground whitespace-pre-wrap break-words">
-                {note.note_text}
-              </p>
-              <span className="text-xs text-muted-foreground mt-2 block">
-                {new Date(note.created_at).toLocaleDateString('pt-BR', { 
-                  day: '2-digit', 
-                  month: 'short',
-                  hour: '2-digit',
-                  minute: '2-digit'
-                })}
-              </span>
+              )}
             </div>
-          ))}
-        </div>
-      </ScrollArea>
+            <ChevronDown
+              className={`h-5 w-5 text-muted-foreground transition-transform duration-200 ${
+                isOpen ? "rotate-180" : ""
+              }`}
+            />
+          </Button>
+        </CollapsibleTrigger>
+
+        <CollapsibleContent className="animate-accordion-down">
+          <div className="px-4 pb-4">
+            {loading ? (
+              <p className="text-sm text-muted-foreground">Carregando notas...</p>
+            ) : notes.length === 0 ? (
+              <p className="text-sm text-muted-foreground">
+                Nenhuma nota salva ainda. Use o botão "Adicionar Nota" no player.
+              </p>
+            ) : (
+              <ScrollArea className="h-[400px]">
+                <div className="space-y-3 pr-4">
+                  {notes.map((note) => (
+                    <div
+                      key={note.id}
+                      onClick={() => handleNoteClick(note.timestamp_seconds)}
+                      className="p-3 rounded-lg bg-muted/50 hover:bg-muted cursor-pointer transition-all duration-200 border border-border/50 hover:border-primary/50 hover-scale"
+                    >
+                      <div className="flex items-center gap-2 mb-2">
+                        <Clock className="h-4 w-4 text-primary" />
+                        <span className="text-sm font-medium text-primary">
+                          {formatTime(note.timestamp_seconds)}
+                        </span>
+                      </div>
+                      <p className="text-sm text-foreground whitespace-pre-wrap break-words">
+                        {note.note_text}
+                      </p>
+                      <span className="text-xs text-muted-foreground mt-2 block">
+                        {new Date(note.created_at).toLocaleDateString('pt-BR', {
+                          day: '2-digit',
+                          month: 'short',
+                          hour: '2-digit',
+                          minute: '2-digit'
+                        })}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </ScrollArea>
+            )}
+          </div>
+        </CollapsibleContent>
+      </Collapsible>
     </Card>
   );
 };
