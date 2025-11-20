@@ -370,15 +370,6 @@ export default function Watch() {
             }}
           />
         )}
-        <div className="min-h-screen flex items-center justify-center bg-background p-4">
-          <Card className="p-8 text-center max-w-md">
-            <AlertCircle className="h-12 w-12 mx-auto mb-4 text-primary" />
-            <h2 className="text-2xl font-bold mb-2">Acesso Restrito</h2>
-            <p className="text-muted-foreground mb-4">
-              Este conteúdo requer {content?.visibility === 'paid' ? 'compra' : 'assinatura'} para ser acessado.
-            </p>
-          </Card>
-        </div>
       </>
     );
   }
