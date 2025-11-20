@@ -38,6 +38,7 @@ export const WatchVideoPlayer = ({ content, onTimeUpdate, onCreateNote, seekToTi
   const [noteModalOpen, setNoteModalOpen] = useState(false);
   const [noteText, setNoteText] = useState("");
   const [noteTimestamp, setNoteTimestamp] = useState(0);
+  const [noteMarkers, setNoteMarkers] = useState<number[]>([]);
   const { trackProgress } = useRewardSystem();
   const controlsTimeoutRef = useRef<NodeJS.Timeout>();
 
@@ -70,6 +71,31 @@ export const WatchVideoPlayer = ({ content, onTimeUpdate, onCreateNote, seekToTi
     };
 
     loadSavedPosition();
+  }, [content.id, user]);
+
+  // Load note markers
+  useEffect(() => {
+    const loadNoteMarkers = async () => {
+      if (!user || !content.id) return;
+
+      try {
+        const { data, error } = await supabase
+          .from("study_notes")
+          .select("timestamp_seconds")
+          .eq("user_id", user.id)
+          .eq("content_id", content.id)
+          .not("timestamp_seconds", "is", null);
+
+        if (error) throw error;
+
+        const markers = data.map(note => note.timestamp_seconds as number);
+        setNoteMarkers(markers);
+      } catch (error) {
+        console.error("Error loading note markers:", error);
+      }
+    };
+
+    loadNoteMarkers();
   }, [content.id, user]);
 
   // Handle seek from external trigger (notes)
@@ -258,6 +284,9 @@ export const WatchVideoPlayer = ({ content, onTimeUpdate, onCreateNote, seekToTi
         return;
       }
 
+      // Adicionar marcador visual imediatamente
+      setNoteMarkers(prev => [...prev, noteTimestamp]);
+
       toast.success("Nota salva!");
       setNoteModalOpen(false);
       setNoteText("");
@@ -301,17 +330,32 @@ export const WatchVideoPlayer = ({ content, onTimeUpdate, onCreateNote, seekToTi
           }`}
         >
           {/* Progress Bar */}
-          <input
-            type="range"
-            min="0"
-            max={duration}
-            value={currentTime}
-            onChange={handleSeek}
-            className="w-full h-1 mb-4 bg-white/30 rounded-lg appearance-none cursor-pointer slider"
-            style={{
-              background: `linear-gradient(to right, hsl(var(--primary)) 0%, hsl(var(--primary)) ${(currentTime / duration) * 100}%, rgba(255,255,255,0.3) ${(currentTime / duration) * 100}%, rgba(255,255,255,0.3) 100%)`
-            }}
-          />
+          <div className="relative w-full mb-4">
+            {/* Note markers */}
+            {noteMarkers.map((timestamp, index) => (
+              <div
+                key={`marker-${timestamp}-${index}`}
+                className="absolute top-0 w-0.5 h-3 bg-primary z-10"
+                style={{
+                  left: `${(timestamp / duration) * 100}%`,
+                  transform: 'translateX(-50%)',
+                }}
+                title={`Nota em ${formatTime(timestamp)}`}
+              />
+            ))}
+            
+            <input
+              type="range"
+              min="0"
+              max={duration}
+              value={currentTime}
+              onChange={handleSeek}
+              className="w-full h-1 bg-white/30 rounded-lg appearance-none cursor-pointer slider"
+              style={{
+                background: `linear-gradient(to right, hsl(var(--primary)) 0%, hsl(var(--primary)) ${(currentTime / duration) * 100}%, rgba(255,255,255,0.3) ${(currentTime / duration) * 100}%, rgba(255,255,255,0.3) 100%)`
+              }}
+            />
+          </div>
 
           <div className="flex items-center justify-between gap-4">
             <div className="flex items-center gap-3">
