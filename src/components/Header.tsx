@@ -68,7 +68,7 @@ export function Header({ variant = "home", title }: HeaderProps) {
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-56 bg-background border-border z-50">
-                <DropdownMenuItem onClick={() => navigate('/studio/upload?type=curso')} className="gap-3 cursor-pointer">
+                <DropdownMenuItem onClick={() => navigate('/studio/upload/curso')} className="gap-3 cursor-pointer">
                   <GraduationCap className="w-4 h-4" />
                   <div>
                     <div className="font-medium">Curso</div>
