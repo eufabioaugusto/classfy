@@ -76,6 +76,7 @@ const studioItems = [
 ];
 
 const adminItems = [
+  { title: "Dashboard", url: "/admin", icon: BarChart },
   { title: "Aprovar Creators", url: "/admin/creators", icon: CheckSquare },
   { title: "Aprovar Conteúdos", url: "/admin/contents", icon: Video },
   { title: "Transcrições", url: "/admin/transcriptions", icon: FileText },
