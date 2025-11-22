@@ -114,13 +114,24 @@ export default function Watch() {
       setContent(data);
       checkAccess(data);
 
-      // Only increment views if not admin previewing pending content
+      // Register unique view only if not admin previewing pending content
       const isAdminPreview = role === 'admin' && data.status === 'pending';
-      if (!isAdminPreview) {
-        await supabase
-          .from('contents')
-          .update({ views_count: (data.views_count || 0) + 1 })
-          .eq('id', id);
+      if (!isAdminPreview && user) {
+        try {
+          const { data: viewResult, error: viewError } = await supabase
+            .rpc('increment_content_view', {
+              p_user_id: user.id,
+              p_content_id: id
+            });
+          
+          if (viewError) {
+            console.error('Error registering view:', viewError);
+          } else {
+            console.log('View registered:', viewResult);
+          }
+        } catch (error) {
+          console.error('Error incrementing view:', error);
+        }
       }
     } catch (error: any) {
       console.error(error);
