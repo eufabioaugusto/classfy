@@ -86,14 +86,7 @@ export default function AdminDashboard() {
 
   const fetchDashboardStats = async () => {
     try {
-      const [
-        profilesRes,
-        rolesRes,
-        contentsRes,
-        withdrawalsRes,
-        walletsRes,
-        creatorRequestsRes,
-      ] = await Promise.all([
+      const [profilesRes, rolesRes, contentsRes, withdrawalsRes, walletsRes, creatorRequestsRes] = await Promise.all([
         supabase.from("profiles").select("id"),
         supabase.from("user_roles").select("role"),
         supabase.from("contents").select("status"),
@@ -112,9 +105,8 @@ export default function AdminDashboard() {
 
       const totalWithdrawals = withdrawalsRes.data?.length || 0;
       const pendingWithdrawals = withdrawalsRes.data?.filter((w) => w.status === "pending").length || 0;
-      const pendingWithdrawalAmount = withdrawalsRes.data
-        ?.filter((w) => w.status === "pending")
-        .reduce((sum, w) => sum + w.amount, 0) || 0;
+      const pendingWithdrawalAmount =
+        withdrawalsRes.data?.filter((w) => w.status === "pending").reduce((sum, w) => sum + w.amount, 0) || 0;
 
       const totalEarnings = walletsRes.data?.reduce((sum, w) => sum + w.total_earned, 0) || 0;
       const totalWithdrawn = walletsRes.data?.reduce((sum, w) => sum + w.total_withdrawn, 0) || 0;
@@ -211,9 +203,7 @@ export default function AdminDashboard() {
       }
 
       // Ordenar todas as atividades por data
-      activities.sort((a, b) => 
-        new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
-      );
+      activities.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
 
       setRecentActivities(activities.slice(0, 10));
     } catch (error: any) {
@@ -221,31 +211,26 @@ export default function AdminDashboard() {
     }
   };
 
-  const QuickAccessCard = ({ 
-    title, 
-    description, 
-    icon: Icon, 
-    href, 
-    badge 
-  }: { 
-    title: string; 
-    description: string; 
-    icon: any; 
-    href: string; 
-    badge?: number 
+  const QuickAccessCard = ({
+    title,
+    description,
+    icon: Icon,
+    href,
+    badge,
+  }: {
+    title: string;
+    description: string;
+    icon: any;
+    href: string;
+    badge?: number;
   }) => (
-    <Card 
-      className="p-6 hover:shadow-lg transition-all cursor-pointer group"
-      onClick={() => navigate(href)}
-    >
+    <Card className="p-6 hover:shadow-lg transition-all cursor-pointer group" onClick={() => navigate(href)}>
       <div className="flex items-start justify-between">
         <div className="space-y-2 flex-1">
           <div className="flex items-center gap-2">
             <Icon className="w-5 h-5 text-accent" />
             <h3 className="font-semibold">{title}</h3>
-            {badge !== undefined && badge > 0 && (
-              <Badge variant="destructive">{badge}</Badge>
-            )}
+            {badge !== undefined && badge > 0 && <Badge variant="destructive">{badge}</Badge>}
           </div>
           <p className="text-sm text-muted-foreground">{description}</p>
         </div>
@@ -292,7 +277,7 @@ export default function AdminDashboard() {
                 </Badge>
               </div>
             </div>
-            <Users className="w-12 h-12 text-blue-500" />
+            <Users className="w-6 h-6 text-blue-500" />
           </div>
         </Card>
 
@@ -312,7 +297,7 @@ export default function AdminDashboard() {
                 </Badge>
               </div>
             </div>
-            <Video className="w-12 h-12 text-purple-500" />
+            <Video className="w-6 h-6 text-purple-500" />
           </div>
         </Card>
 
@@ -331,7 +316,7 @@ export default function AdminDashboard() {
                 R$ {stats.pendingWithdrawalAmount.toFixed(2)} aguardando
               </p>
             </div>
-            <DollarSign className="w-12 h-12 text-green-500" />
+            <DollarSign className="w-6 h-6 text-green-500" />
           </div>
         </Card>
 
@@ -340,14 +325,12 @@ export default function AdminDashboard() {
             <div>
               <p className="text-sm text-muted-foreground">Ganhos Totais</p>
               <p className="text-3xl font-bold">R$ {stats.totalEarnings.toFixed(2)}</p>
-              <p className="text-xs text-muted-foreground mt-2">
-                R$ {stats.totalWithdrawn.toFixed(2)} sacados
-              </p>
+              <p className="text-xs text-muted-foreground mt-2">R$ {stats.totalWithdrawn.toFixed(2)} sacados</p>
               <p className="text-xs text-accent">
                 R$ {(stats.totalEarnings - stats.totalWithdrawn).toFixed(2)} em carteiras
               </p>
             </div>
-            <TrendingUp className="w-12 h-12 text-amber-500" />
+            <TrendingUp className="w-6 h-6 text-amber-500" />
           </div>
         </Card>
       </div>
@@ -366,13 +349,9 @@ export default function AdminDashboard() {
                   </div>
                   <h3 className="font-semibold">Conteúdos para Aprovar</h3>
                   <p className="text-sm text-muted-foreground">
-                    {stats.pendingContents} conteúdo{stats.pendingContents > 1 ? 's' : ''} aguardando revisão
+                    {stats.pendingContents} conteúdo{stats.pendingContents > 1 ? "s" : ""} aguardando revisão
                   </p>
-                  <Button 
-                    className="w-full mt-4" 
-                    variant="outline"
-                    onClick={() => navigate("/admin/contents")}
-                  >
+                  <Button className="w-full mt-4" variant="outline" onClick={() => navigate("/admin/contents")}>
                     Revisar Agora
                   </Button>
                 </div>
@@ -390,11 +369,7 @@ export default function AdminDashboard() {
                   <p className="text-sm text-muted-foreground">
                     R$ {stats.pendingWithdrawalAmount.toFixed(2)} aguardando aprovação
                   </p>
-                  <Button 
-                    className="w-full mt-4" 
-                    variant="outline"
-                    onClick={() => navigate("/admin/withdrawals")}
-                  >
+                  <Button className="w-full mt-4" variant="outline" onClick={() => navigate("/admin/withdrawals")}>
                     Processar Saques
                   </Button>
                 </div>
@@ -410,13 +385,10 @@ export default function AdminDashboard() {
                   </div>
                   <h3 className="font-semibold">Solicitações de Creator</h3>
                   <p className="text-sm text-muted-foreground">
-                    {stats.pendingCreatorRequests} solicitaç{stats.pendingCreatorRequests > 1 ? 'ões' : 'ão'} para revisar
+                    {stats.pendingCreatorRequests} solicitaç{stats.pendingCreatorRequests > 1 ? "ões" : "ão"} para
+                    revisar
                   </p>
-                  <Button 
-                    className="w-full mt-4" 
-                    variant="outline"
-                    onClick={() => navigate("/admin/creators")}
-                  >
+                  <Button className="w-full mt-4" variant="outline" onClick={() => navigate("/admin/creators")}>
                     Analisar Pedidos
                   </Button>
                 </div>
@@ -436,7 +408,7 @@ export default function AdminDashboard() {
             icon={Users}
             href="/admin/users"
           />
-          
+
           <QuickAccessCard
             title="Aprovar Creators"
             description="Revisar solicitações de creators"
@@ -444,7 +416,7 @@ export default function AdminDashboard() {
             href="/admin/creators"
             badge={stats.pendingCreatorRequests}
           />
-          
+
           <QuickAccessCard
             title="Aprovar Conteúdos"
             description="Moderar conteúdos publicados"
@@ -452,7 +424,7 @@ export default function AdminDashboard() {
             href="/admin/contents"
             badge={stats.pendingContents}
           />
-          
+
           <QuickAccessCard
             title="Processar Saques"
             description="Gerenciar solicitações de saque"
@@ -460,21 +432,21 @@ export default function AdminDashboard() {
             href="/admin/withdrawals"
             badge={stats.pendingWithdrawals}
           />
-          
+
           <QuickAccessCard
             title="Gerenciar Recompensas"
             description="Configurar sistema de recompensas"
             icon={Trophy}
             href="/admin/rewards"
           />
-          
+
           <QuickAccessCard
             title="Transcrições"
             description="Gerenciar transcrições de conteúdo"
             icon={FileText}
             href="/admin/transcriptions"
           />
-          
+
           <QuickAccessCard
             title="Configurações"
             description="Configurar parâmetros do sistema"
@@ -490,9 +462,7 @@ export default function AdminDashboard() {
         <Card className="p-6">
           <div className="space-y-4">
             {recentActivities.length === 0 ? (
-              <p className="text-muted-foreground text-center py-8">
-                Nenhuma atividade recente
-              </p>
+              <p className="text-muted-foreground text-center py-8">Nenhuma atividade recente</p>
             ) : (
               recentActivities.map((activity) => (
                 <div
@@ -504,9 +474,7 @@ export default function AdminDashboard() {
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className="font-medium">{activity.title}</p>
-                    <p className="text-sm text-muted-foreground truncate">
-                      {activity.description}
-                    </p>
+                    <p className="text-sm text-muted-foreground truncate">{activity.description}</p>
                   </div>
                   <span className="text-xs text-muted-foreground whitespace-nowrap">
                     {formatDistanceToNow(new Date(activity.timestamp), {
