@@ -3,6 +3,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
+import { useAdminNotifications } from "@/hooks/useAdminNotifications";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import {
@@ -19,8 +20,12 @@ import {
   Trophy,
   Settings,
   ChevronRight,
+  UserPlus,
+  Upload,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { formatDistanceToNow } from "date-fns";
+import { ptBR } from "date-fns/locale";
 
 interface DashboardStats {
   totalUsers: number;
@@ -37,11 +42,21 @@ interface DashboardStats {
   pendingCreatorRequests: number;
 }
 
+interface RecentActivity {
+  id: string;
+  type: "signup" | "upload" | "withdrawal";
+  title: string;
+  description: string;
+  timestamp: string;
+  icon: any;
+}
+
 export default function AdminDashboard() {
   const { role } = useAuth();
   const navigate = useNavigate();
   const { toast } = useToast();
   const [loading, setLoading] = useState(true);
+  const [recentActivities, setRecentActivities] = useState<RecentActivity[]>([]);
   const [stats, setStats] = useState<DashboardStats>({
     totalUsers: 0,
     totalCreators: 0,
@@ -57,12 +72,16 @@ export default function AdminDashboard() {
     pendingCreatorRequests: 0,
   });
 
+  // Ativa notificações em tempo real para admins
+  useAdminNotifications();
+
   useEffect(() => {
     if (role !== "admin") {
       navigate("/");
       return;
     }
     fetchDashboardStats();
+    fetchRecentActivities();
   }, [role, navigate]);
 
   const fetchDashboardStats = async () => {
@@ -124,6 +143,81 @@ export default function AdminDashboard() {
       });
     } finally {
       setLoading(false);
+    }
+  };
+
+  const fetchRecentActivities = async () => {
+    try {
+      const activities: RecentActivity[] = [];
+
+      // Buscar últimos 5 cadastros
+      const { data: signups } = await supabase
+        .from("profiles")
+        .select("id, display_name, created_at")
+        .order("created_at", { ascending: false })
+        .limit(5);
+
+      if (signups) {
+        signups.forEach((signup) => {
+          activities.push({
+            id: signup.id,
+            type: "signup",
+            title: "Novo Usuário",
+            description: signup.display_name,
+            timestamp: signup.created_at,
+            icon: UserPlus,
+          });
+        });
+      }
+
+      // Buscar últimos 5 uploads
+      const { data: uploads } = await supabase
+        .from("contents")
+        .select("id, title, created_at")
+        .order("created_at", { ascending: false })
+        .limit(5);
+
+      if (uploads) {
+        uploads.forEach((upload) => {
+          activities.push({
+            id: upload.id,
+            type: "upload",
+            title: "Novo Conteúdo",
+            description: upload.title,
+            timestamp: upload.created_at,
+            icon: Upload,
+          });
+        });
+      }
+
+      // Buscar últimos 5 saques
+      const { data: withdrawals } = await supabase
+        .from("withdraw_requests")
+        .select("id, amount, created_at")
+        .order("created_at", { ascending: false })
+        .limit(5);
+
+      if (withdrawals) {
+        withdrawals.forEach((withdrawal) => {
+          activities.push({
+            id: withdrawal.id,
+            type: "withdrawal",
+            title: "Solicitação de Saque",
+            description: `R$ ${withdrawal.amount.toFixed(2)}`,
+            timestamp: withdrawal.created_at,
+            icon: DollarSign,
+          });
+        });
+      }
+
+      // Ordenar todas as atividades por data
+      activities.sort((a, b) => 
+        new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+      );
+
+      setRecentActivities(activities.slice(0, 10));
+    } catch (error: any) {
+      console.error("Erro ao carregar atividades:", error);
     }
   };
 
@@ -388,6 +482,43 @@ export default function AdminDashboard() {
             href="/admin/settings"
           />
         </div>
+      </div>
+
+      {/* Recent Activity */}
+      <div>
+        <h2 className="text-2xl font-bold mb-4">Atividade Recente</h2>
+        <Card className="p-6">
+          <div className="space-y-4">
+            {recentActivities.length === 0 ? (
+              <p className="text-muted-foreground text-center py-8">
+                Nenhuma atividade recente
+              </p>
+            ) : (
+              recentActivities.map((activity) => (
+                <div
+                  key={activity.id}
+                  className="flex items-start gap-4 p-3 rounded-lg hover:bg-muted/50 transition-colors"
+                >
+                  <div className="p-2 rounded-full bg-primary/10">
+                    <activity.icon className="w-4 h-4 text-primary" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="font-medium">{activity.title}</p>
+                    <p className="text-sm text-muted-foreground truncate">
+                      {activity.description}
+                    </p>
+                  </div>
+                  <span className="text-xs text-muted-foreground whitespace-nowrap">
+                    {formatDistanceToNow(new Date(activity.timestamp), {
+                      addSuffix: true,
+                      locale: ptBR,
+                    })}
+                  </span>
+                </div>
+              ))
+            )}
+          </div>
+        </Card>
       </div>
     </div>
   );
