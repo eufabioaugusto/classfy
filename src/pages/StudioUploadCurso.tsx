@@ -14,8 +14,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { 
-  GraduationCap, Plus, Trash2, GripVertical, Video, FileText, 
-  HelpCircle, Upload, ChevronDown, ChevronUp, ImagePlus, X
+  GraduationCap, Plus, Trash2, Video, FileText, 
+  HelpCircle, ImagePlus, X
 } from "lucide-react";
 import { Progress } from "@/components/ui/progress";
 import { TagsInput } from "@/components/TagsInput";
@@ -25,6 +25,24 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from "@/components/ui/accordion";
+import {
+  DndContext,
+  closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  arrayMove,
+  SortableContext,
+  sortableKeyboardCoordinates,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
+import { DraggableModule } from "@/components/course-builder/DraggableModule";
+import { DraggableLesson } from "@/components/course-builder/DraggableLesson";
+import { CourseStructurePreview } from "@/components/course-builder/CourseStructurePreview";
 
 type Visibility = "free" | "pro" | "premium" | "paid";
 type CourseLevel = "beginner" | "intermediate" | "advanced";
@@ -113,6 +131,48 @@ export default function StudioUploadCurso() {
 
   const [submitting, setSubmitting] = useState(false);
   const [activeModule, setActiveModule] = useState<string | null>(null);
+
+  // Drag and Drop Sensors
+  const sensors = useSensors(
+    useSensor(PointerSensor),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    })
+  );
+
+  const handleDragEndModules = (event: DragEndEvent) => {
+    const { active, over } = event;
+
+    if (over && active.id !== over.id) {
+      setModules((items) => {
+        const oldIndex = items.findIndex((item) => item.id === active.id);
+        const newIndex = items.findIndex((item) => item.id === over.id);
+        return arrayMove(items, oldIndex, newIndex);
+      });
+      toast.success("Módulo reordenado!");
+    }
+  };
+
+  const handleDragEndLessons = (moduleId: string) => (event: DragEndEvent) => {
+    const { active, over } = event;
+
+    if (over && active.id !== over.id) {
+      setModules((modules) =>
+        modules.map((module) => {
+          if (module.id === moduleId) {
+            const oldIndex = module.lessons.findIndex((l) => l.id === active.id);
+            const newIndex = module.lessons.findIndex((l) => l.id === over.id);
+            return {
+              ...module,
+              lessons: arrayMove(module.lessons, oldIndex, newIndex),
+            };
+          }
+          return module;
+        })
+      );
+      toast.success("Aula reordenada!");
+    }
+  };
 
   if (loading) {
     return <div className="min-h-screen flex items-center justify-center">Carregando...</div>;
@@ -731,23 +791,32 @@ export default function StudioUploadCurso() {
                     </Button>
                   </div>
 
-                  <Accordion type="single" collapsible className="space-y-4">
-                    {modules.map((module, moduleIndex) => (
-                      <AccordionItem key={module.id} value={module.id} className="border rounded-lg">
-                        <Card className="p-0">
-                          <AccordionTrigger className="px-6 py-4 hover:no-underline">
-                            <div className="flex items-center gap-3 w-full">
-                              <GripVertical className="w-5 h-5 text-muted-foreground" />
-                              <div className="flex-1 text-left">
-                                <h4 className="font-semibold">
-                                  {module.title || `Módulo ${moduleIndex + 1}`}
-                                </h4>
-                                <p className="text-sm text-muted-foreground">
-                                  {module.lessons.length} aulas • {module.quizzes.length} quizzes • {module.materials.length} materiais
-                                </p>
-                              </div>
-                            </div>
-                          </AccordionTrigger>
+                  <DndContext
+                    sensors={sensors}
+                    collisionDetection={closestCenter}
+                    onDragEnd={handleDragEndModules}
+                  >
+                    <SortableContext
+                      items={modules.map(m => m.id)}
+                      strategy={verticalListSortingStrategy}
+                    >
+                      <Accordion type="single" collapsible className="space-y-4">
+                        {modules.map((module, moduleIndex) => (
+                          <DraggableModule key={module.id} id={module.id}>
+                            <AccordionItem value={module.id} className="border rounded-lg border-none">
+                              <Card className="p-0">
+                                <AccordionTrigger className="px-6 py-4 hover:no-underline">
+                                  <div className="flex items-center gap-3 w-full">
+                                    <div className="flex-1 text-left">
+                                      <h4 className="font-semibold">
+                                        {module.title || `Módulo ${moduleIndex + 1}`}
+                                      </h4>
+                                      <p className="text-sm text-muted-foreground">
+                                        {module.lessons.length} aulas • {module.quizzes.length} quizzes • {module.materials.length} materiais
+                                      </p>
+                                    </div>
+                                  </div>
+                                </AccordionTrigger>
 
                           <AccordionContent className="px-6 pb-4">
                             <div className="space-y-4">
@@ -790,9 +859,19 @@ export default function StudioUploadCurso() {
                                     Nenhuma aula adicionada ainda
                                   </p>
                                 ) : (
-                                  <div className="space-y-3">
-                                    {module.lessons.map((lesson, lessonIndex) => (
-                                      <Card key={lesson.id} className="p-4">
+                                  <DndContext
+                                    sensors={sensors}
+                                    collisionDetection={closestCenter}
+                                    onDragEnd={handleDragEndLessons(module.id)}
+                                  >
+                                    <SortableContext
+                                      items={module.lessons.map(l => l.id)}
+                                      strategy={verticalListSortingStrategy}
+                                    >
+                                      <div className="space-y-3">
+                                        {module.lessons.map((lesson, lessonIndex) => (
+                                          <DraggableLesson key={lesson.id} id={lesson.id}>
+                                            <Card className="p-4">
                                         <div className="space-y-3">
                                           <div className="flex items-start justify-between">
                                             <div className="flex-1 space-y-3">
@@ -876,12 +955,15 @@ export default function StudioUploadCurso() {
                                               Aula de pré-visualização (gratuita para todos)
                                             </Label>
                                           </div>
-                                        </div>
-                                      </Card>
-                                    ))}
-                                  </div>
-                                )}
-                              </div>
+                                            </div>
+                                          </Card>
+                                        </DraggableLesson>
+                                      ))}
+                                    </div>
+                                  </SortableContext>
+                                </DndContext>
+                              )}
+                            </div>
 
                               <div className="border-t pt-4">
                                 <div className="flex items-center justify-between mb-3">
@@ -983,10 +1065,13 @@ export default function StudioUploadCurso() {
                               </div>
                             </div>
                           </AccordionContent>
-                        </Card>
-                      </AccordionItem>
-                    ))}
-                  </Accordion>
+                              </Card>
+                            </AccordionItem>
+                          </DraggableModule>
+                        ))}
+                      </Accordion>
+                    </SortableContext>
+                  </DndContext>
                 </TabsContent>
 
                 {/* TAB: Configurações */}
@@ -1000,9 +1085,9 @@ export default function StudioUploadCurso() {
                 </TabsContent>
 
                 {/* TAB: Pré-visualizar */}
-                <TabsContent value="preview">
+                <TabsContent value="preview" className="space-y-6">
                   <Card className="p-6">
-                    <h3 className="text-lg font-semibold mb-4">Pré-visualização do Curso</h3>
+                    <h3 className="text-lg font-semibold mb-4">Prévia do Curso</h3>
                     <div className="space-y-4">
                       {thumbnailPreview && (
                         <img
@@ -1014,26 +1099,39 @@ export default function StudioUploadCurso() {
                       <h2 className="text-2xl font-bold">{title || "Título do Curso"}</h2>
                       <p className="text-muted-foreground">{description || "Descrição do curso..."}</p>
                       
-                      <div className="grid grid-cols-3 gap-4 text-center">
-                        <div className="p-4 bg-muted rounded-lg">
-                          <p className="text-sm text-muted-foreground">Módulos</p>
-                          <p className="text-2xl font-bold">{modules.filter(m => m.title).length}</p>
+                      {requirements && (
+                        <div>
+                          <h4 className="font-semibold mb-2">Pré-requisitos</h4>
+                          <p className="text-sm text-muted-foreground">{requirements}</p>
                         </div>
-                        <div className="p-4 bg-muted rounded-lg">
-                          <p className="text-sm text-muted-foreground">Aulas</p>
-                          <p className="text-2xl font-bold">
-                            {modules.reduce((acc, m) => acc + m.lessons.length, 0)}
-                          </p>
+                      )}
+
+                      {whatYouLearn && (
+                        <div>
+                          <h4 className="font-semibold mb-2">O que você aprenderá</h4>
+                          <p className="text-sm text-muted-foreground">{whatYouLearn}</p>
                         </div>
-                        <div className="p-4 bg-muted rounded-lg">
-                          <p className="text-sm text-muted-foreground">Quizzes</p>
-                          <p className="text-2xl font-bold">
-                            {modules.reduce((acc, m) => acc + m.quizzes.length, 0)}
-                          </p>
+                      )}
+
+                      {tags.length > 0 && (
+                        <div>
+                          <h4 className="font-semibold mb-2">Tags</h4>
+                          <div className="flex flex-wrap gap-2">
+                            {tags.map((tag, index) => (
+                              <span
+                                key={index}
+                                className="px-3 py-1 bg-primary/10 text-primary rounded-full text-sm"
+                              >
+                                {tag}
+                              </span>
+                            ))}
+                          </div>
                         </div>
-                      </div>
+                      )}
                     </div>
                   </Card>
+
+                  <CourseStructurePreview modules={modules} />
                 </TabsContent>
               </Tabs>
 
