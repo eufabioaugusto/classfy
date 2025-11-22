@@ -8,6 +8,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Check, Crown } from "lucide-react";
+import { supabase } from "@/integrations/supabase/client";
 
 interface UpgradeModalProps {
   open: boolean;
@@ -94,9 +95,23 @@ export const UpgradeModal = ({ open, onOpenChange, requiredPlan }: UpgradeModalP
 
                 <Button 
                   className={`w-full bg-gradient-to-r ${plan.color} hover:opacity-90`}
-                  onClick={() => {
-                    // TODO: Implementar integração de pagamento
-                    console.log(`Upgrade to ${plan.name}`);
+                  onClick={async () => {
+                    try {
+                      const { data, error } = await supabase.functions.invoke('create-subscription-checkout', {
+                        body: {
+                          plan: plan.name.toLowerCase(),
+                        },
+                      });
+
+                      if (error) throw error;
+
+                      if (data?.url) {
+                        window.open(data.url, '_blank');
+                        onOpenChange(false);
+                      }
+                    } catch (error) {
+                      console.error('Error creating checkout:', error);
+                    }
                   }}
                 >
                   Assinar {plan.name}
