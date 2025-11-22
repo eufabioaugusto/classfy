@@ -1,5 +1,8 @@
 project_id = "vhmurjknxaacjmvfkjbw"
 
+[functions.customer-portal]
+verify_jwt = true
+
 [functions.check-view-milestones]
 verify_jwt = false
 

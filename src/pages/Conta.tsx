@@ -262,18 +262,53 @@ export default function Conta() {
                     {profile?.plan === "pro" && "+10% de bônus em todas ações"}
                     {profile?.plan === "premium" && "+25% de bônus em todas ações"}
                   </p>
+                  {profile?.plan_expires_at && (
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Renova em: {new Date(profile.plan_expires_at).toLocaleDateString("pt-BR")}
+                    </p>
+                  )}
                 </div>
                 <Trophy className="w-8 h-8 text-accent" />
               </div>
               
-              <Button variant="outline" className="w-full" onClick={() => {
-                toast({
-                  title: "Em breve",
-                  description: "A funcionalidade de upgrade estará disponível em breve!",
-                });
-              }}>
-                Fazer Upgrade
-              </Button>
+              <div className="flex gap-3">
+                {profile?.plan !== "free" ? (
+                  <Button 
+                    variant="outline" 
+                    className="flex-1"
+                    onClick={async () => {
+                      try {
+                        const { data, error } = await supabase.functions.invoke('customer-portal');
+                        if (error) throw error;
+                        if (data?.url) {
+                          window.open(data.url, '_blank');
+                        }
+                      } catch (error: any) {
+                        toast({
+                          title: "Erro",
+                          description: error.message || "Não foi possível abrir o portal",
+                          variant: "destructive",
+                        });
+                      }
+                    }}
+                  >
+                    Gerenciar Assinatura
+                  </Button>
+                ) : (
+                  <Button 
+                    variant="outline" 
+                    className="flex-1" 
+                    onClick={() => {
+                      toast({
+                        title: "Em breve",
+                        description: "A funcionalidade de upgrade estará disponível em breve!",
+                      });
+                    }}
+                  >
+                    Fazer Upgrade
+                  </Button>
+                )}
+              </div>
             </div>
           </Card>
 
