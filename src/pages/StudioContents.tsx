@@ -306,7 +306,19 @@ export default function StudioContents() {
                               </span>
                             </TableCell>
                             <TableCell>
-                              {getStatusBadge(content.status)}
+                              <div className="flex flex-col gap-2">
+                                {getStatusBadge(content.status)}
+                                {content.status === 'approved' && (
+                                  <Button
+                                    size="sm"
+                                    onClick={() => openBoostModal(content.id, content.title)}
+                                    className="bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 text-white border-0 gap-1.5"
+                                  >
+                                    <Zap className="w-3.5 h-3.5" />
+                                    Impulsionar
+                                  </Button>
+                                )}
+                              </div>
                             </TableCell>
                             <TableCell>
                               <span className="text-sm text-muted-foreground">
