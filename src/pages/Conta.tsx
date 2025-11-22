@@ -250,17 +250,19 @@ export default function Conta() {
 
           {/* Plan Info */}
           <Card className="p-8">
-            <h2 className="text-2xl font-bold mb-6">Seu Plano</h2>
-            <div className="space-y-4">
-              <div className="flex items-center justify-between">
+            <h2 className="text-2xl font-bold mb-6">Gerenciar Plano</h2>
+            
+            {/* Current Plan */}
+            <div className="mb-6 p-4 rounded-lg bg-accent/10 border border-accent/20">
+              <div className="flex items-center justify-between mb-2">
                 <div>
                   <p className="font-semibold text-lg">
                     Plano {profile?.plan?.toUpperCase() || "FREE"}
                   </p>
                   <p className="text-sm text-muted-foreground">
                     {profile?.plan === "free" && "Monetização padrão"}
-                    {profile?.plan === "pro" && "+10% de bônus em todas ações"}
-                    {profile?.plan === "premium" && "+25% de bônus em todas ações"}
+                    {profile?.plan === "pro" && "R$ 29,90/mês • +10% de bônus"}
+                    {profile?.plan === "premium" && "R$ 49,90/mês • +25% de bônus"}
                   </p>
                   {profile?.plan_expires_at && (
                     <p className="text-xs text-muted-foreground mt-1">
@@ -270,45 +272,222 @@ export default function Conta() {
                 </div>
                 <Trophy className="w-8 h-8 text-accent" />
               </div>
-              
-              <div className="flex gap-3">
-                {profile?.plan !== "free" ? (
+            </div>
+
+            {/* Plan Actions */}
+            <div className="space-y-3">
+              {profile?.plan === "free" && (
+                <>
                   <Button 
-                    variant="outline" 
-                    className="flex-1"
+                    className="w-full bg-gradient-to-r from-yellow-500 to-amber-600 hover:opacity-90"
                     onClick={async () => {
                       try {
-                        const { data, error } = await supabase.functions.invoke('customer-portal');
+                        const { data, error } = await supabase.functions.invoke('create-subscription-checkout', {
+                          body: { plan: 'pro' }
+                        });
                         if (error) throw error;
-                        if (data?.url) {
-                          window.open(data.url, '_blank');
-                        }
+                        if (data?.url) window.open(data.url, '_blank');
                       } catch (error: any) {
                         toast({
                           title: "Erro",
-                          description: error.message || "Não foi possível abrir o portal",
+                          description: error.message,
                           variant: "destructive",
                         });
                       }
                     }}
                   >
-                    Gerenciar Assinatura
+                    Assinar Pro - R$ 29,90/mês
                   </Button>
-                ) : (
                   <Button 
-                    variant="outline" 
-                    className="flex-1" 
-                    onClick={() => {
-                      toast({
-                        title: "Em breve",
-                        description: "A funcionalidade de upgrade estará disponível em breve!",
-                      });
+                    className="w-full bg-gradient-to-r from-red-500 to-rose-600 hover:opacity-90"
+                    onClick={async () => {
+                      try {
+                        const { data, error } = await supabase.functions.invoke('create-subscription-checkout', {
+                          body: { plan: 'premium' }
+                        });
+                        if (error) throw error;
+                        if (data?.url) window.open(data.url, '_blank');
+                      } catch (error: any) {
+                        toast({
+                          title: "Erro",
+                          description: error.message,
+                          variant: "destructive",
+                        });
+                      }
                     }}
                   >
-                    Fazer Upgrade
+                    Assinar Premium - R$ 49,90/mês
                   </Button>
-                )}
-              </div>
+                </>
+              )}
+
+              {profile?.plan === "pro" && (
+                <>
+                  <Button 
+                    className="w-full bg-gradient-to-r from-red-500 to-rose-600 hover:opacity-90"
+                    onClick={async () => {
+                      try {
+                        setSubmitting(true);
+                        const { data, error } = await supabase.functions.invoke('manage-subscription', {
+                          body: { action: 'upgrade', newPlan: 'premium' }
+                        });
+                        if (error) throw error;
+                        toast({
+                          title: "Sucesso!",
+                          description: data.message || "Plano atualizado!",
+                        });
+                        await fetchData();
+                      } catch (error: any) {
+                        toast({
+                          title: "Erro",
+                          description: error.message,
+                          variant: "destructive",
+                        });
+                      } finally {
+                        setSubmitting(false);
+                      }
+                    }}
+                    disabled={submitting}
+                  >
+                    Fazer Upgrade para Premium
+                  </Button>
+                  <div className="grid grid-cols-2 gap-3">
+                    <Button 
+                      variant="outline"
+                      onClick={async () => {
+                        try {
+                          const { data, error } = await supabase.functions.invoke('customer-portal');
+                          if (error) throw error;
+                          if (data?.url) window.open(data.url, '_blank');
+                        } catch (error: any) {
+                          toast({
+                            title: "Erro",
+                            description: error.message,
+                            variant: "destructive",
+                          });
+                        }
+                      }}
+                    >
+                      Gerenciar Pagamento
+                    </Button>
+                    <Button 
+                      variant="outline"
+                      className="text-destructive hover:bg-destructive/10"
+                      onClick={async () => {
+                        if (!confirm("Tem certeza que deseja cancelar? Você perderá acesso ao plano Pro ao final do período.")) return;
+                        try {
+                          setSubmitting(true);
+                          const { data, error } = await supabase.functions.invoke('manage-subscription', {
+                            body: { action: 'cancel' }
+                          });
+                          if (error) throw error;
+                          toast({
+                            title: "Assinatura Cancelada",
+                            description: data.message,
+                          });
+                          await fetchData();
+                        } catch (error: any) {
+                          toast({
+                            title: "Erro",
+                            description: error.message,
+                            variant: "destructive",
+                          });
+                        } finally {
+                          setSubmitting(false);
+                        }
+                      }}
+                      disabled={submitting}
+                    >
+                      Cancelar Plano
+                    </Button>
+                  </div>
+                </>
+              )}
+
+              {profile?.plan === "premium" && (
+                <>
+                  <Button 
+                    variant="outline"
+                    className="w-full"
+                    onClick={async () => {
+                      if (!confirm("Deseja fazer downgrade para o plano Pro? O ajuste será feito na próxima cobrança.")) return;
+                      try {
+                        setSubmitting(true);
+                        const { data, error } = await supabase.functions.invoke('manage-subscription', {
+                          body: { action: 'downgrade', newPlan: 'pro' }
+                        });
+                        if (error) throw error;
+                        toast({
+                          title: "Sucesso!",
+                          description: data.message || "Plano alterado!",
+                        });
+                        await fetchData();
+                      } catch (error: any) {
+                        toast({
+                          title: "Erro",
+                          description: error.message,
+                          variant: "destructive",
+                        });
+                      } finally {
+                        setSubmitting(false);
+                      }
+                    }}
+                    disabled={submitting}
+                  >
+                    Fazer Downgrade para Pro
+                  </Button>
+                  <div className="grid grid-cols-2 gap-3">
+                    <Button 
+                      variant="outline"
+                      onClick={async () => {
+                        try {
+                          const { data, error } = await supabase.functions.invoke('customer-portal');
+                          if (error) throw error;
+                          if (data?.url) window.open(data.url, '_blank');
+                        } catch (error: any) {
+                          toast({
+                            title: "Erro",
+                            description: error.message,
+                            variant: "destructive",
+                          });
+                        }
+                      }}
+                    >
+                      Gerenciar Pagamento
+                    </Button>
+                    <Button 
+                      variant="outline"
+                      className="text-destructive hover:bg-destructive/10"
+                      onClick={async () => {
+                        if (!confirm("Tem certeza que deseja cancelar? Você perderá acesso ao plano Premium ao final do período.")) return;
+                        try {
+                          setSubmitting(true);
+                          const { data, error } = await supabase.functions.invoke('manage-subscription', {
+                            body: { action: 'cancel' }
+                          });
+                          if (error) throw error;
+                          toast({
+                            title: "Assinatura Cancelada",
+                            description: data.message,
+                          });
+                          await fetchData();
+                        } catch (error: any) {
+                          toast({
+                            title: "Erro",
+                            description: error.message,
+                            variant: "destructive",
+                          });
+                        } finally {
+                          setSubmitting(false);
+                        }
+                      }}
+                      disabled={submitting}
+                    >
+                      Cancelar Plano
+                    </Button>
+                  </div>
+                </>
+              )}
             </div>
           </Card>
 

@@ -1,5 +1,8 @@
 project_id = "vhmurjknxaacjmvfkjbw"
 
+[functions.manage-subscription]
+verify_jwt = true
+
 [functions.customer-portal]
 verify_jwt = true
 
