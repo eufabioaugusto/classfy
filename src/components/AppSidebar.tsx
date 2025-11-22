@@ -102,11 +102,16 @@ export function AppSidebar() {
   const isActive = (path: string) => location.pathname === path;
 
   return (
-    <Sidebar className="border-r border-border/20 bg-background">
+    <Sidebar 
+      className={`border-r border-border/20 bg-background transition-all duration-300 ${
+        collapsed ? "w-16" : "w-60"
+      }`}
+      collapsible="icon"
+    >
       <SidebarContent>
         {/* Logo/Brand */}
-        <div className="p-6 space-y-4">
-          <div className="flex items-center gap-2 cursor-pointer" onClick={() => navigate("/")}>
+        <div className={`p-6 space-y-4 ${collapsed ? "px-3" : ""}`}>
+          <div className="flex items-center gap-2 cursor-pointer justify-center" onClick={() => navigate("/")}>
             <Sparkles className="w-6 h-6 text-cinematic-accent" />
             {!collapsed && <span className="text-xl font-bold text-foreground">CLASSFY</span>}
           </div>
@@ -134,10 +139,11 @@ export function AppSidebar() {
           
           {/* Mini avatar when collapsed */}
           {user && collapsed && (
-            <div className="flex flex-col items-center gap-2">
+            <div className="flex flex-col items-center gap-2 mt-4">
               <div 
-                className="cursor-pointer"
+                className="cursor-pointer hover:opacity-80 transition-opacity"
                 onClick={() => navigate("/conta")}
+                title={profile?.display_name}
               >
                 <ProfileAvatar size="sm" />
               </div>
@@ -163,8 +169,11 @@ export function AppSidebar() {
                     <NavLink
                       to={item.url}
                       end
-                      className="text-foreground/80 hover:bg-muted hover:text-foreground"
+                      className={`text-foreground/80 hover:bg-muted hover:text-foreground ${
+                        collapsed ? "justify-center" : ""
+                      }`}
                       activeClassName="bg-muted text-cinematic-accent font-medium"
+                      title={collapsed ? item.title : undefined}
                     >
                       <item.icon className="w-4 h-4" />
                       {!collapsed && <span>{item.title}</span>}
@@ -179,21 +188,19 @@ export function AppSidebar() {
         <Separator className="bg-border my-2" />
 
         {/* Studies Section */}
-        {user && (
+        {user && !collapsed && (
           <Collapsible open={studiesOpen} onOpenChange={setStudiesOpen}>
             <SidebarGroup>
               <SidebarGroupLabel asChild>
                 <CollapsibleTrigger className="flex w-full items-center justify-between hover:bg-muted rounded-md px-2 py-1">
                   <div className="flex items-center gap-2">
                     <BookOpen className="h-4 w-4" />
-                    {!collapsed && <span>Estudos</span>}
+                    <span>Estudos</span>
                   </div>
-                  {!collapsed && (
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs text-muted-foreground">{limitText}</span>
-                      <ChevronRight className="h-4 w-4 transition-transform data-[state=open]:rotate-90" />
-                    </div>
-                  )}
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-muted-foreground">{limitText}</span>
+                    <ChevronRight className="h-4 w-4 transition-transform data-[state=open]:rotate-90" />
+                  </div>
                 </CollapsibleTrigger>
               </SidebarGroupLabel>
               <CollapsibleContent>
@@ -208,17 +215,17 @@ export function AppSidebar() {
                             activeClassName="bg-muted text-cinematic-accent font-medium"
                           >
                             <BookOpen className="h-4 w-4" />
-                            {!collapsed && <span className="truncate max-w-[160px]">{study.title}</span>}
+                            <span className="truncate max-w-[160px]">{study.title}</span>
                           </NavLink>
                         </SidebarMenuButton>
                       </SidebarMenuItem>
                     ))}
-                    {!collapsed && activeStudies.length === 0 && (
+                    {activeStudies.length === 0 && (
                       <div className="px-4 py-2 text-sm text-muted-foreground">
                         Nenhum estudo ativo
                       </div>
                     )}
-                    {!collapsed && canCreateMore && (
+                    {canCreateMore && (
                       <SidebarMenuItem>
                         <SidebarMenuButton onClick={() => navigate("/")}>
                           <Plus className="h-4 w-4" />
@@ -226,7 +233,7 @@ export function AppSidebar() {
                         </SidebarMenuButton>
                       </SidebarMenuItem>
                     )}
-                    {!collapsed && !canCreateMore && (
+                    {!canCreateMore && (
                       <div className="px-4 py-2 text-xs text-muted-foreground bg-muted/50 rounded-md mx-2 mb-2">
                         Limite atingido. Arquive estudos ou faça upgrade.
                       </div>
@@ -236,6 +243,24 @@ export function AppSidebar() {
               </CollapsibleContent>
             </SidebarGroup>
           </Collapsible>
+        )}
+        
+        {/* Studies icon when collapsed */}
+        {user && collapsed && (
+          <SidebarGroup>
+            <SidebarGroupContent>
+              <SidebarMenu>
+                <SidebarMenuItem>
+                  <SidebarMenuButton 
+                    className="justify-center"
+                    title="Estudos"
+                  >
+                    <BookOpen className="h-4 w-4" />
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
         )}
 
         <Separator className="bg-border my-2" />
@@ -247,7 +272,12 @@ export function AppSidebar() {
             <SidebarMenu>
               {categories.map((category) => (
                 <SidebarMenuItem key={category.title}>
-                  <SidebarMenuButton className="text-foreground/80 hover:bg-muted hover:text-foreground">
+                  <SidebarMenuButton 
+                    className={`text-foreground/80 hover:bg-muted hover:text-foreground ${
+                      collapsed ? "justify-center" : ""
+                    }`}
+                    title={collapsed ? category.title : undefined}
+                  >
                     <category.icon className="w-4 h-4" />
                     {!collapsed && <span>{category.title}</span>}
                   </SidebarMenuButton>
@@ -266,7 +296,13 @@ export function AppSidebar() {
               <SidebarGroupContent>
                 <SidebarMenu>
                   <SidebarMenuItem>
-                    <SidebarMenuButton onClick={() => setCreatorModalOpen(true)} className="text-foreground/80 hover:bg-muted hover:text-foreground">
+                    <SidebarMenuButton 
+                      onClick={() => setCreatorModalOpen(true)} 
+                      className={`text-foreground/80 hover:bg-muted hover:text-foreground ${
+                        collapsed ? "justify-center" : ""
+                      }`}
+                      title={collapsed ? "Torne-se Creator" : undefined}
+                    >
                       <Sparkles className="w-4 h-4" />
                       {!collapsed && <span>Torne-se Creator</span>}
                     </SidebarMenuButton>
@@ -291,8 +327,11 @@ export function AppSidebar() {
                       <SidebarMenuButton asChild>
                         <NavLink
                           to={item.url}
-                          className="text-foreground/80 hover:bg-muted hover:text-foreground"
+                          className={`text-foreground/80 hover:bg-muted hover:text-foreground ${
+                            collapsed ? "justify-center" : ""
+                          }`}
                           activeClassName="bg-muted text-cinematic-accent font-medium"
+                          title={collapsed ? item.title : undefined}
                         >
                           <item.icon className="w-4 h-4" />
                           {!collapsed && <span>{item.title}</span>}
@@ -319,8 +358,11 @@ export function AppSidebar() {
                       <SidebarMenuButton asChild>
                         <NavLink
                           to={item.url}
-                          className="text-foreground/80 hover:bg-muted hover:text-foreground"
+                          className={`text-foreground/80 hover:bg-muted hover:text-foreground ${
+                            collapsed ? "justify-center" : ""
+                          }`}
                           activeClassName="bg-muted text-cinematic-accent font-medium"
+                          title={collapsed ? item.title : undefined}
                         >
                           <item.icon className="w-4 h-4" />
                           {!collapsed && <span>{item.title}</span>}
@@ -346,8 +388,11 @@ export function AppSidebar() {
                     <SidebarMenuButton asChild>
                       <NavLink
                         to="/conta"
-                        className="text-foreground/80 hover:bg-muted hover:text-foreground"
+                        className={`text-foreground/80 hover:bg-muted hover:text-foreground ${
+                          collapsed ? "justify-center" : ""
+                        }`}
                         activeClassName="bg-muted text-cinematic-accent"
+                        title={collapsed ? "Minha Conta" : undefined}
                       >
                         <User className="w-4 h-4" />
                         {!collapsed && <span>Minha Conta</span>}
@@ -355,7 +400,13 @@ export function AppSidebar() {
                     </SidebarMenuButton>
                   </SidebarMenuItem>
                   <SidebarMenuItem>
-                    <SidebarMenuButton onClick={signOut} className="text-foreground/80 hover:bg-muted hover:text-foreground">
+                    <SidebarMenuButton 
+                      onClick={signOut} 
+                      className={`text-foreground/80 hover:bg-muted hover:text-foreground ${
+                        collapsed ? "justify-center" : ""
+                      }`}
+                      title={collapsed ? "Sair" : undefined}
+                    >
                       <LogOut className="w-4 h-4" />
                       {!collapsed && <span>Sair</span>}
                     </SidebarMenuButton>
