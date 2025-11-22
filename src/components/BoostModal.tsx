@@ -11,6 +11,7 @@ import { Input } from "@/components/ui/input";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { Loader2, Target, Users, DollarSign, Calendar, Receipt } from "lucide-react";
+import { LocationInput } from "@/components/LocationInput";
 
 interface BoostModalProps {
   open: boolean;
@@ -35,7 +36,7 @@ export const BoostModal = ({ open, onOpenChange, contentId, contentTitle }: Boos
     gender: 'all',
     ageMin: 18,
     ageMax: 65,
-    location: ''
+    locations: [] as string[]
   });
   
   // Step 3: Budget
@@ -254,14 +255,10 @@ export const BoostModal = ({ open, onOpenChange, contentId, contentTitle }: Boos
 
                 <div className="space-y-2">
                   <Label>Localização</Label>
-                  <Input 
-                    placeholder="Ex: São Paulo, Brasil"
-                    value={audienceFilters.location}
-                    onChange={(e) => setAudienceFilters({...audienceFilters, location: e.target.value})}
+                  <LocationInput 
+                    value={audienceFilters.locations}
+                    onChange={(locations) => setAudienceFilters({...audienceFilters, locations})}
                   />
-                  <p className="text-xs text-muted-foreground">
-                    Deixe em branco para alcançar todas as localizações
-                  </p>
                 </div>
               </div>
             )}
