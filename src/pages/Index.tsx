@@ -32,8 +32,16 @@ export default function Index() {
     canCreateMore
   } = useStudies();
 
-  // Mode toggle state
-  const [isExploreMode, setIsExploreMode] = useState(false);
+  // Mode toggle state - persisted in localStorage
+  const [isExploreMode, setIsExploreMode] = useState(() => {
+    const saved = localStorage.getItem('exploreMode');
+    return saved ? JSON.parse(saved) : false;
+  });
+
+  // Persist explore mode state
+  useEffect(() => {
+    localStorage.setItem('exploreMode', JSON.stringify(isExploreMode));
+  }, [isExploreMode]);
 
   // Search state
   const [searchResults, setSearchResults] = useState<any[]>([]);
