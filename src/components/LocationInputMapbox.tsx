@@ -11,7 +11,8 @@ interface LocationInputMapboxProps {
 
 export const LocationInputMapbox = ({ value, onChange }: LocationInputMapboxProps) => {
   const [input, setInput] = useState("");
-  const mapboxToken = import.meta.env.VITE_MAPBOX_TOKEN;
+  // Token público do Mapbox (seguro para expor no frontend)
+  const mapboxToken = "pk.eyJ1IjoibWFwLWNsYXNzZnktYm9vc3QiLCJhIjoiY200MWg5czBrMGM4czJ1bzB4cGF3MW5kMiJ9.DnonBY0RZQCnx_ejcivEIO";
 
   const addLocation = (location: string) => {
     if (location.trim() && !value.includes(location)) {
