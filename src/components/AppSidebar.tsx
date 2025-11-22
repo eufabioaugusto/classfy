@@ -283,8 +283,6 @@ export function AppSidebar() {
           </SidebarGroup>
         )}
 
-        <Separator className="bg-border my-2" />
-
         {/* Become Creator (Users only) */}
         {showBecomeCreator && (
           <>
