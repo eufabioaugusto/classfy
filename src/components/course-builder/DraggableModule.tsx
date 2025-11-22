@@ -1,12 +1,19 @@
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { GripVertical } from "lucide-react";
+import { ReactNode } from "react";
 
-interface DraggableModuleProps {
+interface DraggableModuleWrapperProps {
   id: string;
+  children: (props: {
+    ref: (node: HTMLElement | null) => void;
+    style: React.CSSProperties;
+    isDragging: boolean;
+    handleProps: any;
+  }) => ReactNode;
 }
 
-export function DraggableModule({ id }: DraggableModuleProps) {
+export function DraggableModuleWrapper({ id, children }: DraggableModuleWrapperProps) {
   const {
     attributes,
     listeners,
@@ -21,12 +28,16 @@ export function DraggableModule({ id }: DraggableModuleProps) {
     transition,
   };
 
-  return {
-    ref: setNodeRef,
-    style,
-    isDragging,
-    handleProps: { ...attributes, ...listeners },
-  };
+  return (
+    <>
+      {children({
+        ref: setNodeRef,
+        style,
+        isDragging,
+        handleProps: { ...attributes, ...listeners },
+      })}
+    </>
+  );
 }
 
 export function DragHandle({ handleProps }: { handleProps: any }) {
