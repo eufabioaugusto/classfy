@@ -229,7 +229,7 @@ export default function AdminDashboard() {
         <div className="space-y-2 flex-1">
           <div className="flex items-center gap-2">
             <Icon className="w-5 h-5 text-accent" />
-            <h3 className="font-semibold">{title}</h3>
+            <h5 className="font-semibold">{title}</h5>
             {badge !== undefined && badge > 0 && <Badge variant="destructive">{badge}</Badge>}
           </div>
           <p className="text-sm text-muted-foreground">{description}</p>
