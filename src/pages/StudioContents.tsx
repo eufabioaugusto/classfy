@@ -257,15 +257,15 @@ export default function StudioContents() {
                   <Table>
                     <TableHeader>
                       <TableRow>
-                        <TableHead className="w-12">
+                        <TableHead className="w-[5%]">
                           <Checkbox checked={selectedContents.size === filteredContents.length} onCheckedChange={toggleSelectAll} />
                         </TableHead>
-                        <TableHead className="w-[400px]">Vídeo</TableHead>
-                        <TableHead>Visibilidade</TableHead>
-                        <TableHead className="w-[180px]">Status</TableHead>
-                        <TableHead>Data</TableHead>
-                        <TableHead className="text-right">Visualizações</TableHead>
-                        <TableHead className="w-12"></TableHead>
+                        <TableHead className="w-[40%]">Vídeo</TableHead>
+                        <TableHead className="w-[10%]">Visibilidade</TableHead>
+                        <TableHead className="w-[10%]">Status</TableHead>
+                        <TableHead className="w-[15%]">Data</TableHead>
+                        <TableHead className="text-right w-[10%]">Visualizações</TableHead>
+                        <TableHead className="w-[5%]"></TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
