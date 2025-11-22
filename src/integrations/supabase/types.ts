@@ -146,6 +146,81 @@ export type Database = {
         }
         Relationships: []
       }
+      boosts: {
+        Row: {
+          audience_filters: Json | null
+          audience_type: Database["public"]["Enums"]["audience_type"]
+          clicks_count: number | null
+          content_id: string | null
+          created_at: string | null
+          daily_budget: number
+          duration_days: number
+          end_date: string | null
+          id: string
+          impressions_count: number | null
+          objective: Database["public"]["Enums"]["boost_objective"]
+          start_date: string | null
+          status: Database["public"]["Enums"]["boost_status"]
+          stripe_payment_intent_id: string | null
+          total_budget: number | null
+          updated_at: string | null
+          user_id: string
+        }
+        Insert: {
+          audience_filters?: Json | null
+          audience_type?: Database["public"]["Enums"]["audience_type"]
+          clicks_count?: number | null
+          content_id?: string | null
+          created_at?: string | null
+          daily_budget: number
+          duration_days: number
+          end_date?: string | null
+          id?: string
+          impressions_count?: number | null
+          objective: Database["public"]["Enums"]["boost_objective"]
+          start_date?: string | null
+          status?: Database["public"]["Enums"]["boost_status"]
+          stripe_payment_intent_id?: string | null
+          total_budget?: number | null
+          updated_at?: string | null
+          user_id: string
+        }
+        Update: {
+          audience_filters?: Json | null
+          audience_type?: Database["public"]["Enums"]["audience_type"]
+          clicks_count?: number | null
+          content_id?: string | null
+          created_at?: string | null
+          daily_budget?: number
+          duration_days?: number
+          end_date?: string | null
+          id?: string
+          impressions_count?: number | null
+          objective?: Database["public"]["Enums"]["boost_objective"]
+          start_date?: string | null
+          status?: Database["public"]["Enums"]["boost_status"]
+          stripe_payment_intent_id?: string | null
+          total_budget?: number | null
+          updated_at?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "boosts_content_id_fkey"
+            columns: ["content_id"]
+            isOneToOne: false
+            referencedRelation: "contents"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "boosts_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       categories: {
         Row: {
           created_at: string
@@ -1473,6 +1548,7 @@ export type Database = {
         Args: { p_content_id: string; p_user_id: string }
         Returns: Json
       }
+      is_content_boosted: { Args: { p_content_id: string }; Returns: boolean }
     }
     Enums: {
       action_type:
@@ -1485,6 +1561,14 @@ export type Database = {
         | "COURSE_COMPLETE"
         | "IA_INTERACTION"
       app_role: "user" | "creator" | "admin"
+      audience_type: "automatic" | "segmented"
+      boost_objective: "profile" | "content"
+      boost_status:
+        | "pending_payment"
+        | "active"
+        | "paused"
+        | "completed"
+        | "cancelled"
       content_type: "aula" | "short" | "podcast"
       content_visibility: "free" | "pro" | "premium" | "paid"
       creator_status: "none" | "pending" | "approved" | "rejected"
@@ -1628,6 +1712,15 @@ export const Constants = {
         "IA_INTERACTION",
       ],
       app_role: ["user", "creator", "admin"],
+      audience_type: ["automatic", "segmented"],
+      boost_objective: ["profile", "content"],
+      boost_status: [
+        "pending_payment",
+        "active",
+        "paused",
+        "completed",
+        "cancelled",
+      ],
       content_type: ["aula", "short", "podcast"],
       content_visibility: ["free", "pro", "premium", "paid"],
       creator_status: ["none", "pending", "approved", "rejected"],

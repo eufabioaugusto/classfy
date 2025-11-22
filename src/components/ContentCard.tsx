@@ -1,8 +1,10 @@
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Play, Clock, BookOpen, Lock, Crown, ShoppingCart } from "lucide-react";
+import { Play, Clock, BookOpen, Lock, Crown, ShoppingCart, Zap } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
+import { useState, useEffect } from "react";
+import { supabase } from "@/integrations/supabase/client";
 
 interface ContentCardProps {
   id?: string;
@@ -73,6 +75,22 @@ export const ContentCard = ({
   const navigate = useNavigate();
   const isRestricted = !isFree || requiredPlan;
   const isPaid = visibility === "paid";
+  const [isBoosted, setIsBoosted] = useState(false);
+
+  useEffect(() => {
+    const checkBoost = async () => {
+      if (!id) return;
+      
+      const { data, error } = await supabase
+        .rpc('is_content_boosted', { p_content_id: id });
+      
+      if (!error && data) {
+        setIsBoosted(data);
+      }
+    };
+
+    checkBoost();
+  }, [id]);
 
   const getPlanBadgeColor = (plan?: string) => {
     switch (plan) {
@@ -168,6 +186,12 @@ export const ContentCard = ({
 
         {/* Badges - Top Left */}
         <div className="absolute top-1.5 left-1.5 flex gap-1 flex-wrap max-w-[calc(100%-3rem)]">
+          {isBoosted && (
+            <Badge className="bg-primary/95 backdrop-blur-md text-primary-foreground font-semibold text-[9px] px-1.5 py-0.5 shadow-md flex items-center gap-0.5">
+              <Zap className="w-2.5 h-2.5" />
+              Anúncio
+            </Badge>
+          )}
           {isPaid && (
             <>
               <Badge className="bg-badge-hot/95 backdrop-blur-md text-white font-semibold text-[9px] px-1.5 py-0.5 shadow-md">
