@@ -31,21 +31,23 @@ serve(async (req) => {
       throw new Error("Invalid plan selected");
     }
 
-    // Plan configuration
+    // Fixed Stripe Product IDs
     const planConfig = {
       pro: {
-        name: "Plano Pro",
-        price: 2990, // R$ 29,90 in centavos
-        priceId: "price_pro_monthly", // You'll need to create this in Stripe
+        name: "Classfy Pro",
+        priceId: "price_1SWKSDBW0e1s8a6ZRbWZI6Fm",
+        productId: "prod_TTH0TCgKCJn5QS",
       },
       premium: {
-        name: "Plano Premium",
-        price: 4990, // R$ 49,90 in centavos
-        priceId: "price_premium_monthly", // You'll need to create this in Stripe
+        name: "Classfy Premium",
+        priceId: "price_1SWKT6BW0e1s8a6ZGKTT7wTV",
+        productId: "prod_TTH12wU8lOauHD",
       },
     };
 
     const selectedPlan = planConfig[plan as keyof typeof planConfig];
+
+    console.log("[CREATE-SUBSCRIPTION-CHECKOUT] Creating checkout for plan:", plan, "with fixed price ID:", selectedPlan.priceId);
 
     // Initialize Stripe
     const stripe = new Stripe(Deno.env.get("STRIPE_SECRET_KEY") || "", {
@@ -65,26 +67,17 @@ serve(async (req) => {
       customer_email: customerId ? undefined : user.email,
       line_items: [
         {
-          price_data: {
-            currency: "brl",
-            product_data: {
-              name: selectedPlan.name,
-              description: `Assinatura mensal - ${plan === 'pro' ? 'Acesso a todos os conteúdos PRO' : 'Acesso a conteúdos Premium exclusivos'}`,
-            },
-            unit_amount: selectedPlan.price,
-            recurring: {
-              interval: "month",
-            },
-          },
+          price: selectedPlan.priceId,
           quantity: 1,
         },
       ],
       mode: "subscription",
-      success_url: `${req.headers.get("origin")}/?subscription=success`,
-      cancel_url: `${req.headers.get("origin")}/?subscription=canceled`,
+      success_url: `${req.headers.get("origin")}/conta?subscription=success`,
+      cancel_url: `${req.headers.get("origin")}/conta?subscription=canceled`,
       metadata: {
         user_id: user.id,
         plan_type: plan,
+        product_id: selectedPlan.productId,
       },
     });
 
