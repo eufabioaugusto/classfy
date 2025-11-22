@@ -31,6 +31,7 @@ import {
   Trophy,
   ChevronRight,
   FileText,
+  TrendingUp,
 } from "lucide-react";
 import {
   Sidebar,
@@ -68,6 +69,7 @@ const mainItems = [
 
 const studioItems = [
   { title: "Dashboard", url: "/studio", icon: BarChart },
+  { title: "Analytics", url: "/studio/analytics", icon: TrendingUp },
   { title: "Meus Conteúdos", url: "/studio/contents", icon: Video },
   { title: "Meus Boosts", url: "/studio/boosts", icon: Megaphone },
   { title: "Publicar Novo", url: "/studio/upload", icon: Upload },

@@ -23,6 +23,7 @@ import RewardsHistory from "./pages/RewardsHistory";
 import Recompensas from "./pages/Recompensas";
 import BoostSuccess from "./pages/BoostSuccess";
 import StudioBoosts from "./pages/StudioBoosts";
+import StudioAnalytics from "./pages/StudioAnalytics";
 import Study from "./pages/Study";
 import Watch from "./pages/Watch";
 import Listen from "./pages/Listen";
@@ -49,6 +50,7 @@ const App = () => (
               <Route path="/studio/upload" element={<StudioUpload />} />
               <Route path="/studio/contents" element={<StudioContents />} />
               <Route path="/studio/boosts" element={<StudioBoosts />} />
+              <Route path="/studio/analytics" element={<StudioAnalytics />} />
               <Route path="/admin/creators" element={<AdminCreators />} />
               <Route path="/admin/contents" element={<AdminContents />} />
               <Route path="/admin/rewards" element={<AdminRewards />} />
