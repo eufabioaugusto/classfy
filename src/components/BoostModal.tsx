@@ -11,7 +11,7 @@ import { Input } from "@/components/ui/input";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { Loader2, Target, Users, DollarSign, Calendar, Receipt } from "lucide-react";
-import { LocationInput } from "@/components/LocationInput";
+import { LocationInputMapbox } from "@/components/LocationInputMapbox";
 
 interface BoostModalProps {
   open: boolean;
@@ -255,7 +255,7 @@ export const BoostModal = ({ open, onOpenChange, contentId, contentTitle }: Boos
 
                 <div className="space-y-2">
                   <Label>Localização</Label>
-                  <LocationInput 
+                  <LocationInputMapbox 
                     value={audienceFilters.locations}
                     onChange={(locations) => setAudienceFilters({...audienceFilters, locations})}
                   />
