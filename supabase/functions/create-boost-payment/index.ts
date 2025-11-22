@@ -26,7 +26,7 @@ serve(async (req) => {
     if (!user?.email) throw new Error("User not authenticated");
 
     const { boostData } = await req.json();
-    const { objective, contentId, audienceType, audienceFilters, dailyBudget, durationDays } = boostData;
+    const { objective, contentId, audienceType, audienceFilters, dailyBudget, durationDays, boostId } = boostData;
 
     // Validate data
     if (!objective || !dailyBudget || !durationDays) {
@@ -47,23 +47,39 @@ serve(async (req) => {
       customerId = customers.data[0].id;
     }
 
-    // Create boost record with pending payment status
-    const { data: boost, error: boostError } = await supabaseClient
-      .from('boosts')
-      .insert({
-        user_id: user.id,
-        content_id: objective === 'content' ? contentId : null,
-        objective,
-        audience_type: audienceType,
-        audience_filters: audienceFilters || {},
-        daily_budget: dailyBudget,
-        duration_days: durationDays,
-        status: 'pending_payment'
-      })
-      .select()
-      .single();
+    let boost;
+    
+    // Se boostId foi fornecido, reutilizar o boost existente
+    if (boostId) {
+      const { data: existingBoost, error: fetchError } = await supabaseClient
+        .from('boosts')
+        .select()
+        .eq('id', boostId)
+        .eq('user_id', user.id)
+        .single();
+      
+      if (fetchError) throw fetchError;
+      boost = existingBoost;
+    } else {
+      // Criar novo boost
+      const { data: newBoost, error: boostError } = await supabaseClient
+        .from('boosts')
+        .insert({
+          user_id: user.id,
+          content_id: objective === 'content' ? contentId : null,
+          objective,
+          audience_type: audienceType,
+          audience_filters: audienceFilters || {},
+          daily_budget: dailyBudget,
+          duration_days: durationDays,
+          status: 'pending_payment'
+        })
+        .select()
+        .single();
 
-    if (boostError) throw boostError;
+      if (boostError) throw boostError;
+      boost = newBoost;
+    }
 
     // Create Stripe checkout session
     const session = await stripe.checkout.sessions.create({
