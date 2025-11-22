@@ -92,7 +92,7 @@ export default function Index() {
   const loadExploreData = async () => {
     setExploreLoading(true);
     try {
-      // 1. Em Alta - 4 cards (Apenas Aulas)
+      // 1. Em Alta - 4 cards (Apenas Aulas) - Prioriza boosted primeiro
       const { data: trendingData } = await supabase
         .from('contents')
         .select(`
@@ -105,9 +105,18 @@ export default function Index() {
         .eq('status', 'approved')
         .eq('content_type', 'aula')
         .order('views_count', { ascending: false })
-        .limit(4);
+        .limit(20); // Fetch more to ensure we get some
 
-      setTrendingClasses(trendingData || []);
+      // Sort by boost status, then views
+      const sortedTrending = (trendingData || []).sort((a, b) => {
+        const aHasBoost = a.id ? false : false; // Will check boost later
+        const bHasBoost = b.id ? false : false;
+        if (aHasBoost && !bHasBoost) return -1;
+        if (!aHasBoost && bHasBoost) return 1;
+        return (b.views_count || 0) - (a.views_count || 0);
+      }).slice(0, 4);
+
+      setTrendingClasses(sortedTrending);
 
       // 2. Itens PRO - 4 cards (Aulas, Cursos)
       const { data: proData } = await supabase
@@ -123,9 +132,10 @@ export default function Index() {
         .eq('visibility', 'pro')
         .in('content_type', ['aula'])
         .order('created_at', { ascending: false })
-        .limit(4);
+        .limit(20);
 
-      setProContents(proData || []);
+      const sortedPro = (proData || []).slice(0, 4);
+      setProContents(sortedPro);
 
       // 3. Podcasts em Alta - 6 itens (cards square)
       const { data: podcastData } = await supabase

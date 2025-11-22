@@ -69,6 +69,7 @@ const mainItems = [
 const studioItems = [
   { title: "Dashboard", url: "/studio", icon: BarChart },
   { title: "Meus Conteúdos", url: "/studio/contents", icon: Video },
+  { title: "Meus Boosts", url: "/studio/boosts", icon: Megaphone },
   { title: "Publicar Novo", url: "/studio/upload", icon: Upload },
 ];
 
