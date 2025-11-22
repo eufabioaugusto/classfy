@@ -1772,6 +1772,85 @@ export type Database = {
           },
         ]
       }
+      video_processing_jobs: {
+        Row: {
+          completed_at: string | null
+          compressed_path: string | null
+          compressed_size: number | null
+          compression_ratio: number | null
+          course_id: string | null
+          created_at: string
+          error_message: string | null
+          file_size: number | null
+          id: string
+          lesson_id: string | null
+          metadata: Json | null
+          original_path: string
+          started_at: string | null
+          status: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          completed_at?: string | null
+          compressed_path?: string | null
+          compressed_size?: number | null
+          compression_ratio?: number | null
+          course_id?: string | null
+          created_at?: string
+          error_message?: string | null
+          file_size?: number | null
+          id?: string
+          lesson_id?: string | null
+          metadata?: Json | null
+          original_path: string
+          started_at?: string | null
+          status?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          completed_at?: string | null
+          compressed_path?: string | null
+          compressed_size?: number | null
+          compression_ratio?: number | null
+          course_id?: string | null
+          created_at?: string
+          error_message?: string | null
+          file_size?: number | null
+          id?: string
+          lesson_id?: string | null
+          metadata?: Json | null
+          original_path?: string
+          started_at?: string | null
+          status?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "video_processing_jobs_course_id_fkey"
+            columns: ["course_id"]
+            isOneToOne: false
+            referencedRelation: "courses"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "video_processing_jobs_lesson_id_fkey"
+            columns: ["lesson_id"]
+            isOneToOne: false
+            referencedRelation: "course_lessons"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "video_processing_jobs_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       wallet_transactions: {
         Row: {
           action_id: string | null

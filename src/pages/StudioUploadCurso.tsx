@@ -335,8 +335,25 @@ export default function StudioUploadCurso() {
     };
 
     try {
-      const fileExt = file.name.split('.').pop();
-      const fileName = `courses/${user.id}/${Date.now()}.${fileExt}`;
+      // Validate video size (max 500MB)
+      const maxSize = 500 * 1024 * 1024;
+      if (file.size > maxSize) {
+        throw new Error("O vídeo é muito grande. Tamanho máximo: 500MB");
+      }
+
+      // Validate video format
+      const allowedTypes = ['video/mp4', 'video/webm', 'video/quicktime'];
+      if (!allowedTypes.includes(file.type)) {
+        throw new Error("Formato inválido. Use MP4, WebM ou MOV");
+      }
+
+      // Use process-video edge function for compression
+      const formData = new FormData();
+      formData.append('video', file);
+      formData.append('courseId', 'temp-course-id'); // Will be replaced on save
+      formData.append('lessonId', lessonId);
+
+      const { data: session } = await supabase.auth.getSession();
       
       const progressInterval = setInterval(() => {
         updateLesson(moduleId, lessonId, 'progress', (prev: number) => {
@@ -348,23 +365,30 @@ export default function StudioUploadCurso() {
         });
       }, 500);
 
-      const { error } = await supabase.storage
-        .from('contents')
-        .upload(fileName, file);
+      const response = await fetch(
+        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/process-video`,
+        {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${session?.session?.access_token}`,
+          },
+          body: formData,
+        }
+      );
 
+      const result = await response.json();
       clearInterval(progressInterval);
       updateLesson(moduleId, lessonId, 'progress', 100);
 
-      if (error) throw error;
+      if (!response.ok) {
+        throw new Error(result.error || 'Erro ao processar vídeo');
+      }
 
-      const { data: { publicUrl } } = supabase.storage
-        .from('contents')
-        .getPublicUrl(fileName);
-
-      updateLesson(moduleId, lessonId, 'videoUrl', publicUrl);
+      updateLesson(moduleId, lessonId, 'videoUrl', result.videoUrl);
       updateLesson(moduleId, lessonId, 'videoFile', file);
-      toast.success("Vídeo da aula enviado!");
+      toast.success("Vídeo enviado! Compressão em andamento...");
     } catch (error: any) {
+      console.error("Erro ao processar vídeo:", error);
       toast.error(error.message || "Erro ao enviar vídeo");
       updateLesson(moduleId, lessonId, 'progress', 0);
     } finally {
