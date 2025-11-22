@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { AppSidebar } from "@/components/AppSidebar";
 import { SidebarProvider } from "@/components/ui/sidebar";
 import { Header } from "@/components/Header";
-import { Zap, TrendingUp, Users, Calendar, DollarSign, Eye, MousePointerClick } from "lucide-react";
+import { Zap, TrendingUp, Users, Calendar, DollarSign, Eye, MousePointerClick, CreditCard, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
@@ -49,6 +49,51 @@ const StudioBoosts = () => {
       toast.error('Erro ao carregar boosts');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleRetryPayment = async (boost: any) => {
+    try {
+      const { data, error } = await supabase.functions.invoke('create-boost-payment', {
+        body: {
+          boostData: {
+            objective: boost.objective,
+            contentId: boost.content_id,
+            audienceType: boost.audience_type,
+            audienceFilters: boost.audience_filters || {},
+            dailyBudget: boost.daily_budget,
+            durationDays: boost.duration_days,
+            boostId: boost.id // Passar o ID do boost existente para atualizar
+          }
+        }
+      });
+
+      if (error) throw error;
+
+      if (data.url) {
+        window.open(data.url, '_blank');
+        toast.success('Redirecionando para pagamento...');
+      }
+    } catch (error: any) {
+      toast.error(error.message || 'Erro ao processar pagamento');
+    }
+  };
+
+  const handleCancelBoost = async (boostId: string) => {
+    if (!confirm('Tem certeza que deseja cancelar este boost?')) return;
+
+    try {
+      const { error } = await supabase
+        .from('boosts')
+        .delete()
+        .eq('id', boostId);
+
+      if (error) throw error;
+      
+      toast.success('Boost cancelado com sucesso');
+      loadBoosts();
+    } catch (error: any) {
+      toast.error('Erro ao cancelar boost');
     }
   };
 
@@ -172,10 +217,30 @@ const StudioBoosts = () => {
                         <div className="flex items-center justify-between text-sm">
                           <span className="font-semibold">Total Investido:</span>
                           <span className="text-primary font-bold text-lg">
-                            R$ {boost.total_budget}
+                            R$ {boost.total_budget || (boost.daily_budget * boost.duration_days)}
                           </span>
                         </div>
                       </div>
+
+                      {boost.status === 'pending_payment' && (
+                        <div className="flex gap-2 pt-3 border-t">
+                          <Button 
+                            onClick={() => handleRetryPayment(boost)}
+                            className="flex-1"
+                            size="sm"
+                          >
+                            <CreditCard className="w-4 h-4 mr-2" />
+                            Pagar Agora
+                          </Button>
+                          <Button 
+                            onClick={() => handleCancelBoost(boost.id)}
+                            variant="destructive"
+                            size="sm"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </Button>
+                        </div>
+                      )}
                     </CardContent>
                   </Card>
                 ))}
