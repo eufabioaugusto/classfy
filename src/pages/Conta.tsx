@@ -25,6 +25,7 @@ export default function Conta() {
   const [pixKey, setPixKey] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [creatorModalOpen, setCreatorModalOpen] = useState(false);
+  const [minWithdrawalAmount, setMinWithdrawalAmount] = useState(10);
 
   // Check if profile is complete and reward user
   useProfileComplete(user?.id, profile);
@@ -39,9 +40,14 @@ export default function Conta() {
 
   const fetchData = async () => {
     try {
-      const [walletRes, profileRes] = await Promise.all([
+      const [walletRes, profileRes, configRes] = await Promise.all([
         supabase.from("wallets").select("*").eq("user_id", user?.id).single(),
         supabase.from("profiles").select("*").eq("id", user?.id).single(),
+        supabase
+          .from("system_config")
+          .select("*")
+          .eq("config_key", "minimum_withdrawal_amount")
+          .maybeSingle(),
       ]);
 
       if (walletRes.error) throw walletRes.error;
@@ -49,6 +55,11 @@ export default function Conta() {
 
       setWallet(walletRes.data);
       setProfile(profileRes.data);
+
+      if (configRes.data) {
+        const configValue = configRes.data.config_value as { amount: number };
+        setMinWithdrawalAmount(configValue.amount);
+      }
     } catch (error: any) {
       toast({
         title: "Erro ao carregar dados",
@@ -70,6 +81,16 @@ export default function Conta() {
       toast({
         title: "Valor inválido",
         description: "Insira um valor válido para saque.",
+        variant: "destructive",
+      });
+      setSubmitting(false);
+      return;
+    }
+
+    if (amount < minWithdrawalAmount) {
+      toast({
+        title: "Valor abaixo do mínimo",
+        description: `O valor mínimo para saque é R$ ${minWithdrawalAmount.toFixed(2)}.`,
         variant: "destructive",
       });
       setSubmitting(false);
@@ -222,6 +243,8 @@ export default function Conta() {
                 />
                 <p className="text-sm text-muted-foreground">
                   Saldo disponível: R$ {wallet?.balance?.toFixed(2) || "0.00"}
+                  <br />
+                  Valor mínimo: R$ {minWithdrawalAmount.toFixed(2)}
                 </p>
               </div>
 

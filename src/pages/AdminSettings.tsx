@@ -16,6 +16,7 @@ export default function AdminSettings() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [maturationDays, setMaturationDays] = useState(7);
+  const [minWithdrawalAmount, setMinWithdrawalAmount] = useState(10);
 
   useEffect(() => {
     if (role !== "admin") {
@@ -30,14 +31,18 @@ export default function AdminSettings() {
       const { data, error } = await supabase
         .from("system_config")
         .select("*")
-        .eq("config_key", "earnings_maturation_days")
-        .single();
+        .in("config_key", ["earnings_maturation_days", "minimum_withdrawal_amount"]);
 
       if (error) throw error;
-      if (data) {
-        const configValue = data.config_value as { days: number };
-        setMaturationDays(configValue.days);
-      }
+      
+      data?.forEach((config) => {
+        const configValue = config.config_value as any;
+        if (config.config_key === "earnings_maturation_days") {
+          setMaturationDays(configValue.days);
+        } else if (config.config_key === "minimum_withdrawal_amount") {
+          setMinWithdrawalAmount(configValue.amount);
+        }
+      });
     } catch (error: any) {
       toast({
         title: "Erro ao carregar configurações",
@@ -52,15 +57,28 @@ export default function AdminSettings() {
   const handleSave = async () => {
     setSaving(true);
     try {
-      const { error } = await supabase
-        .from("system_config")
-        .update({
+      const updates = [
+        {
+          config_key: "earnings_maturation_days",
           config_value: { days: maturationDays },
-          updated_at: new Date().toISOString(),
-        })
-        .eq("config_key", "earnings_maturation_days");
+        },
+        {
+          config_key: "minimum_withdrawal_amount",
+          config_value: { amount: minWithdrawalAmount },
+        },
+      ];
 
-      if (error) throw error;
+      for (const update of updates) {
+        const { error } = await supabase
+          .from("system_config")
+          .update({
+            config_value: update.config_value,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("config_key", update.config_key);
+
+        if (error) throw error;
+      }
 
       toast({
         title: "Configurações salvas!",
@@ -119,6 +137,24 @@ export default function AdminSettings() {
             <p className="text-sm text-muted-foreground">
               Define quantos dias os ganhos precisam maturar antes de poderem ser sacados.
               Período atual: <strong>{maturationDays} dias</strong>
+            </p>
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="minAmount">
+              Valor Mínimo para Saque (R$)
+            </Label>
+            <Input
+              id="minAmount"
+              type="number"
+              min="0"
+              step="0.01"
+              value={minWithdrawalAmount}
+              onChange={(e) => setMinWithdrawalAmount(parseFloat(e.target.value))}
+            />
+            <p className="text-sm text-muted-foreground">
+              Define o valor mínimo que um usuário pode solicitar para saque.
+              Valor atual: <strong>R$ {minWithdrawalAmount.toFixed(2)}</strong>
             </p>
           </div>
 
