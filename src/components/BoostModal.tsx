@@ -124,7 +124,10 @@ export const BoostModal = ({ open, onOpenChange, contentId, contentTitle }: Boos
               <h3 className="text-lg font-semibold">Escolha seu objetivo</h3>
             </div>
             <RadioGroup value={objective} onValueChange={(v) => setObjective(v as BoostObjective)}>
-              <Card className={`p-4 cursor-pointer transition-colors ${objective === 'profile' ? 'border-primary' : ''}`}>
+              <Card 
+                className={`p-4 cursor-pointer transition-colors ${objective === 'profile' ? 'border-primary' : ''}`}
+                onClick={() => setObjective('profile')}
+              >
                 <div className="flex items-start gap-3">
                   <RadioGroupItem value="profile" id="profile" />
                   <div className="flex-1">
@@ -137,7 +140,10 @@ export const BoostModal = ({ open, onOpenChange, contentId, contentTitle }: Boos
                   </div>
                 </div>
               </Card>
-              <Card className={`p-4 cursor-pointer transition-colors ${objective === 'content' ? 'border-primary' : ''}`}>
+              <Card 
+                className={`p-4 cursor-pointer transition-colors ${objective === 'content' ? 'border-primary' : ''}`}
+                onClick={() => setObjective('content')}
+              >
                 <div className="flex items-start gap-3">
                   <RadioGroupItem value="content" id="content" />
                   <div className="flex-1">
@@ -162,7 +168,10 @@ export const BoostModal = ({ open, onOpenChange, contentId, contentTitle }: Boos
               <h3 className="text-lg font-semibold">Escolha o público</h3>
             </div>
             <RadioGroup value={audienceType} onValueChange={(v) => setAudienceType(v as AudienceType)}>
-              <Card className={`p-4 cursor-pointer transition-colors ${audienceType === 'automatic' ? 'border-primary' : ''}`}>
+              <Card 
+                className={`p-4 cursor-pointer transition-colors ${audienceType === 'automatic' ? 'border-primary' : ''}`}
+                onClick={() => setAudienceType('automatic')}
+              >
                 <div className="flex items-start gap-3">
                   <RadioGroupItem value="automatic" id="automatic" />
                   <div className="flex-1">
@@ -175,7 +184,10 @@ export const BoostModal = ({ open, onOpenChange, contentId, contentTitle }: Boos
                   </div>
                 </div>
               </Card>
-              <Card className={`p-4 cursor-pointer transition-colors ${audienceType === 'segmented' ? 'border-primary' : ''}`}>
+              <Card 
+                className={`p-4 cursor-pointer transition-colors ${audienceType === 'segmented' ? 'border-primary' : ''}`}
+                onClick={() => setAudienceType('segmented')}
+              >
                 <div className="flex items-start gap-3">
                   <RadioGroupItem value="segmented" id="segmented" />
                   <div className="flex-1">
