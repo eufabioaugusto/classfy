@@ -12,6 +12,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { Loader2, Target, Users, DollarSign, Calendar, Receipt } from "lucide-react";
 import { LocationInputMapbox } from "@/components/LocationInputMapbox";
+import { LocationMapView } from "@/components/LocationMapView";
 
 interface BoostModalProps {
   open: boolean;
@@ -36,7 +37,8 @@ export const BoostModal = ({ open, onOpenChange, contentId, contentTitle }: Boos
     gender: 'all',
     ageMin: 18,
     ageMax: 65,
-    locations: [] as string[]
+    locations: [] as string[],
+    radiusKm: 50
   });
   
   // Step 3: Budget
@@ -253,12 +255,53 @@ export const BoostModal = ({ open, onOpenChange, contentId, contentTitle }: Boos
                   </div>
                 </div>
 
-                <div className="space-y-2">
-                  <Label>Localização</Label>
-                  <LocationInputMapbox 
-                    value={audienceFilters.locations}
-                    onChange={(locations) => setAudienceFilters({...audienceFilters, locations})}
-                  />
+                <div className="space-y-4">
+                  <div>
+                    <Label>Localização</Label>
+                    <p className="text-xs text-muted-foreground mb-2">
+                      Selecione as cidades que deseja alcançar
+                    </p>
+                    <LocationInputMapbox 
+                      value={audienceFilters.locations}
+                      onChange={(locations) => setAudienceFilters({...audienceFilters, locations})}
+                    />
+                  </div>
+
+                  {audienceFilters.locations.length > 0 && (
+                    <>
+                      <div>
+                        <Label>Raio de Alcance: {audienceFilters.radiusKm}km</Label>
+                        <p className="text-xs text-muted-foreground mb-2">
+                          Alcance ao redor de cada cidade selecionada
+                        </p>
+                        <Slider
+                          value={[audienceFilters.radiusKm]}
+                          onValueChange={([value]) => setAudienceFilters({...audienceFilters, radiusKm: value})}
+                          min={10}
+                          max={500}
+                          step={10}
+                          className="w-full"
+                        />
+                        <div className="flex justify-between text-xs text-muted-foreground mt-1">
+                          <span>10km</span>
+                          <span>500km</span>
+                        </div>
+                      </div>
+
+                      <div>
+                        <Label className="mb-2 block">Visualização no Mapa</Label>
+                        <LocationMapView
+                          locations={audienceFilters.locations}
+                          radiusKm={audienceFilters.radiusKm}
+                          mapboxToken="pk.eyJ1IjoibWFwLWNsYXNzZnktYm9vc3QiLCJhIjoiY200MWg5czBrMGM4czJ1bzB4cGF3MW5kMiJ9.DnonBY0RZQCnx_ejcivEIO"
+                        />
+                        <p className="text-xs text-muted-foreground mt-2 flex items-center gap-1">
+                          <span className="inline-block w-2 h-2 rounded-full bg-primary"></span>
+                          As áreas em destaque representam o alcance do seu anúncio
+                        </p>
+                      </div>
+                    </>
+                  )}
                 </div>
               </div>
             )}

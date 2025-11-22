@@ -1,7 +1,7 @@
 import { useState } from "react";
-import { AddressAutofill } from "@mapbox/search-js-react";
+import { AddressAutofill, config } from "@mapbox/search-js-react";
 import { Badge } from "@/components/ui/badge";
-import { X } from "lucide-react";
+import { X, MapPin } from "lucide-react";
 import { Input } from "@/components/ui/input";
 
 interface LocationInputMapboxProps {
@@ -11,8 +11,12 @@ interface LocationInputMapboxProps {
 
 export const LocationInputMapbox = ({ value, onChange }: LocationInputMapboxProps) => {
   const [input, setInput] = useState("");
-  // Token público do Mapbox (seguro para expor no frontend)
   const mapboxToken = "pk.eyJ1IjoibWFwLWNsYXNzZnktYm9vc3QiLCJhIjoiY200MWg5czBrMGM4czJ1bzB4cGF3MW5kMiJ9.DnonBY0RZQCnx_ejcivEIO";
+
+  // Configure Mapbox Search
+  if (mapboxToken) {
+    config.accessToken = mapboxToken;
+  }
 
   const addLocation = (location: string) => {
     if (location.trim() && !value.includes(location)) {
@@ -45,44 +49,57 @@ export const LocationInputMapbox = ({ value, onChange }: LocationInputMapboxProp
   }
 
   return (
-    <div className="space-y-2">
-      <div className="flex flex-wrap gap-2 mb-2">
-        {value.map((location) => (
-          <Badge
-            key={location}
-            variant="secondary"
-            className="px-3 py-1 text-sm flex items-center gap-2"
-          >
-            {location}
-            <button
-              onClick={() => removeLocation(location)}
-              className="hover:text-destructive transition-colors"
+    <div className="space-y-3">
+      {value.length > 0 && (
+        <div className="flex flex-wrap gap-2 p-3 bg-muted/30 rounded-lg border border-border">
+          {value.map((location, index) => (
+            <Badge
+              key={`${location}-${index}`}
+              variant="secondary"
+              className="px-3 py-2 text-sm flex items-center gap-2 hover:bg-secondary/80 transition-colors"
             >
-              <X className="h-3 w-3" />
-            </button>
-          </Badge>
-        ))}
+              <MapPin className="h-3 w-3" />
+              {location}
+              <button
+                onClick={() => removeLocation(location)}
+                className="hover:text-destructive transition-colors ml-1"
+              >
+                <X className="h-3 w-3" />
+              </button>
+            </Badge>
+          ))}
+        </div>
+      )}
+      
+      <div className="relative">
+        <AddressAutofill
+          accessToken={mapboxToken}
+          options={{
+            country: 'BR',
+            language: 'pt-BR',
+          }}
+        >
+          <Input
+            type="text"
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={handleKeyDown}
+            placeholder="Digite cidade e estado (ex: São Paulo, SP)"
+            className="w-full pl-10"
+            autoComplete="address-level2"
+            onBlur={(e) => {
+              if (e.target.value.trim()) {
+                addLocation(e.target.value.trim());
+              }
+            }}
+          />
+        </AddressAutofill>
+        <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
       </div>
       
-      <AddressAutofill accessToken={mapboxToken}>
-        <Input
-          type="text"
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={handleKeyDown}
-          placeholder="Digite cidade e estado (ex: São Paulo, SP)"
-          className="w-full"
-          autoComplete="address-level2"
-          onBlur={(e) => {
-            if (e.target.value.trim()) {
-              addLocation(e.target.value.trim());
-            }
-          }}
-        />
-      </AddressAutofill>
-      
-      <p className="text-xs text-muted-foreground">
-        Digite e pressione Enter ou clique fora para adicionar. Selecione cidades específicas para segmentação precisa.
+      <p className="text-xs text-muted-foreground flex items-center gap-1">
+        <span className="inline-block w-1.5 h-1.5 rounded-full bg-primary"></span>
+        Digite e pressione <kbd className="px-1 py-0.5 bg-muted rounded text-xs">Enter</kbd> para adicionar múltiplas localizações
       </p>
     </div>
   );
