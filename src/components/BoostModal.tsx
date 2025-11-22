@@ -6,6 +6,8 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Slider } from "@/components/ui/slider";
 import { Card } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Input } from "@/components/ui/input";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { Loader2, Target, Users, DollarSign, Calendar, Receipt } from "lucide-react";
@@ -195,12 +197,74 @@ export const BoostModal = ({ open, onOpenChange, contentId, contentTitle }: Boos
                       Segmentar Público
                     </Label>
                     <p className="text-sm text-muted-foreground mt-1">
-                      Configure filtros básicos de segmentação (em breve).
+                      Configure filtros básicos de segmentação.
                     </p>
                   </div>
                 </div>
               </Card>
             </RadioGroup>
+
+            {/* Filtros de segmentação */}
+            {audienceType === 'segmented' && (
+              <div className="mt-4 p-4 border rounded-lg space-y-4 bg-muted/30">
+                <div className="space-y-2">
+                  <Label>Gênero</Label>
+                  <Select 
+                    value={audienceFilters.gender} 
+                    onValueChange={(v) => setAudienceFilters({...audienceFilters, gender: v})}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">Todos</SelectItem>
+                      <SelectItem value="male">Masculino</SelectItem>
+                      <SelectItem value="female">Feminino</SelectItem>
+                      <SelectItem value="other">Outro</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="space-y-2">
+                  <Label>Faixa Etária</Label>
+                  <div className="flex gap-4 items-center">
+                    <div className="flex-1">
+                      <Label className="text-xs text-muted-foreground">Mínimo</Label>
+                      <Input 
+                        type="number" 
+                        min="13" 
+                        max="100"
+                        value={audienceFilters.ageMin}
+                        onChange={(e) => setAudienceFilters({...audienceFilters, ageMin: parseInt(e.target.value)})}
+                      />
+                    </div>
+                    <span className="text-muted-foreground mt-5">até</span>
+                    <div className="flex-1">
+                      <Label className="text-xs text-muted-foreground">Máximo</Label>
+                      <Input 
+                        type="number" 
+                        min="13" 
+                        max="100"
+                        value={audienceFilters.ageMax}
+                        onChange={(e) => setAudienceFilters({...audienceFilters, ageMax: parseInt(e.target.value)})}
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <Label>Localização</Label>
+                  <Input 
+                    placeholder="Ex: São Paulo, Brasil"
+                    value={audienceFilters.location}
+                    onChange={(e) => setAudienceFilters({...audienceFilters, location: e.target.value})}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Deixe em branco para alcançar todas as localizações
+                  </p>
+                </div>
+              </div>
+            )}
           </div>
         )}
 
