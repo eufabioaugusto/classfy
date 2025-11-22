@@ -10,6 +10,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
+import { Button } from "@/components/ui/button";
 import { 
   Trophy, 
   Zap, 
@@ -423,6 +424,23 @@ export default function Recompensas() {
                 </Card>
               </>
             )}
+
+            {/* Link to Detailed History */}
+            <Card className="mt-6">
+              <CardContent className="p-6">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h3 className="text-lg font-semibold">Histórico Detalhado</h3>
+                    <p className="text-sm text-muted-foreground">
+                      Veja todas as suas recompensas com filtros avançados
+                    </p>
+                  </div>
+                  <Button onClick={() => window.location.href = '/rewards-history'}>
+                    Ver Histórico Completo
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
           </main>
         </div>
       </div>
