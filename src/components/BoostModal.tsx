@@ -290,11 +290,11 @@ export const BoostModal = ({ open, onOpenChange, contentId, contentTitle }: Boos
 
                       <div>
                         <Label className="mb-2 block">Visualização no Mapa</Label>
-                        <LocationMapView
-                          locations={audienceFilters.locations}
-                          radiusKm={audienceFilters.radiusKm}
-                          mapboxToken="pk.eyJ1IjoibWFwLWNsYXNzZnktYm9vc3QiLCJhIjoiY200MWg5czBrMGM4czJ1bzB4cGF3MW5kMiJ9.DnonBY0RZQCnx_ejcivEIO"
-                        />
+                <LocationMapView
+                  locations={audienceFilters.locations}
+                  radiusKm={audienceFilters.radiusKm}
+                  mapboxToken="pk.eyJ1IjoidWx0cmF3ZWIiLCJhIjoiY21pYWdzZDIwMHk2czJzb2EzaTFrOWs2MCJ9.ccJqTYdM9PwWRRtXjvgccw"
+                />
                         <p className="text-xs text-muted-foreground mt-2 flex items-center gap-1">
                           <span className="inline-block w-2 h-2 rounded-full bg-primary"></span>
                           As áreas em destaque representam o alcance do seu anúncio

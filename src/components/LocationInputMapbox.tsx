@@ -11,7 +11,7 @@ interface LocationInputMapboxProps {
 
 export const LocationInputMapbox = ({ value, onChange }: LocationInputMapboxProps) => {
   const [input, setInput] = useState("");
-  const mapboxToken = "pk.eyJ1IjoibWFwLWNsYXNzZnktYm9vc3QiLCJhIjoiY200MWg5czBrMGM4czJ1bzB4cGF3MW5kMiJ9.DnonBY0RZQCnx_ejcivEIO";
+  const mapboxToken = "pk.eyJ1IjoidWx0cmF3ZWIiLCJhIjoiY21pYWdzZDIwMHk2czJzb2EzaTFrOWs2MCJ9.ccJqTYdM9PwWRRtXjvgccw";
 
   // Configure Mapbox Search
   if (mapboxToken) {
