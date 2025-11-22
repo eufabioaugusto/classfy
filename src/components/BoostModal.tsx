@@ -11,9 +11,11 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Input } from "@/components/ui/input";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
-import { Loader2, Target, Users, DollarSign, Calendar, Receipt } from "lucide-react";
+import { Loader2, Target, Users, DollarSign, Calendar, Receipt, AlertTriangle } from "lucide-react";
 import { LocationInputMapbox } from "@/components/LocationInputMapbox";
 import { LocationMapView } from "@/components/LocationMapView";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
 interface BoostModalProps {
   open: boolean;
@@ -44,10 +46,10 @@ export const BoostModal = ({ open, onOpenChange, contentId, contentTitle }: Boos
   });
   
   // Step 3: Budget
-  const [dailyBudget, setDailyBudget] = useState([10]);
+  const [dailyBudget, setDailyBudget] = useState([20]);
   
   // Step 4: Duration
-  const [duration, setDuration] = useState([7]);
+  const [duration, setDuration] = useState([4]);
 
   const totalBudget = dailyBudget[0] * duration[0];
 
@@ -94,8 +96,8 @@ export const BoostModal = ({ open, onOpenChange, contentId, contentTitle }: Boos
     setStep(1);
     setObjective('content');
     setAudienceType('automatic');
-    setDailyBudget([10]);
-    setDuration([7]);
+    setDailyBudget([20]);
+    setDuration([4]);
   };
 
   const handleCloseAttempt = (open: boolean) => {
@@ -349,6 +351,36 @@ export const BoostModal = ({ open, onOpenChange, contentId, contentTitle }: Boos
               <DollarSign className="w-5 h-5 text-primary" />
               <h3 className="text-lg font-semibold">Qual seu orçamento diário?</h3>
             </div>
+            
+            {dailyBudget[0] < 20 && (
+              <Alert>
+                <AlertTriangle className="h-4 w-4" />
+                <AlertDescription className="flex items-center gap-2 flex-wrap">
+                  <span>Suas seleções podem limitar os resultados.</span>
+                  <span>Itens semelhantes usam R$ 20 ou mais para terem melhores resultados.</span>
+                  <TooltipProvider>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <button className="text-primary underline hover:no-underline">
+                          Sobre itens semelhantes
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent className="max-w-md p-4">
+                        <p className="font-semibold mb-2">Itens semelhantes:</p>
+                        <p className="text-sm">
+                          Encontramos itens semelhantes com base no seu investimento em publicidade, metas do anúncio, setor, região e muito mais.
+                        </p>
+                        <p className="font-semibold mt-3 mb-2">Investimento em publicidade e resultados de itens semelhantes:</p>
+                        <p className="text-sm">
+                          O valor que itens semelhantes costumam investir e os resultados que normalmente têm para anúncios com metas, duração e outras características semelhantes. Os números fornecidos são estimativas para dar uma ideia do desempenho do seu orçamento, mas não há garantia de resultados. As estimativas se baseiam em fatores como dados de campanhas anteriores, dados de mercado, critérios de direcionamento e posicionamentos dos anúncios.
+                        </p>
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+                </AlertDescription>
+              </Alert>
+            )}
+
             <div className="space-y-4">
               <div className="text-center">
                 <div className="text-4xl font-bold text-primary">
@@ -379,6 +411,36 @@ export const BoostModal = ({ open, onOpenChange, contentId, contentTitle }: Boos
               <Calendar className="w-5 h-5 text-primary" />
               <h3 className="text-lg font-semibold">Definir duração</h3>
             </div>
+            
+            {duration[0] < 4 && (
+              <Alert>
+                <AlertTriangle className="h-4 w-4" />
+                <AlertDescription className="flex items-center gap-2 flex-wrap">
+                  <span>Suas seleções podem limitar os resultados.</span>
+                  <span>Itens semelhantes são veiculados por 4 dias ou mais para terem melhores resultados.</span>
+                  <TooltipProvider>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <button className="text-primary underline hover:no-underline">
+                          Sobre itens semelhantes
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent className="max-w-md p-4">
+                        <p className="font-semibold mb-2">Itens semelhantes:</p>
+                        <p className="text-sm">
+                          Encontramos itens semelhantes com base no seu investimento em publicidade, metas do anúncio, setor, região e muito mais.
+                        </p>
+                        <p className="font-semibold mt-3 mb-2">Investimento em publicidade e resultados de itens semelhantes:</p>
+                        <p className="text-sm">
+                          O valor que itens semelhantes costumam investir e os resultados que normalmente têm para anúncios com metas, duração e outras características semelhantes. Os números fornecidos são estimativas para dar uma ideia do desempenho do seu orçamento, mas não há garantia de resultados. As estimativas se baseiam em fatores como dados de campanhas anteriores, dados de mercado, critérios de direcionamento e posicionamentos dos anúncios.
+                        </p>
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+                </AlertDescription>
+              </Alert>
+            )}
+
             <div className="space-y-4">
               <div className="text-center">
                 <div className="text-4xl font-bold text-primary">
