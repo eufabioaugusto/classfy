@@ -50,6 +50,12 @@ import {
 } from "@/components/ui/collapsible";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 const mainItems = [
   { title: "Início", url: "/", icon: Home },
@@ -59,14 +65,6 @@ const mainItems = [
   { title: "Recompensas", url: "/rewards", icon: Trophy },
 ];
 
-const categories = [
-  { title: "Programação", icon: Code },
-  { title: "Marketing", icon: Megaphone },
-  { title: "Idiomas", icon: Languages },
-  { title: "Negócios", icon: DollarSign },
-  { title: "Criatividade", icon: Palette },
-  { title: "Tecnologia", icon: Cpu },
-];
 
 const studioItems = [
   { title: "Dashboard", url: "/studio", icon: BarChart },
@@ -102,13 +100,14 @@ export function AppSidebar() {
   const isActive = (path: string) => location.pathname === path;
 
   return (
-    <Sidebar 
-      className={`border-r border-border/20 bg-background transition-all duration-300 ${
-        collapsed ? "w-16" : "w-60"
-      }`}
-      collapsible="icon"
-    >
-      <SidebarContent>
+    <TooltipProvider delayDuration={0}>
+      <Sidebar 
+        className={`border-r border-border/20 bg-background transition-all duration-300 ${
+          collapsed ? "w-16" : "w-60"
+        }`}
+        collapsible="icon"
+      >
+        <SidebarContent>
         {/* Logo/Brand */}
         <div className={`p-6 space-y-4 ${collapsed ? "px-3" : ""}`}>
           <div className="flex items-center gap-2 cursor-pointer justify-center" onClick={() => navigate("/")}>
@@ -165,20 +164,37 @@ export function AppSidebar() {
             <SidebarMenu>
               {mainItems.map((item) => (
                 <SidebarMenuItem key={item.title}>
-                  <SidebarMenuButton asChild>
-                    <NavLink
-                      to={item.url}
-                      end
-                      className={`text-foreground/80 hover:bg-muted hover:text-foreground ${
-                        collapsed ? "justify-center" : ""
-                      }`}
-                      activeClassName="bg-muted text-cinematic-accent font-medium"
-                      title={collapsed ? item.title : undefined}
-                    >
-                      <item.icon className="w-4 h-4" />
-                      {!collapsed && <span>{item.title}</span>}
-                    </NavLink>
-                  </SidebarMenuButton>
+                  {collapsed ? (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <SidebarMenuButton asChild>
+                          <NavLink
+                            to={item.url}
+                            end
+                            className="text-foreground/80 hover:bg-muted hover:text-foreground justify-center"
+                            activeClassName="bg-muted text-cinematic-accent font-medium"
+                          >
+                            <item.icon className="w-4 h-4" />
+                          </NavLink>
+                        </SidebarMenuButton>
+                      </TooltipTrigger>
+                      <TooltipContent side="right">
+                        <p>{item.title}</p>
+                      </TooltipContent>
+                    </Tooltip>
+                  ) : (
+                    <SidebarMenuButton asChild>
+                      <NavLink
+                        to={item.url}
+                        end
+                        className="text-foreground/80 hover:bg-muted hover:text-foreground"
+                        activeClassName="bg-muted text-cinematic-accent font-medium"
+                      >
+                        <item.icon className="w-4 h-4" />
+                        <span>{item.title}</span>
+                      </NavLink>
+                    </SidebarMenuButton>
+                  )}
                 </SidebarMenuItem>
               ))}
             </SidebarMenu>
@@ -251,41 +267,21 @@ export function AppSidebar() {
             <SidebarGroupContent>
               <SidebarMenu>
                 <SidebarMenuItem>
-                  <SidebarMenuButton 
-                    className="justify-center"
-                    title="Estudos"
-                  >
-                    <BookOpen className="h-4 w-4" />
-                  </SidebarMenuButton>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <SidebarMenuButton className="justify-center">
+                        <BookOpen className="h-4 w-4" />
+                      </SidebarMenuButton>
+                    </TooltipTrigger>
+                    <TooltipContent side="right">
+                      <p>Estudos</p>
+                    </TooltipContent>
+                  </Tooltip>
                 </SidebarMenuItem>
               </SidebarMenu>
             </SidebarGroupContent>
           </SidebarGroup>
         )}
-
-        <Separator className="bg-border my-2" />
-
-        {/* Categories */}
-        <SidebarGroup>
-          {!collapsed && <SidebarGroupLabel className="text-muted-foreground">Categorias</SidebarGroupLabel>}
-          <SidebarGroupContent>
-            <SidebarMenu>
-              {categories.map((category) => (
-                <SidebarMenuItem key={category.title}>
-                  <SidebarMenuButton 
-                    className={`text-foreground/80 hover:bg-muted hover:text-foreground ${
-                      collapsed ? "justify-center" : ""
-                    }`}
-                    title={collapsed ? category.title : undefined}
-                  >
-                    <category.icon className="w-4 h-4" />
-                    {!collapsed && <span>{category.title}</span>}
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              ))}
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
 
         <Separator className="bg-border my-2" />
 
@@ -296,16 +292,29 @@ export function AppSidebar() {
               <SidebarGroupContent>
                 <SidebarMenu>
                   <SidebarMenuItem>
-                    <SidebarMenuButton 
-                      onClick={() => setCreatorModalOpen(true)} 
-                      className={`text-foreground/80 hover:bg-muted hover:text-foreground ${
-                        collapsed ? "justify-center" : ""
-                      }`}
-                      title={collapsed ? "Torne-se Creator" : undefined}
-                    >
-                      <Sparkles className="w-4 h-4" />
-                      {!collapsed && <span>Torne-se Creator</span>}
-                    </SidebarMenuButton>
+                    {collapsed ? (
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <SidebarMenuButton 
+                            onClick={() => setCreatorModalOpen(true)} 
+                            className="text-foreground/80 hover:bg-muted hover:text-foreground justify-center"
+                          >
+                            <Sparkles className="w-4 h-4" />
+                          </SidebarMenuButton>
+                        </TooltipTrigger>
+                        <TooltipContent side="right">
+                          <p>Torne-se Creator</p>
+                        </TooltipContent>
+                      </Tooltip>
+                    ) : (
+                      <SidebarMenuButton 
+                        onClick={() => setCreatorModalOpen(true)} 
+                        className="text-foreground/80 hover:bg-muted hover:text-foreground"
+                      >
+                        <Sparkles className="w-4 h-4" />
+                        <span>Torne-se Creator</span>
+                      </SidebarMenuButton>
+                    )}
                   </SidebarMenuItem>
                 </SidebarMenu>
               </SidebarGroupContent>
@@ -324,19 +333,35 @@ export function AppSidebar() {
                 <SidebarMenu>
                   {studioItems.map((item) => (
                     <SidebarMenuItem key={item.title}>
-                      <SidebarMenuButton asChild>
-                        <NavLink
-                          to={item.url}
-                          className={`text-foreground/80 hover:bg-muted hover:text-foreground ${
-                            collapsed ? "justify-center" : ""
-                          }`}
-                          activeClassName="bg-muted text-cinematic-accent font-medium"
-                          title={collapsed ? item.title : undefined}
-                        >
-                          <item.icon className="w-4 h-4" />
-                          {!collapsed && <span>{item.title}</span>}
-                        </NavLink>
-                      </SidebarMenuButton>
+                      {collapsed ? (
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <SidebarMenuButton asChild>
+                              <NavLink
+                                to={item.url}
+                                className="text-foreground/80 hover:bg-muted hover:text-foreground justify-center"
+                                activeClassName="bg-muted text-cinematic-accent font-medium"
+                              >
+                                <item.icon className="w-4 h-4" />
+                              </NavLink>
+                            </SidebarMenuButton>
+                          </TooltipTrigger>
+                          <TooltipContent side="right">
+                            <p>{item.title}</p>
+                          </TooltipContent>
+                        </Tooltip>
+                      ) : (
+                        <SidebarMenuButton asChild>
+                          <NavLink
+                            to={item.url}
+                            className="text-foreground/80 hover:bg-muted hover:text-foreground"
+                            activeClassName="bg-muted text-cinematic-accent font-medium"
+                          >
+                            <item.icon className="w-4 h-4" />
+                            <span>{item.title}</span>
+                          </NavLink>
+                        </SidebarMenuButton>
+                      )}
                     </SidebarMenuItem>
                   ))}
                 </SidebarMenu>
@@ -355,19 +380,35 @@ export function AppSidebar() {
                 <SidebarMenu>
                   {adminItems.map((item) => (
                     <SidebarMenuItem key={item.title}>
-                      <SidebarMenuButton asChild>
-                        <NavLink
-                          to={item.url}
-                          className={`text-foreground/80 hover:bg-muted hover:text-foreground ${
-                            collapsed ? "justify-center" : ""
-                          }`}
-                          activeClassName="bg-muted text-cinematic-accent font-medium"
-                          title={collapsed ? item.title : undefined}
-                        >
-                          <item.icon className="w-4 h-4" />
-                          {!collapsed && <span>{item.title}</span>}
-                        </NavLink>
-                      </SidebarMenuButton>
+                      {collapsed ? (
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <SidebarMenuButton asChild>
+                              <NavLink
+                                to={item.url}
+                                className="text-foreground/80 hover:bg-muted hover:text-foreground justify-center"
+                                activeClassName="bg-muted text-cinematic-accent font-medium"
+                              >
+                                <item.icon className="w-4 h-4" />
+                              </NavLink>
+                            </SidebarMenuButton>
+                          </TooltipTrigger>
+                          <TooltipContent side="right">
+                            <p>{item.title}</p>
+                          </TooltipContent>
+                        </Tooltip>
+                      ) : (
+                        <SidebarMenuButton asChild>
+                          <NavLink
+                            to={item.url}
+                            className="text-foreground/80 hover:bg-muted hover:text-foreground"
+                            activeClassName="bg-muted text-cinematic-accent font-medium"
+                          >
+                            <item.icon className="w-4 h-4" />
+                            <span>{item.title}</span>
+                          </NavLink>
+                        </SidebarMenuButton>
+                      )}
                     </SidebarMenuItem>
                   ))}
                 </SidebarMenu>
@@ -385,41 +426,71 @@ export function AppSidebar() {
               <SidebarGroupContent>
                 <SidebarMenu>
                   <SidebarMenuItem>
-                    <SidebarMenuButton asChild>
-                      <NavLink
-                        to="/conta"
-                        className={`text-foreground/80 hover:bg-muted hover:text-foreground ${
-                          collapsed ? "justify-center" : ""
-                        }`}
-                        activeClassName="bg-muted text-cinematic-accent"
-                        title={collapsed ? "Minha Conta" : undefined}
-                      >
-                        <User className="w-4 h-4" />
-                        {!collapsed && <span>Minha Conta</span>}
-                      </NavLink>
-                    </SidebarMenuButton>
+                    {collapsed ? (
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <SidebarMenuButton asChild>
+                            <NavLink
+                              to="/conta"
+                              className="text-foreground/80 hover:bg-muted hover:text-foreground justify-center"
+                              activeClassName="bg-muted text-cinematic-accent"
+                            >
+                              <User className="w-4 h-4" />
+                            </NavLink>
+                          </SidebarMenuButton>
+                        </TooltipTrigger>
+                        <TooltipContent side="right">
+                          <p>Minha Conta</p>
+                        </TooltipContent>
+                      </Tooltip>
+                    ) : (
+                      <SidebarMenuButton asChild>
+                        <NavLink
+                          to="/conta"
+                          className="text-foreground/80 hover:bg-muted hover:text-foreground"
+                          activeClassName="bg-muted text-cinematic-accent"
+                        >
+                          <User className="w-4 h-4" />
+                          <span>Minha Conta</span>
+                        </NavLink>
+                      </SidebarMenuButton>
+                    )}
                   </SidebarMenuItem>
                   <SidebarMenuItem>
-                    <SidebarMenuButton 
-                      onClick={signOut} 
-                      className={`text-foreground/80 hover:bg-muted hover:text-foreground ${
-                        collapsed ? "justify-center" : ""
-                      }`}
-                      title={collapsed ? "Sair" : undefined}
-                    >
-                      <LogOut className="w-4 h-4" />
-                      {!collapsed && <span>Sair</span>}
-                    </SidebarMenuButton>
+                    {collapsed ? (
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <SidebarMenuButton 
+                            onClick={signOut} 
+                            className="text-foreground/80 hover:bg-muted hover:text-foreground justify-center"
+                          >
+                            <LogOut className="w-4 h-4" />
+                          </SidebarMenuButton>
+                        </TooltipTrigger>
+                        <TooltipContent side="right">
+                          <p>Sair</p>
+                        </TooltipContent>
+                      </Tooltip>
+                    ) : (
+                      <SidebarMenuButton 
+                        onClick={signOut} 
+                        className="text-foreground/80 hover:bg-muted hover:text-foreground"
+                      >
+                        <LogOut className="w-4 h-4" />
+                        <span>Sair</span>
+                      </SidebarMenuButton>
+                    )}
                   </SidebarMenuItem>
                 </SidebarMenu>
               </SidebarGroupContent>
             </SidebarGroup>
           </>
         )}
-      </SidebarContent>
+        </SidebarContent>
 
-      {/* Become Creator Modal */}
-      <BecomeCreatorModal open={creatorModalOpen} onOpenChange={setCreatorModalOpen} />
-    </Sidebar>
+        {/* Become Creator Modal */}
+        <BecomeCreatorModal open={creatorModalOpen} onOpenChange={setCreatorModalOpen} />
+      </Sidebar>
+    </TooltipProvider>
   );
 }
