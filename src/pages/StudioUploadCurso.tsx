@@ -40,7 +40,7 @@ import {
   sortableKeyboardCoordinates,
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
-import { DraggableModule } from "@/components/course-builder/DraggableModule";
+import { DraggableModuleWrapper } from "@/components/course-builder/DraggableModule";
 import { DraggableLesson } from "@/components/course-builder/DraggableLesson";
 import { CourseStructurePreview } from "@/components/course-builder/CourseStructurePreview";
 import { QuizEditor } from "@/components/course-builder/QuizEditor";
@@ -822,24 +822,22 @@ export default function StudioUploadCurso() {
                       strategy={verticalListSortingStrategy}
                     >
                       <Accordion type="single" collapsible className="space-y-4">
-                        {modules.map((module, moduleIndex) => {
-                          const draggable = DraggableModule({ id: module.id });
-                          
-                          return (
-                            <AccordionItem 
-                              key={module.id} 
-                              value={module.id} 
-                              className="border rounded-lg border-none"
-                              ref={draggable.ref}
-                              style={{
-                                ...draggable.style,
-                                opacity: draggable.isDragging ? 0.5 : 1,
-                              }}
-                            >
+                        {modules.map((module, moduleIndex) => (
+                          <DraggableModuleWrapper key={module.id} id={module.id}>
+                            {({ ref, style, isDragging, handleProps }) => (
+                              <AccordionItem 
+                                value={module.id} 
+                                className="border rounded-lg border-none"
+                                ref={ref}
+                                style={{
+                                  ...style,
+                                  opacity: isDragging ? 0.5 : 1,
+                                }}
+                              >
                               <Card className="p-0">
                                 <AccordionTrigger className="px-6 py-4 hover:no-underline">
                                   <div className="flex items-center gap-3 w-full">
-                                    <div {...draggable.handleProps} className="cursor-grab active:cursor-grabbing p-1 hover:bg-accent rounded transition-colors">
+                                    <div {...handleProps} className="cursor-grab active:cursor-grabbing p-1 hover:bg-accent rounded transition-colors">
                                       <GripVertical className="w-5 h-5 text-muted-foreground" />
                                     </div>
                                     <div className="flex-1 text-left">
@@ -1117,8 +1115,9 @@ export default function StudioUploadCurso() {
                                   </AccordionContent>
                                 </Card>
                               </AccordionItem>
-                          );
-                        })}
+                            )}
+                          </DraggableModuleWrapper>
+                        ))}
                         </Accordion>
                     </SortableContext>
                   </DndContext>
