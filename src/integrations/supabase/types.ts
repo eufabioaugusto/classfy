@@ -254,6 +254,53 @@ export type Database = {
           },
         ]
       }
+      content_views: {
+        Row: {
+          content_id: string
+          created_at: string | null
+          first_viewed_at: string | null
+          id: string
+          last_viewed_at: string | null
+          total_watch_time_seconds: number | null
+          updated_at: string | null
+          user_id: string
+          view_count: number | null
+          view_date: string
+        }
+        Insert: {
+          content_id: string
+          created_at?: string | null
+          first_viewed_at?: string | null
+          id?: string
+          last_viewed_at?: string | null
+          total_watch_time_seconds?: number | null
+          updated_at?: string | null
+          user_id: string
+          view_count?: number | null
+          view_date?: string
+        }
+        Update: {
+          content_id?: string
+          created_at?: string | null
+          first_viewed_at?: string | null
+          id?: string
+          last_viewed_at?: string | null
+          total_watch_time_seconds?: number | null
+          updated_at?: string | null
+          user_id?: string
+          view_count?: number | null
+          view_date?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "content_views_content_id_fkey"
+            columns: ["content_id"]
+            isOneToOne: false
+            referencedRelation: "contents"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       contents: {
         Row: {
           category_id: string | null
@@ -1421,6 +1468,10 @@ export type Database = {
           _user_id: string
         }
         Returns: boolean
+      }
+      increment_content_view: {
+        Args: { p_content_id: string; p_user_id: string }
+        Returns: Json
       }
     }
     Enums: {

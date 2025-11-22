@@ -15,35 +15,69 @@ Deno.serve(async (req) => {
     const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-    const { contentId, creatorId, newViews, oldViews } = await req.json();
+    const { contentId, creatorId } = await req.json();
 
-    console.log('Checking milestones:', { contentId, creatorId, newViews, oldViews });
+    console.log('Checking milestones for content:', { contentId, creatorId });
+
+    // Get current views count from content
+    const { data: contentData, error: contentError } = await supabase
+      .from('contents')
+      .select('views_count')
+      .eq('id', contentId)
+      .single();
+
+    if (contentError) {
+      console.error('Error fetching content:', contentError);
+      throw contentError;
+    }
+
+    const currentViews = contentData.views_count || 0;
+    console.log('Current views:', currentViews);
 
     const milestones = [
       { views: 100, actionKey: 'MILESTONE_100_VIEWS' },
       { views: 500, actionKey: 'MILESTONE_500_VIEWS' },
       { views: 1000, actionKey: 'MILESTONE_1000_VIEWS' },
+      { views: 5000, actionKey: 'MILESTONE_5000_VIEWS' },
+      { views: 10000, actionKey: 'MILESTONE_10000_VIEWS' },
     ];
 
+    // Check each milestone
     for (const milestone of milestones) {
-      // Check if milestone was just crossed
-      if (oldViews < milestone.views && newViews >= milestone.views) {
-        console.log(`Milestone reached: ${milestone.actionKey}`);
-        
-        // Process reward via process-reward function
-        await supabase.functions.invoke('process-reward', {
-          body: {
-            actionKey: milestone.actionKey,
-            userId: creatorId,
-            contentId: contentId,
-            metadata: { views: newViews },
-          },
-        });
+      if (currentViews >= milestone.views) {
+        // Check if milestone was already rewarded
+        const { data: existingReward } = await supabase
+          .from('reward_action_tracking')
+          .select('id')
+          .eq('user_id', creatorId)
+          .eq('content_id', contentId)
+          .eq('action_key', milestone.actionKey)
+          .maybeSingle();
+
+        if (!existingReward) {
+          console.log(`Milestone reached: ${milestone.actionKey}`);
+          
+          // Process reward via process-reward function
+          const { error: rewardError } = await supabase.functions.invoke('process-reward', {
+            body: {
+              actionKey: milestone.actionKey,
+              userId: creatorId,
+              contentId: contentId,
+              metadata: { views: currentViews },
+            },
+          });
+
+          if (rewardError) {
+            console.error(`Error processing reward for ${milestone.actionKey}:`, rewardError);
+          }
+        } else {
+          console.log(`Milestone ${milestone.actionKey} already rewarded`);
+        }
       }
     }
 
     return new Response(
-      JSON.stringify({ success: true }),
+      JSON.stringify({ success: true, views: currentViews }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   } catch (error) {
