@@ -385,9 +385,9 @@ export default function Watch() {
           />
 
           <main className="flex-1 overflow-auto">
-            <div className="max-w-7xl mx-auto p-6">
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                <div className="lg:col-span-2 space-y-4">
+            <div className="w-full">
+              <div className="flex flex-col lg:flex-row gap-6 p-6">
+                <div className="flex-1 min-w-0 space-y-4">
                   <WatchVideoPlayer
                     content={{
                       id: content.id,
@@ -479,7 +479,7 @@ export default function Watch() {
                   <ContentComments contentId={content.id} />
                 </div>
 
-                <div className="lg:col-span-1 space-y-4">
+                <div className="w-full lg:w-80 xl:w-96 shrink-0 space-y-4">
                   <WatchNotes 
                     contentId={content.id}
                     onSeekTo={(seconds) => setSeekToTime(seconds)}
