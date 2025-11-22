@@ -13,6 +13,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Checkbox } from "@/components/ui/checkbox";
+import { BoostModal } from "@/components/BoostModal";
+import { useBoostContent } from "@/hooks/useBoostContent";
 interface Content {
   id: string;
   title: string;
@@ -39,6 +41,7 @@ export default function StudioContents() {
   const [isLoading, setIsLoading] = useState(true);
   const [filterType, setFilterType] = useState<string>("all");
   const [selectedContents, setSelectedContents] = useState<Set<string>>(new Set());
+  const { isBoostModalOpen, selectedContent, openBoostModal, closeBoostModal } = useBoostContent();
   useEffect(() => {
     if (user) {
       fetchContents();
@@ -328,6 +331,10 @@ export default function StudioContents() {
                                     <Eye className="w-4 h-4 mr-2" />
                                     Ver
                                   </DropdownMenuItem>
+                                  <DropdownMenuItem onClick={() => openBoostModal(content.id, content.title)}>
+                                    <Zap className="w-4 h-4 mr-2" />
+                                    Impulsionar
+                                  </DropdownMenuItem>
                                   <DropdownMenuItem onClick={() => navigate(`/studio/upload?edit=${content.id}`)}>
                                     <Edit className="w-4 h-4 mr-2" />
                                     Editar
@@ -348,5 +355,12 @@ export default function StudioContents() {
           </main>
         </div>
       </div>
+
+      <BoostModal 
+        open={isBoostModalOpen}
+        onOpenChange={closeBoostModal}
+        contentId={selectedContent?.id}
+        contentTitle={selectedContent?.title}
+      />
     </SidebarProvider>;
 }
