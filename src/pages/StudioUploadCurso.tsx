@@ -274,11 +274,11 @@ export default function StudioUploadCurso() {
   };
 
   const removeModule = (moduleId: string) => {
-    setModules(modules.filter(m => m.id !== moduleId));
+    setModules(prevModules => prevModules.filter(m => m.id !== moduleId));
   };
 
   const updateModule = (moduleId: string, field: keyof Module, value: any) => {
-    setModules(modules.map(m => 
+    setModules(prevModules => prevModules.map(m => 
       m.id === moduleId ? { ...m, [field]: value } : m
     ));
   };
@@ -296,13 +296,13 @@ export default function StudioUploadCurso() {
       progress: 0
     };
     
-    setModules(modules.map(m => 
+    setModules(prevModules => prevModules.map(m => 
       m.id === moduleId ? { ...m, lessons: [...m.lessons, newLesson] } : m
     ));
   };
 
   const removeLesson = (moduleId: string, lessonId: string) => {
-    setModules(modules.map(m => 
+    setModules(prevModules => prevModules.map(m => 
       m.id === moduleId 
         ? { ...m, lessons: m.lessons.filter(l => l.id !== lessonId) }
         : m
@@ -310,7 +310,7 @@ export default function StudioUploadCurso() {
   };
 
   const updateLesson = (moduleId: string, lessonId: string, field: keyof Lesson, value: any) => {
-    setModules(modules.map(m => 
+    setModules(prevModules => prevModules.map(m => 
       m.id === moduleId 
         ? { 
             ...m, 
@@ -323,17 +323,6 @@ export default function StudioUploadCurso() {
   };
 
   const handleLessonVideoUpload = async (moduleId: string, lessonId: string, file: File) => {
-    updateLesson(moduleId, lessonId, 'uploading', true);
-    updateLesson(moduleId, lessonId, 'progress', 0);
-
-    // Get video duration
-    const video = document.createElement("video");
-    const videoUrl = URL.createObjectURL(file);
-    video.src = videoUrl;
-    video.onloadedmetadata = () => {
-      updateLesson(moduleId, lessonId, 'duration', Math.floor(video.duration));
-    };
-
     try {
       // Validate video size (max 500MB)
       const maxSize = 500 * 1024 * 1024;
@@ -347,48 +336,55 @@ export default function StudioUploadCurso() {
         throw new Error("Formato inválido. Use MP4, WebM ou MOV");
       }
 
-      // Use process-video edge function for compression
-      const formData = new FormData();
-      formData.append('video', file);
-      formData.append('courseId', 'temp-course-id'); // Will be replaced on save
-      formData.append('lessonId', lessonId);
+      updateLesson(moduleId, lessonId, 'uploading', true);
+      updateLesson(moduleId, lessonId, 'progress', 0);
 
-      const { data: session } = await supabase.auth.getSession();
+      // Get video duration
+      const video = document.createElement("video");
+      const videoUrl = URL.createObjectURL(file);
+      video.src = videoUrl;
+      video.onloadedmetadata = () => {
+        updateLesson(moduleId, lessonId, 'duration', Math.floor(video.duration));
+        URL.revokeObjectURL(videoUrl);
+      };
+
+      const fileExt = file.name.split('.').pop();
+      const fileName = `courses/${user.id}/${Date.now()}.${fileExt}`;
       
+      // Simulate progress
+      let currentProgress = 0;
       const progressInterval = setInterval(() => {
-        updateLesson(moduleId, lessonId, 'progress', (prev: number) => {
-          if (prev >= 90) {
-            clearInterval(progressInterval);
-            return prev;
-          }
-          return prev + 10;
-        });
-      }, 500);
-
-      const response = await fetch(
-        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/process-video`,
-        {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${session?.session?.access_token}`,
-          },
-          body: formData,
+        currentProgress += 15;
+        if (currentProgress >= 90) {
+          clearInterval(progressInterval);
+          updateLesson(moduleId, lessonId, 'progress', 90);
+        } else {
+          updateLesson(moduleId, lessonId, 'progress', currentProgress);
         }
-      );
+      }, 300);
 
-      const result = await response.json();
+      const { error, data } = await supabase.storage
+        .from('courses')
+        .upload(fileName, file, {
+          cacheControl: '3600',
+          upsert: false
+        });
+
       clearInterval(progressInterval);
+
+      if (error) throw error;
+
+      const { data: { publicUrl } } = supabase.storage
+        .from('courses')
+        .getPublicUrl(fileName);
+
       updateLesson(moduleId, lessonId, 'progress', 100);
-
-      if (!response.ok) {
-        throw new Error(result.error || 'Erro ao processar vídeo');
-      }
-
-      updateLesson(moduleId, lessonId, 'videoUrl', result.videoUrl);
+      updateLesson(moduleId, lessonId, 'videoUrl', publicUrl);
       updateLesson(moduleId, lessonId, 'videoFile', file);
-      toast.success("Vídeo enviado! Compressão em andamento...");
+      
+      toast.success("Vídeo da aula enviado com sucesso!");
     } catch (error: any) {
-      console.error("Erro ao processar vídeo:", error);
+      console.error("Erro ao enviar vídeo:", error);
       toast.error(error.message || "Erro ao enviar vídeo");
       updateLesson(moduleId, lessonId, 'progress', 0);
     } finally {
@@ -422,7 +418,7 @@ export default function StudioUploadCurso() {
   };
 
   const updateQuiz = (moduleId: string, quizIndex: number, updatedQuiz: Quiz) => {
-    setModules(modules.map(m => {
+    setModules(prevModules => prevModules.map(m => {
       if (m.id === moduleId) {
         const newQuizzes = [...m.quizzes];
         newQuizzes[quizIndex] = updatedQuiz;
@@ -433,7 +429,7 @@ export default function StudioUploadCurso() {
   };
 
   const removeQuiz = (moduleId: string, quizId: string) => {
-    setModules(modules.map(m => 
+    setModules(prevModules => prevModules.map(m => 
       m.id === moduleId 
         ? { ...m, quizzes: m.quizzes.filter(q => q.id !== quizId) }
         : m
@@ -452,13 +448,13 @@ export default function StudioUploadCurso() {
       progress: 0
     };
     
-    setModules(modules.map(m => 
+    setModules(prevModules => prevModules.map(m => 
       m.id === moduleId ? { ...m, materials: [...m.materials, newMaterial] } : m
     ));
   };
 
   const removeMaterial = (moduleId: string, materialId: string) => {
-    setModules(modules.map(m => 
+    setModules(prevModules => prevModules.map(m => 
       m.id === moduleId 
         ? { ...m, materials: m.materials.filter(mat => mat.id !== materialId) }
         : m
