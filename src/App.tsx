@@ -20,6 +20,7 @@ import AdminContents from "./pages/AdminContents";
 import AdminRewards from "./pages/AdminRewards";
 import AdminTranscriptions from "./pages/AdminTranscriptions";
 import RewardsHistory from "./pages/RewardsHistory";
+import Recompensas from "./pages/Recompensas";
 import Study from "./pages/Study";
 import Watch from "./pages/Watch";
 import Listen from "./pages/Listen";
@@ -49,7 +50,8 @@ const App = () => (
               <Route path="/admin/contents" element={<AdminContents />} />
               <Route path="/admin/rewards" element={<AdminRewards />} />
               <Route path="/admin/transcriptions" element={<AdminTranscriptions />} />
-              <Route path="/rewards" element={<RewardsHistory />} />
+              <Route path="/rewards-history" element={<RewardsHistory />} />
+              <Route path="/recompensas" element={<Recompensas />} />
               <Route path="/watch/:id" element={<Watch />} />
               <Route path="/listen/:id" element={<Listen />} />
               <Route path="/c/:id" element={<Study />} />
