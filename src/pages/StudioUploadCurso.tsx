@@ -382,15 +382,19 @@ export default function StudioUploadCurso() {
       maxAttempts: 3
     };
     
-    setModules(modules.map(m => 
-      m.id === moduleId ? { ...m, quizzes: [...m.quizzes, newQuiz] } : m
-    ));
-
-    // Open editor for the new quiz
-    const module = modules.find(m => m.id === moduleId);
-    if (module) {
-      setEditingQuiz({ moduleId, quizIndex: module.quizzes.length });
-    }
+    setModules(prevModules => {
+      const updatedModules = prevModules.map(m => 
+        m.id === moduleId ? { ...m, quizzes: [...m.quizzes, newQuiz] } : m
+      );
+      
+      // Encontra o módulo atualizado e abre o editor
+      const module = updatedModules.find(m => m.id === moduleId);
+      if (module) {
+        setEditingQuiz({ moduleId, quizIndex: module.quizzes.length - 1 });
+      }
+      
+      return updatedModules;
+    });
   };
 
   const updateQuiz = (moduleId: string, quizIndex: number, updatedQuiz: Quiz) => {
