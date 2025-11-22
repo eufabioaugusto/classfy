@@ -4,9 +4,9 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Trophy, Award } from "lucide-react";
 
-interface UserLevel {
-  current_level: number;
-  total_points: number;
+interface UserStats {
+  level: number;
+  totalPoints: number;
 }
 
 interface BadgeData {
@@ -22,7 +22,7 @@ interface UserBadgesProps {
 }
 
 export function UserBadges({ userId }: UserBadgesProps) {
-  const [level, setLevel] = useState<UserLevel | null>(null);
+  const [stats, setStats] = useState<UserStats | null>(null);
   const [badges, setBadges] = useState<BadgeData[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -32,14 +32,16 @@ export function UserBadges({ userId }: UserBadgesProps) {
 
   const fetchUserData = async () => {
     try {
-      // Fetch user level
-      const { data: levelData } = await supabase
-        .from('user_levels')
-        .select('current_level, total_points')
-        .eq('user_id', userId)
-        .maybeSingle();
+      // Fetch points from reward_events (source of truth)
+      const { data: rewardEvents } = await supabase
+        .from('reward_events')
+        .select('points')
+        .eq('user_id', userId);
 
-      setLevel(levelData);
+      const totalPoints = rewardEvents?.reduce((sum, event) => sum + event.points, 0) || 0;
+      const level = Math.floor(totalPoints / 1000) + 1;
+
+      setStats({ level, totalPoints });
 
       // Fetch user badges
       const { data: badgesData } = await supabase
@@ -72,12 +74,6 @@ export function UserBadges({ userId }: UserBadgesProps) {
     }
   };
 
-  const getNextLevelPoints = (currentLevel: number) => {
-    // Define thresholds for levels
-    const thresholds = [0, 1000, 2500, 5000, 10000, 20000, 50000];
-    return thresholds[currentLevel] || thresholds[thresholds.length - 1] * 2;
-  };
-
   if (loading) {
     return (
       <Card className="p-6">
@@ -86,10 +82,11 @@ export function UserBadges({ userId }: UserBadgesProps) {
     );
   }
 
-  const currentPoints = level?.total_points || 0;
-  const currentLevel = level?.current_level || 1;
-  const nextLevelPoints = getNextLevelPoints(currentLevel);
-  const progressPercent = Math.min((currentPoints / nextLevelPoints) * 100, 100);
+  const currentPoints = stats?.totalPoints || 0;
+  const currentLevel = stats?.level || 1;
+  const pointsInCurrentLevel = currentPoints % 1000;
+  const pointsToNextLevel = 1000 - pointsInCurrentLevel;
+  const progressPercent = (pointsInCurrentLevel / 1000) * 100;
 
   return (
     <div className="space-y-6">
@@ -119,7 +116,7 @@ export function UserBadges({ userId }: UserBadgesProps) {
             />
           </div>
           <p className="text-xs text-muted-foreground text-right">
-            {nextLevelPoints - currentPoints} pontos para o próximo nível
+            {pointsToNextLevel} pontos para o próximo nível
           </p>
         </div>
       </Card>
