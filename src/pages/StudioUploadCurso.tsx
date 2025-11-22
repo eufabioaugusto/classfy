@@ -43,9 +43,11 @@ import {
 import { DraggableModule } from "@/components/course-builder/DraggableModule";
 import { DraggableLesson } from "@/components/course-builder/DraggableLesson";
 import { CourseStructurePreview } from "@/components/course-builder/CourseStructurePreview";
+import { QuizEditor } from "@/components/course-builder/QuizEditor";
 
 type Visibility = "free" | "pro" | "premium" | "paid";
 type CourseLevel = "beginner" | "intermediate" | "advanced";
+type QuestionType = "multiple" | "true-false" | "essay" | "fill-blank";
 
 interface Module {
   id: string;
@@ -80,10 +82,11 @@ interface Quiz {
 interface QuizQuestion {
   id: string;
   question: string;
-  type: "multiple" | "true-false";
+  type: QuestionType;
   options: string[];
-  correctAnswer: number;
+  correctAnswer: number | string;
   explanation: string;
+  points: number;
 }
 
 interface Material {
@@ -131,6 +134,7 @@ export default function StudioUploadCurso() {
 
   const [submitting, setSubmitting] = useState(false);
   const [activeModule, setActiveModule] = useState<string | null>(null);
+  const [editingQuiz, setEditingQuiz] = useState<{ moduleId: string; quizIndex: number } | null>(null);
 
   // Drag and Drop Sensors
   const sensors = useSensors(
@@ -381,6 +385,23 @@ export default function StudioUploadCurso() {
     setModules(modules.map(m => 
       m.id === moduleId ? { ...m, quizzes: [...m.quizzes, newQuiz] } : m
     ));
+
+    // Open editor for the new quiz
+    const module = modules.find(m => m.id === moduleId);
+    if (module) {
+      setEditingQuiz({ moduleId, quizIndex: module.quizzes.length });
+    }
+  };
+
+  const updateQuiz = (moduleId: string, quizIndex: number, updatedQuiz: Quiz) => {
+    setModules(modules.map(m => {
+      if (m.id === moduleId) {
+        const newQuizzes = [...m.quizzes];
+        newQuizzes[quizIndex] = updatedQuiz;
+        return { ...m, quizzes: newQuizzes };
+      }
+      return m;
+    }));
   };
 
   const removeQuiz = (moduleId: string, quizId: string) => {
@@ -985,23 +1006,38 @@ export default function StudioUploadCurso() {
                                   </p>
                                 ) : (
                                   <div className="space-y-3">
-                                    {module.quizzes.map((quiz) => (
-                                      <Card key={quiz.id} className="p-4">
+                                    {module.quizzes.map((quiz, quizIndex) => (
+                                      <Card key={quiz.id} className="p-4 hover:border-primary transition-colors">
                                         <div className="flex items-center justify-between">
-                                          <div className="flex items-center gap-2">
-                                            <HelpCircle className="w-4 h-4 text-primary" />
-                                            <span className="text-sm">
-                                              {quiz.title || "Quiz sem título"}
-                                            </span>
+                                          <div className="flex items-center gap-3 flex-1">
+                                            <HelpCircle className="w-4 h-4 text-purple-500" />
+                                            <div className="flex-1">
+                                              <p className="text-sm font-medium">
+                                                {quiz.title || "Quiz sem título"}
+                                              </p>
+                                              <p className="text-xs text-muted-foreground">
+                                                {quiz.questions.length} questões • {quiz.passingScore}% para aprovação
+                                              </p>
+                                            </div>
                                           </div>
-                                          <Button
-                                            type="button"
-                                            variant="ghost"
-                                            size="icon"
-                                            onClick={() => removeQuiz(module.id, quiz.id)}
-                                          >
-                                            <Trash2 className="w-4 h-4" />
-                                          </Button>
+                                          <div className="flex items-center gap-2">
+                                            <Button
+                                              type="button"
+                                              variant="outline"
+                                              size="sm"
+                                              onClick={() => setEditingQuiz({ moduleId: module.id, quizIndex })}
+                                            >
+                                              Editar
+                                            </Button>
+                                            <Button
+                                              type="button"
+                                              variant="ghost"
+                                              size="icon"
+                                              onClick={() => removeQuiz(module.id, quiz.id)}
+                                            >
+                                              <Trash2 className="w-4 h-4" />
+                                            </Button>
+                                          </div>
                                         </div>
                                       </Card>
                                     ))}
@@ -1151,6 +1187,22 @@ export default function StudioUploadCurso() {
           </main>
         </div>
       </div>
+
+      {/* Quiz Editor Modal */}
+      {editingQuiz && (() => {
+        const module = modules.find(m => m.id === editingQuiz.moduleId);
+        const quiz = module?.quizzes[editingQuiz.quizIndex];
+        return quiz ? (
+          <QuizEditor
+            quiz={quiz}
+            onUpdate={(updatedQuiz) => {
+              updateQuiz(editingQuiz.moduleId, editingQuiz.quizIndex, updatedQuiz);
+              setEditingQuiz(null);
+            }}
+            onClose={() => setEditingQuiz(null)}
+          />
+        ) : null;
+      })()}
     </SidebarProvider>
   );
 }
