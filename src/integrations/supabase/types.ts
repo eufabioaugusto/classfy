@@ -851,6 +851,7 @@ export type Database = {
       reward_events: {
         Row: {
           action_key: string
+          can_withdraw_at: string | null
           content_id: string | null
           created_at: string
           id: string
@@ -862,6 +863,7 @@ export type Database = {
         }
         Insert: {
           action_key: string
+          can_withdraw_at?: string | null
           content_id?: string | null
           created_at?: string
           id?: string
@@ -873,6 +875,7 @@ export type Database = {
         }
         Update: {
           action_key?: string
+          can_withdraw_at?: string | null
           content_id?: string | null
           created_at?: string
           id?: string
@@ -1134,6 +1137,33 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      system_config: {
+        Row: {
+          config_key: string
+          config_value: Json
+          created_at: string | null
+          description: string | null
+          id: string
+          updated_at: string | null
+        }
+        Insert: {
+          config_key: string
+          config_value: Json
+          created_at?: string | null
+          description?: string | null
+          id?: string
+          updated_at?: string | null
+        }
+        Update: {
+          config_key?: string
+          config_value?: Json
+          created_at?: string | null
+          description?: string | null
+          id?: string
+          updated_at?: string | null
+        }
+        Relationships: []
       }
       transcriptions: {
         Row: {

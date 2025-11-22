@@ -80,6 +80,7 @@ const adminItems = [
   { title: "Aprovar Conteúdos", url: "/admin/contents", icon: Video },
   { title: "Transcrições", url: "/admin/transcriptions", icon: FileText },
   { title: "Recompensas", url: "/admin/rewards", icon: Trophy },
+  { title: "Saques", url: "/admin/withdrawals", icon: DollarSign },
   { title: "Gerenciar Usuários", url: "/admin/users", icon: Users },
   { title: "Configurações", url: "/admin/settings", icon: Settings },
 ];
