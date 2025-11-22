@@ -262,7 +262,7 @@ export default function StudioContents() {
                         </TableHead>
                         <TableHead className="w-[400px]">Vídeo</TableHead>
                         <TableHead>Visibilidade</TableHead>
-                        <TableHead>Status</TableHead>
+                        <TableHead className="w-[180px]">Status</TableHead>
                         <TableHead>Data</TableHead>
                         <TableHead className="text-right">Visualizações</TableHead>
                         <TableHead className="w-12"></TableHead>
@@ -306,16 +306,16 @@ export default function StudioContents() {
                               </span>
                             </TableCell>
                             <TableCell>
-                              <div className="flex flex-col gap-2">
+                              <div className="flex flex-col gap-1.5">
                                 {getStatusBadge(content.status)}
                                 {content.status === 'approved' && (
                                   <Button
                                     size="sm"
                                     onClick={() => openBoostModal(content.id, content.title)}
-                                    className="bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 text-white border-0 gap-1.5"
+                                    className="bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 text-white border-0 h-7 px-2 text-xs gap-1"
                                   >
-                                    <Zap className="w-3.5 h-3.5" />
-                                    Impulsionar
+                                    <Zap className="w-3 h-3" />
+                                    Boost
                                   </Button>
                                 )}
                               </div>
