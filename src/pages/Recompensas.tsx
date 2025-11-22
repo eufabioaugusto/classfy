@@ -435,7 +435,7 @@ export default function Recompensas() {
                       Veja todas as suas recompensas com filtros avançados
                     </p>
                   </div>
-                  <Button onClick={() => window.location.href = '/rewards-history'}>
+                  <Button onClick={() => navigate('/rewards-history')}>
                     Ver Histórico Completo
                   </Button>
                 </div>
