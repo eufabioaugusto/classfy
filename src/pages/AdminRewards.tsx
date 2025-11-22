@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
+import { AdminLayout } from "@/components/AdminLayout";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -26,7 +27,6 @@ import {
 import { GlobalLoader } from "@/components/GlobalLoader";
 import { toast } from "sonner";
 import { 
-  ArrowLeft, 
   Pencil, 
   Search,
   TrendingUp,
@@ -212,19 +212,8 @@ export default function AdminRewards() {
   }
 
   return (
-    <div className="container mx-auto p-6 space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <Button variant="ghost" size="icon" onClick={() => navigate(-1)}>
-            <ArrowLeft className="h-5 w-5" />
-          </Button>
-          <div>
-            <h1 className="text-3xl font-bold">Gerenciamento de Recompensas</h1>
-            <p className="text-muted-foreground">Configure valores e controle a economia da plataforma</p>
-          </div>
-        </div>
-      </div>
+    <AdminLayout title="Recompensas">
+      <div className="container mx-auto p-6 space-y-6">
 
       {/* Global Stats */}
       <div className="grid gap-4 md:grid-cols-4">
@@ -478,6 +467,7 @@ export default function AdminRewards() {
           )}
         </DialogContent>
       </Dialog>
-    </div>
+      </div>
+    </AdminLayout>
   );
 }

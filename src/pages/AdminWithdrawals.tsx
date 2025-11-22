@@ -3,6 +3,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
+import { AdminLayout } from "@/components/AdminLayout";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -271,23 +272,18 @@ export default function AdminWithdrawals() {
   }
 
   return (
-    <div className="container mx-auto px-4 py-8 space-y-8">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-4xl font-bold">Gestão de Saques</h1>
-          <p className="text-muted-foreground mt-2">
-            Aprovar ou recusar solicitações de saque
-          </p>
+    <AdminLayout title="Saques">
+      <div className="container mx-auto px-4 py-8 space-y-8">
+        <div className="flex items-center justify-end">
+          <Button
+            variant="outline"
+            onClick={() => setShowConfigModal(true)}
+            className="flex items-center gap-2"
+          >
+            <Settings className="w-4 h-4" />
+            Configurações
+          </Button>
         </div>
-        <Button
-          variant="outline"
-          onClick={() => setShowConfigModal(true)}
-          className="flex items-center gap-2"
-        >
-          <Settings className="w-4 h-4" />
-          Configurações
-        </Button>
-      </div>
 
       {/* Stats Cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -499,6 +495,7 @@ export default function AdminWithdrawals() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </div>
+      </div>
+    </AdminLayout>
   );
 }

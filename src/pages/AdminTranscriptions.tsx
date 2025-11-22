@@ -1,7 +1,6 @@
 import { useAuth } from "@/contexts/AuthContext";
 import { Navigate } from "react-router-dom";
-import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
-import { AppSidebar } from "@/components/AppSidebar";
+import { AdminLayout } from "@/components/AdminLayout";
 import { useState, useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -37,7 +36,6 @@ export default function AdminTranscriptions() {
   const fetchStats = async () => {
     setLoadingStats(true);
     try {
-      // Get all approved contents (aula or podcast)
       const { data: approvedContents, error: contentsError } = await supabase
         .from('contents')
         .select('id, content_type')
@@ -47,7 +45,6 @@ export default function AdminTranscriptions() {
 
       if (contentsError) throw contentsError;
 
-      // Get all existing transcriptions
       const { data: transcriptions, error: transcriptionsError } = await supabase
         .from('transcriptions')
         .select('content_id');
@@ -97,10 +94,7 @@ export default function AdminTranscriptions() {
         }
       );
 
-      // Refresh stats after a delay
-      setTimeout(() => {
-        fetchStats();
-      }, 2000);
+      setTimeout(() => fetchStats(), 2000);
     } catch (error: any) {
       console.error('Error starting batch transcription:', error);
       toast.error(error.message || "Erro ao iniciar processamento em lote");
@@ -113,154 +107,150 @@ export default function AdminTranscriptions() {
   if (!user || role !== 'admin') return <Navigate to="/" replace />;
 
   return (
-    <SidebarProvider>
-      <div className="flex min-h-screen w-full">
-        <AppSidebar />
-        <div className="flex-1 flex flex-col">
-          <header className="sticky top-0 z-10 flex h-16 items-center gap-4 border-b bg-background px-6">
-            <SidebarTrigger />
-            <h1 className="text-xl font-semibold">Gerenciar Transcrições</h1>
-          </header>
+    <AdminLayout title="Transcrições">
+      <div className="p-6 space-y-6">
+        {/* Stats Cards */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-medium">Total Aprovados</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">{stats?.totalApproved || 0}</div>
+              <Badge variant="outline" className="mt-2">
+                <FileText className="h-3 w-3 mr-1" />
+                Aulas + Podcasts
+              </Badge>
+            </CardContent>
+          </Card>
 
-          <main className="flex-1 p-6 space-y-6">
-            {/* Stats Cards */}
-            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-              <Card>
-                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                  <CardTitle className="text-sm font-medium">Total Aprovados</CardTitle>
-                  <FileText className="h-4 w-4 text-muted-foreground" />
-                </CardHeader>
-                <CardContent>
-                  <div className="text-2xl font-bold">
-                    {loadingStats ? <Loader2 className="h-6 w-6 animate-spin" /> : stats?.totalApproved || 0}
-                  </div>
-                  <p className="text-xs text-muted-foreground">Conteúdos de áudio/vídeo</p>
-                </CardContent>
-              </Card>
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-medium">Com Transcrição</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold text-green-600">{stats?.withTranscription || 0}</div>
+              <Badge className="mt-2 bg-green-500">
+                <CheckCircle className="h-3 w-3 mr-1" />
+                Completos
+              </Badge>
+            </CardContent>
+          </Card>
 
-              <Card>
-                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                  <CardTitle className="text-sm font-medium">Com Transcrição</CardTitle>
-                  <CheckCircle className="h-4 w-4 text-green-600" />
-                </CardHeader>
-                <CardContent>
-                  <div className="text-2xl font-bold text-green-600">
-                    {loadingStats ? <Loader2 className="h-6 w-6 animate-spin" /> : stats?.withTranscription || 0}
-                  </div>
-                  <p className="text-xs text-muted-foreground">Já processados</p>
-                </CardContent>
-              </Card>
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-medium">Sem Transcrição</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold text-orange-600">{stats?.withoutTranscription || 0}</div>
+              <Badge variant="secondary" className="mt-2">
+                <XCircle className="h-3 w-3 mr-1" />
+                Pendentes
+              </Badge>
+            </CardContent>
+          </Card>
 
-              <Card>
-                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                  <CardTitle className="text-sm font-medium">Sem Transcrição</CardTitle>
-                  <AlertCircle className="h-4 w-4 text-orange-600" />
-                </CardHeader>
-                <CardContent>
-                  <div className="text-2xl font-bold text-orange-600">
-                    {loadingStats ? <Loader2 className="h-6 w-6 animate-spin" /> : stats?.withoutTranscription || 0}
-                  </div>
-                  <p className="text-xs text-muted-foreground">
-                    {stats?.aulas || 0} aulas, {stats?.podcasts || 0} podcasts
-                  </p>
-                </CardContent>
-              </Card>
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-medium">Aulas Pendentes</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">{stats?.aulas || 0}</div>
+              <Badge variant="outline" className="mt-2">Aulas</Badge>
+            </CardContent>
+          </Card>
 
-              <Card>
-                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                  <CardTitle className="text-sm font-medium">Taxa de Conclusão</CardTitle>
-                  <RefreshCw className="h-4 w-4 text-muted-foreground" />
-                </CardHeader>
-                <CardContent>
-                  <div className="text-2xl font-bold">
-                    {loadingStats ? (
-                      <Loader2 className="h-6 w-6 animate-spin" />
-                    ) : (
-                      `${stats?.totalApproved ? Math.round((stats.withTranscription / stats.totalApproved) * 100) : 0}%`
-                    )}
-                  </div>
-                  <p className="text-xs text-muted-foreground">Transcrições completas</p>
-                </CardContent>
-              </Card>
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-medium">Podcasts Pendentes</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">{stats?.podcasts || 0}</div>
+              <Badge variant="outline" className="mt-2">Podcasts</Badge>
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Batch Transcription Card */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <RefreshCw className="h-5 w-5" />
+              Processamento em Lote
+            </CardTitle>
+            <CardDescription>
+              Gere transcrições automaticamente para múltiplos conteúdos de uma vez
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="batchLimit">
+                Limite de Processamento
+              </Label>
+              <Input
+                id="batchLimit"
+                type="number"
+                min="1"
+                max="50"
+                value={batchLimit}
+                onChange={(e) => setBatchLimit(parseInt(e.target.value) || 10)}
+                className="w-32"
+              />
+              <p className="text-sm text-muted-foreground">
+                Recomendado: 10-20 conteúdos por vez para evitar sobrecarga
+              </p>
             </div>
 
-            {/* Batch Processing Card */}
-            <Card>
-              <CardHeader>
-                <CardTitle>Processamento em Lote</CardTitle>
-                <CardDescription>
-                  Processe automaticamente transcrições de conteúdos que ainda não foram transcritos
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="batch-limit">Quantidade de conteúdos por lote</Label>
-                  <Input
-                    id="batch-limit"
-                    type="number"
-                    min="1"
-                    max="50"
-                    value={batchLimit}
-                    onChange={(e) => setBatchLimit(parseInt(e.target.value) || 10)}
-                    className="w-32"
-                  />
-                  <p className="text-sm text-muted-foreground">
-                    Recomendado: 10-20 conteúdos por vez para evitar sobrecarga
-                  </p>
-                </div>
+            <div className="flex items-start gap-4 p-4 bg-muted/50 rounded-lg">
+              <AlertCircle className="h-5 w-5 text-orange-600 mt-0.5 flex-shrink-0" />
+              <div className="space-y-1">
+                <p className="text-sm font-medium">Como funciona o processamento em lote:</p>
+                <ul className="text-sm text-muted-foreground space-y-1 list-disc list-inside">
+                  <li>O sistema busca conteúdos aprovados sem transcrição</li>
+                  <li>Inicia o processamento em segundo plano (não trava a interface)</li>
+                  <li>Cada transcrição pode levar alguns minutos</li>
+                  <li>Recarregue esta página periodicamente para ver o progresso</li>
+                  <li>Use lotes menores se houver problemas de memória</li>
+                </ul>
+              </div>
+            </div>
 
-                <div className="flex items-start gap-4 p-4 bg-muted/50 rounded-lg">
-                  <AlertCircle className="h-5 w-5 text-orange-600 mt-0.5 flex-shrink-0" />
-                  <div className="space-y-1">
-                    <p className="text-sm font-medium">Como funciona o processamento em lote:</p>
-                    <ul className="text-sm text-muted-foreground space-y-1 list-disc list-inside">
-                      <li>O sistema busca conteúdos aprovados sem transcrição</li>
-                      <li>Inicia o processamento em segundo plano (não trava a interface)</li>
-                      <li>Cada transcrição pode levar alguns minutos</li>
-                      <li>Recarregue esta página periodicamente para ver o progresso</li>
-                      <li>Use lotes menores se houver problemas de memória</li>
-                    </ul>
-                  </div>
-                </div>
+            <div className="flex gap-3">
+              <Button
+                onClick={handleBatchTranscribe}
+                disabled={processing || !stats || stats.withoutTranscription === 0}
+                className="gap-2"
+              >
+                {processing ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Processando...
+                  </>
+                ) : (
+                  <>
+                    <RefreshCw className="h-4 w-4" />
+                    Iniciar Processamento em Lote
+                  </>
+                )}
+              </Button>
 
-                <div className="flex gap-3">
-                  <Button
-                    onClick={handleBatchTranscribe}
-                    disabled={processing || !stats || stats.withoutTranscription === 0}
-                    className="gap-2"
-                  >
-                    {processing ? (
-                      <>
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                        Processando...
-                      </>
-                    ) : (
-                      <>
-                        <RefreshCw className="h-4 w-4" />
-                        Iniciar Processamento em Lote
-                      </>
-                    )}
-                  </Button>
-
-                  <Button
-                    onClick={fetchStats}
-                    variant="outline"
-                    disabled={loadingStats}
-                    className="gap-2"
-                  >
-                    {loadingStats ? (
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                    ) : (
-                      <RefreshCw className="h-4 w-4" />
-                    )}
-                    Atualizar Estatísticas
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
-          </main>
-        </div>
+              <Button
+                onClick={fetchStats}
+                variant="outline"
+                disabled={loadingStats}
+                className="gap-2"
+              >
+                {loadingStats ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <RefreshCw className="h-4 w-4" />
+                )}
+                Atualizar Estatísticas
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
       </div>
-    </SidebarProvider>
+    </AdminLayout>
   );
 }

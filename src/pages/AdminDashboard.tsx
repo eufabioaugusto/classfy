@@ -4,6 +4,7 @@ import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { useAdminNotifications } from "@/hooks/useAdminNotifications";
+import { AdminLayout } from "@/components/AdminLayout";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import {
@@ -13,7 +14,6 @@ import {
   TrendingUp,
   Clock,
   CheckCircle,
-  XCircle,
   Shield,
   Crown,
   FileText,
@@ -250,14 +250,8 @@ export default function AdminDashboard() {
   }
 
   return (
-    <div className="container mx-auto px-4 py-8 space-y-8">
-      {/* Header */}
-      <div>
-        <h1 className="text-4xl font-bold">Dashboard Administrativo</h1>
-        <p className="text-muted-foreground mt-2">
-          Visão geral da plataforma e acesso rápido às principais funcionalidades
-        </p>
-      </div>
+    <AdminLayout title="Dashboard">
+      <div className="container mx-auto px-4 py-8 space-y-8">
 
       {/* Main Stats */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
@@ -488,6 +482,7 @@ export default function AdminDashboard() {
           </div>
         </Card>
       </div>
-    </div>
+      </div>
+    </AdminLayout>
   );
 }
