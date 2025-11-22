@@ -322,11 +322,8 @@ export function QuizEditor({ quiz, onUpdate, onClose }: QuizEditorProps) {
                         Banco de Questões
                       </Button>
                       <Select onValueChange={(value) => addQuestion(value as QuestionType)}>
-                        <SelectTrigger asChild>
-                          <Button type="button" size="sm">
-                            <Plus className="w-4 h-4 mr-2" />
-                            Nova Questão
-                          </Button>
+                        <SelectTrigger className="w-[180px]">
+                          <SelectValue placeholder="Nova questão" />
                         </SelectTrigger>
                         <SelectContent>
                           <SelectItem value="multiple">Múltipla Escolha</SelectItem>
