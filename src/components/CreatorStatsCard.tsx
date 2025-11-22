@@ -30,9 +30,9 @@ export const CreatorStatsCard = ({ userId, collapsed }: CreatorStatsCardProps) =
       try {
         // Busca wallet
         const { data: walletData } = await supabase
-          .from('wallets')
-          .select('balance, total_earned')
-          .eq('user_id', userId)
+          .from("wallets")
+          .select("balance, total_earned")
+          .eq("user_id", userId)
           .single();
 
         if (walletData) {
@@ -40,18 +40,15 @@ export const CreatorStatsCard = ({ userId, collapsed }: CreatorStatsCardProps) =
         }
 
         // Busca pontos totais
-        const { data: rewardEventsData } = await supabase
-          .from('reward_events')
-          .select('points')
-          .eq('user_id', userId);
+        const { data: rewardEventsData } = await supabase.from("reward_events").select("points").eq("user_id", userId);
 
         const totalPoints = rewardEventsData?.reduce((sum, event) => sum + event.points, 0) || 0;
 
         // Busca conteúdos criados
         const { count: contentCount } = await supabase
-          .from('contents')
-          .select('*', { count: 'exact', head: true })
-          .eq('creator_id', userId);
+          .from("contents")
+          .select("*", { count: "exact", head: true })
+          .eq("creator_id", userId);
 
         // Calcula nível baseado em pontos (a cada 1000 pontos = 1 nível)
         const level = Math.floor(totalPoints / 1000) + 1;
@@ -59,10 +56,10 @@ export const CreatorStatsCard = ({ userId, collapsed }: CreatorStatsCardProps) =
         setStats({
           totalPoints,
           level,
-          contentCount: contentCount || 0
+          contentCount: contentCount || 0,
         });
       } catch (error) {
-        console.error('Erro ao buscar estatísticas:', error);
+        console.error("Erro ao buscar estatísticas:", error);
       } finally {
         setLoading(false);
       }
@@ -124,16 +121,12 @@ export const CreatorStatsCard = ({ userId, collapsed }: CreatorStatsCardProps) =
             </div>
             <div className="flex flex-col">
               <span className="text-xs text-muted-foreground">Ganhos</span>
-              <span className="text-sm font-bold text-primary">
-                R$ {wallet?.total_earned.toFixed(2) || '0.00'}
-              </span>
+              <span className="text-xs font-bold text-primary">R$ {wallet?.total_earned.toFixed(2) || "0.00"}</span>
             </div>
           </div>
           <div className="text-right">
             <div className="text-xs text-muted-foreground">Saldo</div>
-            <div className="text-sm font-semibold">
-              R$ {wallet?.balance.toFixed(2) || '0.00'}
-            </div>
+            <div className="text-xs font-semibold">R$ {wallet?.balance.toFixed(2) || "0.00"}</div>
           </div>
         </div>
 
