@@ -19,6 +19,7 @@ import AdminCreators from "./pages/AdminCreators";
 import AdminContents from "./pages/AdminContents";
 import AdminRewards from "./pages/AdminRewards";
 import AdminTranscriptions from "./pages/AdminTranscriptions";
+import AdminWithdrawals from "./pages/AdminWithdrawals";
 import RewardsHistory from "./pages/RewardsHistory";
 import Recompensas from "./pages/Recompensas";
 import BoostSuccess from "./pages/BoostSuccess";
@@ -55,6 +56,7 @@ const App = () => (
               <Route path="/admin/contents" element={<AdminContents />} />
               <Route path="/admin/rewards" element={<AdminRewards />} />
               <Route path="/admin/transcriptions" element={<AdminTranscriptions />} />
+              <Route path="/admin/withdrawals" element={<AdminWithdrawals />} />
               <Route path="/rewards-history" element={<RewardsHistory />} />
               <Route path="/recompensas" element={<Recompensas />} />
               <Route path="/boost-success" element={<BoostSuccess />} />
