@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
@@ -27,6 +28,7 @@ type AudienceType = 'automatic' | 'segmented';
 export const BoostModal = ({ open, onOpenChange, contentId, contentTitle }: BoostModalProps) => {
   const [step, setStep] = useState(1);
   const [loading, setLoading] = useState(false);
+  const [showExitConfirm, setShowExitConfirm] = useState(false);
   
   // Step 1: Objective
   const [objective, setObjective] = useState<BoostObjective>('content');
@@ -96,11 +98,43 @@ export const BoostModal = ({ open, onOpenChange, contentId, contentTitle }: Boos
     setDuration([7]);
   };
 
-  return (
-    <Dialog open={open} onOpenChange={(open) => {
+  const handleCloseAttempt = (open: boolean) => {
+    if (!open && step > 1) {
+      // Se está tentando fechar e não está no primeiro passo, mostra confirmação
+      setShowExitConfirm(true);
+    } else {
+      // Se está no primeiro passo ou abrindo, permite fechar normalmente
       onOpenChange(open);
       if (!open) resetForm();
-    }}>
+    }
+  };
+
+  const handleConfirmExit = () => {
+    setShowExitConfirm(false);
+    onOpenChange(false);
+    resetForm();
+  };
+
+  return (
+    <>
+      <AlertDialog open={showExitConfirm} onOpenChange={setShowExitConfirm}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Deseja sair?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Você perderá todo o progresso do seu boost. Tem certeza que deseja sair?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction onClick={handleConfirmExit}>
+              Sim, sair
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <Dialog open={open} onOpenChange={handleCloseAttempt}>
       <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
@@ -435,5 +469,6 @@ export const BoostModal = ({ open, onOpenChange, contentId, contentTitle }: Boos
         </div>
       </DialogContent>
     </Dialog>
+    </>
   );
 };
