@@ -8,6 +8,9 @@ interface ContentSectionProps {
   loading?: boolean;
   aspectRatio?: "default" | "square" | "vertical";
   onContentClick: (content: any) => void;
+  userPlan?: "free" | "pro" | "premium";
+  onUpgradeClick?: (plan: "pro" | "premium", content: any) => void;
+  onPurchaseClick?: (content: any) => void;
 }
 
 export const ContentSection = ({
@@ -17,6 +20,9 @@ export const ContentSection = ({
   loading,
   aspectRatio = "default",
   onContentClick,
+  userPlan = "free",
+  onUpgradeClick,
+  onPurchaseClick,
 }: ContentSectionProps) => {
   const getGridCols = () => {
     if (aspectRatio === "vertical") return "grid-cols-6"; // Shorts - 6 por linha
@@ -64,6 +70,9 @@ export const ContentSection = ({
             content={content}
             onClick={() => onContentClick(content)}
             aspectRatio={aspectRatio}
+            userPlan={userPlan}
+            onUpgradeClick={(plan) => onUpgradeClick?.(plan, content)}
+            onPurchaseClick={() => onPurchaseClick?.(content)}
           />
         ))}
       </div>
