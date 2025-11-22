@@ -294,7 +294,15 @@ export default function Index() {
                 </div>}
 
               {/* Search Bar */}
-              <SearchBar onResults={handleSearchResults} onLoading={handleSearchLoading} onError={handleSearchError} />
+              <SearchBar 
+                onResults={handleSearchResults} 
+                onLoading={handleSearchLoading} 
+                onError={handleSearchError}
+                onLimitReached={() => {
+                  setRequiredUpgradePlan(profile?.plan === 'free' ? 'pro' : 'premium');
+                  setShowUpgradeModal(true);
+                }}
+              />
 
                   {/* Continue Study Card - Shows when user has active studies and no search */}
                   {user && !hasSearched && (

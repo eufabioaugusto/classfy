@@ -10,9 +10,10 @@ interface SearchBarProps {
   onResults: (results: any[]) => void;
   onLoading: (loading: boolean) => void;
   onError: (error: string | null) => void;
+  onLimitReached?: () => void;
 }
 
-export function SearchBar({ onResults, onLoading, onError }: SearchBarProps) {
+export function SearchBar({ onResults, onLoading, onError, onLimitReached }: SearchBarProps) {
   const [query, setQuery] = useState("");
   const [isSearching, setIsSearching] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
@@ -132,15 +133,12 @@ export function SearchBar({ onResults, onLoading, onError }: SearchBarProps) {
       const result = await createStudy(query.trim());
 
       if (result?.error === 'LIMIT_REACHED') {
-        const planName = profile?.plan === 'free' ? 'Free' : 'Pro';
-        const limitText = limit === Infinity ? 'ilimitados' : limit.toString();
-        onError(
-          `Você atingiu o limite de ${limitText} estudos ativos no plano ${planName}. Arquive um estudo ou ${
-            profile?.plan === 'free' ? 'migre para o plano Pro' : 'migre para o Premium'
-          } para criar mais.`
-        );
         setIsSearching(false);
         onLoading(false);
+        // Call the onLimitReached callback to show upgrade modal
+        if (onLimitReached) {
+          onLimitReached();
+        }
         return;
       }
 
