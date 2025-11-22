@@ -44,30 +44,24 @@ export const PurchaseModal = ({ open, onOpenChange, content, onPurchaseComplete 
 
     setPurchasing(true);
     try {
-      // TODO: Integrar com gateway de pagamento (Stripe/outros)
-      // Por enquanto, vamos simular a compra direta
-      
-      const { error } = await supabase
-        .from('purchased_contents')
-        .insert({
-          user_id: user.id,
-          content_id: content.id,
-          price_paid: finalPrice,
-          discount_applied: discount
-        });
+      // Create Stripe checkout session
+      const { data, error } = await supabase.functions.invoke('create-content-payment', {
+        body: {
+          contentId: content.id,
+          price: content.price,
+          discount: discount,
+        },
+      });
 
-      if (error) {
-        if (error.code === '23505') {
-          toast.error("Você já possui este conteúdo!");
-        } else {
-          throw error;
-        }
-        return;
+      if (error) throw error;
+
+      if (data?.url) {
+        // Redirect to Stripe checkout
+        window.open(data.url, '_blank');
+        onOpenChange(false);
+      } else {
+        throw new Error('No checkout URL returned');
       }
-
-      toast.success("Compra realizada com sucesso!");
-      onOpenChange(false);
-      onPurchaseComplete?.();
     } catch (error: any) {
       console.error('Purchase error:', error);
       toast.error("Erro ao processar compra. Tente novamente.");
