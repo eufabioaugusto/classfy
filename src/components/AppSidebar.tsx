@@ -3,6 +3,7 @@ import { useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { useStudies } from "@/hooks/useStudies";
 import { BecomeCreatorModal } from "@/components/BecomeCreatorModal";
+import { UpgradeModal } from "@/components/UpgradeModal";
 import { ProfileAvatar } from "@/components/ProfileAvatar";
 import { CreatorStatsCard } from "@/components/CreatorStatsCard";
 import { useState } from "react";
@@ -32,6 +33,8 @@ import {
   ChevronRight,
   FileText,
   TrendingUp,
+  AlertTriangle,
+  Zap,
 } from "lucide-react";
 import {
   Sidebar,
@@ -94,6 +97,7 @@ export function AppSidebar() {
   const { activeStudies, activeCount, limit, canCreateMore } = useStudies();
   const [studiesOpen, setStudiesOpen] = useState(true);
   const [creatorModalOpen, setCreatorModalOpen] = useState(false);
+  const [upgradeModalOpen, setUpgradeModalOpen] = useState(false);
   const collapsed = state === "collapsed";
   const limitText = limit === Infinity ? 'Ilimitado' : `${activeCount}/${limit}`;
   
@@ -255,8 +259,28 @@ export function AppSidebar() {
                       </SidebarMenuItem>
                     )}
                     {!canCreateMore && (
-                      <div className="px-4 py-2 text-xs text-muted-foreground bg-muted/50 rounded-md mx-2 mb-2">
-                        Limite atingido. Arquive estudos ou faça upgrade.
+                      <div className="px-3 py-3 mx-2 mb-2 rounded-lg border border-red-500/30 bg-gradient-to-br from-red-500/10 via-red-500/5 to-transparent backdrop-blur-sm">
+                        <div className="flex items-start gap-2">
+                          <div className="p-1.5 rounded-full bg-red-500/20 shrink-0 mt-0.5">
+                            <AlertTriangle className="h-3.5 w-3.5 text-red-600 dark:text-red-400" />
+                          </div>
+                          <div className="flex-1 min-w-0 space-y-1">
+                            <p className="text-xs font-medium text-foreground leading-tight flex items-center gap-1">
+                              <Zap className="h-3 w-3 text-red-500" />
+                              Limite atingido!
+                            </p>
+                            <p className="text-xs text-muted-foreground leading-tight">
+                              Arquive estudos ou{" "}
+                              <button
+                                onClick={() => setUpgradeModalOpen(true)}
+                                className="font-semibold text-red-600 dark:text-red-400 hover:underline underline-offset-2 transition-all hover:text-red-700 dark:hover:text-red-300"
+                              >
+                                faça upgrade
+                              </button>
+                              {" "}para continuar
+                            </p>
+                          </div>
+                        </div>
                       </div>
                     )}
                   </SidebarMenu>
@@ -493,6 +517,13 @@ export function AppSidebar() {
 
         {/* Become Creator Modal */}
         <BecomeCreatorModal open={creatorModalOpen} onOpenChange={setCreatorModalOpen} />
+        
+        {/* Upgrade Modal */}
+        <UpgradeModal 
+          open={upgradeModalOpen} 
+          onOpenChange={setUpgradeModalOpen}
+          requiredPlan="pro"
+        />
       </Sidebar>
     </TooltipProvider>
   );
