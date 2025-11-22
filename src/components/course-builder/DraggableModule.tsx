@@ -28,16 +28,12 @@ export function DraggableModuleWrapper({ id, children }: DraggableModuleWrapperP
     transition,
   };
 
-  return (
-    <>
-      {children({
-        ref: setNodeRef,
-        style,
-        isDragging,
-        handleProps: { ...attributes, ...listeners },
-      })}
-    </>
-  );
+  return children({
+    ref: setNodeRef,
+    style,
+    isDragging,
+    handleProps: { ...attributes, ...listeners },
+  });
 }
 
 export function DragHandle({ handleProps }: { handleProps: any }) {

@@ -823,33 +823,39 @@ export default function StudioUploadCurso() {
                     >
                       <Accordion type="single" collapsible className="space-y-4">
                         {modules.map((module, moduleIndex) => (
-                          <DraggableModuleWrapper key={module.id} id={module.id}>
-                            {({ ref, style, isDragging, handleProps }) => (
-                              <AccordionItem 
-                                value={module.id} 
-                                className="border rounded-lg border-none"
-                                ref={ref}
-                                style={{
-                                  ...style,
-                                  opacity: isDragging ? 0.5 : 1,
-                                }}
-                              >
-                              <Card className="p-0">
-                                <AccordionTrigger className="px-6 py-4 hover:no-underline">
-                                  <div className="flex items-center gap-3 w-full">
-                                    <div {...handleProps} className="cursor-grab active:cursor-grabbing p-1 hover:bg-accent rounded transition-colors">
-                                      <GripVertical className="w-5 h-5 text-muted-foreground" />
+                          <AccordionItem
+                            key={module.id}
+                            value={module.id}
+                            className="border rounded-lg border-none"
+                          >
+                            <DraggableModuleWrapper id={module.id}>
+                              {({ ref, style, isDragging, handleProps }) => (
+                                <Card
+                                  ref={ref}
+                                  style={{
+                                    ...style,
+                                    opacity: isDragging ? 0.5 : 1,
+                                  }}
+                                  className="p-0"
+                                >
+                                  <AccordionTrigger className="px-6 py-4 hover:no-underline">
+                                    <div className="flex items-center gap-3 w-full">
+                                      <div
+                                        {...handleProps}
+                                        className="cursor-grab active:cursor-grabbing p-1 hover:bg-accent rounded transition-colors"
+                                      >
+                                        <GripVertical className="w-5 h-5 text-muted-foreground" />
+                                      </div>
+                                      <div className="flex-1 text-left">
+                                        <h4 className="font-semibold">
+                                          {module.title || `Módulo ${moduleIndex + 1}`}
+                                        </h4>
+                                        <p className="text-sm text-muted-foreground">
+                                          {module.lessons.length} aulas • {module.quizzes.length} quizzes • {module.materials.length} materiais
+                                        </p>
+                                      </div>
                                     </div>
-                                    <div className="flex-1 text-left">
-                                      <h4 className="font-semibold">
-                                        {module.title || `Módulo ${moduleIndex + 1}`}
-                                      </h4>
-                                      <p className="text-sm text-muted-foreground">
-                                        {module.lessons.length} aulas • {module.quizzes.length} quizzes • {module.materials.length} materiais
-                                      </p>
-                                    </div>
-                                  </div>
-                                </AccordionTrigger>
+                                  </AccordionTrigger>
 
                           <AccordionContent className="px-6 pb-4">
                             <div className="space-y-4">
