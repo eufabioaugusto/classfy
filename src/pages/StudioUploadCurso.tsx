@@ -15,7 +15,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { 
   GraduationCap, Plus, Trash2, Video, FileText, 
-  HelpCircle, ImagePlus, X
+  HelpCircle, ImagePlus, X, GripVertical
 } from "lucide-react";
 import { Progress } from "@/components/ui/progress";
 import { TagsInput } from "@/components/TagsInput";
@@ -822,12 +822,26 @@ export default function StudioUploadCurso() {
                       strategy={verticalListSortingStrategy}
                     >
                       <Accordion type="single" collapsible className="space-y-4">
-                        {modules.map((module, moduleIndex) => (
-                          <DraggableModule key={module.id} id={module.id}>
-                            <AccordionItem value={module.id} className="border rounded-lg border-none">
+                        {modules.map((module, moduleIndex) => {
+                          const draggable = DraggableModule({ id: module.id });
+                          
+                          return (
+                            <AccordionItem 
+                              key={module.id} 
+                              value={module.id} 
+                              className="border rounded-lg border-none"
+                              ref={draggable.ref}
+                              style={{
+                                ...draggable.style,
+                                opacity: draggable.isDragging ? 0.5 : 1,
+                              }}
+                            >
                               <Card className="p-0">
                                 <AccordionTrigger className="px-6 py-4 hover:no-underline">
                                   <div className="flex items-center gap-3 w-full">
+                                    <div {...draggable.handleProps} className="cursor-grab active:cursor-grabbing p-1 hover:bg-accent rounded transition-colors">
+                                      <GripVertical className="w-5 h-5 text-muted-foreground" />
+                                    </div>
                                     <div className="flex-1 text-left">
                                       <h4 className="font-semibold">
                                         {module.title || `Módulo ${moduleIndex + 1}`}
@@ -1100,12 +1114,12 @@ export default function StudioUploadCurso() {
                                 </Button>
                               </div>
                             </div>
-                          </AccordionContent>
-                              </Card>
-                            </AccordionItem>
-                          </DraggableModule>
-                        ))}
-                      </Accordion>
+                                  </AccordionContent>
+                                </Card>
+                              </AccordionItem>
+                          );
+                        })}
+                        </Accordion>
                     </SortableContext>
                   </DndContext>
                 </TabsContent>
