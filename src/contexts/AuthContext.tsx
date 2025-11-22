@@ -81,6 +81,18 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     }
   };
 
+  const verifySubscription = async () => {
+    try {
+      const { data, error } = await supabase.functions.invoke('verify-subscription');
+      
+      if (!error && data) {
+        console.log('Subscription verified:', data);
+      }
+    } catch (error) {
+      console.error('Error verifying subscription:', error);
+    }
+  };
+
   useEffect(() => {
     // Set up auth state listener
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
@@ -93,6 +105,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
           setTimeout(() => {
             fetchUserProfile(session.user.id);
             checkDailyLogin(session.user.id);
+            verifySubscription();
           }, 0);
         } else {
           setProfile(null);
@@ -108,6 +121,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       
       if (session?.user) {
         fetchUserProfile(session.user.id).finally(() => setLoading(false));
+        verifySubscription();
       } else {
         setLoading(false);
       }
