@@ -58,8 +58,8 @@ export function Header({ variant = "home", title }: HeaderProps) {
           {/* Notification Bell */}
           <NotificationBell />
 
-          {/* Studio Create Button */}
-          {variant === "studio" && (
+          {/* Creator Create Button - Shows for creators and admins on all pages */}
+          {(role === 'creator' || role === 'admin') && (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button className="gap-2">
@@ -67,7 +67,7 @@ export function Header({ variant = "home", title }: HeaderProps) {
                   Criar
                 </Button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-56">
+              <DropdownMenuContent align="end" className="w-56 bg-background border-border z-50">
                 <DropdownMenuItem onClick={() => navigate('/studio/upload?type=aula')} className="gap-3 cursor-pointer">
                   <BookOpen className="w-4 h-4" />
                   <div>
