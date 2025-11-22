@@ -938,80 +938,93 @@ export default function StudioUploadCurso() {
                                                   <DraggableLesson key={lesson.id} id={lesson.id}>
                                                      <Card className="p-4">
                                                        <div className="space-y-3">
-                                                         <div className="flex items-start justify-between gap-3">
-                                                           {/* Coluna da esquerda: Campos de texto */}
-                                                           <div className="flex-1 space-y-3">
-                                                             <Input
-                                                               value={lesson.title}
-                                                               onChange={(e) => updateLesson(module.id, lesson.id, 'title', e.target.value)}
-                                                               placeholder={`Aula ${lessonIndex + 1} - Título`}
-                                                             />
-                                                             <Textarea
-                                                               value={lesson.description}
-                                                               onChange={(e) => updateLesson(module.id, lesson.id, 'description', e.target.value)}
-                                                               placeholder="Descrição da aula"
-                                                               rows={3}
-                                                             />
-                                                           </div>
+                                                          <div className="flex items-start justify-between gap-4">
+                                                            {/* Coluna da esquerda: Campos de texto - 50% */}
+                                                            <div className="flex-1 space-y-3">
+                                                              <Input
+                                                                value={lesson.title}
+                                                                onChange={(e) => updateLesson(module.id, lesson.id, 'title', e.target.value)}
+                                                                placeholder={`Aula ${lessonIndex + 1} - Título`}
+                                                              />
+                                                              <Textarea
+                                                                value={lesson.description}
+                                                                onChange={(e) => updateLesson(module.id, lesson.id, 'description', e.target.value)}
+                                                                placeholder="Descrição da aula"
+                                                                rows={3}
+                                                              />
+                                                            </div>
 
-                                                           {/* Coluna da direita: Upload de vídeo */}
-                                                           <div className="w-48 flex flex-col gap-2">
-                                                             {!lesson.videoUrl ? (
-                                                               <label className="flex flex-col items-center justify-center h-full min-h-[120px] border-2 border-dashed border-border rounded-lg cursor-pointer hover:border-primary transition-colors">
-                                                                 <Video className="w-8 h-8 text-muted-foreground mb-2" />
-                                                                 <span className="text-xs text-muted-foreground text-center px-2">
-                                                                   Enviar vídeo da aula
-                                                                 </span>
-                                                                 <input
-                                                                   type="file"
-                                                                   className="hidden"
-                                                                   accept="video/*"
-                                                                   onChange={(e) => {
-                                                                     const file = e.target.files?.[0];
-                                                                     if (file) handleLessonVideoUpload(module.id, lesson.id, file);
-                                                                   }}
-                                                                   disabled={lesson.uploading}
-                                                                 />
-                                                               </label>
-                                                             ) : (
-                                                               <div className="flex flex-col items-center gap-2 p-3 bg-muted rounded-lg h-full min-h-[120px] justify-center">
-                                                                 <Video className="w-6 h-6 text-primary" />
-                                                                 <span className="text-xs text-center">Vídeo enviado</span>
-                                                                 <span className="text-xs text-muted-foreground">{lesson.duration}s</span>
-                                                                 <Button
-                                                                   type="button"
-                                                                   variant="ghost"
-                                                                   size="sm"
-                                                                   onClick={() => {
-                                                                     updateLesson(module.id, lesson.id, 'videoUrl', '');
-                                                                     updateLesson(module.id, lesson.id, 'videoFile', null);
-                                                                   }}
-                                                                 >
-                                                                   <X className="w-4 h-4" />
-                                                                 </Button>
-                                                               </div>
-                                                             )}
+                                                            {/* Coluna da direita: Upload de vídeo - 50% */}
+                                                            <div className="flex-1 flex flex-col gap-2">
+                                                              {!lesson.videoUrl ? (
+                                                                <label className="flex flex-col items-center justify-center h-full min-h-[120px] border-2 border-dashed border-border rounded-lg cursor-pointer hover:border-primary transition-colors">
+                                                                  <Video className="w-8 h-8 text-muted-foreground mb-2" />
+                                                                  <span className="text-xs text-muted-foreground text-center px-2">
+                                                                    Enviar vídeo da aula
+                                                                  </span>
+                                                                  <input
+                                                                    type="file"
+                                                                    className="hidden"
+                                                                    accept="video/*"
+                                                                    onChange={(e) => {
+                                                                      const file = e.target.files?.[0];
+                                                                      if (file) handleLessonVideoUpload(module.id, lesson.id, file);
+                                                                    }}
+                                                                    disabled={lesson.uploading}
+                                                                  />
+                                                                </label>
+                                                              ) : (
+                                                                <div className="space-y-2">
+                                                                  <div className="border rounded-lg overflow-hidden bg-muted">
+                                                                    <video
+                                                                      src={lesson.videoUrl}
+                                                                      className="w-full aspect-video object-cover"
+                                                                      controls
+                                                                    />
+                                                                  </div>
+                                                                  <div className="flex items-center justify-between px-2">
+                                                                    <div className="flex items-center gap-2">
+                                                                      <Video className="w-4 h-4 text-primary" />
+                                                                      <span className="text-xs text-muted-foreground">
+                                                                        {lesson.duration ? `${lesson.duration}s` : 'Vídeo enviado'}
+                                                                      </span>
+                                                                    </div>
+                                                                    <Button
+                                                                      type="button"
+                                                                      variant="ghost"
+                                                                      size="sm"
+                                                                      onClick={() => {
+                                                                        updateLesson(module.id, lesson.id, 'videoUrl', '');
+                                                                        updateLesson(module.id, lesson.id, 'videoFile', null);
+                                                                      }}
+                                                                    >
+                                                                      <X className="w-4 h-4 mr-1" />
+                                                                      Trocar
+                                                                    </Button>
+                                                                  </div>
+                                                                </div>
+                                                              )}
 
-                                                             {lesson.uploading && (
-                                                               <div className="mt-2">
-                                                                 <Progress value={lesson.progress} />
-                                                                 <p className="text-xs text-muted-foreground mt-1 text-center">
-                                                                   {lesson.progress}%
-                                                                 </p>
-                                                               </div>
-                                                             )}
-                                                           </div>
+                                                              {lesson.uploading && (
+                                                                <div className="mt-2">
+                                                                  <Progress value={lesson.progress} />
+                                                                  <p className="text-xs text-muted-foreground mt-1 text-center">
+                                                                    {lesson.progress}%
+                                                                  </p>
+                                                                </div>
+                                                              )}
+                                                            </div>
 
-                                                           {/* Botão de remover aula */}
-                                                           <Button
-                                                             type="button"
-                                                             variant="ghost"
-                                                             size="icon"
-                                                             onClick={() => removeLesson(module.id, lesson.id)}
-                                                           >
-                                                             <Trash2 className="w-4 h-4" />
-                                                           </Button>
-                                                         </div>
+                                                            {/* Botão de remover aula */}
+                                                            <Button
+                                                              type="button"
+                                                              variant="ghost"
+                                                              size="icon"
+                                                              onClick={() => removeLesson(module.id, lesson.id)}
+                                                            >
+                                                              <Trash2 className="w-4 h-4" />
+                                                            </Button>
+                                                          </div>
 
                                                          <div className="flex items-center gap-2">
                                                            <input
