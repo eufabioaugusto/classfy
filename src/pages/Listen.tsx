@@ -230,38 +230,32 @@ export default function Listen() {
   if (loading || loadingContent) return <GlobalLoader />;
   if (!user) return <Navigate to="/auth" replace />;
   if (!content) return <div className="p-8">Podcast não encontrado</div>;
-  if (!hasAccess) {
-    return (
-      <>
-        <UpgradeModal 
-          open={showUpgradeModal} 
-          onOpenChange={setShowUpgradeModal}
-          requiredPlan={requiredUpgradePlan}
-        />
-        {content && (
-          <PurchaseModal
-            open={showPurchaseModal}
-            onOpenChange={setShowPurchaseModal}
-            content={{
-              id: content.id,
-              title: content.title,
-              thumbnail_url: content.thumbnail_url,
-              price: content.price,
-              discount: 0,
-              creator_name: content.creator.display_name
-            }}
-            onPurchaseComplete={() => {
-              setShowPurchaseModal(false);
-              fetchContent();
-            }}
-          />
-        )}
-      </>
-    );
-  }
 
   return (
     <div className="min-h-screen bg-background">
+      <UpgradeModal 
+        open={showUpgradeModal} 
+        onOpenChange={setShowUpgradeModal}
+        requiredPlan={requiredUpgradePlan}
+      />
+      
+      <PurchaseModal
+        open={showPurchaseModal}
+        onOpenChange={setShowPurchaseModal}
+        content={{
+          id: content.id,
+          title: content.title,
+          thumbnail_url: content.thumbnail_url,
+          price: content.price,
+          discount: 0,
+          creator_name: content.creator.display_name
+        }}
+        onPurchaseComplete={() => {
+          setShowPurchaseModal(false);
+          fetchContent();
+        }}
+      />
+      
       <div className="max-w-4xl mx-auto p-4">
         <Card className="overflow-hidden">
           <div className="relative aspect-square max-w-md mx-auto">

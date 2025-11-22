@@ -344,36 +344,6 @@ export default function Watch() {
       </Card>
     </div>
   );
-  if (!hasAccess) {
-    return (
-      <>
-        <UpgradeModal 
-          open={showUpgradeModal} 
-          onOpenChange={setShowUpgradeModal}
-          requiredPlan={requiredUpgradePlan}
-        />
-        {content && (
-          <PurchaseModal
-            open={showPurchaseModal}
-            onOpenChange={setShowPurchaseModal}
-            content={{
-              id: content.id,
-              title: content.title,
-              thumbnail_url: content.thumbnail_url,
-              price: content.price,
-              discount: 0,
-              creator_name: content.creator.display_name
-            }}
-            onPurchaseComplete={() => {
-              setShowPurchaseModal(false);
-              fetchContent();
-            }}
-          />
-        )}
-      </>
-    );
-  }
-
   return (
     <SidebarProvider defaultOpen={true}>
       <div className="min-h-screen flex w-full bg-background">
@@ -381,6 +351,31 @@ export default function Watch() {
         
         <div className="flex-1 flex flex-col">
           <Header />
+          
+          <UpgradeModal 
+            open={showUpgradeModal} 
+            onOpenChange={setShowUpgradeModal}
+            requiredPlan={requiredUpgradePlan}
+          />
+          
+          {content && (
+            <PurchaseModal
+              open={showPurchaseModal}
+              onOpenChange={setShowPurchaseModal}
+              content={{
+                id: content.id,
+                title: content.title,
+                thumbnail_url: content.thumbnail_url,
+                price: content.price,
+                discount: 0,
+                creator_name: content.creator.display_name
+              }}
+              onPurchaseComplete={() => {
+                setShowPurchaseModal(false);
+                fetchContent();
+              }}
+            />
+          )}
           
           <AddToStudyModal
             open={showAddToStudyModal}
