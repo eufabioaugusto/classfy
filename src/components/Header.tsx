@@ -4,7 +4,7 @@ import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { NotificationBell } from "@/components/NotificationBell";
-import { Moon, Sun, Menu, Plus, BookOpen, Podcast, Zap, Radio, LogIn, LogOut, Settings } from "lucide-react";
+import { Moon, Sun, Menu, Plus, BookOpen, Podcast, Zap, Radio, GraduationCap, LogIn, LogOut, Settings } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -68,6 +68,13 @@ export function Header({ variant = "home", title }: HeaderProps) {
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-56 bg-background border-border z-50">
+                <DropdownMenuItem onClick={() => navigate('/studio/upload?type=curso')} className="gap-3 cursor-pointer">
+                  <GraduationCap className="w-4 h-4" />
+                  <div>
+                    <div className="font-medium">Curso</div>
+                    <div className="text-xs text-muted-foreground">Série de aulas</div>
+                  </div>
+                </DropdownMenuItem>
                 <DropdownMenuItem onClick={() => navigate('/studio/upload?type=aula')} className="gap-3 cursor-pointer">
                   <BookOpen className="w-4 h-4" />
                   <div>
