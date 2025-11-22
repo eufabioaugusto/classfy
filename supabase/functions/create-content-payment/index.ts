@@ -14,7 +14,8 @@ serve(async (req) => {
 
   const supabaseClient = createClient(
     Deno.env.get("SUPABASE_URL") ?? "",
-    Deno.env.get("SUPABASE_ANON_KEY") ?? ""
+    Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "",
+    { auth: { persistSession: false } }
   );
 
   try {
@@ -35,9 +36,10 @@ serve(async (req) => {
       .from('contents')
       .select('title')
       .eq('id', contentId)
-      .single();
+      .maybeSingle();
 
     if (contentError) throw contentError;
+    if (!content) throw new Error('Content not found');
 
     const finalPrice = price * (1 - (discount || 0) / 100);
 
