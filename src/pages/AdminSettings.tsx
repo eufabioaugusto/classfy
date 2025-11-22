@@ -3,6 +3,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
+import { AdminLayout } from "@/components/AdminLayout";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -106,13 +107,8 @@ export default function AdminSettings() {
   }
 
   return (
-    <div className="container mx-auto px-4 py-8 space-y-8">
-      <div>
-        <h1 className="text-4xl font-bold">Configurações do Sistema</h1>
-        <p className="text-muted-foreground mt-2">
-          Gerencie configurações globais da plataforma
-        </p>
-      </div>
+    <AdminLayout title="Configurações">
+      <div className="container mx-auto px-4 py-8 space-y-8">
 
       {/* Financial Settings */}
       <Card className="p-6">
@@ -179,6 +175,7 @@ export default function AdminSettings() {
           Em breve: ajuste de multiplicadores, valores base de recompensas, etc.
         </p>
       </Card>
-    </div>
+      </div>
+    </AdminLayout>
   );
 }

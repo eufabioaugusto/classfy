@@ -1,7 +1,6 @@
 import { useAuth } from "@/contexts/AuthContext";
 import { Navigate } from "react-router-dom";
-import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
-import { AppSidebar } from "@/components/AppSidebar";
+import { AdminLayout } from "@/components/AdminLayout";
 import { useState, useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -130,6 +129,104 @@ export default function AdminContents() {
   if (!user || role !== 'admin') return <Navigate to="/" replace />;
 
   return (
-    <SidebarProvider><div className="flex min-h-screen w-full"><AppSidebar /><main className="flex-1 overflow-hidden"><div className="p-6"><div className="flex items-center justify-between mb-6"><div className="flex items-center gap-4"><SidebarTrigger /><div><h1 className="text-3xl font-bold">Aprovar Conteúdos</h1><p className="text-muted-foreground">{contents.length} conteúdo{contents.length !== 1 ? 's' : ''} aguardando aprovação</p></div></div>{selectedContents.size > 0 && <div className="flex gap-2"><Button variant="default" onClick={handleBulkApprove}><CheckCircle className="h-4 w-4 mr-2" />Aprovar Selecionados ({selectedContents.size})</Button><Button variant="destructive" onClick={handleBulkReject}><XCircle className="h-4 w-4 mr-2" />Reprovar Selecionados ({selectedContents.size})</Button></div>}</div>{loadingData ? <div className="flex items-center justify-center py-12"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div></div> : contents.length === 0 ? <div className="text-center py-12"><Clock className="h-12 w-12 mx-auto mb-4 text-muted-foreground" /><h3 className="text-lg font-semibold mb-2">Nenhum conteúdo pendente</h3></div> : <div className="border rounded-lg overflow-hidden"><Table><TableHeader><TableRow><TableHead className="w-12"><Checkbox checked={selectedContents.size === contents.length} onCheckedChange={toggleSelectAll} /></TableHead><TableHead>Conteúdo</TableHead><TableHead>Creator</TableHead><TableHead>Data</TableHead><TableHead className="text-right">Ações</TableHead></TableRow></TableHeader><TableBody>{contents.map((content) => <TableRow key={content.id}><TableCell><Checkbox checked={selectedContents.has(content.id)} onCheckedChange={() => toggleSelection(content.id)} /></TableCell><TableCell><div className="flex items-center gap-3"><img src={content.thumbnail_url} alt={content.title} className="h-16 w-24 object-cover rounded" /><div className="flex-1 min-w-0"><p className="font-medium truncate">{content.title}</p><p className="text-sm text-muted-foreground truncate">{content.description || 'Sem descrição'}</p><div className="flex items-center gap-2 mt-1"><Badge variant="outline" className="flex items-center gap-1">{getContentTypeIcon(content.content_type)}{content.content_type}</Badge></div></div></div></TableCell><TableCell><div className="flex items-center gap-2"><Avatar className="h-8 w-8"><AvatarImage src={content.creator.avatar_url || undefined} /><AvatarFallback>{content.creator.display_name.charAt(0)}</AvatarFallback></Avatar><span className="text-sm">{content.creator.display_name}</span></div></TableCell><TableCell><span className="text-sm text-muted-foreground">{new Date(content.created_at).toLocaleDateString('pt-BR')}</span></TableCell><TableCell className="text-right"><div className="flex items-center justify-end gap-2"><Button variant="ghost" size="icon" onClick={() => window.open(`/watch/${content.id}`, '_blank')}><Eye className="h-4 w-4" /></Button><Button variant="default" size="sm" onClick={() => handleApprove(content.id)} disabled={processingId === content.id}><CheckCircle className="h-4 w-4 mr-1" />Aprovar</Button><Button variant="destructive" size="sm" onClick={() => handleReject(content.id)} disabled={processingId === content.id}><XCircle className="h-4 w-4 mr-1" />Reprovar</Button></div></TableCell></TableRow>)}</TableBody></Table></div>}</div></main></div></SidebarProvider>
+    <AdminLayout title="Conteúdos">
+      <div className="p-6">
+        <div className="flex items-center justify-between mb-6">
+          <div>
+            <p className="text-muted-foreground">{contents.length} conteúdo{contents.length !== 1 ? 's' : ''} aguardando aprovação</p>
+          </div>
+          {selectedContents.size > 0 && (
+            <div className="flex gap-2">
+              <Button variant="default" onClick={handleBulkApprove}>
+                <CheckCircle className="h-4 w-4 mr-2" />
+                Aprovar Selecionados ({selectedContents.size})
+              </Button>
+              <Button variant="destructive" onClick={handleBulkReject}>
+                <XCircle className="h-4 w-4 mr-2" />
+                Reprovar Selecionados ({selectedContents.size})
+              </Button>
+            </div>
+          )}
+        </div>
+
+        {loadingData ? (
+          <div className="flex items-center justify-center py-12">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+          </div>
+        ) : contents.length === 0 ? (
+          <div className="text-center py-12">
+            <Clock className="h-12 w-12 mx-auto mb-4 text-muted-foreground" />
+            <h3 className="text-lg font-semibold mb-2">Nenhum conteúdo pendente</h3>
+          </div>
+        ) : (
+          <div className="border rounded-lg overflow-hidden">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="w-12">
+                    <Checkbox checked={selectedContents.size === contents.length} onCheckedChange={toggleSelectAll} />
+                  </TableHead>
+                  <TableHead>Conteúdo</TableHead>
+                  <TableHead>Creator</TableHead>
+                  <TableHead>Data</TableHead>
+                  <TableHead className="text-right">Ações</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {contents.map((content) => (
+                  <TableRow key={content.id}>
+                    <TableCell>
+                      <Checkbox checked={selectedContents.has(content.id)} onCheckedChange={() => toggleSelection(content.id)} />
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex items-center gap-3">
+                        <img src={content.thumbnail_url} alt={content.title} className="h-16 w-24 object-cover rounded" />
+                        <div className="flex-1 min-w-0">
+                          <p className="font-medium truncate">{content.title}</p>
+                          <p className="text-sm text-muted-foreground truncate">{content.description || 'Sem descrição'}</p>
+                          <div className="flex items-center gap-2 mt-1">
+                            <Badge variant="outline" className="flex items-center gap-1">
+                              {getContentTypeIcon(content.content_type)}
+                              {content.content_type}
+                            </Badge>
+                          </div>
+                        </div>
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex items-center gap-2">
+                        <Avatar className="h-8 w-8">
+                          <AvatarImage src={content.creator.avatar_url || undefined} />
+                          <AvatarFallback>{content.creator.display_name.charAt(0)}</AvatarFallback>
+                        </Avatar>
+                        <span className="text-sm">{content.creator.display_name}</span>
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      <span className="text-sm text-muted-foreground">{new Date(content.created_at).toLocaleDateString('pt-BR')}</span>
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <div className="flex items-center justify-end gap-2">
+                        <Button variant="ghost" size="icon" onClick={() => window.open(`/watch/${content.id}`, '_blank')}>
+                          <Eye className="h-4 w-4" />
+                        </Button>
+                        <Button variant="default" size="sm" onClick={() => handleApprove(content.id)} disabled={processingId === content.id}>
+                          <CheckCircle className="h-4 w-4 mr-1" />
+                          Aprovar
+                        </Button>
+                        <Button variant="destructive" size="sm" onClick={() => handleReject(content.id)} disabled={processingId === content.id}>
+                          <XCircle className="h-4 w-4 mr-1" />
+                          Reprovar
+                        </Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        )}
+      </div>
+    </AdminLayout>
   );
 }

@@ -1,8 +1,7 @@
 import { useEffect, useState } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { Navigate } from "react-router-dom";
-import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
-import { AppSidebar } from "@/components/AppSidebar";
+import { AdminLayout } from "@/components/AdminLayout";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -176,22 +175,9 @@ export default function AdminCreators() {
   };
 
   return (
-    <SidebarProvider defaultOpen={true}>
-      <div className="min-h-screen flex w-full bg-background">
-        <AppSidebar />
-        
-        <div className="flex-1 flex flex-col">
-          <header className="sticky top-0 z-50 border-b border-border/20 bg-background/95 backdrop-blur-xl">
-            <div className="flex items-center justify-between px-6 py-4">
-              <div className="flex items-center gap-4">
-                <SidebarTrigger />
-                <h1 className="text-2xl font-bold text-foreground">Aprovar Creators</h1>
-              </div>
-            </div>
-          </header>
-
-          <main className="flex-1 p-6 md:p-12">
-            <div className="max-w-5xl mx-auto space-y-6">
+    <AdminLayout title="Creators">
+      <div className="flex-1 p-6 md:p-12">
+        <div className="max-w-5xl mx-auto space-y-6">
               {error && (
                 <div className="flex items-center gap-2 p-4 bg-destructive/10 border border-destructive/20 rounded-lg text-destructive">
                   <AlertCircle className="w-4 h-4" />
@@ -289,10 +275,8 @@ export default function AdminCreators() {
                   ))}
                 </div>
               )}
-            </div>
-          </main>
         </div>
       </div>
-    </SidebarProvider>
+    </AdminLayout>
   );
 }
