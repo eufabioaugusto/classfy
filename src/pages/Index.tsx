@@ -16,6 +16,9 @@ import { Label } from "@/components/ui/label";
 import { useStudies } from "@/hooks/useStudies";
 import { GlobalLoader } from "@/components/GlobalLoader";
 import { supabase } from "@/integrations/supabase/client";
+import { UpgradeModal } from "@/components/UpgradeModal";
+import { PurchaseModal } from "@/components/PurchaseModal";
+
 export default function Index() {
   const {
     user,
@@ -49,6 +52,13 @@ export default function Index() {
   // Modal state
   const [modalOpen, setModalOpen] = useState(false);
   const [modalReason, setModalReason] = useState<"premium" | "rewards" | "save" | "progress">("premium");
+  
+  // Upgrade and Purchase modals
+  const [showUpgradeModal, setShowUpgradeModal] = useState(false);
+  const [showPurchaseModal, setShowPurchaseModal] = useState(false);
+  const [requiredUpgradePlan, setRequiredUpgradePlan] = useState<"pro" | "premium">("pro");
+  const [selectedContent, setSelectedContent] = useState<any>(null);
+  
   const currentPlan = profile?.plan || 'free';
   const limitText = limit === Infinity ? 'ilimitados' : `${activeCount}/${limit}`;
   const handleSearchResults = (results: any[]) => {
@@ -168,20 +178,19 @@ export default function Index() {
   };
 
   const handleContentClick = (content: any) => {
-    // Check if user is logged in
-    if (!user) {
-      // Check if content requires premium access
-      if (!content.is_free || content.required_plan) {
-        setModalReason("premium");
-        setModalOpen(true);
-        return;
-      }
-      // Allow free content for non-logged users
-      navigate(`/watch/${content.id}`);
-    } else {
-      // Logged in users can navigate normally
-      navigate(`/watch/${content.id}`);
-    }
+    // Don't navigate here, let ContentCard handle access control
+    navigate(`/watch/${content.id}`);
+  };
+  
+  const handleUpgradeClick = (plan: "pro" | "premium", content: any) => {
+    setRequiredUpgradePlan(plan);
+    setSelectedContent(content);
+    setShowUpgradeModal(true);
+  };
+  
+  const handlePurchaseClick = (content: any) => {
+    setSelectedContent(content);
+    setShowPurchaseModal(true);
   };
   if (authLoading) {
     return <GlobalLoader />;
@@ -195,9 +204,34 @@ export default function Index() {
         <div className="flex-1 flex flex-col">
           <Header variant="home" />
 
+          {/* Modals */}
+          <ConversionModal open={modalOpen} onOpenChange={setModalOpen} reason={modalReason} />
+          <UpgradeModal 
+            open={showUpgradeModal} 
+            onOpenChange={setShowUpgradeModal}
+            requiredPlan={requiredUpgradePlan}
+          />
+          {selectedContent && (
+            <PurchaseModal
+              open={showPurchaseModal}
+              onOpenChange={setShowPurchaseModal}
+              content={{
+                id: selectedContent.id,
+                title: selectedContent.title,
+                thumbnail_url: selectedContent.thumbnail_url,
+                price: selectedContent.price,
+                discount: selectedContent.discount || 0,
+                creator_name: selectedContent.profiles?.display_name || selectedContent.creator?.display_name || "Creator"
+              }}
+              onPurchaseComplete={() => {
+                setShowPurchaseModal(false);
+                setSelectedContent(null);
+              }}
+            />
+          )}
+
           {/* Content Area */}
           <main className="flex-1 flex flex-col items-center justify-start p-6 md:p-12">
-            <ConversionModal open={modalOpen} onOpenChange={setModalOpen} reason={modalReason} />
 
             {/* Mode Toggle */}
             <div className="w-full max-w-5xl mb-8">
@@ -285,7 +319,14 @@ export default function Index() {
                       </h2>
                     </div>
                     <div className="grid grid-cols-3 gap-4">
-                      {searchResults.map(content => <ContentCard key={content.id} content={content} onClick={() => handleContentClick(content)} />)}
+                      {searchResults.map(content => <ContentCard 
+                        key={content.id} 
+                        content={content} 
+                        onClick={() => handleContentClick(content)}
+                        userPlan={currentPlan}
+                        onUpgradeClick={(plan) => handleUpgradeClick(plan, content)}
+                        onPurchaseClick={() => handlePurchaseClick(content)}
+                      />)}
                     </div>
                   </div>}
               </>
@@ -309,6 +350,9 @@ export default function Index() {
                         title="🔥 Em Alta"
                         contents={trendingClasses}
                         onContentClick={handleContentClick}
+                        userPlan={currentPlan}
+                        onUpgradeClick={handleUpgradeClick}
+                        onPurchaseClick={handlePurchaseClick}
                       />
                     )}
 
@@ -318,6 +362,9 @@ export default function Index() {
                         title="👑 Itens PRO"
                         contents={proContents}
                         onContentClick={handleContentClick}
+                        userPlan={currentPlan}
+                        onUpgradeClick={handleUpgradeClick}
+                        onPurchaseClick={handlePurchaseClick}
                       />
                     )}
 
@@ -328,6 +375,9 @@ export default function Index() {
                         contents={trendingPodcasts}
                         aspectRatio="square"
                         onContentClick={handleContentClick}
+                        userPlan={currentPlan}
+                        onUpgradeClick={handleUpgradeClick}
+                        onPurchaseClick={handlePurchaseClick}
                       />
                     )}
 
@@ -338,6 +388,9 @@ export default function Index() {
                         contents={shorts}
                         aspectRatio="vertical"
                         onContentClick={handleContentClick}
+                        userPlan={currentPlan}
+                        onUpgradeClick={handleUpgradeClick}
+                        onPurchaseClick={handlePurchaseClick}
                       />
                     )}
 
@@ -347,6 +400,9 @@ export default function Index() {
                         title="💎 Itens Premium"
                         contents={premiumContents}
                         onContentClick={handleContentClick}
+                        userPlan={currentPlan}
+                        onUpgradeClick={handleUpgradeClick}
+                        onPurchaseClick={handlePurchaseClick}
                       />
                     )}
 

@@ -25,6 +25,8 @@ interface ContentCardProps {
   isPurchased?: boolean;
   onPurchaseClick?: () => void;
   aspectRatio?: "default" | "square" | "vertical";
+  userPlan?: "free" | "pro" | "premium";
+  onUpgradeClick?: (plan: "pro" | "premium") => void;
 }
 
 export const ContentCard = ({
@@ -48,6 +50,8 @@ export const ContentCard = ({
   isPurchased: propIsPurchased,
   onPurchaseClick,
   aspectRatio = "default",
+  userPlan = "free",
+  onUpgradeClick,
 }: ContentCardProps) => {
   // Support both formats: direct props or content object
   const id = propId || content?.id;
@@ -81,7 +85,38 @@ export const ContentCard = ({
     }
   };
 
+  const checkAccess = () => {
+    // Check if content is paid and user has purchased it
+    if (visibility === 'paid') {
+      return isPurchased;
+    }
+    
+    // Check plan-based access
+    if (visibility === 'free') {
+      return true;
+    } else if (visibility === 'pro') {
+      return ['pro', 'premium'].includes(userPlan);
+    } else if (visibility === 'premium') {
+      return userPlan === 'premium';
+    }
+    
+    return true;
+  };
+
   const handleClick = () => {
+    const hasAccess = checkAccess();
+    
+    if (!hasAccess) {
+      // Block navigation and show appropriate modal
+      if (visibility === 'paid') {
+        onPurchaseClick?.();
+      } else if (visibility === 'pro' || visibility === 'premium') {
+        onUpgradeClick?.(visibility);
+      }
+      return;
+    }
+    
+    // Only navigate if user has access
     if (onClick) {
       onClick();
     } else {
