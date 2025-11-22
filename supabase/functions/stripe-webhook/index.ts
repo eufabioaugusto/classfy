@@ -66,8 +66,23 @@ serve(async (req) => {
         // Handle subscription
         if (session.mode === "subscription" && session.metadata?.user_id) {
           const subscription = await stripe.subscriptions.retrieve(session.subscription as string);
-          const planType = session.metadata.plan_type || "pro";
+          
+          // Get product ID to determine plan type
+          const productId = subscription.items.data[0].price.product as string;
+          const productToPlan: Record<string, string> = {
+            "prod_TTH0TCgKCJn5QS": "pro",
+            "prod_TTH12wU8lOauHD": "premium",
+          };
+          
+          const planType = productToPlan[productId] || session.metadata.plan_type || "pro";
           const subscriptionEnd = new Date(subscription.current_period_end * 1000).toISOString();
+
+          console.log("[WEBHOOK] Subscription checkout completed:", {
+            userId: session.metadata.user_id,
+            productId,
+            planType,
+            subscriptionEnd,
+          });
 
           const { error } = await supabaseClient
             .from("profiles")
@@ -101,10 +116,26 @@ serve(async (req) => {
 
         if (profile) {
           const isActive = subscription.status === "active";
-          const planType = isActive ? (subscription.metadata?.plan_type || "pro") : "free";
+          
+          // Get product ID to determine plan type
+          const productId = subscription.items.data[0]?.price?.product as string;
+          const productToPlan: Record<string, string> = {
+            "prod_TTH0TCgKCJn5QS": "pro",
+            "prod_TTH12wU8lOauHD": "premium",
+          };
+          
+          const planType = isActive ? (productToPlan[productId] || subscription.metadata?.plan_type || "pro") : "free";
           const subscriptionEnd = isActive 
             ? new Date(subscription.current_period_end * 1000).toISOString()
             : null;
+
+          console.log("[WEBHOOK] Subscription updated/deleted:", {
+            userId: profile.id,
+            productId,
+            planType,
+            isActive,
+            subscriptionEnd,
+          });
 
           const { error } = await supabaseClient
             .from("profiles")

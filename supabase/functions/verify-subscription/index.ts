@@ -60,9 +60,23 @@ serve(async (req) => {
       const subscription = subscriptions.data[0];
       subscriptionEnd = new Date(subscription.current_period_end * 1000).toISOString();
       
-      // Determine plan from metadata or product name
-      const metadata = subscription.metadata;
-      planType = metadata.plan_type || 'pro';
+      // Get product ID from subscription
+      const productId = subscription.items.data[0].price.product as string;
+      
+      // Map product ID to plan type using fixed IDs
+      const productToPlan: Record<string, string> = {
+        "prod_TTH0TCgKCJn5QS": "pro",
+        "prod_TTH12wU8lOauHD": "premium",
+      };
+      
+      planType = productToPlan[productId] || subscription.metadata.plan_type || 'pro';
+      
+      console.log("[VERIFY-SUBSCRIPTION] Active subscription found:", {
+        subscriptionId: subscription.id,
+        productId,
+        planType,
+        endDate: subscriptionEnd,
+      });
 
       // Update profile with subscription info
       await supabaseClient
