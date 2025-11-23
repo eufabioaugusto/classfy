@@ -46,8 +46,8 @@ export default function StudioContents() {
     if (user) {
       fetchContents();
       
-      // Subscribe to realtime updates for creator's contents
-      const channel = supabase
+      // Subscribe to realtime updates for creator's contents and courses
+      const contentsChannel = supabase
         .channel('studio-contents')
         .on(
           'postgres_changes',
@@ -59,14 +59,26 @@ export default function StudioContents() {
           },
           (payload) => {
             console.log('Content updated:', payload);
-            // Refresh contents when any content is updated
+            fetchContents();
+          }
+        )
+        .on(
+          'postgres_changes',
+          {
+            event: '*',
+            schema: 'public',
+            table: 'courses',
+            filter: `creator_id=eq.${user.id}`,
+          },
+          (payload) => {
+            console.log('Course updated:', payload);
             fetchContents();
           }
         )
         .subscribe();
 
       return () => {
-        supabase.removeChannel(channel);
+        supabase.removeChannel(contentsChannel);
       };
     }
   }, [user]);
@@ -80,15 +92,46 @@ export default function StudioContents() {
   const fetchContents = async () => {
     if (!user) return;
     try {
+      // Buscar conteúdos regulares
       const {
-        data,
-        error
+        data: contentsData,
+        error: contentsError
       } = await supabase.from('contents').select('*').eq('creator_id', user.id).order('created_at', {
         ascending: false
       });
-      if (error) throw error;
-      setContents(data || []);
-      setFilteredContents(data || []);
+      
+      if (contentsError) throw contentsError;
+      
+      // Buscar cursos
+      const {
+        data: coursesData,
+        error: coursesError
+      } = await supabase.from('courses').select('*').eq('creator_id', user.id).order('created_at', {
+        ascending: false
+      });
+      
+      if (coursesError) throw coursesError;
+      
+      // Mapear cursos para o formato de Content
+      const mappedCourses = (coursesData || []).map(course => ({
+        id: course.id,
+        title: course.title,
+        description: course.description,
+        content_type: 'curso',
+        thumbnail_url: course.thumbnail_url,
+        status: course.status,
+        created_at: course.created_at,
+        views_count: course.views_count,
+        visibility: course.visibility
+      }));
+      
+      // Combinar e ordenar por data de criação
+      const allContent = [...(contentsData || []), ...mappedCourses].sort(
+        (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+      );
+      
+      setContents(allContent);
+      setFilteredContents(allContent);
     } catch (error) {
       console.error('Error fetching contents:', error);
       toast({
@@ -100,12 +143,16 @@ export default function StudioContents() {
       setIsLoading(false);
     }
   };
-  const handleDelete = async (contentId: string) => {
+  const handleDelete = async (contentId: string, contentType: string) => {
     if (!confirm('Tem certeza que deseja deletar este conteúdo?')) return;
     try {
+      // Determinar qual tabela usar baseado no tipo
+      const table = contentType === 'curso' ? 'courses' : 'contents';
+      
       const {
         error
-      } = await supabase.from('contents').delete().eq('id', contentId);
+      } = await supabase.from(table).delete().eq('id', contentId);
+      
       if (error) throw error;
       toast({
         title: "Conteúdo deletado",
@@ -339,7 +386,7 @@ export default function StudioContents() {
                                   </Button>
                                 </DropdownMenuTrigger>
                                 <DropdownMenuContent align="end">
-                                  <DropdownMenuItem onClick={() => navigate(`/watch/${content.id}`)}>
+                                  <DropdownMenuItem onClick={() => navigate(content.content_type === 'curso' ? `/study/${content.id}` : `/watch/${content.id}`)}>
                                     <Eye className="w-4 h-4 mr-2" />
                                     Ver
                                   </DropdownMenuItem>
@@ -351,7 +398,7 @@ export default function StudioContents() {
                                     <Edit className="w-4 h-4 mr-2" />
                                     Editar
                                   </DropdownMenuItem>
-                                  <DropdownMenuItem onClick={() => handleDelete(content.id)} className="text-destructive">
+                                  <DropdownMenuItem onClick={() => handleDelete(content.id, content.content_type)} className="text-destructive">
                                     <Trash2 className="w-4 h-4 mr-2" />
                                     Deletar
                                   </DropdownMenuItem>
