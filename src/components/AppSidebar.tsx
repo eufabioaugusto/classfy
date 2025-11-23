@@ -115,7 +115,7 @@ export function AppSidebar() {
           <div className={`p-6 space-y-4 ${collapsed ? "px-3" : ""}`}>
             <div className="flex items-center gap-2 cursor-pointer justify-left" onClick={() => navigate("/")}>
               <MonitorPause className="w-6 h-6 text-cinematic-accent" />
-              {!collapsed && <span className="text-xl font-bold text-foreground">CLASSFY</span>}
+              {!collapsed && <span className="text-xl font-bold text-foreground">Classfy</span>}
             </div>
 
             {/* User Profile in Header */}
