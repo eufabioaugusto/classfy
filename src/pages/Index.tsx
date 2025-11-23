@@ -6,6 +6,7 @@ import { ConversionModal } from "@/components/ConversionModal";
 import { SearchBar } from "@/components/SearchBar";
 import { ContinueStudyCard } from "@/components/ContinueStudyCard";
 import { ContentSection } from "@/components/ContentSection";
+import { FeaturedCreators } from "@/components/FeaturedCreators";
 import { SidebarProvider } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/AppSidebar";
 import { Header } from "@/components/Header";
@@ -386,6 +387,9 @@ export default function Index() {
                   </div>
                 ) : (
                   <>
+                    {/* Featured Creators Section */}
+                    <FeaturedCreators />
+
                     {/* 1. Em Alta - 4 cards (Apenas Aulas) */}
                     {trendingClasses.length > 0 && (
                       <ContentSection
