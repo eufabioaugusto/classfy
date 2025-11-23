@@ -11,12 +11,7 @@ interface CourseCurriculumProps {
   hasAccess: boolean;
 }
 
-export const CourseCurriculum = ({ 
-  modules, 
-  currentLesson, 
-  onLessonSelect,
-  hasAccess 
-}: CourseCurriculumProps) => {
+export const CourseCurriculum = ({ modules, currentLesson, onLessonSelect, hasAccess }: CourseCurriculumProps) => {
   const formatDuration = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
     return `${mins} min`;
@@ -25,7 +20,7 @@ export const CourseCurriculum = ({
   return (
     <Card className="p-4">
       <h3 className="text-lg font-bold mb-4">Conteúdo do Curso</h3>
-      
+
       <Accordion type="single" collapsible className="w-full">
         {modules.map((module, idx) => (
           <AccordionItem key={module.id} value={`module-${idx}`}>
@@ -33,12 +28,8 @@ export const CourseCurriculum = ({
               <div className="flex items-center gap-3 text-left">
                 <Badge variant="outline">{idx + 1}</Badge>
                 <div>
-                  <p className="font-semibold">{module.title}</p>
-                  {module.description && (
-                    <p className="text-xs text-muted-foreground mt-1">
-                      {module.description}
-                    </p>
-                  )}
+                  <p className="font-semibold text-sm">{module.title}</p>
+                  {module.description && <p className="text-xs text-muted-foreground mt-1">{module.description}</p>}
                 </div>
               </div>
             </AccordionTrigger>
@@ -79,9 +70,7 @@ export const CourseCurriculum = ({
                             )}
                           </div>
                           {lesson.description && (
-                            <p className="text-xs text-muted-foreground line-clamp-2">
-                              {lesson.description}
-                            </p>
+                            <p className="text-xs text-muted-foreground line-clamp-2">{lesson.description}</p>
                           )}
                           {lesson.duration_seconds && (
                             <p className="text-xs text-muted-foreground mt-1">
