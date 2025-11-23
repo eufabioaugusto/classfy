@@ -28,7 +28,7 @@ export const CourseCurriculum = ({ modules, currentLesson, onLessonSelect, hasAc
               <div className="flex items-center gap-3 text-left">
                 <Badge variant="outline">{idx + 1}</Badge>
                 <div>
-                  <p className="font-semibold text-sm">{module.title}</p>
+                  <p className="font-semibold text-md">{module.title}</p>
                   {module.description && <p className="text-xs text-muted-foreground mt-1">{module.description}</p>}
                 </div>
               </div>
