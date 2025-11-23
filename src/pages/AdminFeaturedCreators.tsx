@@ -45,11 +45,11 @@ const AdminFeaturedCreators = () => {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [showForm, setShowForm] = useState(false);
+  const [backgroundImage, setBackgroundImage] = useState<File | null>(null);
+  const [featuredImage, setFeaturedImage] = useState<File | null>(null);
   const [formData, setFormData] = useState({
     creator_id: "",
-    background_image_url: "",
     badge_text: "New",
-    featured_image_url: "",
     description: "",
     link_url: "",
   });
@@ -106,15 +106,53 @@ const AdminFeaturedCreators = () => {
     }
   };
 
+  const uploadImage = async (file: File, path: string): Promise<string> => {
+    const fileExt = file.name.split(".").pop();
+    const fileName = `${path}-${Date.now()}.${fileExt}`;
+    const filePath = `${fileName}`;
+
+    const { error: uploadError, data } = await supabase.storage
+      .from("featured-creators")
+      .upload(filePath, file, {
+        cacheControl: "3600",
+        upsert: false,
+      });
+
+    if (uploadError) throw uploadError;
+
+    const { data: { publicUrl } } = supabase.storage
+      .from("featured-creators")
+      .getPublicUrl(filePath);
+
+    return publicUrl;
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    
+    if (!backgroundImage) {
+      toast.error("Adicione a imagem de fundo");
+      return;
+    }
+    
+    if (!featuredImage) {
+      toast.error("Adicione a imagem em destaque");
+      return;
+    }
+
     setSubmitting(true);
 
     try {
+      // Upload images
+      const backgroundUrl = await uploadImage(backgroundImage, "background");
+      const featuredUrl = await uploadImage(featuredImage, "featured");
+
       const maxOrder = Math.max(...featuredCreators.map((f) => f.order_index), -1);
 
       const { error } = await supabase.from("featured_creators").insert({
         ...formData,
+        background_image_url: backgroundUrl,
+        featured_image_url: featuredUrl,
         order_index: maxOrder + 1,
       });
 
@@ -122,11 +160,11 @@ const AdminFeaturedCreators = () => {
 
       toast.success("Creator em destaque adicionado!");
       setShowForm(false);
+      setBackgroundImage(null);
+      setFeaturedImage(null);
       setFormData({
         creator_id: "",
-        background_image_url: "",
         badge_text: "New",
-        featured_image_url: "",
         description: "",
         link_url: "",
       });
@@ -204,23 +242,33 @@ const AdminFeaturedCreators = () => {
                 </div>
 
                 <div>
-                  <Label>URL da Imagem de Fundo (vertical)</Label>
+                  <Label>Imagem de Fundo (vertical)</Label>
                   <Input
-                    value={formData.background_image_url}
-                    onChange={(e) => setFormData({ ...formData, background_image_url: e.target.value })}
-                    placeholder="https://..."
+                    type="file"
+                    accept="image/*"
+                    onChange={(e) => setBackgroundImage(e.target.files?.[0] || null)}
                     required
                   />
+                  {backgroundImage && (
+                    <p className="text-xs text-muted-foreground mt-1">
+                      {backgroundImage.name}
+                    </p>
+                  )}
                 </div>
 
                 <div>
-                  <Label>URL da Imagem em Destaque (logo PNG)</Label>
+                  <Label>Imagem em Destaque (logo PNG)</Label>
                   <Input
-                    value={formData.featured_image_url}
-                    onChange={(e) => setFormData({ ...formData, featured_image_url: e.target.value })}
-                    placeholder="https://..."
+                    type="file"
+                    accept="image/*"
+                    onChange={(e) => setFeaturedImage(e.target.files?.[0] || null)}
                     required
                   />
+                  {featuredImage && (
+                    <p className="text-xs text-muted-foreground mt-1">
+                      {featuredImage.name}
+                    </p>
+                  )}
                 </div>
 
                 <div>
@@ -259,7 +307,11 @@ const AdminFeaturedCreators = () => {
                     {submitting && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
                     Adicionar
                   </Button>
-                  <Button type="button" variant="outline" onClick={() => setShowForm(false)}>
+                  <Button type="button" variant="outline" onClick={() => {
+                    setShowForm(false);
+                    setBackgroundImage(null);
+                    setFeaturedImage(null);
+                  }}>
                     Cancelar
                   </Button>
                 </div>
