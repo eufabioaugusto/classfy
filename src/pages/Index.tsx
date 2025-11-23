@@ -102,7 +102,6 @@ export default function Index() {
             avatar_url
           )
         `)
-        .eq('status', 'approved')
         .eq('content_type', 'aula')
         .order('views_count', { ascending: false })
         .limit(20); // Fetch more to ensure we get some
@@ -128,7 +127,6 @@ export default function Index() {
             avatar_url
           )
         `)
-        .eq('status', 'approved')
         .eq('visibility', 'pro')
         .in('content_type', ['aula'])
         .order('created_at', { ascending: false })
@@ -147,7 +145,6 @@ export default function Index() {
             avatar_url
           )
         `)
-        .eq('status', 'approved')
         .eq('content_type', 'podcast')
         .order('views_count', { ascending: false })
         .limit(6);
@@ -164,7 +161,6 @@ export default function Index() {
             avatar_url
           )
         `)
-        .eq('status', 'approved')
         .eq('content_type', 'short')
         .order('created_at', { ascending: false })
         .limit(6);
@@ -181,7 +177,6 @@ export default function Index() {
             avatar_url
           )
         `)
-        .eq('status', 'approved')
         .eq('visibility', 'premium')
         .order('created_at', { ascending: false })
         .limit(4);
