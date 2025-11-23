@@ -157,7 +157,7 @@ const CreatorCard = ({ creator, onClick }: CreatorCardProps) => {
         <p className="text-white font-semibold text-sm line-clamp-2 mb-2 leading-tight">{creator.description}</p>
 
         {/* Duration */}
-        <div className="flex items-center gap-1 text-white/80 text-xs">
+        <div className="flex items-center gap-1 text-white/80 text-xs text-center">
           <Clock className="h-3 w-3" />
           <span>{creator.total_duration}</span>
         </div>
