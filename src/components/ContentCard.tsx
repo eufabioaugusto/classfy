@@ -64,7 +64,7 @@ export const ContentCard = ({
   const creatorAvatar = propCreatorAvatar || content?.profiles?.avatar_url;
   const duration = propDuration || content?.duration_minutes;
   const lessonCount = propLessonCount || content?.lesson_count;
-  const isFree = propIsFree !== undefined ? propIsFree : content?.is_free ?? true;
+  const isFree = propIsFree !== undefined ? propIsFree : (content?.is_free ?? true);
   const price = propPrice || content?.price;
   const requiredPlan = propRequiredPlan || content?.required_plan;
   const views = propViews || content?.views_count || 0;
@@ -80,10 +80,9 @@ export const ContentCard = ({
   useEffect(() => {
     const checkBoost = async () => {
       if (!id) return;
-      
-      const { data, error } = await supabase
-        .rpc('is_content_boosted', { p_content_id: id });
-      
+
+      const { data, error } = await supabase.rpc("is_content_boosted", { p_content_id: id });
+
       if (!error && data) {
         setIsBoosted(data);
       }
@@ -105,35 +104,35 @@ export const ContentCard = ({
 
   const checkAccess = () => {
     // Check if content is paid and user has purchased it
-    if (visibility === 'paid') {
+    if (visibility === "paid") {
       return isPurchased;
     }
-    
+
     // Check plan-based access
-    if (visibility === 'free') {
+    if (visibility === "free") {
       return true;
-    } else if (visibility === 'pro') {
-      return ['pro', 'premium'].includes(userPlan);
-    } else if (visibility === 'premium') {
-      return userPlan === 'premium';
+    } else if (visibility === "pro") {
+      return ["pro", "premium"].includes(userPlan);
+    } else if (visibility === "premium") {
+      return userPlan === "premium";
     }
-    
+
     return true;
   };
 
   const handleClick = () => {
     const hasAccess = checkAccess();
-    
+
     if (!hasAccess) {
       // Block navigation and show appropriate modal
-      if (visibility === 'paid') {
+      if (visibility === "paid") {
         onPurchaseClick?.();
-      } else if (visibility === 'pro' || visibility === 'premium') {
+      } else if (visibility === "pro" || visibility === "premium") {
         onUpgradeClick?.(visibility);
       }
       return;
     }
-    
+
     // Only navigate if user has access
     if (onClick) {
       onClick();
@@ -148,17 +147,17 @@ export const ContentCard = ({
       onClick={handleClick}
     >
       {/* Thumbnail with dynamic aspect ratio */}
-      <div className={`relative overflow-hidden bg-muted ${
-        aspectRatio === "square" ? "aspect-square" :
-        aspectRatio === "vertical" ? "aspect-[9/16]" :
-        "aspect-[16/9]"
-      }`}>
+      <div
+        className={`relative overflow-hidden bg-muted ${
+          aspectRatio === "square" ? "aspect-square" : aspectRatio === "vertical" ? "aspect-[9/16]" : "aspect-[16/9]"
+        }`}
+      >
         <img
           src={thumbnail}
           alt={title}
           className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500 ease-out"
         />
-        
+
         {/* Play button overlay */}
         <div className="absolute inset-0 bg-black/0 group-hover:bg-gradient-to-t group-hover:from-black/30 group-hover:to-transparent flex items-center justify-center transition-all duration-300">
           <div className="opacity-0 group-hover:opacity-100 transition-all duration-300 transform group-hover:scale-100 scale-90">
@@ -175,10 +174,8 @@ export const ContentCard = ({
         {/* Plan Badge - Top Right */}
         {(visibility === "pro" || visibility === "premium") && (
           <div className="absolute top-1.5 right-1.5">
-            <Crown 
-              className={`w-5 h-5 drop-shadow-lg ${
-                visibility === "pro" ? "text-yellow-400" : "text-red-500"
-              }`}
+            <Crown
+              className={`w-3 h-3 drop-shadow-lg ${visibility === "pro" ? "text-yellow-400" : "text-red-500"}`}
               fill="currentColor"
             />
           </div>
@@ -205,7 +202,9 @@ export const ContentCard = ({
             </>
           )}
           {!isPaid && requiredPlan && requiredPlan !== "free" && (
-            <Badge className={`${getPlanBadgeColor(requiredPlan)} backdrop-blur-md text-white font-semibold uppercase text-[9px] px-1.5 py-0.5 shadow-md`}>
+            <Badge
+              className={`${getPlanBadgeColor(requiredPlan)} backdrop-blur-md text-white font-semibold uppercase text-[9px] px-1.5 py-0.5 shadow-md`}
+            >
               {requiredPlan}
             </Badge>
           )}
@@ -219,13 +218,19 @@ export const ContentCard = ({
         {/* Duration/Lessons - Bottom Right */}
         <div className="absolute bottom-1.5 right-1.5 flex gap-1">
           {duration && (
-            <Badge variant="secondary" className="bg-black/90 backdrop-blur-md text-white border-0 text-[9px] font-medium px-1.5 py-0.5 shadow-lg">
+            <Badge
+              variant="secondary"
+              className="bg-black/90 backdrop-blur-md text-white border-0 text-[9px] font-medium px-1.5 py-0.5 shadow-lg"
+            >
               <Clock className="w-2.5 h-2.5 mr-0.5" />
               {duration}min
             </Badge>
           )}
           {lessonCount && (
-            <Badge variant="secondary" className="bg-black/90 backdrop-blur-md text-white border-0 text-[9px] font-medium px-1.5 py-0.5 shadow-lg">
+            <Badge
+              variant="secondary"
+              className="bg-black/90 backdrop-blur-md text-white border-0 text-[9px] font-medium px-1.5 py-0.5 shadow-lg"
+            >
               <BookOpen className="w-2.5 h-2.5 mr-0.5" />
               {lessonCount}
             </Badge>
@@ -249,7 +254,7 @@ export const ContentCard = ({
           <div className="flex-1 min-w-0">
             <p className="text-[11px] font-medium text-foreground truncate">{creatorName}</p>
           </div>
-          
+
           {/* Price + Button (for paid content) */}
           {isPaid && !isPurchased && (
             <div className="flex items-center gap-1.5 flex-shrink-0">
@@ -267,8 +272,8 @@ export const ContentCard = ({
                   <span className="text-[11px] font-bold">R$ {price.toFixed(2)}</span>
                 )}
               </div>
-              <Button 
-                size="sm" 
+              <Button
+                size="sm"
                 className="h-7 px-2.5 text-[10px]"
                 onClick={(e) => {
                   e.stopPropagation();
@@ -283,15 +288,16 @@ export const ContentCard = ({
         </div>
 
         {/* Title */}
-        <h3 className="font-semibold text-sm leading-snug line-clamp-2 text-foreground group-hover:text-primary transition-colors duration-300 mb-2" style={{ minHeight: '2.5rem' }}>
+        <h3
+          className="font-semibold text-sm leading-snug line-clamp-2 text-foreground group-hover:text-primary transition-colors duration-300 mb-2"
+          style={{ minHeight: "2.5rem" }}
+        >
           {title}
         </h3>
 
         {/* Views - Always show */}
         <div className="pt-1.5 border-t border-border/30">
-          <p className="text-[10px] text-muted-foreground">
-            {views.toLocaleString()} views
-          </p>
+          <p className="text-[10px] text-muted-foreground">{views.toLocaleString()} views</p>
         </div>
       </div>
     </Card>
