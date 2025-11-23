@@ -283,7 +283,7 @@ export const ContentCard = ({
         </div>
 
         {/* Title */}
-        <h3 className="font-semibold text-sm leading-snug line-clamp-2 text-foreground group-hover:text-primary transition-colors duration-300 mb-2">
+        <h3 className="font-semibold text-sm leading-snug line-clamp-2 text-foreground group-hover:text-primary transition-colors duration-300 mb-2" style={{ minHeight: '2.5rem' }}>
           {title}
         </h3>
 
