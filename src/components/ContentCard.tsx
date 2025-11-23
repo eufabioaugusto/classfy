@@ -234,10 +234,10 @@ export const ContentCard = ({
       </div>
 
       {/* Content Info */}
-      <div className="p-2 space-y-1.5 bg-card">
+      <div className="p-2 bg-card flex flex-col" style={{ minHeight: '120px' }}>
         {/* Creator info */}
-        <div className="flex items-center gap-1.5">
-          <div className="w-6 h-6 rounded-full bg-muted overflow-hidden ring-1 ring-border/50">
+        <div className="flex items-center gap-1.5 mb-1.5">
+          <div className="w-6 h-6 rounded-full bg-muted overflow-hidden ring-1 ring-border/50 flex-shrink-0">
             {creatorAvatar ? (
               <img src={creatorAvatar} alt={creatorName} className="w-full h-full object-cover" />
             ) : (
@@ -251,53 +251,58 @@ export const ContentCard = ({
           </div>
         </div>
 
-        {/* Title */}
-        <h3 className="font-semibold text-xs leading-tight line-clamp-2 text-foreground group-hover:text-primary transition-colors duration-300">
+        {/* Title - Fixed height area */}
+        <h3 className="font-semibold text-xs leading-tight line-clamp-2 text-foreground group-hover:text-primary transition-colors duration-300 mb-1.5" style={{ minHeight: '32px' }}>
           {title}
         </h3>
 
-        {/* Price & Actions */}
-        {isPaid && (
-          <div className="pt-1.5 border-t border-border/30 space-y-1.5">
-            <div className="flex items-center justify-between">
-              <div>
-                {discount > 0 ? (
-                  <div className="flex items-baseline gap-1">
-                    <span className="text-xs font-bold text-primary">
-                      R$ {(price * (1 - discount / 100)).toFixed(2)}
-                    </span>
-                    <span className="text-[9px] line-through text-muted-foreground">
-                      R$ {price.toFixed(2)}
-                    </span>
-                  </div>
-                ) : (
-                  <span className="text-xs font-bold">R$ {price.toFixed(2)}</span>
-                )}
-              </div>
-            </div>
-            {!isPurchased && (
-              <Button 
-                size="sm" 
-                className="w-full h-7 text-[10px]"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onPurchaseClick?.();
-                }}
-              >
-                <ShoppingCart className="w-3 h-3 mr-1" />
-                Comprar
-              </Button>
-            )}
-          </div>
-        )}
+        {/* Spacer to push footer content to bottom */}
+        <div className="flex-1"></div>
 
-        {!isPaid && (
-          <div className="flex items-center justify-between pt-1 border-t border-border/30">
-            <p className="text-[9px] text-muted-foreground">
-              {views.toLocaleString()} views
-            </p>
-          </div>
-        )}
+        {/* Footer - Fixed height area for price/views */}
+        <div className="pt-1.5 border-t border-border/30" style={{ minHeight: '44px' }}>
+          {isPaid ? (
+            <div className="space-y-1.5">
+              {/* Price */}
+              <div className="flex items-center justify-between" style={{ minHeight: '18px' }}>
+                <div>
+                  {discount > 0 ? (
+                    <div className="flex items-baseline gap-1">
+                      <span className="text-xs font-bold text-primary">
+                        R$ {(price * (1 - discount / 100)).toFixed(2)}
+                      </span>
+                      <span className="text-[9px] line-through text-muted-foreground">
+                        R$ {price.toFixed(2)}
+                      </span>
+                    </div>
+                  ) : (
+                    <span className="text-xs font-bold">R$ {price.toFixed(2)}</span>
+                  )}
+                </div>
+              </div>
+              {/* Button area */}
+              {!isPurchased && (
+                <Button 
+                  size="sm" 
+                  className="w-full h-7 text-[10px]"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onPurchaseClick?.();
+                  }}
+                >
+                  <ShoppingCart className="w-3 h-3 mr-1" />
+                  Comprar
+                </Button>
+              )}
+            </div>
+          ) : (
+            <div className="flex items-center justify-between" style={{ minHeight: '18px' }}>
+              <p className="text-[9px] text-muted-foreground">
+                {views.toLocaleString()} views
+              </p>
+            </div>
+          )}
+        </div>
       </div>
     </Card>
   );
