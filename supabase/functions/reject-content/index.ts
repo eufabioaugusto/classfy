@@ -40,46 +40,49 @@ Deno.serve(async (req) => {
       throw new Error('User is not admin');
     }
 
-    const { contentId } = await req.json();
+    const { contentId, itemType = 'content' } = await req.json();
 
     if (!contentId) {
       throw new Error('Content ID is required');
     }
 
-    console.log('Rejecting content:', contentId);
+    console.log('Rejecting item:', contentId, 'type:', itemType);
 
-    // Get content details
+    const tableName = itemType === 'course' ? 'courses' : 'contents';
+
+    // Get item details
     const { data: content, error: contentError } = await supabase
-      .from('contents')
+      .from(tableName)
       .select('*, creator_id, title')
       .eq('id', contentId)
       .single();
 
     if (contentError || !content) {
-      throw new Error('Content not found');
+      throw new Error(`${itemType} not found`);
     }
 
-    // Update content status to rejected using service role
+    // Update item status to rejected using service role
     const { error: updateError } = await supabase
-      .from('contents')
+      .from(tableName)
       .update({ status: 'rejected' })
       .eq('id', contentId);
 
     if (updateError) {
-      console.error('Error updating content:', updateError);
+      console.error('Error updating item:', updateError);
       throw updateError;
     }
 
-    console.log('Content rejected successfully');
+    console.log(`${itemType} rejected successfully`);
 
     // Create notification for creator
+    const itemLabel = itemType === 'course' ? 'curso' : 'conteúdo';
     const { error: notificationError } = await supabase
       .from('notifications')
       .insert({
         user_id: content.creator_id,
         type: 'admin',
-        title: 'Conteúdo Reprovado ❌',
-        message: `Seu conteúdo "${content.title}" foi reprovado pela moderação. Entre em contato para mais detalhes.`,
+        title: itemType === 'course' ? 'Curso Reprovado ❌' : 'Conteúdo Reprovado ❌',
+        message: `Seu ${itemLabel} "${content.title}" foi reprovado pela moderação. Entre em contato para mais detalhes.`,
         related_content_id: contentId,
         is_read: false
       });
