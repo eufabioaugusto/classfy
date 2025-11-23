@@ -14,7 +14,7 @@ import { GlobalLoader } from "@/components/GlobalLoader";
 
 interface Content {
   id: string;
-  content_type: "aula" | "short" | "podcast";
+  content_type: "aula" | "short" | "podcast" | "curso";
   title: string;
   description: string | null;
   thumbnail_url: string;
@@ -22,6 +22,7 @@ interface Content {
   created_at: string;
   creator_id: string;
   creator: { display_name: string; avatar_url: string | null };
+  item_type: 'content' | 'course';
 }
 
 export default function AdminContents() {
@@ -35,9 +36,36 @@ export default function AdminContents() {
 
   const fetchPendingContents = async () => {
     try {
-      const { data, error } = await supabase.from('contents').select(`id, content_type, title, description, thumbnail_url, status, created_at, creator_id, creator:profiles!creator_id(display_name, avatar_url)`).eq('status', 'pending').order('created_at', { ascending: false });
-      if (error) throw error;
-      setContents(data || []);
+      // Fetch pending contents
+      const { data: contentsData, error: contentsError } = await supabase
+        .from('contents')
+        .select(`id, content_type, title, description, thumbnail_url, status, created_at, creator_id, creator:profiles!creator_id(display_name, avatar_url)`)
+        .eq('status', 'pending')
+        .order('created_at', { ascending: false });
+      
+      if (contentsError) throw contentsError;
+
+      // Fetch pending courses
+      const { data: coursesData, error: coursesError } = await supabase
+        .from('courses')
+        .select(`id, title, description, thumbnail_url, status, created_at, creator_id, creator:profiles!creator_id(display_name, avatar_url)`)
+        .eq('status', 'pending')
+        .order('created_at', { ascending: false });
+      
+      if (coursesError) throw coursesError;
+
+      // Combine and format data
+      const formattedContents = (contentsData || []).map(c => ({ ...c, item_type: 'content' as const }));
+      const formattedCourses = (coursesData || []).map(c => ({ 
+        ...c, 
+        content_type: 'curso' as const,
+        item_type: 'course' as const 
+      }));
+      
+      const allItems = [...formattedContents, ...formattedCourses]
+        .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+
+      setContents(allItems);
     } catch (error: any) {
       toast.error(error.message || "Erro ao carregar conteúdos");
     } finally {
@@ -51,7 +79,10 @@ export default function AdminContents() {
     if (!content) return;
     try {
       const { data, error } = await supabase.functions.invoke('approve-content', {
-        body: { contentId },
+        body: { 
+          contentId,
+          itemType: content.item_type 
+        },
       });
       if (error) throw error;
       toast.success("Conteúdo aprovado! O criador foi notificado.");
@@ -65,9 +96,14 @@ export default function AdminContents() {
   };
   const handleReject = async (contentId: string) => {
     setProcessingId(contentId);
+    const content = contents.find((c) => c.id === contentId);
+    if (!content) return;
     try {
       const { data, error } = await supabase.functions.invoke('reject-content', {
-        body: { contentId },
+        body: { 
+          contentId,
+          itemType: content.item_type 
+        },
       });
       if (error) throw error;
       toast.success("Conteúdo reprovado. O criador foi notificado.");
@@ -83,8 +119,13 @@ export default function AdminContents() {
     if (selectedContents.size === 0) return;
     try {
       for (const contentId of Array.from(selectedContents)) {
+        const content = contents.find(c => c.id === contentId);
+        if (!content) continue;
         await supabase.functions.invoke('approve-content', {
-          body: { contentId },
+          body: { 
+            contentId,
+            itemType: content.item_type 
+          },
         });
       }
       toast.success(`${selectedContents.size} conteúdos aprovados!`);
@@ -121,6 +162,7 @@ export default function AdminContents() {
       case 'aula': return <Video className="h-4 w-4" />;
       case 'podcast': return <Music className="h-4 w-4" />;
       case 'short': return <Film className="h-4 w-4" />;
+      case 'curso': return <Video className="h-4 w-4" />;
       default: return null;
     }
   };

@@ -40,28 +40,30 @@ Deno.serve(async (req) => {
       throw new Error('User is not admin');
     }
 
-    const { contentId } = await req.json();
+    const { contentId, itemType = 'content' } = await req.json();
 
     if (!contentId) {
       throw new Error('Content ID is required');
     }
 
-    console.log('Approving content:', contentId);
+    console.log('Approving item:', contentId, 'type:', itemType);
 
-    // Get content details
+    const tableName = itemType === 'course' ? 'courses' : 'contents';
+
+    // Get item details
     const { data: content, error: contentError } = await supabase
-      .from('contents')
+      .from(tableName)
       .select('*, creator_id, title')
       .eq('id', contentId)
       .single();
 
     if (contentError || !content) {
-      throw new Error('Content not found');
+      throw new Error(`${itemType} not found`);
     }
 
-    // Update content status to approved using service role
+    // Update item status to approved using service role
     const { error: updateError } = await supabase
-      .from('contents')
+      .from(tableName)
       .update({ 
         status: 'approved',
         published_at: new Date().toISOString()
@@ -69,11 +71,11 @@ Deno.serve(async (req) => {
       .eq('id', contentId);
 
     if (updateError) {
-      console.error('Error updating content:', updateError);
+      console.error('Error updating item:', updateError);
       throw updateError;
     }
 
-    console.log('Content approved successfully');
+    console.log(`${itemType} approved successfully`);
 
     // Get reward config to calculate points and value
     const { data: rewardConfig } = await supabase
@@ -87,13 +89,14 @@ Deno.serve(async (req) => {
     const valueAmount = rewardConfig?.value_creator || 5.00;
 
     // ALWAYS create notification for content approval (independent of reward)
-    const { error: notificationError } = await supabase
+      const itemLabel = itemType === 'course' ? 'curso' : 'conteúdo';
+      const { error: notificationError } = await supabase
       .from('notifications')
       .insert({
         user_id: content.creator_id,
         type: 'admin',
-        title: 'Conteúdo aprovado! ✅',
-        message: `Seu conteúdo "${content.title}" foi aprovado e publicado! Você ganhou ${pointsAmount} pontos e R$ ${valueAmount.toFixed(2)}!`,
+        title: itemType === 'course' ? 'Curso aprovado! ✅' : 'Conteúdo aprovado! ✅',
+        message: `Seu ${itemLabel} "${content.title}" foi aprovado e publicado! Você ganhou ${pointsAmount} pontos e R$ ${valueAmount.toFixed(2)}!`,
         related_content_id: contentId,
         is_read: false
       });
