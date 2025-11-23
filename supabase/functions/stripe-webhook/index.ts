@@ -99,6 +99,34 @@ serve(async (req) => {
             console.log("Subscription activated successfully");
           }
         }
+
+        // Check for referral commission
+        const userId = session.metadata?.user_id;
+        const purchaseAmount = session.amount_total ? session.amount_total / 100 : 0;
+        
+        if (userId && purchaseAmount > 0) {
+          // Check if user was referred
+          const { data: conversion } = await supabaseClient
+            .from("referral_conversions")
+            .select("*")
+            .eq("referred_user_id", userId)
+            .eq("commission_paid", false)
+            .is("first_purchase_at", null)
+            .single();
+
+          if (conversion) {
+            // Process referral commission
+            await supabaseClient.functions.invoke('process-referral-commission', {
+              body: {
+                conversion_id: conversion.id,
+                purchase_amount: purchaseAmount,
+                purchase_type: session.mode,
+                stripe_charge_id: session.payment_intent as string || session.subscription as string,
+              }
+            });
+          }
+        }
+        
         break;
       }
 
