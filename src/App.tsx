@@ -6,6 +6,8 @@ import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { AuthProvider } from "./contexts/AuthContext";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import { NotificationBell } from "./components/NotificationBell";
+import { supabase } from "@/integrations/supabase/client";
+import { useEffect } from "react";
 import Index from "./pages/Index";
 import Auth from "./pages/Auth";
 import Conta from "./pages/Conta";
@@ -37,6 +39,61 @@ import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
 
+function AppContent() {
+  // Track referral clicks
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const refCode = params.get('ref');
+    
+    if (refCode) {
+      // Save to localStorage (expires in 30 days)
+      localStorage.setItem('referral_code', refCode);
+      localStorage.setItem('referral_expires', String(Date.now() + (30 * 24 * 60 * 60 * 1000)));
+      
+      // Remove from URL
+      window.history.replaceState({}, '', window.location.pathname);
+      
+      // Track click
+      supabase.functions.invoke('track-referral-click', { 
+        body: { referral_code: refCode } 
+      }).catch(console.error);
+    }
+  }, []);
+
+  return (
+    <Routes>
+      <Route path="/" element={<Index />} />
+      <Route path="/auth" element={<Auth />} />
+      <Route path="/conta" element={<Conta />} />
+      <Route path="/historico" element={<Historico />} />
+      <Route path="/favoritos" element={<Favoritos />} />
+      <Route path="/salvos" element={<Salvos />} />
+      <Route path="/studio" element={<Studio />} />
+      <Route path="/studio/upload" element={<StudioUpload />} />
+      <Route path="/studio/upload/curso" element={<StudioUploadCurso />} />
+      <Route path="/studio/contents" element={<StudioContents />} />
+      <Route path="/studio/boosts" element={<StudioBoosts />} />
+      <Route path="/studio/analytics" element={<StudioAnalytics />} />
+      <Route path="/admin" element={<AdminDashboard />} />
+      <Route path="/admin/creators" element={<AdminCreators />} />
+      <Route path="/admin/contents" element={<AdminContents />} />
+      <Route path="/admin/rewards" element={<AdminRewards />} />
+      <Route path="/admin/transcriptions" element={<AdminTranscriptions />} />
+      <Route path="/admin/featured-creators" element={<AdminFeaturedCreators />} />
+      <Route path="/admin/withdrawals" element={<AdminWithdrawals />} />
+      <Route path="/admin/users" element={<AdminUsers />} />
+      <Route path="/admin/settings" element={<AdminSettings />} />
+      <Route path="/rewards-history" element={<RewardsHistory />} />
+      <Route path="/recompensas" element={<Recompensas />} />
+      <Route path="/boost-success" element={<BoostSuccess />} />
+      <Route path="/watch/:id" element={<Watch />} />
+      <Route path="/listen/:id" element={<Listen />} />
+      <Route path="/c/:id" element={<Study />} />
+      <Route path="*" element={<NotFound />} />
+    </Routes>
+  );
+}
+
 const App = () => (
   <QueryClientProvider client={queryClient}>
     <BrowserRouter>
@@ -45,36 +102,7 @@ const App = () => (
           <TooltipProvider>
             <Toaster />
             <Sonner />
-            <Routes>
-              <Route path="/" element={<Index />} />
-              <Route path="/auth" element={<Auth />} />
-              <Route path="/conta" element={<Conta />} />
-              <Route path="/historico" element={<Historico />} />
-              <Route path="/favoritos" element={<Favoritos />} />
-              <Route path="/salvos" element={<Salvos />} />
-              <Route path="/studio" element={<Studio />} />
-              <Route path="/studio/upload" element={<StudioUpload />} />
-              <Route path="/studio/upload/curso" element={<StudioUploadCurso />} />
-              <Route path="/studio/contents" element={<StudioContents />} />
-              <Route path="/studio/boosts" element={<StudioBoosts />} />
-              <Route path="/studio/analytics" element={<StudioAnalytics />} />
-              <Route path="/admin" element={<AdminDashboard />} />
-              <Route path="/admin/creators" element={<AdminCreators />} />
-              <Route path="/admin/contents" element={<AdminContents />} />
-              <Route path="/admin/rewards" element={<AdminRewards />} />
-          <Route path="/admin/transcriptions" element={<AdminTranscriptions />} />
-          <Route path="/admin/featured-creators" element={<AdminFeaturedCreators />} />
-          <Route path="/admin/withdrawals" element={<AdminWithdrawals />} />
-              <Route path="/admin/users" element={<AdminUsers />} />
-              <Route path="/admin/settings" element={<AdminSettings />} />
-              <Route path="/rewards-history" element={<RewardsHistory />} />
-              <Route path="/recompensas" element={<Recompensas />} />
-              <Route path="/boost-success" element={<BoostSuccess />} />
-              <Route path="/watch/:id" element={<Watch />} />
-              <Route path="/listen/:id" element={<Listen />} />
-              <Route path="/c/:id" element={<Study />} />
-              <Route path="*" element={<NotFound />} />
-            </Routes>
+            <AppContent />
           </TooltipProvider>
         </AuthProvider>
       </ThemeProvider>

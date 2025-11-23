@@ -146,7 +146,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const signUp = async (email: string, password: string, displayName: string) => {
     const redirectUrl = `${window.location.origin}/`;
     
-    const { error } = await supabase.auth.signUp({
+    const { data, error } = await supabase.auth.signUp({
       email,
       password,
       options: {
@@ -157,7 +157,24 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       }
     });
     
-    if (!error) {
+    if (!error && data.user) {
+      // Check for referral code and create conversion
+      const refCode = localStorage.getItem('referral_code');
+      const refExpires = localStorage.getItem('referral_expires');
+      
+      if (refCode && refExpires && Date.now() < Number(refExpires)) {
+        await supabase.functions.invoke('track-referral-conversion', {
+          body: {
+            referral_code: refCode,
+            referred_user_id: data.user.id
+          }
+        }).catch(console.error);
+        
+        // Clear referral data
+        localStorage.removeItem('referral_code');
+        localStorage.removeItem('referral_expires');
+      }
+      
       navigate("/");
     }
     

@@ -4,7 +4,9 @@ import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { NotificationBell } from "@/components/NotificationBell";
-import { Moon, Sun, Menu, Plus, BookOpen, Podcast, Zap, Radio, GraduationCap, LogIn, LogOut, Settings } from "lucide-react";
+import { AffiliateModal } from "@/components/AffiliateModal";
+import { useState } from "react";
+import { Moon, Sun, Menu, Plus, BookOpen, Podcast, Zap, Radio, GraduationCap, LogIn, LogOut, Settings, Gift } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -25,6 +27,7 @@ export function Header({ variant = "home", title }: HeaderProps) {
   const { theme, toggleTheme } = useTheme();
   const navigate = useNavigate();
   const { activeCount, limit } = useStudies();
+  const [affiliateModalOpen, setAffiliateModalOpen] = useState(false);
   
   useNotificationToasts();
   
@@ -54,6 +57,19 @@ export function Header({ variant = "home", title }: HeaderProps) {
               <Moon className="w-5 h-5" />
             )}
           </Button>
+
+          {/* Affiliate Program */}
+          {user && (
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => setAffiliateModalOpen(true)}
+              title="Programa de Afiliados"
+              className="text-foreground"
+            >
+              <Gift className="w-5 h-5" />
+            </Button>
+          )}
 
           {/* Notification Bell */}
           <NotificationBell />
@@ -148,6 +164,13 @@ export function Header({ variant = "home", title }: HeaderProps) {
           )}
         </div>
       </div>
+
+      {user && (
+        <AffiliateModal
+          open={affiliateModalOpen}
+          onOpenChange={setAffiliateModalOpen}
+        />
+      )}
     </header>
   );
 }

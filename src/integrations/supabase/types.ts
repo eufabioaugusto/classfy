@@ -1176,6 +1176,125 @@ export type Database = {
           },
         ]
       }
+      referral_commissions: {
+        Row: {
+          commission_amount: number
+          commission_rate: number
+          conversion_id: string
+          created_at: string | null
+          id: string
+          paid_at: string | null
+          purchase_amount: number
+          purchase_type: string
+          referred_user_id: string
+          referrer_id: string
+          status: string | null
+          stripe_charge_id: string | null
+        }
+        Insert: {
+          commission_amount: number
+          commission_rate: number
+          conversion_id: string
+          created_at?: string | null
+          id?: string
+          paid_at?: string | null
+          purchase_amount: number
+          purchase_type: string
+          referred_user_id: string
+          referrer_id: string
+          status?: string | null
+          stripe_charge_id?: string | null
+        }
+        Update: {
+          commission_amount?: number
+          commission_rate?: number
+          conversion_id?: string
+          created_at?: string | null
+          id?: string
+          paid_at?: string | null
+          purchase_amount?: number
+          purchase_type?: string
+          referred_user_id?: string
+          referrer_id?: string
+          status?: string | null
+          stripe_charge_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "referral_commissions_conversion_id_fkey"
+            columns: ["conversion_id"]
+            isOneToOne: false
+            referencedRelation: "referral_conversions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      referral_conversions: {
+        Row: {
+          commission_paid: boolean | null
+          converted_at: string | null
+          created_at: string | null
+          first_purchase_at: string | null
+          id: string
+          referral_code: string
+          referred_user_id: string
+          referrer_id: string
+        }
+        Insert: {
+          commission_paid?: boolean | null
+          converted_at?: string | null
+          created_at?: string | null
+          first_purchase_at?: string | null
+          id?: string
+          referral_code: string
+          referred_user_id: string
+          referrer_id: string
+        }
+        Update: {
+          commission_paid?: boolean | null
+          converted_at?: string | null
+          created_at?: string | null
+          first_purchase_at?: string | null
+          id?: string
+          referral_code?: string
+          referred_user_id?: string
+          referrer_id?: string
+        }
+        Relationships: []
+      }
+      referral_links: {
+        Row: {
+          created_at: string | null
+          id: string
+          referral_code: string
+          total_clicks: number | null
+          total_conversions: number | null
+          total_purchases: number | null
+          updated_at: string | null
+          user_id: string
+        }
+        Insert: {
+          created_at?: string | null
+          id?: string
+          referral_code: string
+          total_clicks?: number | null
+          total_conversions?: number | null
+          total_purchases?: number | null
+          updated_at?: string | null
+          user_id: string
+        }
+        Update: {
+          created_at?: string | null
+          id?: string
+          referral_code?: string
+          total_clicks?: number | null
+          total_conversions?: number | null
+          total_purchases?: number | null
+          updated_at?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
       reward_action_tracking: {
         Row: {
           action_key: string
