@@ -82,7 +82,7 @@ export default function Index() {
   const handleSearchError = (error: string | null) => {
     setError(error);
   };
-  // Load explore mode data
+  // Load explore mode data - works even when not logged in
   useEffect(() => {
     if (isExploreMode) {
       loadExploreData();
@@ -196,7 +196,12 @@ export default function Index() {
   };
 
   const handleContentClick = (content: any) => {
-    // Don't navigate here, let ContentCard handle access control
+    // Check if user is logged in before allowing navigation
+    if (!user) {
+      // Redirect to auth page if not logged in
+      navigate('/auth');
+      return;
+    }
     navigate(`/watch/${content.id}`);
   };
   
@@ -361,6 +366,19 @@ export default function Index() {
             {/* Modo Explorar (YouTube-style feed) */}
             {isExploreMode && (
               <div className="w-full max-w-7xl space-y-12">
+                {/* Login prompt for non-authenticated users */}
+                {!user && (
+                  <div className="mb-8 p-6 bg-gradient-to-r from-cinematic-accent/10 to-primary/10 border border-cinematic-accent/20 rounded-xl text-center">
+                    <h3 className="text-xl font-bold mb-2">Explore conteúdos incríveis</h3>
+                    <p className="text-muted-foreground mb-4">
+                      Entre para assistir e ganhar recompensas
+                    </p>
+                    <Button onClick={() => navigate("/auth")} className="bg-cinematic-accent hover:bg-cinematic-accent/90 text-white">
+                      Entrar ou Criar Conta
+                    </Button>
+                  </div>
+                )}
+
                 {exploreLoading ? (
                   <div className="text-center py-20">
                     <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-muted/50 border border-border/30">
