@@ -141,13 +141,16 @@ export default function Watch() {
           `)
           .eq('id', id);
 
-        if (role !== 'admin') {
-          courseQuery = courseQuery.eq('status', 'approved');
-        }
-
         const courseResult = await courseQuery.maybeSingle();
         
         if (courseResult.error || !courseResult.data) {
+          setContent(null);
+          setLoadingContent(false);
+          return;
+        }
+
+        // Only allow non-admins to view pending courses if they are the creator
+        if (role !== 'admin' && courseResult.data.status !== 'approved' && courseResult.data.creator_id !== user?.id) {
           setContent(null);
           setLoadingContent(false);
           return;
