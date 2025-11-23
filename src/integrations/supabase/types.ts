@@ -914,6 +914,53 @@ export type Database = {
           },
         ]
       }
+      featured_creators: {
+        Row: {
+          background_image_url: string
+          badge_text: string
+          created_at: string | null
+          creator_id: string
+          description: string
+          featured_image_url: string
+          id: string
+          link_url: string
+          order_index: number
+          updated_at: string | null
+        }
+        Insert: {
+          background_image_url: string
+          badge_text?: string
+          created_at?: string | null
+          creator_id: string
+          description: string
+          featured_image_url: string
+          id?: string
+          link_url: string
+          order_index?: number
+          updated_at?: string | null
+        }
+        Update: {
+          background_image_url?: string
+          badge_text?: string
+          created_at?: string | null
+          creator_id?: string
+          description?: string
+          featured_image_url?: string
+          id?: string
+          link_url?: string
+          order_index?: number
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "featured_creators_creator_id_fkey"
+            columns: ["creator_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       follows: {
         Row: {
           created_at: string
