@@ -234,10 +234,10 @@ export const ContentCard = ({
       </div>
 
       {/* Content Info */}
-      <div className="p-2 bg-card">
+      <div className="p-3 bg-card">
         {/* Creator info + Price/Button */}
-        <div className="flex items-center gap-1.5 mb-1.5">
-          <div className="w-6 h-6 rounded-full bg-muted overflow-hidden ring-1 ring-border/50 flex-shrink-0">
+        <div className="flex items-center gap-2 mb-2">
+          <div className="w-7 h-7 rounded-full bg-muted overflow-hidden ring-1 ring-border/50 flex-shrink-0">
             {creatorAvatar ? (
               <img src={creatorAvatar} alt={creatorName} className="w-full h-full object-cover" />
             ) : (
@@ -247,35 +247,35 @@ export const ContentCard = ({
             )}
           </div>
           <div className="flex-1 min-w-0">
-            <p className="text-[10px] font-medium text-foreground truncate">{creatorName}</p>
+            <p className="text-[11px] font-medium text-foreground truncate">{creatorName}</p>
           </div>
           
           {/* Price + Button (for paid content) */}
           {isPaid && !isPurchased && (
-            <div className="flex items-center gap-1 flex-shrink-0">
+            <div className="flex items-center gap-1.5 flex-shrink-0">
               <div className="text-right">
                 {discount > 0 ? (
                   <div className="flex flex-col items-end">
-                    <span className="text-[10px] font-bold text-primary">
+                    <span className="text-[11px] font-bold text-primary leading-tight">
                       R$ {(price * (1 - discount / 100)).toFixed(2)}
                     </span>
-                    <span className="text-[8px] line-through text-muted-foreground leading-none">
+                    <span className="text-[9px] line-through text-muted-foreground leading-tight">
                       R$ {price.toFixed(2)}
                     </span>
                   </div>
                 ) : (
-                  <span className="text-[10px] font-bold">R$ {price.toFixed(2)}</span>
+                  <span className="text-[11px] font-bold">R$ {price.toFixed(2)}</span>
                 )}
               </div>
               <Button 
                 size="sm" 
-                className="h-6 px-2 text-[9px]"
+                className="h-7 px-2.5 text-[10px]"
                 onClick={(e) => {
                   e.stopPropagation();
                   onPurchaseClick?.();
                 }}
               >
-                <ShoppingCart className="w-2.5 h-2.5 mr-0.5" />
+                <ShoppingCart className="w-3 h-3 mr-1" />
                 Comprar
               </Button>
             </div>
@@ -283,18 +283,16 @@ export const ContentCard = ({
         </div>
 
         {/* Title */}
-        <h3 className="font-semibold text-xs leading-tight line-clamp-2 text-foreground group-hover:text-primary transition-colors duration-300 mb-1.5">
+        <h3 className="font-semibold text-sm leading-snug line-clamp-2 text-foreground group-hover:text-primary transition-colors duration-300 mb-2">
           {title}
         </h3>
 
-        {/* Views - Only for non-paid content */}
-        {!isPaid && (
-          <div className="pt-1 border-t border-border/30">
-            <p className="text-[9px] text-muted-foreground">
-              {views.toLocaleString()} views
-            </p>
-          </div>
-        )}
+        {/* Views - Always show */}
+        <div className="pt-1.5 border-t border-border/30">
+          <p className="text-[10px] text-muted-foreground">
+            {views.toLocaleString()} views
+          </p>
+        </div>
       </div>
     </Card>
   );
