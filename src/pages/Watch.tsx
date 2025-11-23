@@ -66,14 +66,14 @@ export default function Watch() {
   const [metricsRecorded, setMetricsRecorded] = useState({
     start: false,
     half: false,
-    complete: false
+    complete: false,
   });
   const [view15sRecorded, setView15sRecorded] = useState(false);
   const [showAddToStudyModal, setShowAddToStudyModal] = useState(false);
   const [notesRefreshTrigger, setNotesRefreshTrigger] = useState(0);
   const [seekToTime, setSeekToTime] = useState<number | null>(null);
   const { processReward } = useRewardSystem();
-  
+
   // Course-specific state
   const [isCourse, setIsCourse] = useState(false);
   const [courseModules, setCourseModules] = useState<any[]>([]);
@@ -89,8 +89,9 @@ export default function Watch() {
     try {
       // First, try to fetch as regular content
       let query = supabase
-        .from('contents')
-        .select(`
+        .from("contents")
+        .select(
+          `
           id,
           content_type,
           title,
@@ -107,12 +108,13 @@ export default function Watch() {
           category_id,
           tags,
           creator:profiles!creator_id(id, display_name, avatar_url)
-        `)
-        .eq('id', id);
+        `,
+        )
+        .eq("id", id);
 
       // Only filter by approved status if user is not admin
-      if (role !== 'admin') {
-        query = query.eq('status', 'approved');
+      if (role !== "admin") {
+        query = query.eq("status", "approved");
       }
 
       let { data, error } = await query.maybeSingle();
@@ -120,8 +122,9 @@ export default function Watch() {
       // If not found as content, try as course
       if (!data || error) {
         let courseQuery = supabase
-          .from('courses')
-          .select(`
+          .from("courses")
+          .select(
+            `
             id,
             title,
             description,
@@ -138,11 +141,12 @@ export default function Watch() {
             what_you_learn,
             requirements,
             creator:profiles!creator_id(id, display_name, avatar_url)
-          `)
-          .eq('id', id);
+          `,
+          )
+          .eq("id", id);
 
         const courseResult = await courseQuery.maybeSingle();
-        
+
         if (courseResult.error || !courseResult.data) {
           setContent(null);
           setLoadingContent(false);
@@ -150,7 +154,7 @@ export default function Watch() {
         }
 
         // Only allow non-admins to view pending courses if they are the creator
-        if (role !== 'admin' && courseResult.data.status !== 'approved' && courseResult.data.creator_id !== user?.id) {
+        if (role !== "admin" && courseResult.data.status !== "approved" && courseResult.data.creator_id !== user?.id) {
           setContent(null);
           setLoadingContent(false);
           return;
@@ -158,16 +162,18 @@ export default function Watch() {
 
         // Fetch course modules and lessons
         const { data: modules } = await supabase
-          .from('course_modules')
-          .select(`
+          .from("course_modules")
+          .select(
+            `
             *,
             lessons:course_lessons(*)
-          `)
-          .eq('course_id', id)
-          .order('order_index', { ascending: true });
+          `,
+          )
+          .eq("course_id", id)
+          .order("order_index", { ascending: true });
 
         setCourseModules(modules || []);
-        
+
         // Get first lesson as current
         if (modules && modules.length > 0 && modules[0].lessons && modules[0].lessons.length > 0) {
           setCurrentLesson(modules[0].lessons[0]);
@@ -176,13 +182,13 @@ export default function Watch() {
         setIsCourse(true);
         setContent({
           ...courseResult.data,
-          content_type: 'curso' as any,
+          content_type: "curso" as any,
           duration_seconds: courseResult.data.total_duration_seconds || 0,
-          file_url: '', // Courses don't have single file_url
+          file_url: "", // Courses don't have single file_url
           likes_count: 0,
           category_id: null,
         } as Content);
-        
+
         checkAccess(courseResult.data as any);
         setLoadingContent(false);
         return;
@@ -193,22 +199,21 @@ export default function Watch() {
       checkAccess(data);
 
       // Register unique view only if not admin previewing pending content
-      const isAdminPreview = role === 'admin' && data.status === 'pending';
+      const isAdminPreview = role === "admin" && data.status === "pending";
       if (!isAdminPreview && user) {
         try {
-          const { data: viewResult, error: viewError } = await supabase
-            .rpc('increment_content_view', {
-              p_user_id: user.id,
-              p_content_id: id
-            });
-          
+          const { data: viewResult, error: viewError } = await supabase.rpc("increment_content_view", {
+            p_user_id: user.id,
+            p_content_id: id,
+          });
+
           if (viewError) {
-            console.error('Error registering view:', viewError);
+            console.error("Error registering view:", viewError);
           } else {
-            console.log('View registered:', viewResult);
+            console.log("View registered:", viewResult);
           }
         } catch (error) {
-          console.error('Error incrementing view:', error);
+          console.error("Error incrementing view:", error);
         }
       }
     } catch (error: any) {
@@ -222,22 +227,22 @@ export default function Watch() {
     if (!profile || !user) return;
 
     // Admins always have access
-    if (role === 'admin') {
+    if (role === "admin") {
       setHasAccess(true);
       return;
     }
 
-    const userPlan = profile.plan || 'free';
+    const userPlan = profile.plan || "free";
 
     // Check if content is paid and user has purchased it
-    if (content.visibility === 'paid') {
+    if (content.visibility === "paid") {
       const { data: purchase } = await supabase
-        .from('purchased_contents')
-        .select('id')
-        .eq('user_id', user.id)
-        .eq('content_id', content.id)
+        .from("purchased_contents")
+        .select("id")
+        .eq("user_id", user.id)
+        .eq("content_id", content.id)
         .maybeSingle();
-      
+
       if (purchase) {
         setIsPurchased(true);
         setHasAccess(true);
@@ -251,22 +256,22 @@ export default function Watch() {
     }
 
     // Check plan-based access
-    if (content.visibility === 'free') {
+    if (content.visibility === "free") {
       setHasAccess(true);
-    } else if (content.visibility === 'pro') {
-      if (['pro', 'premium'].includes(userPlan)) {
+    } else if (content.visibility === "pro") {
+      if (["pro", "premium"].includes(userPlan)) {
         setHasAccess(true);
       } else {
         setHasAccess(false);
-        setRequiredUpgradePlan('pro');
+        setRequiredUpgradePlan("pro");
         setShowUpgradeModal(true);
       }
-    } else if (content.visibility === 'premium') {
-      if (userPlan === 'premium') {
+    } else if (content.visibility === "premium") {
+      if (userPlan === "premium") {
         setHasAccess(true);
       } else {
         setHasAccess(false);
-        setRequiredUpgradePlan('premium');
+        setRequiredUpgradePlan("premium");
         setShowUpgradeModal(true);
       }
     } else {
@@ -274,40 +279,38 @@ export default function Watch() {
     }
   };
 
-  const recordMetric = async (event: 'start' | 'half' | 'complete') => {
+  const recordMetric = async (event: "start" | "half" | "complete") => {
     if (metricsRecorded[event] || !user || !id) return;
 
     try {
-      await supabase
-        .from('content_metrics')
-        .insert({
-          content_id: id,
-          user_id: user.id,
-          event
-        });
+      await supabase.from("content_metrics").insert({
+        content_id: id,
+        user_id: user.id,
+        event,
+      });
 
-      setMetricsRecorded(prev => ({ ...prev, [event]: true }));
+      setMetricsRecorded((prev) => ({ ...prev, [event]: true }));
     } catch (error) {
-      console.error('Error recording metric:', error);
+      console.error("Error recording metric:", error);
     }
   };
 
   const checkBingeWatch = async () => {
     if (!user) return;
-    
+
     const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
     const { data: recentCompletions } = await supabase
-      .from('content_metrics')
-      .select('content_id')
-      .eq('user_id', user.id)
-      .eq('event', 'complete')
-      .gte('created_at', oneHourAgo)
-      .order('created_at', { ascending: false })
+      .from("content_metrics")
+      .select("content_id")
+      .eq("user_id", user.id)
+      .eq("event", "complete")
+      .gte("created_at", oneHourAgo)
+      .order("created_at", { ascending: false })
       .limit(3);
 
     if (recentCompletions && recentCompletions.length >= 3) {
       await processReward({
-        actionKey: 'BINGE_WATCH',
+        actionKey: "BINGE_WATCH",
         userId: user.id,
         metadata: { contentCount: recentCompletions.length },
       });
@@ -316,22 +319,22 @@ export default function Watch() {
 
   const checkFirstContentWeek = async () => {
     if (!user || !content) return;
-    
+
     const startOfWeek = new Date();
     startOfWeek.setDate(startOfWeek.getDate() - startOfWeek.getDay());
     startOfWeek.setHours(0, 0, 0, 0);
-    
+
     const { data: weeklyViews } = await supabase
-      .from('content_metrics')
-      .select('id')
-      .eq('user_id', user.id)
-      .eq('event', 'start')
-      .gte('created_at', startOfWeek.toISOString())
+      .from("content_metrics")
+      .select("id")
+      .eq("user_id", user.id)
+      .eq("event", "start")
+      .gte("created_at", startOfWeek.toISOString())
       .limit(1);
 
     if (!weeklyViews || weeklyViews.length === 0) {
       await processReward({
-        actionKey: 'FIRST_CONTENT_WEEK',
+        actionKey: "FIRST_CONTENT_WEEK",
         userId: user.id,
         contentId: content.id,
       });
@@ -346,75 +349,75 @@ export default function Watch() {
 
     if (!view15sRecorded && currentTime >= 15) {
       await processReward({
-        actionKey: 'VIEW_15S',
+        actionKey: "VIEW_15S",
         userId: user.id,
         contentId: content.id,
-        metadata: { watch_time: currentTime }
+        metadata: { watch_time: currentTime },
       });
       setView15sRecorded(true);
     }
 
     if (!metricsRecorded.start && currentTime > 0) {
-      await recordMetric('start');
+      await recordMetric("start");
       await checkFirstContentWeek();
     }
 
     if (!metricsRecorded.half && currentTime > duration / 2) {
-      await recordMetric('half');
+      await recordMetric("half");
     }
 
     if (!metricsRecorded.complete && currentTime > duration * 0.95) {
-      await recordMetric('complete');
+      await recordMetric("complete");
       await checkBingeWatch();
     }
   };
 
   const handleApprove = async () => {
     if (!content) return;
-    
+
     try {
       // Check if admin
-      if (role !== 'admin') {
+      if (role !== "admin") {
         toast.error("Apenas administradores podem aprovar conteúdo.");
         return;
       }
 
       // Update content status using service role through edge function
-      const { data: updateData, error: updateError } = await supabase.functions.invoke('approve-content', {
-        body: { contentId: id }
+      const { data: updateData, error: updateError } = await supabase.functions.invoke("approve-content", {
+        body: { contentId: id },
       });
 
       if (updateError) throw updateError;
 
       toast.success("Conteúdo aprovado! O criador foi notificado.");
-      window.location.href = '/admin/contents';
+      window.location.href = "/admin/contents";
     } catch (error: any) {
-      console.error('Error approving content:', error);
+      console.error("Error approving content:", error);
       toast.error(error.message || "Não foi possível aprovar o conteúdo.");
     }
   };
 
   const handleReject = async () => {
     if (!content) return;
-    
+
     try {
       // Check if admin
-      if (role !== 'admin') {
+      if (role !== "admin") {
         toast.error("Apenas administradores podem reprovar conteúdo.");
         return;
       }
 
       // Update content status using service role through edge function
-      const { data: updateData, error: updateError } = await supabase.functions.invoke('reject-content', {
-        body: { contentId: id }
+      const { data: updateData, error: updateError } = await supabase.functions.invoke("reject-content", {
+        body: { contentId: id },
       });
 
       if (updateError) throw updateError;
 
       toast.success("Conteúdo reprovado. O criador foi notificado.");
-      window.location.href = '/admin/contents';
+      window.location.href = "/admin/contents";
     } catch (error: any) {
-      console.error('Error rejecting content:', error);
+      console.error("Error rejecting content:", error);
       toast.error(error.message || "Não foi possível reprovar o conteúdo.");
     }
   };
@@ -424,29 +427,26 @@ export default function Watch() {
   }
 
   if (!user) return <Navigate to="/auth" replace />;
-  if (!content) return (
-    <div className="min-h-screen flex items-center justify-center bg-background">
-      <Card className="p-8 text-center">
-        <AlertCircle className="h-12 w-12 mx-auto mb-4 text-muted-foreground" />
-        <h2 className="text-2xl font-bold mb-2">Conteúdo não encontrado</h2>
-        <p className="text-muted-foreground">O conteúdo que você está procurando não existe ou foi removido.</p>
-      </Card>
-    </div>
-  );
+  if (!content)
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <Card className="p-8 text-center">
+          <AlertCircle className="h-12 w-12 mx-auto mb-4 text-muted-foreground" />
+          <h2 className="text-2xl font-bold mb-2">Conteúdo não encontrado</h2>
+          <p className="text-muted-foreground">O conteúdo que você está procurando não existe ou foi removido.</p>
+        </Card>
+      </div>
+    );
   return (
     <SidebarProvider defaultOpen={true}>
       <div className="min-h-screen flex w-full bg-background">
         <AppSidebar />
-        
+
         <div className="flex-1 flex flex-col">
           <Header />
-          
-          <UpgradeModal 
-            open={showUpgradeModal} 
-            onOpenChange={setShowUpgradeModal}
-            requiredPlan={requiredUpgradePlan}
-          />
-          
+
+          <UpgradeModal open={showUpgradeModal} onOpenChange={setShowUpgradeModal} requiredPlan={requiredUpgradePlan} />
+
           {content && (
             <PurchaseModal
               open={showPurchaseModal}
@@ -457,7 +457,7 @@ export default function Watch() {
                 thumbnail_url: content.thumbnail_url,
                 price: content.price,
                 discount: 0,
-                creator_name: content.creator.display_name
+                creator_name: content.creator.display_name,
               }}
               onPurchaseComplete={() => {
                 setShowPurchaseModal(false);
@@ -465,7 +465,7 @@ export default function Watch() {
               }}
             />
           )}
-          
+
           <AddToStudyModal
             open={showAddToStudyModal}
             onOpenChange={setShowAddToStudyModal}
@@ -482,13 +482,13 @@ export default function Watch() {
                       content={{
                         id: currentLesson.id,
                         title: currentLesson.title,
-                        file_url: currentLesson.video_url || '',
+                        file_url: currentLesson.video_url || "",
                         thumbnail_url: content.thumbnail_url,
-                        content_type: 'aula' as any,
+                        content_type: "aula" as any,
                         duration_seconds: currentLesson.duration_seconds || 0,
                       }}
                       onTimeUpdate={handleTimeUpdate}
-                      onCreateNote={() => setNotesRefreshTrigger(prev => prev + 1)}
+                      onCreateNote={() => setNotesRefreshTrigger((prev) => prev + 1)}
                       seekToTime={seekToTime}
                     />
                   ) : !isCourse ? (
@@ -502,117 +502,113 @@ export default function Watch() {
                         duration_seconds: content.duration_seconds,
                       }}
                       onTimeUpdate={handleTimeUpdate}
-                      onCreateNote={() => setNotesRefreshTrigger(prev => prev + 1)}
+                      onCreateNote={() => setNotesRefreshTrigger((prev) => prev + 1)}
                       seekToTime={seekToTime}
                     />
                   ) : null}
 
-            <div>
-              <div className="flex items-center gap-3 mb-2">
-                <h1 className="text-3xl font-bold">
-                  {isCourse && currentLesson ? currentLesson.title : content.title}
-                </h1>
-                {content.status === 'pending' && role === 'admin' && (
-                  <Badge variant="outline" className="flex items-center gap-1 border-yellow-500 text-yellow-600 dark:text-yellow-400">
-                    <AlertCircle className="h-3 w-3" />
-                    PENDENTE
-                  </Badge>
-                )}
-                {isCourse && (
-                  <Badge variant="secondary">CURSO</Badge>
-                )}
-              </div>
-              
-              <div className="flex items-center gap-4 text-sm text-muted-foreground mb-4">
-                <span className="flex items-center gap-1">
-                  <Eye className="h-4 w-4" />
-                  {content.views_count || 0} visualizações
-                </span>
-                {!isCourse && (
-                  <span className="flex items-center gap-1">
-                    <Heart className="h-4 w-4" />
-                    {content.likes_count || 0} curtidas
-                  </span>
-                )}
-                <span className="flex items-center gap-1">
-                  <Clock className="h-4 w-4" />
-                  {isCourse && currentLesson 
-                    ? `${Math.floor((currentLesson.duration_seconds || 0) / 60)} min`
-                    : `${Math.floor((content.duration_seconds || 0) / 60)} min`
-                  }
-                </span>
-                {isCourse && content.total_lessons && (
-                  <span>📚 {content.total_lessons} aulas</span>
-                )}
-              </div>
-
-              {content.status === 'pending' && role === 'admin' ? (
-                <div className="flex gap-2 mb-4">
-                  <Button onClick={handleApprove} className="flex items-center gap-2">
-                    <CheckCircle className="h-4 w-4" />
-                    Aprovar Conteúdo
-                  </Button>
-                  <Button onClick={handleReject} variant="destructive" className="flex items-center gap-2">
-                    <XCircle className="h-4 w-4" />
-                    Reprovar Conteúdo
-                  </Button>
-                </div>
-              ) : (
-                <div className="flex items-center gap-2">
-                  <ContentActions contentId={content.id} />
-                  <Button 
-                    variant="outline" 
-                    size="sm"
-                    onClick={() => setShowAddToStudyModal(true)}
-                    className="flex items-center gap-2"
-                  >
-                    <BookmarkPlus className="h-4 w-4" />
-                    Adicionar ao Estudo
-                  </Button>
-                </div>
-              )}
-            </div>
-
-            <Card className="p-4">
-              <div className="flex items-center justify-between mb-4">
-                <div className="flex items-center gap-3">
-                  <Avatar>
-                    <AvatarImage src={content.creator.avatar_url || ''} />
-                    <AvatarFallback>{content.creator.display_name[0]}</AvatarFallback>
-                  </Avatar>
                   <div>
-                    <p className="font-semibold">{content.creator.display_name}</p>
+                    <div className="flex items-center gap-3 mb-2">
+                      <h1 className="text-3xl font-bold">
+                        {isCourse && currentLesson ? currentLesson.title : content.title}
+                      </h1>
+                      {content.status === "pending" && role === "admin" && (
+                        <Badge
+                          variant="outline"
+                          className="flex items-center gap-1 border-yellow-500 text-yellow-600 dark:text-yellow-400"
+                        >
+                          <AlertCircle className="h-3 w-3" />
+                          PENDENTE
+                        </Badge>
+                      )}
+                      {isCourse && <Badge variant="secondary">CURSO</Badge>}
+                    </div>
+
+                    <div className="flex items-center gap-4 text-sm text-muted-foreground mb-4">
+                      <span className="flex items-center gap-1">
+                        <Eye className="h-4 w-4" />
+                        {content.views_count || 0} visualizações
+                      </span>
+                      {!isCourse && (
+                        <span className="flex items-center gap-1">
+                          <Heart className="h-4 w-4" />
+                          {content.likes_count || 0} curtidas
+                        </span>
+                      )}
+                      <span className="flex items-center gap-1">
+                        <Clock className="h-4 w-4" />
+                        {isCourse && currentLesson
+                          ? `${Math.floor((currentLesson.duration_seconds || 0) / 60)} min`
+                          : `${Math.floor((content.duration_seconds || 0) / 60)} min`}
+                      </span>
+                      {isCourse && content.total_lessons && <span>📚 {content.total_lessons} aulas</span>}
+                    </div>
+
+                    {content.status === "pending" && role === "admin" ? (
+                      <div className="flex gap-2 mb-4">
+                        <Button onClick={handleApprove} className="flex items-center gap-2">
+                          <CheckCircle className="h-4 w-4" />
+                          Aprovar Conteúdo
+                        </Button>
+                        <Button onClick={handleReject} variant="destructive" className="flex items-center gap-2">
+                          <XCircle className="h-4 w-4" />
+                          Reprovar Conteúdo
+                        </Button>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-2">
+                        <ContentActions contentId={content.id} />
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setShowAddToStudyModal(true)}
+                          className="flex items-center gap-2"
+                        >
+                          <BookmarkPlus className="h-4 w-4" />
+                          Adicionar ao Estudo
+                        </Button>
+                      </div>
+                    )}
                   </div>
-                </div>
-                <FollowButton creatorId={content.creator.id} size="sm" />
-              </div>
-              {isCourse && currentLesson && currentLesson.description && (
-                <div className="mb-4">
-                  <h2 className="text-xl font-semibold mb-2">Sobre esta aula</h2>
-                  <p className="text-muted-foreground">{currentLesson.description}</p>
-                </div>
-              )}
-              {content.description && (
-                <div>
-                  <h2 className="text-xl font-semibold mb-2">
-                    {isCourse ? 'Sobre o curso' : 'Descrição'}
-                  </h2>
-                  <p className="text-muted-foreground">{content.description}</p>
-                </div>
-              )}
-              {isCourse && content.what_you_learn && (
-                <div className="mt-4">
-                  <h3 className="font-semibold mb-2">O que você vai aprender</h3>
-                  <p className="text-sm text-muted-foreground">{content.what_you_learn}</p>
-                </div>
-              )}
-              {isCourse && content.requirements && (
-                <div className="mt-4">
-                  <h3 className="font-semibold mb-2">Requisitos</h3>
-                  <p className="text-sm text-muted-foreground">{content.requirements}</p>
-                </div>
-              )}
-            </Card>
+
+                  <Card className="p-4">
+                    <div className="flex items-center justify-between mb-4">
+                      <div className="flex items-center gap-3">
+                        <Avatar>
+                          <AvatarImage src={content.creator.avatar_url || ""} />
+                          <AvatarFallback>{content.creator.display_name[0]}</AvatarFallback>
+                        </Avatar>
+                        <div>
+                          <p className="font-semibold">{content.creator.display_name}</p>
+                        </div>
+                      </div>
+                      <FollowButton creatorId={content.creator.id} size="sm" />
+                    </div>
+                    {isCourse && currentLesson && currentLesson.description && (
+                      <div className="mb-4">
+                        <h2 className="text-xl font-semibold mb-2">Sobre esta aula</h2>
+                        <p className="text-muted-foreground">{currentLesson.description}</p>
+                      </div>
+                    )}
+                    {content.description && (
+                      <div>
+                        <h2 className="text-xl font-semibold mb-2">{isCourse ? "Sobre o curso" : "Descrição"}</h2>
+                        <p className="text-muted-foreground">{content.description}</p>
+                      </div>
+                    )}
+                    {isCourse && content.what_you_learn && (
+                      <div className="mt-4">
+                        <h4 className="font-semibold mb-2">O que você vai aprender</h4>
+                        <p className="text-sm text-muted-foreground">{content.what_you_learn}</p>
+                      </div>
+                    )}
+                    {isCourse && content.requirements && (
+                      <div className="mt-4">
+                        <h3 className="font-semibold mb-2">Requisitos</h3>
+                        <p className="text-sm text-muted-foreground">{content.requirements}</p>
+                      </div>
+                    )}
+                  </Card>
 
                   {!isCourse && <ContentComments contentId={content.id} />}
                 </div>
@@ -627,13 +623,13 @@ export default function Watch() {
                     />
                   ) : (
                     <>
-                      <WatchNotes 
+                      <WatchNotes
                         contentId={content.id}
                         onSeekTo={(seconds) => setSeekToTime(seconds)}
                         refreshTrigger={notesRefreshTrigger}
                       />
-                      
-                      <WatchRelated 
+
+                      <WatchRelated
                         contentId={content.id}
                         categoryId={content.category_id}
                         tags={content.tags}
