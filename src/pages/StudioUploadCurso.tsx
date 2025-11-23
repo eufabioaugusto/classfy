@@ -120,6 +120,15 @@ export default function StudioUploadCurso() {
   const [tags, setTags] = useState<string[]>([]);
   const [isGeneratingTags, setIsGeneratingTags] = useState(false);
 
+  // Course Settings
+  const [issueCertificate, setIssueCertificate] = useState(true);
+  const [accessType, setAccessType] = useState<"lifetime" | "limited">("lifetime");
+  const [accessDays, setAccessDays] = useState("365");
+  const [lessonOrder, setLessonOrder] = useState<"sequential" | "free">("free");
+  const [allowComments, setAllowComments] = useState(true);
+  const [allowReviews, setAllowReviews] = useState(true);
+  const [allowDownloads, setAllowDownloads] = useState(true);
+
   // Modules
   const [modules, setModules] = useState<Module[]>([
     {
@@ -1177,12 +1186,125 @@ export default function StudioUploadCurso() {
                 </TabsContent>
 
                 {/* TAB: Configurações */}
-                <TabsContent value="settings">
+                <TabsContent value="settings" className="space-y-6">
                   <Card className="p-6">
-                    <h3 className="text-lg font-semibold mb-4">Configurações do Curso</h3>
-                    <p className="text-sm text-muted-foreground">
-                      Opções adicionais serão adicionadas em breve.
-                    </p>
+                    <h3 className="text-lg font-semibold mb-6">Configurações do Curso</h3>
+                    
+                    <div className="space-y-6">
+                      {/* Certificado */}
+                      <div className="space-y-3">
+                        <Label className="text-base font-semibold">Certificado</Label>
+                        <div className="flex items-center justify-between p-4 border rounded-lg">
+                          <div>
+                            <p className="font-medium">Emitir certificado de conclusão</p>
+                            <p className="text-sm text-muted-foreground">
+                              Os alunos receberão um certificado ao completar o curso
+                            </p>
+                          </div>
+                          <input
+                            type="checkbox"
+                            checked={issueCertificate}
+                            onChange={(e) => setIssueCertificate(e.target.checked)}
+                            className="w-5 h-5 rounded"
+                          />
+                        </div>
+                      </div>
+
+                      {/* Tipo de Acesso */}
+                      <div className="space-y-3">
+                        <Label className="text-base font-semibold">Tipo de Acesso</Label>
+                        <Select value={accessType} onValueChange={(v: "lifetime" | "limited") => setAccessType(v)}>
+                          <SelectTrigger>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="lifetime">Acesso Vitalício</SelectItem>
+                            <SelectItem value="limited">Acesso Limitado</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        {accessType === "limited" && (
+                          <div className="mt-3">
+                            <Label htmlFor="accessDays">Dias de acesso após matrícula</Label>
+                            <Input
+                              id="accessDays"
+                              type="number"
+                              min="1"
+                              value={accessDays}
+                              onChange={(e) => setAccessDays(e.target.value)}
+                              placeholder="365"
+                            />
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Ordem das Aulas */}
+                      <div className="space-y-3">
+                        <Label className="text-base font-semibold">Ordem das Aulas</Label>
+                        <Select value={lessonOrder} onValueChange={(v: "sequential" | "free") => setLessonOrder(v)}>
+                          <SelectTrigger>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="free">Livre - Alunos podem assistir em qualquer ordem</SelectItem>
+                            <SelectItem value="sequential">Sequencial - Deve seguir a ordem do curso</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+
+                      {/* Interações */}
+                      <div className="space-y-3">
+                        <Label className="text-base font-semibold">Interações</Label>
+                        
+                        <div className="flex items-center justify-between p-4 border rounded-lg">
+                          <div>
+                            <p className="font-medium">Permitir comentários</p>
+                            <p className="text-sm text-muted-foreground">
+                              Alunos podem comentar nas aulas
+                            </p>
+                          </div>
+                          <input
+                            type="checkbox"
+                            checked={allowComments}
+                            onChange={(e) => setAllowComments(e.target.checked)}
+                            className="w-5 h-5 rounded"
+                          />
+                        </div>
+
+                        <div className="flex items-center justify-between p-4 border rounded-lg">
+                          <div>
+                            <p className="font-medium">Permitir avaliações</p>
+                            <p className="text-sm text-muted-foreground">
+                              Alunos podem avaliar o curso
+                            </p>
+                          </div>
+                          <input
+                            type="checkbox"
+                            checked={allowReviews}
+                            onChange={(e) => setAllowReviews(e.target.checked)}
+                            className="w-5 h-5 rounded"
+                          />
+                        </div>
+                      </div>
+
+                      {/* Downloads */}
+                      <div className="space-y-3">
+                        <Label className="text-base font-semibold">Downloads</Label>
+                        <div className="flex items-center justify-between p-4 border rounded-lg">
+                          <div>
+                            <p className="font-medium">Permitir download de materiais</p>
+                            <p className="text-sm text-muted-foreground">
+                              Alunos podem baixar os materiais de apoio
+                            </p>
+                          </div>
+                          <input
+                            type="checkbox"
+                            checked={allowDownloads}
+                            onChange={(e) => setAllowDownloads(e.target.checked)}
+                            className="w-5 h-5 rounded"
+                          />
+                        </div>
+                      </div>
+                    </div>
                   </Card>
                 </TabsContent>
 
