@@ -16,7 +16,7 @@ interface WatchVideoPlayerProps {
     title: string;
     file_url: string;
     thumbnail_url?: string;
-    content_type: "aula" | "short" | "podcast";
+    content_type: "aula" | "short" | "podcast" | "curso";
     duration_seconds?: number;
   };
   onTimeUpdate?: (currentTime: number) => void;
