@@ -122,11 +122,11 @@ const CreatorCard = ({ creator, onClick }: CreatorCardProps) => {
   return (
     <div
       onClick={onClick}
-      className="group relative rounded-xl overflow-hidden cursor-pointer transition-all duration-300 hover:scale-105 hover:shadow-2xl h-[440px] w-auto text-center"
+      className="group relative rounded-xl overflow-hidden cursor-pointer transition-all duration-300 hover:shadow-2xl h-[440px] w-auto text-center"
     >
       {/* Background Image */}
       <div
-        className="absolute inset-0 bg-cover bg-center transition-transform duration-300 group-hover:scale-110"
+        className="absolute inset-0 bg-cover bg-center transition-transform duration-500 group-hover:scale-110"
         style={{ backgroundImage: `url(${creator.background_image_url})` }}
       >
         <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/50 to-transparent" />
