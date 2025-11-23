@@ -21,11 +21,12 @@ import { toast } from "sonner";
 import { UpgradeModal } from "@/components/UpgradeModal";
 import { PurchaseModal } from "@/components/PurchaseModal";
 import { WatchNotes } from "@/components/WatchNotes";
+import { CourseCurriculum } from "@/components/CourseCurriculum";
 import { WatchRelated } from "@/components/WatchRelated";
 
 interface Content {
   id: string;
-  content_type: "aula" | "short" | "podcast";
+  content_type: "aula" | "short" | "podcast" | "curso";
   title: string;
   description: string | null;
   file_url: string;
@@ -37,13 +38,19 @@ interface Content {
   likes_count: number;
   status?: string;
   creator_id: string;
-  category_id: string | null;
+  category_id?: string | null;
   tags: string[] | null;
   creator: {
     id: string;
     display_name: string;
     avatar_url: string | null;
   };
+  // Course specific fields
+  total_lessons?: number;
+  total_duration_seconds?: number;
+  level?: string;
+  what_you_learn?: string;
+  requirements?: string;
 }
 
 export default function Watch() {
@@ -66,6 +73,11 @@ export default function Watch() {
   const [notesRefreshTrigger, setNotesRefreshTrigger] = useState(0);
   const [seekToTime, setSeekToTime] = useState<number | null>(null);
   const { processReward } = useRewardSystem();
+  
+  // Course-specific state
+  const [isCourse, setIsCourse] = useState(false);
+  const [courseModules, setCourseModules] = useState<any[]>([]);
+  const [currentLesson, setCurrentLesson] = useState<any>(null);
 
   useEffect(() => {
     if (id && user && !loading && role) {
@@ -75,6 +87,7 @@ export default function Watch() {
 
   const fetchContent = async () => {
     try {
+      // First, try to fetch as regular content
       let query = supabase
         .from('contents')
         .select(`
@@ -102,15 +115,77 @@ export default function Watch() {
         query = query.eq('status', 'approved');
       }
 
-      const { data, error } = await query.maybeSingle();
+      let { data, error } = await query.maybeSingle();
 
-      if (error) throw error;
-      if (!data) {
-        setContent(null);
+      // If not found as content, try as course
+      if (!data || error) {
+        let courseQuery = supabase
+          .from('courses')
+          .select(`
+            id,
+            title,
+            description,
+            thumbnail_url,
+            visibility,
+            price,
+            total_duration_seconds,
+            views_count,
+            status,
+            creator_id,
+            tags,
+            total_lessons,
+            level,
+            what_you_learn,
+            requirements,
+            creator:profiles!creator_id(id, display_name, avatar_url)
+          `)
+          .eq('id', id);
+
+        if (role !== 'admin') {
+          courseQuery = courseQuery.eq('status', 'approved');
+        }
+
+        const courseResult = await courseQuery.maybeSingle();
+        
+        if (courseResult.error || !courseResult.data) {
+          setContent(null);
+          setLoadingContent(false);
+          return;
+        }
+
+        // Fetch course modules and lessons
+        const { data: modules } = await supabase
+          .from('course_modules')
+          .select(`
+            *,
+            lessons:course_lessons(*)
+          `)
+          .eq('course_id', id)
+          .order('order_index', { ascending: true });
+
+        setCourseModules(modules || []);
+        
+        // Get first lesson as current
+        if (modules && modules.length > 0 && modules[0].lessons && modules[0].lessons.length > 0) {
+          setCurrentLesson(modules[0].lessons[0]);
+        }
+
+        setIsCourse(true);
+        setContent({
+          ...courseResult.data,
+          content_type: 'curso' as any,
+          duration_seconds: courseResult.data.total_duration_seconds || 0,
+          file_url: '', // Courses don't have single file_url
+          likes_count: 0,
+          category_id: null,
+        } as Content);
+        
+        checkAccess(courseResult.data as any);
         setLoadingContent(false);
         return;
       }
 
+      setIsCourse(false);
       setContent(data);
       checkAccess(data);
 
@@ -399,28 +474,49 @@ export default function Watch() {
             <div className="w-full">
               <div className="flex flex-col lg:flex-row gap-6 p-6">
                 <div className="flex-1 min-w-0 space-y-4">
-                  <WatchVideoPlayer
-                    content={{
-                      id: content.id,
-                      title: content.title,
-                      file_url: content.file_url,
-                      thumbnail_url: content.thumbnail_url,
-                      content_type: content.content_type,
-                      duration_seconds: content.duration_seconds,
-                    }}
-                    onTimeUpdate={handleTimeUpdate}
-                    onCreateNote={() => setNotesRefreshTrigger(prev => prev + 1)}
-                    seekToTime={seekToTime}
-                  />
+                  {isCourse && currentLesson ? (
+                    <WatchVideoPlayer
+                      content={{
+                        id: currentLesson.id,
+                        title: currentLesson.title,
+                        file_url: currentLesson.video_url || '',
+                        thumbnail_url: content.thumbnail_url,
+                        content_type: 'aula' as any,
+                        duration_seconds: currentLesson.duration_seconds || 0,
+                      }}
+                      onTimeUpdate={handleTimeUpdate}
+                      onCreateNote={() => setNotesRefreshTrigger(prev => prev + 1)}
+                      seekToTime={seekToTime}
+                    />
+                  ) : !isCourse ? (
+                    <WatchVideoPlayer
+                      content={{
+                        id: content.id,
+                        title: content.title,
+                        file_url: content.file_url,
+                        thumbnail_url: content.thumbnail_url,
+                        content_type: content.content_type,
+                        duration_seconds: content.duration_seconds,
+                      }}
+                      onTimeUpdate={handleTimeUpdate}
+                      onCreateNote={() => setNotesRefreshTrigger(prev => prev + 1)}
+                      seekToTime={seekToTime}
+                    />
+                  ) : null}
 
             <div>
               <div className="flex items-center gap-3 mb-2">
-                <h1 className="text-3xl font-bold">{content.title}</h1>
+                <h1 className="text-3xl font-bold">
+                  {isCourse && currentLesson ? currentLesson.title : content.title}
+                </h1>
                 {content.status === 'pending' && role === 'admin' && (
                   <Badge variant="outline" className="flex items-center gap-1 border-yellow-500 text-yellow-600 dark:text-yellow-400">
                     <AlertCircle className="h-3 w-3" />
                     PENDENTE
                   </Badge>
+                )}
+                {isCourse && (
+                  <Badge variant="secondary">CURSO</Badge>
                 )}
               </div>
               
@@ -429,14 +525,22 @@ export default function Watch() {
                   <Eye className="h-4 w-4" />
                   {content.views_count || 0} visualizações
                 </span>
-                <span className="flex items-center gap-1">
-                  <Heart className="h-4 w-4" />
-                  {content.likes_count || 0} curtidas
-                </span>
+                {!isCourse && (
+                  <span className="flex items-center gap-1">
+                    <Heart className="h-4 w-4" />
+                    {content.likes_count || 0} curtidas
+                  </span>
+                )}
                 <span className="flex items-center gap-1">
                   <Clock className="h-4 w-4" />
-                  {Math.floor((content.duration_seconds || 0) / 60)} min
+                  {isCourse && currentLesson 
+                    ? `${Math.floor((currentLesson.duration_seconds || 0) / 60)} min`
+                    : `${Math.floor((content.duration_seconds || 0) / 60)} min`
+                  }
                 </span>
+                {isCourse && content.total_lessons && (
+                  <span>📚 {content.total_lessons} aulas</span>
+                )}
               </div>
 
               {content.status === 'pending' && role === 'admin' ? (
@@ -479,30 +583,61 @@ export default function Watch() {
                 </div>
                 <FollowButton creatorId={content.creator.id} size="sm" />
               </div>
+              {isCourse && currentLesson && currentLesson.description && (
+                <div className="mb-4">
+                  <h2 className="text-xl font-semibold mb-2">Sobre esta aula</h2>
+                  <p className="text-muted-foreground">{currentLesson.description}</p>
+                </div>
+              )}
               {content.description && (
                 <div>
-                  <h2 className="text-xl font-semibold mb-2">Descrição</h2>
+                  <h2 className="text-xl font-semibold mb-2">
+                    {isCourse ? 'Sobre o curso' : 'Descrição'}
+                  </h2>
                   <p className="text-muted-foreground">{content.description}</p>
+                </div>
+              )}
+              {isCourse && content.what_you_learn && (
+                <div className="mt-4">
+                  <h3 className="font-semibold mb-2">O que você vai aprender</h3>
+                  <p className="text-sm text-muted-foreground">{content.what_you_learn}</p>
+                </div>
+              )}
+              {isCourse && content.requirements && (
+                <div className="mt-4">
+                  <h3 className="font-semibold mb-2">Requisitos</h3>
+                  <p className="text-sm text-muted-foreground">{content.requirements}</p>
                 </div>
               )}
             </Card>
 
-                  <ContentComments contentId={content.id} />
+                  {!isCourse && <ContentComments contentId={content.id} />}
                 </div>
 
                 <div className="w-full lg:w-80 xl:w-96 shrink-0 space-y-4">
-                  <WatchNotes 
-                    contentId={content.id}
-                    onSeekTo={(seconds) => setSeekToTime(seconds)}
-                    refreshTrigger={notesRefreshTrigger}
-                  />
-                  
-                  <WatchRelated 
-                    contentId={content.id}
-                    categoryId={content.category_id}
-                    tags={content.tags}
-                    contentType={content.content_type}
-                  />
+                  {isCourse ? (
+                    <CourseCurriculum
+                      modules={courseModules}
+                      currentLesson={currentLesson}
+                      onLessonSelect={setCurrentLesson}
+                      hasAccess={hasAccess}
+                    />
+                  ) : (
+                    <>
+                      <WatchNotes 
+                        contentId={content.id}
+                        onSeekTo={(seconds) => setSeekToTime(seconds)}
+                        refreshTrigger={notesRefreshTrigger}
+                      />
+                      
+                      <WatchRelated 
+                        contentId={content.id}
+                        categoryId={content.category_id}
+                        tags={content.tags}
+                        contentType={content.content_type}
+                      />
+                    </>
+                  )}
                 </div>
               </div>
             </div>

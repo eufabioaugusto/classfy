@@ -453,7 +453,7 @@ export default function Index() {
                       <ContentSection
                         title="📚 Cursos"
                         contents={courses}
-                        onContentClick={(course) => navigate(`/study/${course.id}`)}
+                        onContentClick={(course) => navigate(`/watch/${course.id}`)}
                         userPlan={currentPlan}
                         onUpgradeClick={handleUpgradeClick}
                         onPurchaseClick={handlePurchaseClick}

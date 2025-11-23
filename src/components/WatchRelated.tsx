@@ -8,9 +8,9 @@ import { Play, Clock } from "lucide-react";
 
 interface WatchRelatedProps {
   contentId: string;
-  categoryId: string | null;
+  categoryId?: string | null;
   tags: string[] | null;
-  contentType: "aula" | "short" | "podcast";
+  contentType: "aula" | "short" | "podcast" | "curso";
 }
 
 interface RelatedContent {
@@ -19,7 +19,7 @@ interface RelatedContent {
   thumbnail_url: string;
   duration_seconds: number;
   views_count: number;
-  content_type: "aula" | "short" | "podcast";
+  content_type: "aula" | "short" | "podcast" | "curso";
   creator: {
     display_name: string;
   };
