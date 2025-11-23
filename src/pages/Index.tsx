@@ -55,6 +55,7 @@ export default function Index() {
   const [trendingPodcasts, setTrendingPodcasts] = useState<any[]>([]);
   const [shorts, setShorts] = useState<any[]>([]);
   const [premiumContents, setPremiumContents] = useState<any[]>([]);
+  const [courses, setCourses] = useState<any[]>([]);
   const [exploreLoading, setExploreLoading] = useState(false);
 
   // Modal state
@@ -182,6 +183,21 @@ export default function Index() {
         .limit(4);
 
       setPremiumContents(premiumData || []);
+
+      // 6. Cursos - 4 cards
+      const { data: coursesData } = await supabase
+        .from('courses')
+        .select(`
+          *,
+          profiles:creator_id (
+            display_name,
+            avatar_url
+          )
+        `)
+        .order('created_at', { ascending: false })
+        .limit(4);
+
+      setCourses(coursesData || []);
 
     } catch (error) {
       console.error('Error loading explore data:', error);
@@ -432,8 +448,20 @@ export default function Index() {
                       />
                     )}
 
+                    {/* 6. Cursos - 4 cards */}
+                    {courses.length > 0 && (
+                      <ContentSection
+                        title="📚 Cursos"
+                        contents={courses}
+                        onContentClick={(course) => navigate(`/study/${course.id}`)}
+                        userPlan={currentPlan}
+                        onUpgradeClick={handleUpgradeClick}
+                        onPurchaseClick={handlePurchaseClick}
+                      />
+                    )}
+
                     {/* Empty state se não houver nenhum conteúdo */}
-                    {trendingClasses.length === 0 && proContents.length === 0 && trendingPodcasts.length === 0 && shorts.length === 0 && premiumContents.length === 0 && (
+                    {trendingClasses.length === 0 && proContents.length === 0 && trendingPodcasts.length === 0 && shorts.length === 0 && premiumContents.length === 0 && courses.length === 0 && (
                       <div className="text-center py-20">
                         <Compass className="w-16 h-16 mx-auto mb-4 text-muted-foreground" />
                         <h3 className="text-2xl font-bold text-foreground mb-2">Nenhum conteúdo disponível</h3>

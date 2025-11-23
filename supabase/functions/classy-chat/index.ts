@@ -187,12 +187,28 @@ serve(async (req) => {
         .in("content_type", ["aula", "short", "podcast"])
         .limit(100);
 
-      if (contents && contents.length > 0) {
-        const availableContents = contents.filter((c: any) => 
-          !activeContentId || c.id !== activeContentId
+      // Fetch approved courses
+      const { data: courses } = await supabaseServiceClient
+        .from("courses")
+        .select(`
+          id, title, description, thumbnail_url, 
+          visibility, tags, total_lessons, total_duration_seconds
+        `)
+        .eq("status", "approved")
+        .limit(50);
+
+      // Combine contents and courses for searching
+      const allItems = [
+        ...(contents || []).map((c: any) => ({ ...c, itemType: 'content' })),
+        ...(courses || []).map((c: any) => ({ ...c, itemType: 'course', content_type: 'curso' }))
+      ];
+
+      if (allItems.length > 0) {
+        const availableItems = allItems.filter((item: any) => 
+          !activeContentId || item.id !== activeContentId
         );
 
-        console.log(`Total de conteúdos disponíveis: ${availableContents.length}`);
+        console.log(`Total de itens disponíveis: ${availableItems.length} (${contents?.length || 0} conteúdos + ${courses?.length || 0} cursos)`);
 
         // ===== PHASE 1: DIRECT KEYWORD MATCHING (No AI, No Cost) =====
         console.log('\n🔍 PHASE 1: Busca por palavras-chave direta...');
@@ -212,12 +228,12 @@ serve(async (req) => {
 
         console.log(`Keywords extraídas: [${keywords.join(', ')}]`);
 
-        const keywordMatches = availableContents.map((content: any) => {
-          const titleNorm = normalizeText(content.title);
-          const descNorm = normalizeText(content.description || "");
-          const tagsNorm = (content.tags || []).map((t: string) => normalizeText(t));
-          const transcriptionNorm = content.transcriptions?.[0]?.text 
-            ? normalizeText(content.transcriptions[0].text) 
+        const keywordMatches = availableItems.map((item: any) => {
+          const titleNorm = normalizeText(item.title);
+          const descNorm = normalizeText(item.description || "");
+          const tagsNorm = (item.tags || []).map((t: string) => normalizeText(t));
+          const transcriptionNorm = item.transcriptions?.[0]?.text 
+            ? normalizeText(item.transcriptions[0].text) 
             : "";
 
           let score = 0;
@@ -260,10 +276,10 @@ serve(async (req) => {
           });
 
           if (score > 0) {
-            console.log(`✓ "${content.title}" - Score: ${score} | Matches: ${matches.join(', ')}`);
+            console.log(`✓ "${item.title}" (${item.itemType}) - Score: ${score} | Matches: ${matches.join(', ')}`);
           }
 
-          return { ...content, keywordScore: score, matches };
+          return { ...item, keywordScore: score, matches };
         });
 
         const directMatches = keywordMatches
@@ -295,7 +311,7 @@ BUSCA DO USUÁRIO: "${searchQuery}"
 
 CONTEÚDOS:
 ${topCandidates.map((c: any, i: number) => `
-${i + 1}. "${c.title}"
+${i + 1}. "${c.title}" [${c.itemType === 'course' ? 'CURSO' : c.content_type.toUpperCase()}]
    Descrição: ${c.description || 'Sem descrição'}
    Tags: ${(c.tags || []).join(', ') || 'Sem tags'}
 `).join('')}
