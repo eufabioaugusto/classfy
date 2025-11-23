@@ -122,7 +122,7 @@ const CreatorCard = ({ creator, onClick }: CreatorCardProps) => {
   return (
     <div
       onClick={onClick}
-      className="group relative rounded-xl overflow-hidden cursor-pointer transition-all duration-300 hover:scale-105 hover:shadow-2xl h-[440px] w-auto"
+      className="group relative rounded-xl overflow-hidden cursor-pointer transition-all duration-300 hover:scale-105 hover:shadow-2xl h-[440px] w-auto text-center"
     >
       {/* Background Image */}
       <div
