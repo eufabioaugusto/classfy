@@ -31,13 +31,15 @@ export const FeaturedCreators = () => {
     try {
       const { data, error } = await supabase
         .from("featured_creators")
-        .select(`
+        .select(
+          `
           *,
           profiles:creator_id (
             display_name,
             creator_channel_name
           )
-        `)
+        `,
+        )
         .order("order_index", { ascending: true });
 
       if (error) throw error;
@@ -60,7 +62,7 @@ export const FeaturedCreators = () => {
             creator_name: creator.profiles?.creator_channel_name || creator.profiles?.display_name || "Creator",
             total_duration: hours > 0 ? `${hours}h ${minutes}min` : `${minutes} minutos`,
           };
-        })
+        }),
       );
 
       setCreators(creatorsWithDuration);
@@ -89,7 +91,10 @@ export const FeaturedCreators = () => {
         <Carousel className="w-full">
           <CarouselContent className="-ml-4">
             {creators.map((creator) => (
-              <CarouselItem key={creator.id} className="pl-4 basis-full sm:basis-1/2 md:basis-1/3 lg:basis-1/4 xl:basis-1/5">
+              <CarouselItem
+                key={creator.id}
+                className="pl-4 basis-full sm:basis-1/2 md:basis-1/3 lg:basis-1/4 xl:basis-1/5"
+              >
                 <CreatorCard creator={creator} onClick={() => handleClick(creator)} />
               </CarouselItem>
             ))}
@@ -117,7 +122,7 @@ const CreatorCard = ({ creator, onClick }: CreatorCardProps) => {
   return (
     <div
       onClick={onClick}
-      className="group relative rounded-xl overflow-hidden cursor-pointer transition-all duration-300 hover:scale-105 hover:shadow-2xl aspect-[3/4]"
+      className="group relative rounded-xl overflow-hidden cursor-pointer transition-all duration-300 hover:scale-105 hover:shadow-2xl h-[600px] w-auto"
     >
       {/* Background Image */}
       <div
@@ -149,9 +154,7 @@ const CreatorCard = ({ creator, onClick }: CreatorCardProps) => {
         <div className="w-full h-px bg-white/20 mb-4" />
 
         {/* Description */}
-        <p className="text-white font-semibold text-sm line-clamp-2 mb-2 leading-tight">
-          {creator.description}
-        </p>
+        <p className="text-white font-semibold text-sm line-clamp-2 mb-2 leading-tight">{creator.description}</p>
 
         {/* Duration */}
         <div className="flex items-center gap-1 text-white/80 text-xs">
