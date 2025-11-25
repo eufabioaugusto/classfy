@@ -129,6 +129,34 @@ export default function AdminWithdrawals() {
     setProcessing(true);
 
     try {
+      // Get current wallet data
+      const { data: walletData, error: walletFetchError } = await supabase
+        .from("wallets")
+        .select("balance, total_withdrawn")
+        .eq("user_id", selectedRequest.user_id)
+        .single();
+
+      if (walletFetchError || !walletData) {
+        throw new Error("Erro ao buscar carteira do usuário");
+      }
+
+      // Check if user has enough balance
+      if (walletData.balance < selectedRequest.amount) {
+        throw new Error("Saldo insuficiente na carteira do usuário");
+      }
+
+      // Update wallet - subtract the amount from balance and add to total_withdrawn
+      const { error: walletError } = await supabase
+        .from("wallets")
+        .update({
+          balance: walletData.balance - selectedRequest.amount,
+          total_withdrawn: walletData.total_withdrawn + selectedRequest.amount,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("user_id", selectedRequest.user_id);
+
+      if (walletError) throw walletError;
+
       // Update withdrawal request
       const { error: updateError } = await supabase
         .from("withdraw_requests")
@@ -142,43 +170,24 @@ export default function AdminWithdrawals() {
 
       if (updateError) throw updateError;
 
-      // Update wallet - subtract the amount from balance and add to total_withdrawn
-      const { data: walletData } = await supabase
-        .from("wallets")
-        .select("balance, total_withdrawn")
-        .eq("user_id", selectedRequest.user_id)
-        .single();
-
-      if (walletData) {
-        const { error: walletError } = await supabase
-          .from("wallets")
-          .update({
-            balance: walletData.balance - selectedRequest.amount,
-            total_withdrawn: walletData.total_withdrawn + selectedRequest.amount,
-            updated_at: new Date().toISOString(),
-          })
-          .eq("user_id", selectedRequest.user_id);
-
-        if (walletError) throw walletError;
-      }
-
       // Create notification
       await supabase.from("notifications").insert({
         user_id: selectedRequest.user_id,
         type: "withdraw",
         title: "Saque Aprovado!",
-        message: `Seu saque de R$ ${selectedRequest.amount.toFixed(2)} foi aprovado e está sendo processado.`,
+        message: `Seu saque de R$ ${selectedRequest.amount.toFixed(2)} foi aprovado e processado. Valor deduzido do saldo.`,
       });
 
       toast({
         title: "Saque aprovado!",
-        description: "O pagamento foi processado com sucesso.",
+        description: `Pagamento de R$ ${selectedRequest.amount.toFixed(2)} processado. Carteira atualizada.`,
       });
 
       setSelectedRequest(null);
       setAdminNotes("");
       fetchData();
     } catch (error: any) {
+      console.error("Erro ao aprovar saque:", error);
       toast({
         title: "Erro ao aprovar saque",
         description: error.message,
