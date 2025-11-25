@@ -66,7 +66,7 @@ export const MessageInput = ({
       setMessage(message + emoji);
     }
     
-    setShowEmojiPicker(false);
+    // Don't close picker - let user select multiple emojis
   };
 
   if (isBlocked) {
