@@ -133,17 +133,15 @@ export const ContentCard = ({
       return;
     }
 
-    // Only navigate if user has access
-    if (onClick) {
+    // Always check content type first for proper navigation
+    const actualContentType = content?.content_type || contentType;
+    
+    if (actualContentType === "short") {
+      navigate(`/shorts/${id}`);
+    } else if (onClick) {
       onClick();
     } else {
-      // Redirect to appropriate page based on content type
-      const actualContentType = content?.content_type || contentType;
-      if (actualContentType === "short") {
-        navigate(`/shorts/${id}`);
-      } else {
-        navigate(`/watch/${id}`);
-      }
+      navigate(`/watch/${id}`);
     }
   };
 
