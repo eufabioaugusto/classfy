@@ -19,19 +19,16 @@ export const MessageRequestBanner = ({
 
   const handleResponse = async (approved: boolean) => {
     try {
-      const { error } = await supabase
-        .from("messages")
-        .update({ 
-          request_status: approved ? 'approved' : 'rejected' 
-        })
-        .eq("conversation_id", conversationId)
-        .eq("is_request", true);
+      const { error } = await supabase.rpc("respond_message_request", {
+        p_conversation_id: conversationId,
+        p_approved: approved,
+      });
 
       if (error) throw error;
 
       toast({
         title: approved ? "Solicitação aprovada" : "Solicitação recusada",
-        description: approved 
+        description: approved
           ? "Você pode conversar livremente agora"
           : "A solicitação foi recusada",
       });

@@ -2376,6 +2376,10 @@ export type Database = {
         Args: { p_conversation_id: string; p_user_id: string }
         Returns: boolean
       }
+      respond_message_request: {
+        Args: { p_approved: boolean; p_conversation_id: string }
+        Returns: undefined
+      }
     }
     Enums: {
       action_type:

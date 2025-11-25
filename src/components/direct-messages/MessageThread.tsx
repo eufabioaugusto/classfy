@@ -425,37 +425,44 @@ export const MessageThread = ({ conversationId, onClose, isArchived = false }: M
       let requestStatus: string | null = null;
 
       if (privacyMode === "request") {
-        // Se o destinatário arquivou/excluiu a conversa, sempre volta a exigir aprovação
-        const { data: recipientParticipant } = await supabase
-          .from("conversation_participants")
-          .select("is_archived")
+        // Verifica se já existe solicitação pendente deste remetente nesta conversa
+        const { data: existingRequests, error: existingError } = await supabase
+          .from("messages")
+          .select("request_status")
           .eq("conversation_id", conversationId)
-          .eq("user_id", otherUser.id)
-          .maybeSingle();
+          .eq("sender_id", user.id)
+          .eq("is_request", true);
 
-        const forceNewRequest = recipientParticipant?.is_archived;
+        if (existingError) throw existingError;
 
-        if (forceNewRequest) {
+        const hasPending = existingRequests?.some(
+          (m) => !m.request_status || m.request_status === "pending"
+        );
+
+        if (hasPending) {
+          toast({
+            title: "Solicitação já enviada",
+            description:
+              "Você já tem uma solicitação pendente. Aguarde a aprovação do destinatário.",
+            variant: "destructive",
+          });
+          return;
+        }
+
+        const hasApproved = existingRequests?.some(
+          (m) => m.request_status === "approved"
+        );
+
+        // Se nunca teve aprovação, a próxima mensagem vira solicitação pendente
+        if (!hasApproved) {
           isRequest = true;
           requestStatus = "pending";
-        } else {
-          // Verifica se já existe pedido APROVADO deste remetente nesta conversa
-          const { data: existingRequests } = await supabase
-            .from("messages")
-            .select("request_status")
-            .eq("conversation_id", conversationId)
-            .eq("sender_id", user.id)
-            .eq("is_request", true);
 
-          const hasApproved = existingRequests?.some(
-            (m) => m.request_status === "approved"
-          );
-
-          // Se nunca teve aprovação, a próxima mensagem vira solicitação pendente
-          if (!hasApproved) {
-            isRequest = true;
-            requestStatus = "pending";
-          }
+          toast({
+            title: "Solicitação enviada",
+            description:
+              "Sua solicitação foi enviada. Aguarde aprovação do destinatário.",
+          });
         }
       }
 
