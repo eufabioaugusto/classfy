@@ -257,23 +257,21 @@ export const MessageThread = ({ conversationId, onClose }: MessageThreadProps) =
 
       if (deleteMessagesError) throw deleteMessagesError;
 
-      // 2) Arquiva a conversa apenas para você (some da sua lista)
-      const { error: archiveError } = await supabase
+      // 2) Remove sua participação da conversa (para você, ela deixa de existir)
+      const { error: deleteParticipantError } = await supabase
         .from("conversation_participants")
-        .update({ is_archived: true })
+        .delete()
         .eq("conversation_id", conversationId)
         .eq("user_id", user.id);
 
-      if (archiveError) throw archiveError;
+      if (deleteParticipantError) throw deleteParticipantError;
 
       toast({
         title: "Conversa excluída",
-        description: "Suas mensagens foram removidas e a conversa saiu da sua lista",
+        description: "Suas mensagens foram removidas e a conversa foi apagada para você",
       });
 
-      // Atualiza lista imediatamente
       window.dispatchEvent(new CustomEvent("dm-conversations-changed"));
-
       onClose();
     } catch (error) {
       console.error("Error deleting conversation:", error);
