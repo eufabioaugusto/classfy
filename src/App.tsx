@@ -33,6 +33,7 @@ import BoostSuccess from "./pages/BoostSuccess";
 import StudioBoosts from "./pages/StudioBoosts";
 import StudioAnalytics from "./pages/StudioAnalytics";
 import Study from "./pages/Study";
+import Shorts from "./pages/Shorts";
 import Watch from "./pages/Watch";
 import Listen from "./pages/Listen";
 import NotFound from "./pages/NotFound";
@@ -88,6 +89,7 @@ function AppContent() {
       <Route path="/boost-success" element={<BoostSuccess />} />
       <Route path="/watch/:id" element={<Watch />} />
       <Route path="/listen/:id" element={<Listen />} />
+      <Route path="/shorts/:id" element={<Shorts />} />
       <Route path="/c/:id" element={<Study />} />
       <Route path="*" element={<NotFound />} />
     </Routes>
