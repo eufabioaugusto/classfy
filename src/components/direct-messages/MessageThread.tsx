@@ -353,7 +353,7 @@ export const MessageThread = ({ conversationId, onClose }: MessageThreadProps) =
     if (!user || !otherUser) return;
 
     try {
-      // Check if user is blocked
+      // Check if user is blocked pelo outro usuário
       const { data: blockData } = await supabase
         .from("blocked_users")
         .select("id")
@@ -370,39 +370,85 @@ export const MessageThread = ({ conversationId, onClose }: MessageThreadProps) =
         return;
       }
 
-      // Check recipient privacy mode
+      // Privacidade do destinatário
       const { data: settings } = await supabase
         .from("message_settings")
         .select("privacy_mode")
         .eq("user_id", otherUser.id)
         .maybeSingle();
 
-      const privacyMode = settings?.privacy_mode || 'open';
-      const isRequestMode = privacyMode === 'request';
+      const privacyMode = settings?.privacy_mode || "open";
 
-      let markAsRequest = false;
+      if (privacyMode === "closed") {
+        toast({
+          title: "Mensagens bloqueadas",
+          description: "Este usuário não está aceitando mensagens.",
+          variant: "destructive",
+        });
+        return;
+      }
 
-      if (isRequestMode) {
-        // Marca apenas a PRIMEIRA mensagem desse remetente como solicitação
+      if (privacyMode === "followers") {
+        const { data: followData } = await supabase
+          .from("follows")
+          .select("id")
+          .eq("follower_id", user.id)
+          .eq("following_id", otherUser.id)
+          .maybeSingle();
+
+        if (!followData) {
+          toast({
+            title: "Permissão necessária",
+            description: "Você precisa seguir este usuário para enviar mensagens.",
+            variant: "destructive",
+          });
+          return;
+        }
+      }
+
+      let isRequest = false;
+      let requestStatus: string | null = null;
+
+      if (privacyMode === "request") {
+        // Verifica se já existe pedido pendente deste remetente
         const { data: existingRequests } = await supabase
           .from("messages")
-          .select("id")
+          .select("request_status")
           .eq("conversation_id", conversationId)
           .eq("sender_id", user.id)
           .eq("is_request", true);
 
-        markAsRequest = !existingRequests || existingRequests.length === 0;
+        const hasApproved = existingRequests?.some(
+          (m) => m.request_status === "approved"
+        );
+        const hasPending = existingRequests?.some(
+          (m) => !m.request_status || m.request_status === "pending"
+        );
+
+        if (!hasApproved && hasPending) {
+          toast({
+            title: "Aguardando aprovação",
+            description:
+              "Você precisa aguardar a aprovação antes de enviar mais mensagens",
+            variant: "destructive",
+          });
+          return;
+        }
+
+        // Se nunca teve aprovação, a próxima mensagem vira novo pedido
+        if (!hasApproved) {
+          isRequest = true;
+          requestStatus = "pending";
+        }
       }
 
-      const { error } = await supabase
-        .from("messages")
-        .insert({
-          conversation_id: conversationId,
-          sender_id: user.id,
-          content,
-          is_request: isRequestMode && markAsRequest,
-          request_status: isRequestMode && markAsRequest ? 'pending' : null,
-        });
+      const { error } = await supabase.from("messages").insert({
+        conversation_id: conversationId,
+        sender_id: user.id,
+        content,
+        is_request: isRequest,
+        request_status: requestStatus,
+      });
 
       if (error) throw error;
     } catch (error) {
