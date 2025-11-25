@@ -64,23 +64,7 @@ export default function Shorts() {
     }
   }, [user]);
 
-  useEffect(() => {
-    const listener = (e: WheelEvent) => handleWheelGlobal(e);
-    window.addEventListener("wheel", listener, { passive: false });
 
-    return () => {
-      window.removeEventListener("wheel", listener);
-    };
-  }, []);
-
-  useEffect(() => {
-    if (id && shorts.length > 0) {
-      const index = shorts.findIndex(s => s.id === id);
-      if (index !== -1) {
-        setCurrentIndex(index);
-      }
-    }
-  }, [id, shorts]);
 
   useEffect(() => {
     if (shorts[currentIndex]) {
@@ -472,7 +456,7 @@ export default function Shorts() {
     }
   };
 
-  const handleWheelGlobal = (e: WheelEvent) => {
+  const handleWheel = (e: React.WheelEvent<HTMLDivElement>) => {
     if (scrollLockRef.current || shorts.length === 0) return;
 
     const threshold = 3;
@@ -592,7 +576,7 @@ export default function Shorts() {
           <div className="flex-1 flex flex-col">
             <Header variant="home" />
 
-            <main className="flex-1 flex items-center justify-center px-4 py-6">
+            <main className="flex-1 flex items-center justify-center px-4 py-6" onWheel={handleWheel}>
               <div className="flex w-full max-w-6xl gap-6 items-center justify-center">
                 {/* Video column */}
                 <div className="flex-1 flex items-center justify-center">
