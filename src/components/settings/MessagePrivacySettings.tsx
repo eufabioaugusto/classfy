@@ -93,23 +93,18 @@ export const MessagePrivacySettings = () => {
       setSaving(true);
       setPrivacyMode(newMode);
 
-      // Try to update first
-      const { error: updateError } = await supabase
+      // Use upsert to insert or update automatically
+      const { error } = await supabase
         .from("message_settings")
-        .update({ privacy_mode: newMode, updated_at: new Date().toISOString() })
-        .eq("user_id", user.id);
+        .upsert({
+          user_id: user.id,
+          privacy_mode: newMode,
+          updated_at: new Date().toISOString(),
+        }, {
+          onConflict: 'user_id'
+        });
 
-      // If no rows were updated, insert instead
-      if (updateError) {
-        const { error: insertError } = await supabase
-          .from("message_settings")
-          .insert({
-            user_id: user.id,
-            privacy_mode: newMode,
-          });
-
-        if (insertError) throw insertError;
-      }
+      if (error) throw error;
 
       toast({
         title: "Configurações atualizadas",
