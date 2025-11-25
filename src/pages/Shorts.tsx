@@ -71,7 +71,7 @@ export default function Shorts() {
     return () => {
       window.removeEventListener("wheel", listener);
     };
-  }, [shorts.length, currentIndex]);
+  }, []);
 
   useEffect(() => {
     if (id && shorts.length > 0) {
@@ -700,6 +700,24 @@ export default function Shorts() {
                 {/* Side actions */}
                 {hasAccess && (
                   <div className="flex flex-col gap-6 items-center justify-center">
+                    {/* Arrows outside video */}
+                    <div className="flex flex-col gap-3 items-center">
+                      <button
+                        onClick={handlePrevious}
+                        disabled={currentIndex === 0}
+                        className="bg-black/30 backdrop-blur-sm p-2 rounded-full disabled:opacity-40 hover:bg-black/50 transition-colors"
+                      >
+                        <ChevronUp className="w-6 h-6 text-white" />
+                      </button>
+                      <button
+                        onClick={handleNext}
+                        disabled={currentIndex === shorts.length - 1}
+                        className="bg-black/30 backdrop-blur-sm p-2 rounded-full disabled:opacity-40 hover:bg-black/50 transition-colors"
+                      >
+                        <ChevronDown className="w-6 h-6 text-white" />
+                      </button>
+                    </div>
+
                     {/* Like */}
                     <button onClick={handleLike} className="flex flex-col items-center gap-1">
                       <div className="bg-black/30 backdrop-blur-sm p-3 rounded-full">
