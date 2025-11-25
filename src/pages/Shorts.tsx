@@ -53,6 +53,8 @@ export default function Shorts() {
   const [metricsRecorded, setMetricsRecorded] = useState<{[key: string]: {start: boolean, half: boolean, complete: boolean}}>({});
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(true);
+  const [commentsCount, setCommentsCount] = useState(0);
+  const scrollLockRef = useRef(false);
   const PAGE_SIZE = 10;
 
   useEffect(() => {
@@ -72,16 +74,22 @@ export default function Shorts() {
 
   useEffect(() => {
     if (shorts[currentIndex]) {
-      checkAccess(shorts[currentIndex]);
-      checkLikeStatus(shorts[currentIndex].id);
-      checkSavedStatus(shorts[currentIndex].id);
-      navigate(`/shorts/${shorts[currentIndex].id}`, { replace: true });
+      const currentShort = shorts[currentIndex];
+      checkAccess(currentShort);
+      checkLikeStatus(currentShort.id);
+      checkSavedStatus(currentShort.id);
+      fetchCommentsCount(currentShort.id);
+      navigate(`/shorts/${currentShort.id}`, { replace: true });
 
-      // Play current video
-      const currentVideo = videoRefs.current[currentIndex];
-      if (currentVideo) {
-        currentVideo.play().catch(console.error);
-      }
+      // Play current video and pause others
+      videoRefs.current.forEach((video, idx) => {
+        if (!video) return;
+        if (idx === currentIndex) {
+          video.play().catch(console.error);
+        } else {
+          video.pause();
+        }
+      });
     }
 
     // Load more when reaching the end of current page
@@ -224,6 +232,24 @@ export default function Shorts() {
       console.error("Error loading more shorts:", error);
     } finally {
       setIsLoadingMore(false);
+    }
+  };
+
+  const fetchCommentsCount = async (contentId: string) => {
+    try {
+      const { count, error } = await supabase
+        .from("comments")
+        .select("id", { count: "exact", head: true })
+        .eq("content_id", contentId);
+
+      if (error) {
+        console.error("Error fetching comments count:", error);
+        return;
+      }
+
+      setCommentsCount(count ?? 0);
+    } catch (error) {
+      console.error("Error fetching comments count:", error);
     }
   };
 
@@ -432,6 +458,24 @@ export default function Shorts() {
     }
   };
 
+  const handleWheel = (e: React.WheelEvent<HTMLDivElement>) => {
+    if (scrollLockRef.current || shorts.length === 0) return;
+
+    const threshold = 10;
+    if (Math.abs(e.deltaY) < threshold) return;
+
+    scrollLockRef.current = true;
+    if (e.deltaY > 0) {
+      handleNext();
+    } else {
+      handlePrevious();
+    }
+
+    window.setTimeout(() => {
+      scrollLockRef.current = false;
+    }, 400);
+  };
+
   const handleTimeUpdate = async (e: React.SyntheticEvent<HTMLVideoElement>) => {
     const video = e.currentTarget;
     const short = shorts[currentIndex];
@@ -532,7 +576,7 @@ export default function Shorts() {
           <div className="flex-1 flex flex-col">
             <Header variant="home" />
 
-            <main className="flex-1 flex items-center justify-center px-4 py-6">
+            <main className="flex-1 flex items-center justify-center px-4 py-6" onWheel={handleWheel}>
               <div className="flex w-full max-w-6xl gap-6 items-center justify-center">
                 {/* Video column */}
                 <div className="flex-1 flex items-center justify-center">
@@ -657,7 +701,7 @@ export default function Shorts() {
                       <div className="bg-black/30 backdrop-blur-sm p-3 rounded-full">
                         <MessageCircle className="w-7 h-7 text-white" />
                       </div>
-                      <span className="text-sm font-medium text-foreground">113</span>
+                      <span className="text-sm font-medium text-foreground">{commentsCount}</span>
                     </button>
 
                     {/* Save */}
