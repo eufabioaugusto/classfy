@@ -206,29 +206,31 @@ export default function CreatorProfile() {
         <Header />
         <main className="flex-1 overflow-y-auto">
           {/* Cover Image */}
-            <div className="w-full h-48 bg-gradient-to-r from-primary/20 via-primary/10 to-background relative overflow-hidden rounded-t-lg">
-              {creator?.cover_image_url ? (
-                <img src={creator.cover_image_url} alt="Capa do canal" className="w-full h-full object-cover" />
-              ) : (
-                <div className="absolute inset-0 bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjAiIGhlaWdodD0iNjAiIHZpZXdCb3g9IjAgMCA2MCA2MCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48ZyBmaWxsPSJub25lIiBmaWxsLXJ1bGU9ImV2ZW5vZGQiPjxnIGZpbGw9IiMwMDAiIGZpbGwtb3BhY2l0eT0iMC4wNSI+PHBhdGggZD0iTTM2IDM0djItMnptMC0ydjItMnptMCAyaDJ2LTJoLTJ6bTAgMGgydi0yaC0yem0tMiAwaDJ2LTJoLTJ6bTAgMGgydi0yaC0yem0wLTJoMnYtMmgtMnptMCAwaDJ2LTJoLTJ6bS0yIDBoMnYtMmgtMnptMCAwaDJ2LTJoLTJ6bTAgMmgydi0yaC0yem0wIDBoMnYtMmgtMnptMiAwaDJ2LTJoLTJ6bTAgMGgydi0yaC0yem0wIDJoMnYtMmgtMnptMCAwaDJ2LTJoLTJ6bS0yIDBoMnYtMmgtMnptMCAwaDJ2LTJoLTJ6Ii8+PC9nPjwvZz48L3N2Zz4=')] opacity-30" />
-              )}
-            </div>
+          <div className="w-full h-48 bg-gradient-to-r from-primary/20 via-primary/10 to-background relative overflow-hidden">
+            {creator?.cover_image_url ? (
+              <img src={creator.cover_image_url} alt="Capa do canal" className="w-full h-full object-cover" />
+            ) : (
+              <div className="absolute inset-0 bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjAiIGhlaWdodD0iNjAiIHZpZXdCb3g9IjAgMCA2MCA2MCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48ZyBmaWxsPSJub25lIiBmaWxsLXJ1bGU9ImV2ZW5vZGQiPjxnIGZpbGw9IiMwMDAiIGZpbGwtb3BhY2l0eT0iMC4wNSI+PHBhdGggZD0iTTM2IDM0djItMnptMC0ydjItMnptMCAyaDJ2LTJoLTJ6bTAgMGgydi0yaC0yem0tMiAwaDJ2LTJoLTJ6bTAgMGgydi0yaC0yem0wLTJoMnYtMmgtMnptMCAwaDJ2LTJoLTJ6bS0yIDBoMnYtMmgtMnptMCAwaDJ2LTJoLTJ6bTAgMmgydi0yaC0yem0wIDBoMnYtMmgtMnptMiAwaDJ2LTJoLTJ6bTAgMGgydi0yaC0yem0wIDJoMnYtMmgtMnptMCAwaDJ2LTJoLTJ6bS0yIDBoMnYtMmgtMnptMCAwaDJ2LTJoLTJ6Ii8+PC9nPjwvZz48L3N2Zz4=')] opacity-30" />
+            )}
+          </div>
 
           <div className="container mx-auto px-4">
             {/* Profile Header */}
-            <div className="relative -mt-16 mb-6">
-              <div className="flex flex-col md:flex-row items-center md:items-end gap-6">
-                {/* Avatar */}
+            <div className="relative mb-6">
+              {/* Avatar centralizado que sobrepõe a capa */}
+              <div className="flex justify-center -mt-16 mb-6">
                 <Avatar className="w-32 h-32 border-4 border-background shadow-lg">
                   <AvatarImage src={creator.avatar_url || undefined} />
                   <AvatarFallback className="text-3xl">
                     {creator.display_name.charAt(0).toUpperCase()}
                   </AvatarFallback>
                 </Avatar>
+              </div>
 
-                {/* Info */}
-                <div className="flex-1 text-center md:text-left">
-                  <div className="flex flex-col md:flex-row items-center md:items-start gap-4 mb-2">
+              {/* Informações do perfil abaixo do avatar */}
+              <div className="text-center space-y-4">
+                <div className="space-y-2">
+                  <div className="flex flex-col items-center gap-2">
                     <h1 className="text-3xl font-bold">{creator.display_name}</h1>
                     {stats && (
                       <Badge variant="secondary" className="gap-1">
@@ -238,36 +240,36 @@ export default function CreatorProfile() {
                     )}
                   </div>
                   
-                  <p className="text-muted-foreground mb-2">@{creator.creator_channel_name}</p>
-                  
-                  <div className="flex flex-wrap items-center justify-center md:justify-start gap-4 text-sm text-muted-foreground mb-4">
-                    <div className="flex items-center gap-1">
-                      <Users className="w-4 h-4" />
-                      <span className="font-semibold">{stats?.followersCount || 0}</span> seguidores
-                    </div>
-                    <div className="flex items-center gap-1">
-                      <Video className="w-4 h-4" />
-                      <span className="font-semibold">{stats?.contentCount || 0}</span> conteúdos
-                    </div>
-                    <div className="flex items-center gap-1">
-                      <Trophy className="w-4 h-4" />
-                      <span className="font-semibold">{stats?.totalPoints || 0}</span> pontos
-                    </div>
+                  <p className="text-muted-foreground">@{creator.creator_channel_name}</p>
+                </div>
+                
+                <div className="flex flex-wrap items-center justify-center gap-4 text-sm text-muted-foreground">
+                  <div className="flex items-center gap-1">
+                    <Users className="w-4 h-4" />
+                    <span className="font-semibold">{stats?.followersCount || 0}</span> seguidores
                   </div>
+                  <div className="flex items-center gap-1">
+                    <Video className="w-4 h-4" />
+                    <span className="font-semibold">{stats?.contentCount || 0}</span> conteúdos
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <Trophy className="w-4 h-4" />
+                    <span className="font-semibold">{stats?.totalPoints || 0}</span> pontos
+                  </div>
+                </div>
 
-                  {creator.creator_bio && (
-                    <p className="text-sm max-w-2xl mb-4">{creator.creator_bio}</p>
+                {creator.creator_bio && (
+                  <p className="text-sm text-muted-foreground max-w-2xl mx-auto">{creator.creator_bio}</p>
+                )}
+
+                <div className="flex flex-wrap items-center justify-center gap-3">
+                  {user?.id !== creator.id && (
+                    <FollowButton creatorId={creator.id} size="default" variant="default" />
                   )}
-
-                  <div className="flex flex-wrap items-center justify-center md:justify-start gap-3">
-                    {user?.id !== creator.id && (
-                      <FollowButton creatorId={creator.id} size="default" variant="default" />
-                    )}
-                    <Button variant="outline" size="default" onClick={handleShare}>
-                      <Share2 className="w-4 h-4" />
-                      Compartilhar
-                    </Button>
-                  </div>
+                  <Button variant="outline" size="default" onClick={handleShare}>
+                    <Share2 className="w-4 h-4" />
+                    Compartilhar
+                  </Button>
                 </div>
               </div>
             </div>
