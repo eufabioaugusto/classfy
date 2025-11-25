@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { X, Settings, MessageCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ConversationList } from "@/components/direct-messages/ConversationList";
@@ -30,9 +31,9 @@ export const DirectMessagesModal = ({ open, onClose, initialRecipientId }: Direc
 
   if (!open || !user) return null;
 
-  return (
+  return createPortal(
     <>
-      <div className="fixed inset-0 bg-background z-[100] flex flex-col">
+      <div className="fixed inset-0 bg-background z-[9999] flex flex-col">
         {/* Header */}
         <div className="border-b px-4 py-3 flex items-center justify-between">
           <div className="flex items-center gap-3">
@@ -81,6 +82,7 @@ export const DirectMessagesModal = ({ open, onClose, initialRecipientId }: Direc
         open={showSettings}
         onClose={() => setShowSettings(false)}
       />
-    </>
+    </>,
+    document.body
   );
 };
