@@ -257,19 +257,17 @@ export const MessageThread = ({ conversationId, onClose }: MessageThreadProps) =
 
       if (archiveError) throw archiveError;
 
-      // Se havia uma solicitação de mensagem pendente para este usuário,
-      // marcamos como "rejeitada" para liberar o remetente
-      if (otherUser) {
-        const { error: requestError } = await supabase
-          .from("messages")
-          .update({ request_status: "rejected" })
-          .eq("conversation_id", conversationId)
-          .eq("sender_id", otherUser.id)
-          .eq("is_request", true)
-          .or("request_status.is.null,request_status.eq.pending");
+      // Qualquer solicitação de mensagem pendente nesta conversa é marcada
+      // como rejeitada (independe de quem foi o remetente). Isso garante que
+      // um novo envio após exclusão seja tratado como NOVO pedido.
+      const { error: requestError } = await supabase
+        .from("messages")
+        .update({ request_status: "rejected" })
+        .eq("conversation_id", conversationId)
+        .eq("is_request", true)
+        .or("request_status.is.null,request_status.eq.pending");
 
-        if (requestError) throw requestError;
-      }
+      if (requestError) throw requestError;
 
       toast({
         title: "Conversa excluída",
