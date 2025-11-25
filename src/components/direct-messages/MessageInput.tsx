@@ -1,9 +1,11 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { Send, Image, Smile } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { AlertCircle, UserPlus } from "lucide-react";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import EmojiPicker, { EmojiClickData } from "emoji-picker-react";
 
 interface MessageInputProps {
   onSendMessage: (content: string) => Promise<void>;
@@ -21,6 +23,8 @@ export const MessageInput = ({
 }: MessageInputProps) => {
   const [message, setMessage] = useState("");
   const [sending, setSending] = useState(false);
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const handleSend = async () => {
     if (!message.trim() || sending) return;
@@ -41,6 +45,28 @@ export const MessageInput = ({
       e.preventDefault();
       handleSend();
     }
+  };
+
+  const handleEmojiClick = (emojiData: EmojiClickData) => {
+    const emoji = emojiData.emoji;
+    const textarea = textareaRef.current;
+    
+    if (textarea) {
+      const start = textarea.selectionStart;
+      const end = textarea.selectionEnd;
+      const newMessage = message.substring(0, start) + emoji + message.substring(end);
+      setMessage(newMessage);
+      
+      // Set cursor position after emoji
+      setTimeout(() => {
+        textarea.selectionStart = textarea.selectionEnd = start + emoji.length;
+        textarea.focus();
+      }, 0);
+    } else {
+      setMessage(message + emoji);
+    }
+    
+    setShowEmojiPicker(false);
   };
 
   if (isBlocked) {
@@ -75,6 +101,7 @@ export const MessageInput = ({
         
         <div className="flex-1 relative">
           <Textarea
+            ref={textareaRef}
             placeholder="Mensagem..."
             value={message}
             onChange={(e) => setMessage(e.target.value)}
@@ -82,13 +109,32 @@ export const MessageInput = ({
             className="min-h-[44px] max-h-32 resize-none pr-10"
             rows={1}
           />
-          <Button
-            variant="ghost"
-            size="icon"
-            className="absolute right-1 bottom-1"
-          >
-            <Smile className="h-5 w-5" />
-          </Button>
+          <Popover open={showEmojiPicker} onOpenChange={setShowEmojiPicker}>
+            <PopoverTrigger asChild>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="absolute right-1 bottom-1"
+              >
+                <Smile className="h-5 w-5" />
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent 
+              side="top" 
+              align="end" 
+              className="w-full p-0 border-none shadow-lg"
+              style={{ width: '350px' }}
+            >
+              <EmojiPicker
+                onEmojiClick={handleEmojiClick}
+                width="100%"
+                height="400px"
+                searchPlaceHolder="Buscar emoji..."
+                previewConfig={{ showPreview: false }}
+              />
+            </PopoverContent>
+          </Popover>
         </div>
 
         <Button
