@@ -64,23 +64,25 @@ export default function CreatorProfile() {
     try {
       setLoading(true);
 
-      // Buscar perfil do creator pelo channel_name
-      console.log("Looking for creator with channel_name:", username);
-      
+      // Extrair o channel_name removendo o @ inicial
+      const rawUsername = username as string;
+      if (!rawUsername.startsWith("@")) {
+        navigate("/404");
+        return;
+      }
+      const channelName = rawUsername.slice(1);
+
+      // Buscar perfil do creator pelo channel_name (sem @)
       const { data: profileData, error: profileError } = await supabase
         .from("profiles")
         .select("*")
-        .eq("creator_channel_name", username)
+        .eq("creator_channel_name", channelName)
         .eq("creator_status", "approved")
         .maybeSingle();
-
-      console.log("Profile data:", profileData);
-      console.log("Profile error:", profileError);
 
       if (profileError) throw profileError;
       
       if (!profileData) {
-        console.log("No profile found for username:", username);
         navigate("/404");
         return;
       }
