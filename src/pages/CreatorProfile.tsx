@@ -13,7 +13,7 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { FollowButton } from "@/components/FollowButton";
 import { ContentCard } from "@/components/ContentCard";
-import { Trophy, Users, Video, Headphones, Zap, GraduationCap, Share2 } from "lucide-react";
+import { Trophy, Users, Video, Headphones, Zap, GraduationCap, Share2, MessageCircle } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
 interface CreatorProfile {
@@ -274,7 +274,17 @@ export default function CreatorProfile() {
 
                   <div className="flex flex-wrap items-center gap-3">
                     {user?.id !== creator.id && (
-                      <FollowButton creatorId={creator.id} size="default" variant="default" />
+                      <>
+                        <FollowButton creatorId={creator.id} size="default" variant="default" />
+                        <Button variant="outline" size="default" onClick={() => {
+                          // Open DM modal with this creator
+                          const event = new CustomEvent('openDirectMessage', { detail: { recipientId: creator.id } });
+                          window.dispatchEvent(event);
+                        }}>
+                          <MessageCircle className="w-4 h-4 mr-2" />
+                          Mensagem
+                        </Button>
+                      </>
                     )}
                     <Button variant="outline" size="default" onClick={handleShare}>
                       <Share2 className="w-4 h-4 mr-2" />
