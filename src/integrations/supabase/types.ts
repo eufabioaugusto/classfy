@@ -146,6 +146,42 @@ export type Database = {
         }
         Relationships: []
       }
+      blocked_users: {
+        Row: {
+          blocked_id: string
+          blocker_id: string
+          created_at: string
+          id: string
+        }
+        Insert: {
+          blocked_id: string
+          blocker_id: string
+          created_at?: string
+          id?: string
+        }
+        Update: {
+          blocked_id?: string
+          blocker_id?: string
+          created_at?: string
+          id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "blocked_users_blocked_id_fkey"
+            columns: ["blocked_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "blocked_users_blocker_id_fkey"
+            columns: ["blocker_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       boosts: {
         Row: {
           audience_filters: Json | null
@@ -476,6 +512,7 @@ export type Database = {
         Row: {
           conversation_id: string
           id: string
+          is_archived: boolean
           is_muted: boolean
           joined_at: string
           last_read_at: string | null
@@ -484,6 +521,7 @@ export type Database = {
         Insert: {
           conversation_id: string
           id?: string
+          is_archived?: boolean
           is_muted?: boolean
           joined_at?: string
           last_read_at?: string | null
@@ -492,6 +530,7 @@ export type Database = {
         Update: {
           conversation_id?: string
           id?: string
+          is_archived?: boolean
           is_muted?: boolean
           joined_at?: string
           last_read_at?: string | null

@@ -63,19 +63,21 @@ export const ConversationList = ({
     try {
       setLoading(true);
       
-      // Get conversations user is part of
+      // Get conversations user is part of (exclude archived)
       const { data: participants, error: participantsError } = await supabase
         .from("conversation_participants")
         .select(`
           conversation_id,
           last_read_at,
+          is_archived,
           conversations!inner (
             id,
             last_message_at,
             updated_at
           )
         `)
-        .eq("user_id", user.id);
+        .eq("user_id", user.id)
+        .eq("is_archived", false);
 
       if (participantsError) throw participantsError;
 
