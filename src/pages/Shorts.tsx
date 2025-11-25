@@ -179,7 +179,6 @@ export default function Shorts() {
           )
         `)
         .eq("content_type", "short")
-        .eq("status", "published")
         .neq("id", id || "")
         .order("views_count", { ascending: false })
         .limit(remainingSlots > 0 ? remainingSlots : 0);
@@ -230,7 +229,6 @@ export default function Shorts() {
           )
         `)
         .eq("content_type", "short")
-        .eq("status", "published")
         .neq("id", id || "")
         .order("views_count", { ascending: false })
         .range(shorts.length, shorts.length + PAGE_SIZE - 1);
