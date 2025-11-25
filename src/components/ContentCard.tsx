@@ -5,6 +5,7 @@ import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { useState, useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { CreatorLink } from "@/components/CreatorLink";
 
 interface ContentCardProps {
   id?: string;
@@ -62,6 +63,8 @@ export const ContentCard = ({
   const thumbnail = propThumbnail || content?.thumbnail_url || "/placeholder.svg";
   const creatorName = propCreatorName || content?.profiles?.display_name || "Creator";
   const creatorAvatar = propCreatorAvatar || content?.profiles?.avatar_url;
+  const creatorId = content?.creator_id || content?.profiles?.id;
+  const channelName = content?.profiles?.creator_channel_name;
   const duration = propDuration || content?.duration_minutes;
   const lessonCount = propLessonCount || content?.lesson_count;
   const isFree = propIsFree !== undefined ? propIsFree : (content?.is_free ?? true);
@@ -247,18 +250,15 @@ export const ContentCard = ({
       <div className="p-3 bg-card">
         {/* Creator info + Price/Button */}
         <div className="flex items-center gap-2 mb-2">
-          <div className="w-7 h-7 rounded-full bg-muted overflow-hidden ring-1 ring-border/50 flex-shrink-0">
-            {creatorAvatar ? (
-              <img src={creatorAvatar} alt={creatorName} className="w-full h-full object-cover" />
-            ) : (
-              <div className="w-full h-full flex items-center justify-center bg-primary text-primary-foreground font-bold text-[10px]">
-                {creatorName[0]?.toUpperCase()}
-              </div>
-            )}
-          </div>
-          <div className="flex-1 min-w-0">
-            <p className="text-[11px] font-medium text-foreground truncate">{creatorName}</p>
-          </div>
+          <CreatorLink
+            creatorId={creatorId}
+            creatorName={creatorName}
+            creatorAvatar={creatorAvatar}
+            channelName={channelName}
+            avatarSize="sm"
+            showName={true}
+            className="flex-1 min-w-0"
+          />
 
           {/* Price + Button (for paid content) */}
           {isPaid && !isPurchased && (
