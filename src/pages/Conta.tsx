@@ -7,8 +7,17 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
-import { ArrowLeft, Wallet, TrendingUp, DollarSign, Trophy, Sparkles, CheckCircle, Clock, XCircle, AlertCircle } from "lucide-react";
+import { ArrowLeft, Wallet, TrendingUp, DollarSign, Trophy, Sparkles, CheckCircle, Clock, XCircle, AlertCircle, History } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { BecomeCreatorModal } from "@/components/BecomeCreatorModal";
 import { EditableAvatar } from "@/components/EditableAvatar";
 import { UserBadges } from "@/components/UserBadges";
@@ -26,6 +35,7 @@ export default function Conta() {
   const [submitting, setSubmitting] = useState(false);
   const [creatorModalOpen, setCreatorModalOpen] = useState(false);
   const [minWithdrawalAmount, setMinWithdrawalAmount] = useState(10);
+  const [withdrawHistory, setWithdrawHistory] = useState<any[]>([]);
 
   // Check if profile is complete and reward user
   useProfileComplete(user?.id, profile);
@@ -40,7 +50,7 @@ export default function Conta() {
 
   const fetchData = async () => {
     try {
-      const [walletRes, profileRes, configRes] = await Promise.all([
+      const [walletRes, profileRes, configRes, withdrawalsRes] = await Promise.all([
         supabase.from("wallets").select("*").eq("user_id", user?.id).single(),
         supabase.from("profiles").select("*").eq("id", user?.id).single(),
         supabase
@@ -48,6 +58,11 @@ export default function Conta() {
           .select("*")
           .eq("config_key", "minimum_withdrawal_amount")
           .maybeSingle(),
+        supabase
+          .from("withdraw_requests")
+          .select("*")
+          .eq("user_id", user?.id)
+          .order("created_at", { ascending: false })
       ]);
 
       if (walletRes.error) throw walletRes.error;
@@ -59,6 +74,10 @@ export default function Conta() {
       if (configRes.data) {
         const configValue = configRes.data.config_value as { amount: number };
         setMinWithdrawalAmount(configValue.amount);
+      }
+
+      if (withdrawalsRes.data) {
+        setWithdrawHistory(withdrawalsRes.data);
       }
     } catch (error: any) {
       toast({
@@ -135,6 +154,7 @@ export default function Conta() {
 
       setWithdrawAmount("");
       setPixKey("");
+      fetchData(); // Refresh data including withdrawal history
     } catch (error: any) {
       toast({
         title: "Erro ao solicitar saque",
@@ -191,84 +211,224 @@ export default function Conta() {
             </div>
           </Card>
 
-          {/* Wallet Stats */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            <Card className="p-6 space-y-2">
-              <div className="flex items-center gap-2 text-muted-foreground">
-                <Wallet className="w-5 h-5" />
-                <span className="text-sm font-medium">Saldo Disponível</span>
-              </div>
-              <p className="text-3xl font-bold text-accent">
-                R$ {wallet?.balance?.toFixed(2) || "0.00"}
-              </p>
-            </Card>
-
-            <Card className="p-6 space-y-2">
-              <div className="flex items-center gap-2 text-muted-foreground">
-                <TrendingUp className="w-5 h-5" />
-                <span className="text-sm font-medium">Total Ganho</span>
-              </div>
-              <p className="text-3xl font-bold">
-                R$ {wallet?.total_earned?.toFixed(2) || "0.00"}
-              </p>
-            </Card>
-
-            <Card className="p-6 space-y-2">
-              <div className="flex items-center gap-2 text-muted-foreground">
-                <DollarSign className="w-5 h-5" />
-                <span className="text-sm font-medium">Total Sacado</span>
-              </div>
-              <p className="text-3xl font-bold">
-                R$ {wallet?.total_withdrawn?.toFixed(2) || "0.00"}
-              </p>
-            </Card>
-          </div>
-
-          {/* Withdraw Form */}
+          {/* Carteira Section */}
           <Card className="p-8">
-            <h2 className="text-2xl font-bold mb-6">Solicitar Saque</h2>
-            <form onSubmit={handleWithdraw} className="space-y-6">
-              <div className="space-y-2">
-                <Label htmlFor="amount">Valor do Saque (R$)</Label>
-                <Input
-                  id="amount"
-                  type="number"
-                  step="0.01"
-                  min="0.01"
-                  placeholder="0.00"
-                  value={withdrawAmount}
-                  onChange={(e) => setWithdrawAmount(e.target.value)}
-                  required
-                  disabled={submitting}
-                />
-                <p className="text-sm text-muted-foreground">
-                  Saldo disponível: R$ {wallet?.balance?.toFixed(2) || "0.00"}
-                  <br />
-                  Valor mínimo: R$ {minWithdrawalAmount.toFixed(2)}
-                </p>
-              </div>
+            <div className="flex items-center gap-3 mb-6">
+              <Wallet className="w-8 h-8 text-accent" />
+              <h2 className="text-3xl font-bold">Carteira</h2>
+            </div>
 
-              <div className="space-y-2">
-                <Label htmlFor="pix">Chave PIX</Label>
-                <Input
-                  id="pix"
-                  type="text"
-                  placeholder="Sua chave PIX (CPF, email, telefone...)"
-                  value={pixKey}
-                  onChange={(e) => setPixKey(e.target.value)}
-                  required
-                  disabled={submitting}
-                />
-              </div>
+            <Tabs defaultValue="overview" className="space-y-6">
+              <TabsList className="grid w-full grid-cols-3">
+                <TabsTrigger value="overview">Visão Geral</TabsTrigger>
+                <TabsTrigger value="withdraw">Sacar</TabsTrigger>
+                <TabsTrigger value="history">Histórico</TabsTrigger>
+              </TabsList>
 
-              <Button
-                type="submit"
-                className="w-full"
-                disabled={submitting || !wallet?.balance || wallet.balance <= 0}
-              >
-                {submitting ? "Processando..." : "Solicitar Saque"}
-              </Button>
-            </form>
+              {/* Overview Tab */}
+              <TabsContent value="overview" className="space-y-6">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                  <Card className="p-6 space-y-2">
+                    <div className="flex items-center gap-2 text-muted-foreground">
+                      <Wallet className="w-5 h-5" />
+                      <span className="text-sm font-medium">Saldo Disponível</span>
+                    </div>
+                    <p className="text-3xl font-bold text-accent">
+                      R$ {wallet?.balance?.toFixed(2) || "0.00"}
+                    </p>
+                  </Card>
+
+                  <Card className="p-6 space-y-2">
+                    <div className="flex items-center gap-2 text-muted-foreground">
+                      <TrendingUp className="w-5 h-5" />
+                      <span className="text-sm font-medium">Total Ganho</span>
+                    </div>
+                    <p className="text-3xl font-bold">
+                      R$ {wallet?.total_earned?.toFixed(2) || "0.00"}
+                    </p>
+                  </Card>
+
+                  <Card className="p-6 space-y-2">
+                    <div className="flex items-center gap-2 text-muted-foreground">
+                      <DollarSign className="w-5 h-5" />
+                      <span className="text-sm font-medium">Total Sacado</span>
+                    </div>
+                    <p className="text-3xl font-bold">
+                      R$ {wallet?.total_withdrawn?.toFixed(2) || "0.00"}
+                    </p>
+                  </Card>
+                </div>
+
+                {/* Recent Withdrawals */}
+                {withdrawHistory.length > 0 && (
+                  <div>
+                    <h3 className="text-lg font-semibold mb-4">Últimas Solicitações</h3>
+                    <div className="space-y-3">
+                      {withdrawHistory.slice(0, 3).map((withdrawal) => (
+                        <div
+                          key={withdrawal.id}
+                          className="flex items-center justify-between p-4 rounded-lg border border-border/50 bg-card/50"
+                        >
+                          <div className="flex items-center gap-3">
+                            {withdrawal.status === "pending" && <Clock className="w-5 h-5 text-yellow-500" />}
+                            {withdrawal.status === "approved" && <CheckCircle className="w-5 h-5 text-green-500" />}
+                            {withdrawal.status === "rejected" && <XCircle className="w-5 h-5 text-red-500" />}
+                            <div>
+                              <p className="font-medium">R$ {withdrawal.amount.toFixed(2)}</p>
+                              <p className="text-sm text-muted-foreground">
+                                {new Date(withdrawal.created_at).toLocaleDateString("pt-BR")}
+                              </p>
+                            </div>
+                          </div>
+                          <Badge
+                            variant={
+                              withdrawal.status === "approved"
+                                ? "default"
+                                : withdrawal.status === "rejected"
+                                ? "destructive"
+                                : "secondary"
+                            }
+                          >
+                            {withdrawal.status === "pending" && "Pendente"}
+                            {withdrawal.status === "approved" && "Aprovado"}
+                            {withdrawal.status === "rejected" && "Recusado"}
+                          </Badge>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </TabsContent>
+
+              {/* Withdraw Tab */}
+              <TabsContent value="withdraw">
+                <form onSubmit={handleWithdraw} className="space-y-6">
+                  <div className="space-y-2">
+                    <Label htmlFor="amount">Valor do Saque (R$)</Label>
+                    <Input
+                      id="amount"
+                      type="number"
+                      step="0.01"
+                      min="0.01"
+                      placeholder="0.00"
+                      value={withdrawAmount}
+                      onChange={(e) => setWithdrawAmount(e.target.value)}
+                      required
+                      disabled={submitting}
+                    />
+                    <p className="text-sm text-muted-foreground">
+                      Saldo disponível: R$ {wallet?.balance?.toFixed(2) || "0.00"}
+                      <br />
+                      Valor mínimo: R$ {minWithdrawalAmount.toFixed(2)}
+                    </p>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="pix">Chave PIX</Label>
+                    <Input
+                      id="pix"
+                      type="text"
+                      placeholder="Sua chave PIX (CPF, email, telefone...)"
+                      value={pixKey}
+                      onChange={(e) => setPixKey(e.target.value)}
+                      required
+                      disabled={submitting}
+                    />
+                  </div>
+
+                  <Button
+                    type="submit"
+                    className="w-full"
+                    disabled={submitting || !wallet?.balance || wallet.balance <= 0}
+                  >
+                    {submitting ? "Processando..." : "Solicitar Saque"}
+                  </Button>
+                </form>
+              </TabsContent>
+
+              {/* History Tab */}
+              <TabsContent value="history">
+                {withdrawHistory.length === 0 ? (
+                  <div className="text-center py-12">
+                    <History className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
+                    <p className="text-muted-foreground">Nenhum saque solicitado ainda</p>
+                  </div>
+                ) : (
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Data</TableHead>
+                        <TableHead>Valor</TableHead>
+                        <TableHead>Chave PIX</TableHead>
+                        <TableHead>Status</TableHead>
+                        <TableHead>Observações</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {withdrawHistory.map((withdrawal) => (
+                        <TableRow key={withdrawal.id}>
+                          <TableCell>
+                            {new Date(withdrawal.created_at).toLocaleDateString("pt-BR", {
+                              day: "2-digit",
+                              month: "2-digit",
+                              year: "numeric",
+                              hour: "2-digit",
+                              minute: "2-digit",
+                            })}
+                          </TableCell>
+                          <TableCell className="font-medium">
+                            R$ {withdrawal.amount.toFixed(2)}
+                          </TableCell>
+                          <TableCell className="font-mono text-sm">
+                            {withdrawal.pix_key}
+                          </TableCell>
+                          <TableCell>
+                            <Badge
+                              variant={
+                                withdrawal.status === "approved"
+                                  ? "default"
+                                  : withdrawal.status === "rejected"
+                                  ? "destructive"
+                                  : "secondary"
+                              }
+                              className="flex items-center gap-1 w-fit"
+                            >
+                              {withdrawal.status === "pending" && (
+                                <>
+                                  <Clock className="w-3 h-3" />
+                                  Pendente
+                                </>
+                              )}
+                              {withdrawal.status === "approved" && (
+                                <>
+                                  <CheckCircle className="w-3 h-3" />
+                                  Aprovado
+                                </>
+                              )}
+                              {withdrawal.status === "rejected" && (
+                                <>
+                                  <XCircle className="w-3 h-3" />
+                                  Recusado
+                                </>
+                              )}
+                            </Badge>
+                          </TableCell>
+                          <TableCell>
+                            {withdrawal.admin_notes ? (
+                              <span className="text-sm text-muted-foreground">
+                                {withdrawal.admin_notes}
+                              </span>
+                            ) : (
+                              <span className="text-sm text-muted-foreground">-</span>
+                            )}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                )}
+              </TabsContent>
+            </Tabs>
           </Card>
 
           {/* Plan Info */}
