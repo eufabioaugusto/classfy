@@ -38,6 +38,7 @@ import Watch from "./pages/Watch";
 import Listen from "./pages/Listen";
 import Shorts from "./pages/Shorts";
 import Planos from "./pages/Planos";
+import CreatorProfile from "./pages/CreatorProfile";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -96,6 +97,7 @@ function AppContent() {
       <Route path="/shorts/:id" element={<Shorts />} />
       <Route path="/c/:id" element={<Study />} />
       <Route path="/planos" element={<Planos />} />
+      <Route path="/@:username" element={<CreatorProfile />} />
       <Route path="*" element={<NotFound />} />
     </Routes>
   );
