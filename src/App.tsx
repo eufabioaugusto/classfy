@@ -97,7 +97,7 @@ function AppContent() {
       <Route path="/shorts/:id" element={<Shorts />} />
       <Route path="/c/:id" element={<Study />} />
       <Route path="/planos" element={<Planos />} />
-      <Route path="/@:username" element={<CreatorProfile />} />
+      <Route path="/:username" element={<CreatorProfile />} />
       <Route path="*" element={<NotFound />} />
     </Routes>
   );
