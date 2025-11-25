@@ -9,6 +9,16 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { MessageInput } from "./MessageInput";
@@ -41,6 +51,8 @@ export const MessageThread = ({ conversationId, onClose }: MessageThreadProps) =
   const [isBlocked, setIsBlocked] = useState(false);
   const [blockReason, setBlockReason] = useState<'closed' | 'not_follower' | 'pending_request'>();
   const [isFollowing, setIsFollowing] = useState(false);
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [showBlockDialog, setShowBlockDialog] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -145,6 +157,20 @@ export const MessageThread = ({ conversationId, onClose }: MessageThreadProps) =
     if (!user || !otherUser) return;
 
     try {
+      // Check if user is blocked
+      const { data: blockData } = await supabase
+        .from("blocked_users")
+        .select("id")
+        .eq("blocked_id", user.id)
+        .eq("blocker_id", otherUser.id)
+        .maybeSingle();
+
+      if (blockData) {
+        setIsBlocked(true);
+        setBlockReason('closed');
+        return;
+      }
+
       // Check recipient's privacy settings
       const { data: settings } = await supabase
         .from("message_settings")
@@ -233,10 +259,128 @@ export const MessageThread = ({ conversationId, onClose }: MessageThreadProps) =
     }
   };
 
+  const handleDeleteConversation = async () => {
+    if (!user) return;
+
+    try {
+      // Delete all messages first
+      const { error: messagesError } = await supabase
+        .from("messages")
+        .delete()
+        .eq("conversation_id", conversationId);
+
+      if (messagesError) throw messagesError;
+
+      // Delete conversation participants
+      const { error: participantsError } = await supabase
+        .from("conversation_participants")
+        .delete()
+        .eq("conversation_id", conversationId);
+
+      if (participantsError) throw participantsError;
+
+      // Delete conversation
+      const { error: conversationError } = await supabase
+        .from("conversations")
+        .delete()
+        .eq("id", conversationId);
+
+      if (conversationError) throw conversationError;
+
+      toast({
+        title: "Conversa excluída",
+        description: "A conversa foi removida permanentemente",
+      });
+
+      onClose();
+    } catch (error) {
+      console.error("Error deleting conversation:", error);
+      toast({
+        title: "Erro",
+        description: "Não foi possível excluir a conversa",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleArchiveConversation = async () => {
+    if (!user) return;
+
+    try {
+      const { error } = await supabase
+        .from("conversation_participants")
+        .update({ is_archived: true })
+        .eq("conversation_id", conversationId)
+        .eq("user_id", user.id);
+
+      if (error) throw error;
+
+      toast({
+        title: "Conversa arquivada",
+        description: "A conversa foi movida para arquivados",
+      });
+
+      onClose();
+    } catch (error) {
+      console.error("Error archiving conversation:", error);
+      toast({
+        title: "Erro",
+        description: "Não foi possível arquivar a conversa",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleBlockUser = async () => {
+    if (!user || !otherUser) return;
+
+    try {
+      const { error } = await supabase
+        .from("blocked_users")
+        .insert({
+          blocker_id: user.id,
+          blocked_id: otherUser.id,
+        });
+
+      if (error) throw error;
+
+      toast({
+        title: "Usuário bloqueado",
+        description: `${otherUser.display_name} foi bloqueado e não poderá mais enviar mensagens`,
+      });
+
+      onClose();
+    } catch (error) {
+      console.error("Error blocking user:", error);
+      toast({
+        title: "Erro",
+        description: "Não foi possível bloquear o usuário",
+        variant: "destructive",
+      });
+    }
+  };
+
   const handleSendMessage = async (content: string) => {
     if (!user || !otherUser) return;
 
     try {
+      // Check if user is blocked
+      const { data: blockData } = await supabase
+        .from("blocked_users")
+        .select("id")
+        .eq("blocked_id", user.id)
+        .eq("blocker_id", otherUser.id)
+        .maybeSingle();
+
+      if (blockData) {
+        toast({
+          title: "Bloqueado",
+          description: "Você foi bloqueado por este usuário",
+          variant: "destructive",
+        });
+        return;
+      }
+
       // Check if this should be marked as a request
       const { data: settings } = await supabase
         .from("message_settings")
@@ -339,32 +483,20 @@ export const MessageThread = ({ conversationId, onClose }: MessageThreadProps) =
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="z-[60]">
-            <DropdownMenuItem onClick={() => {
-              toast({
-                title: "Função em desenvolvimento",
-                description: "Em breve você poderá silenciar esta conversa",
-              });
-            }}>
-              Silenciar conversa
-            </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => {
-              toast({
-                title: "Função em desenvolvimento",
-                description: "Em breve você poderá arquivar esta conversa",
-              });
-            }}>
+            <DropdownMenuItem onClick={handleArchiveConversation}>
               Arquivar conversa
             </DropdownMenuItem>
             <DropdownMenuItem 
               className="text-destructive"
-              onClick={() => {
-                toast({
-                  title: "Função em desenvolvimento",
-                  description: "Em breve você poderá bloquear este usuário",
-                });
-              }}
+              onClick={() => setShowBlockDialog(true)}
             >
               Bloquear usuário
+            </DropdownMenuItem>
+            <DropdownMenuItem 
+              className="text-destructive"
+              onClick={() => setShowDeleteDialog(true)}
+            >
+              Excluir conversa
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
@@ -433,6 +565,42 @@ export const MessageThread = ({ conversationId, onClose }: MessageThreadProps) =
         otherUserId={otherUser?.id}
         onFollow={handleFollow}
       />
+
+      {/* Delete Confirmation Dialog */}
+      <AlertDialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Excluir esta conversa?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Esta ação não pode ser desfeita. Todas as mensagens serão permanentemente excluídas.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction onClick={handleDeleteConversation} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+              Excluir
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Block User Confirmation Dialog */}
+      <AlertDialog open={showBlockDialog} onOpenChange={setShowBlockDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Bloquear {otherUser?.display_name}?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Este usuário não poderá mais enviar mensagens para você. Você pode desbloquear nas configurações de mensagens.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction onClick={handleBlockUser} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+              Bloquear
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 };

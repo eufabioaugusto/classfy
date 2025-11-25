@@ -74,6 +74,24 @@ export const NewConversationModal = ({
       setCreating(true);
       console.log("Starting conversation creation with recipient:", recipientId);
 
+      // Check if user is blocked
+      const { data: blockData } = await supabase
+        .from("blocked_users")
+        .select("id")
+        .eq("blocked_id", user.id)
+        .eq("blocker_id", recipientId)
+        .maybeSingle();
+
+      if (blockData) {
+        toast({
+          title: "Não é possível enviar mensagem",
+          description: "Este usuário bloqueou você.",
+          variant: "destructive",
+        });
+        setCreating(false);
+        return;
+      }
+
       // Check recipient's privacy settings
       const { data: recipientSettings } = await supabase
         .from("message_settings")

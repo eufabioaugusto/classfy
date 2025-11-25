@@ -78,13 +78,35 @@ export const MessageContextMenu = ({
   };
 
   const handleBlock = async () => {
-    // TODO: Implement user blocking functionality
-    toast({
-      title: "Função em desenvolvimento",
-      description: "A funcionalidade de bloquear usuário será implementada em breve",
-    });
-    setShowBlockDialog(false);
-    onBlock?.();
+    try {
+      const { data: userData } = await supabase.auth.getUser();
+      if (!userData.user) throw new Error("User not authenticated");
+
+      const { error } = await supabase
+        .from("blocked_users")
+        .insert({
+          blocker_id: userData.user.id,
+          blocked_id: senderId,
+        });
+
+      if (error) throw error;
+
+      toast({
+        title: "Usuário bloqueado",
+        description: "Este usuário não poderá mais enviar mensagens para você",
+      });
+
+      setShowBlockDialog(false);
+      onBlock?.();
+    } catch (error) {
+      console.error("Error blocking user:", error);
+      toast({
+        title: "Erro",
+        description: "Não foi possível bloquear o usuário",
+        variant: "destructive",
+      });
+      setShowBlockDialog(false);
+    }
   };
 
   return (
