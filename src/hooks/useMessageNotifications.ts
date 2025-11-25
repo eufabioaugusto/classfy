@@ -38,21 +38,25 @@ export function useMessageNotifications() {
 
           if (!participation) return;
 
-          // Get sender info
-          const { data: sender } = await supabase
-            .from("profiles")
-            .select("display_name, avatar_url")
-            .eq("id", message.sender_id)
-            .single();
+      // Get sender info
+      const { data: sender } = await supabase
+        .from("profiles")
+        .select("display_name, avatar_url")
+        .eq("id", message.sender_id)
+        .single();
 
-          if (sender) {
-            toast({
-              title: sender.display_name,
-              description: message.content.length > 50 
-                ? message.content.substring(0, 50) + "..." 
-                : message.content,
-            });
-          }
+      if (sender) {
+        // Força recarregar lista de conversas (coluna) em qualquer lugar aberto
+        window.dispatchEvent(new CustomEvent("dm-conversations-changed"));
+
+        toast({
+          title: sender.display_name,
+          description:
+            message.content.length > 50
+              ? message.content.substring(0, 50) + "..."
+              : message.content,
+        });
+      }
         }
       )
       .subscribe();
