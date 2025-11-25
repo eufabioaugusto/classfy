@@ -33,12 +33,14 @@ interface ConversationListProps {
   selectedConversationId: string | null;
   onSelectConversation: (id: string) => void;
   initialRecipientId?: string;
+  onConversationsChange?: (conversations: Conversation[]) => void;
 }
 
 export const ConversationList = ({
   selectedConversationId,
   onSelectConversation,
   initialRecipientId,
+  onConversationsChange,
 }: ConversationListProps) => {
   const { user } = useAuth();
   const [conversations, setConversations] = useState<Conversation[]>([]);
@@ -160,6 +162,7 @@ export const ConversationList = ({
       );
 
       setConversations(conversationsData);
+      onConversationsChange?.(conversationsData);
     } catch (error) {
       console.error("Error loading conversations:", error);
     } finally {

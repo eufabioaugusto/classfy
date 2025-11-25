@@ -40,9 +40,10 @@ interface Message {
 interface MessageThreadProps {
   conversationId: string;
   onClose: () => void;
+  isArchived?: boolean;
 }
 
-export const MessageThread = ({ conversationId, onClose }: MessageThreadProps) => {
+export const MessageThread = ({ conversationId, onClose, isArchived = false }: MessageThreadProps) => {
   const { user } = useAuth();
   const { toast } = useToast();
   const [messages, setMessages] = useState<Message[]>([]);
@@ -313,6 +314,36 @@ export const MessageThread = ({ conversationId, onClose }: MessageThreadProps) =
     }
   };
 
+  const handleUnarchiveConversation = async () => {
+    if (!user) return;
+
+    try {
+      const { error } = await supabase
+        .from("conversation_participants")
+        .update({ is_archived: false })
+        .eq("conversation_id", conversationId)
+        .eq("user_id", user.id);
+
+      if (error) throw error;
+
+      toast({
+        title: "Conversa desarquivada",
+        description: "A conversa foi movida para Principal",
+      });
+
+      window.dispatchEvent(new CustomEvent("dm-conversations-changed"));
+
+      onClose();
+    } catch (error) {
+      console.error("Error unarchiving conversation:", error);
+      toast({
+        title: "Erro",
+        description: "Não foi possível desarquivar a conversa",
+        variant: "destructive",
+      });
+    }
+  };
+
   const handleBlockUser = async () => {
     if (!user || !otherUser) return;
 
@@ -485,9 +516,15 @@ export const MessageThread = ({ conversationId, onClose }: MessageThreadProps) =
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="z-[60]">
-            <DropdownMenuItem onClick={handleArchiveConversation}>
-              Arquivar conversa
-            </DropdownMenuItem>
+            {isArchived ? (
+              <DropdownMenuItem onClick={handleUnarchiveConversation}>
+                Desarquivar conversa
+              </DropdownMenuItem>
+            ) : (
+              <DropdownMenuItem onClick={handleArchiveConversation}>
+                Arquivar conversa
+              </DropdownMenuItem>
+            )}
             <DropdownMenuItem 
               className="text-destructive"
               onClick={() => setShowBlockDialog(true)}

@@ -17,6 +17,7 @@ export const DirectMessagesModal = ({ open, onClose, initialRecipientId }: Direc
   const { user } = useAuth();
   const [selectedConversationId, setSelectedConversationId] = useState<string | null>(null);
   const [showSettings, setShowSettings] = useState(false);
+  const [conversations, setConversations] = useState<any[]>([]);
 
   useEffect(() => {
     if (open) {
@@ -55,6 +56,7 @@ export const DirectMessagesModal = ({ open, onClose, initialRecipientId }: Direc
               selectedConversationId={selectedConversationId}
               onSelectConversation={setSelectedConversationId}
               initialRecipientId={initialRecipientId}
+              onConversationsChange={setConversations}
             />
           </div>
 
@@ -64,6 +66,7 @@ export const DirectMessagesModal = ({ open, onClose, initialRecipientId }: Direc
               <MessageThread
                 conversationId={selectedConversationId}
                 onClose={() => setSelectedConversationId(null)}
+                isArchived={conversations.find(c => c.id === selectedConversationId)?.is_archived}
               />
             ) : (
               <div className="flex-1 flex items-center justify-center text-muted-foreground">
