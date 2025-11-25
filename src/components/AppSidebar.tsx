@@ -453,12 +453,12 @@ export function AppSidebar() {
                                 className="text-foreground/80 hover:bg-muted hover:text-foreground justify-center"
                                 activeClassName="bg-muted text-cinematic-accent"
                               >
-                                <User className="w-4 h-4" />
+                                <Settings className="w-4 h-4" />
                               </NavLink>
                             </SidebarMenuButton>
                           </TooltipTrigger>
                           <TooltipContent side="right">
-                            <p>Minha Conta</p>
+                            <p>Configurações</p>
                           </TooltipContent>
                         </Tooltip>
                       ) : (
@@ -468,8 +468,8 @@ export function AppSidebar() {
                             className="text-foreground/80 hover:bg-muted hover:text-foreground"
                             activeClassName="bg-muted text-cinematic-accent"
                           >
-                            <User className="w-4 h-4" />
-                            <span>Minha Conta</span>
+                            <Settings className="w-4 h-4" />
+                            <span>Configurações</span>
                           </NavLink>
                         </SidebarMenuButton>
                       )}
