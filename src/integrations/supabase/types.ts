@@ -2325,6 +2325,10 @@ export type Database = {
         Returns: Json
       }
       is_content_boosted: { Args: { p_content_id: string }; Returns: boolean }
+      is_conversation_participant: {
+        Args: { p_conversation_id: string; p_user_id: string }
+        Returns: boolean
+      }
     }
     Enums: {
       action_type:
