@@ -56,6 +56,7 @@ export default function Shorts() {
   const [hasMore, setHasMore] = useState(true);
   const [commentsCount, setCommentsCount] = useState(0);
   const scrollLockRef = useRef(false);
+  const [isFollowing, setIsFollowing] = useState(false);
   const PAGE_SIZE = 10;
 
   useEffect(() => {
@@ -72,6 +73,7 @@ export default function Shorts() {
       checkAccess(currentShort);
       checkLikeStatus(currentShort.id);
       checkSavedStatus(currentShort.id);
+      checkFollowStatus(currentShort.creator_id);
       fetchCommentsCount(currentShort.id);
       setLocalLikesCount(currentShort.likes_count || 0);
       
@@ -330,6 +332,22 @@ export default function Shorts() {
     setIsSaved(!!data);
   };
 
+  const checkFollowStatus = async (creatorId: string) => {
+    if (!user || user.id === creatorId) {
+      setIsFollowing(false);
+      return;
+    }
+    
+    const { data } = await supabase
+      .from("follows")
+      .select("id")
+      .eq("follower_id", user.id)
+      .eq("following_id", creatorId)
+      .maybeSingle();
+    
+    setIsFollowing(!!data);
+  };
+
   const handleLike = async () => {
     if (!user || !shorts[currentIndex]) return;
 
@@ -393,6 +411,34 @@ export default function Shorts() {
       }
     } catch (error) {
       console.error("Error toggling save:", error);
+    }
+  };
+
+  const handleFollow = async () => {
+    if (!user || !shorts[currentIndex]) return;
+
+    const creatorId = shorts[currentIndex].creator_id;
+    
+    try {
+      if (isFollowing) {
+        await supabase
+          .from("follows")
+          .delete()
+          .eq("follower_id", user.id)
+          .eq("following_id", creatorId);
+        
+        setIsFollowing(false);
+        toast.success("Deixou de seguir");
+      } else {
+        await supabase
+          .from("follows")
+          .insert({ follower_id: user.id, following_id: creatorId });
+        
+        setIsFollowing(true);
+        toast.success("Seguindo");
+      }
+    } catch (error) {
+      console.error("Error toggling follow:", error);
     }
   };
 
@@ -664,9 +710,13 @@ export default function Shorts() {
                           <Button
                             size="sm"
                             variant="outline"
-                            className="bg-white/10 backdrop-blur-sm border-white text-white hover:bg-white/20"
+                            onClick={handleFollow}
+                            className={isFollowing 
+                              ? "bg-muted/50 backdrop-blur-sm border-muted text-foreground hover:bg-muted/70" 
+                              : "bg-white/10 backdrop-blur-sm border-white text-white hover:bg-white/20"
+                            }
                           >
-                            Seguir
+                            {isFollowing ? "Seguindo" : "Seguir"}
                           </Button>
                         </div>
 
