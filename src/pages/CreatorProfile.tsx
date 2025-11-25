@@ -22,6 +22,7 @@ interface CreatorProfile {
   avatar_url: string | null;
   creator_channel_name: string | null;
   creator_bio: string | null;
+  cover_image_url: string | null;
   created_at: string;
 }
 
@@ -205,9 +206,13 @@ export default function CreatorProfile() {
         <Header />
         <main className="flex-1 overflow-y-auto">
           {/* Cover Image */}
-          <div className="w-full h-48 bg-gradient-to-r from-primary/20 via-primary/10 to-background relative">
-            <div className="absolute inset-0 bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjAiIGhlaWdodD0iNjAiIHZpZXdCb3g9IjAgMCA2MCA2MCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48ZyBmaWxsPSJub25lIiBmaWxsLXJ1bGU9ImV2ZW5vZGQiPjxnIGZpbGw9IiMwMDAiIGZpbGwtb3BhY2l0eT0iMC4wNSI+PHBhdGggZD0iTTM2IDM0djItMnptMC0ydjItMnptMCAyaDJ2LTJoLTJ6bTAgMGgydi0yaC0yem0tMiAwaDJ2LTJoLTJ6bTAgMGgydi0yaC0yem0wLTJoMnYtMmgtMnptMCAwaDJ2LTJoLTJ6bS0yIDBoMnYtMmgtMnptMCAwaDJ2LTJoLTJ6bTAgMmgydi0yaC0yem0wIDBoMnYtMmgtMnptMiAwaDJ2LTJoLTJ6bTAgMGgydi0yaC0yem0wIDJoMnYtMmgtMnptMCAwaDJ2LTJoLTJ6bS0yIDBoMnYtMmgtMnptMCAwaDJ2LTJoLTJ6Ii8+PC9nPjwvZz48L3N2Zz4=')] opacity-30" />
-          </div>
+            <div className="w-full h-48 bg-gradient-to-r from-primary/20 via-primary/10 to-background relative overflow-hidden rounded-t-lg">
+              {creator?.cover_image_url ? (
+                <img src={creator.cover_image_url} alt="Capa do canal" className="w-full h-full object-cover" />
+              ) : (
+                <div className="absolute inset-0 bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjAiIGhlaWdodD0iNjAiIHZpZXdCb3g9IjAgMCA2MCA2MCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48ZyBmaWxsPSJub25lIiBmaWxsLXJ1bGU9ImV2ZW5vZGQiPjxnIGZpbGw9IiMwMDAiIGZpbGwtb3BhY2l0eT0iMC4wNSI+PHBhdGggZD0iTTM2IDM0djItMnptMC0ydjItMnptMCAyaDJ2LTJoLTJ6bTAgMGgydi0yaC0yem0tMiAwaDJ2LTJoLTJ6bTAgMGgydi0yaC0yem0wLTJoMnYtMmgtMnptMCAwaDJ2LTJoLTJ6bS0yIDBoMnYtMmgtMnptMCAwaDJ2LTJoLTJ6bTAgMmgydi0yaC0yem0wIDBoMnYtMmgtMnptMiAwaDJ2LTJoLTJ6bTAgMGgydi0yaC0yem0wIDJoMnYtMmgtMnptMCAwaDJ2LTJoLTJ6bS0yIDBoMnYtMmgtMnptMCAwaDJ2LTJoLTJ6Ii8+PC9nPjwvZz48L3N2Zz4=')] opacity-30" />
+              )}
+            </div>
 
           <div className="container mx-auto px-4">
             {/* Profile Header */}

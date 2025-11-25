@@ -22,6 +22,8 @@ import { BecomeCreatorModal } from "@/components/BecomeCreatorModal";
 import { EditableAvatar } from "@/components/EditableAvatar";
 import { UserBadges } from "@/components/UserBadges";
 import { useProfileComplete } from "@/hooks/useProfileComplete";
+import { CoverUpload } from "@/components/CoverUpload";
+import { Textarea } from "@/components/ui/textarea";
 
 export default function Conta() {
   const { user, loading: authLoading, role, profile: userProfile, refreshProfile } = useAuth();
@@ -268,18 +270,25 @@ export default function Conta() {
   return (
     <div className="min-h-screen bg-background">
       {/* Header */}
-      <header className="sticky top-0 z-50 border-b border-border/50 bg-background/80 backdrop-blur-xl">
-        <div className="container mx-auto px-4 py-4">
+      <header className="sticky top-0 z-50 border-b border-border/50 bg-background/95 backdrop-blur-xl">
+        <div className="container mx-auto px-4 py-4 flex items-center justify-between">
           <Button variant="ghost" onClick={() => navigate("/")}>
             <ArrowLeft className="w-4 h-4 mr-2" />
             Voltar
           </Button>
+          <h2 className="text-xl font-semibold">Configurações</h2>
+          <div className="w-20" /> {/* Spacer for alignment */}
         </div>
       </header>
 
-      <div className="container mx-auto px-4 py-12 max-w-4xl">
+      <div className="container mx-auto px-4 py-8 max-w-4xl">
         <div className="space-y-8">
           {/* Profile Header */}
+          <div className="mb-8">
+            <h1 className="text-4xl font-bold mb-2">Configurações</h1>
+            <p className="text-muted-foreground">Gerencie suas preferências e informações da conta</p>
+          </div>
+
           <Card className="p-8">
             <div className="flex flex-col md:flex-row items-center gap-8">
               <EditableAvatar 
@@ -291,7 +300,7 @@ export default function Conta() {
               />
               <div className="flex-1 space-y-4 text-center md:text-left">
                 <div className="space-y-2">
-                  <h1 className="text-4xl font-bold">{profile?.display_name}</h1>
+                  <h1 className="text-3xl font-bold">{profile?.display_name}</h1>
                   <div className="flex gap-2 justify-center md:justify-start">
                     <Badge variant="secondary" className="uppercase">
                       {profile?.plan || "free"}
@@ -299,85 +308,98 @@ export default function Conta() {
                   </div>
                 </div>
 
-                {/* Nome do Canal - Somente para creators */}
+                {/* Nome do Canal e Capa - Somente para creators */}
                 {profile?.creator_status === "approved" && (
-                  <div className="space-y-2 pt-4 border-t border-border/50">
-                    <Label htmlFor="channelName" className="text-sm font-medium">
-                      Nome do Canal
-                    </Label>
-                    <div className="flex flex-col gap-3">
-                      <div className="flex gap-2">
-                        <div className="relative flex-1">
-                          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground font-mono text-sm">
-                            @
-                          </span>
-                          <Input
-                            id="channelName"
-                            value={channelName}
-                            onChange={(e) => {
-                              const newName = e.target.value.toLowerCase().replace(/[^a-z0-9-_]/g, '');
-                              setChannelName(newName);
-                            }}
-                            placeholder="nomedocanal"
-                            className="font-mono pl-8"
-                            disabled={!isEditingChannel || savingChannel}
-                            maxLength={30}
-                          />
-                        </div>
-                        {!isEditingChannel ? (
-                          <Button
-                            type="button"
-                            variant="outline"
-                            onClick={() => setIsEditingChannel(true)}
-                            disabled={savingChannel}
-                          >
-                            Editar
-                          </Button>
-                        ) : (
-                          <>
-                            <Button
-                              type="button"
-                              onClick={handleSaveChannelName}
-                              disabled={savingChannel || !channelName.trim()}
-                            >
-                              {savingChannel ? "Salvando..." : "Salvar"}
-                            </Button>
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              onClick={() => {
-                                setChannelName(profile?.creator_channel_name || "");
-                                setIsEditingChannel(false);
+                  <div className="space-y-6 pt-4 border-t border-border/50">
+                    {/* Nome do Canal */}
+                    <div className="space-y-2">
+                      <Label htmlFor="channelName" className="text-sm font-medium">
+                        Nome do Canal
+                      </Label>
+                      <div className="flex flex-col gap-3">
+                        <div className="flex gap-2">
+                          <div className="relative flex-1">
+                            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground font-mono text-sm">
+                              @
+                            </span>
+                            <Input
+                              id="channelName"
+                              value={channelName}
+                              onChange={(e) => {
+                                const newName = e.target.value.toLowerCase().replace(/[^a-z0-9-_]/g, '');
+                                setChannelName(newName);
                               }}
+                              placeholder="nomedocanal"
+                              className="font-mono pl-8"
+                              disabled={!isEditingChannel || savingChannel}
+                              maxLength={30}
+                            />
+                          </div>
+                          {!isEditingChannel ? (
+                            <Button
+                              type="button"
+                              variant="outline"
+                              onClick={() => setIsEditingChannel(true)}
                               disabled={savingChannel}
                             >
-                              Cancelar
+                              Editar
                             </Button>
-                          </>
-                        )}
-                      </div>
-                      
-                      {profile?.creator_channel_name && !isEditingChannel && (
-                        <div className="flex items-center gap-2 p-3 rounded-lg bg-muted/50 border border-border/50">
-                          <div className="flex-1">
-                            <p className="text-xs text-muted-foreground mb-1">
-                              Seu perfil público:
-                            </p>
-                            <Button
-                              variant="link"
-                              className="h-auto p-0 text-sm font-mono text-primary hover:text-primary/80"
-                              onClick={() => navigate(`/@${profile.creator_channel_name}`)}
-                            >
-                              /@{profile.creator_channel_name}
-                            </Button>
-                          </div>
+                          ) : (
+                            <>
+                              <Button
+                                type="button"
+                                onClick={handleSaveChannelName}
+                                disabled={savingChannel || !channelName.trim()}
+                              >
+                                {savingChannel ? "Salvando..." : "Salvar"}
+                              </Button>
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                onClick={() => {
+                                  setChannelName(profile?.creator_channel_name || "");
+                                  setIsEditingChannel(false);
+                                }}
+                                disabled={savingChannel}
+                              >
+                                Cancelar
+                              </Button>
+                            </>
+                          )}
                         </div>
-                      )}
-                      
-                      <p className="text-xs text-muted-foreground">
-                        Use apenas letras minúsculas, números, traços (-) e underscores (_). Mínimo 3 caracteres.
-                      </p>
+                        
+                        {profile?.creator_channel_name && !isEditingChannel && (
+                          <div className="flex items-center gap-2 p-3 rounded-lg bg-muted/50 border border-border/50">
+                            <div className="flex-1">
+                              <p className="text-xs text-muted-foreground mb-1">
+                                Seu perfil público:
+                              </p>
+                              <Button
+                                variant="link"
+                                className="h-auto p-0 text-sm font-mono text-primary hover:text-primary/80"
+                                onClick={() => navigate(`/@${profile.creator_channel_name}`)}
+                              >
+                                /@{profile.creator_channel_name}
+                              </Button>
+                            </div>
+                          </div>
+                        )}
+                        
+                        <p className="text-xs text-muted-foreground">
+                          Use apenas letras minúsculas, números, traços (-) e underscores (_). Mínimo 3 caracteres.
+                        </p>
+                      </div>
                     </div>
+
+                    {/* Capa do Canal */}
+                    <CoverUpload 
+                      userId={user?.id || ""} 
+                      currentCoverUrl={profile?.cover_image_url}
+                      onUploadComplete={(url) => {
+                        setProfile({ ...profile, cover_image_url: url });
+                        refreshProfile();
+                      }}
+                    />
                   </div>
                 )}
               </div>

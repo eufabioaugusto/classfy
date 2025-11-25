@@ -147,7 +147,7 @@ export function Header({ variant = "home", title }: HeaderProps) {
                 )}
                 <DropdownMenuItem onClick={() => navigate("/conta")} className="cursor-pointer">
                   <Settings className="w-4 h-4 mr-2" />
-                  Minha Conta
+                  Configurações
                 </DropdownMenuItem>
                 {(role === 'creator' || role === 'admin') && variant === "home" && (
                   <DropdownMenuItem onClick={() => navigate("/studio")} className="cursor-pointer">

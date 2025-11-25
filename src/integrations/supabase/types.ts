@@ -1053,6 +1053,7 @@ export type Database = {
           avatar_url: string | null
           billing_id: string | null
           bio: string | null
+          cover_image_url: string | null
           created_at: string
           creator_bio: string | null
           creator_channel_name: string | null
@@ -1067,6 +1068,7 @@ export type Database = {
           avatar_url?: string | null
           billing_id?: string | null
           bio?: string | null
+          cover_image_url?: string | null
           created_at?: string
           creator_bio?: string | null
           creator_channel_name?: string | null
@@ -1081,6 +1083,7 @@ export type Database = {
           avatar_url?: string | null
           billing_id?: string | null
           bio?: string | null
+          cover_image_url?: string | null
           created_at?: string
           creator_bio?: string | null
           creator_channel_name?: string | null
