@@ -85,6 +85,7 @@ export const ConversationList = ({
           conversation_id,
           last_read_at,
           is_archived,
+          is_muted,
           conversations!inner (
             id,
             last_message_at,
@@ -101,7 +102,8 @@ export const ConversationList = ({
         return;
       }
 
-      const conversationIds = participants.map(p => p.conversation_id);
+      const activeParticipants = (participants || []).filter(p => !(p.is_archived && p.is_muted));
+      const conversationIds = activeParticipants.map(p => p.conversation_id);
 
       // Get other participants
       const { data: otherParticipants, error: otherError } = await supabase
