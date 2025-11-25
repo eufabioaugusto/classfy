@@ -187,6 +187,13 @@ export const NewConversationModal = ({
 
       console.log("Conversation id from RPC:", conversationId);
 
+      // Garante que sua participação não esteja mutada/arquivada (caso tenha excluído antes)
+      await supabase
+        .from("conversation_participants")
+        .update({ is_muted: false, is_archived: false })
+        .eq("conversation_id", conversationId)
+        .eq("user_id", user.id);
+
       // If privacy mode is 'request', mark first message as request
       const isRequest = privacyMode === 'request';
       
