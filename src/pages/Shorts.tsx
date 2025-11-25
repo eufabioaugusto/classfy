@@ -17,8 +17,9 @@ interface ShortContent {
   id: string;
   title: string;
   description: string | null;
-  video_url: string;
+  video_url: string | null;
   thumbnail_url: string;
+  file_url: string | null;
   visibility: "free" | "pro" | "premium" | "paid";
   price: number;
   duration_seconds: number;
@@ -113,6 +114,7 @@ export default function Shorts() {
             description,
             video_url,
             thumbnail_url,
+            file_url,
             visibility,
             price,
             duration_seconds,
@@ -150,6 +152,7 @@ export default function Shorts() {
           description,
           video_url,
           thumbnail_url,
+          file_url,
           visibility,
           price,
           duration_seconds,
@@ -200,6 +203,7 @@ export default function Shorts() {
           description,
           video_url,
           thumbnail_url,
+          file_url,
           visibility,
           price,
           duration_seconds,
@@ -583,7 +587,7 @@ export default function Shorts() {
                   <div className="relative w-full max-w-[380px] md:max-w-[420px] aspect-[9/16] rounded-2xl overflow-hidden bg-black">
                     <video
                       ref={(el) => (videoRefs.current[currentIndex] = el)}
-                      src={currentShort.video_url}
+                      src={currentShort.video_url || currentShort.file_url || ""}
                       className="w-full h-full object-cover"
                       loop
                       playsInline
