@@ -258,7 +258,15 @@ export const MessageThread = ({ conversationId, onClose, isArchived = false }: M
 
       if (deleteMessagesError) throw deleteMessagesError;
 
-      // 2) Marca sua participação como removida (arquivado+mutado) pra SUMIR da lista
+      // 2) Reseta status de aprovação de todas as mensagens is_request desta conversa
+      // (para voltar a pedir aprovação na próxima vez)
+      await supabase
+        .from("messages")
+        .update({ request_status: null })
+        .eq("conversation_id", conversationId)
+        .eq("is_request", true);
+
+      // 3) Marca sua participação como removida (arquivado+mutado) pra SUMIR da lista
       const { error: deleteParticipantError } = await supabase
         .from("conversation_participants")
         .update({ is_archived: true, is_muted: true })
