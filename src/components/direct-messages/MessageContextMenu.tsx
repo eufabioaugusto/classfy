@@ -93,15 +93,15 @@ export const MessageContextMenu = ({
         <ContextMenuTrigger asChild>
           {children}
         </ContextMenuTrigger>
-        <ContextMenuContent>
+        <ContextMenuContent className="w-48">
           <ContextMenuItem onClick={handleCopy}>
             <Copy className="h-4 w-4 mr-2" />
-            Copiar
+            Copiar mensagem
           </ContextMenuItem>
           {isOwn && (
             <ContextMenuItem onClick={handleDelete} className="text-destructive">
               <Trash2 className="h-4 w-4 mr-2" />
-              Excluir
+              Excluir mensagem
             </ContextMenuItem>
           )}
           {!isOwn && (

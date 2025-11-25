@@ -1,13 +1,20 @@
 import { useEffect, useState, useRef } from "react";
-import { ArrowLeft, MoreVertical } from "lucide-react";
+import { ArrowLeft, MoreVertical, Settings } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { MessageInput } from "./MessageInput";
 import { MessageContextMenu } from "./MessageContextMenu";
 import { MessageRequestBanner } from "./MessageRequestBanner";
+import { MessageSettingsModal } from "./MessageSettingsModal";
 import { formatDistanceToNow } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { useToast } from "@/hooks/use-toast";
@@ -35,6 +42,7 @@ export const MessageThread = ({ conversationId, onClose }: MessageThreadProps) =
   const [isBlocked, setIsBlocked] = useState(false);
   const [blockReason, setBlockReason] = useState<'closed' | 'not_follower' | 'pending_request'>();
   const [isFollowing, setIsFollowing] = useState(false);
+  const [showSettingsModal, setShowSettingsModal] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -326,9 +334,45 @@ export const MessageThread = ({ conversationId, onClose }: MessageThreadProps) =
             </div>
           </>
         )}
-        <Button variant="ghost" size="icon">
-          <MoreVertical className="h-5 w-5" />
+        <Button variant="ghost" size="icon" onClick={() => setShowSettingsModal(true)}>
+          <Settings className="h-5 w-5" />
         </Button>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="ghost" size="icon">
+              <MoreVertical className="h-5 w-5" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem onClick={() => {
+              toast({
+                title: "Função em desenvolvimento",
+                description: "Em breve você poderá silenciar esta conversa",
+              });
+            }}>
+              Silenciar conversa
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => {
+              toast({
+                title: "Função em desenvolvimento",
+                description: "Em breve você poderá arquivar esta conversa",
+              });
+            }}>
+              Arquivar conversa
+            </DropdownMenuItem>
+            <DropdownMenuItem 
+              className="text-destructive"
+              onClick={() => {
+                toast({
+                  title: "Função em desenvolvimento",
+                  description: "Em breve você poderá bloquear este usuário",
+                });
+              }}
+            >
+              Bloquear usuário
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
 
       {/* Messages */}
@@ -393,6 +437,12 @@ export const MessageThread = ({ conversationId, onClose }: MessageThreadProps) =
         blockReason={blockReason}
         otherUserId={otherUser?.id}
         onFollow={handleFollow}
+      />
+
+      {/* Settings Modal */}
+      <MessageSettingsModal 
+        open={showSettingsModal} 
+        onClose={() => setShowSettingsModal(false)}
       />
     </div>
   );
