@@ -72,6 +72,7 @@ export const NewConversationModal = ({
 
     try {
       setCreating(true);
+      console.log("Starting conversation creation with recipient:", recipientId);
 
       // Check if conversation already exists
       const { data: existingParticipants, error: checkError } = await supabase
@@ -79,7 +80,12 @@ export const NewConversationModal = ({
         .select("conversation_id")
         .eq("user_id", user.id);
 
-      if (checkError) throw checkError;
+      if (checkError) {
+        console.error("Error checking existing participants:", checkError);
+        throw checkError;
+      }
+
+      console.log("Existing participants:", existingParticipants);
 
       if (existingParticipants && existingParticipants.length > 0) {
         // Check if any of these conversations has the recipient
@@ -91,10 +97,16 @@ export const NewConversationModal = ({
           .eq("user_id", recipientId)
           .in("conversation_id", conversationIds);
 
-        if (recipientError) throw recipientError;
+        if (recipientError) {
+          console.error("Error checking recipient participants:", recipientError);
+          throw recipientError;
+        }
+
+        console.log("Recipient participants:", recipientParticipants);
 
         if (recipientParticipants && recipientParticipants.length > 0) {
           // Conversation already exists
+          console.log("Conversation already exists, using:", recipientParticipants[0].conversation_id);
           onConversationCreated(recipientParticipants[0].conversation_id);
           onClose();
           return;
@@ -102,15 +114,22 @@ export const NewConversationModal = ({
       }
 
       // Create new conversation
+      console.log("Creating new conversation...");
       const { data: conversation, error: convError } = await supabase
         .from("conversations")
         .insert({})
         .select()
         .single();
 
-      if (convError) throw convError;
+      if (convError) {
+        console.error("Error creating conversation:", convError);
+        throw convError;
+      }
+
+      console.log("Conversation created:", conversation);
 
       // Add participants
+      console.log("Adding participants to conversation:", conversation.id);
       const { error: participantsError } = await supabase
         .from("conversation_participants")
         .insert([
@@ -118,8 +137,12 @@ export const NewConversationModal = ({
           { conversation_id: conversation.id, user_id: recipientId },
         ]);
 
-      if (participantsError) throw participantsError;
+      if (participantsError) {
+        console.error("Error adding participants:", participantsError);
+        throw participantsError;
+      }
 
+      console.log("Participants added successfully");
       onConversationCreated(conversation.id);
       onClose();
       
@@ -127,11 +150,19 @@ export const NewConversationModal = ({
         title: "Conversa criada",
         description: "Você pode começar a conversar agora!",
       });
-    } catch (error) {
-      console.error("Error creating conversation:", error);
+    } catch (error: any) {
+      console.error("Error creating conversation - Full details:", {
+        error,
+        message: error?.message,
+        details: error?.details,
+        hint: error?.hint,
+        code: error?.code
+      });
+      
+      const errorMessage = error?.message || "Não foi possível criar a conversa.";
       toast({
         title: "Erro",
-        description: "Não foi possível criar a conversa.",
+        description: errorMessage,
         variant: "destructive",
       });
     } finally {
