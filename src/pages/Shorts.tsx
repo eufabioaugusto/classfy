@@ -459,7 +459,7 @@ export default function Shorts() {
   const handleWheel = (e: React.WheelEvent<HTMLDivElement>) => {
     if (scrollLockRef.current || shorts.length === 0) return;
 
-    const threshold = 3;
+    const threshold = 30; // exige gesto mais forte/mais longo
     if (Math.abs(e.deltaY) < threshold) return;
 
     scrollLockRef.current = true;
@@ -473,7 +473,7 @@ export default function Shorts() {
 
     window.setTimeout(() => {
       scrollLockRef.current = false;
-    }, 400);
+    }, 800); // bloqueia novos avanços por 0.8s
   };
 
   const handleTimeUpdate = async (e: React.SyntheticEvent<HTMLVideoElement>) => {
