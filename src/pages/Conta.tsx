@@ -2,12 +2,27 @@ import { useEffect, useState } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
-import { ArrowLeft, Wallet, TrendingUp, DollarSign, Trophy, Sparkles, CheckCircle, Clock, XCircle, AlertCircle, History } from "lucide-react";
+import { 
+  Wallet, 
+  TrendingUp, 
+  DollarSign, 
+  Trophy, 
+  Sparkles, 
+  CheckCircle, 
+  Clock, 
+  XCircle, 
+  History,
+  User,
+  Video,
+  CreditCard,
+  Settings as SettingsIcon,
+  Loader2
+} from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
@@ -23,7 +38,8 @@ import { EditableAvatar } from "@/components/EditableAvatar";
 import { UserBadges } from "@/components/UserBadges";
 import { useProfileComplete } from "@/hooks/useProfileComplete";
 import { CoverUpload } from "@/components/CoverUpload";
-import { Textarea } from "@/components/ui/textarea";
+import { AdminLayout } from "@/components/AdminLayout";
+import { Separator } from "@/components/ui/separator";
 
 export default function Conta() {
   const { user, loading: authLoading, role, profile: userProfile, refreshProfile } = useAuth();
@@ -42,7 +58,6 @@ export default function Conta() {
   const [channelName, setChannelName] = useState("");
   const [savingChannel, setSavingChannel] = useState(false);
 
-  // Check if profile is complete and reward user
   useProfileComplete(user?.id, profile);
 
   useEffect(() => {
@@ -85,7 +100,6 @@ export default function Conta() {
         setWithdrawHistory(withdrawalsRes.data);
       }
 
-      // Set initial channel name
       if (profileRes.data?.creator_channel_name) {
         setChannelName(profileRes.data.creator_channel_name);
       }
@@ -110,7 +124,6 @@ export default function Conta() {
       return;
     }
 
-    // Validate format
     const validFormat = /^[a-z0-9_-]+$/;
     if (!validFormat.test(channelName)) {
       toast({
@@ -121,7 +134,6 @@ export default function Conta() {
       return;
     }
 
-    // Check minimum length
     if (channelName.length < 3) {
       toast({
         title: "Nome muito curto",
@@ -134,7 +146,6 @@ export default function Conta() {
     setSavingChannel(true);
 
     try {
-      // Check if channel name already exists (excluding current user)
       const { data: existingChannel } = await supabase
         .from("profiles")
         .select("id")
@@ -152,7 +163,6 @@ export default function Conta() {
         return;
       }
 
-      // Update channel name
       const { error } = await supabase
         .from("profiles")
         .update({ creator_channel_name: channelName })
@@ -168,7 +178,6 @@ export default function Conta() {
         description: "Nome do canal atualizado.",
       });
 
-      // Refresh profile in auth context
       await refreshProfile();
     } catch (error: any) {
       toast({
@@ -245,7 +254,7 @@ export default function Conta() {
 
       setWithdrawAmount("");
       setPixKey("");
-      fetchData(); // Refresh data including withdrawal history
+      fetchData();
     } catch (error: any) {
       toast({
         title: "Erro ao solicitar saque",
@@ -259,139 +268,227 @@ export default function Conta() {
 
   if (authLoading || loading || !user) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="animate-spin">
-          <Wallet className="w-12 h-12 text-accent" />
+      <AdminLayout title="Configurações">
+        <div className="flex items-center justify-center h-96">
+          <Loader2 className="w-8 h-8 animate-spin text-primary" />
         </div>
-      </div>
+      </AdminLayout>
     );
   }
 
+  const isCreator = profile?.creator_status === "approved";
+
   return (
-    <div className="min-h-screen bg-background">
-      {/* Header */}
-      <header className="sticky top-0 z-50 border-b border-border/50 bg-background/95 backdrop-blur-xl">
-        <div className="container mx-auto px-4 py-4 flex items-center justify-between">
-          <Button variant="ghost" onClick={() => navigate("/")}>
-            <ArrowLeft className="w-4 h-4 mr-2" />
-            Voltar
-          </Button>
-          <h2 className="text-xl font-semibold">Configurações</h2>
-          <div className="w-20" /> {/* Spacer for alignment */}
+    <AdminLayout title="Configurações">
+      <div className="container mx-auto p-6 max-w-7xl space-y-6">
+        {/* Page Header */}
+        <div className="space-y-1">
+          <h1 className="text-3xl font-bold tracking-tight">Configurações</h1>
+          <p className="text-muted-foreground">
+            Gerencie suas preferências, perfil e informações da conta
+          </p>
         </div>
-      </header>
 
-      <div className="container mx-auto px-4 py-8 max-w-4xl">
-        <div className="space-y-8">
-          {/* Profile Header */}
-          <div className="mb-8">
-            <h1 className="text-4xl font-bold mb-2">Configurações</h1>
-            <p className="text-muted-foreground">Gerencie suas preferências e informações da conta</p>
-          </div>
+        {/* Main Tabs */}
+        <Tabs defaultValue="profile" className="space-y-6">
+          <TabsList className="grid w-full grid-cols-5 lg:w-auto lg:inline-grid bg-muted/50 p-1">
+            <TabsTrigger value="profile" className="gap-2">
+              <User className="w-4 h-4" />
+              <span className="hidden sm:inline">Perfil</span>
+            </TabsTrigger>
+            {isCreator && (
+              <TabsTrigger value="channel" className="gap-2">
+                <Video className="w-4 h-4" />
+                <span className="hidden sm:inline">Canal</span>
+              </TabsTrigger>
+            )}
+            <TabsTrigger value="wallet" className="gap-2">
+              <Wallet className="w-4 h-4" />
+              <span className="hidden sm:inline">Carteira</span>
+            </TabsTrigger>
+            <TabsTrigger value="plan" className="gap-2">
+              <Trophy className="w-4 h-4" />
+              <span className="hidden sm:inline">Plano</span>
+            </TabsTrigger>
+            <TabsTrigger value="account" className="gap-2">
+              <SettingsIcon className="w-4 h-4" />
+              <span className="hidden sm:inline">Conta</span>
+            </TabsTrigger>
+          </TabsList>
 
-          <Card className="p-8">
-            <div className="flex flex-col md:flex-row items-center gap-8">
-              <EditableAvatar 
-                userId={user?.id || ""} 
-                avatarUrl={profile?.avatar_url}
-                displayName={profile?.display_name || ""}
-                size="xl"
-                editable={true}
-              />
-              <div className="flex-1 space-y-4 text-center md:text-left">
-                <div className="space-y-2">
-                  <h1 className="text-3xl font-bold">{profile?.display_name}</h1>
-                  <div className="flex gap-2 justify-center md:justify-start">
-                    <Badge variant="secondary" className="uppercase">
-                      {profile?.plan || "free"}
-                    </Badge>
+          {/* Profile Tab */}
+          <TabsContent value="profile" className="space-y-6">
+            <Card>
+              <CardHeader>
+                <CardTitle>Informações do Perfil</CardTitle>
+                <CardDescription>
+                  Gerencie como você aparece na plataforma
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                <div className="flex flex-col sm:flex-row items-start gap-6">
+                  <div className="flex flex-col items-center gap-4">
+                    <EditableAvatar 
+                      userId={user?.id || ""} 
+                      avatarUrl={profile?.avatar_url}
+                      displayName={profile?.display_name || ""}
+                      size="xl"
+                      editable={true}
+                    />
+                    <div className="text-center">
+                      <p className="font-semibold text-lg">{profile?.display_name}</p>
+                      <Badge variant="secondary" className="mt-1 uppercase text-xs">
+                        {profile?.plan || "free"}
+                      </Badge>
+                    </div>
                   </div>
-                </div>
 
-                {/* Nome do Canal e Capa - Somente para creators */}
-                {profile?.creator_status === "approved" && (
-                  <div className="space-y-6 pt-4 border-t border-border/50">
-                    {/* Nome do Canal */}
+                  <div className="flex-1 space-y-4 w-full">
                     <div className="space-y-2">
-                      <Label htmlFor="channelName" className="text-sm font-medium">
-                        Nome do Canal
-                      </Label>
-                      <div className="flex flex-col gap-3">
-                        <div className="flex gap-2">
-                          <div className="relative flex-1">
-                            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground font-mono text-sm">
-                              @
-                            </span>
-                            <Input
-                              id="channelName"
-                              value={channelName}
-                              onChange={(e) => {
-                                const newName = e.target.value.toLowerCase().replace(/[^a-z0-9-_]/g, '');
-                                setChannelName(newName);
-                              }}
-                              placeholder="nomedocanal"
-                              className="font-mono pl-8"
-                              disabled={!isEditingChannel || savingChannel}
-                              maxLength={30}
-                            />
-                          </div>
-                          {!isEditingChannel ? (
-                            <Button
-                              type="button"
-                              variant="outline"
-                              onClick={() => setIsEditingChannel(true)}
-                              disabled={savingChannel}
-                            >
-                              Editar
-                            </Button>
-                          ) : (
-                            <>
-                              <Button
-                                type="button"
-                                onClick={handleSaveChannelName}
-                                disabled={savingChannel || !channelName.trim()}
-                              >
-                                {savingChannel ? "Salvando..." : "Salvar"}
-                              </Button>
-                              <Button
-                                type="button"
-                                variant="ghost"
-                                onClick={() => {
-                                  setChannelName(profile?.creator_channel_name || "");
-                                  setIsEditingChannel(false);
-                                }}
-                                disabled={savingChannel}
-                              >
-                                Cancelar
-                              </Button>
-                            </>
-                          )}
-                        </div>
-                        
-                        {profile?.creator_channel_name && !isEditingChannel && (
-                          <div className="flex items-center gap-2 p-3 rounded-lg bg-muted/50 border border-border/50">
-                            <div className="flex-1">
-                              <p className="text-xs text-muted-foreground mb-1">
-                                Seu perfil público:
-                              </p>
-                              <Button
-                                variant="link"
-                                className="h-auto p-0 text-sm font-mono text-primary hover:text-primary/80"
-                                onClick={() => navigate(`/@${profile.creator_channel_name}`)}
-                              >
-                                /@{profile.creator_channel_name}
-                              </Button>
-                            </div>
-                          </div>
-                        )}
-                        
-                        <p className="text-xs text-muted-foreground">
-                          Use apenas letras minúsculas, números, traços (-) e underscores (_). Mínimo 3 caracteres.
-                        </p>
-                      </div>
+                      <Label>Conquistas & Badges</Label>
+                      <UserBadges userId={user?.id || ""} />
                     </div>
 
-                    {/* Capa do Canal */}
+                    <Separator />
+
+                    <div className="grid gap-4">
+                      <div className="grid gap-2">
+                        <Label htmlFor="email">Email</Label>
+                        <Input 
+                          id="email" 
+                          type="email" 
+                          value={user?.email || ""} 
+                          disabled 
+                          className="bg-muted"
+                        />
+                        <p className="text-xs text-muted-foreground">
+                          Email não pode ser alterado
+                        </p>
+                      </div>
+
+                      <div className="grid gap-2">
+                        <Label htmlFor="displayName">Nome de Exibição</Label>
+                        <Input 
+                          id="displayName" 
+                          value={profile?.display_name || ""} 
+                          disabled 
+                          className="bg-muted"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          {/* Channel Tab (Creator Only) */}
+          {isCreator && (
+            <TabsContent value="channel" className="space-y-6">
+              <Card>
+                <CardHeader>
+                  <CardTitle>Configurações do Canal</CardTitle>
+                  <CardDescription>
+                    Personalize seu canal de creator
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-6">
+                  {/* Channel Name */}
+                  <div className="space-y-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="channelName">Nome do Canal</Label>
+                      <div className="flex gap-2">
+                        <div className="relative flex-1">
+                          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground font-mono text-sm">
+                            @
+                          </span>
+                          <Input
+                            id="channelName"
+                            value={channelName}
+                            onChange={(e) => {
+                              const newName = e.target.value.toLowerCase().replace(/[^a-z0-9-_]/g, '');
+                              setChannelName(newName);
+                            }}
+                            placeholder="nomedocanal"
+                            className="font-mono pl-8"
+                            disabled={!isEditingChannel || savingChannel}
+                            maxLength={30}
+                          />
+                        </div>
+                        {!isEditingChannel ? (
+                          <Button
+                            type="button"
+                            variant="outline"
+                            onClick={() => setIsEditingChannel(true)}
+                            disabled={savingChannel}
+                          >
+                            Editar
+                          </Button>
+                        ) : (
+                          <>
+                            <Button
+                              type="button"
+                              onClick={handleSaveChannelName}
+                              disabled={savingChannel || !channelName.trim()}
+                            >
+                              {savingChannel ? (
+                                <>
+                                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                                  Salvando...
+                                </>
+                              ) : (
+                                "Salvar"
+                              )}
+                            </Button>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              onClick={() => {
+                                setChannelName(profile?.creator_channel_name || "");
+                                setIsEditingChannel(false);
+                              }}
+                              disabled={savingChannel}
+                            >
+                              Cancelar
+                            </Button>
+                          </>
+                        )}
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        Use apenas letras minúsculas, números, traços (-) e underscores (_). Mínimo 3 caracteres.
+                      </p>
+                    </div>
+
+                    {profile?.creator_channel_name && !isEditingChannel && (
+                      <div className="flex items-center gap-2 p-4 rounded-lg bg-primary/5 border border-primary/20">
+                        <div className="flex-1">
+                          <p className="text-xs text-muted-foreground mb-1">
+                            Seu perfil público está disponível em:
+                          </p>
+                          <Button
+                            variant="link"
+                            className="h-auto p-0 text-sm font-mono text-primary hover:text-primary/80"
+                            onClick={() => navigate(`/@${profile.creator_channel_name}`)}
+                          >
+                            /@{profile.creator_channel_name}
+                          </Button>
+                        </div>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => navigate(`/@${profile.creator_channel_name}`)}
+                        >
+                          Ver Perfil
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+
+                  <Separator />
+
+                  {/* Cover Image */}
+                  <div className="space-y-2">
+                    <Label>Capa do Canal</Label>
                     <CoverUpload 
                       userId={user?.id || ""} 
                       currentCoverUrl={profile?.cover_image_url}
@@ -401,548 +498,643 @@ export default function Conta() {
                       }}
                     />
                   </div>
-                )}
-              </div>
-            </div>
-          </Card>
+                </CardContent>
+              </Card>
+            </TabsContent>
+          )}
 
-          {/* Carteira Section */}
-          <Card className="p-8">
-            <div className="flex items-center gap-3 mb-6">
-              <Wallet className="w-8 h-8 text-accent" />
-              <h2 className="text-3xl font-bold">Carteira</h2>
-            </div>
+          {/* Wallet Tab */}
+          <TabsContent value="wallet" className="space-y-6">
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Wallet className="w-5 h-5" />
+                  Carteira
+                </CardTitle>
+                <CardDescription>
+                  Gerencie seus ganhos e solicitações de saque
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <Tabs defaultValue="overview" className="space-y-6">
+                  <TabsList className="grid w-full grid-cols-3">
+                    <TabsTrigger value="overview">Visão Geral</TabsTrigger>
+                    <TabsTrigger value="withdraw">Sacar</TabsTrigger>
+                    <TabsTrigger value="history">Histórico</TabsTrigger>
+                  </TabsList>
 
-            <Tabs defaultValue="overview" className="space-y-6">
-              <TabsList className="grid w-full grid-cols-3">
-                <TabsTrigger value="overview">Visão Geral</TabsTrigger>
-                <TabsTrigger value="withdraw">Sacar</TabsTrigger>
-                <TabsTrigger value="history">Histórico</TabsTrigger>
-              </TabsList>
-
-              {/* Overview Tab */}
-              <TabsContent value="overview" className="space-y-6">
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                  <Card className="p-6 space-y-2">
-                    <div className="flex items-center gap-2 text-muted-foreground">
-                      <Wallet className="w-5 h-5" />
-                      <span className="text-sm font-medium">Saldo Disponível</span>
-                    </div>
-                    <p className="text-3xl font-bold text-accent">
-                      R$ {wallet?.balance?.toFixed(2) || "0.00"}
-                    </p>
-                  </Card>
-
-                  <Card className="p-6 space-y-2">
-                    <div className="flex items-center gap-2 text-muted-foreground">
-                      <TrendingUp className="w-5 h-5" />
-                      <span className="text-sm font-medium">Total Ganho</span>
-                    </div>
-                    <p className="text-3xl font-bold">
-                      R$ {wallet?.total_earned?.toFixed(2) || "0.00"}
-                    </p>
-                  </Card>
-
-                  <Card className="p-6 space-y-2">
-                    <div className="flex items-center gap-2 text-muted-foreground">
-                      <DollarSign className="w-5 h-5" />
-                      <span className="text-sm font-medium">Total Sacado</span>
-                    </div>
-                    <p className="text-3xl font-bold">
-                      R$ {wallet?.total_withdrawn?.toFixed(2) || "0.00"}
-                    </p>
-                  </Card>
-                </div>
-
-                {/* Recent Withdrawals */}
-                {withdrawHistory.length > 0 && (
-                  <div>
-                    <h3 className="text-lg font-semibold mb-4">Últimas Solicitações</h3>
-                    <div className="space-y-3">
-                      {withdrawHistory.slice(0, 3).map((withdrawal) => (
-                        <div
-                          key={withdrawal.id}
-                          className="flex items-center justify-between p-4 rounded-lg border border-border/50 bg-card/50"
-                        >
-                          <div className="flex items-center gap-3">
-                            {withdrawal.status === "pending" && <Clock className="w-5 h-5 text-yellow-500" />}
-                            {withdrawal.status === "approved" && <CheckCircle className="w-5 h-5 text-green-500" />}
-                            {withdrawal.status === "rejected" && <XCircle className="w-5 h-5 text-red-500" />}
-                            <div>
-                              <p className="font-medium">R$ {withdrawal.amount.toFixed(2)}</p>
-                              <p className="text-sm text-muted-foreground">
-                                {new Date(withdrawal.created_at).toLocaleDateString("pt-BR")}
-                              </p>
-                            </div>
+                  {/* Overview Tab */}
+                  <TabsContent value="overview" className="space-y-6">
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                      <Card className="bg-gradient-to-br from-primary/10 to-primary/5 border-primary/20">
+                        <CardContent className="p-6 space-y-2">
+                          <div className="flex items-center gap-2 text-muted-foreground">
+                            <Wallet className="w-4 h-4" />
+                            <span className="text-xs font-medium uppercase tracking-wider">Saldo Disponível</span>
                           </div>
-                          <Badge
-                            variant={
-                              withdrawal.status === "approved"
-                                ? "default"
-                                : withdrawal.status === "rejected"
-                                ? "destructive"
-                                : "secondary"
-                            }
-                          >
-                            {withdrawal.status === "pending" && "Pendente"}
-                            {withdrawal.status === "approved" && "Aprovado"}
-                            {withdrawal.status === "rejected" && "Recusado"}
-                          </Badge>
-                        </div>
-                      ))}
+                          <p className="text-3xl font-bold text-primary">
+                            R$ {wallet?.balance?.toFixed(2) || "0.00"}
+                          </p>
+                        </CardContent>
+                      </Card>
+
+                      <Card className="bg-gradient-to-br from-green-500/10 to-green-500/5 border-green-500/20">
+                        <CardContent className="p-6 space-y-2">
+                          <div className="flex items-center gap-2 text-muted-foreground">
+                            <TrendingUp className="w-4 h-4" />
+                            <span className="text-xs font-medium uppercase tracking-wider">Total Ganho</span>
+                          </div>
+                          <p className="text-3xl font-bold text-green-600 dark:text-green-400">
+                            R$ {wallet?.total_earned?.toFixed(2) || "0.00"}
+                          </p>
+                        </CardContent>
+                      </Card>
+
+                      <Card className="bg-gradient-to-br from-orange-500/10 to-orange-500/5 border-orange-500/20">
+                        <CardContent className="p-6 space-y-2">
+                          <div className="flex items-center gap-2 text-muted-foreground">
+                            <DollarSign className="w-4 h-4" />
+                            <span className="text-xs font-medium uppercase tracking-wider">Total Sacado</span>
+                          </div>
+                          <p className="text-3xl font-bold text-orange-600 dark:text-orange-400">
+                            R$ {wallet?.total_withdrawn?.toFixed(2) || "0.00"}
+                          </p>
+                        </CardContent>
+                      </Card>
                     </div>
-                  </div>
-                )}
-              </TabsContent>
 
-              {/* Withdraw Tab */}
-              <TabsContent value="withdraw">
-                <form onSubmit={handleWithdraw} className="space-y-6">
-                  <div className="space-y-2">
-                    <Label htmlFor="amount">Valor do Saque (R$)</Label>
-                    <Input
-                      id="amount"
-                      type="number"
-                      step="0.01"
-                      min="0.01"
-                      placeholder="0.00"
-                      value={withdrawAmount}
-                      onChange={(e) => setWithdrawAmount(e.target.value)}
-                      required
-                      disabled={submitting}
-                    />
-                    <p className="text-sm text-muted-foreground">
-                      Saldo disponível: R$ {wallet?.balance?.toFixed(2) || "0.00"}
-                      <br />
-                      Valor mínimo: R$ {minWithdrawalAmount.toFixed(2)}
-                    </p>
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="pix">Chave PIX</Label>
-                    <Input
-                      id="pix"
-                      type="text"
-                      placeholder="Sua chave PIX (CPF, email, telefone...)"
-                      value={pixKey}
-                      onChange={(e) => setPixKey(e.target.value)}
-                      required
-                      disabled={submitting}
-                    />
-                  </div>
-
-                  <Button
-                    type="submit"
-                    className="w-full"
-                    disabled={submitting || !wallet?.balance || wallet.balance <= 0}
-                  >
-                    {submitting ? "Processando..." : "Solicitar Saque"}
-                  </Button>
-                </form>
-              </TabsContent>
-
-              {/* History Tab */}
-              <TabsContent value="history">
-                {withdrawHistory.length === 0 ? (
-                  <div className="text-center py-12">
-                    <History className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
-                    <p className="text-muted-foreground">Nenhum saque solicitado ainda</p>
-                  </div>
-                ) : (
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Data</TableHead>
-                        <TableHead>Valor</TableHead>
-                        <TableHead>Chave PIX</TableHead>
-                        <TableHead>Status</TableHead>
-                        <TableHead>Observações</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {withdrawHistory.map((withdrawal) => (
-                        <TableRow key={withdrawal.id}>
-                          <TableCell>
-                            {new Date(withdrawal.created_at).toLocaleDateString("pt-BR", {
-                              day: "2-digit",
-                              month: "2-digit",
-                              year: "numeric",
-                              hour: "2-digit",
-                              minute: "2-digit",
-                            })}
-                          </TableCell>
-                          <TableCell className="font-medium">
-                            R$ {withdrawal.amount.toFixed(2)}
-                          </TableCell>
-                          <TableCell className="font-mono text-sm">
-                            {withdrawal.pix_key}
-                          </TableCell>
-                          <TableCell>
-                            <Badge
-                              variant={
-                                withdrawal.status === "approved"
-                                  ? "default"
-                                  : withdrawal.status === "rejected"
-                                  ? "destructive"
-                                  : "secondary"
-                              }
-                              className="flex items-center gap-1 w-fit"
+                    {/* Recent Withdrawals */}
+                    {withdrawHistory.length > 0 && (
+                      <div className="space-y-4">
+                        <h3 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">Últimas Solicitações</h3>
+                        <div className="space-y-2">
+                          {withdrawHistory.slice(0, 3).map((withdrawal) => (
+                            <div
+                              key={withdrawal.id}
+                              className="flex items-center justify-between p-4 rounded-lg border bg-card hover:bg-accent/5 transition-colors"
                             >
-                              {withdrawal.status === "pending" && (
-                                <>
-                                  <Clock className="w-3 h-3" />
-                                  Pendente
-                                </>
-                              )}
-                              {withdrawal.status === "approved" && (
-                                <>
-                                  <CheckCircle className="w-3 h-3" />
-                                  Aprovado
-                                </>
-                              )}
-                              {withdrawal.status === "rejected" && (
-                                <>
-                                  <XCircle className="w-3 h-3" />
-                                  Recusado
-                                </>
-                              )}
-                            </Badge>
-                          </TableCell>
-                          <TableCell>
-                            {withdrawal.admin_notes ? (
-                              <span className="text-sm text-muted-foreground">
-                                {withdrawal.admin_notes}
-                              </span>
-                            ) : (
-                              <span className="text-sm text-muted-foreground">-</span>
-                            )}
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                )}
-              </TabsContent>
-            </Tabs>
-          </Card>
+                              <div className="flex items-center gap-3">
+                                {withdrawal.status === "pending" && <Clock className="w-5 h-5 text-yellow-500" />}
+                                {withdrawal.status === "approved" && <CheckCircle className="w-5 h-5 text-green-500" />}
+                                {withdrawal.status === "rejected" && <XCircle className="w-5 h-5 text-red-500" />}
+                                <div>
+                                  <p className="font-semibold">R$ {withdrawal.amount.toFixed(2)}</p>
+                                  <p className="text-xs text-muted-foreground">
+                                    {new Date(withdrawal.created_at).toLocaleDateString("pt-BR", {
+                                      day: "2-digit",
+                                      month: "short",
+                                      year: "numeric"
+                                    })}
+                                  </p>
+                                </div>
+                              </div>
+                              <Badge
+                                variant={
+                                  withdrawal.status === "approved"
+                                    ? "default"
+                                    : withdrawal.status === "rejected"
+                                    ? "destructive"
+                                    : "secondary"
+                                }
+                              >
+                                {withdrawal.status === "pending" && "Pendente"}
+                                {withdrawal.status === "approved" && "Aprovado"}
+                                {withdrawal.status === "rejected" && "Recusado"}
+                              </Badge>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </TabsContent>
 
-          {/* Plan Info */}
-          <Card className="p-8">
-            <h2 className="text-2xl font-bold mb-6">Gerenciar Plano</h2>
-            
-            {/* Current Plan */}
-            <div className="mb-6 p-4 rounded-lg bg-accent/10 border border-accent/20">
-              <div className="flex items-center justify-between mb-2">
-                <div>
-                  <p className="font-semibold text-lg">
-                    Plano {profile?.plan?.toUpperCase() || "FREE"}
-                  </p>
-                  <p className="text-sm text-muted-foreground">
-                    {profile?.plan === "free" && "Monetização padrão"}
-                    {profile?.plan === "pro" && "R$ 29,90/mês • +10% de bônus"}
-                    {profile?.plan === "premium" && "R$ 49,90/mês • +25% de bônus"}
-                  </p>
-                  {profile?.plan_expires_at && (
-                    <p className="text-xs text-muted-foreground mt-1">
-                      Renova em: {new Date(profile.plan_expires_at).toLocaleDateString("pt-BR")}
-                    </p>
-                  )}
-                </div>
-                <Trophy className="w-8 h-8 text-accent" />
-              </div>
-            </div>
+                  {/* Withdraw Tab */}
+                  <TabsContent value="withdraw">
+                    <form onSubmit={handleWithdraw} className="space-y-6">
+                      <div className="p-4 rounded-lg bg-muted/50 border">
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="text-sm text-muted-foreground">Saldo disponível</span>
+                          <span className="text-lg font-bold text-primary">
+                            R$ {wallet?.balance?.toFixed(2) || "0.00"}
+                          </span>
+                        </div>
+                        <p className="text-xs text-muted-foreground">
+                          Valor mínimo para saque: R$ {minWithdrawalAmount.toFixed(2)}
+                        </p>
+                      </div>
 
-            {/* Plan Actions */}
-            <div className="space-y-3">
-              {profile?.plan === "free" && (
-                <>
-                  <Button 
-                    className="w-full bg-gradient-to-r from-yellow-500 to-amber-600 hover:opacity-90"
-                    onClick={async () => {
-                      try {
-                        const { data, error } = await supabase.functions.invoke('create-subscription-checkout', {
-                          body: { plan: 'pro' }
-                        });
-                        if (error) throw error;
-                        if (data?.url) window.open(data.url, '_blank');
-                      } catch (error: any) {
-                        toast({
-                          title: "Erro",
-                          description: error.message,
-                          variant: "destructive",
-                        });
-                      }
-                    }}
-                  >
-                    Assinar Pro - R$ 29,90/mês
-                  </Button>
-                  <Button 
-                    className="w-full bg-gradient-to-r from-red-500 to-rose-600 hover:opacity-90"
-                    onClick={async () => {
-                      try {
-                        const { data, error } = await supabase.functions.invoke('create-subscription-checkout', {
-                          body: { plan: 'premium' }
-                        });
-                        if (error) throw error;
-                        if (data?.url) window.open(data.url, '_blank');
-                      } catch (error: any) {
-                        toast({
-                          title: "Erro",
-                          description: error.message,
-                          variant: "destructive",
-                        });
-                      }
-                    }}
-                  >
-                    Assinar Premium - R$ 49,90/mês
-                  </Button>
-                </>
-              )}
+                      <div className="space-y-2">
+                        <Label htmlFor="amount">Valor do Saque (R$)</Label>
+                        <Input
+                          id="amount"
+                          type="number"
+                          step="0.01"
+                          min="0.01"
+                          placeholder="0.00"
+                          value={withdrawAmount}
+                          onChange={(e) => setWithdrawAmount(e.target.value)}
+                          required
+                          disabled={submitting}
+                          className="text-lg"
+                        />
+                      </div>
 
-              {profile?.plan === "pro" && (
-                <>
-                  <Button 
-                    className="w-full bg-gradient-to-r from-red-500 to-rose-600 hover:opacity-90"
-                    onClick={async () => {
-                      try {
-                        setSubmitting(true);
-                        const { data, error } = await supabase.functions.invoke('manage-subscription', {
-                          body: { action: 'upgrade', newPlan: 'premium' }
-                        });
-                        if (error) throw error;
-                        toast({
-                          title: "Sucesso!",
-                          description: data.message || "Plano atualizado!",
-                        });
-                        await fetchData();
-                      } catch (error: any) {
-                        toast({
-                          title: "Erro",
-                          description: error.message,
-                          variant: "destructive",
-                        });
-                      } finally {
-                        setSubmitting(false);
-                      }
-                    }}
-                    disabled={submitting}
-                  >
-                    Fazer Upgrade para Premium
-                  </Button>
-                  <div className="grid grid-cols-2 gap-3">
-                    <Button 
-                      variant="outline"
-                      onClick={async () => {
-                        try {
-                          const { data, error } = await supabase.functions.invoke('customer-portal');
-                          if (error) throw error;
-                          if (data?.url) window.open(data.url, '_blank');
-                        } catch (error: any) {
-                          toast({
-                            title: "Erro",
-                            description: error.message,
-                            variant: "destructive",
-                          });
-                        }
-                      }}
-                    >
-                      Gerenciar Pagamento
-                    </Button>
-                    <Button 
-                      variant="outline"
-                      className="text-destructive hover:bg-destructive/10"
-                      onClick={async () => {
-                        if (!confirm("Tem certeza que deseja cancelar? Você perderá acesso ao plano Pro ao final do período.")) return;
-                        try {
-                          setSubmitting(true);
-                          const { data, error } = await supabase.functions.invoke('manage-subscription', {
-                            body: { action: 'cancel' }
-                          });
-                          if (error) throw error;
-                          toast({
-                            title: "Assinatura Cancelada",
-                            description: data.message,
-                          });
-                          await fetchData();
-                        } catch (error: any) {
-                          toast({
-                            title: "Erro",
-                            description: error.message,
-                            variant: "destructive",
-                          });
-                        } finally {
-                          setSubmitting(false);
-                        }
-                      }}
-                      disabled={submitting}
-                    >
-                      Cancelar Plano
-                    </Button>
-                  </div>
-                </>
-              )}
+                      <div className="space-y-2">
+                        <Label htmlFor="pix">Chave PIX</Label>
+                        <Input
+                          id="pix"
+                          type="text"
+                          placeholder="CPF, email, telefone ou chave aleatória"
+                          value={pixKey}
+                          onChange={(e) => setPixKey(e.target.value)}
+                          required
+                          disabled={submitting}
+                        />
+                        <p className="text-xs text-muted-foreground">
+                          Insira a chave PIX onde deseja receber o pagamento
+                        </p>
+                      </div>
 
-              {profile?.plan === "premium" && (
-                <>
-                  <Button 
-                    variant="outline"
-                    className="w-full"
-                    onClick={async () => {
-                      if (!confirm("Deseja fazer downgrade para o plano Pro? O ajuste será feito na próxima cobrança.")) return;
-                      try {
-                        setSubmitting(true);
-                        const { data, error } = await supabase.functions.invoke('manage-subscription', {
-                          body: { action: 'downgrade', newPlan: 'pro' }
-                        });
-                        if (error) throw error;
-                        toast({
-                          title: "Sucesso!",
-                          description: data.message || "Plano alterado!",
-                        });
-                        await fetchData();
-                      } catch (error: any) {
-                        toast({
-                          title: "Erro",
-                          description: error.message,
-                          variant: "destructive",
-                        });
-                      } finally {
-                        setSubmitting(false);
-                      }
-                    }}
-                    disabled={submitting}
-                  >
-                    Fazer Downgrade para Pro
-                  </Button>
-                  <div className="grid grid-cols-2 gap-3">
-                    <Button 
-                      variant="outline"
-                      onClick={async () => {
-                        try {
-                          const { data, error } = await supabase.functions.invoke('customer-portal');
-                          if (error) throw error;
-                          if (data?.url) window.open(data.url, '_blank');
-                        } catch (error: any) {
-                          toast({
-                            title: "Erro",
-                            description: error.message,
-                            variant: "destructive",
-                          });
-                        }
-                      }}
-                    >
-                      Gerenciar Pagamento
-                    </Button>
-                    <Button 
-                      variant="outline"
-                      className="text-destructive hover:bg-destructive/10"
-                      onClick={async () => {
-                        if (!confirm("Tem certeza que deseja cancelar? Você perderá acesso ao plano Premium ao final do período.")) return;
-                        try {
-                          setSubmitting(true);
-                          const { data, error } = await supabase.functions.invoke('manage-subscription', {
-                            body: { action: 'cancel' }
-                          });
-                          if (error) throw error;
-                          toast({
-                            title: "Assinatura Cancelada",
-                            description: data.message,
-                          });
-                          await fetchData();
-                        } catch (error: any) {
-                          toast({
-                            title: "Erro",
-                            description: error.message,
-                            variant: "destructive",
-                          });
-                        } finally {
-                          setSubmitting(false);
-                        }
-                      }}
-                      disabled={submitting}
-                    >
-                      Cancelar Plano
-                    </Button>
-                  </div>
-                </>
-              )}
-            </div>
-          </Card>
+                      <Button
+                        type="submit"
+                        className="w-full"
+                        size="lg"
+                        disabled={submitting || !wallet?.balance || wallet.balance <= 0}
+                      >
+                        {submitting ? (
+                          <>
+                            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                            Processando...
+                          </>
+                        ) : (
+                          "Solicitar Saque"
+                        )}
+                      </Button>
+                    </form>
+                  </TabsContent>
 
-          {/* Creator Section */}
-          {role !== 'creator' && role !== 'admin' && (
-            <Card className="p-8">
-              <div className="flex items-start justify-between gap-4">
-                <div className="flex-1">
-                  <h2 className="text-2xl font-bold mb-2 flex items-center gap-2">
-                    <Sparkles className="w-6 h-6 text-cinematic-accent" />
-                    Torne-se Creator
-                  </h2>
-                  <p className="text-muted-foreground mb-4">
-                    Publique seus conteúdos, ganhe seguidores e monetize seu conhecimento na Classfy
-                  </p>
-                  
-                  {userProfile?.creator_status === 'pending' && (
-                    <div className="flex items-center gap-2 p-3 rounded-lg bg-yellow-500/10 border border-yellow-500/20 mb-4">
-                      <Clock className="w-5 h-5 text-yellow-500" />
-                      <span className="text-sm font-medium text-yellow-500">
-                        Aguardando análise do admin...
-                      </span>
-                    </div>
-                  )}
-
-                  {userProfile?.creator_status === 'rejected' && (
-                    <div className="flex items-center gap-2 p-3 rounded-lg bg-red-500/10 border border-red-500/20 mb-4">
-                      <XCircle className="w-5 h-5 text-red-500" />
-                      <span className="text-sm font-medium text-red-500">
-                        Sua solicitação não foi aprovada
-                      </span>
-                    </div>
-                  )}
-                </div>
-                
-                {userProfile?.creator_status !== 'pending' && userProfile?.creator_status !== 'approved' && (
-                  <Button
-                    onClick={() => setCreatorModalOpen(true)}
-                    className="bg-cinematic-accent hover:bg-cinematic-accent/90 text-white"
-                  >
-                    <Sparkles className="w-4 h-4 mr-2" />
-                    Solicitar Acesso
-                  </Button>
-                )}
-              </div>
+                  {/* History Tab */}
+                  <TabsContent value="history">
+                    {withdrawHistory.length === 0 ? (
+                      <div className="text-center py-16">
+                        <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-muted mb-4">
+                          <History className="w-8 h-8 text-muted-foreground" />
+                        </div>
+                        <h3 className="text-lg font-semibold mb-2">Nenhum histórico ainda</h3>
+                        <p className="text-sm text-muted-foreground">
+                          Suas solicitações de saque aparecerão aqui
+                        </p>
+                      </div>
+                    ) : (
+                      <div className="rounded-lg border">
+                        <Table>
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead>Data</TableHead>
+                              <TableHead>Valor</TableHead>
+                              <TableHead>Chave PIX</TableHead>
+                              <TableHead>Status</TableHead>
+                              <TableHead>Observações</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {withdrawHistory.map((withdrawal) => (
+                              <TableRow key={withdrawal.id} className="hover:bg-muted/50">
+                                <TableCell className="font-medium">
+                                  {new Date(withdrawal.created_at).toLocaleDateString("pt-BR", {
+                                    day: "2-digit",
+                                    month: "short",
+                                    year: "numeric",
+                                    hour: "2-digit",
+                                    minute: "2-digit",
+                                  })}
+                                </TableCell>
+                                <TableCell className="font-semibold">
+                                  R$ {withdrawal.amount.toFixed(2)}
+                                </TableCell>
+                                <TableCell className="font-mono text-xs">
+                                  {withdrawal.pix_key}
+                                </TableCell>
+                                <TableCell>
+                                  <Badge
+                                    variant={
+                                      withdrawal.status === "approved"
+                                        ? "default"
+                                        : withdrawal.status === "rejected"
+                                        ? "destructive"
+                                        : "secondary"
+                                    }
+                                    className="flex items-center gap-1 w-fit"
+                                  >
+                                    {withdrawal.status === "pending" && (
+                                      <>
+                                        <Clock className="w-3 h-3" />
+                                        Pendente
+                                      </>
+                                    )}
+                                    {withdrawal.status === "approved" && (
+                                      <>
+                                        <CheckCircle className="w-3 h-3" />
+                                        Aprovado
+                                      </>
+                                    )}
+                                    {withdrawal.status === "rejected" && (
+                                      <>
+                                        <XCircle className="w-3 h-3" />
+                                        Recusado
+                                      </>
+                                    )}
+                                  </Badge>
+                                </TableCell>
+                                <TableCell className="max-w-xs">
+                                  {withdrawal.admin_notes ? (
+                                    <span className="text-sm text-muted-foreground truncate block">
+                                      {withdrawal.admin_notes}
+                                    </span>
+                                  ) : (
+                                    <span className="text-sm text-muted-foreground">-</span>
+                                  )}
+                                </TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+                      </div>
+                    )}
+                  </TabsContent>
+                </Tabs>
+              </CardContent>
             </Card>
-          )}
+          </TabsContent>
 
-          {/* User Badges and Level */}
-          {user && <UserBadges userId={user.id} />}
+          {/* Plan Tab */}
+          <TabsContent value="plan" className="space-y-6">
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Trophy className="w-5 h-5" />
+                  Plano de Assinatura
+                </CardTitle>
+                <CardDescription>
+                  Gerencie sua assinatura e benefícios
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                {/* Current Plan Display */}
+                <div className="p-6 rounded-lg bg-gradient-to-br from-primary/10 to-primary/5 border-2 border-primary/20">
+                  <div className="flex items-start justify-between mb-4">
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-2">
+                        <h3 className="text-2xl font-bold">
+                          Plano {profile?.plan?.toUpperCase() || "FREE"}
+                        </h3>
+                        <Badge variant="secondary" className="text-xs">
+                          Atual
+                        </Badge>
+                      </div>
+                      <p className="text-sm text-muted-foreground">
+                        {profile?.plan === "free" && "Monetização padrão da plataforma"}
+                        {profile?.plan === "pro" && "R$ 29,90/mês • +10% de bônus em ganhos"}
+                        {profile?.plan === "premium" && "R$ 49,90/mês • +25% de bônus em ganhos"}
+                      </p>
+                      {profile?.plan_expires_at && (
+                        <p className="text-xs text-muted-foreground flex items-center gap-1 mt-2">
+                          <Clock className="w-3 h-3" />
+                          Renova em: {new Date(profile.plan_expires_at).toLocaleDateString("pt-BR", {
+                            day: "2-digit",
+                            month: "long",
+                            year: "numeric"
+                          })}
+                        </p>
+                      )}
+                    </div>
+                    <div className="p-3 rounded-full bg-primary/10">
+                      <Trophy className="w-6 h-6 text-primary" />
+                    </div>
+                  </div>
 
-          {(role === 'creator' || role === 'admin') && (
-            <Card className="p-8 border-green-500/20 bg-green-500/5">
-              <div className="flex items-start gap-3">
-                <CheckCircle className="w-6 h-6 text-green-500 mt-0.5" />
-                <div>
-                  <h3 className="text-xl font-bold mb-1">
-                    Você é um Creator!
-                  </h3>
-                  <p className="text-muted-foreground mb-4">
-                    Acesse o Studio Classfy no menu lateral para gerenciar seus conteúdos
-                  </p>
-                  <Button
-                    variant="outline"
-                    onClick={() => navigate("/studio")}
-                    className="border-green-500/20 hover:bg-green-500/10"
-                  >
-                    Ir para o Studio
-                  </Button>
+                  {/* Plan Benefits */}
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-4">
+                    <div className="flex items-center gap-2 text-sm">
+                      <CheckCircle className="w-4 h-4 text-green-500" />
+                      <span>Monetização</span>
+                    </div>
+                    {profile?.plan === "pro" && (
+                      <>
+                        <div className="flex items-center gap-2 text-sm">
+                          <CheckCircle className="w-4 h-4 text-green-500" />
+                          <span>+10% Bônus</span>
+                        </div>
+                        <div className="flex items-center gap-2 text-sm">
+                          <CheckCircle className="w-4 h-4 text-green-500" />
+                          <span>Prioridade</span>
+                        </div>
+                      </>
+                    )}
+                    {profile?.plan === "premium" && (
+                      <>
+                        <div className="flex items-center gap-2 text-sm">
+                          <CheckCircle className="w-4 h-4 text-green-500" />
+                          <span>+25% Bônus</span>
+                        </div>
+                        <div className="flex items-center gap-2 text-sm">
+                          <CheckCircle className="w-4 h-4 text-green-500" />
+                          <span>VIP Access</span>
+                        </div>
+                      </>
+                    )}
+                  </div>
                 </div>
-              </div>
+
+                <Separator />
+
+                {/* Plan Actions */}
+                <div className="space-y-3">
+                  {profile?.plan === "free" && (
+                    <>
+                      <Button 
+                        size="lg"
+                        className="w-full bg-gradient-to-r from-yellow-500 to-amber-600 hover:opacity-90 text-white font-semibold"
+                        onClick={async () => {
+                          try {
+                            const { data, error } = await supabase.functions.invoke('create-subscription-checkout', {
+                              body: { plan: 'pro' }
+                            });
+                            if (error) throw error;
+                            if (data?.url) window.open(data.url, '_blank');
+                          } catch (error: any) {
+                            toast({
+                              title: "Erro",
+                              description: error.message,
+                              variant: "destructive",
+                            });
+                          }
+                        }}
+                      >
+                        <Sparkles className="w-4 h-4 mr-2" />
+                        Fazer Upgrade para Pro - R$ 29,90/mês
+                      </Button>
+                      <Button 
+                        size="lg"
+                        className="w-full bg-gradient-to-r from-red-500 to-rose-600 hover:opacity-90 text-white font-semibold"
+                        onClick={async () => {
+                          try {
+                            const { data, error } = await supabase.functions.invoke('create-subscription-checkout', {
+                              body: { plan: 'premium' }
+                            });
+                            if (error) throw error;
+                            if (data?.url) window.open(data.url, '_blank');
+                          } catch (error: any) {
+                            toast({
+                              title: "Erro",
+                              description: error.message,
+                              variant: "destructive",
+                            });
+                          }
+                        }}
+                      >
+                        <Trophy className="w-4 h-4 mr-2" />
+                        Fazer Upgrade para Premium - R$ 49,90/mês
+                      </Button>
+                    </>
+                  )}
+
+                  {profile?.plan === "pro" && (
+                    <>
+                      <Button 
+                        size="lg"
+                        className="w-full bg-gradient-to-r from-red-500 to-rose-600 hover:opacity-90 text-white font-semibold"
+                        onClick={async () => {
+                          try {
+                            setSubmitting(true);
+                            const { data, error } = await supabase.functions.invoke('manage-subscription', {
+                              body: { action: 'upgrade', newPlan: 'premium' }
+                            });
+                            if (error) throw error;
+                            toast({
+                              title: "Sucesso!",
+                              description: data.message || "Plano atualizado!",
+                            });
+                            await fetchData();
+                          } catch (error: any) {
+                            toast({
+                              title: "Erro",
+                              description: error.message,
+                              variant: "destructive",
+                            });
+                          } finally {
+                            setSubmitting(false);
+                          }
+                        }}
+                        disabled={submitting}
+                      >
+                        {submitting ? (
+                          <>
+                            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                            Atualizando...
+                          </>
+                        ) : (
+                          <>
+                            <Trophy className="w-4 h-4 mr-2" />
+                            Fazer Upgrade para Premium
+                          </>
+                        )}
+                      </Button>
+                      <div className="grid grid-cols-2 gap-3">
+                        <Button 
+                          variant="outline"
+                          onClick={async () => {
+                            try {
+                              const { data, error } = await supabase.functions.invoke('customer-portal');
+                              if (error) throw error;
+                              if (data?.url) window.open(data.url, '_blank');
+                            } catch (error: any) {
+                              toast({
+                                title: "Erro",
+                                description: error.message,
+                                variant: "destructive",
+                              });
+                            }
+                          }}
+                        >
+                          <CreditCard className="w-4 h-4 mr-2" />
+                          Gerenciar Pagamento
+                        </Button>
+                        <Button 
+                          variant="outline"
+                          className="text-destructive hover:bg-destructive/10"
+                          onClick={async () => {
+                            if (!confirm("Tem certeza que deseja cancelar? Você perderá acesso ao plano Pro ao final do período.")) return;
+                            try {
+                              setSubmitting(true);
+                              const { data, error } = await supabase.functions.invoke('manage-subscription', {
+                                body: { action: 'cancel' }
+                              });
+                              if (error) throw error;
+                              toast({
+                                title: "Assinatura Cancelada",
+                                description: data.message,
+                              });
+                              await fetchData();
+                            } catch (error: any) {
+                              toast({
+                                title: "Erro",
+                                description: error.message,
+                                variant: "destructive",
+                              });
+                            } finally {
+                              setSubmitting(false);
+                            }
+                          }}
+                          disabled={submitting}
+                        >
+                          Cancelar Plano
+                        </Button>
+                      </div>
+                    </>
+                  )}
+
+                  {profile?.plan === "premium" && (
+                    <>
+                      <Button 
+                        variant="outline"
+                        size="lg"
+                        className="w-full"
+                        onClick={async () => {
+                          if (!confirm("Deseja fazer downgrade para o plano Pro? O ajuste será feito na próxima cobrança.")) return;
+                          try {
+                            setSubmitting(true);
+                            const { data, error } = await supabase.functions.invoke('manage-subscription', {
+                              body: { action: 'downgrade', newPlan: 'pro' }
+                            });
+                            if (error) throw error;
+                            toast({
+                              title: "Sucesso!",
+                              description: data.message || "Plano alterado!",
+                            });
+                            await fetchData();
+                          } catch (error: any) {
+                            toast({
+                              title: "Erro",
+                              description: error.message,
+                              variant: "destructive",
+                            });
+                          } finally {
+                            setSubmitting(false);
+                          }
+                        }}
+                        disabled={submitting}
+                      >
+                        {submitting ? "Processando..." : "Fazer Downgrade para Pro"}
+                      </Button>
+                      <div className="grid grid-cols-2 gap-3">
+                        <Button 
+                          variant="outline"
+                          onClick={async () => {
+                            try {
+                              const { data, error } = await supabase.functions.invoke('customer-portal');
+                              if (error) throw error;
+                              if (data?.url) window.open(data.url, '_blank');
+                            } catch (error: any) {
+                              toast({
+                                title: "Erro",
+                                description: error.message,
+                                variant: "destructive",
+                              });
+                            }
+                          }}
+                        >
+                          <CreditCard className="w-4 h-4 mr-2" />
+                          Gerenciar Pagamento
+                        </Button>
+                        <Button 
+                          variant="outline"
+                          className="text-destructive hover:bg-destructive/10"
+                          onClick={async () => {
+                            if (!confirm("Tem certeza que deseja cancelar? Você perderá acesso ao plano Premium ao final do período.")) return;
+                            try {
+                              setSubmitting(true);
+                              const { data, error } = await supabase.functions.invoke('manage-subscription', {
+                                body: { action: 'cancel' }
+                              });
+                              if (error) throw error;
+                              toast({
+                                title: "Assinatura Cancelada",
+                                description: data.message,
+                              });
+                              await fetchData();
+                            } catch (error: any) {
+                              toast({
+                                title: "Erro",
+                                description: error.message,
+                                variant: "destructive",
+                              });
+                            } finally {
+                              setSubmitting(false);
+                            }
+                          }}
+                          disabled={submitting}
+                        >
+                          Cancelar Plano
+                        </Button>
+                      </div>
+                    </>
+                  )}
+                </div>
+              </CardContent>
             </Card>
-          )}
-        </div>
+          </TabsContent>
+
+          {/* Account Tab */}
+          <TabsContent value="account" className="space-y-6">
+            <Card>
+              <CardHeader>
+                <CardTitle>Configurações da Conta</CardTitle>
+                <CardDescription>
+                  Gerencie suas preferências e opções de conta
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between p-4 rounded-lg border bg-card">
+                    <div className="space-y-1">
+                      <p className="font-medium">Email da Conta</p>
+                      <p className="text-sm text-muted-foreground">{user?.email}</p>
+                    </div>
+                    <Badge variant="secondary">Verificado</Badge>
+                  </div>
+
+                  {role !== 'creator' && role !== 'admin' && (
+                    <>
+                      <Separator />
+                      <div className="space-y-4">
+                        <div>
+                          <h3 className="text-lg font-semibold mb-2">Tornar-se Creator</h3>
+                          <p className="text-sm text-muted-foreground mb-4">
+                            Crie e monetize conteúdo na plataforma. Compartilhe seu conhecimento e ganhe dinheiro!
+                          </p>
+                          <Button 
+                            onClick={() => setCreatorModalOpen(true)}
+                            className="w-full sm:w-auto"
+                          >
+                            <Sparkles className="w-4 h-4 mr-2" />
+                            Solicitar Acesso de Creator
+                          </Button>
+                        </div>
+                      </div>
+                    </>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+        </Tabs>
       </div>
-      
-      <BecomeCreatorModal open={creatorModalOpen} onOpenChange={setCreatorModalOpen} />
-    </div>
+
+      <BecomeCreatorModal 
+        open={creatorModalOpen} 
+        onOpenChange={setCreatorModalOpen} 
+      />
+    </AdminLayout>
   );
 }
