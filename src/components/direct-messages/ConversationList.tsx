@@ -86,8 +86,7 @@ export const ConversationList = ({
             updated_at
           )
         `)
-        .eq("user_id", user.id)
-        .eq("is_archived", false);
+        .eq("user_id", user.id);
 
       if (participantsError) throw participantsError;
 
@@ -124,32 +123,39 @@ export const ConversationList = ({
 
       if (messagesError) throw messagesError;
 
-      // Build conversations
-      const conversationsData: Conversation[] = participants.map(p => {
-        const otherUser = otherParticipants?.find(op => op.conversation_id === p.conversation_id);
-        const lastMessage = messages?.find(m => m.conversation_id === p.conversation_id);
-        const unreadMessages = messages?.filter(
-          m => m.conversation_id === p.conversation_id && 
-          m.sender_id !== user.id &&
-          new Date(m.created_at) > new Date(p.last_read_at || 0)
-        ) || [];
+      const conversationsData: Conversation[] = (participants || [])
+        .map(p => {
+          const otherUser = otherParticipants?.find(op => op.conversation_id === p.conversation_id);
+          const unreadMessages = messages?.filter(
+            m => m.conversation_id === p.conversation_id && 
+            m.sender_id !== user.id &&
+            new Date(m.created_at) > new Date(p.last_read_at || 0)
+          ) || [];
 
-        return {
-          id: p.conversation_id,
-          last_message_at: p.conversations.last_message_at || p.conversations.updated_at,
-          other_user: {
-            id: otherUser?.profiles.id || "",
-            display_name: otherUser?.profiles.display_name || "Usuário",
-            avatar_url: otherUser?.profiles.avatar_url || null,
-          },
-          last_message: lastMessage ? {
-            content: lastMessage.content,
-            sender_id: lastMessage.sender_id,
-            created_at: lastMessage.created_at,
-          } : undefined,
-          unread_count: unreadMessages.length,
-        };
-      });
+          // Se a conversa está arquivada E não há novas mensagens, não mostramos
+          if (p.is_archived && unreadMessages.length === 0) {
+            return null;
+          }
+
+          const lastMessage = messages?.find(m => m.conversation_id === p.conversation_id);
+
+          return {
+            id: p.conversation_id,
+            last_message_at: p.conversations.last_message_at || p.conversations.updated_at,
+            other_user: {
+              id: otherUser?.profiles.id || "",
+              display_name: otherUser?.profiles.display_name || "Usuário",
+              avatar_url: otherUser?.profiles.avatar_url || null,
+            },
+            last_message: lastMessage ? {
+              content: lastMessage.content,
+              sender_id: lastMessage.sender_id,
+              created_at: lastMessage.created_at,
+            } : undefined,
+            unread_count: unreadMessages.length,
+          } as Conversation | null;
+        })
+        .filter((c): c is Conversation => c !== null);
 
       // Sort by last message
       conversationsData.sort((a, b) => 
