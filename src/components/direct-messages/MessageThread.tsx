@@ -248,7 +248,16 @@ export const MessageThread = ({ conversationId, onClose }: MessageThreadProps) =
     if (!user) return;
 
     try {
-      // Para o usuário atual, tratamos "excluir" como remover a conversa da lista
+      // 1) Apaga TODAS as mensagens que você mesmo enviou nesta conversa
+      const { error: deleteMessagesError } = await supabase
+        .from("messages")
+        .delete()
+        .eq("conversation_id", conversationId)
+        .eq("sender_id", user.id);
+
+      if (deleteMessagesError) throw deleteMessagesError;
+
+      // 2) Arquiva a conversa apenas para você (some da sua lista)
       const { error: archiveError } = await supabase
         .from("conversation_participants")
         .update({ is_archived: true })
@@ -257,24 +266,12 @@ export const MessageThread = ({ conversationId, onClose }: MessageThreadProps) =
 
       if (archiveError) throw archiveError;
 
-      // Qualquer solicitação de mensagem pendente nesta conversa é marcada
-      // como rejeitada (independe de quem foi o remetente). Isso garante que
-      // um novo envio após exclusão seja tratado como NOVO pedido.
-      const { error: requestError } = await supabase
-        .from("messages")
-        .update({ request_status: "rejected" })
-        .eq("conversation_id", conversationId)
-        .eq("is_request", true)
-        .or("request_status.is.null,request_status.eq.pending");
-
-      if (requestError) throw requestError;
-
       toast({
         title: "Conversa excluída",
-        description: "A conversa foi removida da sua lista",
+        description: "Suas mensagens foram removidas e a conversa saiu da sua lista",
       });
 
-      // Notifica a lista para recarregar imediatamente
+      // Atualiza lista imediatamente
       window.dispatchEvent(new CustomEvent("dm-conversations-changed"));
 
       onClose();
