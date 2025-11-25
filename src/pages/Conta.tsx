@@ -36,6 +36,9 @@ export default function Conta() {
   const [creatorModalOpen, setCreatorModalOpen] = useState(false);
   const [minWithdrawalAmount, setMinWithdrawalAmount] = useState(10);
   const [withdrawHistory, setWithdrawHistory] = useState<any[]>([]);
+  const [isEditingChannel, setIsEditingChannel] = useState(false);
+  const [channelName, setChannelName] = useState("");
+  const [savingChannel, setSavingChannel] = useState(false);
 
   // Check if profile is complete and reward user
   useProfileComplete(user?.id, profile);
@@ -79,6 +82,11 @@ export default function Conta() {
       if (withdrawalsRes.data) {
         setWithdrawHistory(withdrawalsRes.data);
       }
+
+      // Set initial channel name
+      if (profileRes.data?.creator_channel_name) {
+        setChannelName(profileRes.data.creator_channel_name);
+      }
     } catch (error: any) {
       toast({
         title: "Erro ao carregar dados",
@@ -87,6 +95,87 @@ export default function Conta() {
       });
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleSaveChannelName = async () => {
+    if (!channelName.trim()) {
+      toast({
+        title: "Nome obrigatório",
+        description: "Digite um nome para o seu canal.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    // Validate format
+    const validFormat = /^[a-z0-9_-]+$/;
+    if (!validFormat.test(channelName)) {
+      toast({
+        title: "Formato inválido",
+        description: "Use apenas letras minúsculas, números, traços (-) e underscores (_).",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    // Check minimum length
+    if (channelName.length < 3) {
+      toast({
+        title: "Nome muito curto",
+        description: "O nome do canal deve ter no mínimo 3 caracteres.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setSavingChannel(true);
+
+    try {
+      // Check if channel name already exists (excluding current user)
+      const { data: existingChannel } = await supabase
+        .from("profiles")
+        .select("id")
+        .eq("creator_channel_name", channelName)
+        .neq("id", user?.id)
+        .maybeSingle();
+
+      if (existingChannel) {
+        toast({
+          title: "Nome indisponível",
+          description: "Este nome de canal já está em uso. Escolha outro.",
+          variant: "destructive",
+        });
+        setSavingChannel(false);
+        return;
+      }
+
+      // Update channel name
+      const { error } = await supabase
+        .from("profiles")
+        .update({ creator_channel_name: channelName })
+        .eq("id", user?.id);
+
+      if (error) throw error;
+
+      setProfile({ ...profile, creator_channel_name: channelName });
+      setIsEditingChannel(false);
+      
+      toast({
+        title: "Sucesso!",
+        description: "Nome do canal atualizado.",
+      });
+
+      // Refresh profile in auth context
+      await refreshProfile();
+    } catch (error: any) {
+      toast({
+        title: "Erro",
+        description: error.message || "Não foi possível atualizar o nome do canal.",
+        variant: "destructive",
+      });
+    } finally {
+      setSavingChannel(false);
     }
   };
 
@@ -216,48 +305,78 @@ export default function Conta() {
                     <Label htmlFor="channelName" className="text-sm font-medium">
                       Nome do Canal
                     </Label>
-                    <div className="flex flex-col gap-2">
-                      <Input
-                        id="channelName"
-                        value={profile?.creator_channel_name || ""}
-                        onChange={async (e) => {
-                          const newName = e.target.value.toLowerCase().replace(/[^a-z0-9-_]/g, '');
-                          setProfile({ ...profile, creator_channel_name: newName });
-                          
-                          // Update in database
-                          const { error } = await supabase
-                            .from("profiles")
-                            .update({ creator_channel_name: newName })
-                            .eq("id", user?.id);
-                          
-                          if (error) {
-                            toast({
-                              title: "Erro",
-                              description: "Não foi possível atualizar o nome do canal.",
-                              variant: "destructive",
-                            });
-                          } else {
-                            toast({
-                              title: "Sucesso",
-                              description: "Nome do canal atualizado!",
-                            });
-                          }
-                        }}
-                        placeholder="nomedocanal"
-                        className="font-mono"
-                      />
-                      {profile?.creator_channel_name && (
-                        <p className="text-xs text-muted-foreground">
-                          Seu perfil público: 
+                    <div className="flex flex-col gap-3">
+                      <div className="flex gap-2">
+                        <div className="relative flex-1">
+                          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground font-mono text-sm">
+                            @
+                          </span>
+                          <Input
+                            id="channelName"
+                            value={channelName}
+                            onChange={(e) => {
+                              const newName = e.target.value.toLowerCase().replace(/[^a-z0-9-_]/g, '');
+                              setChannelName(newName);
+                            }}
+                            placeholder="nomedocanal"
+                            className="font-mono pl-8"
+                            disabled={!isEditingChannel || savingChannel}
+                            maxLength={30}
+                          />
+                        </div>
+                        {!isEditingChannel ? (
                           <Button
-                            variant="link"
-                            className="h-auto p-0 ml-1 text-xs font-mono"
-                            onClick={() => navigate(`/@${profile.creator_channel_name}`)}
+                            type="button"
+                            variant="outline"
+                            onClick={() => setIsEditingChannel(true)}
+                            disabled={savingChannel}
                           >
-                            /@{profile.creator_channel_name}
+                            Editar
                           </Button>
-                        </p>
+                        ) : (
+                          <>
+                            <Button
+                              type="button"
+                              onClick={handleSaveChannelName}
+                              disabled={savingChannel || !channelName.trim()}
+                            >
+                              {savingChannel ? "Salvando..." : "Salvar"}
+                            </Button>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              onClick={() => {
+                                setChannelName(profile?.creator_channel_name || "");
+                                setIsEditingChannel(false);
+                              }}
+                              disabled={savingChannel}
+                            >
+                              Cancelar
+                            </Button>
+                          </>
+                        )}
+                      </div>
+                      
+                      {profile?.creator_channel_name && !isEditingChannel && (
+                        <div className="flex items-center gap-2 p-3 rounded-lg bg-muted/50 border border-border/50">
+                          <div className="flex-1">
+                            <p className="text-xs text-muted-foreground mb-1">
+                              Seu perfil público:
+                            </p>
+                            <Button
+                              variant="link"
+                              className="h-auto p-0 text-sm font-mono text-primary hover:text-primary/80"
+                              onClick={() => navigate(`/@${profile.creator_channel_name}`)}
+                            >
+                              /@{profile.creator_channel_name}
+                            </Button>
+                          </div>
+                        </div>
                       )}
+                      
+                      <p className="text-xs text-muted-foreground">
+                        Use apenas letras minúsculas, números, traços (-) e underscores (_). Mínimo 3 caracteres.
+                      </p>
                     </div>
                   </div>
                 )}
