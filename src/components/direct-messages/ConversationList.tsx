@@ -196,9 +196,6 @@ export const ConversationList = ({
   };
 
   const filteredConversations = conversations
-    // Nunca mostrar conversas "mutadas" (excluídas)
-    .filter(conv => !conv.is_archived || (conv.is_archived && !conv.unread_count))
-    .filter(conv => !conv.is_archived || activeTab === "archived")
     .filter(conv => (activeTab === "inbox" ? !conv.is_archived : conv.is_archived))
     .filter(conv =>
       conv.other_user.display_name.toLowerCase().includes(searchQuery.toLowerCase())
