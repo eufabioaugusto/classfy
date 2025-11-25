@@ -137,7 +137,13 @@ export const ContentCard = ({
     if (onClick) {
       onClick();
     } else {
-      navigate(`/watch/${id}`);
+      // Redirect to appropriate page based on content type
+      const actualContentType = content?.content_type || contentType;
+      if (actualContentType === "short") {
+        navigate(`/shorts/${id}`);
+      } else {
+        navigate(`/watch/${id}`);
+      }
     }
   };
 
