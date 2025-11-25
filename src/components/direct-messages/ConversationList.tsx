@@ -102,7 +102,8 @@ export const ConversationList = ({
         return;
       }
 
-      const conversationIds = participants.map(p => p.conversation_id);
+      const visibleParticipants = (participants || []).filter(p => !p.is_muted);
+      const conversationIds = visibleParticipants.map(p => p.conversation_id);
 
       // Get other participants
       const { data: otherParticipants, error: otherError } = await supabase
