@@ -10,10 +10,12 @@ import { formatDistanceToNow } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { NewConversationModal } from "./NewConversationModal";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 interface Conversation {
   id: string;
   last_message_at: string;
+  is_archived: boolean;
   other_user: {
     id: string;
     display_name: string;
@@ -43,6 +45,7 @@ export const ConversationList = ({
   const [searchQuery, setSearchQuery] = useState("");
   const [loading, setLoading] = useState(true);
   const [showNewConversation, setShowNewConversation] = useState(false);
+  const [activeTab, setActiveTab] = useState<"inbox" | "archived">("inbox");
 
   useEffect(() => {
     if (user) {
@@ -86,8 +89,7 @@ export const ConversationList = ({
             updated_at
           )
         `)
-        .eq("user_id", user.id)
-        .eq("is_archived", false);
+        .eq("user_id", user.id);
 
       if (participantsError) throw participantsError;
 
@@ -137,6 +139,7 @@ export const ConversationList = ({
         return {
           id: p.conversation_id,
           last_message_at: p.conversations.last_message_at || p.conversations.updated_at,
+          is_archived: p.is_archived,
           other_user: {
             id: otherUser?.profiles.id || "",
             display_name: otherUser?.profiles.display_name || "Usuário",
@@ -185,13 +188,22 @@ export const ConversationList = ({
     };
   };
 
-  const filteredConversations = conversations.filter(conv =>
-    conv.other_user.display_name.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  const filteredConversations = conversations
+    .filter(conv => (activeTab === "inbox" ? !conv.is_archived : conv.is_archived))
+    .filter(conv =>
+      conv.other_user.display_name.toLowerCase().includes(searchQuery.toLowerCase())
+    );
 
   return (
     <>
       <div className="p-3 space-y-3">
+        <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as any)} className="w-full mb-2">
+          <TabsList className="w-full">
+            <TabsTrigger value="inbox" className="flex-1">Principal</TabsTrigger>
+            <TabsTrigger value="archived" className="flex-1">Arquivados</TabsTrigger>
+          </TabsList>
+        </Tabs>
+
         <div className="relative">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input
