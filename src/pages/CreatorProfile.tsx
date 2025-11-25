@@ -216,10 +216,10 @@ export default function CreatorProfile() {
 
           <div className="container mx-auto px-4">
             {/* Profile Header */}
-            <div className="relative mb-6 -mt-16">
-              <div className="flex flex-col md:flex-row gap-6 items-start">
+            <div className="relative mb-6">
+              <div className="flex flex-col md:flex-row gap-6 md:gap-8 -mt-16">
                 {/* Coluna Esquerda - Avatar, Nome, Nível, @, Bio */}
-                <div className="flex flex-col items-start gap-4 md:w-1/3">
+                <div className="flex flex-col gap-4">
                   <Avatar className="w-32 h-32 border-4 border-background shadow-lg">
                     <AvatarImage src={creator.avatar_url || undefined} />
                     <AvatarFallback className="text-3xl">
@@ -227,16 +227,14 @@ export default function CreatorProfile() {
                     </AvatarFallback>
                   </Avatar>
                   
-                  <div className="space-y-2">
-                    <div className="flex flex-col gap-2">
-                      <h1 className="text-3xl font-bold">{creator.display_name}</h1>
-                      {stats && (
-                        <Badge variant="secondary" className="gap-1 w-fit">
-                          <Trophy className="w-4 h-4" />
-                          Nível {stats.level}
-                        </Badge>
-                      )}
-                    </div>
+                  <div className="space-y-2 max-w-sm">
+                    <h1 className="text-3xl font-bold">{creator.display_name}</h1>
+                    {stats && (
+                      <Badge variant="secondary" className="gap-1 w-fit">
+                        <Trophy className="w-4 h-4" />
+                        Nível {stats.level}
+                      </Badge>
+                    )}
                     
                     <p className="text-muted-foreground">@{creator.creator_channel_name}</p>
                     
@@ -247,22 +245,28 @@ export default function CreatorProfile() {
                 </div>
 
                 {/* Coluna Direita - Stats e Botões */}
-                <div className="flex flex-col gap-4 md:w-2/3 md:pt-16">
-                  <div className="flex flex-wrap items-center gap-4 text-sm">
-                    <div className="flex items-center gap-1">
+                <div className="flex flex-col justify-end gap-4 md:ml-auto md:pt-20">
+                  <div className="flex flex-wrap items-center gap-6 text-sm">
+                    <div className="flex items-center gap-2">
                       <Users className="w-4 h-4 text-muted-foreground" />
-                      <span className="font-semibold">{stats?.followersCount || 0}</span>
-                      <span className="text-muted-foreground">seguidores</span>
+                      <div className="flex items-baseline gap-1">
+                        <span className="font-semibold text-base">{stats?.followersCount || 0}</span>
+                        <span className="text-muted-foreground">seguidores</span>
+                      </div>
                     </div>
-                    <div className="flex items-center gap-1">
+                    <div className="flex items-center gap-2">
                       <Video className="w-4 h-4 text-muted-foreground" />
-                      <span className="font-semibold">{stats?.contentCount || 0}</span>
-                      <span className="text-muted-foreground">conteúdos</span>
+                      <div className="flex items-baseline gap-1">
+                        <span className="font-semibold text-base">{stats?.contentCount || 0}</span>
+                        <span className="text-muted-foreground">conteúdos</span>
+                      </div>
                     </div>
-                    <div className="flex items-center gap-1">
+                    <div className="flex items-center gap-2">
                       <Trophy className="w-4 h-4 text-muted-foreground" />
-                      <span className="font-semibold">{stats?.totalPoints || 0}</span>
-                      <span className="text-muted-foreground">pontos</span>
+                      <div className="flex items-baseline gap-1">
+                        <span className="font-semibold text-base">{stats?.totalPoints || 0}</span>
+                        <span className="text-muted-foreground">pontos</span>
+                      </div>
                     </div>
                   </div>
 
