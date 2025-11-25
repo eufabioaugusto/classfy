@@ -40,6 +40,7 @@ import { useProfileComplete } from "@/hooks/useProfileComplete";
 import { CoverUpload } from "@/components/CoverUpload";
 import { AdminLayout } from "@/components/AdminLayout";
 import { Separator } from "@/components/ui/separator";
+import { MessagePrivacySettings } from "@/components/settings/MessagePrivacySettings";
 
 export default function Conta() {
   const { user, loading: authLoading, role, profile: userProfile, refreshProfile } = useAuth();
@@ -1103,30 +1104,35 @@ export default function Conta() {
                     </div>
                     <Badge variant="secondary">Verificado</Badge>
                   </div>
-
-                  {role !== 'creator' && role !== 'admin' && (
-                    <>
-                      <Separator />
-                      <div className="space-y-4">
-                        <div>
-                          <h3 className="text-lg font-semibold mb-2">Tornar-se Creator</h3>
-                          <p className="text-sm text-muted-foreground mb-4">
-                            Crie e monetize conteúdo na plataforma. Compartilhe seu conhecimento e ganhe dinheiro!
-                          </p>
-                          <Button 
-                            onClick={() => setCreatorModalOpen(true)}
-                            className="w-full sm:w-auto"
-                          >
-                            <Sparkles className="w-4 h-4 mr-2" />
-                            Solicitar Acesso de Creator
-                          </Button>
-                        </div>
-                      </div>
-                    </>
-                  )}
                 </div>
               </CardContent>
             </Card>
+
+            {/* Message Privacy Settings */}
+            <MessagePrivacySettings />
+
+            {role !== 'creator' && role !== 'admin' && (
+              <Card>
+                <CardContent className="space-y-4 pt-6">
+                  <Separator />
+                  <div className="space-y-4">
+                    <div>
+                      <h3 className="text-lg font-semibold mb-2">Tornar-se Creator</h3>
+                      <p className="text-sm text-muted-foreground mb-4">
+                        Crie e monetize conteúdo na plataforma. Compartilhe seu conhecimento e ganhe dinheiro!
+                      </p>
+                      <Button 
+                        onClick={() => setCreatorModalOpen(true)}
+                        className="w-full sm:w-auto"
+                      >
+                        <Sparkles className="w-4 h-4 mr-2" />
+                        Solicitar Acesso de Creator
+                      </Button>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
           </TabsContent>
         </Tabs>
       </div>

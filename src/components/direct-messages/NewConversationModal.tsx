@@ -74,6 +74,47 @@ export const NewConversationModal = ({
       setCreating(true);
       console.log("Starting conversation creation with recipient:", recipientId);
 
+      // Check recipient's privacy settings
+      const { data: recipientSettings } = await supabase
+        .from("message_settings")
+        .select("privacy_mode")
+        .eq("user_id", recipientId)
+        .maybeSingle();
+
+      const privacyMode = recipientSettings?.privacy_mode || 'open';
+      console.log("Recipient privacy mode:", privacyMode);
+
+      // If privacy is closed, block the message
+      if (privacyMode === 'closed') {
+        toast({
+          title: "Mensagens bloqueadas",
+          description: "Este usuário não está aceitando mensagens no momento.",
+          variant: "destructive",
+        });
+        setCreating(false);
+        return;
+      }
+
+      // If privacy is 'followers', check if user follows recipient
+      if (privacyMode === 'followers') {
+        const { data: followData } = await supabase
+          .from("follows")
+          .select("id")
+          .eq("follower_id", user.id)
+          .eq("following_id", recipientId)
+          .maybeSingle();
+
+        if (!followData) {
+          toast({
+            title: "Permissão necessária",
+            description: "Você precisa seguir este usuário para enviar mensagens.",
+            variant: "destructive",
+          });
+          setCreating(false);
+          return;
+        }
+      }
+
       // Check if conversation already exists
       const { data: existingParticipants, error: checkError } = await supabase
         .from("conversation_participants")
@@ -128,12 +169,17 @@ export const NewConversationModal = ({
 
       console.log("Conversation id from RPC:", conversationId);
 
+      // If privacy mode is 'request', mark first message as request
+      const isRequest = privacyMode === 'request';
+      
       onConversationCreated(conversationId as string);
       onClose();
       
       toast({
-        title: "Conversa criada",
-        description: "Você pode começar a conversar agora!",
+        title: isRequest ? "Solicitação enviada" : "Conversa criada",
+        description: isRequest 
+          ? "Sua solicitação foi enviada. Aguarde aprovação do destinatário."
+          : "Você pode começar a conversar agora!",
       });
     } catch (error: any) {
       console.error("Error creating conversation - Full details:", {
