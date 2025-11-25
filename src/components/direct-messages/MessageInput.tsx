@@ -2,12 +2,23 @@ import { useState } from "react";
 import { Send, Image, Smile } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { AlertCircle, UserPlus } from "lucide-react";
 
 interface MessageInputProps {
   onSendMessage: (content: string) => Promise<void>;
+  isBlocked?: boolean;
+  blockReason?: 'closed' | 'not_follower' | 'pending_request';
+  otherUserId?: string;
+  onFollow?: () => Promise<void>;
 }
 
-export const MessageInput = ({ onSendMessage }: MessageInputProps) => {
+export const MessageInput = ({ 
+  onSendMessage, 
+  isBlocked = false, 
+  blockReason,
+  onFollow 
+}: MessageInputProps) => {
   const [message, setMessage] = useState("");
   const [sending, setSending] = useState(false);
 
@@ -31,6 +42,29 @@ export const MessageInput = ({ onSendMessage }: MessageInputProps) => {
       handleSend();
     }
   };
+
+  if (isBlocked) {
+    return (
+      <div className="border-t p-4">
+        <Alert>
+          <AlertCircle className="h-4 w-4" />
+          <AlertDescription className="flex items-center justify-between">
+            <span>
+              {blockReason === 'closed' && "Este usuário não está aceitando mensagens."}
+              {blockReason === 'not_follower' && "Você precisa seguir este usuário para enviar mensagens."}
+              {blockReason === 'pending_request' && "Aguardando aprovação do usuário para continuar."}
+            </span>
+            {blockReason === 'not_follower' && onFollow && (
+              <Button size="sm" onClick={onFollow} className="ml-2">
+                <UserPlus className="h-4 w-4 mr-1" />
+                Seguir
+              </Button>
+            )}
+          </AlertDescription>
+        </Alert>
+      </div>
+    );
+  }
 
   return (
     <div className="border-t p-4">

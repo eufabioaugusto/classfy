@@ -6,8 +6,11 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { MessageInput } from "./MessageInput";
+import { MessageContextMenu } from "./MessageContextMenu";
+import { MessageRequestBanner } from "./MessageRequestBanner";
 import { formatDistanceToNow } from "date-fns";
 import { ptBR } from "date-fns/locale";
+import { useToast } from "@/hooks/use-toast";
 
 interface Message {
   id: string;
@@ -25,9 +28,13 @@ interface MessageThreadProps {
 
 export const MessageThread = ({ conversationId, onClose }: MessageThreadProps) => {
   const { user } = useAuth();
+  const { toast } = useToast();
   const [messages, setMessages] = useState<Message[]>([]);
   const [otherUser, setOtherUser] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [isBlocked, setIsBlocked] = useState(false);
+  const [blockReason, setBlockReason] = useState<'closed' | 'not_follower' | 'pending_request'>();
+  const [isFollowing, setIsFollowing] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -36,6 +43,7 @@ export const MessageThread = ({ conversationId, onClose }: MessageThreadProps) =
       loadOtherUser();
       markAsRead();
       setupRealtimeSubscription();
+      checkMessagePermissions();
     }
   }, [conversationId, user]);
 
@@ -127,19 +135,160 @@ export const MessageThread = ({ conversationId, onClose }: MessageThreadProps) =
     }
   };
 
-  const handleSendMessage = async (content: string) => {
-    if (!user) return;
+  const checkMessagePermissions = async () => {
+    if (!user || !otherUser) return;
+
+    try {
+      // Check recipient's privacy settings
+      const { data: settings } = await supabase
+        .from("message_settings")
+        .select("privacy_mode")
+        .eq("user_id", otherUser.id)
+        .maybeSingle();
+
+      const privacyMode = settings?.privacy_mode || 'open';
+
+      if (privacyMode === 'closed') {
+        setIsBlocked(true);
+        setBlockReason('closed');
+        return;
+      }
+
+      if (privacyMode === 'followers') {
+        const { data: followData } = await supabase
+          .from("follows")
+          .select("id")
+          .eq("follower_id", user.id)
+          .eq("following_id", otherUser.id)
+          .maybeSingle();
+
+        if (!followData) {
+          setIsBlocked(true);
+          setBlockReason('not_follower');
+          return;
+        }
+        setIsFollowing(true);
+      }
+
+      if (privacyMode === 'request') {
+        // Check if there's a pending request
+        const { data: requestMessages } = await supabase
+          .from("messages")
+          .select("id, request_status")
+          .eq("conversation_id", conversationId)
+          .eq("sender_id", user.id)
+          .eq("is_request", true);
+
+        if (requestMessages && requestMessages.length > 0) {
+          const hasApproved = requestMessages.some(m => m.request_status === 'approved');
+          const hasPending = requestMessages.some(m => m.request_status === 'pending' || !m.request_status);
+
+          if (!hasApproved && hasPending) {
+            setIsBlocked(true);
+            setBlockReason('pending_request');
+            return;
+          }
+        }
+      }
+
+      setIsBlocked(false);
+    } catch (error) {
+      console.error("Error checking permissions:", error);
+    }
+  };
+
+  const handleFollow = async () => {
+    if (!user || !otherUser) return;
 
     try {
       const { error } = await supabase
-        .from("messages")
+        .from("follows")
         .insert({
-          conversation_id: conversationId,
-          sender_id: user.id,
-          content,
+          follower_id: user.id,
+          following_id: otherUser.id,
         });
 
       if (error) throw error;
+
+      toast({
+        title: "Seguindo",
+        description: `Agora você segue ${otherUser.display_name}`,
+      });
+
+      setIsFollowing(true);
+      checkMessagePermissions();
+    } catch (error) {
+      console.error("Error following user:", error);
+      toast({
+        title: "Erro",
+        description: "Não foi possível seguir o usuário",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleSendMessage = async (content: string) => {
+    if (!user || !otherUser) return;
+
+    try {
+      // Check if this should be marked as a request
+      const { data: settings } = await supabase
+        .from("message_settings")
+        .select("privacy_mode")
+        .eq("user_id", otherUser.id)
+        .maybeSingle();
+
+      const privacyMode = settings?.privacy_mode || 'open';
+      const isRequest = privacyMode === 'request';
+
+      // Check if user already has an approved request
+      if (isRequest) {
+        const { data: existingMessages } = await supabase
+          .from("messages")
+          .select("id, request_status")
+          .eq("conversation_id", conversationId)
+          .eq("sender_id", user.id)
+          .eq("is_request", true);
+
+        const hasApproved = existingMessages?.some(m => m.request_status === 'approved');
+        
+        if (!hasApproved && existingMessages && existingMessages.length > 0) {
+          // Block sending more messages until approved
+          toast({
+            title: "Aguardando aprovação",
+            description: "Você precisa aguardar a aprovação antes de enviar mais mensagens",
+            variant: "destructive",
+          });
+          return;
+        }
+
+        const { error } = await supabase
+          .from("messages")
+          .insert({
+            conversation_id: conversationId,
+            sender_id: user.id,
+            content,
+            is_request: !hasApproved,
+            request_status: hasApproved ? null : 'pending',
+          });
+
+        if (error) throw error;
+
+        if (!hasApproved) {
+          setIsBlocked(true);
+          setBlockReason('pending_request');
+        }
+      } else {
+        const { error } = await supabase
+          .from("messages")
+          .insert({
+            conversation_id: conversationId,
+            sender_id: user.id,
+            content,
+          });
+
+        if (error) throw error;
+      }
     } catch (error) {
       console.error("Error sending message:", error);
       throw error;
@@ -182,40 +331,65 @@ export const MessageThread = ({ conversationId, onClose }: MessageThreadProps) =
       {/* Messages */}
       <ScrollArea className="flex-1 p-4" ref={scrollRef}>
         <div className="space-y-4">
+          {/* Request Banner */}
+          {messages.some(m => m.is_request && !m.request_status && m.sender_id !== user?.id) && (
+            <MessageRequestBanner
+              conversationId={conversationId}
+              senderName={otherUser?.display_name || "Usuário"}
+              onResponse={() => {
+                loadMessages();
+                checkMessagePermissions();
+              }}
+            />
+          )}
+
           {messages.map((message) => {
             const isOwn = message.sender_id === user?.id;
             return (
-              <div
+              <MessageContextMenu
                 key={message.id}
-                className={`flex gap-2 ${isOwn ? "flex-row-reverse" : "flex-row"}`}
+                messageId={message.id}
+                content={message.content}
+                isOwn={isOwn}
+                onDelete={loadMessages}
               >
                 <div
-                  className={`max-w-[70%] rounded-2xl px-4 py-2 ${
-                    isOwn
-                      ? "bg-primary text-primary-foreground"
-                      : "bg-muted"
-                  }`}
+                  className={`flex gap-2 ${isOwn ? "flex-row-reverse" : "flex-row"}`}
                 >
-                  <p className="text-sm break-words">{message.content}</p>
-                  <p
-                    className={`text-xs mt-1 ${
-                      isOwn ? "text-primary-foreground/70" : "text-muted-foreground"
+                  <div
+                    className={`max-w-[70%] rounded-2xl px-4 py-2 ${
+                      isOwn
+                        ? "bg-primary text-primary-foreground"
+                        : "bg-muted"
                     }`}
                   >
-                    {formatDistanceToNow(new Date(message.created_at), {
-                      locale: ptBR,
-                      addSuffix: true,
-                    })}
-                  </p>
+                    <p className="text-sm break-words">{message.content}</p>
+                    <p
+                      className={`text-xs mt-1 ${
+                        isOwn ? "text-primary-foreground/70" : "text-muted-foreground"
+                      }`}
+                    >
+                      {formatDistanceToNow(new Date(message.created_at), {
+                        locale: ptBR,
+                        addSuffix: true,
+                      })}
+                    </p>
+                  </div>
                 </div>
-              </div>
+              </MessageContextMenu>
             );
           })}
         </div>
       </ScrollArea>
 
       {/* Input */}
-      <MessageInput onSendMessage={handleSendMessage} />
+      <MessageInput 
+        onSendMessage={handleSendMessage}
+        isBlocked={isBlocked}
+        blockReason={blockReason}
+        otherUserId={otherUser?.id}
+        onFollow={handleFollow}
+      />
     </div>
   );
 };
