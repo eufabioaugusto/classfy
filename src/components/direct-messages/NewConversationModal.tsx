@@ -113,37 +113,22 @@ export const NewConversationModal = ({
         }
       }
 
-      // Create new conversation
-      console.log("Creating new conversation...");
-      const { data: conversation, error: convError } = await supabase
-        .from("conversations")
-        .insert({})
-        .select()
-        .single();
+      // Create or get conversation using backend helper to avoid RLS issues
+      console.log("Creating or getting conversation via RPC...");
+      const { data: conversationId, error: convError } = await supabase
+        .rpc("create_or_get_conversation", {
+          p_user1_id: user.id,
+          p_user2_id: recipientId,
+        });
 
-      if (convError) {
-        console.error("Error creating conversation:", convError);
-        throw convError;
+      if (convError || !conversationId) {
+        console.error("Error creating/getting conversation via RPC:", convError);
+        throw convError || new Error("Falha ao criar conversa");
       }
 
-      console.log("Conversation created:", conversation);
+      console.log("Conversation id from RPC:", conversationId);
 
-      // Add participants
-      console.log("Adding participants to conversation:", conversation.id);
-      const { error: participantsError } = await supabase
-        .from("conversation_participants")
-        .insert([
-          { conversation_id: conversation.id, user_id: user.id },
-          { conversation_id: conversation.id, user_id: recipientId },
-        ]);
-
-      if (participantsError) {
-        console.error("Error adding participants:", participantsError);
-        throw participantsError;
-      }
-
-      console.log("Participants added successfully");
-      onConversationCreated(conversation.id);
+      onConversationCreated(conversationId as string);
       onClose();
       
       toast({

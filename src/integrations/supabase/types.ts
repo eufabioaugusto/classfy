@@ -2313,6 +2313,10 @@ export type Database = {
     }
     Functions: {
       count_active_studies: { Args: { p_user_id: string }; Returns: number }
+      create_or_get_conversation: {
+        Args: { p_user1_id: string; p_user2_id: string }
+        Returns: string
+      }
       has_role: {
         Args: {
           _role: Database["public"]["Enums"]["app_role"]
