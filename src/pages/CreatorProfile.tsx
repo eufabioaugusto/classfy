@@ -56,10 +56,17 @@ export default function CreatorProfile() {
   }, [activeTab, contents]);
 
   const loadCreatorProfile = async () => {
+    if (!username) {
+      navigate("/404");
+      return;
+    }
+
     try {
       setLoading(true);
 
       // Buscar perfil do creator pelo channel_name
+      console.log("Looking for creator with channel_name:", username);
+      
       const { data: profileData, error: profileError } = await supabase
         .from("profiles")
         .select("*")
@@ -67,8 +74,13 @@ export default function CreatorProfile() {
         .eq("creator_status", "approved")
         .maybeSingle();
 
+      console.log("Profile data:", profileData);
+      console.log("Profile error:", profileError);
+
       if (profileError) throw profileError;
+      
       if (!profileData) {
+        console.log("No profile found for username:", username);
         navigate("/404");
         return;
       }
