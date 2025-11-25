@@ -216,60 +216,65 @@ export default function CreatorProfile() {
 
           <div className="container mx-auto px-4">
             {/* Profile Header */}
-            <div className="relative mb-6">
-              {/* Avatar centralizado que sobrepõe a capa */}
-              <div className="flex justify-center -mt-16 mb-6">
-                <Avatar className="w-32 h-32 border-4 border-background shadow-lg">
-                  <AvatarImage src={creator.avatar_url || undefined} />
-                  <AvatarFallback className="text-3xl">
-                    {creator.display_name.charAt(0).toUpperCase()}
-                  </AvatarFallback>
-                </Avatar>
-              </div>
-
-              {/* Informações do perfil abaixo do avatar */}
-              <div className="text-center space-y-4">
-                <div className="space-y-2">
-                  <div className="flex flex-col items-center gap-2">
-                    <h1 className="text-3xl font-bold">{creator.display_name}</h1>
-                    {stats && (
-                      <Badge variant="secondary" className="gap-1">
-                        <Trophy className="w-4 h-4" />
-                        Nível {stats.level}
-                      </Badge>
+            <div className="relative mb-6 -mt-16">
+              <div className="flex flex-col md:flex-row gap-6 items-start">
+                {/* Coluna Esquerda - Avatar, Nome, Nível, @, Bio */}
+                <div className="flex flex-col items-start gap-4 md:w-1/3">
+                  <Avatar className="w-32 h-32 border-4 border-background shadow-lg">
+                    <AvatarImage src={creator.avatar_url || undefined} />
+                    <AvatarFallback className="text-3xl">
+                      {creator.display_name.charAt(0).toUpperCase()}
+                    </AvatarFallback>
+                  </Avatar>
+                  
+                  <div className="space-y-2">
+                    <div className="flex flex-col gap-2">
+                      <h1 className="text-3xl font-bold">{creator.display_name}</h1>
+                      {stats && (
+                        <Badge variant="secondary" className="gap-1 w-fit">
+                          <Trophy className="w-4 h-4" />
+                          Nível {stats.level}
+                        </Badge>
+                      )}
+                    </div>
+                    
+                    <p className="text-muted-foreground">@{creator.creator_channel_name}</p>
+                    
+                    {creator.creator_bio && (
+                      <p className="text-sm text-muted-foreground">{creator.creator_bio}</p>
                     )}
                   </div>
-                  
-                  <p className="text-muted-foreground">@{creator.creator_channel_name}</p>
-                </div>
-                
-                <div className="flex flex-wrap items-center justify-center gap-4 text-sm text-muted-foreground">
-                  <div className="flex items-center gap-1">
-                    <Users className="w-4 h-4" />
-                    <span className="font-semibold">{stats?.followersCount || 0}</span> seguidores
-                  </div>
-                  <div className="flex items-center gap-1">
-                    <Video className="w-4 h-4" />
-                    <span className="font-semibold">{stats?.contentCount || 0}</span> conteúdos
-                  </div>
-                  <div className="flex items-center gap-1">
-                    <Trophy className="w-4 h-4" />
-                    <span className="font-semibold">{stats?.totalPoints || 0}</span> pontos
-                  </div>
                 </div>
 
-                {creator.creator_bio && (
-                  <p className="text-sm text-muted-foreground max-w-2xl mx-auto">{creator.creator_bio}</p>
-                )}
+                {/* Coluna Direita - Stats e Botões */}
+                <div className="flex flex-col gap-4 md:w-2/3 md:pt-16">
+                  <div className="flex flex-wrap items-center gap-4 text-sm">
+                    <div className="flex items-center gap-1">
+                      <Users className="w-4 h-4 text-muted-foreground" />
+                      <span className="font-semibold">{stats?.followersCount || 0}</span>
+                      <span className="text-muted-foreground">seguidores</span>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <Video className="w-4 h-4 text-muted-foreground" />
+                      <span className="font-semibold">{stats?.contentCount || 0}</span>
+                      <span className="text-muted-foreground">conteúdos</span>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <Trophy className="w-4 h-4 text-muted-foreground" />
+                      <span className="font-semibold">{stats?.totalPoints || 0}</span>
+                      <span className="text-muted-foreground">pontos</span>
+                    </div>
+                  </div>
 
-                <div className="flex flex-wrap items-center justify-center gap-3">
-                  {user?.id !== creator.id && (
-                    <FollowButton creatorId={creator.id} size="default" variant="default" />
-                  )}
-                  <Button variant="outline" size="default" onClick={handleShare}>
-                    <Share2 className="w-4 h-4" />
-                    Compartilhar
-                  </Button>
+                  <div className="flex flex-wrap items-center gap-3">
+                    {user?.id !== creator.id && (
+                      <FollowButton creatorId={creator.id} size="default" variant="default" />
+                    )}
+                    <Button variant="outline" size="default" onClick={handleShare}>
+                      <Share2 className="w-4 h-4 mr-2" />
+                      Compartilhar
+                    </Button>
+                  </div>
                 </div>
               </div>
             </div>
