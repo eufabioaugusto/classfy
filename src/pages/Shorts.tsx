@@ -87,6 +87,45 @@ export default function Shorts() {
 
   const fetchShorts = async () => {
     try {
+      let shortsData: ShortContent[] = [];
+      
+      // Se temos um ID na URL, buscar esse short específico primeiro
+      if (id) {
+        const { data: specificShort, error: specificError } = await supabase
+          .from("contents")
+          .select(`
+            id,
+            title,
+            description,
+            video_url,
+            thumbnail_url,
+            visibility,
+            price,
+            duration_seconds,
+            views_count,
+            likes_count,
+            creator_id,
+            creator:profiles!contents_creator_id_fkey(
+              id,
+              display_name,
+              avatar_url,
+              creator_channel_name
+            )
+          `)
+          .eq("id", id)
+          .eq("content_type", "short")
+          .maybeSingle();
+
+        if (specificError) {
+          console.error("Error fetching specific short:", specificError);
+        }
+
+        if (specificShort) {
+          shortsData.push(specificShort);
+        }
+      }
+
+      // Buscar outros shorts
       const { data, error } = await supabase
         .from("contents")
         .select(`
@@ -110,14 +149,21 @@ export default function Shorts() {
         `)
         .eq("content_type", "short")
         .eq("status", "published")
+        .neq("id", id || "") // Não duplicar o short já buscado
         .order("created_at", { ascending: false })
         .limit(20);
 
       if (error) throw error;
-      setShorts(data || []);
       
-      if (data && data.length > 0) {
-        setLocalLikesCount(data[0].likes_count || 0);
+      // Combinar shorts: específico primeiro, depois os outros
+      if (data) {
+        shortsData = [...shortsData, ...data];
+      }
+      
+      setShorts(shortsData);
+      
+      if (shortsData.length > 0) {
+        setLocalLikesCount(shortsData[0].likes_count || 0);
       }
     } catch (error) {
       console.error("Error fetching shorts:", error);
