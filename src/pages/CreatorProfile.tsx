@@ -229,14 +229,16 @@ export default function CreatorProfile() {
                   
                   <div className="space-y-2 max-w-sm">
                     <h1 className="text-3xl font-bold">{creator.display_name}</h1>
-                    {stats && (
-                      <Badge variant="secondary" className="gap-1 w-fit">
-                        <Trophy className="w-4 h-4" />
-                        Nível {stats.level}
-                      </Badge>
-                    )}
                     
-                    <p className="text-muted-foreground">@{creator.creator_channel_name}</p>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <p className="text-muted-foreground">@{creator.creator_channel_name}</p>
+                      {stats && (
+                        <Badge variant="secondary" className="gap-1">
+                          <Trophy className="w-3 h-3" />
+                          Nível {stats.level}
+                        </Badge>
+                      )}
+                    </div>
                     
                     {creator.creator_bio && (
                       <p className="text-sm text-muted-foreground">{creator.creator_bio}</p>
