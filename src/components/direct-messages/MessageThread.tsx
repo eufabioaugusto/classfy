@@ -205,26 +205,8 @@ export const MessageThread = ({ conversationId, onClose }: MessageThreadProps) =
         setIsFollowing(true);
       }
 
-      if (privacyMode === 'request') {
-        // Check if there's a pending request
-        const { data: requestMessages } = await supabase
-          .from("messages")
-          .select("id, request_status")
-          .eq("conversation_id", conversationId)
-          .eq("sender_id", user.id)
-          .eq("is_request", true);
-
-        if (requestMessages && requestMessages.length > 0) {
-          const hasApproved = requestMessages.some(m => m.request_status === 'approved');
-          const hasPending = requestMessages.some(m => m.request_status === 'pending' || !m.request_status);
-
-          if (!hasApproved && hasPending) {
-            setIsBlocked(true);
-            setBlockReason('pending_request');
-            return;
-          }
-        }
-      }
+      // privacy_mode === 'request': não bloqueia o envio, apenas marca a
+      // primeira mensagem como solicitação visual para o destinatário.
 
       setIsBlocked(false);
     } catch (error) {
@@ -388,7 +370,7 @@ export const MessageThread = ({ conversationId, onClose }: MessageThreadProps) =
         return;
       }
 
-      // Check if this should be marked as a request
+      // Check recipient privacy mode
       const { data: settings } = await supabase
         .from("message_settings")
         .select("privacy_mode")
@@ -398,57 +380,31 @@ export const MessageThread = ({ conversationId, onClose }: MessageThreadProps) =
       const privacyMode = settings?.privacy_mode || 'open';
       const isRequestMode = privacyMode === 'request';
 
-      // Check if user already has messages in this conversation
+      let markAsRequest = false;
+
       if (isRequestMode) {
-        const { data: existingMessages } = await supabase
+        // Marca apenas a PRIMEIRA mensagem desse remetente como solicitação
+        const { data: existingRequests } = await supabase
           .from("messages")
-          .select("id, request_status, is_request")
+          .select("id")
           .eq("conversation_id", conversationId)
-          .eq("sender_id", user.id);
+          .eq("sender_id", user.id)
+          .eq("is_request", true);
 
-        const hasApproved = existingMessages?.some(m => m.request_status === 'approved');
-        const hasPending = existingMessages?.some(m => m.is_request && (!m.request_status || m.request_status === 'pending'));
-        
-        // If there's already a pending request, block
-        if (hasPending && !hasApproved) {
-          toast({
-            title: "Aguardando aprovação",
-            description: "Você precisa aguardar a aprovação antes de enviar mais mensagens",
-            variant: "destructive",
-          });
-          return;
-        }
-
-        // Insert the message
-        const { error } = await supabase
-          .from("messages")
-          .insert({
-            conversation_id: conversationId,
-            sender_id: user.id,
-            content,
-            is_request: !hasApproved,
-            request_status: hasApproved ? null : 'pending',
-          });
-
-        if (error) throw error;
-
-        // If this is the first message (request), block further sending
-        if (!hasApproved) {
-          setIsBlocked(true);
-          setBlockReason('pending_request');
-        }
-      } else {
-        // Normal message flow
-        const { error } = await supabase
-          .from("messages")
-          .insert({
-            conversation_id: conversationId,
-            sender_id: user.id,
-            content,
-          });
-
-        if (error) throw error;
+        markAsRequest = !existingRequests || existingRequests.length === 0;
       }
+
+      const { error } = await supabase
+        .from("messages")
+        .insert({
+          conversation_id: conversationId,
+          sender_id: user.id,
+          content,
+          is_request: isRequestMode && markAsRequest,
+          request_status: isRequestMode && markAsRequest ? 'pending' : null,
+        });
+
+      if (error) throw error;
     } catch (error) {
       console.error("Error sending message:", error);
       throw error;
