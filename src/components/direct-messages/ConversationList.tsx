@@ -48,6 +48,16 @@ export const ConversationList = ({
     if (user) {
       loadConversations();
       setupRealtimeSubscription();
+
+      const handleExternalChange = () => {
+        loadConversations();
+      };
+
+      window.addEventListener("dm-conversations-changed", handleExternalChange);
+
+      return () => {
+        window.removeEventListener("dm-conversations-changed", handleExternalChange);
+      };
     }
   }, [user]);
 
