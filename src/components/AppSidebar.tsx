@@ -59,6 +59,7 @@ const mainItems = [
   { title: "Favoritos", url: "/favoritos", icon: Star },
   { title: "Salvos", url: "/salvos", icon: Bookmark },
   { title: "Recompensas", url: "/recompensas", icon: Trophy },
+  { title: "Carteira", url: "/carteira", icon: DollarSign },
 ];
 
 const studioItems = [

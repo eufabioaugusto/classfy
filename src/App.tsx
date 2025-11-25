@@ -29,6 +29,7 @@ import AdminUsers from "./pages/AdminUsers";
 import AdminDashboard from "./pages/AdminDashboard";
 import RewardsHistory from "./pages/RewardsHistory";
 import Recompensas from "./pages/Recompensas";
+import Carteira from "./pages/Carteira";
 import BoostSuccess from "./pages/BoostSuccess";
 import StudioBoosts from "./pages/StudioBoosts";
 import StudioAnalytics from "./pages/StudioAnalytics";
@@ -87,6 +88,7 @@ function AppContent() {
       <Route path="/admin/settings" element={<AdminSettings />} />
       <Route path="/rewards-history" element={<RewardsHistory />} />
       <Route path="/recompensas" element={<Recompensas />} />
+      <Route path="/carteira" element={<Carteira />} />
       <Route path="/boost-success" element={<BoostSuccess />} />
       <Route path="/watch/:id" element={<Watch />} />
       <Route path="/listen/:id" element={<Listen />} />
