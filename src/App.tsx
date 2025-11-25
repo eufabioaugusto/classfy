@@ -89,6 +89,7 @@ function AppContent() {
       <Route path="/boost-success" element={<BoostSuccess />} />
       <Route path="/watch/:id" element={<Watch />} />
       <Route path="/listen/:id" element={<Listen />} />
+      <Route path="/shorts" element={<Shorts />} />
       <Route path="/shorts/:id" element={<Shorts />} />
       <Route path="/c/:id" element={<Study />} />
       <Route path="*" element={<NotFound />} />

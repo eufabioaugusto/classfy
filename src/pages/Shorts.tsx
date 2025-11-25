@@ -80,6 +80,9 @@ export default function Shorts() {
       checkLikeStatus(currentShort.id);
       checkSavedStatus(currentShort.id);
       fetchCommentsCount(currentShort.id);
+      setLocalLikesCount(currentShort.likes_count || 0);
+      
+      // Update URL to reflect current short
       navigate(`/shorts/${currentShort.id}`, { replace: true });
 
       // Play current video and pause others

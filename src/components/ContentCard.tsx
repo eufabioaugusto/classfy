@@ -136,6 +136,7 @@ export const ContentCard = ({
     // Always check content type first for proper navigation
     const actualContentType = content?.content_type || contentType;
     
+    // Navigate to shorts feed starting with this short
     if (actualContentType === "short") {
       navigate(`/shorts/${id}`);
     } else if (onClick) {
