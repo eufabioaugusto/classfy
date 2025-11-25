@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef } from "react";
-import { ArrowLeft, MoreVertical, Settings } from "lucide-react";
+import { ArrowLeft, MoreVertical } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -14,7 +14,6 @@ import { useAuth } from "@/contexts/AuthContext";
 import { MessageInput } from "./MessageInput";
 import { MessageContextMenu } from "./MessageContextMenu";
 import { MessageRequestBanner } from "./MessageRequestBanner";
-import { MessageSettingsModal } from "./MessageSettingsModal";
 import { formatDistanceToNow } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { useToast } from "@/hooks/use-toast";
@@ -42,7 +41,6 @@ export const MessageThread = ({ conversationId, onClose }: MessageThreadProps) =
   const [isBlocked, setIsBlocked] = useState(false);
   const [blockReason, setBlockReason] = useState<'closed' | 'not_follower' | 'pending_request'>();
   const [isFollowing, setIsFollowing] = useState(false);
-  const [showSettingsModal, setShowSettingsModal] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -334,16 +332,13 @@ export const MessageThread = ({ conversationId, onClose }: MessageThreadProps) =
             </div>
           </>
         )}
-        <Button variant="ghost" size="icon" onClick={() => setShowSettingsModal(true)}>
-          <Settings className="h-5 w-5" />
-        </Button>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button variant="ghost" size="icon">
               <MoreVertical className="h-5 w-5" />
             </Button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
+          <DropdownMenuContent align="end" className="z-[60]">
             <DropdownMenuItem onClick={() => {
               toast({
                 title: "Função em desenvolvimento",
@@ -437,12 +432,6 @@ export const MessageThread = ({ conversationId, onClose }: MessageThreadProps) =
         blockReason={blockReason}
         otherUserId={otherUser?.id}
         onFollow={handleFollow}
-      />
-
-      {/* Settings Modal */}
-      <MessageSettingsModal 
-        open={showSettingsModal} 
-        onClose={() => setShowSettingsModal(false)}
       />
     </div>
   );
