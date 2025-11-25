@@ -385,6 +385,14 @@ export const MessageThread = ({ conversationId, onClose, isArchived = false }: M
         return;
       }
 
+      // Unmute recipient if they deleted the conversation (is_muted = true)
+      // This ensures the conversation appears in their list when a new message arrives
+      await supabase
+        .from("conversation_participants")
+        .update({ is_muted: false, is_archived: false })
+        .eq("conversation_id", conversationId)
+        .eq("user_id", otherUser.id);
+
       // Privacidade do destinatário
       const { data: settings } = await supabase
         .from("message_settings")
