@@ -157,6 +157,9 @@ export const MessageThread = ({ conversationId, onClose }: MessageThreadProps) =
     if (!user || !otherUser) return;
 
     try {
+      // Revalida sempre que o usuário destino mudar
+      console.log("Checking message permissions for", otherUser.id);
+
       // Check if user is blocked
       const { data: blockData } = await supabase
         .from("blocked_users")
@@ -277,6 +280,9 @@ export const MessageThread = ({ conversationId, onClose }: MessageThreadProps) =
         description: "A conversa foi removida da sua lista",
       });
 
+      // Notifica a lista para recarregar imediatamente
+      window.dispatchEvent(new CustomEvent("dm-conversations-changed"));
+
       onClose();
     } catch (error) {
       console.error("Error deleting conversation:", error);
@@ -303,6 +309,9 @@ export const MessageThread = ({ conversationId, onClose }: MessageThreadProps) =
         title: "Conversa arquivada",
         description: "A conversa foi movida para arquivados",
       });
+
+      // Notifica a lista para recarregar imediatamente
+      window.dispatchEvent(new CustomEvent("dm-conversations-changed"));
 
       onClose();
     } catch (error) {
@@ -490,7 +499,11 @@ export const MessageThread = ({ conversationId, onClose }: MessageThreadProps) =
       <ScrollArea className="flex-1 p-4" ref={scrollRef}>
         <div className="space-y-4">
           {/* Request Banner */}
-          {messages.some(m => m.is_request && !m.request_status && m.sender_id !== user?.id) && (
+          {messages.some(m =>
+            m.is_request &&
+            (m.request_status === "pending" || !m.request_status) &&
+            m.sender_id !== user?.id
+          ) && (
             <MessageRequestBanner
               conversationId={conversationId}
               senderName={otherUser?.display_name || "Usuário"}
