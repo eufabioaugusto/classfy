@@ -1,29 +1,46 @@
-import { Copy, Trash2 } from "lucide-react";
+import { Copy, Trash2, Ban } from "lucide-react";
 import {
   ContextMenu,
   ContextMenuContent,
   ContextMenuItem,
+  ContextMenuSeparator,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { useState } from "react";
 
 interface MessageContextMenuProps {
   messageId: string;
   content: string;
   isOwn: boolean;
+  senderId: string;
   children: React.ReactNode;
   onDelete?: () => void;
+  onBlock?: () => void;
 }
 
 export const MessageContextMenu = ({
   messageId,
   content,
   isOwn,
+  senderId,
   children,
   onDelete,
+  onBlock,
 }: MessageContextMenuProps) => {
   const { toast } = useToast();
+  const [showBlockDialog, setShowBlockDialog] = useState(false);
 
   const handleCopy = () => {
     navigator.clipboard.writeText(content);
@@ -60,23 +77,64 @@ export const MessageContextMenu = ({
     }
   };
 
+  const handleBlock = async () => {
+    // TODO: Implement user blocking functionality
+    toast({
+      title: "Função em desenvolvimento",
+      description: "A funcionalidade de bloquear usuário será implementada em breve",
+    });
+    setShowBlockDialog(false);
+    onBlock?.();
+  };
+
   return (
-    <ContextMenu>
-      <ContextMenuTrigger asChild>
-        {children}
-      </ContextMenuTrigger>
-      <ContextMenuContent>
-        <ContextMenuItem onClick={handleCopy}>
-          <Copy className="h-4 w-4 mr-2" />
-          Copiar
-        </ContextMenuItem>
-        {isOwn && (
-          <ContextMenuItem onClick={handleDelete} className="text-destructive">
-            <Trash2 className="h-4 w-4 mr-2" />
-            Excluir
+    <>
+      <ContextMenu>
+        <ContextMenuTrigger asChild>
+          {children}
+        </ContextMenuTrigger>
+        <ContextMenuContent>
+          <ContextMenuItem onClick={handleCopy}>
+            <Copy className="h-4 w-4 mr-2" />
+            Copiar
           </ContextMenuItem>
-        )}
-      </ContextMenuContent>
-    </ContextMenu>
+          {isOwn && (
+            <ContextMenuItem onClick={handleDelete} className="text-destructive">
+              <Trash2 className="h-4 w-4 mr-2" />
+              Excluir
+            </ContextMenuItem>
+          )}
+          {!isOwn && (
+            <>
+              <ContextMenuSeparator />
+              <ContextMenuItem 
+                onClick={() => setShowBlockDialog(true)}
+                className="text-destructive"
+              >
+                <Ban className="h-4 w-4 mr-2" />
+                Bloquear usuário
+              </ContextMenuItem>
+            </>
+          )}
+        </ContextMenuContent>
+      </ContextMenu>
+
+      <AlertDialog open={showBlockDialog} onOpenChange={setShowBlockDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Bloquear este usuário?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Você não receberá mais mensagens desta pessoa e ela não poderá enviar novas mensagens para você.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction onClick={handleBlock} className="bg-destructive text-destructive-foreground">
+              Bloquear
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
   );
 };

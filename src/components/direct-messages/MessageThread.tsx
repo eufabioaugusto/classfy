@@ -239,21 +239,21 @@ export const MessageThread = ({ conversationId, onClose }: MessageThreadProps) =
         .maybeSingle();
 
       const privacyMode = settings?.privacy_mode || 'open';
-      const isRequest = privacyMode === 'request';
+      const isRequestMode = privacyMode === 'request';
 
-      // Check if user already has an approved request
-      if (isRequest) {
+      // Check if user already has messages in this conversation
+      if (isRequestMode) {
         const { data: existingMessages } = await supabase
           .from("messages")
-          .select("id, request_status")
+          .select("id, request_status, is_request")
           .eq("conversation_id", conversationId)
-          .eq("sender_id", user.id)
-          .eq("is_request", true);
+          .eq("sender_id", user.id);
 
         const hasApproved = existingMessages?.some(m => m.request_status === 'approved');
+        const hasPending = existingMessages?.some(m => m.is_request && (!m.request_status || m.request_status === 'pending'));
         
-        if (!hasApproved && existingMessages && existingMessages.length > 0) {
-          // Block sending more messages until approved
+        // If there's already a pending request, block
+        if (hasPending && !hasApproved) {
           toast({
             title: "Aguardando aprovação",
             description: "Você precisa aguardar a aprovação antes de enviar mais mensagens",
@@ -262,6 +262,7 @@ export const MessageThread = ({ conversationId, onClose }: MessageThreadProps) =
           return;
         }
 
+        // Insert the message
         const { error } = await supabase
           .from("messages")
           .insert({
@@ -274,11 +275,13 @@ export const MessageThread = ({ conversationId, onClose }: MessageThreadProps) =
 
         if (error) throw error;
 
+        // If this is the first message (request), block further sending
         if (!hasApproved) {
           setIsBlocked(true);
           setBlockReason('pending_request');
         }
       } else {
+        // Normal message flow
         const { error } = await supabase
           .from("messages")
           .insert({
@@ -351,6 +354,7 @@ export const MessageThread = ({ conversationId, onClose }: MessageThreadProps) =
                 messageId={message.id}
                 content={message.content}
                 isOwn={isOwn}
+                senderId={message.sender_id}
                 onDelete={loadMessages}
               >
                 <div

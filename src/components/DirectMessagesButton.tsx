@@ -1,15 +1,14 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { MessageCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { DirectMessagesModal } from "@/components/DirectMessagesModal";
-import { useEffect } from "react";
+import { useUnreadMessages } from "@/hooks/useUnreadMessages";
+import { useMessageNotifications } from "@/hooks/useMessageNotifications";
 
-interface DirectMessagesButtonProps {
-  unreadCount?: number;
-}
-
-export const DirectMessagesButton = ({ unreadCount = 0 }: DirectMessagesButtonProps) => {
+export const DirectMessagesButton = () => {
+  const unreadCount = useUnreadMessages();
+  useMessageNotifications();
   const [isOpen, setIsOpen] = useState(false);
   const [recipientId, setRecipientId] = useState<string | undefined>(undefined);
 
