@@ -249,35 +249,18 @@ export const MessageThread = ({ conversationId, onClose, isArchived = false }: M
     if (!user) return;
 
     try {
-      // 1) Apaga TODAS as mensagens que você mesmo enviou nesta conversa
-      const { error: deleteMessagesError } = await supabase
-        .from("messages")
-        .delete()
-        .eq("conversation_id", conversationId)
-        .eq("sender_id", user.id);
+      // Deleta a conversa COMPLETAMENTE no backend (mensagens, participantes, conversa)
+      const { error } = await supabase.rpc("delete_conversation_for_user", {
+        p_conversation_id: conversationId,
+        p_user_id: user.id,
+      });
 
-      if (deleteMessagesError) throw deleteMessagesError;
-
-      // 2) Reseta status de aprovação de todas as mensagens is_request desta conversa
-      // (para voltar a pedir aprovação na próxima vez)
-      await supabase
-        .from("messages")
-        .update({ request_status: null })
-        .eq("conversation_id", conversationId)
-        .eq("is_request", true);
-
-      // 3) Marca sua participação como removida (arquivado+mutado) pra SUMIR da lista
-      const { error: deleteParticipantError } = await supabase
-        .from("conversation_participants")
-        .update({ is_archived: true, is_muted: true })
-        .eq("conversation_id", conversationId)
-        .eq("user_id", user.id);
-
-      if (deleteParticipantError) throw deleteParticipantError;
+      if (error) throw error;
 
       toast({
         title: "Conversa excluída",
-        description: "Suas mensagens foram removidas e a conversa foi apagada para você",
+        description:
+          "A conversa foi apagada completamente. Se alguém te mandar mensagem de novo, será uma nova solicitação.",
       });
 
       window.dispatchEvent(new CustomEvent("dm-conversations-changed"));

@@ -2356,6 +2356,10 @@ export type Database = {
         Args: { p_user1_id: string; p_user2_id: string }
         Returns: string
       }
+      delete_conversation_for_user: {
+        Args: { p_conversation_id: string; p_user_id: string }
+        Returns: undefined
+      }
       has_role: {
         Args: {
           _role: Database["public"]["Enums"]["app_role"]
