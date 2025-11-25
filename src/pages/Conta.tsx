@@ -200,13 +200,67 @@ export default function Conta() {
                 size="xl"
                 editable={true}
               />
-              <div className="space-y-2 text-center md:text-left">
-                <h1 className="text-4xl font-bold">{profile?.display_name}</h1>
-                <div className="flex gap-2 justify-center md:justify-start">
-                  <Badge variant="secondary" className="uppercase">
-                    {profile?.plan || "free"}
-                  </Badge>
+              <div className="flex-1 space-y-4 text-center md:text-left">
+                <div className="space-y-2">
+                  <h1 className="text-4xl font-bold">{profile?.display_name}</h1>
+                  <div className="flex gap-2 justify-center md:justify-start">
+                    <Badge variant="secondary" className="uppercase">
+                      {profile?.plan || "free"}
+                    </Badge>
+                  </div>
                 </div>
+
+                {/* Nome do Canal - Somente para creators */}
+                {profile?.creator_status === "approved" && (
+                  <div className="space-y-2 pt-4 border-t border-border/50">
+                    <Label htmlFor="channelName" className="text-sm font-medium">
+                      Nome do Canal
+                    </Label>
+                    <div className="flex flex-col gap-2">
+                      <Input
+                        id="channelName"
+                        value={profile?.creator_channel_name || ""}
+                        onChange={async (e) => {
+                          const newName = e.target.value.toLowerCase().replace(/[^a-z0-9-_]/g, '');
+                          setProfile({ ...profile, creator_channel_name: newName });
+                          
+                          // Update in database
+                          const { error } = await supabase
+                            .from("profiles")
+                            .update({ creator_channel_name: newName })
+                            .eq("id", user?.id);
+                          
+                          if (error) {
+                            toast({
+                              title: "Erro",
+                              description: "Não foi possível atualizar o nome do canal.",
+                              variant: "destructive",
+                            });
+                          } else {
+                            toast({
+                              title: "Sucesso",
+                              description: "Nome do canal atualizado!",
+                            });
+                          }
+                        }}
+                        placeholder="nomedocanal"
+                        className="font-mono"
+                      />
+                      {profile?.creator_channel_name && (
+                        <p className="text-xs text-muted-foreground">
+                          Seu perfil público: 
+                          <Button
+                            variant="link"
+                            className="h-auto p-0 ml-1 text-xs font-mono"
+                            onClick={() => navigate(`/@${profile.creator_channel_name}`)}
+                          >
+                            /@{profile.creator_channel_name}
+                          </Button>
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           </Card>

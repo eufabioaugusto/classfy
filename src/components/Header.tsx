@@ -6,7 +6,7 @@ import { SidebarTrigger } from "@/components/ui/sidebar";
 import { NotificationBell } from "@/components/NotificationBell";
 import { AffiliateModal } from "@/components/AffiliateModal";
 import { useState } from "react";
-import { Moon, Sun, Menu, Plus, BookOpen, Podcast, Zap, Radio, GraduationCap, LogIn, LogOut, Settings, Gift } from "lucide-react";
+import { Moon, Sun, Menu, Plus, BookOpen, Podcast, Zap, Radio, GraduationCap, LogIn, LogOut, Settings, Gift, User } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -139,6 +139,12 @@ export function Header({ variant = "home", title }: HeaderProps) {
                   </div>
                 </div>
                 <DropdownMenuSeparator />
+                {profile?.creator_channel_name && (
+                  <DropdownMenuItem onClick={() => navigate(`/@${profile.creator_channel_name}`)} className="cursor-pointer">
+                    <User className="w-4 h-4 mr-2" />
+                    Meu Perfil Público
+                  </DropdownMenuItem>
+                )}
                 <DropdownMenuItem onClick={() => navigate("/conta")} className="cursor-pointer">
                   <Settings className="w-4 h-4 mr-2" />
                   Minha Conta
