@@ -9,6 +9,9 @@ import { useState, useEffect, useRef } from "react";
 import { toast } from "sonner";
 import { UpgradeModal } from "@/components/UpgradeModal";
 import { PurchaseModal } from "@/components/PurchaseModal";
+import { SidebarProvider } from "@/components/ui/sidebar";
+import { AppSidebar } from "@/components/AppSidebar";
+import { Header } from "@/components/Header";
 
 interface ShortContent {
   id: string;
@@ -40,7 +43,7 @@ export default function Shorts() {
   const [hasAccess, setHasAccess] = useState(false);
   const [showUpgradeModal, setShowUpgradeModal] = useState(false);
   const [showPurchaseModal, setShowPurchaseModal] = useState(false);
-  const [isMuted, setIsMuted] = useState(false);
+  const [isMuted, setIsMuted] = useState(true);
   const [isLiked, setIsLiked] = useState(false);
   const [isSaved, setIsSaved] = useState(false);
   const [localLikesCount, setLocalLikesCount] = useState(0);
@@ -48,10 +51,13 @@ export default function Shorts() {
   const containerRef = useRef<HTMLDivElement>(null);
   const { processReward } = useRewardSystem();
   const [metricsRecorded, setMetricsRecorded] = useState<{[key: string]: {start: boolean, half: boolean, complete: boolean}}>({});
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(true);
+  const PAGE_SIZE = 10;
 
   useEffect(() => {
     if (user) {
-      fetchShorts();
+      fetchInitialShorts();
     }
   }, [user]);
 
@@ -60,7 +66,6 @@ export default function Shorts() {
       const index = shorts.findIndex(s => s.id === id);
       if (index !== -1) {
         setCurrentIndex(index);
-        scrollToIndex(index);
       }
     }
   }, [id, shorts]);
@@ -71,25 +76,26 @@ export default function Shorts() {
       checkLikeStatus(shorts[currentIndex].id);
       checkSavedStatus(shorts[currentIndex].id);
       navigate(`/shorts/${shorts[currentIndex].id}`, { replace: true });
-      
-      // Pause all videos except current
-      videoRefs.current.forEach((video, idx) => {
-        if (video) {
-          if (idx === currentIndex) {
-            video.play().catch(console.error);
-          } else {
-            video.pause();
-          }
-        }
-      });
+
+      // Play current video
+      const currentVideo = videoRefs.current[currentIndex];
+      if (currentVideo) {
+        currentVideo.play().catch(console.error);
+      }
+    }
+
+    // Load more when reaching the end of current page
+    if (currentIndex >= shorts.length - 2 && hasMore && !isLoadingMore) {
+      fetchMoreShorts();
     }
   }, [currentIndex, shorts]);
 
-  const fetchShorts = async () => {
+  const fetchInitialShorts = async () => {
     try {
+      setLoading(true);
       let shortsData: ShortContent[] = [];
-      
-      // Se temos um ID na URL, buscar esse short específico primeiro
+
+      // If we have an ID in the URL, fetch that specific short first
       if (id) {
         const { data: specificShort, error: specificError } = await supabase
           .from("contents")
@@ -121,11 +127,13 @@ export default function Shorts() {
         }
 
         if (specificShort) {
-          shortsData.push(specificShort);
+          shortsData.push(specificShort as ShortContent);
         }
       }
 
-      // Buscar outros shorts
+      const remainingSlots = PAGE_SIZE - shortsData.length;
+
+      // Fetch other shorts ordered by relevance (views_count desc)
       const { data, error } = await supabase
         .from("contents")
         .select(`
@@ -149,19 +157,19 @@ export default function Shorts() {
         `)
         .eq("content_type", "short")
         .eq("status", "published")
-        .neq("id", id || "") // Não duplicar o short já buscado
-        .order("created_at", { ascending: false })
-        .limit(20);
+        .neq("id", id || "")
+        .order("views_count", { ascending: false })
+        .limit(remainingSlots > 0 ? remainingSlots : 0);
 
       if (error) throw error;
-      
-      // Combinar shorts: específico primeiro, depois os outros
+
       if (data) {
-        shortsData = [...shortsData, ...data];
+        shortsData = [...shortsData, ...(data as ShortContent[])];
       }
-      
+
       setShorts(shortsData);
-      
+      setHasMore((data?.length || 0) === (remainingSlots > 0 ? remainingSlots : 0));
+
       if (shortsData.length > 0) {
         setLocalLikesCount(shortsData[0].likes_count || 0);
       }
@@ -170,6 +178,52 @@ export default function Shorts() {
       toast.error("Erro ao carregar shorts");
     } finally {
       setLoading(false);
+    }
+  };
+
+  const fetchMoreShorts = async () => {
+    try {
+      setIsLoadingMore(true);
+      const { data, error } = await supabase
+        .from("contents")
+        .select(`
+          id,
+          title,
+          description,
+          video_url,
+          thumbnail_url,
+          visibility,
+          price,
+          duration_seconds,
+          views_count,
+          likes_count,
+          creator_id,
+          creator:profiles!contents_creator_id_fkey(
+            id,
+            display_name,
+            avatar_url,
+            creator_channel_name
+          )
+        `)
+        .eq("content_type", "short")
+        .eq("status", "published")
+        .neq("id", id || "")
+        .order("views_count", { ascending: false })
+        .range(shorts.length, shorts.length + PAGE_SIZE - 1);
+
+      if (error) throw error;
+
+      if (!data || data.length === 0) {
+        setHasMore(false);
+        return;
+      }
+
+      setShorts(prev => [...prev, ...(data as ShortContent[])]);
+      setHasMore(data.length === PAGE_SIZE);
+    } catch (error) {
+      console.error("Error loading more shorts:", error);
+    } finally {
+      setIsLoadingMore(false);
     }
   };
 
@@ -449,10 +503,10 @@ export default function Shorts() {
     );
   }
 
-  if (loading) {
+  if (loading && shorts.length === 0) {
     return (
       <div className="flex items-center justify-center h-screen bg-background">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary" />
       </div>
     );
   }
@@ -469,205 +523,186 @@ export default function Shorts() {
 
   return (
     <>
-      <div 
-        ref={containerRef}
-        className="h-screen overflow-y-scroll snap-y snap-mandatory scroll-smooth bg-black"
-        onScroll={handleScroll}
-        style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
-      >
-        <style>{`
-          div::-webkit-scrollbar {
-            display: none;
-          }
-        `}</style>
-        
-        {shorts.map((short, index) => (
-          <div
-            key={short.id}
-            className="relative h-screen w-screen snap-start snap-always flex items-center justify-center"
-          >
-            {/* Video */}
-            <video
-              ref={(el) => (videoRefs.current[index] = el)}
-              src={short.video_url}
-              className="absolute inset-0 w-full h-full object-contain bg-black"
-              loop
-              playsInline
-              muted={isMuted}
-              onTimeUpdate={index === currentIndex ? handleTimeUpdate : undefined}
-              onClick={() => {
-                const video = videoRefs.current[index];
-                if (video) {
-                  if (video.paused) {
-                    video.play();
-                  } else {
-                    video.pause();
-                  }
-                }
-              }}
-            />
+      <SidebarProvider defaultOpen={true}>
+        <div className="min-h-screen flex w-full bg-background">
+          {/* Sidebar */}
+          <AppSidebar />
 
-            {/* Access overlay */}
-            {index === currentIndex && !hasAccess && (
-              <div className="absolute inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-20">
-                <div className="text-center px-6">
-                  <h3 className="text-xl font-bold text-white mb-2">Conteúdo Bloqueado</h3>
-                  <p className="text-gray-300 mb-4">
-                    {short.visibility === "paid" 
-                      ? `Este short custa R$ ${short.price?.toFixed(2)}`
-                      : `Assine o plano ${short.visibility === "pro" ? "Pro" : "Premium"} para acessar`
-                    }
-                  </p>
-                  <Button
-                    onClick={() => {
-                      if (short.visibility === "paid") {
-                        setShowPurchaseModal(true);
-                      } else {
-                        setShowUpgradeModal(true);
-                      }
-                    }}
-                  >
-                    {short.visibility === "paid" ? "Comprar Agora" : "Assinar"}
-                  </Button>
-                </div>
-              </div>
-            )}
+          {/* Main content */}
+          <div className="flex-1 flex flex-col">
+            <Header variant="home" />
 
-            {/* Navigation arrows */}
-            {index === currentIndex && (
-              <>
-                {currentIndex > 0 && (
-                  <button
-                    onClick={handlePrevious}
-                    className="absolute top-1/2 left-4 -translate-y-1/2 z-10 bg-black/50 text-white p-2 rounded-full hover:bg-black/70 transition-colors"
-                  >
-                    <ChevronUp className="w-6 h-6" />
-                  </button>
-                )}
-                {currentIndex < shorts.length - 1 && (
-                  <button
-                    onClick={handleNext}
-                    className="absolute top-1/2 right-4 -translate-y-1/2 z-10 bg-black/50 text-white p-2 rounded-full hover:bg-black/70 transition-colors"
-                  >
-                    <ChevronDown className="w-6 h-6" />
-                  </button>
-                )}
-              </>
-            )}
-
-            {/* Side actions */}
-            {index === currentIndex && hasAccess && (
-              <div className="absolute right-4 bottom-24 flex flex-col gap-6 z-10">
-                {/* Like */}
-                <button
-                  onClick={handleLike}
-                  className="flex flex-col items-center gap-1"
-                >
-                  <div className="bg-black/30 backdrop-blur-sm p-3 rounded-full">
-                    <Heart
-                      className={`w-7 h-7 ${isLiked ? "fill-red-500 text-red-500" : "text-white"}`}
+            <main className="flex-1 flex items-center justify-center px-4 py-6">
+              <div className="flex w-full max-w-6xl gap-6 items-center justify-center">
+                {/* Video column */}
+                <div className="flex-1 flex items-center justify-center">
+                  <div className="relative w-full max-w-[380px] md:max-w-[420px] aspect-[9/16] rounded-2xl overflow-hidden bg-black">
+                    <video
+                      ref={(el) => (videoRefs.current[currentIndex] = el)}
+                      src={currentShort.video_url}
+                      className="w-full h-full object-cover"
+                      loop
+                      playsInline
+                      muted={isMuted}
+                      onTimeUpdate={handleTimeUpdate}
+                      onClick={() => {
+                        const video = videoRefs.current[currentIndex];
+                        if (video) {
+                          if (video.paused) {
+                            video.play();
+                          } else {
+                            video.pause();
+                          }
+                        }
+                      }}
                     />
-                  </div>
-                  <span className="text-white text-xs font-medium">
-                    {localLikesCount > 999 
-                      ? `${(localLikesCount / 1000).toFixed(1)}k`
-                      : localLikesCount
-                    }
-                  </span>
-                </button>
 
-                {/* Comment */}
-                <button className="flex flex-col items-center gap-1">
-                  <div className="bg-black/30 backdrop-blur-sm p-3 rounded-full">
-                    <MessageCircle className="w-7 h-7 text-white" />
-                  </div>
-                  <span className="text-white text-xs font-medium">113</span>
-                </button>
+                    {/* Access overlay */}
+                    {!hasAccess && (
+                      <div className="absolute inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-20">
+                        <div className="text-center px-6">
+                          <h3 className="text-xl font-bold text-white mb-2">Conteúdo Bloqueado</h3>
+                          <p className="text-gray-300 mb-4">
+                            {currentShort.visibility === "paid"
+                              ? `Este short custa R$ ${currentShort.price?.toFixed(2)}`
+                              : `Assine o plano ${currentShort.visibility === "pro" ? "Pro" : "Premium"} para acessar`}
+                          </p>
+                          <Button
+                            onClick={() => {
+                              if (currentShort.visibility === "paid") {
+                                setShowPurchaseModal(true);
+                              } else {
+                                setShowUpgradeModal(true);
+                              }
+                            }}
+                          >
+                            {currentShort.visibility === "paid" ? "Comprar Agora" : "Assinar"}
+                          </Button>
+                        </div>
+                      </div>
+                    )}
 
-                {/* Save */}
-                <button
-                  onClick={handleSave}
-                  className="flex flex-col items-center gap-1"
-                >
-                  <div className="bg-black/30 backdrop-blur-sm p-3 rounded-full">
-                    <Bookmark
-                      className={`w-7 h-7 ${isSaved ? "fill-white text-white" : "text-white"}`}
-                    />
-                  </div>
-                </button>
+                    {/* Navigation arrows */}
+                    <div className="absolute inset-y-0 left-0 right-0 flex items-center justify-between px-3 pointer-events-none">
+                      {currentIndex > 0 && (
+                        <button
+                          onClick={handlePrevious}
+                          className="pointer-events-auto bg-black/50 text-white p-2 rounded-full hover:bg-black/70 transition-colors"
+                        >
+                          <ChevronUp className="w-5 h-5" />
+                        </button>
+                      )}
+                      {currentIndex < shorts.length - 1 && (
+                        <button
+                          onClick={handleNext}
+                          className="pointer-events-auto bg-black/50 text-white p-2 rounded-full hover:bg-black/70 transition-colors"
+                        >
+                          <ChevronDown className="w-5 h-5" />
+                        </button>
+                      )}
+                    </div>
 
-                {/* Share */}
-                <button
-                  onClick={handleShare}
-                  className="flex flex-col items-center gap-1"
-                >
-                  <div className="bg-black/30 backdrop-blur-sm p-3 rounded-full">
-                    <Share2 className="w-7 h-7 text-white" />
-                  </div>
-                </button>
+                    {/* Bottom info */}
+                    {hasAccess && (
+                      <div className="absolute left-4 bottom-4 right-24 z-10">
+                        <div className="flex items-center gap-3 mb-3">
+                          <Avatar className="w-10 h-10 border-2 border-white">
+                            <AvatarImage src={currentShort.creator.avatar_url || ""} />
+                            <AvatarFallback className="bg-primary text-primary-foreground">
+                              {currentShort.creator.display_name[0]}
+                            </AvatarFallback>
+                          </Avatar>
+                          <div className="flex-1">
+                            <p className="text-white font-semibold text-sm">
+                              @{currentShort.creator.creator_channel_name || currentShort.creator.display_name}
+                            </p>
+                          </div>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="bg-white/10 backdrop-blur-sm border-white text-white hover:bg-white/20"
+                          >
+                            Seguir
+                          </Button>
+                        </div>
 
-                {/* Mute */}
-                <button
-                  onClick={() => setIsMuted(!isMuted)}
-                  className="flex flex-col items-center gap-1"
-                >
-                  <div className="bg-black/30 backdrop-blur-sm p-3 rounded-full">
-                    {isMuted ? (
-                      <VolumeX className="w-7 h-7 text-white" />
-                    ) : (
-                      <Volume2 className="w-7 h-7 text-white" />
+                        <div className="text-white">
+                          <h2 className="font-bold text-base mb-1">{currentShort.title}</h2>
+                          {currentShort.description && (
+                            <p className="text-sm text-white/90 line-clamp-2">{currentShort.description}</p>
+                          )}
+                        </div>
+                      </div>
                     )}
                   </div>
-                </button>
-
-                {/* More */}
-                <button className="flex flex-col items-center gap-1">
-                  <div className="bg-black/30 backdrop-blur-sm p-3 rounded-full">
-                    <MoreVertical className="w-7 h-7 text-white" />
-                  </div>
-                </button>
-              </div>
-            )}
-
-            {/* Bottom info */}
-            {index === currentIndex && hasAccess && (
-              <div className="absolute left-4 bottom-20 right-24 z-10">
-                {/* Creator info */}
-                <div className="flex items-center gap-3 mb-3">
-                  <Avatar className="w-10 h-10 border-2 border-white">
-                    <AvatarImage src={short.creator.avatar_url || ""} />
-                    <AvatarFallback className="bg-primary text-primary-foreground">
-                      {short.creator.display_name[0]}
-                    </AvatarFallback>
-                  </Avatar>
-                  <div className="flex-1">
-                    <p className="text-white font-semibold text-sm">
-                      @{short.creator.creator_channel_name || short.creator.display_name}
-                    </p>
-                  </div>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="bg-white/10 backdrop-blur-sm border-white text-white hover:bg-white/20"
-                  >
-                    Seguir
-                  </Button>
                 </div>
 
-                {/* Title and description */}
-                <div className="text-white">
-                  <h2 className="font-bold text-base mb-1">{short.title}</h2>
-                  {short.description && (
-                    <p className="text-sm text-white/90 line-clamp-2">
-                      {short.description}
-                    </p>
-                  )}
-                </div>
+                {/* Side actions */}
+                {hasAccess && (
+                  <div className="flex flex-col gap-6 items-center justify-center">
+                    {/* Like */}
+                    <button onClick={handleLike} className="flex flex-col items-center gap-1">
+                      <div className="bg-black/30 backdrop-blur-sm p-3 rounded-full">
+                        <Heart
+                          className={`w-7 h-7 ${isLiked ? "fill-red-500 text-red-500" : "text-white"}`}
+                        />
+                      </div>
+                      <span className="text-sm font-medium text-foreground">
+                        {localLikesCount > 999 ? `${(localLikesCount / 1000).toFixed(1)}k` : localLikesCount}
+                      </span>
+                    </button>
+
+                    {/* Comment */}
+                    <button className="flex flex-col items-center gap-1">
+                      <div className="bg-black/30 backdrop-blur-sm p-3 rounded-full">
+                        <MessageCircle className="w-7 h-7 text-white" />
+                      </div>
+                      <span className="text-sm font-medium text-foreground">113</span>
+                    </button>
+
+                    {/* Save */}
+                    <button onClick={handleSave} className="flex flex-col items-center gap-1">
+                      <div className="bg-black/30 backdrop-blur-sm p-3 rounded-full">
+                        <Bookmark
+                          className={`w-7 h-7 ${isSaved ? "fill-white text-white" : "text-white"}`}
+                        />
+                      </div>
+                    </button>
+
+                    {/* Share */}
+                    <button onClick={handleShare} className="flex flex-col items-center gap-1">
+                      <div className="bg-black/30 backdrop-blur-sm p-3 rounded-full">
+                        <Share2 className="w-7 h-7 text-white" />
+                      </div>
+                    </button>
+
+                    {/* Mute */}
+                    <button
+                      onClick={() => setIsMuted(!isMuted)}
+                      className="flex flex-col items-center gap-1"
+                    >
+                      <div className="bg-black/30 backdrop-blur-sm p-3 rounded-full">
+                        {isMuted ? (
+                          <VolumeX className="w-7 h-7 text-white" />
+                        ) : (
+                          <Volume2 className="w-7 h-7 text-white" />
+                        )}
+                      </div>
+                    </button>
+
+                    {/* More */}
+                    <button className="flex flex-col items-center gap-1">
+                      <div className="bg-black/30 backdrop-blur-sm p-3 rounded-full">
+                        <MoreVertical className="w-7 h-7 text-white" />
+                      </div>
+                    </button>
+                  </div>
+                )}
               </div>
-            )}
+            </main>
           </div>
-        ))}
-      </div>
+        </div>
+      </SidebarProvider>
 
       <UpgradeModal
         open={showUpgradeModal}
@@ -684,7 +719,8 @@ export default function Shorts() {
             title: currentShort.title,
             thumbnail_url: currentShort.thumbnail_url,
             price: currentShort.price,
-            creator_name: currentShort.creator.creator_channel_name || currentShort.creator.display_name,
+            creator_name:
+              currentShort.creator.creator_channel_name || currentShort.creator.display_name,
           }}
           onPurchaseComplete={() => {
             setShowPurchaseModal(false);
