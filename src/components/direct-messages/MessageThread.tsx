@@ -267,13 +267,27 @@ export const MessageThread = ({ conversationId, onClose }: MessageThreadProps) =
 
     try {
       // Para o usuário atual, tratamos "excluir" como remover a conversa da lista
-      const { error } = await supabase
+      const { error: archiveError } = await supabase
         .from("conversation_participants")
         .update({ is_archived: true })
         .eq("conversation_id", conversationId)
         .eq("user_id", user.id);
 
-      if (error) throw error;
+      if (archiveError) throw archiveError;
+
+      // Se havia uma solicitação de mensagem pendente para este usuário,
+      // marcamos como "rejeitada" para liberar o remetente
+      if (otherUser) {
+        const { error: requestError } = await supabase
+          .from("messages")
+          .update({ request_status: "rejected" })
+          .eq("conversation_id", conversationId)
+          .eq("sender_id", otherUser.id)
+          .eq("is_request", true)
+          .or("request_status.is.null,request_status.eq.pending");
+
+        if (requestError) throw requestError;
+      }
 
       toast({
         title: "Conversa excluída",
