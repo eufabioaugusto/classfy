@@ -115,7 +115,7 @@ export const MessageInput = ({
                 type="button"
                 variant="ghost"
                 size="icon"
-                className="absolute right-1 bottom-1"
+                className="absolute right-1 bottom-1 z-10"
               >
                 <Smile className="h-5 w-5" />
               </Button>
@@ -123,7 +123,7 @@ export const MessageInput = ({
             <PopoverContent 
               side="top" 
               align="end" 
-              className="w-full p-0 border-none shadow-lg"
+              className="w-full p-0 border-none shadow-lg z-[70] bg-background"
               style={{ width: '350px' }}
             >
               <EmojiPicker
