@@ -263,33 +263,18 @@ export const MessageThread = ({ conversationId, onClose }: MessageThreadProps) =
     if (!user) return;
 
     try {
-      // Delete all messages first
-      const { error: messagesError } = await supabase
-        .from("messages")
-        .delete()
-        .eq("conversation_id", conversationId);
-
-      if (messagesError) throw messagesError;
-
-      // Delete conversation participants
-      const { error: participantsError } = await supabase
+      // Para o usuário atual, tratamos "excluir" como remover a conversa da lista
+      const { error } = await supabase
         .from("conversation_participants")
-        .delete()
-        .eq("conversation_id", conversationId);
+        .update({ is_archived: true })
+        .eq("conversation_id", conversationId)
+        .eq("user_id", user.id);
 
-      if (participantsError) throw participantsError;
-
-      // Delete conversation
-      const { error: conversationError } = await supabase
-        .from("conversations")
-        .delete()
-        .eq("id", conversationId);
-
-      if (conversationError) throw conversationError;
+      if (error) throw error;
 
       toast({
         title: "Conversa excluída",
-        description: "A conversa foi removida permanentemente",
+        description: "A conversa foi removida da sua lista",
       });
 
       onClose();
@@ -302,7 +287,6 @@ export const MessageThread = ({ conversationId, onClose }: MessageThreadProps) =
       });
     }
   };
-
   const handleArchiveConversation = async () => {
     if (!user) return;
 
