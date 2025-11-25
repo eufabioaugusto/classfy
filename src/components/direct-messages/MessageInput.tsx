@@ -125,6 +125,7 @@ export const MessageInput = ({
               align="end" 
               className="w-full p-0 border-none shadow-lg z-[70] bg-background"
               style={{ width: '350px' }}
+              onInteractOutside={(e) => e.preventDefault()}
             >
               <EmojiPicker
                 onEmojiClick={handleEmojiClick}
