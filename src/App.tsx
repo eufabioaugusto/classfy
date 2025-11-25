@@ -33,9 +33,9 @@ import BoostSuccess from "./pages/BoostSuccess";
 import StudioBoosts from "./pages/StudioBoosts";
 import StudioAnalytics from "./pages/StudioAnalytics";
 import Study from "./pages/Study";
-import Shorts from "./pages/Shorts";
 import Watch from "./pages/Watch";
 import Listen from "./pages/Listen";
+import Shorts from "./pages/Shorts";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
