@@ -258,10 +258,10 @@ export const MessageThread = ({ conversationId, onClose, isArchived = false }: M
 
       if (deleteMessagesError) throw deleteMessagesError;
 
-      // 2) Remove sua participação da conversa (para você, ela deixa de existir)
+      // 2) Marca sua participação como "excluída" (arquivada + mutada) para sumir da lista
       const { error: deleteParticipantError } = await supabase
         .from("conversation_participants")
-        .delete()
+        .update({ is_archived: true, is_muted: true })
         .eq("conversation_id", conversationId)
         .eq("user_id", user.id);
 
