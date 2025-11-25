@@ -434,7 +434,7 @@ export const MessageThread = ({ conversationId, onClose, isArchived = false }: M
       let requestStatus: string | null = null;
 
       if (privacyMode === "request") {
-        // Verifica se já existe pedido pendente deste remetente
+        // Verifica se já existe pedido APROVADO deste remetente
         const { data: existingRequests } = await supabase
           .from("messages")
           .select("request_status")
@@ -445,21 +445,8 @@ export const MessageThread = ({ conversationId, onClose, isArchived = false }: M
         const hasApproved = existingRequests?.some(
           (m) => m.request_status === "approved"
         );
-        const hasPending = existingRequests?.some(
-          (m) => !m.request_status || m.request_status === "pending"
-        );
 
-        if (!hasApproved && hasPending) {
-          toast({
-            title: "Aguardando aprovação",
-            description:
-              "Você precisa aguardar a aprovação antes de enviar mais mensagens",
-            variant: "destructive",
-          });
-          return;
-        }
-
-        // Se nunca teve aprovação, a próxima mensagem vira novo pedido
+        // Se nunca teve aprovação, a próxima mensagem vira solicitação pendente
         if (!hasApproved) {
           isRequest = true;
           requestStatus = "pending";
