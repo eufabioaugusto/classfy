@@ -4,6 +4,7 @@ import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { NotificationBell } from "@/components/NotificationBell";
+import { DirectMessagesButton } from "@/components/DirectMessagesButton";
 import { AffiliateModal } from "@/components/AffiliateModal";
 import { useState } from "react";
 import { Moon, Sun, Menu, Plus, BookOpen, Podcast, Zap, Radio, GraduationCap, LogIn, LogOut, Settings, Gift, User } from "lucide-react";
@@ -73,6 +74,9 @@ export function Header({ variant = "home", title }: HeaderProps) {
 
           {/* Notification Bell */}
           <NotificationBell />
+
+          {/* Direct Messages */}
+          {user && <DirectMessagesButton />}
 
           {/* Creator Create Button - Shows for creators and admins on all pages */}
           {(role === 'creator' || role === 'admin') && (
