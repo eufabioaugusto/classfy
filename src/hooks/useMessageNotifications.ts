@@ -28,15 +28,23 @@ export function useMessageNotifications() {
           // Don't show notifications for own messages
           if (message.sender_id === user.id) return;
 
-          // Check if this message is in a conversation where user is participant
-          const { data: participation } = await supabase
-            .from("conversation_participants")
-            .select("*")
-            .eq("conversation_id", message.conversation_id)
-            .eq("user_id", user.id)
-            .maybeSingle();
+      // Check if this message is in a conversation where user is participant
+      const { data: participation } = await supabase
+        .from("conversation_participants")
+        .select("*")
+        .eq("conversation_id", message.conversation_id)
+        .eq("user_id", user.id)
+        .maybeSingle();
 
-          if (!participation) return;
+      if (!participation) return;
+
+      // Se o usuário tinha "excluído" (mutado/arquivado), reativa a conversa ao chegar nova mensagem
+      if (participation.is_muted || participation.is_archived) {
+        await supabase
+          .from("conversation_participants")
+          .update({ is_muted: false, is_archived: false })
+          .eq("id", participation.id);
+      }
 
       // Get sender info
       const { data: sender } = await supabase
