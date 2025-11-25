@@ -32,7 +32,7 @@ export const DirectMessagesModal = ({ open, onClose, initialRecipientId }: Direc
 
   return (
     <>
-      <div className="fixed inset-0 bg-background z-50 flex flex-col">
+      <div className="fixed inset-0 bg-background z-[100] flex flex-col">
         {/* Header */}
         <div className="border-b px-4 py-3 flex items-center justify-between">
           <div className="flex items-center gap-3">
