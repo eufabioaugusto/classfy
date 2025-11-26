@@ -486,6 +486,7 @@ export default function Watch() {
                         thumbnail_url: content.thumbnail_url,
                         content_type: "aula" as any,
                         duration_seconds: currentLesson.duration_seconds || 0,
+                        content_id: currentLesson.content_id,
                       }}
                       onTimeUpdate={handleTimeUpdate}
                       onCreateNote={() => setNotesRefreshTrigger((prev) => prev + 1)}
@@ -617,7 +618,7 @@ export default function Watch() {
                   {isCourse ? (
                     <>
                       <WatchNotes
-                        contentId={currentLesson?.id || null}
+                        contentId={currentLesson?.content_id || null}
                         onSeekTo={(seconds) => setSeekToTime(seconds)}
                         refreshTrigger={notesRefreshTrigger}
                         key={currentLesson?.id}
