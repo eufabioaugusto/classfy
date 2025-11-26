@@ -279,9 +279,9 @@ export const WatchVideoPlayer = ({ content, onTimeUpdate, onCreateNote, seekToTi
     }
 
     try {
-      // Para lessons de curso, usa content_id (que referencia contents.id) se estiver preenchido
-      // Se estiver null/undefined, faz fallback para o id do próprio conteúdo
-      const contentIdToSave = content.content_id ?? content.id;
+      // Para lessons de curso sem content_id válido, salva null
+      // Para conteúdos normais, usa o id do conteúdo
+      const contentIdToSave = content.content_id || null;
       
       const { error: insertError } = await supabase.from("study_notes").insert({
         user_id: user.id,
