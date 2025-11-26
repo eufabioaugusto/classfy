@@ -19,6 +19,7 @@ interface WatchVideoPlayerProps {
     content_type: "aula" | "short" | "podcast" | "curso";
     duration_seconds?: number;
     content_id?: string | null; // ID do content real para lessons de curso
+    lesson_id?: string | null; // ID da lesson quando for curso
   };
   onTimeUpdate?: (currentTime: number) => void;
   onCreateNote?: () => void;
@@ -281,10 +282,12 @@ export const WatchVideoPlayer = ({ content, onTimeUpdate, onCreateNote, seekToTi
     try {
       // Para notas, sempre usamos o content_id que referencia contents.id
       const contentIdToSave = content.content_id ?? null;
+      const lessonIdToSave = content.lesson_id ?? null;
       
       const { error: insertError } = await supabase.from("study_notes").insert({
         user_id: user.id,
         content_id: contentIdToSave,
+        lesson_id: lessonIdToSave,
         study_id: null, // Notas standalone do Watch não precisam de estudo
         note_text: noteText,
         timestamp_seconds: noteTimestamp,
