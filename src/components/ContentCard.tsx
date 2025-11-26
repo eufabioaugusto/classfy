@@ -3,9 +3,10 @@ import { Badge } from "@/components/ui/badge";
 import { Play, Clock, BookOpen, Lock, Crown, ShoppingCart, Zap } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { CreatorLink } from "@/components/CreatorLink";
+import { useIsMobile } from "@/hooks/use-mobile";
 
 interface ContentCardProps {
   id?: string;
@@ -79,6 +80,12 @@ export const ContentCard = ({
   const isRestricted = !isFree || requiredPlan;
   const isPaid = visibility === "paid";
   const [isBoosted, setIsBoosted] = useState(false);
+  const [isHovered, setIsHovered] = useState(false);
+  const [shouldAutoplay, setShouldAutoplay] = useState(false);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const isMobile = useIsMobile();
+  const isShort = (content?.content_type || contentType) === "short";
+  const videoUrl = content?.file_url || content?.video_url;
 
   useEffect(() => {
     const checkBoost = async () => {
@@ -93,6 +100,48 @@ export const ContentCard = ({
 
     checkBoost();
   }, [id]);
+
+  // Random autoplay for mobile shorts
+  useEffect(() => {
+    if (isShort && isMobile && videoUrl) {
+      const randomDelay = Math.random() * 3000; // Random delay up to 3 seconds
+      const timer = setTimeout(() => {
+        setShouldAutoplay(true);
+      }, randomDelay);
+      return () => clearTimeout(timer);
+    }
+  }, [isShort, isMobile, videoUrl]);
+
+  // Handle hover autoplay for desktop
+  useEffect(() => {
+    if (!isShort || !videoUrl || isMobile) return;
+
+    if (isHovered && videoRef.current) {
+      const playPromise = videoRef.current.play();
+      if (playPromise !== undefined) {
+        playPromise.catch(() => {
+          // Ignore autoplay errors
+        });
+      }
+    } else if (videoRef.current) {
+      videoRef.current.pause();
+      videoRef.current.currentTime = 0;
+    }
+  }, [isHovered, isShort, videoUrl, isMobile]);
+
+  // Handle mobile autoplay
+  useEffect(() => {
+    if (!isShort || !videoUrl || !isMobile || !shouldAutoplay) return;
+
+    if (videoRef.current) {
+      const playPromise = videoRef.current.play();
+      if (playPromise !== undefined) {
+        playPromise.catch(() => {
+          // Ignore autoplay errors
+        });
+      }
+    }
+  }, [shouldAutoplay, isShort, videoUrl, isMobile]);
 
   const getPlanBadgeColor = (plan?: string) => {
     switch (plan) {
@@ -153,6 +202,8 @@ export const ContentCard = ({
     <Card
       className="group cursor-pointer overflow-hidden bg-card/80 backdrop-blur-sm border border-border/30 hover:border-primary/40 hover:shadow-xl hover:shadow-primary/5 transition-all duration-300 rounded-lg"
       onClick={handleClick}
+      onMouseEnter={() => isShort && !isMobile && setIsHovered(true)}
+      onMouseLeave={() => isShort && !isMobile && setIsHovered(false)}
     >
       {/* Thumbnail with dynamic aspect ratio */}
       <div
@@ -163,8 +214,24 @@ export const ContentCard = ({
         <img
           src={thumbnail}
           alt={title}
-          className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500 ease-out"
+          className={`w-full h-full object-cover group-hover:scale-110 transition-transform duration-500 ease-out ${
+            isShort && (isHovered || shouldAutoplay) ? "opacity-0" : "opacity-100"
+          } transition-opacity duration-300`}
         />
+
+        {/* Video autoplay for shorts */}
+        {isShort && videoUrl && (
+          <video
+            ref={videoRef}
+            src={videoUrl}
+            className={`absolute inset-0 w-full h-full object-cover ${
+              isHovered || shouldAutoplay ? "opacity-100" : "opacity-0"
+            } transition-opacity duration-300`}
+            muted
+            loop
+            playsInline
+          />
+        )}
 
         {/* Play button overlay */}
         <div className="absolute inset-0 bg-black/0 group-hover:bg-gradient-to-t group-hover:from-black/30 group-hover:to-transparent flex items-center justify-center transition-all duration-300">
