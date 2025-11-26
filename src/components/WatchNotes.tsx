@@ -33,23 +33,20 @@ export const WatchNotes = ({ contentId, onSeekTo, refreshTrigger }: WatchNotesPr
   const fetchNotes = async () => {
     if (!user) return;
 
-    if (!contentId) {
-      // Sem conteúdo associado: limpa lista e encerra carregamento
-      setNotes([]);
-      setLoading(false);
-      return;
-    }
-
     try {
       setLoading(true);
       console.log("🔍 Buscando notas para content_id:", contentId);
-      
-      const { data, error } = await supabase
+
+      const baseQuery = supabase
         .from("study_notes")
         .select("id, note_text, timestamp_seconds, created_at")
-        .eq("user_id", user.id)
-        .eq("content_id", contentId)
-        .order("timestamp_seconds", { ascending: true });
+        .eq("user_id", user.id);
+
+      const query = contentId
+        ? baseQuery.eq("content_id", contentId)
+        : baseQuery.is("content_id", null);
+
+      const { data, error } = await query.order("timestamp_seconds", { ascending: true });
 
       if (error) throw error;
       console.log("📝 Notas encontradas:", data?.length);
