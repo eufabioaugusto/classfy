@@ -18,7 +18,6 @@ interface WatchVideoPlayerProps {
     thumbnail_url?: string;
     content_type: "aula" | "short" | "podcast" | "curso";
     duration_seconds?: number;
-    content_id?: string | null; // ID do content real (para lessons de curso)
   };
   onTimeUpdate?: (currentTime: number) => void;
   onCreateNote?: () => void;
@@ -49,17 +48,14 @@ export const WatchVideoPlayer = ({ content, onTimeUpdate, onCreateNote, seekToTi
   // Load saved position
   useEffect(() => {
     const loadSavedPosition = async () => {
-      if (!user) return;
-      
-      const contentIdToQuery = content.content_id !== undefined ? content.content_id : content.id;
-      if (!contentIdToQuery) return;
+      if (!user || !content.id) return;
 
       try {
         const { data } = await supabase
           .from("user_progress")
           .select("last_position_seconds")
           .eq("user_id", user.id)
-          .eq("content_id", contentIdToQuery)
+          .eq("content_id", content.id)
           .maybeSingle();
 
         if (data?.last_position_seconds && data.last_position_seconds > 0) {
@@ -75,22 +71,19 @@ export const WatchVideoPlayer = ({ content, onTimeUpdate, onCreateNote, seekToTi
     };
 
     loadSavedPosition();
-  }, [content.id, content.content_id, user]);
+  }, [content.id, user]);
 
   // Load note markers
   useEffect(() => {
     const loadNoteMarkers = async () => {
-      if (!user) return;
-      
-      const contentIdToQuery = content.content_id !== undefined ? content.content_id : content.id;
-      if (!contentIdToQuery) return;
+      if (!user || !content.id) return;
 
       try {
         const { data, error } = await supabase
           .from("study_notes")
           .select("timestamp_seconds")
           .eq("user_id", user.id)
-          .eq("content_id", contentIdToQuery)
+          .eq("content_id", content.id)
           .not("timestamp_seconds", "is", null);
 
         if (error) throw error;
@@ -104,7 +97,7 @@ export const WatchVideoPlayer = ({ content, onTimeUpdate, onCreateNote, seekToTi
     };
 
     loadNoteMarkers();
-  }, [content.id, content.content_id, user]);
+  }, [content.id, user]);
 
   // Handle seek from external trigger (notes)
   useEffect(() => {
@@ -159,17 +152,14 @@ export const WatchVideoPlayer = ({ content, onTimeUpdate, onCreateNote, seekToTi
   }, [content.id]);
 
   const saveCurrentPosition = async (currentTime: number) => {
-    if (!user || !currentTime || currentTime < 1) return;
-    
-    const contentIdToSave = content.content_id !== undefined ? content.content_id : content.id;
-    if (!contentIdToSave) return;
+    if (!user || !content.id || !currentTime || currentTime < 1) return;
 
     try {
       await supabase
         .from("user_progress")
         .upsert({
           user_id: user.id,
-          content_id: contentIdToSave,
+          content_id: content.id,
           last_position_seconds: Math.floor(currentTime),
           progress_percent: duration > 0 ? Math.floor((currentTime / duration) * 100) : 0,
           updated_at: new Date().toISOString(),
@@ -182,16 +172,13 @@ export const WatchVideoPlayer = ({ content, onTimeUpdate, onCreateNote, seekToTi
   };
 
   const handleProgressTracking = async (currentTime: number) => {
-    if (!user || duration === 0) return;
-    
-    const contentIdToTrack = content.content_id !== undefined ? content.content_id : content.id;
-    if (!contentIdToTrack) return;
+    if (!user || !content.id || duration === 0) return;
 
     const percent = (currentTime / duration) * 100;
     
     // Track progress every 5 seconds
     if (currentTime % 5 < 0.5) {
-      await trackProgress(user.id, contentIdToTrack, percent, currentTime);
+      await trackProgress(user.id, content.id, percent, currentTime);
     }
   };
 
@@ -291,9 +278,9 @@ export const WatchVideoPlayer = ({ content, onTimeUpdate, onCreateNote, seekToTi
     }
 
     try {
-      // Para lessons de curso, usa content_id se disponível, senão deixa null
-      // Para conteúdos normais, usa o id
-      const contentIdToSave = content.content_id !== undefined ? content.content_id : content.id;
+      // Para lessons de curso, usa o ID da lesson como content_id
+      // Para conteúdos normais, usa o id do content
+      const contentIdToSave = content.id; // Sempre usa o ID do item sendo assistido
       
       const { error: insertError } = await supabase.from("study_notes").insert({
         user_id: user.id,
