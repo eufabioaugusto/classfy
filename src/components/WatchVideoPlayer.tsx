@@ -279,17 +279,16 @@ export const WatchVideoPlayer = ({ content, onTimeUpdate, onCreateNote, seekToTi
     }
 
     try {
-      // Para lessons de curso sem content_id válido, salva null
-      // Para conteúdos normais, usa o id do conteúdo
-      const contentIdToSave = content.content_id || null;
-      
-      const { error: insertError } = await supabase.from("study_notes").insert({
-        user_id: user.id,
-        content_id: contentIdToSave,
-        study_id: null, // Notas standalone do Watch não precisam de estudo
-        note_text: noteText,
-        timestamp_seconds: noteTimestamp,
-      });
+       // Sempre usa o ID passado para o player como referência na tabela contents
+       const contentIdToSave = content.id;
+       
+       const { error: insertError } = await supabase.from("study_notes").insert({
+         user_id: user.id,
+         content_id: contentIdToSave,
+         study_id: null, // Notas standalone do Watch não precisam de estudo
+         note_text: noteText,
+         timestamp_seconds: noteTimestamp,
+       });
 
       if (insertError) {
         console.error("Error saving note:", insertError);
