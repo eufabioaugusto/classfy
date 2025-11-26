@@ -480,7 +480,7 @@ export default function Watch() {
                   {isCourse && currentLesson ? (
                     <WatchVideoPlayer
                       content={{
-                        id: currentLesson.content_id || currentLesson.id, // sempre aponta para contents.id quando existir
+                        id: currentLesson.content_id, // sempre o ID da tabela contents
                         title: currentLesson.title,
                         file_url: currentLesson.video_url || "",
                         thumbnail_url: content.thumbnail_url,
@@ -617,7 +617,7 @@ export default function Watch() {
                   {isCourse ? (
                     <>
                       <WatchNotes
-                        contentId={currentLesson ? currentLesson.content_id || currentLesson.id : null}
+                        contentId={currentLesson?.content_id || null}
                         onSeekTo={(seconds) => setSeekToTime(seconds)}
                         refreshTrigger={notesRefreshTrigger}
                         key={currentLesson?.id}
