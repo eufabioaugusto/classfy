@@ -616,12 +616,20 @@ export default function Watch() {
 
                 <div className="w-full lg:w-80 xl:w-96 shrink-0 space-y-4">
                   {isCourse ? (
-                    <CourseCurriculum
-                      modules={courseModules}
-                      currentLesson={currentLesson}
-                      onLessonSelect={setCurrentLesson}
-                      hasAccess={hasAccess}
-                    />
+                    <>
+                      <WatchNotes
+                        contentId={currentLesson?.content_id || content.id}
+                        onSeekTo={(seconds) => setSeekToTime(seconds)}
+                        refreshTrigger={notesRefreshTrigger}
+                      />
+                      
+                      <CourseCurriculum
+                        modules={courseModules}
+                        currentLesson={currentLesson}
+                        onLessonSelect={setCurrentLesson}
+                        hasAccess={hasAccess}
+                      />
+                    </>
                   ) : (
                     <>
                       <WatchNotes
