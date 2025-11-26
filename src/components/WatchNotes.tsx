@@ -15,7 +15,7 @@ interface Note {
 }
 
 interface WatchNotesProps {
-  contentId: string;
+  contentId: string | null;
   onSeekTo?: (seconds: number) => void;
   refreshTrigger?: number;
 }
@@ -31,10 +31,12 @@ export const WatchNotes = ({ contentId, onSeekTo, refreshTrigger }: WatchNotesPr
   }, [contentId, user, refreshTrigger]);
 
   const fetchNotes = async () => {
-    if (!user) return;
+    if (!user || !contentId) return;
 
     try {
       setLoading(true);
+      console.log("🔍 Buscando notas para content_id:", contentId);
+      
       const { data, error } = await supabase
         .from("study_notes")
         .select("id, note_text, timestamp_seconds, created_at")
@@ -43,6 +45,7 @@ export const WatchNotes = ({ contentId, onSeekTo, refreshTrigger }: WatchNotesPr
         .order("timestamp_seconds", { ascending: true });
 
       if (error) throw error;
+      console.log("📝 Notas encontradas:", data?.length);
       setNotes(data || []);
     } catch (error) {
       console.error("Error fetching notes:", error);

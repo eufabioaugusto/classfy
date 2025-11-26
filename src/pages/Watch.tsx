@@ -618,9 +618,10 @@ export default function Watch() {
                   {isCourse ? (
                     <>
                       <WatchNotes
-                        contentId={currentLesson?.content_id || content.id}
+                        contentId={currentLesson?.content_id || null}
                         onSeekTo={(seconds) => setSeekToTime(seconds)}
                         refreshTrigger={notesRefreshTrigger}
+                        key={currentLesson?.id}
                       />
                       
                       <CourseCurriculum
