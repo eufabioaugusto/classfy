@@ -18,6 +18,7 @@ interface WatchVideoPlayerProps {
     thumbnail_url?: string;
     content_type: "aula" | "short" | "podcast" | "curso";
     duration_seconds?: number;
+    content_id?: string | null; // ID do content real para lessons de curso
   };
   onTimeUpdate?: (currentTime: number) => void;
   onCreateNote?: () => void;
@@ -278,9 +279,9 @@ export const WatchVideoPlayer = ({ content, onTimeUpdate, onCreateNote, seekToTi
     }
 
     try {
-      // Para lessons de curso, usa o ID da lesson como content_id
-      // Para conteúdos normais, usa o id do content
-      const contentIdToSave = content.id; // Sempre usa o ID do item sendo assistido
+      // Para lessons de curso, usa content_id (que referencia contents.id)
+      // Para conteúdos normais, usa o id
+      const contentIdToSave = content.content_id !== undefined ? content.content_id : content.id;
       
       const { error: insertError } = await supabase.from("study_notes").insert({
         user_id: user.id,
