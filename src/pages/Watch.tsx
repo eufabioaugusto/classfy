@@ -480,13 +480,13 @@ export default function Watch() {
                   {isCourse && currentLesson ? (
                     <WatchVideoPlayer
                       content={{
-                        id: currentLesson.content_id || content.id, // ID da tabela contents
+                        id: currentLesson.id, // ID interno da lesson
                         title: currentLesson.title,
                         file_url: currentLesson.video_url || "",
                         thumbnail_url: content.thumbnail_url,
                         content_type: "aula" as any,
                         duration_seconds: currentLesson.duration_seconds || 0,
-                        content_id: currentLesson.content_id || content.id,
+                        content_id: currentLesson.content_id || null, // FK real para contents.id (quando existir)
                       }}
                       onTimeUpdate={handleTimeUpdate}
                       onCreateNote={() => setNotesRefreshTrigger((prev) => prev + 1)}
@@ -501,7 +501,7 @@ export default function Watch() {
                         thumbnail_url: content.thumbnail_url,
                         content_type: content.content_type,
                         duration_seconds: content.duration_seconds,
-                        content_id: content.id,
+                        content_id: content.id, // aqui sempre existe em contents
                       }}
                       onTimeUpdate={handleTimeUpdate}
                       onCreateNote={() => setNotesRefreshTrigger((prev) => prev + 1)}
@@ -619,7 +619,7 @@ export default function Watch() {
                   {isCourse ? (
                     <>
                       <WatchNotes
-                        contentId={currentLesson?.content_id || content.id}
+                        contentId={currentLesson?.content_id || null}
                         onSeekTo={(seconds) => setSeekToTime(seconds)}
                         refreshTrigger={notesRefreshTrigger}
                         key={currentLesson?.id}
