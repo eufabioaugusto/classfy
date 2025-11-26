@@ -31,7 +31,14 @@ export const WatchNotes = ({ contentId, onSeekTo, refreshTrigger }: WatchNotesPr
   }, [contentId, user, refreshTrigger]);
 
   const fetchNotes = async () => {
-    if (!user || !contentId) return;
+    if (!user) return;
+
+    if (!contentId) {
+      // Sem conteúdo associado: limpa lista e encerra carregamento
+      setNotes([]);
+      setLoading(false);
+      return;
+    }
 
     try {
       setLoading(true);
