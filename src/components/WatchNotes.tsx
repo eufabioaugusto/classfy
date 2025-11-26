@@ -44,7 +44,6 @@ export const WatchNotes = ({ contentId, onSeekTo, refreshTrigger }: WatchNotesPr
       setLoading(true);
       console.log("🔍 Buscando notas para content_id:", contentId);
       
-      // Busca notas tanto por content_id quanto por lesson_id
       const { data, error } = await supabase
         .from("study_notes")
         .select("id, note_text, timestamp_seconds, created_at")
