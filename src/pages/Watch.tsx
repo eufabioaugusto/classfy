@@ -487,6 +487,7 @@ export default function Watch() {
                         content_type: "aula" as any,
                         duration_seconds: currentLesson.duration_seconds || 0,
                         content_id: currentLesson.content_id || null, // FK real para contents.id (quando existir)
+                        lesson_id: currentLesson.id, // ID da lesson para salvar notas
                       }}
                       onTimeUpdate={handleTimeUpdate}
                       onCreateNote={() => setNotesRefreshTrigger((prev) => prev + 1)}
@@ -620,7 +621,18 @@ export default function Watch() {
                     <>
                       <WatchNotes
                         contentId={currentLesson?.content_id || null}
+                        courseId={content.id}
+                        currentLessonId={currentLesson?.id}
                         onSeekTo={(seconds) => setSeekToTime(seconds)}
+                        onLessonChange={(lessonId) => {
+                          // Encontrar a lesson pelo ID e trocar
+                          const lesson = courseModules
+                            .flatMap(m => m.lessons)
+                            .find(l => l.id === lessonId);
+                          if (lesson) {
+                            setCurrentLesson(lesson);
+                          }
+                        }}
                         refreshTrigger={notesRefreshTrigger}
                         key={currentLesson?.id}
                       />

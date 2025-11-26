@@ -1713,6 +1713,7 @@ export type Database = {
           content_id: string | null
           created_at: string | null
           id: string
+          lesson_id: string | null
           note_text: string
           study_id: string | null
           timestamp_seconds: number | null
@@ -1723,6 +1724,7 @@ export type Database = {
           content_id?: string | null
           created_at?: string | null
           id?: string
+          lesson_id?: string | null
           note_text: string
           study_id?: string | null
           timestamp_seconds?: number | null
@@ -1733,6 +1735,7 @@ export type Database = {
           content_id?: string | null
           created_at?: string | null
           id?: string
+          lesson_id?: string | null
           note_text?: string
           study_id?: string | null
           timestamp_seconds?: number | null
@@ -1745,6 +1748,13 @@ export type Database = {
             columns: ["content_id"]
             isOneToOne: false
             referencedRelation: "contents"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "study_notes_lesson_id_fkey"
+            columns: ["lesson_id"]
+            isOneToOne: false
+            referencedRelation: "course_lessons"
             referencedColumns: ["id"]
           },
           {
