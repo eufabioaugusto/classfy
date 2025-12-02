@@ -144,49 +144,60 @@ export function NotificationBell() {
         </Button>
       </SheetTrigger>
       <SheetContent side="right" className="w-full sm:w-[400px] p-0">
-        <SheetHeader className="p-6 pb-4 border-b">
+        <SheetHeader className="px-6 py-5 border-b border-border/50">
           <div className="flex items-center justify-between">
-            <SheetTitle>Notificações</SheetTitle>
+            <SheetTitle className="text-lg font-semibold">Notificações</SheetTitle>
             {unreadCount > 0 && (
-              <Button variant="ghost" size="sm" onClick={markAllAsRead}>
+              <Button 
+                variant="ghost" 
+                size="sm" 
+                onClick={markAllAsRead}
+                className="text-xs h-8 px-3 text-muted-foreground hover:text-foreground"
+              >
                 Marcar todas como lidas
               </Button>
             )}
           </div>
         </SheetHeader>
         <ScrollArea className="h-[calc(100vh-80px)]">
-          <div className="divide-y">
+          <div>
             {notifications.length === 0 ? (
-              <div className="p-8 text-center text-muted-foreground">
-                <Bell className="h-12 w-12 mx-auto mb-4 opacity-50" />
-                <p>Nenhuma notificação ainda</p>
+              <div className="p-12 text-center text-muted-foreground">
+                <Bell className="h-12 w-12 mx-auto mb-4 opacity-30" />
+                <p className="text-sm">Nenhuma notificação ainda</p>
               </div>
             ) : (
               notifications.map((notification) => (
                 <div
                   key={notification.id}
                   onClick={() => !notification.is_read && markAsRead(notification.id)}
-                  className={`p-4 cursor-pointer transition-colors hover:bg-accent ${
-                    !notification.is_read ? 'bg-accent/50' : ''
+                  className={`px-6 py-4 cursor-pointer transition-all duration-200 border-b border-border/30 last:border-b-0 ${
+                    !notification.is_read 
+                      ? 'bg-muted/20 hover:bg-muted/30' 
+                      : 'hover:bg-muted/10'
                   }`}
                 >
-                  <div className="flex gap-3">
-                    <div className="text-2xl flex-shrink-0">
+                  <div className="flex gap-4">
+                    <div className="text-xl flex-shrink-0 mt-0.5">
                       {getNotificationIcon(notification.type)}
                     </div>
                     <div className="flex-1 min-w-0">
-                      <div className="flex items-start justify-between gap-2">
-                        <h4 className="font-semibold text-sm">
+                      <div className="flex items-start justify-between gap-3 mb-1.5">
+                        <h4 className={`font-semibold text-[13px] leading-snug ${
+                          !notification.is_read ? 'text-foreground' : 'text-foreground/90'
+                        }`}>
                           {notification.title}
                         </h4>
                         {!notification.is_read && (
-                          <div className="h-2 w-2 rounded-full bg-primary flex-shrink-0 mt-1" />
+                          <div className="h-2 w-2 rounded-full bg-accent flex-shrink-0 mt-1.5" />
                         )}
                       </div>
-                      <p className="text-sm text-muted-foreground mt-1">
+                      <p className={`text-[13px] leading-relaxed mb-2 ${
+                        !notification.is_read ? 'text-foreground/70' : 'text-muted-foreground'
+                      }`}>
                         {notification.message}
                       </p>
-                      <p className="text-xs text-muted-foreground mt-2">
+                      <p className="text-[11px] text-muted-foreground/80">
                         {formatDistanceToNow(new Date(notification.created_at), {
                           addSuffix: true,
                           locale: ptBR,
