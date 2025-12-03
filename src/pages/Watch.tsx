@@ -14,8 +14,8 @@ import { AddToStudyModal } from "@/components/AddToStudyModal";
 import { WatchVideoPlayer } from "@/components/WatchVideoPlayer";
 import { Header } from "@/components/Header";
 import { AppSidebar } from "@/components/AppSidebar";
-import { SidebarProvider } from "@/components/ui/sidebar";
-import { useState, useEffect } from "react";
+import { SidebarProvider, useSidebar } from "@/components/ui/sidebar";
+import { useState, useEffect, useRef } from "react";
 import { GlobalLoader } from "@/components/GlobalLoader";
 import { toast } from "sonner";
 import { UpgradeModal } from "@/components/UpgradeModal";
@@ -53,9 +53,11 @@ interface Content {
   requirements?: string;
 }
 
-export default function Watch() {
+// Inner component to use sidebar hook
+function WatchContent() {
   const { id } = useParams();
   const { user, profile, loading, role } = useAuth();
+  const { setOpen: setSidebarOpen } = useSidebar();
   const [content, setContent] = useState<Content | null>(null);
   const [loadingContent, setLoadingContent] = useState(true);
   const [hasAccess, setHasAccess] = useState(false);
@@ -74,10 +76,26 @@ export default function Watch() {
   const [seekToTime, setSeekToTime] = useState<number | null>(null);
   const { processReward } = useRewardSystem();
 
+  // Theater mode state
+  const [theaterMode, setTheaterMode] = useState(false);
+  const previousSidebarState = useRef(true);
+
   // Course-specific state
   const [isCourse, setIsCourse] = useState(false);
   const [courseModules, setCourseModules] = useState<any[]>([]);
   const [currentLesson, setCurrentLesson] = useState<any>(null);
+
+  const handleTheaterModeToggle = () => {
+    if (!theaterMode) {
+      // Entering theater mode - collapse sidebar
+      previousSidebarState.current = true;
+      setSidebarOpen(false);
+    } else {
+      // Exiting theater mode - restore sidebar
+      setSidebarOpen(previousSidebarState.current);
+    }
+    setTheaterMode(!theaterMode);
+  };
 
   useEffect(() => {
     if (id && user && !loading && role) {
@@ -438,12 +456,11 @@ export default function Watch() {
       </div>
     );
   return (
-    <SidebarProvider defaultOpen={true}>
-      <div className="min-h-screen flex w-full bg-background">
-        <AppSidebar />
+    <div className="min-h-screen flex w-full bg-background">
+      <AppSidebar />
 
-        <div className="flex-1 flex flex-col">
-          <Header />
+      <div className="flex-1 flex flex-col">
+        <Header />
 
           <UpgradeModal open={showUpgradeModal} onOpenChange={setShowUpgradeModal} requiredPlan={requiredUpgradePlan} />
 
@@ -475,8 +492,8 @@ export default function Watch() {
 
           <main className="flex-1 overflow-auto">
             <div className="w-full">
-              <div className="flex flex-col lg:flex-row gap-6 p-6">
-                <div className="flex-1 min-w-0 space-y-4">
+              <div className={`flex gap-6 p-6 ${theaterMode ? 'flex-col' : 'flex-col lg:flex-row'}`}>
+                <div className={`min-w-0 space-y-4 ${theaterMode ? 'w-full' : 'flex-1'}`}>
                   {isCourse && currentLesson ? (
                     <WatchVideoPlayer
                       content={{
@@ -492,6 +509,8 @@ export default function Watch() {
                       onTimeUpdate={handleTimeUpdate}
                       onCreateNote={() => setNotesRefreshTrigger((prev) => prev + 1)}
                       seekToTime={seekToTime}
+                      theaterMode={theaterMode}
+                      onTheaterModeToggle={handleTheaterModeToggle}
                     />
                   ) : !isCourse ? (
                     <WatchVideoPlayer
@@ -507,6 +526,8 @@ export default function Watch() {
                       onTimeUpdate={handleTimeUpdate}
                       onCreateNote={() => setNotesRefreshTrigger((prev) => prev + 1)}
                       seekToTime={seekToTime}
+                      theaterMode={theaterMode}
+                      onTheaterModeToggle={handleTheaterModeToggle}
                     />
                   ) : null}
 
@@ -616,7 +637,7 @@ export default function Watch() {
                   {!isCourse && <ContentComments contentId={content.id} />}
                 </div>
 
-                <div className="w-full lg:w-80 xl:w-96 shrink-0 space-y-4">
+                <div className={`shrink-0 space-y-4 ${theaterMode ? 'w-full grid grid-cols-1 md:grid-cols-2 gap-6' : 'w-full lg:w-80 xl:w-96'}`}>
                   {isCourse ? (
                     <>
                       <WatchNotes
@@ -664,8 +685,15 @@ export default function Watch() {
               </div>
             </div>
           </main>
-        </div>
       </div>
+    </div>
+  );
+}
+
+export default function Watch() {
+  return (
+    <SidebarProvider defaultOpen={true}>
+      <WatchContent />
     </SidebarProvider>
   );
 }
