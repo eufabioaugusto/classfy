@@ -247,13 +247,18 @@ export default function Auth() {
           {/* Social Proof */}
           <motion.div variants={itemVariants} className="flex items-center gap-6">
             <div className="flex -space-x-3">
-              {[1, 2, 3, 4].map((i) => (
-                <div
+              {[
+                "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=100&h=100&fit=crop&crop=face",
+                "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=100&h=100&fit=crop&crop=face",
+                "https://images.unsplash.com/photo-1573497019940-1c28c88b4f3e?w=100&h=100&fit=crop&crop=face",
+                "https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=100&h=100&fit=crop&crop=face"
+              ].map((src, i) => (
+                <img
                   key={i}
-                  className="w-10 h-10 rounded-full bg-white/20 border-2 border-white/40 flex items-center justify-center text-xs font-medium"
-                >
-                  {String.fromCharCode(64 + i)}
-                </div>
+                  src={src}
+                  alt={`Usuário ${i + 1}`}
+                  className="w-10 h-10 rounded-full border-2 border-white/40 object-cover"
+                />
               ))}
             </div>
             <div>
