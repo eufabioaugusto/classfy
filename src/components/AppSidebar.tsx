@@ -35,6 +35,7 @@ import {
   TrendingUp,
   AlertTriangle,
   Zap,
+  CreditCard,
 } from "lucide-react";
 import {
   Sidebar,
@@ -59,6 +60,7 @@ const mainItems = [
   { title: "Salvos", url: "/salvos", icon: Bookmark },
   { title: "Recompensas", url: "/recompensas", icon: Trophy },
   { title: "Carteira", url: "/carteira", icon: DollarSign },
+  { title: "Planos", url: "/planos", icon: CreditCard },
 ];
 
 const studioItems = [
@@ -128,7 +130,20 @@ export function AppSidebar() {
                   <ProfileAvatar size="sm" />
                   <div className="flex flex-col gap-0.5 leading-none flex-1 min-w-0">
                     <span className="text-sm font-medium truncate">{profile?.display_name}</span>
-                    <span className="text-xs text-muted-foreground capitalize">{profile?.plan}</span>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs text-muted-foreground capitalize">{profile?.plan}</span>
+                      {profile?.plan && profile.plan !== "premium" && (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            navigate("/planos");
+                          }}
+                          className="text-xs text-primary hover:underline font-medium"
+                        >
+                          Fazer upgrade
+                        </button>
+                      )}
+                    </div>
                   </div>
                 </div>
 
