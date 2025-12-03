@@ -15,7 +15,6 @@ import {
   User,
   LogOut,
   Sparkles,
-  MonitorPause,
   Code,
   Megaphone,
   Languages,
@@ -114,9 +113,9 @@ export function AppSidebar() {
         <SidebarContent>
           {/* Logo/Brand */}
           <div className={`p-6 space-y-4 ${collapsed ? "px-3" : ""}`}>
-            <div className="flex items-center gap-2 cursor-pointer justify-left" onClick={() => navigate("/")}>
-              <MonitorPause className="w-6 h-6 text-cinematic-accent" />
+            <div className="flex items-center cursor-pointer" onClick={() => navigate("/")}>
               {!collapsed && <span className="text-xl font-bold text-foreground">Classfy</span>}
+              {collapsed && <span className="text-xl font-bold text-foreground">C</span>}
             </div>
 
             {/* User Profile in Header */}
