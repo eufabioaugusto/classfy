@@ -33,24 +33,26 @@ export default function Auth() {
   const { signIn, signUp } = useAuth();
   const { toast } = useToast();
 
-  // Fetch random videos from database
+  // Fetch random video from database (WeTransfer style - one random per page load)
   useEffect(() => {
-    const fetchVideos = async () => {
+    const fetchRandomVideo = async () => {
       const { data } = await supabase
         .from('contents')
-        .select('video_url')
+        .select('file_url')
         .eq('status', 'approved')
-        .not('video_url', 'is', null)
-        .limit(5);
+        .ilike('file_url', '%.mp4')
+        .limit(20);
       
       if (data && data.length > 0) {
-        const urls = data
-          .map(c => c.video_url)
-          .filter((url): url is string => url !== null);
-        setBackgroundVideos(urls);
+        // Shuffle and pick random videos
+        const shuffled = data
+          .map(c => c.file_url)
+          .filter((url): url is string => url !== null)
+          .sort(() => Math.random() - 0.5);
+        setBackgroundVideos(shuffled.slice(0, 5));
       }
     };
-    fetchVideos();
+    fetchRandomVideo();
   }, []);
 
   // Rotate videos every 8 seconds
