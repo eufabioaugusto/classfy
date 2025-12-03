@@ -7,7 +7,6 @@ import { useToast } from "@/hooks/use-toast";
 import { motion, AnimatePresence } from "framer-motion";
 import { supabase } from "@/integrations/supabase/client";
 import { 
-  Sparkles, 
   Loader2, 
   Play, 
   GraduationCap, 
@@ -206,11 +205,8 @@ export default function Auth() {
           animate="visible"
         >
           {/* Logo */}
-          <motion.div variants={itemVariants} className="flex items-center gap-3">
-            <div className="p-2.5 rounded-xl bg-white/10 backdrop-blur-sm border border-white/20">
-              <Sparkles className="w-7 h-7 text-white" />
-            </div>
-            <span className="text-2xl font-bold tracking-tight">CLASSFY</span>
+          <motion.div variants={itemVariants}>
+            <span className="text-2xl font-bold tracking-tight">Classfy</span>
           </motion.div>
 
           {/* Main Content */}
@@ -280,13 +276,8 @@ export default function Auth() {
           transition={{ duration: 0.5 }}
         >
           {/* Mobile Logo */}
-          <div className="lg:hidden text-center space-y-4">
-            <div className="flex justify-center">
-              <div className="p-3 rounded-xl bg-primary/10 border border-primary/20">
-                <Sparkles className="w-10 h-10 text-primary" />
-              </div>
-            </div>
-            <h1 className="text-3xl font-bold tracking-tight text-foreground">CLASSFY</h1>
+          <div className="lg:hidden text-center">
+            <h1 className="text-3xl font-bold tracking-tight text-foreground">Classfy</h1>
           </div>
 
           {/* Form Header */}
