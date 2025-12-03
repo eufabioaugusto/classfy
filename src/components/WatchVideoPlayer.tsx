@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Play, Pause, Volume2, VolumeX, Maximize, Settings, FileText, BookmarkPlus } from "lucide-react";
+import { Play, Pause, Volume2, VolumeX, Maximize, Settings, FileText, BookmarkPlus, RectangleHorizontal, Minimize2 } from "lucide-react";
 import { useRewardSystem } from "@/hooks/useRewardSystem";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
@@ -24,9 +24,11 @@ interface WatchVideoPlayerProps {
   onTimeUpdate?: (currentTime: number) => void;
   onCreateNote?: () => void;
   seekToTime?: number | null;
+  theaterMode?: boolean;
+  onTheaterModeToggle?: () => void;
 }
 
-export const WatchVideoPlayer = ({ content, onTimeUpdate, onCreateNote, seekToTime }: WatchVideoPlayerProps) => {
+export const WatchVideoPlayer = ({ content, onTimeUpdate, onCreateNote, seekToTime, theaterMode, onTheaterModeToggle }: WatchVideoPlayerProps) => {
   const { user } = useAuth();
   const videoRef = useRef<HTMLVideoElement>(null);
   const audioRef = useRef<HTMLAudioElement>(null);
@@ -465,6 +467,19 @@ export const WatchVideoPlayer = ({ content, onTimeUpdate, onCreateNote, seekToTi
                   </div>
                 )}
               </div>
+
+              {/* Theater Mode */}
+              {isVideo && onTheaterModeToggle && (
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  onClick={onTheaterModeToggle}
+                  className="text-white hover:bg-white/20"
+                  title={theaterMode ? "Sair do Modo Teatro" : "Modo Teatro"}
+                >
+                  {theaterMode ? <Minimize2 className="w-5 h-5" /> : <RectangleHorizontal className="w-5 h-5" />}
+                </Button>
+              )}
 
               {/* Fullscreen */}
               {isVideo && (
