@@ -1,10 +1,11 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { motion, AnimatePresence } from "framer-motion";
+import { supabase } from "@/integrations/supabase/client";
 import { 
   Sparkles, 
   Loader2, 
@@ -27,8 +28,39 @@ export default function Auth() {
   const [displayName, setDisplayName] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [backgroundVideos, setBackgroundVideos] = useState<string[]>([]);
+  const [currentVideoIndex, setCurrentVideoIndex] = useState(0);
   const { signIn, signUp } = useAuth();
   const { toast } = useToast();
+
+  // Fetch random videos from database
+  useEffect(() => {
+    const fetchVideos = async () => {
+      const { data } = await supabase
+        .from('contents')
+        .select('video_url')
+        .eq('status', 'approved')
+        .not('video_url', 'is', null)
+        .limit(5);
+      
+      if (data && data.length > 0) {
+        const urls = data
+          .map(c => c.video_url)
+          .filter((url): url is string => url !== null);
+        setBackgroundVideos(urls);
+      }
+    };
+    fetchVideos();
+  }, []);
+
+  // Rotate videos every 8 seconds
+  useEffect(() => {
+    if (backgroundVideos.length <= 1) return;
+    const interval = setInterval(() => {
+      setCurrentVideoIndex(prev => (prev + 1) % backgroundVideos.length);
+    }, 8000);
+    return () => clearInterval(interval);
+  }, [backgroundVideos.length]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -116,25 +148,49 @@ export default function Auth() {
     }
   };
 
+  const currentVideo = backgroundVideos[currentVideoIndex];
+
   return (
     <div className="min-h-screen flex bg-background">
       {/* Left Side - Visual Area */}
       <div className="hidden lg:flex lg:w-1/2 relative overflow-hidden">
         {/* Video Background with Gradient Overlay */}
         <div className="absolute inset-0">
-          <video
-            autoPlay
-            loop
-            muted
-            playsInline
-            className="w-full h-full object-cover"
-            poster="https://images.unsplash.com/photo-1522202176988-66273c2fd55f?w=1200&q=80"
-          >
-            <source 
-              src="https://cdn.coverr.co/videos/coverr-typing-on-a-laptop-5765/1080p.mp4" 
-              type="video/mp4" 
-            />
-          </video>
+          <AnimatePresence mode="wait">
+            <motion.div
+              key={currentVideoIndex}
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 1 }}
+              className="absolute inset-0"
+            >
+              {currentVideo ? (
+                <video
+                  autoPlay
+                  loop
+                  muted
+                  playsInline
+                  className="w-full h-full object-cover"
+                  src={currentVideo}
+                />
+              ) : (
+                <video
+                  autoPlay
+                  loop
+                  muted
+                  playsInline
+                  className="w-full h-full object-cover"
+                  poster="https://images.unsplash.com/photo-1522202176988-66273c2fd55f?w=1200&q=80"
+                >
+                  <source 
+                    src="https://cdn.coverr.co/videos/coverr-typing-on-a-laptop-5765/1080p.mp4" 
+                    type="video/mp4" 
+                  />
+                </video>
+              )}
+            </motion.div>
+          </AnimatePresence>
           {/* Gradient Overlay */}
           <div className="absolute inset-0 bg-gradient-to-br from-primary/90 via-primary/70 to-primary/90" />
           <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-black/20" />
@@ -173,17 +229,17 @@ export default function Auth() {
               {benefits.map((benefit, index) => (
                 <motion.div
                   key={benefit.title}
-                  className="flex items-start gap-4 p-4 rounded-xl bg-white/10 backdrop-blur-sm border border-white/10 hover:bg-white/15 transition-colors"
+                  className="flex items-start gap-3 p-3 rounded-xl bg-white/10 backdrop-blur-sm border border-white/10 hover:bg-white/15 transition-colors"
                   initial={{ opacity: 0, x: -20 }}
                   animate={{ opacity: 1, x: 0 }}
                   transition={{ delay: 0.4 + index * 0.1 }}
                 >
-                  <div className="p-2 rounded-lg bg-white/20">
-                    <benefit.icon className="w-5 h-5 text-white" />
+                  <div className="p-1.5 rounded-lg bg-white/20">
+                    <benefit.icon className="w-4 h-4 text-white" />
                   </div>
                   <div>
-                    <h3 className="font-semibold text-white">{benefit.title}</h3>
-                    <p className="text-sm text-white/70">{benefit.description}</p>
+                    <h3 className="text-sm font-medium text-white">{benefit.title}</h3>
+                    <p className="text-xs text-white/70">{benefit.description}</p>
                   </div>
                 </motion.div>
               ))}
