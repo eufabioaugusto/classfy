@@ -35,7 +35,7 @@ import {
   TrendingUp,
   AlertTriangle,
   Zap,
-  CreditCard,
+  Crown,
 } from "lucide-react";
 import {
   Sidebar,
@@ -60,7 +60,7 @@ const mainItems = [
   { title: "Salvos", url: "/salvos", icon: Bookmark },
   { title: "Recompensas", url: "/recompensas", icon: Trophy },
   { title: "Carteira", url: "/carteira", icon: DollarSign },
-  { title: "Planos", url: "/planos", icon: CreditCard },
+  { title: "Classfy Premium", url: "/planos", icon: Crown, highlight: true },
 ];
 
 const studioItems = [
@@ -190,7 +190,7 @@ export function AppSidebar() {
                               className="text-foreground/80 hover:bg-muted hover:text-foreground justify-center"
                               activeClassName="bg-muted text-cinematic-accent font-medium"
                             >
-                              <item.icon className="w-4 h-4" />
+                              <item.icon className={`w-4 h-4 ${'highlight' in item && item.highlight ? 'text-red-500' : ''}`} />
                             </NavLink>
                           </SidebarMenuButton>
                         </TooltipTrigger>
@@ -206,8 +206,8 @@ export function AppSidebar() {
                           className="text-foreground/80 hover:bg-muted hover:text-foreground"
                           activeClassName="bg-muted text-cinematic-accent font-medium"
                         >
-                          <item.icon className="w-4 h-4" />
-                          <span>{item.title}</span>
+                          <item.icon className={`w-4 h-4 ${'highlight' in item && item.highlight ? 'text-red-500' : ''}`} />
+                          <span className={'highlight' in item && item.highlight ? 'font-medium' : ''}>{item.title}</span>
                         </NavLink>
                       </SidebarMenuButton>
                     )}
