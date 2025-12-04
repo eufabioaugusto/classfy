@@ -1,7 +1,12 @@
 import { useState, useEffect } from "react";
-import { Heart, Bookmark, Star } from "lucide-react";
+import { ThumbsUp, ThumbsDown, Share2, Download, MoreHorizontal, Star, BookOpen } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { ShareButton } from "@/components/ShareButton";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { useRewardSystem } from "@/hooks/useRewardSystem";
@@ -10,9 +15,18 @@ import { toast } from "@/hooks/use-toast";
 interface ContentActionsProps {
   contentId: string;
   isCourse?: boolean;
+  contentTitle?: string;
+  onAddToStudy?: () => void;
+  onShare?: () => void;
 }
 
-export function ContentActions({ contentId, isCourse = false }: ContentActionsProps) {
+export function ContentActions({ 
+  contentId, 
+  isCourse = false, 
+  contentTitle = "Conteúdo",
+  onAddToStudy,
+  onShare 
+}: ContentActionsProps) {
   const { user } = useAuth();
   const { handleLike, handleSave, handleFavorite } = useRewardSystem();
   const [isLiked, setIsLiked] = useState(false);
@@ -24,7 +38,7 @@ export function ContentActions({ contentId, isCourse = false }: ContentActionsPr
     if (!user) return;
 
     const checkStatus = async () => {
-      // Check likes - use course_id or content_id based on type
+      // Check likes
       const likeQuery = supabase
         .from('actions')
         .select('id')
@@ -101,7 +115,6 @@ export function ContentActions({ contentId, isCourse = false }: ContentActionsPr
 
     try {
       if (isLiked) {
-        // Unlike
         const deleteQuery = supabase
           .from('actions')
           .delete()
@@ -116,7 +129,6 @@ export function ContentActions({ contentId, isCourse = false }: ContentActionsPr
 
         await deleteQuery;
 
-        // Update likes_count in courses table if it's a course
         if (isCourse) {
           const { data: course } = await supabase
             .from('courses')
@@ -133,7 +145,6 @@ export function ContentActions({ contentId, isCourse = false }: ContentActionsPr
         setIsLiked(false);
         setLikesCount(prev => Math.max(0, prev - 1));
       } else {
-        // Like
         const insertData: any = {
           user_id: user.id,
           type: 'LIKE',
@@ -145,11 +156,8 @@ export function ContentActions({ contentId, isCourse = false }: ContentActionsPr
           insertData.content_id = contentId;
         }
 
-        await supabase
-          .from('actions')
-          .insert(insertData);
+        await supabase.from('actions').insert(insertData);
 
-        // Update likes_count in the appropriate table
         if (isCourse) {
           await supabase
             .from('courses')
@@ -159,8 +167,6 @@ export function ContentActions({ contentId, isCourse = false }: ContentActionsPr
 
         setIsLiked(true);
         setLikesCount(prev => prev + 1);
-
-        // Process reward
         await handleLike(user.id, contentId, true);
       }
     } catch (error) {
@@ -185,7 +191,6 @@ export function ContentActions({ contentId, isCourse = false }: ContentActionsPr
 
     try {
       if (isSaved) {
-        // Unsave
         const deleteQuery = supabase
           .from('saved_contents')
           .delete()
@@ -205,7 +210,6 @@ export function ContentActions({ contentId, isCourse = false }: ContentActionsPr
           description: "Conteúdo removido da sua lista",
         });
       } else {
-        // Save
         const insertData: any = {
           user_id: user.id,
         };
@@ -216,13 +220,9 @@ export function ContentActions({ contentId, isCourse = false }: ContentActionsPr
           insertData.content_id = contentId;
         }
 
-        await supabase
-          .from('saved_contents')
-          .insert(insertData);
+        await supabase.from('saved_contents').insert(insertData);
 
         setIsSaved(true);
-
-        // Process reward
         await handleSave(user.id, contentId);
       }
     } catch (error) {
@@ -247,7 +247,6 @@ export function ContentActions({ contentId, isCourse = false }: ContentActionsPr
 
     try {
       if (isFavorited) {
-        // Unfavorite
         const deleteQuery = supabase
           .from('favorites')
           .delete()
@@ -267,7 +266,6 @@ export function ContentActions({ contentId, isCourse = false }: ContentActionsPr
           description: "Conteúdo removido dos seus favoritos",
         });
       } else {
-        // Favorite
         const insertData: any = {
           user_id: user.id,
         };
@@ -278,13 +276,9 @@ export function ContentActions({ contentId, isCourse = false }: ContentActionsPr
           insertData.content_id = contentId;
         }
 
-        await supabase
-          .from('favorites')
-          .insert(insertData);
+        await supabase.from('favorites').insert(insertData);
 
         setIsFavorited(true);
-
-        // Process reward
         await handleFavorite(user.id, contentId);
       }
     } catch (error) {
@@ -297,48 +291,100 @@ export function ContentActions({ contentId, isCourse = false }: ContentActionsPr
     }
   };
 
+  const handleShareClick = () => {
+    if (onShare) {
+      onShare();
+    } else {
+      const url = window.location.href;
+      navigator.clipboard.writeText(url);
+      toast({
+        title: "Link copiado!",
+        description: "O link foi copiado para sua área de transferência",
+      });
+    }
+  };
+
+  const formatCount = (count: number) => {
+    if (count >= 1000000) {
+      return `${(count / 1000000).toFixed(1)}M`;
+    }
+    if (count >= 1000) {
+      return `${(count / 1000).toFixed(1)}K`;
+    }
+    return count.toString();
+  };
+
   return (
-    <div className="flex items-center gap-2">
+    <div className="flex items-center gap-2 flex-wrap">
+      {/* Like/Dislike grouped pill */}
+      <div className="flex items-center bg-secondary rounded-full overflow-hidden">
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={toggleLike}
+          className="gap-2 rounded-none px-4 hover:bg-secondary/80"
+        >
+          <ThumbsUp
+            className={`h-5 w-5 ${isLiked ? 'fill-current' : ''}`}
+          />
+          <span className="text-sm font-medium">{formatCount(likesCount)}</span>
+        </Button>
+        <div className="w-px h-6 bg-border" />
+        <Button
+          variant="ghost"
+          size="sm"
+          className="rounded-none px-3 hover:bg-secondary/80"
+        >
+          <ThumbsDown className="h-5 w-5" />
+        </Button>
+      </div>
+
+      {/* Share button */}
       <Button
-        variant="ghost"
+        variant="secondary"
         size="sm"
-        onClick={toggleLike}
-        className="gap-2"
+        onClick={handleShareClick}
+        className="gap-2 rounded-full px-4"
       >
-        <Heart
-          className={`h-5 w-5 ${isLiked ? 'fill-red-500 text-red-500' : ''}`}
-        />
-        <span className="text-sm">{likesCount}</span>
+        <Share2 className="h-5 w-5" />
+        <span className="hidden sm:inline">Compartilhar</span>
       </Button>
 
+      {/* Save button */}
       <Button
-        variant="ghost"
+        variant="secondary"
         size="sm"
         onClick={toggleSave}
-        className="gap-2"
+        className={`gap-2 rounded-full px-4 ${isSaved ? 'bg-primary text-primary-foreground hover:bg-primary/90' : ''}`}
       >
-        <Bookmark
-          className={`h-5 w-5 ${isSaved ? 'fill-current' : ''}`}
-        />
+        <Download className={`h-5 w-5 ${isSaved ? 'fill-current' : ''}`} />
+        <span className="hidden sm:inline">{isSaved ? 'Salvo' : 'Salvar'}</span>
       </Button>
 
-      <Button
-        variant="ghost"
-        size="sm"
-        onClick={toggleFavorite}
-        className="gap-2"
-      >
-        <Star
-          className={`h-5 w-5 ${isFavorited ? 'fill-yellow-500 text-yellow-500' : ''}`}
-        />
-      </Button>
-
-      <ShareButton 
-        contentId={contentId} 
-        contentTitle="Conteúdo" 
-        size="sm" 
-        variant="ghost"
-      />
+      {/* More options dropdown */}
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button
+            variant="secondary"
+            size="sm"
+            className="rounded-full px-3"
+          >
+            <MoreHorizontal className="h-5 w-5" />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="w-48">
+          <DropdownMenuItem onClick={toggleFavorite} className="gap-2 cursor-pointer">
+            <Star className={`h-4 w-4 ${isFavorited ? 'fill-yellow-500 text-yellow-500' : ''}`} />
+            {isFavorited ? 'Remover dos favoritos' : 'Adicionar aos favoritos'}
+          </DropdownMenuItem>
+          {onAddToStudy && (
+            <DropdownMenuItem onClick={onAddToStudy} className="gap-2 cursor-pointer">
+              <BookOpen className="h-4 w-4" />
+              Adicionar ao Estudo
+            </DropdownMenuItem>
+          )}
+        </DropdownMenuContent>
+      </DropdownMenu>
     </div>
   );
 }
