@@ -17,6 +17,7 @@ export type Database = {
       actions: {
         Row: {
           content_id: string | null
+          course_id: string | null
           created_at: string
           id: string
           multiplier: number
@@ -27,6 +28,7 @@ export type Database = {
         }
         Insert: {
           content_id?: string | null
+          course_id?: string | null
           created_at?: string
           id?: string
           multiplier?: number
@@ -37,6 +39,7 @@ export type Database = {
         }
         Update: {
           content_id?: string | null
+          course_id?: string | null
           created_at?: string
           id?: string
           multiplier?: number
@@ -51,6 +54,13 @@ export type Database = {
             columns: ["content_id"]
             isOneToOne: false
             referencedRelation: "contents"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "actions_course_id_fkey"
+            columns: ["course_id"]
+            isOneToOne: false
+            referencedRelation: "courses"
             referencedColumns: ["id"]
           },
           {
@@ -367,7 +377,8 @@ export type Database = {
       }
       content_views: {
         Row: {
-          content_id: string
+          content_id: string | null
+          course_id: string | null
           created_at: string | null
           first_viewed_at: string | null
           id: string
@@ -379,7 +390,8 @@ export type Database = {
           view_date: string
         }
         Insert: {
-          content_id: string
+          content_id?: string | null
+          course_id?: string | null
           created_at?: string | null
           first_viewed_at?: string | null
           id?: string
@@ -391,7 +403,8 @@ export type Database = {
           view_date?: string
         }
         Update: {
-          content_id?: string
+          content_id?: string | null
+          course_id?: string | null
           created_at?: string | null
           first_viewed_at?: string | null
           id?: string
@@ -408,6 +421,13 @@ export type Database = {
             columns: ["content_id"]
             isOneToOne: false
             referencedRelation: "contents"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "content_views_course_id_fkey"
+            columns: ["course_id"]
+            isOneToOne: false
+            referencedRelation: "courses"
             referencedColumns: ["id"]
           },
         ]
@@ -860,6 +880,7 @@ export type Database = {
           discount: number | null
           id: string
           level: string | null
+          likes_count: number | null
           price: number | null
           published_at: string | null
           requirements: string | null
@@ -882,6 +903,7 @@ export type Database = {
           discount?: number | null
           id?: string
           level?: string | null
+          likes_count?: number | null
           price?: number | null
           published_at?: string | null
           requirements?: string | null
@@ -904,6 +926,7 @@ export type Database = {
           discount?: number | null
           id?: string
           level?: string | null
+          likes_count?: number | null
           price?: number | null
           published_at?: string | null
           requirements?: string | null
@@ -982,19 +1005,22 @@ export type Database = {
       }
       favorites: {
         Row: {
-          content_id: string
+          content_id: string | null
+          course_id: string | null
           created_at: string
           id: string
           user_id: string
         }
         Insert: {
-          content_id: string
+          content_id?: string | null
+          course_id?: string | null
           created_at?: string
           id?: string
           user_id: string
         }
         Update: {
-          content_id?: string
+          content_id?: string | null
+          course_id?: string | null
           created_at?: string
           id?: string
           user_id?: string
@@ -1005,6 +1031,13 @@ export type Database = {
             columns: ["content_id"]
             isOneToOne: false
             referencedRelation: "contents"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "favorites_course_id_fkey"
+            columns: ["course_id"]
+            isOneToOne: false
+            referencedRelation: "courses"
             referencedColumns: ["id"]
           },
           {
@@ -1603,19 +1636,22 @@ export type Database = {
       }
       saved_contents: {
         Row: {
-          content_id: string
+          content_id: string | null
+          course_id: string | null
           created_at: string
           id: string
           user_id: string
         }
         Insert: {
-          content_id: string
+          content_id?: string | null
+          course_id?: string | null
           created_at?: string
           id?: string
           user_id: string
         }
         Update: {
-          content_id?: string
+          content_id?: string | null
+          course_id?: string | null
           created_at?: string
           id?: string
           user_id?: string
@@ -1626,6 +1662,13 @@ export type Database = {
             columns: ["content_id"]
             isOneToOne: false
             referencedRelation: "contents"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "saved_contents_course_id_fkey"
+            columns: ["course_id"]
+            isOneToOne: false
+            referencedRelation: "courses"
             referencedColumns: ["id"]
           },
           {
@@ -2379,6 +2422,10 @@ export type Database = {
       }
       increment_content_view: {
         Args: { p_content_id: string; p_user_id: string }
+        Returns: Json
+      }
+      increment_course_view: {
+        Args: { p_course_id: string; p_user_id: string }
         Returns: Json
       }
       is_content_boosted: { Args: { p_content_id: string }; Returns: boolean }

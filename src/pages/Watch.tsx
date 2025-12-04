@@ -151,6 +151,7 @@ function WatchContent() {
             price,
             total_duration_seconds,
             views_count,
+            likes_count,
             status,
             creator_id,
             tags,
@@ -203,45 +204,28 @@ function WatchContent() {
           content_type: "curso" as any,
           duration_seconds: courseResult.data.total_duration_seconds || 0,
           file_url: "", // Courses don't have single file_url
-          likes_count: 0,
+          likes_count: courseResult.data.likes_count || 0,
           category_id: null,
         } as Content);
 
         checkAccess(courseResult.data as any);
 
-        // Register view for course
-        if (user) {
+        // Register view for course using the new RPC
+        const isAdminPreview = role === "admin" && courseResult.data.status === "pending";
+        if (!isAdminPreview && user) {
           try {
-            const today = new Date().toISOString().split('T')[0];
-            const { data: existingView } = await supabase
-              .from("content_views")
-              .select("id")
-              .eq("user_id", user.id)
-              .eq("content_id", id)
-              .eq("view_date", today)
-              .maybeSingle();
+            const { data: viewResult, error: viewError } = await supabase.rpc("increment_course_view", {
+              p_user_id: user.id,
+              p_course_id: id,
+            });
 
-            if (existingView) {
-              await supabase
-                .from("content_views")
-                .update({ 
-                  last_viewed_at: new Date().toISOString(),
-                  view_count: supabase.rpc ? 1 : 1 // Increment handled by trigger if exists
-                })
-                .eq("id", existingView.id);
+            if (viewError) {
+              console.error("Error registering course view:", viewError);
             } else {
-              await supabase
-                .from("content_views")
-                .insert({
-                  user_id: user.id,
-                  content_id: id,
-                  view_date: today,
-                  first_viewed_at: new Date().toISOString(),
-                  last_viewed_at: new Date().toISOString(),
-                });
+              console.log("Course view registered:", viewResult);
             }
           } catch (error) {
-            console.error("Error registering course view:", error);
+            console.error("Error incrementing course view:", error);
           }
         }
 
@@ -618,7 +602,7 @@ function WatchContent() {
                       </div>
                     ) : (
                       <div className="flex items-center gap-2">
-                        <ContentActions contentId={content.id} />
+                        <ContentActions contentId={content.id} isCourse={isCourse} />
                         <Button
                           variant="outline"
                           size="sm"

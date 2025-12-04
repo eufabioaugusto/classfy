@@ -32,8 +32,10 @@ import { ptBR } from "date-fns/locale";
 
 interface HistoryItem {
   id: string;
-  content_id: string;
+  content_id: string | null;
+  course_id: string | null;
   last_viewed_at: string;
+  isCourse: boolean;
   content: {
     id: string;
     title: string;
@@ -94,11 +96,13 @@ export default function Historico() {
 
     setIsLoading(true);
     try {
-      const { data: viewData, error: viewError } = await supabase
+      // Fetch content views
+      const { data: contentViewData, error: contentViewError } = await supabase
         .from("content_views")
         .select(`
           id,
           content_id,
+          course_id,
           last_viewed_at,
           contents (
             id,
@@ -117,28 +121,78 @@ export default function Historico() {
               avatar_url,
               creator_channel_name
             )
+          ),
+          courses (
+            id,
+            title,
+            description,
+            thumbnail_url,
+            views_count,
+            total_duration_seconds,
+            price,
+            discount,
+            visibility,
+            profiles:creator_id (
+              display_name,
+              avatar_url,
+              creator_channel_name
+            )
           )
         `)
         .eq("user_id", user.id)
         .order("last_viewed_at", { ascending: false })
         .limit(100);
 
-      if (viewError) throw viewError;
+      if (contentViewError) throw contentViewError;
 
-      // Remove duplicates by content_id, keeping only the most recent
+      // Process and combine items
       const uniqueItems = new Map<string, HistoryItem>();
-      (viewData || []).forEach((view: any) => {
-        if (view.contents && !uniqueItems.has(view.content_id)) {
-          uniqueItems.set(view.content_id, {
+      
+      (contentViewData || []).forEach((view: any) => {
+        // Handle content views
+        if (view.contents && view.content_id && !uniqueItems.has(`content-${view.content_id}`)) {
+          uniqueItems.set(`content-${view.content_id}`, {
             id: view.id,
             content_id: view.content_id,
+            course_id: null,
             last_viewed_at: view.last_viewed_at,
+            isCourse: false,
             content: view.contents,
+          });
+        }
+        
+        // Handle course views
+        if (view.courses && view.course_id && !uniqueItems.has(`course-${view.course_id}`)) {
+          uniqueItems.set(`course-${view.course_id}`, {
+            id: view.id,
+            content_id: null,
+            course_id: view.course_id,
+            last_viewed_at: view.last_viewed_at,
+            isCourse: true,
+            content: {
+              id: view.courses.id,
+              title: view.courses.title,
+              description: view.courses.description,
+              thumbnail_url: view.courses.thumbnail_url,
+              content_type: "curso",
+              views_count: view.courses.views_count,
+              duration_seconds: view.courses.total_duration_seconds,
+              price: view.courses.price,
+              discount: view.courses.discount,
+              is_free: view.courses.visibility === "free",
+              required_plan: view.courses.visibility,
+              profiles: view.courses.profiles,
+            },
           });
         }
       });
 
-      setHistoryItems(Array.from(uniqueItems.values()));
+      // Sort by last_viewed_at
+      const sortedItems = Array.from(uniqueItems.values()).sort(
+        (a, b) => new Date(b.last_viewed_at).getTime() - new Date(a.last_viewed_at).getTime()
+      );
+
+      setHistoryItems(sortedItems);
     } catch (error) {
       console.error("Error loading history:", error);
       toast.error("Erro ao carregar histórico");
@@ -185,13 +239,20 @@ export default function Historico() {
     setShowClearDialog(false);
   };
 
-  const saveContent = async (contentId: string) => {
+  const saveContent = async (item: HistoryItem) => {
     if (!user) return;
 
     try {
+      const insertData: any = { user_id: user.id };
+      if (item.isCourse) {
+        insertData.course_id = item.course_id;
+      } else {
+        insertData.content_id = item.content_id;
+      }
+
       const { error } = await supabase
         .from("saved_contents")
-        .upsert({ user_id: user.id, content_id: contentId });
+        .upsert(insertData);
 
       if (error) throw error;
       toast.success("Salvo para assistir mais tarde");
@@ -201,8 +262,8 @@ export default function Historico() {
     }
   };
 
-  const handleContentClick = (content: any) => {
-    navigate(`/watch/${content.id}`);
+  const handleContentClick = (item: HistoryItem) => {
+    navigate(`/watch/${item.content.id}`);
   };
 
   const formatDuration = (seconds: number | null) => {
@@ -346,7 +407,7 @@ export default function Historico() {
                     {/* Thumbnail */}
                     <div 
                       className="relative w-40 h-24 flex-shrink-0 cursor-pointer"
-                      onClick={() => handleContentClick(item.content)}
+                      onClick={() => handleContentClick(item)}
                     >
                       <img
                         src={item.content.thumbnail_url || "/placeholder.svg"}
@@ -384,7 +445,7 @@ export default function Historico() {
                       <div className="flex items-start justify-between gap-2">
                         <div 
                           className="cursor-pointer flex-1"
-                          onClick={() => handleContentClick(item.content)}
+                          onClick={() => handleContentClick(item)}
                         >
                           <h3 className="text-sm font-medium text-foreground line-clamp-2 hover:text-primary transition-colors">
                             {item.content.title}
@@ -416,11 +477,11 @@ export default function Historico() {
                             </Button>
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end" className="w-56">
-                            <DropdownMenuItem onClick={() => saveContent(item.content.id)}>
+                            <DropdownMenuItem onClick={() => saveContent(item)}>
                               <Clock className="w-4 h-4 mr-2" />
                               Salvar em "Assistir mais tarde"
                             </DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => saveContent(item.content.id)}>
+                            <DropdownMenuItem onClick={() => saveContent(item)}>
                               <Bookmark className="w-4 h-4 mr-2" />
                               Salvar
                             </DropdownMenuItem>
