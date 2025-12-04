@@ -54,14 +54,15 @@ interface HistoryItem {
   };
 }
 
-type ContentTypeFilter = "all" | "video" | "short" | "podcast" | "audio";
+type ContentTypeFilter = "all" | "video" | "course" | "podcast" | "short" | "live";
 
 const contentTypeConfig: Record<ContentTypeFilter, { label: string; icon: typeof Video }> = {
   all: { label: "Tudo", icon: Filter },
-  video: { label: "Vídeos", icon: Video },
-  short: { label: "Shorts", icon: Zap },
+  video: { label: "Aulas", icon: Video },
+  course: { label: "Cursos", icon: Play },
   podcast: { label: "Podcasts", icon: Music },
-  audio: { label: "Áudio", icon: Music },
+  short: { label: "Shorts", icon: Zap },
+  live: { label: "Lives", icon: Video },
 };
 
 export default function Historico() {
@@ -259,8 +260,9 @@ export default function Historico() {
   const getContentTypeIcon = (type: string) => {
     switch (type) {
       case "short": return <Zap className="w-3 h-3" />;
-      case "audio": 
       case "podcast": return <Music className="w-3 h-3" />;
+      case "course": return <Play className="w-3 h-3" />;
+      case "live": return <Video className="w-3 h-3" />;
       default: return null;
     }
   };
@@ -360,6 +362,16 @@ export default function Historico() {
                         <Badge className="absolute bottom-1 left-1 bg-red-500 text-white text-xs">
                           <Zap className="w-3 h-3 mr-1" />
                           SHORT
+                        </Badge>
+                      )}
+                      {item.content.content_type === "course" && (
+                        <Badge className="absolute bottom-1 left-1 bg-primary text-primary-foreground text-xs">
+                          CURSO
+                        </Badge>
+                      )}
+                      {item.content.content_type === "live" && (
+                        <Badge className="absolute bottom-1 left-1 bg-red-600 text-white text-xs">
+                          LIVE
                         </Badge>
                       )}
                       <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center rounded-lg">
