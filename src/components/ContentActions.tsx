@@ -1,16 +1,11 @@
 import { useState, useEffect } from "react";
-import { ThumbsUp, ThumbsDown, Share2, Download, MoreHorizontal, Star, BookOpen } from "lucide-react";
+import { ThumbsUp, Share2, Bookmark, Star, BookOpen } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { useRewardSystem } from "@/hooks/useRewardSystem";
 import { toast } from "@/hooks/use-toast";
+import { ShareButton } from "@/components/ShareButton";
 
 interface ContentActionsProps {
   contentId: string;
@@ -291,19 +286,6 @@ export function ContentActions({
     }
   };
 
-  const handleShareClick = () => {
-    if (onShare) {
-      onShare();
-    } else {
-      const url = window.location.href;
-      navigator.clipboard.writeText(url);
-      toast({
-        title: "Link copiado!",
-        description: "O link foi copiado para sua área de transferência",
-      });
-    }
-  };
-
   const formatCount = (count: number) => {
     if (count >= 1000000) {
       return `${(count / 1000000).toFixed(1)}M`;
@@ -316,75 +298,58 @@ export function ContentActions({
 
   return (
     <div className="flex items-center gap-2 flex-wrap">
-      {/* Like/Dislike grouped pill */}
-      <div className="flex items-center bg-secondary rounded-full overflow-hidden">
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={toggleLike}
-          className="gap-2 rounded-none px-4 hover:bg-secondary/80"
-        >
-          <ThumbsUp
-            className={`h-5 w-5 ${isLiked ? 'fill-current' : ''}`}
-          />
-          <span className="text-sm font-medium">{formatCount(likesCount)}</span>
-        </Button>
-        <div className="w-px h-6 bg-border" />
-        <Button
-          variant="ghost"
-          size="sm"
-          className="rounded-none px-3 hover:bg-secondary/80"
-        >
-          <ThumbsDown className="h-5 w-5" />
-        </Button>
-      </div>
-
-      {/* Share button */}
+      {/* Like */}
       <Button
         variant="secondary"
         size="sm"
-        onClick={handleShareClick}
+        onClick={toggleLike}
         className="gap-2 rounded-full px-4"
       >
-        <Share2 className="h-5 w-5" />
-        <span className="hidden sm:inline">Compartilhar</span>
+        <ThumbsUp className={`h-4 w-4 ${isLiked ? 'fill-current' : ''}`} />
+        <span>{formatCount(likesCount)}</span>
       </Button>
 
-      {/* Save button */}
+      {/* Compartilhar */}
+      <ShareButton 
+        contentId={contentId} 
+        contentTitle={contentTitle} 
+        variant="secondary"
+      />
+
+      {/* Salvar */}
       <Button
         variant="secondary"
         size="sm"
         onClick={toggleSave}
         className={`gap-2 rounded-full px-4 ${isSaved ? 'bg-primary text-primary-foreground hover:bg-primary/90' : ''}`}
       >
-        <Download className={`h-5 w-5 ${isSaved ? 'fill-current' : ''}`} />
-        <span className="hidden sm:inline">{isSaved ? 'Salvo' : 'Salvar'}</span>
+        <Bookmark className={`h-4 w-4 ${isSaved ? 'fill-current' : ''}`} />
+        <span className="hidden sm:inline">Salvar</span>
       </Button>
 
-      {/* More options dropdown */}
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button
-            variant="secondary"
-            size="sm"
-            className="rounded-full px-3"
-          >
-            <MoreHorizontal className="h-5 w-5" />
-          </Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="w-48">
-          <DropdownMenuItem onClick={toggleFavorite} className="gap-2 cursor-pointer">
-            <Star className={`h-4 w-4 ${isFavorited ? 'fill-yellow-500 text-yellow-500' : ''}`} />
-            {isFavorited ? 'Remover dos favoritos' : 'Adicionar aos favoritos'}
-          </DropdownMenuItem>
-          {onAddToStudy && (
-            <DropdownMenuItem onClick={onAddToStudy} className="gap-2 cursor-pointer">
-              <BookOpen className="h-4 w-4" />
-              Adicionar ao Estudo
-            </DropdownMenuItem>
-          )}
-        </DropdownMenuContent>
-      </DropdownMenu>
+      {/* Favoritos */}
+      <Button
+        variant="secondary"
+        size="sm"
+        onClick={toggleFavorite}
+        className={`gap-2 rounded-full px-4 ${isFavorited ? 'bg-yellow-500/20 text-yellow-500' : ''}`}
+      >
+        <Star className={`h-4 w-4 ${isFavorited ? 'fill-current' : ''}`} />
+        <span className="hidden sm:inline">Favoritos</span>
+      </Button>
+
+      {/* Adicionar ao Estudo */}
+      {onAddToStudy && (
+        <Button
+          variant="secondary"
+          size="sm"
+          onClick={onAddToStudy}
+          className="gap-2 rounded-full px-4"
+        >
+          <BookOpen className="h-4 w-4" />
+          <span className="hidden sm:inline">Adicionar ao Estudo</span>
+        </Button>
+      )}
     </div>
   );
 }
