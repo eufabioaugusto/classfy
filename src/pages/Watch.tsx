@@ -6,7 +6,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { Eye, Heart, Clock, CheckCircle, XCircle, AlertCircle, BookmarkPlus } from "lucide-react";
+import { CheckCircle, XCircle, AlertCircle } from "lucide-react";
 import { ContentActions } from "@/components/ContentActions";
 import { ContentComments } from "@/components/ContentComments";
 import { FollowButton } from "@/components/FollowButton";
@@ -23,6 +23,8 @@ import { PurchaseModal } from "@/components/PurchaseModal";
 import { WatchNotes } from "@/components/WatchNotes";
 import { CourseCurriculum } from "@/components/CourseCurriculum";
 import { WatchRelated } from "@/components/WatchRelated";
+import { formatDistanceToNow } from "date-fns";
+import { ptBR } from "date-fns/locale";
 
 interface Content {
   id: string;
@@ -40,6 +42,7 @@ interface Content {
   creator_id: string;
   category_id?: string | null;
   tags: string[] | null;
+  created_at?: string;
   creator: {
     id: string;
     display_name: string;
@@ -52,6 +55,17 @@ interface Content {
   what_you_learn?: string;
   requirements?: string;
 }
+
+// Helper function to format view counts
+const formatCount = (count: number) => {
+  if (count >= 1000000) {
+    return `${(count / 1000000).toFixed(1)}M`;
+  }
+  if (count >= 1000) {
+    return `${(count / 1000).toFixed(1)}K`;
+  }
+  return count.toString();
+};
 
 // Inner component to use sidebar hook
 function WatchContent() {
@@ -84,6 +98,10 @@ function WatchContent() {
   const [isCourse, setIsCourse] = useState(false);
   const [courseModules, setCourseModules] = useState<any[]>([]);
   const [currentLesson, setCurrentLesson] = useState<any>(null);
+
+  // YouTube-style UI state
+  const [descExpanded, setDescExpanded] = useState(false);
+  const [followersCount, setFollowersCount] = useState(0);
 
   const handleTheaterModeToggle = () => {
     if (!theaterMode) {
@@ -125,6 +143,7 @@ function WatchContent() {
           creator_id,
           category_id,
           tags,
+          created_at,
           creator:profiles!creator_id(id, display_name, avatar_url)
         `,
         )
@@ -159,6 +178,7 @@ function WatchContent() {
             level,
             what_you_learn,
             requirements,
+            created_at,
             creator:profiles!creator_id(id, display_name, avatar_url)
           `,
           )
@@ -261,6 +281,22 @@ function WatchContent() {
       setLoadingContent(false);
     }
   };
+
+  // Fetch followers count for creator
+  const fetchFollowersCount = async (creatorId: string) => {
+    const { count } = await supabase
+      .from("follows")
+      .select("*", { count: "exact", head: true })
+      .eq("following_id", creatorId);
+    setFollowersCount(count || 0);
+  };
+
+  // Trigger followers count when content changes
+  useEffect(() => {
+    if (content?.creator?.id) {
+      fetchFollowersCount(content.creator.id);
+    }
+  }, [content?.creator?.id]);
 
   const checkAccess = async (content: Content) => {
     if (!profile || !user) return;
@@ -552,108 +588,95 @@ function WatchContent() {
                     />
                   ) : null}
 
-                  <div>
-                    <div className="flex items-center gap-3 mb-2">
-                      <h1 className="text-3xl font-bold">
-                        {isCourse && currentLesson ? currentLesson.title : content.title}
-                      </h1>
-                      {content.status === "pending" && role === "admin" && (
-                        <Badge
-                          variant="outline"
-                          className="flex items-center gap-1 border-yellow-500 text-yellow-600 dark:text-yellow-400"
-                        >
-                          <AlertCircle className="h-3 w-3" />
-                          PENDENTE
-                        </Badge>
-                      )}
-                      {isCourse && <Badge variant="secondary">CURSO</Badge>}
-                    </div>
-
-                    <div className="flex items-center gap-4 text-sm text-muted-foreground mb-4">
-                      <span className="flex items-center gap-1">
-                        <Eye className="h-4 w-4" />
-                        {content.views_count || 0} visualizações
-                      </span>
-                      {!isCourse && (
-                        <span className="flex items-center gap-1">
-                          <Heart className="h-4 w-4" />
-                          {content.likes_count || 0} curtidas
-                        </span>
-                      )}
-                      <span className="flex items-center gap-1">
-                        <Clock className="h-4 w-4" />
-                        {isCourse && currentLesson
-                          ? `${Math.floor((currentLesson.duration_seconds || 0) / 60)} min`
-                          : `${Math.floor((content.duration_seconds || 0) / 60)} min`}
-                      </span>
-                      {isCourse && content.total_lessons && <span>📚 {content.total_lessons} aulas</span>}
-                    </div>
-
-                    {content.status === "pending" && role === "admin" ? (
-                      <div className="flex gap-2 mb-4">
-                        <Button onClick={handleApprove} className="flex items-center gap-2">
-                          <CheckCircle className="h-4 w-4" />
-                          Aprovar Conteúdo
-                        </Button>
-                        <Button onClick={handleReject} variant="destructive" className="flex items-center gap-2">
-                          <XCircle className="h-4 w-4" />
-                          Reprovar Conteúdo
-                        </Button>
-                      </div>
-                    ) : (
-                      <div className="flex items-center gap-2">
-                        <ContentActions contentId={content.id} isCourse={isCourse} />
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => setShowAddToStudyModal(true)}
-                          className="flex items-center gap-2"
-                        >
-                          <BookmarkPlus className="h-4 w-4" />
-                          Adicionar ao Estudo
-                        </Button>
-                      </div>
+                  {/* Title */}
+                  <div className="flex items-center gap-3 mb-2">
+                    <h1 className="text-xl font-bold">
+                      {isCourse && currentLesson ? currentLesson.title : content.title}
+                    </h1>
+                    {content.status === "pending" && role === "admin" && (
+                      <Badge
+                        variant="outline"
+                        className="flex items-center gap-1 border-yellow-500 text-yellow-600 dark:text-yellow-400"
+                      >
+                        <AlertCircle className="h-3 w-3" />
+                        PENDENTE
+                      </Badge>
                     )}
+                    {isCourse && <Badge variant="secondary">CURSO</Badge>}
                   </div>
 
-                  <Card className="p-4">
-                    <div className="flex items-center justify-between mb-4">
+                  {/* Creator Row + Actions - YouTube Style */}
+                  {content.status === "pending" && role === "admin" ? (
+                    <div className="flex gap-2 mb-4">
+                      <Button onClick={handleApprove} className="flex items-center gap-2">
+                        <CheckCircle className="h-4 w-4" />
+                        Aprovar Conteúdo
+                      </Button>
+                      <Button onClick={handleReject} variant="destructive" className="flex items-center gap-2">
+                        <XCircle className="h-4 w-4" />
+                        Reprovar Conteúdo
+                      </Button>
+                    </div>
+                  ) : (
+                    <div className="flex items-center justify-between flex-wrap gap-4 py-3">
+                      {/* Left - Creator info */}
                       <div className="flex items-center gap-3">
-                        <Avatar>
+                        <Avatar className="h-10 w-10">
                           <AvatarImage src={content.creator.avatar_url || ""} />
                           <AvatarFallback>{content.creator.display_name[0]}</AvatarFallback>
                         </Avatar>
-                        <div>
-                          <p className="font-semibold">{content.creator.display_name}</p>
+                        <div className="mr-2">
+                          <p className="font-semibold text-sm">{content.creator.display_name}</p>
+                          <p className="text-xs text-muted-foreground">{followersCount} seguidores</p>
                         </div>
+                        <FollowButton creatorId={content.creator.id} size="sm" />
                       </div>
-                      <FollowButton creatorId={content.creator.id} size="sm" />
+
+                      {/* Right - Actions */}
+                      <ContentActions 
+                        contentId={content.id} 
+                        isCourse={isCourse}
+                        contentTitle={content.title}
+                        onAddToStudy={() => setShowAddToStudyModal(true)}
+                      />
                     </div>
-                    {isCourse && currentLesson && currentLesson.description && (
-                      <div className="mb-4">
-                        <h2 className="text-xl font-semibold mb-2">Sobre esta aula</h2>
-                        <p className="text-muted-foreground">{currentLesson.description}</p>
-                      </div>
+                  )}
+
+                  {/* Collapsible Description Card - YouTube Style */}
+                  <div 
+                    className="bg-secondary/50 rounded-xl p-3 cursor-pointer hover:bg-secondary/70 transition-colors"
+                    onClick={() => setDescExpanded(!descExpanded)}
+                  >
+                    <p className="text-sm font-medium text-muted-foreground mb-1">
+                      {formatCount(content.views_count || 0)} visualizações • {formatDistanceToNow(new Date(content.created_at || Date.now()), { addSuffix: true, locale: ptBR })}
+                      {content.tags && content.tags.length > 0 && (
+                        <span className="ml-2">
+                          {content.tags.slice(0, 3).map(tag => `#${tag}`).join(' ')}
+                        </span>
+                      )}
+                    </p>
+                    <div className={`text-sm ${!descExpanded ? 'line-clamp-2' : ''}`}>
+                      {isCourse && currentLesson && currentLesson.description && (
+                        <p className="mb-2">{currentLesson.description}</p>
+                      )}
+                      {content.description && <p>{content.description}</p>}
+                      {descExpanded && isCourse && content.what_you_learn && (
+                        <div className="mt-4 pt-4 border-t border-border">
+                          <h4 className="font-semibold mb-2">O que você vai aprender</h4>
+                          <p className="text-muted-foreground">{content.what_you_learn}</p>
+                        </div>
+                      )}
+                      {descExpanded && isCourse && content.requirements && (
+                        <div className="mt-4">
+                          <h4 className="font-semibold mb-2">Requisitos</h4>
+                          <p className="text-muted-foreground">{content.requirements}</p>
+                        </div>
+                      )}
+                    </div>
+                    {!descExpanded && (content.description || (isCourse && currentLesson?.description)) && (
+                      <span className="text-sm font-semibold mt-1 inline-block">...mais</span>
                     )}
-                    {content.description && (
-                      <div>
-                        <h2 className="text-xl font-semibold mb-2">{isCourse ? "Sobre o curso" : "Descrição"}</h2>
-                        <p className="text-muted-foreground">{content.description}</p>
-                      </div>
-                    )}
-                    {isCourse && content.what_you_learn && (
-                      <div className="mt-4">
-                        <h4 className="font-semibold mb-2">O que você vai aprender</h4>
-                        <p className="text-sm text-muted-foreground">{content.what_you_learn}</p>
-                      </div>
-                    )}
-                    {isCourse && content.requirements && (
-                      <div className="mt-4">
-                        <h3 className="font-semibold mb-2">Requisitos</h3>
-                        <p className="text-sm text-muted-foreground">{content.requirements}</p>
-                      </div>
-                    )}
-                  </Card>
+                  </div>
 
                   {!isCourse && <ContentComments contentId={content.id} />}
                 </div>
