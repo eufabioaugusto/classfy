@@ -208,6 +208,43 @@ function WatchContent() {
         } as Content);
 
         checkAccess(courseResult.data as any);
+
+        // Register view for course
+        if (user) {
+          try {
+            const today = new Date().toISOString().split('T')[0];
+            const { data: existingView } = await supabase
+              .from("content_views")
+              .select("id")
+              .eq("user_id", user.id)
+              .eq("content_id", id)
+              .eq("view_date", today)
+              .maybeSingle();
+
+            if (existingView) {
+              await supabase
+                .from("content_views")
+                .update({ 
+                  last_viewed_at: new Date().toISOString(),
+                  view_count: supabase.rpc ? 1 : 1 // Increment handled by trigger if exists
+                })
+                .eq("id", existingView.id);
+            } else {
+              await supabase
+                .from("content_views")
+                .insert({
+                  user_id: user.id,
+                  content_id: id,
+                  view_date: today,
+                  first_viewed_at: new Date().toISOString(),
+                  last_viewed_at: new Date().toISOString(),
+                });
+            }
+          } catch (error) {
+            console.error("Error registering course view:", error);
+          }
+        }
+
         setLoadingContent(false);
         return;
       }

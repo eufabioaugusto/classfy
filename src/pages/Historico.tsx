@@ -54,12 +54,12 @@ interface HistoryItem {
   };
 }
 
-type ContentTypeFilter = "all" | "video" | "course" | "podcast" | "short" | "live";
+type ContentTypeFilter = "all" | "aula" | "curso" | "podcast" | "short" | "live";
 
 const contentTypeConfig: Record<ContentTypeFilter, { label: string; icon: typeof Video }> = {
   all: { label: "Tudo", icon: Filter },
-  video: { label: "Aulas", icon: Video },
-  course: { label: "Cursos", icon: Play },
+  aula: { label: "Aulas", icon: Video },
+  curso: { label: "Cursos", icon: Play },
   podcast: { label: "Podcasts", icon: Music },
   short: { label: "Shorts", icon: Zap },
   live: { label: "Lives", icon: Video },
@@ -261,7 +261,7 @@ export default function Historico() {
     switch (type) {
       case "short": return <Zap className="w-3 h-3" />;
       case "podcast": return <Music className="w-3 h-3" />;
-      case "course": return <Play className="w-3 h-3" />;
+      case "curso": return <Play className="w-3 h-3" />;
       case "live": return <Video className="w-3 h-3" />;
       default: return null;
     }
@@ -364,7 +364,7 @@ export default function Historico() {
                           SHORT
                         </Badge>
                       )}
-                      {item.content.content_type === "course" && (
+                      {item.content.content_type === "curso" && (
                         <Badge className="absolute bottom-1 left-1 bg-primary text-primary-foreground text-xs">
                           CURSO
                         </Badge>
@@ -386,10 +386,10 @@ export default function Historico() {
                           className="cursor-pointer flex-1"
                           onClick={() => handleContentClick(item.content)}
                         >
-                          <h3 className="font-medium text-foreground line-clamp-2 hover:text-primary transition-colors">
+                          <h3 className="text-sm font-medium text-foreground line-clamp-2 hover:text-primary transition-colors">
                             {item.content.title}
                           </h3>
-                          <div className="flex items-center gap-2 mt-1 text-sm text-muted-foreground">
+                          <div className="flex items-center gap-2 mt-0.5 text-xs text-muted-foreground">
                             <span className="hover:text-foreground cursor-pointer">
                               {item.content.profiles?.creator_channel_name || item.content.profiles?.display_name}
                             </span>
@@ -398,7 +398,7 @@ export default function Historico() {
                             {getContentTypeIcon(item.content.content_type)}
                           </div>
                           {item.content.description && (
-                            <p className="text-sm text-muted-foreground line-clamp-2 mt-1">
+                            <p className="text-xs text-muted-foreground line-clamp-1 mt-1">
                               {item.content.description}
                             </p>
                           )}
