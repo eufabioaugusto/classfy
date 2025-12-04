@@ -82,9 +82,9 @@ export function ShareButton({ contentId, contentTitle, size = "sm", variant = "g
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Button size={size} variant={variant} className="gap-2">
+        <Button size={size} variant={variant} className="gap-2 rounded-full px-4">
           <Share2 className="h-4 w-4" />
-          Compartilhar
+          <span className="hidden sm:inline">Compartilhar</span>
         </Button>
       </DialogTrigger>
       <DialogContent>
