@@ -9,9 +9,10 @@ import { toast } from "@/hooks/use-toast";
 
 interface ContentActionsProps {
   contentId: string;
+  isCourse?: boolean;
 }
 
-export function ContentActions({ contentId }: ContentActionsProps) {
+export function ContentActions({ contentId, isCourse = false }: ContentActionsProps) {
   const { user } = useAuth();
   const { handleLike, handleSave, handleFavorite } = useRewardSystem();
   const [isLiked, setIsLiked] = useState(false);
@@ -22,51 +23,71 @@ export function ContentActions({ contentId }: ContentActionsProps) {
   useEffect(() => {
     if (!user) return;
 
-    // Check if user already liked, saved, favorited
     const checkStatus = async () => {
-      // Check likes (we need to create this table if it doesn't exist)
-      const { data: likeData } = await supabase
+      // Check likes - use course_id or content_id based on type
+      const likeQuery = supabase
         .from('actions')
         .select('id')
         .eq('user_id', user.id)
-        .eq('content_id', contentId)
-        .eq('type', 'LIKE')
-        .maybeSingle();
+        .eq('type', 'LIKE');
+      
+      if (isCourse) {
+        likeQuery.eq('course_id', contentId);
+      } else {
+        likeQuery.eq('content_id', contentId);
+      }
 
+      const { data: likeData } = await likeQuery.maybeSingle();
       setIsLiked(!!likeData);
 
       // Check saved
-      const { data: savedData } = await supabase
+      const savedQuery = supabase
         .from('saved_contents')
         .select('id')
-        .eq('user_id', user.id)
-        .eq('content_id', contentId)
-        .maybeSingle();
+        .eq('user_id', user.id);
 
+      if (isCourse) {
+        savedQuery.eq('course_id', contentId);
+      } else {
+        savedQuery.eq('content_id', contentId);
+      }
+
+      const { data: savedData } = await savedQuery.maybeSingle();
       setIsSaved(!!savedData);
 
       // Check favorited
-      const { data: favoriteData } = await supabase
+      const favoriteQuery = supabase
         .from('favorites')
         .select('id')
-        .eq('user_id', user.id)
-        .eq('content_id', contentId)
-        .maybeSingle();
+        .eq('user_id', user.id);
 
+      if (isCourse) {
+        favoriteQuery.eq('course_id', contentId);
+      } else {
+        favoriteQuery.eq('content_id', contentId);
+      }
+
+      const { data: favoriteData } = await favoriteQuery.maybeSingle();
       setIsFavorited(!!favoriteData);
 
       // Get likes count
-      const { count } = await supabase
+      const countQuery = supabase
         .from('actions')
         .select('*', { count: 'exact', head: true })
-        .eq('content_id', contentId)
         .eq('type', 'LIKE');
 
+      if (isCourse) {
+        countQuery.eq('course_id', contentId);
+      } else {
+        countQuery.eq('content_id', contentId);
+      }
+
+      const { count } = await countQuery;
       setLikesCount(count || 0);
     };
 
     checkStatus();
-  }, [user, contentId]);
+  }, [user, contentId, isCourse]);
 
   const toggleLike = async () => {
     if (!user) {
@@ -81,24 +102,60 @@ export function ContentActions({ contentId }: ContentActionsProps) {
     try {
       if (isLiked) {
         // Unlike
-        await supabase
+        const deleteQuery = supabase
           .from('actions')
           .delete()
           .eq('user_id', user.id)
-          .eq('content_id', contentId)
           .eq('type', 'LIKE');
+
+        if (isCourse) {
+          deleteQuery.eq('course_id', contentId);
+        } else {
+          deleteQuery.eq('content_id', contentId);
+        }
+
+        await deleteQuery;
+
+        // Update likes_count in courses table if it's a course
+        if (isCourse) {
+          const { data: course } = await supabase
+            .from('courses')
+            .select('likes_count')
+            .eq('id', contentId)
+            .single();
+          
+          await supabase
+            .from('courses')
+            .update({ likes_count: Math.max(0, (course?.likes_count || 1) - 1) })
+            .eq('id', contentId);
+        }
 
         setIsLiked(false);
         setLikesCount(prev => Math.max(0, prev - 1));
       } else {
         // Like
+        const insertData: any = {
+          user_id: user.id,
+          type: 'LIKE',
+        };
+
+        if (isCourse) {
+          insertData.course_id = contentId;
+        } else {
+          insertData.content_id = contentId;
+        }
+
         await supabase
           .from('actions')
-          .insert({
-            user_id: user.id,
-            content_id: contentId,
-            type: 'LIKE',
-          });
+          .insert(insertData);
+
+        // Update likes_count in the appropriate table
+        if (isCourse) {
+          await supabase
+            .from('courses')
+            .update({ likes_count: likesCount + 1 })
+            .eq('id', contentId);
+        }
 
         setIsLiked(true);
         setLikesCount(prev => prev + 1);
@@ -129,11 +186,18 @@ export function ContentActions({ contentId }: ContentActionsProps) {
     try {
       if (isSaved) {
         // Unsave
-        await supabase
+        const deleteQuery = supabase
           .from('saved_contents')
           .delete()
-          .eq('user_id', user.id)
-          .eq('content_id', contentId);
+          .eq('user_id', user.id);
+
+        if (isCourse) {
+          deleteQuery.eq('course_id', contentId);
+        } else {
+          deleteQuery.eq('content_id', contentId);
+        }
+
+        await deleteQuery;
 
         setIsSaved(false);
         toast({
@@ -142,12 +206,19 @@ export function ContentActions({ contentId }: ContentActionsProps) {
         });
       } else {
         // Save
+        const insertData: any = {
+          user_id: user.id,
+        };
+
+        if (isCourse) {
+          insertData.course_id = contentId;
+        } else {
+          insertData.content_id = contentId;
+        }
+
         await supabase
           .from('saved_contents')
-          .insert({
-            user_id: user.id,
-            content_id: contentId,
-          });
+          .insert(insertData);
 
         setIsSaved(true);
 
@@ -177,11 +248,18 @@ export function ContentActions({ contentId }: ContentActionsProps) {
     try {
       if (isFavorited) {
         // Unfavorite
-        await supabase
+        const deleteQuery = supabase
           .from('favorites')
           .delete()
-          .eq('user_id', user.id)
-          .eq('content_id', contentId);
+          .eq('user_id', user.id);
+
+        if (isCourse) {
+          deleteQuery.eq('course_id', contentId);
+        } else {
+          deleteQuery.eq('content_id', contentId);
+        }
+
+        await deleteQuery;
 
         setIsFavorited(false);
         toast({
@@ -190,12 +268,19 @@ export function ContentActions({ contentId }: ContentActionsProps) {
         });
       } else {
         // Favorite
+        const insertData: any = {
+          user_id: user.id,
+        };
+
+        if (isCourse) {
+          insertData.course_id = contentId;
+        } else {
+          insertData.content_id = contentId;
+        }
+
         await supabase
           .from('favorites')
-          .insert({
-            user_id: user.id,
-            content_id: contentId,
-          });
+          .insert(insertData);
 
         setIsFavorited(true);
 
