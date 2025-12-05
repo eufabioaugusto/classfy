@@ -9,11 +9,9 @@ import { supabase } from "@/integrations/supabase/client";
 import { useEffect, Suspense, lazy } from "react";
 import { GlobalLoader } from "./components/GlobalLoader";
 
-// Eagerly load the most common pages
-import Index from "./pages/Index";
-import Auth from "./pages/Auth";
-
-// Lazy load all other pages for code splitting
+// Lazy load all pages for maximum code splitting
+const Index = lazy(() => import("./pages/Index"));
+const Auth = lazy(() => import("./pages/Auth"));
 const Conta = lazy(() => import("./pages/Conta"));
 const Historico = lazy(() => import("./pages/Historico"));
 const Favoritos = lazy(() => import("./pages/Favoritos"));
