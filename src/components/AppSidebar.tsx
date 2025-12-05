@@ -84,7 +84,7 @@ const adminItems = [
 ];
 
 export function AppSidebar() {
-  const { state } = useSidebar();
+  const { state, isMobile } = useSidebar();
   const location = useLocation();
   const navigate = useNavigate();
   const { user, signOut, role, profile } = useAuth();
@@ -92,7 +92,8 @@ export function AppSidebar() {
   const [studiesOpen, setStudiesOpen] = useState(true);
   const [creatorModalOpen, setCreatorModalOpen] = useState(false);
   const [upgradeModalOpen, setUpgradeModalOpen] = useState(false);
-  const collapsed = state === "collapsed";
+  // No mobile, quando o sidebar abre como Sheet, sempre mostrar expandido
+  const collapsed = isMobile ? false : state === "collapsed";
   const limitText = limit === Infinity ? "Ilimitado" : `${activeCount}/${limit}`;
 
   // Visibilidade dos itens do menu
