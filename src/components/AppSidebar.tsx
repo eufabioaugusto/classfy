@@ -46,6 +46,7 @@ import {
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
+  SidebarTrigger,
   useSidebar,
 } from "@/components/ui/sidebar";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
@@ -116,9 +117,13 @@ export function AppSidebar() {
         <SidebarContent>
           {/* Logo/Brand */}
           <div className={`p-6 space-y-4 ${collapsed ? "px-3" : ""}`}>
-            <div className="flex items-center cursor-pointer" onClick={() => navigate("/")}>
-              {!collapsed && <span className="text-xl font-bold text-foreground">Classfy</span>}
-              {collapsed && <span className="text-xl font-bold text-foreground">C</span>}
+            <div className="flex items-center gap-2 cursor-pointer">
+              {/* Mobile: Show toggle button before logo */}
+              {isMobile && <SidebarTrigger className="shrink-0" />}
+              <div onClick={() => navigate("/")} className="flex items-center">
+                {!collapsed && <span className="text-xl font-bold text-foreground">Classfy</span>}
+                {collapsed && <span className="text-xl font-bold text-foreground">C</span>}
+              </div>
             </div>
 
             {/* User Profile in Header */}
