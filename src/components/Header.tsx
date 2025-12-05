@@ -38,9 +38,11 @@ export function Header({ variant = "home", title }: HeaderProps) {
   return (
     <header className="sticky top-0 z-50 border-b border-border/20 bg-background/95 backdrop-blur-xl">
       <div className="flex items-center justify-between px-3 sm:px-6 py-3 sm:py-4">
-        <div className="flex items-center gap-2 sm:gap-4">
+      <div className="flex items-center gap-2 sm:gap-4">
           <SidebarTrigger />
-          {title && <h1 className="text-lg sm:text-2xl font-bold text-foreground truncate max-w-[150px] sm:max-w-none">{title}</h1>}
+          {/* Logo visible only on mobile when menu is closed */}
+          <span className="text-xl font-bold text-foreground sm:hidden">Classfy</span>
+          {title && <h1 className="text-lg sm:text-2xl font-bold text-foreground truncate max-w-[150px] sm:max-w-none hidden sm:block">{title}</h1>}
         </div>
 
         {/* User Actions */}
