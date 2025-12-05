@@ -2014,7 +2014,7 @@ function StudyContent() {
 
 export default function Study() {
   return (
-    <SidebarProvider defaultOpen={false}>
+    <SidebarProvider>
       <div className="flex min-h-screen w-full">
         <AppSidebar />
         <StudyContent />
