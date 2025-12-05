@@ -891,9 +891,9 @@ function StudyContent() {
         )}
 
         {/* Mobile Chat Area */}
-        <div className="flex-1 min-h-0 overflow-hidden" style={{ width: '100%', maxWidth: '100%' }}>
-          <ScrollArea className="h-full px-3" style={{ width: '100%' }} ref={scrollRef}>
-            <div className="py-4 space-y-4" style={{ width: '100%', maxWidth: '100%', overflowX: 'hidden' }}>
+        <div className="flex-1 min-h-0 overflow-hidden w-full">
+          <ScrollArea className="h-full w-full" ref={scrollRef}>
+            <div className="py-4 space-y-4 px-3 w-full overflow-x-hidden">
             {loading || (messages.length === 0 && !initialMessageSent) ? (
               <div className="flex flex-col items-center justify-center py-8 text-muted-foreground">
                 <Loader2 className="w-6 h-6 animate-spin mx-auto mb-3" />
@@ -901,26 +901,20 @@ function StudyContent() {
               </div>
             ) : (
               messages.map((message) => (
-                <div key={message.id} className="space-y-3" style={{ width: '100%', maxWidth: '100%', overflow: 'hidden' }}>
+                <div key={message.id} className="space-y-3 w-full overflow-hidden">
                   <div
-                    className={`flex ${
+                    className={`flex w-full ${
                       message.role === "user" ? "justify-end" : "justify-start"
                     }`}
-                    style={{ width: '100%' }}
                   >
                     <div
-                      className={`rounded-lg px-3 py-2 ${
+                      className={`rounded-lg px-3 py-2 max-w-[80%] overflow-hidden break-words ${
                         message.role === "user"
                           ? "bg-primary text-primary-foreground"
                           : "bg-muted text-foreground"
                       }`}
-                      style={{ 
-                        maxWidth: '80%',
-                        overflow: 'hidden',
-                        wordBreak: 'break-word'
-                      }}
                     >
-                      <p className="whitespace-pre-wrap text-sm" style={{ wordBreak: 'break-word', overflowWrap: 'break-word' }}>{message.content}</p>
+                      <p className="whitespace-pre-wrap text-sm break-words [overflow-wrap:anywhere]">{message.content}</p>
                     </div>
                   </div>
                   
