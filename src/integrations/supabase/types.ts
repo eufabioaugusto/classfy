@@ -2413,6 +2413,21 @@ export type Database = {
         Args: { p_conversation_id: string; p_user_id: string }
         Returns: undefined
       }
+      get_public_profile: {
+        Args: { profile_id: string }
+        Returns: {
+          avatar_url: string
+          bio: string
+          cover_image_url: string
+          created_at: string
+          creator_bio: string
+          creator_channel_name: string
+          creator_status: Database["public"]["Enums"]["creator_status"]
+          display_name: string
+          id: string
+          updated_at: string
+        }[]
+      }
       has_role: {
         Args: {
           _role: Database["public"]["Enums"]["app_role"]
