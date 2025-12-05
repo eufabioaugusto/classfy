@@ -725,7 +725,7 @@ function StudyContent() {
   // Mobile Layout
   if (isMobile) {
     return (
-      <div className="flex-1 flex flex-col h-screen">
+      <div className="flex flex-col h-[100dvh] overflow-hidden">
         <Header />
         
         {/* Mobile Header - Compact */}
@@ -790,37 +790,41 @@ function StudyContent() {
 
         {/* Mobile Video Player - Inline when active */}
         {activeContent && !miniPlayerActive && (
-          <div className="flex-shrink-0 bg-black">
-            <div className="relative aspect-video">
-              <StudyVideoPlayer
-                studyId={id!}
-                content={activeContent}
-                onClose={() => {
-                  setActiveContent(null);
-                  setActivePlaylist(null);
-                  setTranscription("");
-                  setSearchQuery("");
-                  cancelAutoplay();
-                  setActiveToolPanel(null);
-                }}
-                onTranscriptionUpdate={() => loadTranscription(activeContent.id)}
-                onCreateNote={handleCreateNote}
-                onVideoEnded={handleVideoEnded}
-              />
+          <div className="flex-shrink-0">
+            {/* Video Container with aspect ratio */}
+            <div className="relative bg-black" style={{ maxHeight: '30vh' }}>
+              <div className="aspect-video max-h-[30vh]">
+                <StudyVideoPlayer
+                  studyId={id!}
+                  content={activeContent}
+                  compact
+                  onClose={() => {
+                    setActiveContent(null);
+                    setActivePlaylist(null);
+                    setTranscription("");
+                    setSearchQuery("");
+                    cancelAutoplay();
+                    setActiveToolPanel(null);
+                  }}
+                  onTranscriptionUpdate={() => loadTranscription(activeContent.id)}
+                  onCreateNote={handleCreateNote}
+                  onVideoEnded={handleVideoEnded}
+                />
+              </div>
 
               {/* Autoplay Countdown Overlay - Mobile */}
               {autoplayCountdown !== null && activePlaylist && (
                 <div className="absolute inset-0 bg-background/90 backdrop-blur-sm flex items-center justify-center z-50">
-                  <div className="bg-card border border-border rounded-lg p-6 text-center space-y-3 mx-4">
-                    <h3 className="text-lg font-bold text-foreground">Próximo Vídeo</h3>
-                    <p className="text-sm text-muted-foreground line-clamp-2">
+                  <div className="bg-card border border-border rounded-lg p-4 text-center space-y-2 mx-4">
+                    <h3 className="text-base font-bold text-foreground">Próximo Vídeo</h3>
+                    <p className="text-xs text-muted-foreground line-clamp-2">
                       {(() => {
                         const playlistContents = messageContents.get(activePlaylist.messageId) || [];
                         const nextContent = playlistContents[activePlaylist.currentIndex + 1];
                         return nextContent?.title || "Carregando...";
                       })()}
                     </p>
-                    <div className="text-3xl font-bold text-primary">{autoplayCountdown}</div>
+                    <div className="text-2xl font-bold text-primary">{autoplayCountdown}</div>
                     <Button variant="outline" size="sm" onClick={cancelAutoplay}>
                       Cancelar
                     </Button>
@@ -830,7 +834,7 @@ function StudyContent() {
             </div>
 
             {/* Mobile Tool Buttons - Horizontal Scroll */}
-            <div className="flex items-center gap-1 px-2 py-2 bg-card/95 border-b border-border overflow-x-auto scrollbar-hide">
+            <div className="flex items-center gap-1 px-2 py-1.5 bg-card border-b border-border overflow-x-auto scrollbar-hide">
               <Button
                 variant={activeToolPanel === 'transcription' ? 'secondary' : 'ghost'}
                 size="sm"
@@ -887,8 +891,9 @@ function StudyContent() {
         )}
 
         {/* Mobile Chat Area */}
-        <ScrollArea className="flex-1 px-3" ref={scrollRef}>
-          <div className="py-4 space-y-4">
+        <div className="flex-1 min-h-0 overflow-hidden">
+          <ScrollArea className="h-full px-3" ref={scrollRef}>
+            <div className="py-4 space-y-4">
             {loading || (messages.length === 0 && !initialMessageSent) ? (
               <div className="flex flex-col items-center justify-center py-8 text-muted-foreground">
                 <Loader2 className="w-6 h-6 animate-spin mx-auto mb-3" />
@@ -1016,8 +1021,9 @@ function StudyContent() {
                 </div>
               </div>
             )}
-          </div>
-        </ScrollArea>
+            </div>
+          </ScrollArea>
+        </div>
 
         {/* Mobile Input - Fixed at bottom */}
         <div className="border-t border-border bg-card px-3 py-3 flex-shrink-0 pb-safe">
@@ -1045,8 +1051,57 @@ function StudyContent() {
           </form>
         </div>
 
+        {/* Mobile Mini Player - Above input */}
+        {miniPlayerActive && activeContent && (
+          <div className="flex-shrink-0 bg-card border-t-2 border-border">
+            <div className="flex items-center gap-2 px-3 py-2 border-b border-border">
+              <div className="flex-1 min-w-0">
+                <p className="text-xs font-medium text-foreground truncate">
+                  {activeContent.title}
+                </p>
+                {activePlaylist && (
+                  <p className="text-[10px] text-muted-foreground">
+                    Playlist: {activePlaylist.currentIndex + 1}/{messageContents.get(activePlaylist.messageId)?.length}
+                  </p>
+                )}
+              </div>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-7 w-7 shrink-0"
+                onClick={() => setMiniPlayerActive(false)}
+              >
+                <Maximize2 className="w-4 h-4" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-7 w-7 shrink-0"
+                onClick={() => {
+                  setMiniPlayerActive(false);
+                  setActiveContent(null);
+                  setActivePlaylist(null);
+                }}
+              >
+                <X className="w-4 h-4" />
+              </Button>
+            </div>
+            <div className="aspect-video bg-black max-h-36">
+              <StudyVideoPlayer
+                studyId={id!}
+                content={activeContent}
+                compact
+                onClose={() => {}}
+                onTranscriptionUpdate={() => {}}
+                onCreateNote={() => {}}
+                onVideoEnded={handleVideoEnded}
+              />
+            </div>
+          </div>
+        )}
+
         {/* Mobile FAB for Active Playlist */}
-        {activePlaylist && !showPlaylistSheet && (
+        {activePlaylist && !showPlaylistSheet && !miniPlayerActive && (
           <div className="fixed bottom-20 right-3 z-40">
             <Button
               onClick={() => setShowPlaylistSheet(true)}
