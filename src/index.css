@@ -11,6 +11,12 @@
   scrollbar-width: none;
 }
 
+/* Fix for Radix ScrollArea overflow on mobile */
+[data-radix-scroll-area-viewport] > div {
+  display: block !important;
+  min-width: 0 !important;
+}
+
 /* Safe area padding for mobile */
 .pb-safe {
   padding-bottom: env(safe-area-inset-bottom, 0px);
