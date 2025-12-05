@@ -23,9 +23,10 @@ interface StudyVideoPlayerProps {
   onTranscriptionUpdate?: () => void;
   onCreateNote?: (timestamp: number) => void;
   onVideoEnded?: () => void;
+  compact?: boolean;
 }
 
-export const StudyVideoPlayer = ({ content, studyId, onClose, onTranscriptionUpdate, onCreateNote, onVideoEnded }: StudyVideoPlayerProps) => {
+export const StudyVideoPlayer = ({ content, studyId, onClose, onTranscriptionUpdate, onCreateNote, onVideoEnded, compact = false }: StudyVideoPlayerProps) => {
   const { user } = useAuth();
   const videoRef = useRef<HTMLVideoElement>(null);
   const audioRef = useRef<HTMLAudioElement>(null);
@@ -274,14 +275,16 @@ export const StudyVideoPlayer = ({ content, studyId, onClose, onTranscriptionUpd
 
   return (
     <>
-      <Card className="h-full flex flex-col bg-background border-border">
-        {/* Header */}
-        <div className="flex items-center justify-between p-4 border-b border-border">
-          <h3 className="font-semibold text-foreground line-clamp-1">{content.title}</h3>
-          <Button variant="ghost" size="icon" onClick={onClose}>
-            <X className="h-4 w-4" />
-          </Button>
-        </div>
+      <Card className={`h-full flex flex-col bg-background border-border ${compact ? 'border-0 rounded-none' : ''}`}>
+        {/* Header - Hidden in compact mode */}
+        {!compact && (
+          <div className="flex items-center justify-between p-4 border-b border-border">
+            <h3 className="font-semibold text-foreground line-clamp-1">{content.title}</h3>
+            <Button variant="ghost" size="icon" onClick={onClose}>
+              <X className="h-4 w-4" />
+            </Button>
+          </div>
+        )}
 
         {/* Media Player */}
         <div 
@@ -307,12 +310,14 @@ export const StudyVideoPlayer = ({ content, studyId, onClose, onTranscriptionUpd
           )}
 
           {/* Fixed Note Button - Top Right */}
-          <button
-            onClick={openNoteModal}
-            className="absolute top-4 right-4 px-3 py-1.5 bg-black/70 hover:bg-black/90 text-white text-sm rounded transition-all duration-200 z-10"
-          >
-            Inserir Anotação
-          </button>
+          {!compact && (
+            <button
+              onClick={openNoteModal}
+              className="absolute top-4 right-4 px-3 py-1.5 bg-black/70 hover:bg-black/90 text-white text-sm rounded transition-all duration-200 z-10"
+            >
+              Inserir Anotação
+            </button>
+          )}
 
           {/* YouTube-style Controls Overlay */}
           <div 
