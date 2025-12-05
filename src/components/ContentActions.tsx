@@ -297,16 +297,16 @@ export function ContentActions({
   };
 
   return (
-    <div className="flex items-center gap-2 flex-wrap">
+    <div className="flex items-center gap-1.5 sm:gap-2 flex-nowrap">
       {/* Like */}
       <Button
         variant="secondary"
         size="sm"
         onClick={toggleLike}
-        className="gap-2 rounded-full px-4"
+        className="gap-1.5 sm:gap-2 rounded-full px-3 sm:px-4 h-8 sm:h-9"
       >
-        <ThumbsUp className={`h-4 w-4 ${isLiked ? 'fill-current' : ''}`} />
-        <span>{formatCount(likesCount)}</span>
+        <ThumbsUp className={`h-3.5 w-3.5 sm:h-4 sm:w-4 ${isLiked ? 'fill-current' : ''}`} />
+        <span className="text-xs sm:text-sm">{formatCount(likesCount)}</span>
       </Button>
 
       {/* Compartilhar */}
@@ -321,10 +321,10 @@ export function ContentActions({
         variant="secondary"
         size="sm"
         onClick={toggleSave}
-        className={`gap-2 rounded-full px-4 ${isSaved ? 'bg-primary text-primary-foreground hover:bg-primary/90' : ''}`}
+        className={`gap-1.5 sm:gap-2 rounded-full px-3 sm:px-4 h-8 sm:h-9 ${isSaved ? 'bg-primary text-primary-foreground hover:bg-primary/90' : ''}`}
       >
-        <Bookmark className={`h-4 w-4 ${isSaved ? 'fill-current' : ''}`} />
-        <span className="hidden sm:inline">Salvar</span>
+        <Bookmark className={`h-3.5 w-3.5 sm:h-4 sm:w-4 ${isSaved ? 'fill-current' : ''}`} />
+        <span className="hidden sm:inline text-xs sm:text-sm">Salvar</span>
       </Button>
 
       {/* Favoritos */}
@@ -332,10 +332,10 @@ export function ContentActions({
         variant="secondary"
         size="sm"
         onClick={toggleFavorite}
-        className={`gap-2 rounded-full px-4 ${isFavorited ? 'bg-yellow-500/20 text-yellow-500' : ''}`}
+        className={`gap-1.5 sm:gap-2 rounded-full px-3 sm:px-4 h-8 sm:h-9 ${isFavorited ? 'bg-yellow-500/20 text-yellow-500' : ''}`}
       >
-        <Star className={`h-4 w-4 ${isFavorited ? 'fill-current' : ''}`} />
-        <span className="hidden sm:inline">Favoritos</span>
+        <Star className={`h-3.5 w-3.5 sm:h-4 sm:w-4 ${isFavorited ? 'fill-current' : ''}`} />
+        <span className="hidden sm:inline text-xs sm:text-sm">Favoritos</span>
       </Button>
 
       {/* Adicionar ao Estudo */}
@@ -344,10 +344,10 @@ export function ContentActions({
           variant="secondary"
           size="sm"
           onClick={onAddToStudy}
-          className="gap-2 rounded-full px-4"
+          className="gap-1.5 sm:gap-2 rounded-full px-3 sm:px-4 h-8 sm:h-9"
         >
-          <BookOpen className="h-4 w-4" />
-          <span className="hidden sm:inline">Adicionar ao Estudo</span>
+          <BookOpen className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
+          <span className="hidden sm:inline text-xs sm:text-sm">Estudo</span>
         </Button>
       )}
     </div>

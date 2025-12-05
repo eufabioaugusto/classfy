@@ -314,9 +314,9 @@ export const ContentCard = ({
       </div>
 
       {/* Content Info */}
-      <div className="p-3 bg-card">
+      <div className="p-2 sm:p-3 bg-card">
         {/* Creator info + Price/Button */}
-        <div className="flex items-center gap-2 mb-2">
+        <div className="flex items-center gap-1.5 sm:gap-2 mb-1.5 sm:mb-2">
           <CreatorLink
             creatorId={creatorId}
             creatorName={creatorName}
@@ -329,8 +329,8 @@ export const ContentCard = ({
 
           {/* Price + Button (for paid content) */}
           {isPaid && !isPurchased && (
-            <div className="flex items-center gap-1.5 flex-shrink-0">
-              <div className="text-right">
+            <div className="flex items-center gap-1 sm:gap-1.5 flex-shrink-0">
+              <div className="text-right hidden sm:block">
                 {discount > 0 ? (
                   <div className="flex flex-col items-end">
                     <span className="text-[11px] font-bold text-primary leading-tight">
@@ -346,14 +346,14 @@ export const ContentCard = ({
               </div>
               <Button
                 size="sm"
-                className="h-7 px-2.5 text-[10px]"
+                className="h-6 sm:h-7 px-2 sm:px-2.5 text-[9px] sm:text-[10px]"
                 onClick={(e) => {
                   e.stopPropagation();
                   onPurchaseClick?.();
                 }}
               >
-                <ShoppingCart className="w-3 h-3 mr-1" />
-                Comprar
+                <ShoppingCart className="w-3 h-3 sm:mr-1" />
+                <span className="hidden sm:inline">Comprar</span>
               </Button>
             </div>
           )}
@@ -361,15 +361,15 @@ export const ContentCard = ({
 
         {/* Title */}
         <h3
-          className="font-semibold text-sm leading-snug line-clamp-2 text-foreground group-hover:text-primary transition-colors duration-300 mb-2"
-          style={{ minHeight: "2.5rem" }}
+          className="font-semibold text-xs sm:text-sm leading-snug line-clamp-2 text-foreground group-hover:text-primary transition-colors duration-300 mb-1.5 sm:mb-2"
+          style={{ minHeight: "2rem" }}
         >
           {title}
         </h3>
 
         {/* Views - Always show */}
-        <div className="pt-1.5 border-t border-border/30">
-          <p className="text-[10px] text-muted-foreground">{views.toLocaleString()} views</p>
+        <div className="pt-1 sm:pt-1.5 border-t border-border/30">
+          <p className="text-[9px] sm:text-[10px] text-muted-foreground">{views.toLocaleString()} views</p>
         </div>
       </div>
     </Card>

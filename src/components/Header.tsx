@@ -37,20 +37,20 @@ export function Header({ variant = "home", title }: HeaderProps) {
 
   return (
     <header className="sticky top-0 z-50 border-b border-border/20 bg-background/95 backdrop-blur-xl">
-      <div className="flex items-center justify-between px-6 py-4">
-        <div className="flex items-center gap-4">
+      <div className="flex items-center justify-between px-3 sm:px-6 py-3 sm:py-4">
+        <div className="flex items-center gap-2 sm:gap-4">
           <SidebarTrigger />
-          {title && <h1 className="text-2xl font-bold text-foreground">{title}</h1>}
+          {title && <h1 className="text-lg sm:text-2xl font-bold text-foreground truncate max-w-[150px] sm:max-w-none">{title}</h1>}
         </div>
 
         {/* User Actions */}
-        <div className="flex items-center gap-3">
-          {/* Theme Toggle */}
+        <div className="flex items-center gap-1.5 sm:gap-3">
+          {/* Theme Toggle - Hidden on mobile */}
           <Button
             variant="ghost"
             size="icon"
             onClick={toggleTheme}
-            className="text-foreground"
+            className="text-foreground hidden sm:flex"
           >
             {theme === "dark" ? (
               <Sun className="w-5 h-5" />
@@ -59,14 +59,14 @@ export function Header({ variant = "home", title }: HeaderProps) {
             )}
           </Button>
 
-          {/* Affiliate Program */}
+          {/* Affiliate Program - Hidden on mobile */}
           {user && (
             <Button
               variant="ghost"
               size="icon"
               onClick={() => setAffiliateModalOpen(true)}
               title="Programa de Afiliados"
-              className="text-foreground"
+              className="text-foreground hidden sm:flex"
             >
               <Gift className="w-5 h-5" />
             </Button>
@@ -82,9 +82,9 @@ export function Header({ variant = "home", title }: HeaderProps) {
           {(role === 'creator' || role === 'admin') && (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button className="gap-2">
+                <Button size="sm" className="gap-1 sm:gap-2 px-2 sm:px-4">
                   <Plus className="w-4 h-4" />
-                  Criar
+                  <span className="hidden sm:inline">Criar</span>
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-56 bg-background border-border z-50">
@@ -143,6 +143,16 @@ export function Header({ variant = "home", title }: HeaderProps) {
                   </div>
                 </div>
                 <DropdownMenuSeparator />
+                {/* Mobile-only items */}
+                <DropdownMenuItem onClick={toggleTheme} className="cursor-pointer sm:hidden">
+                  {theme === "dark" ? <Sun className="w-4 h-4 mr-2" /> : <Moon className="w-4 h-4 mr-2" />}
+                  {theme === "dark" ? "Modo Claro" : "Modo Escuro"}
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setAffiliateModalOpen(true)} className="cursor-pointer sm:hidden">
+                  <Gift className="w-4 h-4 mr-2" />
+                  Programa de Afiliados
+                </DropdownMenuItem>
+                <DropdownMenuSeparator className="sm:hidden" />
                 {profile?.creator_channel_name && (
                   <DropdownMenuItem onClick={() => navigate(`/@${profile.creator_channel_name}`)} className="cursor-pointer">
                     <User className="w-4 h-4 mr-2" />
@@ -167,9 +177,9 @@ export function Header({ variant = "home", title }: HeaderProps) {
               </DropdownMenuContent>
             </DropdownMenu>
           ) : (
-            <Button onClick={() => navigate("/auth")}>
-              <LogIn className="w-4 h-4 mr-2" />
-              Entrar
+            <Button size="sm" onClick={() => navigate("/auth")} className="gap-1 sm:gap-2 px-2 sm:px-4">
+              <LogIn className="w-4 h-4" />
+              <span className="hidden sm:inline">Entrar</span>
             </Button>
           )}
         </div>
