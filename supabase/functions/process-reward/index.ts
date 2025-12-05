@@ -36,7 +36,8 @@ Deno.serve(async (req) => {
 
     const { actionKey, userId, contentId, metadata = {} }: RewardPayload = await req.json();
 
-    console.log('Processing reward:', { actionKey, userId, contentId });
+    // Log without exposing full user IDs for privacy
+    console.log('Processing reward:', { actionKey, hasUser: !!userId, hasContent: !!contentId });
 
     // FRAUD PREVENTION: Check if action was already tracked
     const dailyActions = ['DAILY_LOGIN', 'FIRST_CONTENT_WEEK'];
@@ -60,7 +61,7 @@ Deno.serve(async (req) => {
     const { data: existingTracking } = await fraudCheckQuery.maybeSingle();
 
     if (existingTracking) {
-      console.log('Action already tracked, skipping reward:', { actionKey, userId, contentId });
+      console.log('Action already tracked, skipping reward:', { actionKey });
       return new Response(
         JSON.stringify({ 
           success: false, 
@@ -305,7 +306,7 @@ Deno.serve(async (req) => {
         metadata: metadata
       });
 
-    console.log('Rewards processed:', rewards.length, 'notifications created:', notifications.length);
+    console.log('Rewards processed:', { count: rewards.length, notificationsCount: notifications.length, actionKey });
 
     return new Response(
       JSON.stringify({ success: true, rewards, notifications }),
