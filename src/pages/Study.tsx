@@ -915,7 +915,7 @@ function StudyContent() {
                           : "bg-muted text-foreground"
                       }`}
                       style={{ 
-                        maxWidth: message.role === "user" ? '85%' : 'calc(100% - 0px)',
+                        maxWidth: '80%',
                         overflow: 'hidden',
                         wordBreak: 'break-word'
                       }}
