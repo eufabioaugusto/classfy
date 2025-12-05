@@ -549,8 +549,8 @@ function WatchContent() {
 
           <main className="flex-1 overflow-auto">
             <div className="w-full">
-              <div className={`flex gap-6 p-6 ${theaterMode ? 'flex-col' : 'flex-col lg:flex-row'}`}>
-                <div className={`min-w-0 space-y-4 ${theaterMode ? 'w-full' : 'flex-1'}`}>
+              <div className={`flex gap-4 sm:gap-6 p-3 sm:p-6 ${theaterMode ? 'flex-col' : 'flex-col lg:flex-row'}`}>
+                <div className={`min-w-0 space-y-3 sm:space-y-4 ${theaterMode ? 'w-full' : 'flex-1'}`}>
                   {isCourse && currentLesson ? (
                     <WatchVideoPlayer
                       content={{
@@ -589,8 +589,8 @@ function WatchContent() {
                   ) : null}
 
                   {/* Title */}
-                  <div className="flex items-center gap-3 mb-2">
-                    <h1 className="text-xl font-bold">
+                  <div className="flex items-start sm:items-center gap-2 sm:gap-3 mb-2 flex-wrap">
+                    <h1 className="text-lg sm:text-xl font-bold">
                       {isCourse && currentLesson ? currentLesson.title : content.title}
                     </h1>
                     {content.status === "pending" && role === "admin" && (
@@ -618,36 +618,38 @@ function WatchContent() {
                       </Button>
                     </div>
                   ) : (
-                    <div className="flex items-center justify-between flex-wrap gap-4 py-3">
+                    <div className="flex items-center justify-between flex-wrap gap-3 sm:gap-4 py-2 sm:py-3">
                       {/* Left - Creator info */}
-                      <div className="flex items-center gap-3">
-                        <Avatar className="h-10 w-10">
+                      <div className="flex items-center gap-2 sm:gap-3">
+                        <Avatar className="h-8 w-8 sm:h-10 sm:w-10">
                           <AvatarImage src={content.creator.avatar_url || ""} />
                           <AvatarFallback>{content.creator.display_name[0]}</AvatarFallback>
                         </Avatar>
-                        <div className="mr-2">
-                          <p className="font-semibold text-sm">{content.creator.display_name}</p>
-                          <p className="text-xs text-muted-foreground">{followersCount} seguidores</p>
+                        <div className="mr-1 sm:mr-2">
+                          <p className="font-semibold text-xs sm:text-sm">{content.creator.display_name}</p>
+                          <p className="text-[10px] sm:text-xs text-muted-foreground">{followersCount} seguidores</p>
                         </div>
                         <FollowButton creatorId={content.creator.id} size="sm" />
                       </div>
 
                       {/* Right - Actions */}
-                      <ContentActions 
-                        contentId={content.id} 
-                        isCourse={isCourse}
-                        contentTitle={content.title}
-                        onAddToStudy={() => setShowAddToStudyModal(true)}
-                      />
+                      <div className="w-full sm:w-auto overflow-x-auto scrollbar-hide -mx-3 px-3 sm:mx-0 sm:px-0">
+                        <ContentActions 
+                          contentId={content.id} 
+                          isCourse={isCourse}
+                          contentTitle={content.title}
+                          onAddToStudy={() => setShowAddToStudyModal(true)}
+                        />
+                      </div>
                     </div>
                   )}
 
                   {/* Collapsible Description Card - YouTube Style */}
                   <div 
-                    className="bg-secondary/50 rounded-xl p-3 cursor-pointer hover:bg-secondary/70 transition-colors"
+                    className="bg-secondary/50 rounded-lg sm:rounded-xl p-2.5 sm:p-3 cursor-pointer hover:bg-secondary/70 transition-colors"
                     onClick={() => setDescExpanded(!descExpanded)}
                   >
-                    <p className="text-sm font-medium text-muted-foreground mb-1">
+                    <p className="text-xs sm:text-sm font-medium text-muted-foreground mb-1">
                       {formatCount(content.views_count || 0)} visualizações • {formatDistanceToNow(new Date(content.created_at || Date.now()), { addSuffix: true, locale: ptBR })}
                       {content.tags && content.tags.length > 0 && (
                         <span className="ml-2">
@@ -655,7 +657,7 @@ function WatchContent() {
                         </span>
                       )}
                     </p>
-                    <div className={`text-sm ${!descExpanded ? 'line-clamp-2' : ''}`}>
+                    <div className={`text-xs sm:text-sm ${!descExpanded ? 'line-clamp-2' : ''}`}>
                       {isCourse && currentLesson && currentLesson.description && (
                         <p className="mb-2">{currentLesson.description}</p>
                       )}
@@ -674,14 +676,14 @@ function WatchContent() {
                       )}
                     </div>
                     {!descExpanded && (content.description || (isCourse && currentLesson?.description)) && (
-                      <span className="text-sm font-semibold mt-1 inline-block">...mais</span>
+                      <span className="text-xs sm:text-sm font-semibold mt-1 inline-block">...mais</span>
                     )}
                   </div>
 
                   {!isCourse && <ContentComments contentId={content.id} />}
                 </div>
 
-                <div className={`shrink-0 space-y-4 ${theaterMode ? 'w-full grid grid-cols-1 md:grid-cols-2 gap-6' : 'w-full lg:w-80 xl:w-96'}`}>
+                <div className={`shrink-0 space-y-4 ${theaterMode ? 'w-full grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6' : 'w-full lg:w-80 xl:w-96'}`}>
                   {isCourse ? (
                     <>
                       <WatchNotes

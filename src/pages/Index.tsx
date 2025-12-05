@@ -269,21 +269,21 @@ export default function Index() {
           )}
 
           {/* Content Area */}
-          <main className="flex-1 flex flex-col items-center justify-start p-6 md:p-12">
+          <main className="flex-1 flex flex-col items-center justify-start p-3 sm:p-6 md:p-12">
             {/* Mode Toggle */}
-            <div className="w-full max-w-5xl mb-8">
-              <div className="flex items-center justify-center gap-4 p-4 bg-card rounded-xl border border-border">
-                <div className="flex items-center gap-2">
-                  <Target className="w-5 h-5 text-muted-foreground" />
-                  <Label htmlFor="mode-toggle" className="text-sm font-medium cursor-pointer">
-                    Modo Foco
+            <div className="w-full max-w-5xl mb-4 sm:mb-8">
+              <div className="flex items-center justify-center gap-2 sm:gap-4 p-3 sm:p-4 bg-card rounded-xl border border-border">
+                <div className="flex items-center gap-1 sm:gap-2">
+                  <Target className="w-4 h-4 sm:w-5 sm:h-5 text-muted-foreground" />
+                  <Label htmlFor="mode-toggle" className="text-xs sm:text-sm font-medium cursor-pointer">
+                    Foco
                   </Label>
                 </div>
                 <Switch id="mode-toggle" checked={isExploreMode} onCheckedChange={setIsExploreMode} />
-                <div className="flex items-center gap-2">
-                  <Compass className="w-5 h-5 text-muted-foreground" />
-                  <Label htmlFor="mode-toggle" className="text-sm font-medium cursor-pointer">
-                    Modo Explorar
+                <div className="flex items-center gap-1 sm:gap-2">
+                  <Compass className="w-4 h-4 sm:w-5 sm:h-5 text-muted-foreground" />
+                  <Label htmlFor="mode-toggle" className="text-xs sm:text-sm font-medium cursor-pointer">
+                    Explorar
                   </Label>
                 </div>
               </div>
@@ -293,18 +293,18 @@ export default function Index() {
             {!isExploreMode && (
               <>
                 {/* Search Component - Always visible and centered */}
-                <div className={`w-full max-w-5xl ${!hasSearched ? "mt-32" : "mt-8"} transition-all duration-500`}>
+                <div className={`w-full max-w-5xl ${!hasSearched ? "mt-8 sm:mt-16 md:mt-32" : "mt-4 sm:mt-8"} transition-all duration-500`}>
                   {/* Title (only when no search) */}
                   {!hasSearched && (
-                    <div className="text-center mb-16 space-y-6 animate-fade-in">
-                      <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-cinematic-accent/10 border border-cinematic-accent/20 text-cinematic-accent text-sm font-medium mb-4">
-                        <Sparkles className="w-4 h-4" />
+                    <div className="text-center mb-8 sm:mb-16 space-y-4 sm:space-y-6 animate-fade-in">
+                      <div className="inline-flex items-center gap-2 px-3 sm:px-4 py-1.5 sm:py-2 rounded-full bg-cinematic-accent/10 border border-cinematic-accent/20 text-cinematic-accent text-xs sm:text-sm font-medium mb-2 sm:mb-4">
+                        <Sparkles className="w-3 h-3 sm:w-4 sm:h-4" />
                         <span>Powered by AI</span>
                       </div>
-                      <h1 className="text-6xl font-bold text-foreground md:text-5xl bg-gradient-to-br from-foreground to-foreground/70 bg-clip-text text-transparent">
+                      <h1 className="text-3xl sm:text-4xl md:text-5xl lg:text-6xl font-bold text-foreground bg-gradient-to-br from-foreground to-foreground/70 bg-clip-text text-transparent px-2">
                         O que você quer aprender?
                       </h1>
-                      <p className="text-xl text-muted-foreground max-w-2xl mx-auto font-medium">
+                      <p className="text-base sm:text-lg md:text-xl text-muted-foreground max-w-2xl mx-auto font-medium px-4">
                         Digite um tema e crie um estudo personalizado com a Classy
                       </p>
                     </div>
@@ -368,14 +368,14 @@ export default function Index() {
 
                 {/* Results Feed */}
                 {hasSearched && searchResults.length > 0 && (
-                  <div className="w-full max-w-5xl mt-12">
-                    <div className="mb-6">
-                      <h2 className="text-2xl font-bold text-foreground">
+                  <div className="w-full max-w-5xl mt-6 sm:mt-12">
+                    <div className="mb-4 sm:mb-6">
+                      <h2 className="text-lg sm:text-2xl font-bold text-foreground">
                         {searchResults.length} resultado{searchResults.length !== 1 ? "s" : ""} encontrado
                         {searchResults.length !== 1 ? "s" : ""}
                       </h2>
                     </div>
-                    <div className="grid grid-cols-3 gap-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
                       {searchResults.map((content) => (
                         <ContentCard
                           key={content.id}
@@ -394,7 +394,7 @@ export default function Index() {
 
             {/* Modo Explorar (YouTube-style feed) */}
             {isExploreMode && (
-              <div className="w-full max-w-7xl space-y-12">
+              <div className="w-full max-w-7xl space-y-6 sm:space-y-12">
                 {exploreLoading ? (
                   <div className="text-center py-20">
                     <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-muted/50 border border-border/30">
