@@ -46,7 +46,7 @@ serve(async (req) => {
       .update({ total_clicks: (link.total_clicks || 0) + 1 })
       .eq("referral_code", referral_code);
 
-    console.log(`Click tracked for referral code: ${referral_code}`);
+    console.log('Referral click tracked successfully');
 
     return new Response(
       JSON.stringify({ success: true }),

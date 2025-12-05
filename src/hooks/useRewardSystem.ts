@@ -114,28 +114,27 @@ export function useRewardSystem() {
   };
 
   const checkDailyLogin = async (userId: string) => {
-    // Check if already logged in today
+    // Server-side validation handles duplicate prevention via reward_action_tracking table
+    // No client-side localStorage check needed - server is the source of truth
     const today = new Date().toISOString().split('T')[0];
-    const lastLogin = localStorage.getItem(`lastLogin_${userId}`);
     
-    if (lastLogin !== today) {
-      localStorage.setItem(`lastLogin_${userId}`, today);
-      
-      // Update streak
-      const { data: streak } = await supabase
-        .from('user_login_streaks')
-        .select('*')
-        .eq('user_id', userId)
-        .maybeSingle();
+    // Update streak (server will handle if already done today)
+    const { data: streak } = await supabase
+      .from('user_login_streaks')
+      .select('*')
+      .eq('user_id', userId)
+      .maybeSingle();
 
-      const yesterday = new Date();
-      yesterday.setDate(yesterday.getDate() - 1);
-      const yesterdayStr = yesterday.toISOString().split('T')[0];
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 1);
+    const yesterdayStr = yesterday.toISOString().split('T')[0];
 
-      if (streak) {
+    if (streak) {
+      // Only update if not already logged in today
+      if (streak.last_login_date !== today) {
         const isConsecutive = streak.last_login_date === yesterdayStr;
-        const newStreak = isConsecutive ? streak.current_streak + 1 : 1;
-        const newLongest = Math.max(newStreak, streak.longest_streak);
+        const newStreak = isConsecutive ? (streak.current_streak || 0) + 1 : 1;
+        const newLongest = Math.max(newStreak, streak.longest_streak || 0);
 
         await supabase
           .from('user_login_streaks')
@@ -145,23 +144,24 @@ export function useRewardSystem() {
             last_login_date: today,
           })
           .eq('user_id', userId);
-      } else {
-        await supabase
-          .from('user_login_streaks')
-          .insert({
-            user_id: userId,
-            current_streak: 1,
-            longest_streak: 1,
-            last_login_date: today,
-          });
       }
-
-      await processReward({
-        actionKey: 'DAILY_LOGIN',
-        userId,
-        metadata: { date: today },
-      });
+    } else {
+      await supabase
+        .from('user_login_streaks')
+        .insert({
+          user_id: userId,
+          current_streak: 1,
+          longest_streak: 1,
+          last_login_date: today,
+        });
     }
+
+    // Server validates via reward_action_tracking - will skip if already rewarded today
+    await processReward({
+      actionKey: 'DAILY_LOGIN',
+      userId,
+      metadata: { date: today },
+    });
   };
 
   const checkCourseCompletion = async (userId: string, courseId: string) => {
