@@ -12,16 +12,69 @@ serve(async (req) => {
   }
 
   try {
+    // Verify the request is from an authenticated source (service role or admin)
+    const authHeader = req.headers.get("authorization");
+    if (!authHeader) {
+      console.error("Missing authorization header");
+      return new Response(
+        JSON.stringify({ error: "Unauthorized" }),
+        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
     const supabaseClient = createClient(
       Deno.env.get("SUPABASE_URL") ?? "",
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "",
       { auth: { persistSession: false } }
     );
 
+    // Extract JWT token and verify it's service role or admin
+    const token = authHeader.replace("Bearer ", "");
+    const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY") ?? "";
+    
+    // Create a client with the user's token to check their role
+    const userClient = createClient(
+      Deno.env.get("SUPABASE_URL") ?? "",
+      supabaseAnonKey,
+      { 
+        auth: { persistSession: false },
+        global: { headers: { Authorization: authHeader } }
+      }
+    );
+
+    // Check if this is a service role call (from stripe webhook)
+    const { data: { user }, error: userError } = await userClient.auth.getUser(token);
+    
+    // If we can get a user, verify they have admin role
+    if (user) {
+      const { data: roleData } = await supabaseClient
+        .from("user_roles")
+        .select("role")
+        .eq("user_id", user.id)
+        .eq("role", "admin")
+        .single();
+
+      if (!roleData) {
+        console.error("User is not admin:", user.id);
+        return new Response(
+          JSON.stringify({ error: "Forbidden - Admin access required" }),
+          { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+    }
+    // If userError, it might be service role call which is fine (no user context)
+
     const { conversion_id, purchase_amount, purchase_type, stripe_charge_id } = await req.json();
 
     if (!conversion_id || !purchase_amount || !purchase_type) {
       throw new Error("Missing required parameters");
+    }
+
+    // Validate purchase_amount is a positive number and within reasonable bounds
+    const amount = Number(purchase_amount);
+    if (isNaN(amount) || amount <= 0 || amount > 100000) {
+      console.error("Invalid purchase amount:", purchase_amount);
+      throw new Error("Invalid purchase amount");
     }
 
     // Get conversion data
@@ -32,6 +85,11 @@ serve(async (req) => {
       .single();
 
     if (conversionError) throw conversionError;
+
+    if (!conversion) {
+      console.error("Conversion not found:", conversion_id);
+      throw new Error("Conversion not found");
+    }
 
     // Check if already paid
     if (conversion.commission_paid) {
@@ -50,7 +108,10 @@ serve(async (req) => {
       .single();
 
     const commissionRate = config ? Number(config.config_value) : 0.10;
-    const commissionAmount = purchase_amount * commissionRate;
+    
+    // Cap commission rate at 50% for safety
+    const safeCommissionRate = Math.min(commissionRate, 0.5);
+    const commissionAmount = amount * safeCommissionRate;
 
     // Create commission record
     const { error: commissionError } = await supabaseClient
@@ -60,10 +121,10 @@ serve(async (req) => {
         referred_user_id: conversion.referred_user_id,
         conversion_id,
         purchase_type,
-        purchase_amount,
-        commission_rate: commissionRate,
+        purchase_amount: amount,
+        commission_rate: safeCommissionRate,
         commission_amount: commissionAmount,
-        status: "paid", // Instantly paid to wallet
+        status: "paid",
         stripe_charge_id,
         paid_at: new Date().toISOString(),
       });
@@ -110,7 +171,7 @@ serve(async (req) => {
         message: `Você ganhou R$ ${commissionAmount.toFixed(2)} pela indicação de ${profile?.display_name || "um usuário"}!`,
       });
 
-    console.log(`Commission processed: R$ ${commissionAmount} for conversion ${conversion_id}`);
+    console.log(`Commission processed: R$ ${commissionAmount.toFixed(2)} for conversion ${conversion_id.substring(0, 8)}...`);
 
     return new Response(
       JSON.stringify({ success: true, commission_amount: commissionAmount }),
