@@ -19,6 +19,7 @@ interface ChatContentCardProps {
   is_free?: boolean;
   matchScore?: number;
   onPlay?: (contentId: string) => void;
+  compact?: boolean;
 }
 
 export const ChatContentCard = ({
@@ -32,6 +33,7 @@ export const ChatContentCard = ({
   is_free = true,
   matchScore,
   onPlay,
+  compact = false,
 }: ChatContentCardProps) => {
   const navigate = useNavigate();
   const { user } = useAuth();
@@ -137,6 +139,82 @@ export const ChatContentCard = ({
     }
   };
 
+  // Compact mode for mobile
+  if (compact) {
+    return (
+      <Card className="overflow-hidden bg-card/80 backdrop-blur-sm border border-border/30 hover:border-primary/40 transition-all duration-300 group cursor-pointer" onClick={handleWatch}>
+        {/* Thumbnail */}
+        <div className="relative overflow-hidden bg-muted aspect-[16/9]">
+          <img
+            src={thumbnail_url || "/placeholder.svg"}
+            alt={title}
+            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+          />
+          
+          {/* Badges */}
+          <div className="absolute top-1.5 left-1.5 flex gap-1 flex-wrap">
+            <Badge className="bg-primary/95 backdrop-blur-md text-primary-foreground text-[9px] font-medium px-1.5 py-0.5 shadow-sm">
+              {contentTypeLabel[content_type]}
+            </Badge>
+          </div>
+
+          {/* Duration */}
+          {duration_minutes && (
+            <div className="absolute bottom-1.5 right-1.5 bg-black/90 backdrop-blur-md px-1.5 py-0.5 rounded text-[9px] font-medium text-white flex items-center gap-0.5">
+              <Clock className="w-2.5 h-2.5" />
+              {duration_minutes}m
+            </div>
+          )}
+
+          {/* Lock overlay */}
+          {!is_free && (
+            <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
+              <Lock className="w-5 h-5 text-white" />
+            </div>
+          )}
+
+          {/* Play overlay on hover */}
+          <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-all duration-300 flex items-center justify-center">
+            <div className="opacity-0 group-hover:opacity-100 transition-all duration-300">
+              <div className="bg-primary rounded-full p-2.5 shadow-lg">
+                <Play className="w-4 h-4 text-primary-foreground fill-current" />
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Content */}
+        <div className="p-2 space-y-1.5">
+          <h3 className="font-medium text-foreground text-xs leading-tight line-clamp-2">
+            {title}
+          </h3>
+
+          {/* Compact Action Buttons */}
+          <div className="flex gap-1.5 pt-0.5">
+            <Button
+              onClick={handleWatch}
+              className="flex-1 h-7 text-[10px] font-medium"
+              size="sm"
+            >
+              <Play className="w-3 h-3 mr-1 fill-current" />
+              Assistir
+            </Button>
+            <Button
+              onClick={handleSave}
+              variant="outline"
+              size="sm"
+              className="h-7 w-7 p-0"
+              disabled={loading}
+            >
+              <Bookmark className={`w-3 h-3 ${isSaved ? "fill-current" : ""}`} />
+            </Button>
+          </div>
+        </div>
+      </Card>
+    );
+  }
+
+  // Default full card
   return (
     <Card className="overflow-hidden bg-card/80 backdrop-blur-sm border border-border/30 hover:border-primary/40 hover:shadow-xl hover:shadow-primary/5 transition-all duration-300 group cursor-pointer">
       {/* Thumbnail */}

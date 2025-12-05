@@ -5,7 +5,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Loader2, Send, ArrowLeft, MoreVertical, Edit2, Share2, Trash2, X, List, FileText, Brain, StickyNote, MessageSquare, Lightbulb, Minimize2, Maximize2 } from "lucide-react";
+import { Loader2, Send, ArrowLeft, MoreVertical, Edit2, Share2, Trash2, X, List, FileText, Brain, StickyNote, MessageSquare, Lightbulb, Minimize2, Maximize2, Play, ChevronLeft, ChevronRight } from "lucide-react";
 import { StudyMessage } from "@/hooks/useStudies";
 import { useStudies } from "@/hooks/useStudies";
 import { ChatContentCard } from "@/components/ChatContentCard";
@@ -18,6 +18,7 @@ import { Carousel, CarouselContent, CarouselItem, CarouselNext, CarouselPrevious
 import { SidebarProvider, useSidebar } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/AppSidebar";
 import { Header } from "@/components/Header";
+import { useIsMobile } from "@/hooks/use-mobile";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -60,6 +61,7 @@ function StudyContent() {
   const location = useLocation();
   const { updateLastActivity } = useStudies();
   const { setOpen, open } = useSidebar();
+  const isMobile = useIsMobile();
 
   const currentPlan = (profile?.plan || 'free') as 'free' | 'pro' | 'premium';
   const PLAYLIST_LIMITS: Record<'free' | 'pro' | 'premium', number> = {
@@ -104,17 +106,25 @@ function StudyContent() {
   const miniPlayerRef = useRef<HTMLDivElement>(null);
   const isDraggingRef = useRef(false);
 
+  // Mobile-specific state
+  const [showPlaylistSheet, setShowPlaylistSheet] = useState(false);
+
   // Focus Mode: Auto-collapse sidebar when content is playing
   useEffect(() => {
     if (activeContent && open) {
-      // Store sidebar state before closing
       setWasOpenBeforeFocus(true);
       setOpen(false);
-    } else if (!activeContent && wasOpenBeforeFocus) {
-      // Restore sidebar when content closes
+    } else if (!activeContent && wasOpenBeforeFocus && !isMobile) {
       setOpen(true);
     }
   }, [activeContent]);
+
+  // Always collapse sidebar on mobile
+  useEffect(() => {
+    if (isMobile) {
+      setOpen(false);
+    }
+  }, [isMobile]);
 
   useEffect(() => {
     if (!user) {
@@ -133,12 +143,6 @@ function StudyContent() {
     scrollToBottom();
   }, [messages]);
 
-  // Send initial message ONLY when:
-  // 1. Study is loaded
-  // 2. Messages have been loaded (not still loading)
-  // 3. There are truly no messages
-  // 4. We haven't sent initial message yet
-  // 5. We're not currently loading or sending
   useEffect(() => {
     if (
       study && 
@@ -153,11 +157,9 @@ function StudyContent() {
     }
   }, [study, loadingMessages, messages.length, initialMessageSent, loading, sending]);
 
-  // Auto-open playlist when coming from "Continue Study" button
   useEffect(() => {
     const autoOpenPlaylistId = location.state?.autoOpenPlaylist;
     if (autoOpenPlaylistId && savedPlaylists.has(autoOpenPlaylistId) && !activePlaylist) {
-      // Find the message with this playlist
       const playlistMessage = messages.find(msg => msg.id === autoOpenPlaylistId);
       if (playlistMessage) {
         const contents = messageContents.get(playlistMessage.id);
@@ -168,11 +170,7 @@ function StudyContent() {
           if (firstContentId) {
             setActivePlaylist({ messageId: playlistMessage.id, currentIndex: 0 });
             setShowPlaylistsDropdown(false);
-            
-            // Load the content and transcription via existing handler
             handlePlayContent(firstContentId);
-            
-            // Clear the state to avoid re-opening on refresh
             navigate(location.pathname, { replace: true, state: {} });
           }
         }
@@ -191,7 +189,6 @@ function StudyContent() {
     setSending(true);
     
     try {
-      // Persist playlist for this study/message
       const { error: playlistError } = await supabase
         .from("study_playlists")
         .insert({
@@ -202,11 +199,9 @@ function StudyContent() {
 
       if (playlistError) throw playlistError;
 
-      // Mark this message as having a saved playlist locally
       setSavedPlaylists(prev => new Set(prev).add(messageId));
       setPlaylistsCount(prev => prev + 1);
       
-      // Fetch transcriptions for all contents
       const { data: transcriptions } = await supabase
         .from('transcriptions')
         .select('content_id, text')
@@ -217,17 +212,15 @@ function StudyContent() {
         .select('id, title, description')
         .in('id', contentIds);
 
-      // Build context for AI
       const transcriptionsMap = new Map(transcriptions?.map(t => [t.content_id, t.text]) || []);
       const contentsInfo = contents?.map(c => ({
         title: c.title,
         description: c.description,
-        transcription: transcriptionsMap.get(c.id)?.substring(0, 2000) // Limit to avoid token limits
+        transcription: transcriptionsMap.get(c.id)?.substring(0, 2000)
       })) || [];
 
       toast.success('Playlist salva! Gerando resumo...');
 
-      // Call AI to generate summary
       const { data: aiData, error: aiError } = await supabase.functions.invoke(
         "classy-chat",
         {
@@ -242,7 +235,6 @@ function StudyContent() {
 
       if (aiError) throw aiError;
 
-      // Save AI response
       await supabase
         .from("study_messages")
         .insert({
@@ -335,7 +327,6 @@ function StudyContent() {
 
       setMessages((data || []) as StudyMessage[]);
       
-      // Load related contents from database
       if (data) {
         const newContentsMap = new Map();
         data.forEach((msg: any) => {
@@ -358,10 +349,8 @@ function StudyContent() {
     setSending(true);
 
     try {
-      // Send initial greeting to trigger AI response with content recommendations
       const initialMessage = `Olá! Quero aprender sobre ${study.title}`;
       
-      // Save user message
       const { error: userError } = await supabase
         .from("study_messages")
         .insert({
@@ -375,7 +364,6 @@ function StudyContent() {
       await fetchMessages();
       await updateLastActivity(id);
 
-      // Call AI
       const { data: aiData, error: aiError } = await supabase.functions.invoke(
         "classy-chat",
         {
@@ -389,7 +377,6 @@ function StudyContent() {
 
       if (aiError) throw aiError;
 
-      // Save AI response with related contents
       const { data: aiMessageData, error: aiMessageError } = await supabase
         .from("study_messages")
         .insert({
@@ -405,7 +392,6 @@ function StudyContent() {
 
       await fetchMessages();
       
-      // Refetch study after a short delay to get the updated title
       setTimeout(async () => {
         const { data: updatedStudy } = await supabase
           .from("studies")
@@ -416,7 +402,7 @@ function StudyContent() {
         if (updatedStudy) {
           setStudy(updatedStudy);
         }
-      }, 2000); // Wait 2 seconds for the AI to generate the title
+      }, 2000);
     } catch (error: any) {
       console.error("Error sending initial message:", error);
       toast.error("Erro ao iniciar conversa. Estudo não encontrado.");
@@ -434,7 +420,6 @@ function StudyContent() {
     setSending(true);
 
     try {
-      // Save user message
       const { error: userError } = await supabase
         .from("study_messages")
         .insert({
@@ -448,8 +433,6 @@ function StudyContent() {
       await fetchMessages();
       await updateLastActivity(id);
 
-      // Call AI
-      // Get current video time if there's active content
       let currentVideoTime: number | undefined;
       if (activeContent) {
         const videoElement = document.querySelector('video');
@@ -472,7 +455,6 @@ function StudyContent() {
 
       if (aiError) throw aiError;
 
-      // Save AI response with related contents
       const { data: aiMessageData, error: aiMessageError } = await supabase
         .from("study_messages")
         .insert({
@@ -519,7 +501,6 @@ function StudyContent() {
     if (!id) return;
 
     try {
-      // Delete messages first
       const { error: messagesError } = await supabase
         .from("study_messages")
         .delete()
@@ -527,7 +508,6 @@ function StudyContent() {
 
       if (messagesError) throw messagesError;
 
-      // Delete study
       const { error: studyError } = await supabase
         .from("studies")
         .delete()
@@ -559,7 +539,6 @@ function StudyContent() {
 
       if (error) throw error;
 
-      // Fetch saved progress to restore position
       if (user) {
         const { data: progressData } = await supabase
           .from("user_progress")
@@ -576,7 +555,6 @@ function StudyContent() {
         setActiveContent(data);
       }
       
-      // Load transcription if available
       await loadTranscription(contentId);
     } catch (error) {
       console.error("Error loading content:", error);
@@ -590,7 +568,6 @@ function StudyContent() {
     const playlistContents = messageContents.get(activePlaylist.messageId) || [];
     const nextIndex = activePlaylist.currentIndex + 1;
 
-    // Check if there's a next video in the playlist
     if (nextIndex < playlistContents.length) {
       startAutoplayCountdown(nextIndex);
     }
@@ -634,7 +611,6 @@ function StudyContent() {
     setAutoplayCountdown(null);
   };
 
-  // Cleanup autoplay timer on unmount
   useEffect(() => {
     return () => {
       if (autoplayTimerRef.current) {
@@ -689,7 +665,6 @@ function StudyContent() {
   };
 
   const handleSeekToTimestamp = (seconds: number) => {
-    // Future: Implement seek functionality if needed
     toast.info(`Saltar para ${Math.floor(seconds / 60)}:${(seconds % 60).toString().padStart(2, "0")}`);
   };
 
@@ -712,7 +687,6 @@ function StudyContent() {
       setTranscription(data.transcription.text);
       toast.success("Transcrição gerada com sucesso!");
       
-      // Reload transcription to show the newly generated one
       await loadTranscription(activeContent.id);
     } catch (error: any) {
       console.error("Error generating transcription:", error);
@@ -748,95 +722,798 @@ function StudyContent() {
     return null;
   }
 
-  return (
-    <div className="flex-1 flex flex-col h-screen">
-      <Header />
-          
-          {/* Study Header */}
-          <header className="border-b border-border bg-card px-6 py-4 flex-shrink-0">
-            <div className="flex items-center justify-between gap-4">
-              <div className="flex-1">
-                <h1 className="text-xl font-semibold text-foreground">
-                  {study.title}
-                </h1>
-                {study.description && (
-                  <p className="text-sm text-muted-foreground mt-1">
-                    {study.description}
+  // Mobile Layout
+  if (isMobile) {
+    return (
+      <div className="flex-1 flex flex-col h-screen">
+        <Header />
+        
+        {/* Mobile Header - Compact */}
+        <header className="border-b border-border bg-card px-3 py-2.5 flex-shrink-0">
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex-1 min-w-0">
+              <h1 className="text-sm font-semibold text-foreground truncate">
+                {study.title}
+              </h1>
+            </div>
+
+            <div className="flex items-center gap-1">
+              {savedPlaylists.size > 0 && (
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  className="h-8 px-2 gap-1"
+                  onClick={() => setShowPlaylistSheet(true)}
+                >
+                  <List className="w-4 h-4" />
+                  <span className="text-xs">{savedPlaylists.size}</span>
+                </Button>
+              )}
+
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="ghost" size="icon" className="h-8 w-8">
+                    <MoreVertical className="w-4 h-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-48">
+                  <DropdownMenuItem
+                    onClick={() => {
+                      setNewTitle(study.title);
+                      setRenameDialogOpen(true);
+                    }}
+                    className="cursor-pointer"
+                  >
+                    <Edit2 className="w-4 h-4 mr-2" />
+                    Renomear
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onClick={handleShare}
+                    className="cursor-pointer"
+                  >
+                    <Share2 className="w-4 h-4 mr-2" />
+                    Compartilhar
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    onClick={() => setDeleteDialogOpen(true)}
+                    className="cursor-pointer text-destructive"
+                  >
+                    <Trash2 className="w-4 h-4 mr-2" />
+                    Excluir
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
+          </div>
+        </header>
+
+        {/* Mobile Video Player - Inline when active */}
+        {activeContent && !miniPlayerActive && (
+          <div className="flex-shrink-0 bg-black">
+            <div className="relative aspect-video">
+              <StudyVideoPlayer
+                studyId={id!}
+                content={activeContent}
+                onClose={() => {
+                  setActiveContent(null);
+                  setActivePlaylist(null);
+                  setTranscription("");
+                  setSearchQuery("");
+                  cancelAutoplay();
+                  setActiveToolPanel(null);
+                }}
+                onTranscriptionUpdate={() => loadTranscription(activeContent.id)}
+                onCreateNote={handleCreateNote}
+                onVideoEnded={handleVideoEnded}
+              />
+
+              {/* Autoplay Countdown Overlay - Mobile */}
+              {autoplayCountdown !== null && activePlaylist && (
+                <div className="absolute inset-0 bg-background/90 backdrop-blur-sm flex items-center justify-center z-50">
+                  <div className="bg-card border border-border rounded-lg p-6 text-center space-y-3 mx-4">
+                    <h3 className="text-lg font-bold text-foreground">Próximo Vídeo</h3>
+                    <p className="text-sm text-muted-foreground line-clamp-2">
+                      {(() => {
+                        const playlistContents = messageContents.get(activePlaylist.messageId) || [];
+                        const nextContent = playlistContents[activePlaylist.currentIndex + 1];
+                        return nextContent?.title || "Carregando...";
+                      })()}
+                    </p>
+                    <div className="text-3xl font-bold text-primary">{autoplayCountdown}</div>
+                    <Button variant="outline" size="sm" onClick={cancelAutoplay}>
+                      Cancelar
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Mobile Tool Buttons - Horizontal Scroll */}
+            <div className="flex items-center gap-1 px-2 py-2 bg-card/95 border-b border-border overflow-x-auto scrollbar-hide">
+              <Button
+                variant={activeToolPanel === 'transcription' ? 'secondary' : 'ghost'}
+                size="sm"
+                onClick={() => setActiveToolPanel(activeToolPanel === 'transcription' ? null : 'transcription')}
+                className="h-8 px-2.5 shrink-0"
+              >
+                <FileText className="w-4 h-4" />
+              </Button>
+              <Button
+                variant={activeToolPanel === 'quiz' ? 'secondary' : 'ghost'}
+                size="sm"
+                onClick={() => setActiveToolPanel(activeToolPanel === 'quiz' ? null : 'quiz')}
+                className="h-8 px-2.5 shrink-0"
+              >
+                <Brain className="w-4 h-4" />
+              </Button>
+              <Button
+                variant={activeToolPanel === 'notes' ? 'secondary' : 'ghost'}
+                size="sm"
+                onClick={() => setActiveToolPanel(activeToolPanel === 'notes' ? null : 'notes')}
+                className="h-8 px-2.5 shrink-0"
+              >
+                <StickyNote className="w-4 h-4" />
+              </Button>
+              <Button
+                variant={activeToolPanel === 'comments' ? 'secondary' : 'ghost'}
+                size="sm"
+                onClick={() => setActiveToolPanel(activeToolPanel === 'comments' ? null : 'comments')}
+                className="h-8 px-2.5 shrink-0"
+              >
+                <MessageSquare className="w-4 h-4" />
+              </Button>
+              <Button
+                variant={activeToolPanel === 'recommendations' ? 'secondary' : 'ghost'}
+                size="sm"
+                onClick={() => setActiveToolPanel(activeToolPanel === 'recommendations' ? null : 'recommendations')}
+                className="h-8 px-2.5 shrink-0"
+              >
+                <Lightbulb className="w-4 h-4" />
+              </Button>
+              
+              <div className="flex-1" />
+              
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setMiniPlayerActive(true)}
+                className="h-8 px-2.5 shrink-0"
+              >
+                <Minimize2 className="w-4 h-4" />
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {/* Mobile Chat Area */}
+        <ScrollArea className="flex-1 px-3" ref={scrollRef}>
+          <div className="py-4 space-y-4">
+            {loading || (messages.length === 0 && !initialMessageSent) ? (
+              <div className="flex flex-col items-center justify-center py-8 text-muted-foreground">
+                <Loader2 className="w-6 h-6 animate-spin mx-auto mb-3" />
+                <p className="text-sm">Iniciando conversa...</p>
+              </div>
+            ) : (
+              messages.map((message) => (
+                <div key={message.id} className="space-y-3">
+                  <div
+                    className={`flex ${
+                      message.role === "user" ? "justify-end" : "justify-start"
+                    }`}
+                  >
+                    <div
+                      className={`max-w-[90%] rounded-lg px-3 py-2 ${
+                        message.role === "user"
+                          ? "bg-primary text-primary-foreground"
+                          : "bg-muted text-foreground"
+                      }`}
+                    >
+                      <p className="whitespace-pre-wrap text-sm">{message.content}</p>
+                    </div>
+                  </div>
+                  
+                  {/* Mobile Content Cards */}
+                  {message.role === "assistant" && messageContents.has(message.id) && (
+                    <div className="space-y-3 w-full">
+                      {messageContents.get(message.id)!.length >= 3 ? (
+                        <div className="relative">
+                          <Carousel
+                            opts={{
+                              align: "start",
+                              loop: false,
+                            }}
+                            className="w-full"
+                          >
+                            <CarouselContent className="-ml-2">
+                              {messageContents.get(message.id)?.map((content: any) => (
+                                <CarouselItem key={content.id} className="pl-2 basis-[75%]">
+                                  <ChatContentCard
+                                    id={content.id}
+                                    title={content.title}
+                                    description={content.description}
+                                    thumbnail_url={content.thumbnail_url}
+                                    content_type={content.content_type}
+                                    duration_minutes={content.duration_minutes}
+                                    required_plan={content.required_plan}
+                                    is_free={content.is_free}
+                                    matchScore={content.matchScore}
+                                    onPlay={handlePlayContent}
+                                    compact
+                                  />
+                                </CarouselItem>
+                              ))}
+                            </CarouselContent>
+                          </Carousel>
+                        </div>
+                      ) : (
+                        <div 
+                          className={`grid gap-2 w-full ${
+                            messageContents.get(message.id)!.length === 1 
+                              ? 'grid-cols-1' 
+                              : 'grid-cols-2'
+                          }`}
+                        >
+                          {messageContents.get(message.id)?.map((content: any) => (
+                            <ChatContentCard
+                              key={content.id}
+                              id={content.id}
+                              title={content.title}
+                              description={content.description}
+                              thumbnail_url={content.thumbnail_url}
+                              content_type={content.content_type}
+                              duration_minutes={content.duration_minutes}
+                              required_plan={content.required_plan}
+                              is_free={content.is_free}
+                              matchScore={content.matchScore}
+                              onPlay={handlePlayContent}
+                              compact
+                            />
+                          ))}
+                        </div>
+                      )}
+                      {messageContents.get(message.id) && messageContents.get(message.id)!.length > 1 && (
+                        <div className="flex gap-2 justify-start">
+                          {savedPlaylists.has(message.id) ? (
+                            <Button
+                              size="sm"
+                              variant="default"
+                              onClick={() => {
+                                setActivePlaylist({ messageId: message.id, currentIndex: 0 });
+                                const firstContent = messageContents.get(message.id)?.[0];
+                                if (firstContent) handlePlayContent(firstContent.id);
+                              }}
+                              className="gap-1.5 text-xs h-8"
+                            >
+                              <Play className="w-3.5 h-3.5" />
+                              Assistir Playlist
+                            </Button>
+                          ) : (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => {
+                                const contentIds = messageContents.get(message.id)?.map(c => c.id) || [];
+                                handleCreatePlaylist(message.id, contentIds);
+                              }}
+                              className="gap-1.5 text-xs h-8"
+                            >
+                              <List className="w-3.5 h-3.5" />
+                              Salvar ({messageContents.get(message.id)!.length})
+                            </Button>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              ))
+            )}
+            {sending && (
+              <div className="flex justify-start">
+                <div className="bg-muted rounded-lg px-3 py-2">
+                  <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
+                </div>
+              </div>
+            )}
+          </div>
+        </ScrollArea>
+
+        {/* Mobile Input - Fixed at bottom */}
+        <div className="border-t border-border bg-card px-3 py-3 flex-shrink-0 pb-safe">
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              handleSend();
+            }}
+            className="flex gap-2"
+          >
+            <Input
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              placeholder="Digite sua mensagem..."
+              disabled={sending}
+              className="flex-1 h-10"
+            />
+            <Button type="submit" disabled={sending || !input.trim()} size="icon" className="h-10 w-10 shrink-0">
+              {sending ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <Send className="w-4 h-4" />
+              )}
+            </Button>
+          </form>
+        </div>
+
+        {/* Mobile FAB for Active Playlist */}
+        {activePlaylist && !showPlaylistSheet && (
+          <div className="fixed bottom-20 right-3 z-40">
+            <Button
+              onClick={() => setShowPlaylistSheet(true)}
+              className="rounded-full shadow-2xl h-12 px-4 gap-2"
+              size="lg"
+            >
+              <List className="w-4 h-4" />
+              <span className="text-sm font-medium">
+                {activePlaylist.currentIndex + 1}/{messageContents.get(activePlaylist.messageId)?.length}
+              </span>
+            </Button>
+          </div>
+        )}
+
+        {/* Mobile Playlist Sheet */}
+        <Sheet open={showPlaylistSheet} onOpenChange={setShowPlaylistSheet}>
+          <SheetContent side="right" className="w-[85vw] max-w-sm p-0">
+            <SheetHeader className="p-4 border-b">
+              <SheetTitle>Playlists</SheetTitle>
+              <SheetDescription>
+                {savedPlaylists.size} playlist{savedPlaylists.size !== 1 ? 's' : ''} salva{savedPlaylists.size !== 1 ? 's' : ''}
+              </SheetDescription>
+            </SheetHeader>
+            <ScrollArea className="h-[calc(100vh-8rem)]">
+              <div className="p-3 space-y-3">
+                {getPlaylistMessages().map((msg, idx) => {
+                  const contents = messageContents.get(msg.id) || [];
+                  const isActive = activePlaylist?.messageId === msg.id;
+                  return (
+                    <button
+                      key={msg.id}
+                      onClick={() => {
+                        setActivePlaylist({ messageId: msg.id, currentIndex: 0 });
+                        const firstContent = contents[0];
+                        if (firstContent) handlePlayContent(firstContent.id);
+                        setShowPlaylistSheet(false);
+                      }}
+                      className={`w-full text-left p-3 rounded-lg transition-all ${
+                        isActive
+                          ? 'bg-primary text-primary-foreground'
+                          : 'bg-muted hover:bg-muted/80'
+                      }`}
+                    >
+                      <div className="font-medium text-sm">Playlist {idx + 1}</div>
+                      <div className={`text-xs mt-1 ${isActive ? 'text-primary-foreground/80' : 'text-muted-foreground'}`}>
+                        {contents.length} conteúdos
+                      </div>
+                      {isActive && activePlaylist && (
+                        <div className={`text-xs mt-2 ${isActive ? 'text-primary-foreground/70' : 'text-muted-foreground'}`}>
+                          Reproduzindo: {activePlaylist.currentIndex + 1}/{contents.length}
+                        </div>
+                      )}
+                    </button>
+                  );
+                })}
+                {getPlaylistMessages().length === 0 && (
+                  <p className="text-sm text-muted-foreground text-center py-8">
+                    Nenhuma playlist salva ainda.
                   </p>
                 )}
               </div>
 
-              <div className="flex items-center gap-2">
-                {/* Playlists Button */}
-                {savedPlaylists.size > 0 && (
-                  <DropdownMenu open={showPlaylistsDropdown} onOpenChange={setShowPlaylistsDropdown}>
-                    <DropdownMenuTrigger asChild>
-                      <Button variant="outline" size="sm" className="gap-2">
-                        <List className="w-4 h-4" />
-                        Playlists ({savedPlaylists.size})
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end" className="w-64">
-                      {getPlaylistMessages().map((msg, idx) => {
-                        const contents = messageContents.get(msg.id) || [];
-                        return (
-                          <DropdownMenuItem
-                            key={msg.id}
-                            onClick={() => {
-                              setActivePlaylist({ messageId: msg.id, currentIndex: 0 });
-                              const firstContent = contents[0];
-                              if (firstContent) handlePlayContent(firstContent.id);
-                              setShowPlaylistsDropdown(false);
-                            }}
-                            className="cursor-pointer flex-col items-start gap-1 py-3"
-                          >
-                            <div className="font-medium text-sm">Playlist {idx + 1}</div>
-                            <div className="text-xs text-muted-foreground">{contents.length} conteúdos</div>
-                          </DropdownMenuItem>
-                        );
-                      })}
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                )}
-
-                {/* Actions Menu */}
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button variant="ghost" size="icon">
-                      <MoreVertical className="w-5 h-5" />
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end" className="w-48">
-                    <DropdownMenuItem
+              {/* Current Playlist Items */}
+              {activePlaylist && (
+                <div className="border-t p-3 space-y-2">
+                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                    Conteúdos da Playlist
+                  </p>
+                  {messageContents.get(activePlaylist.messageId)?.map((content, idx) => (
+                    <button
+                      key={content.id}
                       onClick={() => {
-                        setNewTitle(study.title);
-                        setRenameDialogOpen(true);
+                        setActivePlaylist({ ...activePlaylist, currentIndex: idx });
+                        handlePlayContent(content.id);
+                        setShowPlaylistSheet(false);
                       }}
-                      className="cursor-pointer"
+                      className={`w-full text-left p-2.5 rounded-lg transition-all ${
+                        idx === activePlaylist.currentIndex
+                          ? 'bg-primary text-primary-foreground'
+                          : 'bg-card hover:bg-muted'
+                      }`}
                     >
-                      <Edit2 className="w-4 h-4 mr-2" />
-                      Renomear
-                    </DropdownMenuItem>
-                    <DropdownMenuItem
-                      onClick={handleShare}
-                      className="cursor-pointer"
-                    >
-                      <Share2 className="w-4 h-4 mr-2" />
-                      Compartilhar
-                    </DropdownMenuItem>
-                    <DropdownMenuSeparator />
-                    <DropdownMenuItem
-                      onClick={() => setDeleteDialogOpen(true)}
-                      className="cursor-pointer text-destructive"
-                    >
-                      <Trash2 className="w-4 h-4 mr-2" />
-                      Excluir
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
+                      <div className="flex items-start gap-2">
+                        <span className={`text-xs font-semibold mt-0.5 ${
+                          idx === activePlaylist.currentIndex ? 'text-primary-foreground' : 'text-muted-foreground'
+                        }`}>
+                          {idx + 1}
+                        </span>
+                        <p className={`text-sm font-medium line-clamp-2 ${
+                          idx === activePlaylist.currentIndex ? 'text-primary-foreground' : 'text-foreground'
+                        }`}>
+                          {content.title}
+                        </p>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </ScrollArea>
+          </SheetContent>
+        </Sheet>
+
+        {/* Mobile Mini Player - Full width bottom */}
+        {miniPlayerActive && activeContent && (
+          <div className="fixed bottom-0 left-0 right-0 z-50 bg-card border-t-2 border-border shadow-2xl">
+            <div className="flex items-center gap-2 px-3 py-2 border-b border-border">
+              <div className="flex-1 min-w-0">
+                <p className="text-xs font-medium text-foreground truncate">
+                  {activeContent.title}
+                </p>
+                {activePlaylist && (
+                  <p className="text-[10px] text-muted-foreground">
+                    Playlist: {activePlaylist.currentIndex + 1}/{messageContents.get(activePlaylist.messageId)?.length}
+                  </p>
+                )}
+              </div>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-7 w-7 shrink-0"
+                onClick={() => setMiniPlayerActive(false)}
+              >
+                <Maximize2 className="w-4 h-4" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-7 w-7 shrink-0"
+                onClick={() => {
+                  setMiniPlayerActive(false);
+                  setActiveContent(null);
+                  setActivePlaylist(null);
+                }}
+              >
+                <X className="w-4 h-4" />
+              </Button>
+            </div>
+            <div className="aspect-video bg-black max-h-48">
+              <StudyVideoPlayer
+                studyId={id!}
+                content={activeContent}
+                onClose={() => {}}
+                onTranscriptionUpdate={() => {}}
+                onCreateNote={() => {}}
+                onVideoEnded={handleVideoEnded}
+              />
+            </div>
+          </div>
+        )}
+
+        {/* Tool Panels - Sheets (shared with desktop) */}
+        {renderToolSheets()}
+        {renderDialogs()}
+      </div>
+    );
+  }
+
+  // Helper function to render tool sheets
+  function renderToolSheets() {
+    if (!activeContent) return null;
+    
+    return (
+      <>
+        {/* Transcription Sheet */}
+        <Sheet open={activeToolPanel === 'transcription'} onOpenChange={(open) => !open && setActiveToolPanel(null)}>
+          <SheetContent side="right" className="w-full sm:w-[500px] sm:max-w-[600px] overflow-y-auto">
+            <SheetHeader>
+              <SheetTitle>Transcrição</SheetTitle>
+              <SheetDescription className="line-clamp-1">{activeContent.title}</SheetDescription>
+            </SheetHeader>
+            <div className="mt-6 space-y-4">
+              {!transcription && !transcriptionLoading ? (
+                <div className="space-y-4">
+                  <div className="text-muted-foreground text-sm">
+                    <p>A transcrição deste conteúdo está sendo processada automaticamente.</p>
+                    <p className="mt-2">
+                      Isso acontece em segundo plano quando o conteúdo é aprovado. Recarregue a página em alguns minutos.
+                    </p>
+                    <p className="mt-2 text-xs">
+                      Se a transcrição não aparecer após alguns minutos, você pode gerá-la manualmente:
+                    </p>
+                  </div>
+                  <Button onClick={generateTranscription} disabled={transcriptionLoading} variant="outline" size="sm">
+                    Tentar Gerar Novamente
+                  </Button>
+                </div>
+              ) : transcriptionLoading ? (
+                <div className="flex items-center gap-2 text-muted-foreground">
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  <p className="text-sm">Gerando transcrição...</p>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  <div className="flex gap-2">
+                    <Input
+                      placeholder="Buscar na transcrição..."
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      className="flex-1"
+                    />
+                    {searchQuery && (
+                      <Button variant="ghost" size="icon" onClick={() => setSearchQuery("")}>
+                        <X className="h-4 w-4" />
+                      </Button>
+                    )}
+                  </div>
+                  <div className="prose prose-sm max-w-none text-foreground">
+                    <div 
+                      dangerouslySetInnerHTML={{ 
+                        __html: highlightSearchResults(transcription, searchQuery) 
+                      }}
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
+          </SheetContent>
+        </Sheet>
+
+        {/* Quiz Sheet */}
+        <Sheet open={activeToolPanel === 'quiz'} onOpenChange={(open) => !open && setActiveToolPanel(null)}>
+          <SheetContent side="right" className="w-full sm:w-[500px] sm:max-w-[600px] overflow-y-auto">
+            <SheetHeader>
+              <SheetTitle>Quiz</SheetTitle>
+              <SheetDescription className="line-clamp-1">Teste seus conhecimentos</SheetDescription>
+            </SheetHeader>
+            <div className="mt-6">
+              <StudyQuiz 
+                studyId={id!}
+                contentId={activeContent.id}
+                contentTitle={activeContent.title}
+              />
+            </div>
+          </SheetContent>
+        </Sheet>
+
+        {/* Notes Sheet */}
+        <Sheet open={activeToolPanel === 'notes'} onOpenChange={(open) => !open && setActiveToolPanel(null)}>
+          <SheetContent side="right" className="w-full sm:w-[500px] sm:max-w-[600px] overflow-y-auto">
+            <SheetHeader>
+              <SheetTitle>Anotações</SheetTitle>
+              <SheetDescription>Suas anotações de estudo</SheetDescription>
+            </SheetHeader>
+            <div className="mt-6">
+              <StudyNotes
+                studyId={id!}
+                activeContentId={activeContent?.id || null}
+                onSeekToTimestamp={handleSeekToTimestamp}
+                key={notesRefresh}
+              />
+            </div>
+          </SheetContent>
+        </Sheet>
+
+        {/* Comments Sheet */}
+        <Sheet open={activeToolPanel === 'comments'} onOpenChange={(open) => !open && setActiveToolPanel(null)}>
+          <SheetContent side="right" className="w-full sm:w-[500px] sm:max-w-[600px] overflow-y-auto">
+            <SheetHeader>
+              <SheetTitle>Comentários</SheetTitle>
+              <SheetDescription className="line-clamp-1">Discussões sobre {activeContent.title}</SheetDescription>
+            </SheetHeader>
+            <div className="mt-6 text-muted-foreground text-sm">
+              <p>Comentários disponíveis em breve...</p>
+            </div>
+          </SheetContent>
+        </Sheet>
+
+        {/* Recommendations Sheet */}
+        <Sheet open={activeToolPanel === 'recommendations'} onOpenChange={(open) => !open && setActiveToolPanel(null)}>
+          <SheetContent side="right" className="w-full sm:w-[500px] sm:max-w-[600px] overflow-y-auto">
+            <SheetHeader>
+              <SheetTitle>Recomendações</SheetTitle>
+              <SheetDescription>Conteúdos sugeridos para você</SheetDescription>
+            </SheetHeader>
+            <div className="mt-6 text-muted-foreground text-sm">
+              <p>Recomendações personalizadas baseadas no seu progresso...</p>
+            </div>
+          </SheetContent>
+        </Sheet>
+      </>
+    );
+  }
+
+  // Helper function to render dialogs
+  function renderDialogs() {
+    return (
+      <>
+        {/* Rename Dialog */}
+        <Dialog open={renameDialogOpen} onOpenChange={setRenameDialogOpen}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Renomear Estudo</DialogTitle>
+              <DialogDescription>
+                Digite o novo nome para este estudo.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-2">
+              <Label htmlFor="new-title">Novo nome</Label>
+              <Input
+                id="new-title"
+                value={newTitle}
+                onChange={(e) => setNewTitle(e.target.value)}
+                placeholder="Digite o novo nome..."
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    handleRename();
+                  }
+                }}
+              />
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setRenameDialogOpen(false)}>
+                Cancelar
+              </Button>
+              <Button onClick={handleRename} disabled={!newTitle.trim()}>
+                Renomear
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Delete Confirmation Dialog */}
+        <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Excluir Estudo</AlertDialogTitle>
+              <AlertDialogDescription>
+                Tem certeza que deseja excluir este estudo? Esta ação não pode ser desfeita.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancelar</AlertDialogCancel>
+              <AlertDialogAction
+                onClick={handleDelete}
+                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              >
+                Excluir
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+
+        {/* Create Note Dialog */}
+        <Dialog open={noteDialogOpen} onOpenChange={setNoteDialogOpen}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Nova Anotação</DialogTitle>
+              <DialogDescription>
+                Adicione uma anotação {noteTimestamp > 0 ? `no momento ${Math.floor(noteTimestamp / 60)}:${(noteTimestamp % 60).toString().padStart(2, "0")}` : "geral"}
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4">
+              <div>
+                <Label htmlFor="note-text">Anotação</Label>
+                <Textarea
+                  id="note-text"
+                  value={noteText}
+                  onChange={(e) => setNoteText(e.target.value)}
+                  placeholder="Digite sua anotação..."
+                  className="min-h-[120px] mt-2"
+                />
               </div>
             </div>
-          </header>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setNoteDialogOpen(false)}>
+                Cancelar
+              </Button>
+              <Button onClick={handleSaveNote} disabled={!noteText.trim()}>
+                Salvar Anotação
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      </>
+    );
+  }
+
+  // Desktop Layout
+  return (
+    <div className="flex-1 flex flex-col h-screen">
+      <Header />
+          
+      {/* Study Header */}
+      <header className="border-b border-border bg-card px-6 py-4 flex-shrink-0">
+        <div className="flex items-center justify-between gap-4">
+          <div className="flex-1">
+            <h1 className="text-xl font-semibold text-foreground">
+              {study.title}
+            </h1>
+            {study.description && (
+              <p className="text-sm text-muted-foreground mt-1">
+                {study.description}
+              </p>
+            )}
+          </div>
+
+          <div className="flex items-center gap-2">
+            {/* Playlists Button */}
+            {savedPlaylists.size > 0 && (
+              <DropdownMenu open={showPlaylistsDropdown} onOpenChange={setShowPlaylistsDropdown}>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline" size="sm" className="gap-2">
+                    <List className="w-4 h-4" />
+                    Playlists ({savedPlaylists.size})
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-64">
+                  {getPlaylistMessages().map((msg, idx) => {
+                    const contents = messageContents.get(msg.id) || [];
+                    return (
+                      <DropdownMenuItem
+                        key={msg.id}
+                        onClick={() => {
+                          setActivePlaylist({ messageId: msg.id, currentIndex: 0 });
+                          const firstContent = contents[0];
+                          if (firstContent) handlePlayContent(firstContent.id);
+                          setShowPlaylistsDropdown(false);
+                        }}
+                        className="cursor-pointer flex-col items-start gap-1 py-3"
+                      >
+                        <div className="font-medium text-sm">Playlist {idx + 1}</div>
+                        <div className="text-xs text-muted-foreground">{contents.length} conteúdos</div>
+                      </DropdownMenuItem>
+                    );
+                  })}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )}
+
+            {/* Actions Menu */}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="icon">
+                  <MoreVertical className="w-5 h-5" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-48">
+                <DropdownMenuItem
+                  onClick={() => {
+                    setNewTitle(study.title);
+                    setRenameDialogOpen(true);
+                  }}
+                  className="cursor-pointer"
+                >
+                  <Edit2 className="w-4 h-4 mr-2" />
+                  Renomear
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={handleShare}
+                  className="cursor-pointer"
+                >
+                  <Share2 className="w-4 h-4 mr-2" />
+                  Compartilhar
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  onClick={() => setDeleteDialogOpen(true)}
+                  className="cursor-pointer text-destructive"
+                >
+                  <Trash2 className="w-4 h-4 mr-2" />
+                  Excluir
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+        </div>
+      </header>
 
       {/* Main Content Area - Resizable Panels */}
       <ResizablePanelGroup direction="horizontal" className="flex-1">
@@ -985,14 +1662,14 @@ function StudyContent() {
             </ResizablePanel>
             <ResizableHandle withHandle />
 
-            {/* Playlist Panel */}
+            {/* Active Playlist Panel */}
             {activePlaylist && (
               <>
-                <ResizablePanel defaultSize={25} minSize={20} maxSize={35}>
-                  <div className="h-full bg-card border-l border-border flex flex-col">
-                    <div className="p-4 border-b border-border">
-                      <div className="flex items-center justify-between mb-2">
-                        <h3 className="font-semibold text-foreground">Playlist</h3>
+                <ResizablePanel defaultSize={25} minSize={15} maxSize={35}>
+                  <div className="h-full flex flex-col bg-card border-l border-border">
+                    <div className="p-3 border-b border-border flex-shrink-0">
+                      <div className="flex items-center justify-between">
+                        <h3 className="font-semibold text-sm">Playlist</h3>
                         <Button
                           variant="ghost"
                           size="icon"
@@ -1234,219 +1911,10 @@ function StudyContent() {
       </ResizablePanelGroup>
 
       {/* Tool Panels - Sheets */}
-      {activeContent && (
-        <>
-          {/* Transcription Sheet */}
-          <Sheet open={activeToolPanel === 'transcription'} onOpenChange={(open) => !open && setActiveToolPanel(null)}>
-            <SheetContent side="right" className="w-[500px] sm:w-[600px] overflow-y-auto">
-              <SheetHeader>
-                <SheetTitle>Transcrição</SheetTitle>
-                <SheetDescription>{activeContent.title}</SheetDescription>
-              </SheetHeader>
-              <div className="mt-6 space-y-4">
-                {!transcription && !transcriptionLoading ? (
-                  <div className="space-y-4">
-                    <div className="text-muted-foreground text-sm">
-                      <p>A transcrição deste conteúdo está sendo processada automaticamente.</p>
-                      <p className="mt-2">
-                        Isso acontece em segundo plano quando o conteúdo é aprovado. Recarregue a página em alguns minutos.
-                      </p>
-                      <p className="mt-2 text-xs">
-                        Se a transcrição não aparecer após alguns minutos, você pode gerá-la manualmente:
-                      </p>
-                    </div>
-                    <Button onClick={generateTranscription} disabled={transcriptionLoading} variant="outline" size="sm">
-                      Tentar Gerar Novamente
-                    </Button>
-                  </div>
-                ) : transcriptionLoading ? (
-                  <div className="flex items-center gap-2 text-muted-foreground">
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    <p className="text-sm">Gerando transcrição... Isso pode levar alguns minutos.</p>
-                  </div>
-                ) : (
-                  <div className="space-y-4">
-                    <div className="flex gap-2">
-                      <Input
-                        placeholder="Buscar na transcrição..."
-                        value={searchQuery}
-                        onChange={(e) => setSearchQuery(e.target.value)}
-                        className="flex-1"
-                      />
-                      {searchQuery && (
-                        <Button variant="ghost" size="icon" onClick={() => setSearchQuery("")}>
-                          <X className="h-4 w-4" />
-                        </Button>
-                      )}
-                    </div>
-                    <div className="prose prose-sm max-w-none text-foreground">
-                      <div 
-                        dangerouslySetInnerHTML={{ 
-                          __html: highlightSearchResults(transcription, searchQuery) 
-                        }}
-                      />
-                    </div>
-                  </div>
-                )}
-              </div>
-            </SheetContent>
-          </Sheet>
+      {renderToolSheets()}
+      {renderDialogs()}
 
-          {/* Quiz Sheet */}
-          <Sheet open={activeToolPanel === 'quiz'} onOpenChange={(open) => !open && setActiveToolPanel(null)}>
-            <SheetContent side="right" className="w-[500px] sm:w-[600px] overflow-y-auto">
-              <SheetHeader>
-                <SheetTitle>Quiz</SheetTitle>
-                <SheetDescription>Teste seus conhecimentos sobre {activeContent.title}</SheetDescription>
-              </SheetHeader>
-              <div className="mt-6">
-                <StudyQuiz 
-                  studyId={id!}
-                  contentId={activeContent.id}
-                  contentTitle={activeContent.title}
-                />
-              </div>
-            </SheetContent>
-          </Sheet>
-
-          {/* Notes Sheet */}
-          <Sheet open={activeToolPanel === 'notes'} onOpenChange={(open) => !open && setActiveToolPanel(null)}>
-            <SheetContent side="right" className="w-[500px] sm:w-[600px] overflow-y-auto">
-              <SheetHeader>
-                <SheetTitle>Anotações</SheetTitle>
-                <SheetDescription>Suas anotações de estudo</SheetDescription>
-              </SheetHeader>
-              <div className="mt-6">
-                <StudyNotes
-                  studyId={id!}
-                  activeContentId={activeContent?.id || null}
-                  onSeekToTimestamp={handleSeekToTimestamp}
-                  key={notesRefresh}
-                />
-              </div>
-            </SheetContent>
-          </Sheet>
-
-          {/* Comments Sheet */}
-          <Sheet open={activeToolPanel === 'comments'} onOpenChange={(open) => !open && setActiveToolPanel(null)}>
-            <SheetContent side="right" className="w-[500px] sm:w-[600px] overflow-y-auto">
-              <SheetHeader>
-                <SheetTitle>Comentários</SheetTitle>
-                <SheetDescription>Discussões sobre {activeContent.title}</SheetDescription>
-              </SheetHeader>
-              <div className="mt-6 text-muted-foreground text-sm">
-                <p>Comentários disponíveis em breve...</p>
-              </div>
-            </SheetContent>
-          </Sheet>
-
-          {/* Recommendations Sheet */}
-          <Sheet open={activeToolPanel === 'recommendations'} onOpenChange={(open) => !open && setActiveToolPanel(null)}>
-            <SheetContent side="right" className="w-[500px] sm:w-[600px] overflow-y-auto">
-              <SheetHeader>
-                <SheetTitle>Recomendações</SheetTitle>
-                <SheetDescription>Conteúdos sugeridos para você</SheetDescription>
-              </SheetHeader>
-              <div className="mt-6 text-muted-foreground text-sm">
-                <p>Recomendações personalizadas baseadas no seu progresso...</p>
-                <p className="mt-2">
-                  A IA Classy analisará seu aprendizado e sugerirá próximos conteúdos.
-                </p>
-              </div>
-            </SheetContent>
-          </Sheet>
-        </>
-      )}
-
-      {/* Rename Dialog */}
-      <Dialog open={renameDialogOpen} onOpenChange={setRenameDialogOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Renomear Estudo</DialogTitle>
-            <DialogDescription>
-              Digite o novo nome para este estudo.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-2">
-            <Label htmlFor="new-title">Novo nome</Label>
-            <Input
-              id="new-title"
-              value={newTitle}
-              onChange={(e) => setNewTitle(e.target.value)}
-              placeholder="Digite o novo nome..."
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  handleRename();
-                }
-              }}
-            />
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setRenameDialogOpen(false)}>
-              Cancelar
-            </Button>
-            <Button onClick={handleRename} disabled={!newTitle.trim()}>
-              Renomear
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Delete Confirmation Dialog */}
-      <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Excluir Estudo</AlertDialogTitle>
-            <AlertDialogDescription>
-              Tem certeza que deseja excluir este estudo? Esta ação não pode ser desfeita.
-              Todas as mensagens e conversas serão permanentemente removidas.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancelar</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={handleDelete}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-            >
-              Excluir
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-
-      {/* Create Note Dialog */}
-      <Dialog open={noteDialogOpen} onOpenChange={setNoteDialogOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Nova Anotação</DialogTitle>
-            <DialogDescription>
-              Adicione uma anotação {noteTimestamp > 0 ? `no momento ${Math.floor(noteTimestamp / 60)}:${(noteTimestamp % 60).toString().padStart(2, "0")}` : "geral"}
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4">
-            <div>
-              <Label htmlFor="note-text">Anotação</Label>
-              <Textarea
-                id="note-text"
-                value={noteText}
-                onChange={(e) => setNoteText(e.target.value)}
-                placeholder="Digite sua anotação..."
-                className="min-h-[120px] mt-2"
-              />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setNoteDialogOpen(false)}>
-              Cancelar
-            </Button>
-            <Button onClick={handleSaveNote} disabled={!noteText.trim()}>
-              Salvar Anotação
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Mini Player Flutuante */}
+      {/* Mini Player Flutuante - Desktop */}
       {miniPlayerActive && activeContent && (
         <div
           ref={miniPlayerRef}
