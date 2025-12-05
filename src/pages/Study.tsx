@@ -891,9 +891,9 @@ function StudyContent() {
         )}
 
         {/* Mobile Chat Area */}
-        <div className="flex-1 min-h-0 overflow-hidden w-full">
-          <ScrollArea className="h-full w-full" ref={scrollRef}>
-            <div className="py-4 space-y-4 px-3 w-full overflow-x-hidden">
+        <div className="flex-1 min-h-0 overflow-hidden w-full max-w-full">
+          <ScrollArea className="h-full w-full max-w-full" ref={scrollRef}>
+            <div className="py-4 space-y-4 px-3 w-full max-w-full">
             {loading || (messages.length === 0 && !initialMessageSent) ? (
               <div className="flex flex-col items-center justify-center py-8 text-muted-foreground">
                 <Loader2 className="w-6 h-6 animate-spin mx-auto mb-3" />
