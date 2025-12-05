@@ -2013,21 +2013,8 @@ function StudyContent() {
 }
 
 export default function Study() {
-  const isMobile = useIsMobile();
-  
-  // On mobile, don't render sidebar at all
-  if (isMobile) {
-    return (
-      <SidebarProvider defaultOpen={false}>
-        <div className="flex min-h-screen w-full">
-          <StudyContent />
-        </div>
-      </SidebarProvider>
-    );
-  }
-  
   return (
-    <SidebarProvider>
+    <SidebarProvider defaultOpen={false}>
       <div className="flex min-h-screen w-full">
         <AppSidebar />
         <StudyContent />
