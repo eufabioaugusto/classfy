@@ -227,8 +227,14 @@ export default function Listen() {
     await trackProgress(user.id, content.id, percent, currentTime);
   };
 
-  if (loading || loadingContent) return <GlobalLoader />;
+  // First check auth loading
+  if (loading) return <GlobalLoader />;
+  
+  // If auth finished and no user, redirect
   if (!user) return <Navigate to="/auth" replace />;
+  
+  // Only show content loader after user is authenticated
+  if (loadingContent) return <GlobalLoader />;
   if (!content) return <div className="p-8">Podcast não encontrado</div>;
 
   return (

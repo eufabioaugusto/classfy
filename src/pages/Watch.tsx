@@ -497,11 +497,18 @@ function WatchContent() {
     }
   };
 
-  if (loading || loadingContent) {
+  // First check auth loading - if auth is still loading, show loader
+  if (loading) {
     return <GlobalLoader />;
   }
 
+  // If auth finished and no user, redirect to auth
   if (!user) return <Navigate to="/auth" replace />;
+
+  // Only show content loader after we know user is authenticated
+  if (loadingContent) {
+    return <GlobalLoader />;
+  }
   if (!content)
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
