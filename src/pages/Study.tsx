@@ -1204,54 +1204,6 @@ function StudyContent() {
           </SheetContent>
         </Sheet>
 
-        {/* Mobile Mini Player - Full width bottom */}
-        {miniPlayerActive && activeContent && (
-          <div className="fixed bottom-0 left-0 right-0 z-50 bg-card border-t-2 border-border shadow-2xl">
-            <div className="flex items-center gap-2 px-3 py-2 border-b border-border">
-              <div className="flex-1 min-w-0">
-                <p className="text-xs font-medium text-foreground truncate">
-                  {activeContent.title}
-                </p>
-                {activePlaylist && (
-                  <p className="text-[10px] text-muted-foreground">
-                    Playlist: {activePlaylist.currentIndex + 1}/{messageContents.get(activePlaylist.messageId)?.length}
-                  </p>
-                )}
-              </div>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-7 w-7 shrink-0"
-                onClick={() => setMiniPlayerActive(false)}
-              >
-                <Maximize2 className="w-4 h-4" />
-              </Button>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-7 w-7 shrink-0"
-                onClick={() => {
-                  setMiniPlayerActive(false);
-                  setActiveContent(null);
-                  setActivePlaylist(null);
-                }}
-              >
-                <X className="w-4 h-4" />
-              </Button>
-            </div>
-            <div className="aspect-video bg-black max-h-48">
-              <StudyVideoPlayer
-                studyId={id!}
-                content={activeContent}
-                onClose={() => {}}
-                onTranscriptionUpdate={() => {}}
-                onCreateNote={() => {}}
-                onVideoEnded={handleVideoEnded}
-              />
-            </div>
-          </div>
-        )}
-
         {/* Tool Panels - Sheets (shared with desktop) */}
         {renderToolSheets()}
         {renderDialogs()}
@@ -2061,6 +2013,19 @@ function StudyContent() {
 }
 
 export default function Study() {
+  const isMobile = useIsMobile();
+  
+  // On mobile, don't render sidebar at all
+  if (isMobile) {
+    return (
+      <SidebarProvider defaultOpen={false}>
+        <div className="flex min-h-screen w-full">
+          <StudyContent />
+        </div>
+      </SidebarProvider>
+    );
+  }
+  
   return (
     <SidebarProvider>
       <div className="flex min-h-screen w-full">
