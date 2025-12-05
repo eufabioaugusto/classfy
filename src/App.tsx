@@ -5,41 +5,45 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { AuthProvider } from "./contexts/AuthContext";
 import { ThemeProvider } from "./contexts/ThemeContext";
-import { NotificationBell } from "./components/NotificationBell";
 import { supabase } from "@/integrations/supabase/client";
-import { useEffect } from "react";
+import { useEffect, Suspense, lazy } from "react";
+import { GlobalLoader } from "./components/GlobalLoader";
+
+// Eagerly load the most common pages
 import Index from "./pages/Index";
 import Auth from "./pages/Auth";
-import Conta from "./pages/Conta";
-import Historico from "./pages/Historico";
-import Favoritos from "./pages/Favoritos";
-import Salvos from "./pages/Salvos";
-import Studio from "./pages/Studio";
-import StudioUpload from "./pages/StudioUpload";
-import StudioUploadCurso from "./pages/StudioUploadCurso";
-import StudioContents from "./pages/StudioContents";
-import AdminCreators from "./pages/AdminCreators";
-import AdminContents from "./pages/AdminContents";
-import AdminRewards from "./pages/AdminRewards";
-import AdminTranscriptions from "./pages/AdminTranscriptions";
-import AdminFeaturedCreators from "./pages/AdminFeaturedCreators";
-import AdminWithdrawals from "./pages/AdminWithdrawals";
-import AdminSettings from "./pages/AdminSettings";
-import AdminUsers from "./pages/AdminUsers";
-import AdminDashboard from "./pages/AdminDashboard";
-import RewardsHistory from "./pages/RewardsHistory";
-import Recompensas from "./pages/Recompensas";
-import Carteira from "./pages/Carteira";
-import BoostSuccess from "./pages/BoostSuccess";
-import StudioBoosts from "./pages/StudioBoosts";
-import StudioAnalytics from "./pages/StudioAnalytics";
-import Study from "./pages/Study";
-import Watch from "./pages/Watch";
-import Listen from "./pages/Listen";
-import Shorts from "./pages/Shorts";
-import Planos from "./pages/Planos";
-import CreatorProfile from "./pages/CreatorProfile";
-import NotFound from "./pages/NotFound";
+
+// Lazy load all other pages for code splitting
+const Conta = lazy(() => import("./pages/Conta"));
+const Historico = lazy(() => import("./pages/Historico"));
+const Favoritos = lazy(() => import("./pages/Favoritos"));
+const Salvos = lazy(() => import("./pages/Salvos"));
+const Studio = lazy(() => import("./pages/Studio"));
+const StudioUpload = lazy(() => import("./pages/StudioUpload"));
+const StudioUploadCurso = lazy(() => import("./pages/StudioUploadCurso"));
+const StudioContents = lazy(() => import("./pages/StudioContents"));
+const AdminCreators = lazy(() => import("./pages/AdminCreators"));
+const AdminContents = lazy(() => import("./pages/AdminContents"));
+const AdminRewards = lazy(() => import("./pages/AdminRewards"));
+const AdminTranscriptions = lazy(() => import("./pages/AdminTranscriptions"));
+const AdminFeaturedCreators = lazy(() => import("./pages/AdminFeaturedCreators"));
+const AdminWithdrawals = lazy(() => import("./pages/AdminWithdrawals"));
+const AdminSettings = lazy(() => import("./pages/AdminSettings"));
+const AdminUsers = lazy(() => import("./pages/AdminUsers"));
+const AdminDashboard = lazy(() => import("./pages/AdminDashboard"));
+const RewardsHistory = lazy(() => import("./pages/RewardsHistory"));
+const Recompensas = lazy(() => import("./pages/Recompensas"));
+const Carteira = lazy(() => import("./pages/Carteira"));
+const BoostSuccess = lazy(() => import("./pages/BoostSuccess"));
+const StudioBoosts = lazy(() => import("./pages/StudioBoosts"));
+const StudioAnalytics = lazy(() => import("./pages/StudioAnalytics"));
+const Study = lazy(() => import("./pages/Study"));
+const Watch = lazy(() => import("./pages/Watch"));
+const Listen = lazy(() => import("./pages/Listen"));
+const Shorts = lazy(() => import("./pages/Shorts"));
+const Planos = lazy(() => import("./pages/Planos"));
+const CreatorProfile = lazy(() => import("./pages/CreatorProfile"));
+const NotFound = lazy(() => import("./pages/NotFound"));
 
 const queryClient = new QueryClient();
 
@@ -65,41 +69,43 @@ function AppContent() {
   }, []);
 
   return (
-    <Routes>
-      <Route path="/" element={<Index />} />
-      <Route path="/auth" element={<Auth />} />
-      <Route path="/conta" element={<Conta />} />
-      <Route path="/historico" element={<Historico />} />
-      <Route path="/favoritos" element={<Favoritos />} />
-      <Route path="/salvos" element={<Salvos />} />
-      <Route path="/studio" element={<Studio />} />
-      <Route path="/studio/upload" element={<StudioUpload />} />
-      <Route path="/studio/upload/curso" element={<StudioUploadCurso />} />
-      <Route path="/studio/contents" element={<StudioContents />} />
-      <Route path="/studio/boosts" element={<StudioBoosts />} />
-      <Route path="/studio/analytics" element={<StudioAnalytics />} />
-      <Route path="/admin" element={<AdminDashboard />} />
-      <Route path="/admin/creators" element={<AdminCreators />} />
-      <Route path="/admin/contents" element={<AdminContents />} />
-      <Route path="/admin/rewards" element={<AdminRewards />} />
-      <Route path="/admin/transcriptions" element={<AdminTranscriptions />} />
-      <Route path="/admin/featured-creators" element={<AdminFeaturedCreators />} />
-      <Route path="/admin/withdrawals" element={<AdminWithdrawals />} />
-      <Route path="/admin/users" element={<AdminUsers />} />
-      <Route path="/admin/settings" element={<AdminSettings />} />
-      <Route path="/rewards-history" element={<RewardsHistory />} />
-      <Route path="/recompensas" element={<Recompensas />} />
-      <Route path="/carteira" element={<Carteira />} />
-      <Route path="/boost-success" element={<BoostSuccess />} />
-      <Route path="/watch/:id" element={<Watch />} />
-      <Route path="/listen/:id" element={<Listen />} />
-      <Route path="/shorts" element={<Shorts />} />
-      <Route path="/shorts/:id" element={<Shorts />} />
-      <Route path="/c/:id" element={<Study />} />
-      <Route path="/planos" element={<Planos />} />
-      <Route path="/:username" element={<CreatorProfile />} />
-      <Route path="*" element={<NotFound />} />
-    </Routes>
+    <Suspense fallback={<GlobalLoader />}>
+      <Routes>
+        <Route path="/" element={<Index />} />
+        <Route path="/auth" element={<Auth />} />
+        <Route path="/conta" element={<Conta />} />
+        <Route path="/historico" element={<Historico />} />
+        <Route path="/favoritos" element={<Favoritos />} />
+        <Route path="/salvos" element={<Salvos />} />
+        <Route path="/studio" element={<Studio />} />
+        <Route path="/studio/upload" element={<StudioUpload />} />
+        <Route path="/studio/upload/curso" element={<StudioUploadCurso />} />
+        <Route path="/studio/contents" element={<StudioContents />} />
+        <Route path="/studio/boosts" element={<StudioBoosts />} />
+        <Route path="/studio/analytics" element={<StudioAnalytics />} />
+        <Route path="/admin" element={<AdminDashboard />} />
+        <Route path="/admin/creators" element={<AdminCreators />} />
+        <Route path="/admin/contents" element={<AdminContents />} />
+        <Route path="/admin/rewards" element={<AdminRewards />} />
+        <Route path="/admin/transcriptions" element={<AdminTranscriptions />} />
+        <Route path="/admin/featured-creators" element={<AdminFeaturedCreators />} />
+        <Route path="/admin/withdrawals" element={<AdminWithdrawals />} />
+        <Route path="/admin/users" element={<AdminUsers />} />
+        <Route path="/admin/settings" element={<AdminSettings />} />
+        <Route path="/rewards-history" element={<RewardsHistory />} />
+        <Route path="/recompensas" element={<Recompensas />} />
+        <Route path="/carteira" element={<Carteira />} />
+        <Route path="/boost-success" element={<BoostSuccess />} />
+        <Route path="/watch/:id" element={<Watch />} />
+        <Route path="/listen/:id" element={<Listen />} />
+        <Route path="/shorts" element={<Shorts />} />
+        <Route path="/shorts/:id" element={<Shorts />} />
+        <Route path="/c/:id" element={<Study />} />
+        <Route path="/planos" element={<Planos />} />
+        <Route path="/:username" element={<CreatorProfile />} />
+        <Route path="*" element={<NotFound />} />
+      </Routes>
+    </Suspense>
   );
 }
 
