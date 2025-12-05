@@ -300,6 +300,13 @@ function WatchContent() {
     }
   }, [content?.creator?.id]);
 
+  // Log content fetch errors for debugging
+  useEffect(() => {
+    if (content && !content.creator) {
+      console.warn("⚠️ Content loaded but creator is null - possible RLS/network issue");
+    }
+  }, [content]);
+
   const checkAccess = async (content: Content) => {
     if (!profile || !user) return;
 
@@ -548,7 +555,7 @@ function WatchContent() {
                 thumbnail_url: content.thumbnail_url,
                 price: content.price,
                 discount: 0,
-                creator_name: content.creator.display_name,
+                creator_name: content.creator?.display_name || "Criador",
               }}
               onPurchaseComplete={() => {
                 setShowPurchaseModal(false);
@@ -639,14 +646,14 @@ function WatchContent() {
                       {/* Left - Creator info */}
                       <div className="flex items-center gap-2 sm:gap-3">
                         <Avatar className="h-8 w-8 sm:h-10 sm:w-10">
-                          <AvatarImage src={content.creator.avatar_url || ""} />
-                          <AvatarFallback>{content.creator.display_name[0]}</AvatarFallback>
+                          <AvatarImage src={content.creator?.avatar_url || ""} />
+                          <AvatarFallback>{content.creator?.display_name?.[0] || "C"}</AvatarFallback>
                         </Avatar>
                         <div className="mr-1 sm:mr-2">
-                          <p className="font-semibold text-xs sm:text-sm">{content.creator.display_name}</p>
+                          <p className="font-semibold text-xs sm:text-sm">{content.creator?.display_name || "Criador"}</p>
                           <p className="text-[10px] sm:text-xs text-muted-foreground">{followersCount} seguidores</p>
                         </div>
-                        <FollowButton creatorId={content.creator.id} size="sm" />
+                        {content.creator?.id && <FollowButton creatorId={content.creator.id} size="sm" />}
                       </div>
 
                       {/* Right - Actions */}
