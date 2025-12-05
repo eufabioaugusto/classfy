@@ -10,8 +10,8 @@ export default defineConfig(({ mode }) => ({
     port: 8080,
   },
   build: {
-    // Target ES2019 for better Safari/iOS compatibility
-    target: "es2019",
+    // Target ES2020 for BigInt support (mapbox-gl) while maintaining Safari/iOS compatibility
+    target: "es2020",
   },
   plugins: [react(), mode === "development" && componentTagger()].filter(Boolean),
   resolve: {
