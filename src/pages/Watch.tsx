@@ -116,7 +116,9 @@ function WatchContent() {
   };
 
   useEffect(() => {
+    console.log("🔍 Watch useEffect - id:", id, "user:", !!user, "loading:", loading, "role:", role);
     if (id && user && !loading && role) {
+      console.log("📥 Starting fetchContent...");
       fetchContent();
     }
   }, [id, user, loading, role]);
@@ -497,16 +499,24 @@ function WatchContent() {
     }
   };
 
+// Debug logs
+  console.log("🎬 Watch render - loading:", loading, "loadingContent:", loadingContent, "user:", !!user, "content:", !!content);
+
   // First check auth loading - if auth is still loading, show loader
   if (loading) {
+    console.log("⏳ Showing loader: auth loading");
     return <GlobalLoader />;
   }
 
   // If auth finished and no user, redirect to auth
-  if (!user) return <Navigate to="/auth" replace />;
+  if (!user) {
+    console.log("🚪 Redirecting to /auth - no user");
+    return <Navigate to="/auth" replace />;
+  }
 
   // Only show content loader after we know user is authenticated
   if (loadingContent) {
+    console.log("⏳ Showing loader: content loading");
     return <GlobalLoader />;
   }
   if (!content)
