@@ -12,17 +12,52 @@ serve(async (req) => {
   }
 
   try {
-    const supabaseClient = createClient(
-      Deno.env.get("SUPABASE_URL") ?? "",
-      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "",
-      { auth: { persistSession: false } }
+    const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
+    const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+    const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY") ?? "";
+
+    // Verify JWT and get authenticated user - this prevents impersonation
+    const authHeader = req.headers.get("Authorization");
+    if (!authHeader) {
+      return new Response(
+        JSON.stringify({ error: "Missing authorization header" }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 401 }
+      );
+    }
+
+    const authClient = createClient(supabaseUrl, supabaseAnonKey, {
+      auth: { persistSession: false }
+    });
+    
+    const { data: { user }, error: authError } = await authClient.auth.getUser(
+      authHeader.replace("Bearer ", "")
     );
 
-    const { referral_code, referred_user_id } = await req.json();
-
-    if (!referral_code || !referred_user_id) {
-      throw new Error("Referral code and referred user ID are required");
+    if (authError || !user) {
+      console.error("Auth error:", authError);
+      return new Response(
+        JSON.stringify({ error: "Unauthorized" }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 401 }
+      );
     }
+
+    // Use the authenticated user's ID - cannot be spoofed
+    const referred_user_id = user.id;
+
+    const supabaseClient = createClient(supabaseUrl, supabaseServiceKey, {
+      auth: { persistSession: false }
+    });
+
+    const { referral_code } = await req.json();
+
+    if (!referral_code) {
+      return new Response(
+        JSON.stringify({ error: "Referral code is required" }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 400 }
+      );
+    }
+
+    console.log(`Processing referral conversion: code=${referral_code}, user=${referred_user_id}`);
 
     // Get referral link
     const { data: link, error: linkError } = await supabaseClient
@@ -31,7 +66,13 @@ serve(async (req) => {
       .eq("referral_code", referral_code)
       .single();
 
-    if (linkError) throw linkError;
+    if (linkError) {
+      console.error("Referral link not found:", linkError);
+      return new Response(
+        JSON.stringify({ error: "Invalid referral code" }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 400 }
+      );
+    }
 
     // Check if user is trying to use their own referral link
     if (link.user_id === referred_user_id) {
@@ -66,7 +107,10 @@ serve(async (req) => {
         referral_code,
       });
 
-    if (conversionError) throw conversionError;
+    if (conversionError) {
+      console.error("Error creating conversion:", conversionError);
+      throw conversionError;
+    }
 
     // Increment conversions count
     await supabaseClient
@@ -90,7 +134,7 @@ serve(async (req) => {
         message: `${profile?.display_name || "Alguém"} se cadastrou usando seu link de afiliado!`,
       });
 
-    console.log(`Conversion tracked: ${referral_code} -> ${referred_user_id}`);
+    console.log(`Conversion tracked successfully: ${referral_code} -> ${referred_user_id}`);
 
     return new Response(
       JSON.stringify({ success: true }),
@@ -102,7 +146,7 @@ serve(async (req) => {
     return new Response(
       JSON.stringify({ error: errorMessage }),
       { 
-        status: 400,
+        status: 500,
         headers: { ...corsHeaders, "Content-Type": "application/json" }
       }
     );

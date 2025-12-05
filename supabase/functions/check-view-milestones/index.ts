@@ -13,16 +13,46 @@ Deno.serve(async (req) => {
   try {
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
     const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+    const supabaseAnonKey = Deno.env.get('SUPABASE_ANON_KEY')!;
+    
+    // Verify JWT and get authenticated user
+    const authHeader = req.headers.get('Authorization');
+    if (!authHeader) {
+      return new Response(
+        JSON.stringify({ error: 'Missing authorization header' }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 401 }
+      );
+    }
+
+    const authClient = createClient(supabaseUrl, supabaseAnonKey);
+    const { data: { user }, error: authError } = await authClient.auth.getUser(
+      authHeader.replace('Bearer ', '')
+    );
+
+    if (authError || !user) {
+      console.error('Auth error:', authError);
+      return new Response(
+        JSON.stringify({ error: 'Unauthorized' }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 401 }
+      );
+    }
+
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
+    const { contentId } = await req.json();
 
-    const { contentId, creatorId } = await req.json();
+    if (!contentId) {
+      return new Response(
+        JSON.stringify({ error: 'contentId is required' }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 400 }
+      );
+    }
 
-    console.log('Checking milestones for content:', { contentId, creatorId });
+    console.log('Checking milestones for content:', contentId, 'by user:', user.id);
 
-    // Get current views count from content
+    // Get content and verify the caller is the creator
     const { data: contentData, error: contentError } = await supabase
       .from('contents')
-      .select('views_count')
+      .select('views_count, creator_id')
       .eq('id', contentId)
       .single();
 
@@ -31,7 +61,16 @@ Deno.serve(async (req) => {
       throw contentError;
     }
 
+    // Security: Only the content creator can trigger milestone checks
+    if (contentData.creator_id !== user.id) {
+      return new Response(
+        JSON.stringify({ error: 'Only the content creator can check milestones' }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 403 }
+      );
+    }
+
     const currentViews = contentData.views_count || 0;
+    const creatorId = contentData.creator_id;
     console.log('Current views:', currentViews);
 
     const milestones = [

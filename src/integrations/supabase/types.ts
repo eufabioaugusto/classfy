@@ -2404,6 +2404,7 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      check_can_message: { Args: { target_user_id: string }; Returns: string }
       count_active_studies: { Args: { p_user_id: string }; Returns: number }
       create_or_get_conversation: {
         Args: { p_user1_id: string; p_user2_id: string }

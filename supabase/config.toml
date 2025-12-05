@@ -7,10 +7,10 @@ verify_jwt = true
 verify_jwt = true
 
 [functions.check-view-milestones]
-verify_jwt = false
+verify_jwt = true
 
 [functions.sync-view-milestones]
-verify_jwt = false
+verify_jwt = true
 
 [functions.classy-chat]
 verify_jwt = true
@@ -52,8 +52,7 @@ verify_jwt = true
 verify_jwt = false
 
 [functions.track-referral-conversion]
-verify_jwt = false
+verify_jwt = true
 
 [functions.process-referral-commission]
 verify_jwt = true
-
