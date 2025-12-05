@@ -891,9 +891,9 @@ function StudyContent() {
         )}
 
         {/* Mobile Chat Area */}
-        <div className="flex-1 min-h-0 overflow-hidden">
-          <ScrollArea className="h-full px-3" ref={scrollRef}>
-            <div className="py-4 space-y-4">
+        <div className="flex-1 min-h-0 overflow-hidden w-full max-w-full">
+          <ScrollArea className="h-full px-3 w-full max-w-full" ref={scrollRef}>
+            <div className="py-4 space-y-4 w-full max-w-full overflow-x-hidden">
             {loading || (messages.length === 0 && !initialMessageSent) ? (
               <div className="flex flex-col items-center justify-center py-8 text-muted-foreground">
                 <Loader2 className="w-6 h-6 animate-spin mx-auto mb-3" />
@@ -901,20 +901,20 @@ function StudyContent() {
               </div>
             ) : (
               messages.map((message) => (
-                <div key={message.id} className="space-y-3">
+                <div key={message.id} className="space-y-3 w-full overflow-hidden">
                   <div
-                    className={`flex ${
+                    className={`flex w-full ${
                       message.role === "user" ? "justify-end" : "justify-start"
                     }`}
                   >
                     <div
-                      className={`rounded-lg px-3 py-2 ${
+                      className={`rounded-lg px-3 py-2 overflow-hidden ${
                         message.role === "user"
                           ? "bg-primary text-primary-foreground max-w-[85%]"
-                          : "bg-muted text-foreground w-full"
+                          : "bg-muted text-foreground max-w-full"
                       }`}
                     >
-                      <p className="whitespace-pre-wrap text-sm break-words">{message.content}</p>
+                      <p className="whitespace-pre-wrap text-sm break-words [overflow-wrap:anywhere]">{message.content}</p>
                     </div>
                   </div>
                   
