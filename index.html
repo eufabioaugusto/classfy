@@ -1,26 +1,64 @@
 <!doctype html>
-<html lang="en">
+<html lang="pt-BR">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Classfy</title>
     <meta name="description" content="Nossa missão é evoluir o mundo através do aprendizado.">
-    <meta name="author" content="Lovable" />
+    <meta name="author" content="Classfy" />
 
-    
-    
     <meta property="og:type" content="website" />
     <meta property="og:image" content="https://lovable.dev/opengraph-image-p98pqg.png" />
-
     <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:site" content="@Lovable" />
+    <meta name="twitter:site" content="@Classfy" />
     <meta name="twitter:image" content="https://lovable.dev/opengraph-image-p98pqg.png" />
     <meta property="og:title" content="Classfy">
-  <meta name="twitter:title" content="Classfy">
-  <meta property="og:description" content="Nossa missão é evoluir o mundo através do aprendizado.">
-  <meta name="twitter:description" content="Nossa missão é evoluir o mundo através do aprendizado.">
-  <link rel="icon" type="image/x-icon" href="https://storage.googleapis.com/gpt-engineer-file-uploads/HuLLY2XYTgNcG9iwF9oWsCLkpi53/uploads/1764527562694-fav-red.png">
-</head>
+    <meta name="twitter:title" content="Classfy">
+    <meta property="og:description" content="Nossa missão é evoluir o mundo através do aprendizado.">
+    <meta name="twitter:description" content="Nossa missão é evoluir o mundo através do aprendizado.">
+    <link rel="icon" type="image/x-icon" href="https://storage.googleapis.com/gpt-engineer-file-uploads/HuLLY2XYTgNcG9iwF9oWsCLkpi53/uploads/1764527562694-fav-red.png">
+    
+    <!-- Critical CSS for initial paint -->
+    <style>
+      :root {
+        --bg: #09090b;
+        --fg: #fafafa;
+        --primary: #ef4444;
+      }
+      @media (prefers-color-scheme: light) {
+        :root {
+          --bg: #ffffff;
+          --fg: #09090b;
+        }
+      }
+      html, body {
+        margin: 0;
+        padding: 0;
+        background-color: var(--bg);
+        color: var(--fg);
+        font-family: system-ui, -apple-system, sans-serif;
+      }
+      #root:empty {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 100vh;
+        min-height: 100dvh;
+      }
+      #root:empty::before {
+        content: '';
+        width: 40px;
+        height: 40px;
+        border: 3px solid var(--fg);
+        border-top-color: var(--primary);
+        border-radius: 50%;
+        animation: spin 0.8s linear infinite;
+      }
+      @keyframes spin {
+        to { transform: rotate(360deg); }
+      }
+    </style>
+  </head>
 
   <body>
     <div id="root"></div>
