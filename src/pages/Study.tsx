@@ -908,13 +908,13 @@ function StudyContent() {
                     }`}
                   >
                     <div
-                      className={`max-w-[90%] rounded-lg px-3 py-2 ${
+                      className={`rounded-lg px-3 py-2 ${
                         message.role === "user"
-                          ? "bg-primary text-primary-foreground"
-                          : "bg-muted text-foreground"
+                          ? "bg-primary text-primary-foreground max-w-[85%]"
+                          : "bg-muted text-foreground w-full"
                       }`}
                     >
-                      <p className="whitespace-pre-wrap text-sm">{message.content}</p>
+                      <p className="whitespace-pre-wrap text-sm break-words">{message.content}</p>
                     </div>
                   </div>
                   
