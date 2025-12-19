@@ -349,12 +349,12 @@ export const WatchVideoPlayer = ({ content, onTimeUpdate, onCreateNote, seekToTi
 
         {/* Custom Controls */}
         <div
-          className={`absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/90 via-black/50 to-transparent p-4 transition-opacity duration-300 ${
+          className={`absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/90 via-black/50 to-transparent p-2 sm:p-4 transition-opacity duration-300 ${
             showControls ? "opacity-100" : "opacity-0"
           }`}
         >
           {/* Progress Bar */}
-          <div className="relative w-full mb-4">
+          <div className="relative w-full mb-2 sm:mb-4">
             <input
               type="range"
               min="0"
@@ -371,7 +371,6 @@ export const WatchVideoPlayer = ({ content, onTimeUpdate, onCreateNote, seekToTi
             {duration > 0 && noteMarkers.length > 0 && noteMarkers.map((timestamp, index) => {
               if (timestamp == null || timestamp < 0 || timestamp > duration) return null;
               const position = (timestamp / duration) * 100;
-              console.log(`📍 Marcador ${index + 1}: ${timestamp}s = ${position}%`);
               return (
                 <div
                   key={`marker-${timestamp}-${index}`}
@@ -383,7 +382,6 @@ export const WatchVideoPlayer = ({ content, onTimeUpdate, onCreateNote, seekToTi
                   title={`Nota em ${formatTime(timestamp)}`}
                   onClick={(e) => {
                     e.stopPropagation();
-                    console.log(`🎯 Clicou no marcador: ${timestamp}s`);
                     const media = mediaRef.current;
                     if (media) {
                       media.currentTime = timestamp;
@@ -399,16 +397,16 @@ export const WatchVideoPlayer = ({ content, onTimeUpdate, onCreateNote, seekToTi
             })}
           </div>
 
-          <div className="flex items-center justify-between gap-4">
-            <div className="flex items-center gap-3">
+          <div className="flex items-center justify-between gap-1 sm:gap-4">
+            <div className="flex items-center gap-1 sm:gap-3 min-w-0">
               {/* Play/Pause */}
               <Button
                 size="icon"
                 variant="ghost"
                 onClick={togglePlay}
-                className="text-white hover:bg-white/20"
+                className="text-white hover:bg-white/20 h-8 w-8 sm:h-10 sm:w-10 flex-shrink-0"
               >
-                {isPlaying ? <Pause className="w-5 h-5" /> : <Play className="w-5 h-5" />}
+                {isPlaying ? <Pause className="w-4 h-4 sm:w-5 sm:h-5" /> : <Play className="w-4 h-4 sm:w-5 sm:h-5" />}
               </Button>
 
               {/* Volume */}
@@ -416,50 +414,50 @@ export const WatchVideoPlayer = ({ content, onTimeUpdate, onCreateNote, seekToTi
                 size="icon"
                 variant="ghost"
                 onClick={toggleMute}
-                className="text-white hover:bg-white/20"
+                className="text-white hover:bg-white/20 h-8 w-8 sm:h-10 sm:w-10 flex-shrink-0"
               >
-                {isMuted ? <VolumeX className="w-5 h-5" /> : <Volume2 className="w-5 h-5" />}
+                {isMuted ? <VolumeX className="w-4 h-4 sm:w-5 sm:h-5" /> : <Volume2 className="w-4 h-4 sm:w-5 sm:h-5" />}
               </Button>
 
               {/* Time */}
-              <span className="text-white text-sm font-medium">
+              <span className="text-white text-xs sm:text-sm font-medium whitespace-nowrap">
                 {formatTime(currentTime)} / {formatTime(duration)}
               </span>
             </div>
 
-            <div className="flex items-center gap-2">
-              {/* Add Note */}
+            <div className="flex items-center gap-1 sm:gap-2 flex-shrink-0">
+              {/* Add Note - icon only on mobile */}
               <Button
-                size="sm"
+                size="icon"
                 variant="ghost"
                 onClick={openNoteModal}
-                className="text-white hover:bg-white/20 gap-2"
+                className="text-white hover:bg-white/20 h-8 w-8 sm:h-10 sm:w-10"
+                title="Adicionar Nota"
               >
-                <FileText className="w-4 h-4" />
-                Adicionar Nota
+                <FileText className="w-4 h-4 sm:w-5 sm:h-5" />
               </Button>
 
               {/* Playback Speed */}
               <div className="relative">
                 <Button
-                  size="sm"
+                  size="icon"
                   variant="ghost"
                   onClick={() => setShowPlaybackMenu(!showPlaybackMenu)}
-                  className="text-white hover:bg-white/20 gap-2"
+                  className="text-white hover:bg-white/20 h-8 w-8 sm:h-10 sm:w-10 text-xs sm:text-sm"
+                  title="Velocidade"
                 >
-                  <Settings className="w-4 h-4" />
-                  {playbackRate}x
+                  <span className="text-xs">{playbackRate}x</span>
                 </Button>
 
                 {showPlaybackMenu && (
-                  <div className="absolute bottom-full right-0 mb-2 bg-background border border-border rounded-lg shadow-lg p-2 space-y-1">
+                  <div className="absolute bottom-full right-0 mb-2 bg-background border border-border rounded-lg shadow-lg p-1 sm:p-2 space-y-1 z-50">
                     {[0.5, 0.75, 1, 1.25, 1.5, 2].map((rate) => (
                       <Button
                         key={rate}
                         size="sm"
                         variant={playbackRate === rate ? "default" : "ghost"}
                         onClick={() => changePlaybackRate(rate)}
-                        className="w-full justify-start"
+                        className="w-full justify-start text-xs sm:text-sm"
                       >
                         {rate}x
                       </Button>
@@ -468,16 +466,16 @@ export const WatchVideoPlayer = ({ content, onTimeUpdate, onCreateNote, seekToTi
                 )}
               </div>
 
-              {/* Theater Mode */}
+              {/* Theater Mode - hidden on mobile */}
               {isVideo && onTheaterModeToggle && (
                 <Button
                   size="icon"
                   variant="ghost"
                   onClick={onTheaterModeToggle}
-                  className="text-white hover:bg-white/20"
+                  className="text-white hover:bg-white/20 h-8 w-8 sm:h-10 sm:w-10 hidden md:flex"
                   title={theaterMode ? "Sair do Modo Teatro" : "Modo Teatro"}
                 >
-                  {theaterMode ? <Minimize2 className="w-5 h-5" /> : <RectangleHorizontal className="w-5 h-5" />}
+                  {theaterMode ? <Minimize2 className="w-4 h-4 sm:w-5 sm:h-5" /> : <RectangleHorizontal className="w-4 h-4 sm:w-5 sm:h-5" />}
                 </Button>
               )}
 
@@ -487,9 +485,9 @@ export const WatchVideoPlayer = ({ content, onTimeUpdate, onCreateNote, seekToTi
                   size="icon"
                   variant="ghost"
                   onClick={toggleFullscreen}
-                  className="text-white hover:bg-white/20"
+                  className="text-white hover:bg-white/20 h-8 w-8 sm:h-10 sm:w-10"
                 >
-                  <Maximize className="w-5 h-5" />
+                  <Maximize className="w-4 h-4 sm:w-5 sm:h-5" />
                 </Button>
               )}
             </div>

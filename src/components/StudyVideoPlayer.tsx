@@ -326,7 +326,7 @@ export const StudyVideoPlayer = ({ content, studyId, onClose, onTranscriptionUpd
             }`}
           >
             {/* Progress Bar */}
-            <div className="px-4 pt-2">
+            <div className="px-2 sm:px-4 pt-2">
               <input
                 type="range"
                 min="0"
@@ -343,47 +343,47 @@ export const StudyVideoPlayer = ({ content, studyId, onClose, onTranscriptionUpd
             </div>
 
             {/* Control Buttons */}
-            <div className="flex items-center justify-between px-4 pb-3 pt-2">
-              <div className="flex items-center gap-2">
+            <div className="flex items-center justify-between px-2 sm:px-4 pb-2 sm:pb-3 pt-2 gap-1 sm:gap-2">
+              <div className="flex items-center gap-1 sm:gap-2 min-w-0">
                 <Button 
                   variant="ghost" 
                   size="icon" 
                   onClick={togglePlay}
-                  className="text-white hover:bg-white/20 h-10 w-10"
+                  className="text-white hover:bg-white/20 h-8 w-8 sm:h-10 sm:w-10 flex-shrink-0"
                 >
-                  {isPlaying ? <Pause className="h-6 w-6" /> : <Play className="h-6 w-6" />}
+                  {isPlaying ? <Pause className="h-4 w-4 sm:h-6 sm:w-6" /> : <Play className="h-4 w-4 sm:h-6 sm:w-6" />}
                 </Button>
                 <Button 
                   variant="ghost" 
                   size="icon" 
                   onClick={toggleMute}
-                  className="text-white hover:bg-white/20 h-10 w-10"
+                  className="text-white hover:bg-white/20 h-8 w-8 sm:h-10 sm:w-10 flex-shrink-0"
                 >
-                  {isMuted ? <VolumeX className="h-5 w-5" /> : <Volume2 className="h-5 w-5" />}
+                  {isMuted ? <VolumeX className="h-4 w-4 sm:h-5 sm:w-5" /> : <Volume2 className="h-4 w-4 sm:h-5 sm:w-5" />}
                 </Button>
-                <span className="text-white text-sm font-medium ml-2">
+                <span className="text-white text-xs sm:text-sm font-medium whitespace-nowrap">
                   {formatTime(currentTime)} / {formatTime(duration)}
                 </span>
               </div>
 
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1 sm:gap-2 flex-shrink-0">
                 {/* Playback Speed */}
                 <div className="relative">
                   <Button 
                     variant="ghost" 
-                    size="sm"
+                    size="icon"
                     onClick={() => setShowPlaybackMenu(!showPlaybackMenu)}
-                    className="text-white hover:bg-white/20 h-10 px-3"
+                    className="text-white hover:bg-white/20 h-8 w-8 sm:h-10 sm:w-10"
                   >
-                    {playbackRate}x
+                    <span className="text-xs">{playbackRate}x</span>
                   </Button>
                   {showPlaybackMenu && (
-                    <div className="absolute bottom-full right-0 mb-2 bg-black/95 rounded-lg p-2 min-w-[100px]">
+                    <div className="absolute bottom-full right-0 mb-2 bg-black/95 rounded-lg p-1 sm:p-2 min-w-[80px] sm:min-w-[100px] z-50">
                       {[0.5, 0.75, 1, 1.25, 1.5, 1.75, 2].map((rate) => (
                         <button
                           key={rate}
                           onClick={() => changePlaybackRate(rate)}
-                          className={`block w-full text-left px-3 py-2 text-sm rounded transition-colors ${
+                          className={`block w-full text-left px-2 sm:px-3 py-1.5 sm:py-2 text-xs sm:text-sm rounded transition-colors ${
                             playbackRate === rate 
                               ? 'bg-white/20 text-white font-semibold' 
                               : 'text-white/80 hover:bg-white/10 hover:text-white'
@@ -401,9 +401,9 @@ export const StudyVideoPlayer = ({ content, studyId, onClose, onTranscriptionUpd
                     variant="ghost" 
                     size="icon" 
                     onClick={toggleFullscreen}
-                    className="text-white hover:bg-white/20 h-10 w-10"
+                    className="text-white hover:bg-white/20 h-8 w-8 sm:h-10 sm:w-10"
                   >
-                    <Maximize2 className="h-5 w-5" />
+                    <Maximize2 className="h-4 w-4 sm:h-5 sm:w-5" />
                   </Button>
                 )}
               </div>
