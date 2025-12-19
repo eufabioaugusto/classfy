@@ -20,9 +20,9 @@ interface RelatedContent {
   duration_seconds: number;
   views_count: number;
   content_type: "aula" | "short" | "podcast" | "curso";
-  creator: {
-    display_name: string;
-  };
+  creator?: {
+    display_name?: string | null;
+  } | null;
 }
 
 export const WatchRelated = ({ contentId, categoryId, tags, contentType }: WatchRelatedProps) => {
@@ -142,7 +142,7 @@ export const WatchRelated = ({ contentId, categoryId, tags, contentType }: Watch
                   {content.title}
                 </h6>
                 <p className="text-xs text-muted-foreground mt-1">
-                  {content.creator.display_name}
+                  {content.creator?.display_name || "Criador"}
                 </p>
                 <p className="text-xs text-muted-foreground flex items-center gap-1 mt-1">
                   <Clock className="h-3 w-3" />
