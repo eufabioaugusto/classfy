@@ -696,10 +696,15 @@ function StudyContent() {
     }
   };
 
+  // Escape special regex characters to prevent ReDoS attacks
+  const escapeRegex = (str: string) => 
+    str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
   const highlightSearchResults = (text: string, query: string) => {
     if (!query.trim()) return text;
     
-    const regex = new RegExp(`(${query})`, "gi");
+    const escapedQuery = escapeRegex(query);
+    const regex = new RegExp(`(${escapedQuery})`, "gi");
     return text.split(regex).map((part, i) => 
       regex.test(part) 
         ? `<mark class="bg-primary/30 text-foreground">${part}</mark>` 
