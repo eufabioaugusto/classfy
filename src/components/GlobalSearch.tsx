@@ -49,6 +49,13 @@ export function GlobalSearch({ isExploreMode, onModeChange }: GlobalSearchProps)
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
+  // Listen for external open event from MobileBottomNav
+  useEffect(() => {
+    const handleOpenSearch = () => setMobileSheetOpen(true);
+    window.addEventListener('open-global-search', handleOpenSearch);
+    return () => window.removeEventListener('open-global-search', handleOpenSearch);
+  }, []);
+
   const escapeRegex = (str: string) => str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
   const performSearch = useCallback(async (searchQuery: string) => {
@@ -144,11 +151,9 @@ export function GlobalSearch({ isExploreMode, onModeChange }: GlobalSearchProps)
 
   return (
     <>
-      {/* Mobile */}
+      {/* Mobile Sheet - triggered via event from MobileBottomNav */}
       <Sheet open={mobileSheetOpen} onOpenChange={setMobileSheetOpen}>
-        <SheetTrigger asChild>
-          <Button variant="ghost" size="icon" className="sm:hidden text-foreground"><Search className="w-5 h-5" /></Button>
-        </SheetTrigger>
+        {/* No trigger button here - handled by MobileBottomNav */}
         <SheetContent side="top" className="h-auto max-h-[85vh] p-0 bg-background">
           <div className="flex items-center justify-center gap-4 py-3 border-b border-border/30">
             <Button variant="ghost" size="sm" className={cn("gap-2 rounded-full px-4", !isExploreMode ? "bg-accent/20 text-accent" : "text-muted-foreground")} onClick={() => { onModeChange(false); setMobileSheetOpen(false); }}>

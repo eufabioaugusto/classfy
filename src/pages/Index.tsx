@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useAuth } from "@/contexts/AuthContext";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { ContentCard } from "@/components/ContentCard";
 import { ConversionModal } from "@/components/ConversionModal";
 import { SearchBar } from "@/components/SearchBar";
@@ -21,18 +21,35 @@ import { PurchaseModal } from "@/components/PurchaseModal";
 export default function Index() {
   const { user, loading: authLoading, profile } = useAuth();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { activeCount, limit, canCreateMore } = useStudies();
 
-  // Mode toggle state - persisted in localStorage
+  // Mode from URL param, defaulting to localStorage value or explore
+  const modeFromUrl = searchParams.get("mode");
   const [isExploreMode, setIsExploreMode] = useState(() => {
+    if (modeFromUrl === "focus") return false;
+    if (modeFromUrl === "explore") return true;
     const saved = localStorage.getItem("exploreMode");
-    return saved ? JSON.parse(saved) : false;
+    return saved ? JSON.parse(saved) : true; // Default to explore mode
   });
 
-  // Persist explore mode state
+  // Sync URL with explore mode
   useEffect(() => {
+    const newMode = isExploreMode ? "explore" : "focus";
+    if (searchParams.get("mode") !== newMode) {
+      setSearchParams({ mode: newMode }, { replace: true });
+    }
     localStorage.setItem("exploreMode", JSON.stringify(isExploreMode));
-  }, [isExploreMode]);
+  }, [isExploreMode, searchParams, setSearchParams]);
+
+  // Listen for URL changes
+  useEffect(() => {
+    if (modeFromUrl === "focus" && isExploreMode) {
+      setIsExploreMode(false);
+    } else if (modeFromUrl === "explore" && !isExploreMode) {
+      setIsExploreMode(true);
+    }
+  }, [modeFromUrl]);
 
   // Search state
   const [searchResults, setSearchResults] = useState<any[]>([]);
