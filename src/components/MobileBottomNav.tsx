@@ -34,7 +34,7 @@ export function MobileBottomNav() {
   };
 
   const goToExplore = () => {
-    localStorage.setItem('isExploreMode', 'true');
+    localStorage.setItem('exploreMode', 'true');
     if (location.pathname === '/') {
       setSearchParams({ mode: 'explore' });
     } else {
@@ -47,7 +47,7 @@ export function MobileBottomNav() {
       navigate("/auth");
       return;
     }
-    localStorage.setItem('isExploreMode', 'false');
+    localStorage.setItem('exploreMode', 'false');
     if (location.pathname === '/') {
       setSearchParams({ mode: 'focus' });
     } else {
