@@ -43,11 +43,11 @@ interface Content {
   category_id?: string | null;
   tags: string[] | null;
   created_at?: string;
-  creator: {
+  creator?: {
     id: string;
     display_name: string;
     avatar_url: string | null;
-  };
+  } | null;
   // Course specific fields
   total_lessons?: number;
   total_duration_seconds?: number;
