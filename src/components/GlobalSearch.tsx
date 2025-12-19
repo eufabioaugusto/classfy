@@ -154,7 +154,7 @@ export function GlobalSearch({ isExploreMode, onModeChange }: GlobalSearchProps)
       {/* Mobile Sheet - triggered via event from MobileBottomNav */}
       <Sheet open={mobileSheetOpen} onOpenChange={setMobileSheetOpen}>
         {/* No trigger button here - handled by MobileBottomNav */}
-        <SheetContent side="top" className="h-auto max-h-[85vh] p-0 bg-background">
+        <SheetContent side="top" className="h-auto max-h-[85vh] p-0 bg-background z-[9999]">
           <div className="flex items-center justify-center gap-4 py-3 border-b border-border/30">
             <Button variant="ghost" size="sm" className={cn("gap-2 rounded-full px-4", !isExploreMode ? "bg-accent/20 text-accent" : "text-muted-foreground")} onClick={() => { onModeChange(false); setMobileSheetOpen(false); }}>
               <Target className="w-4 h-4" />Foco

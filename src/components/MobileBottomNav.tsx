@@ -34,7 +34,9 @@ export function MobileBottomNav() {
   };
 
   const goToExplore = () => {
-    navigate('/?mode=explore');
+    localStorage.setItem('isExploreMode', 'true');
+    navigate('/');
+    window.location.href = '/?mode=explore';
   };
 
   const goToFocus = () => {
@@ -42,7 +44,8 @@ export function MobileBottomNav() {
       navigate("/auth");
       return;
     }
-    navigate('/?mode=focus');
+    localStorage.setItem('isExploreMode', 'false');
+    window.location.href = '/?mode=focus';
   };
 
   const goToMessages = () => {
@@ -64,7 +67,7 @@ export function MobileBottomNav() {
   const navItems: NavItem[] = [
     { icon: Home, label: "Explorar", action: goToExplore },
     { icon: Search, label: "Buscar", action: openSearch },
-    { icon: Target, label: "Foco", action: goToFocus, requiresAuth: true, isCenter: true },
+    { icon: Target, label: "Estudo", action: goToFocus, requiresAuth: true, isCenter: true },
     { icon: MessageCircle, label: "Mensagens", action: goToMessages, requiresAuth: true },
     { icon: Gift, label: "Recompensas", action: goToRewards, requiresAuth: true },
   ];
