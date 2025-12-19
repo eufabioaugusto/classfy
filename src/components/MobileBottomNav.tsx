@@ -18,7 +18,7 @@ const hiddenRoutes = ["/watch", "/listen", "/shorts", "/auth", "/studio", "/admi
 export function MobileBottomNav() {
   const location = useLocation();
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { user } = useAuth();
   const unreadCount = useUnreadMessages();
 
@@ -35,8 +35,11 @@ export function MobileBottomNav() {
 
   const goToExplore = () => {
     localStorage.setItem('isExploreMode', 'true');
-    navigate('/');
-    window.location.href = '/?mode=explore';
+    if (location.pathname === '/') {
+      setSearchParams({ mode: 'explore' });
+    } else {
+      navigate('/?mode=explore');
+    }
   };
 
   const goToFocus = () => {
@@ -45,7 +48,11 @@ export function MobileBottomNav() {
       return;
     }
     localStorage.setItem('isExploreMode', 'false');
-    window.location.href = '/?mode=focus';
+    if (location.pathname === '/') {
+      setSearchParams({ mode: 'focus' });
+    } else {
+      navigate('/?mode=focus');
+    }
   };
 
   const goToMessages = () => {
