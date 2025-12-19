@@ -8,7 +8,8 @@ import { DirectMessagesButton } from "@/components/DirectMessagesButton";
 import { AffiliateModal } from "@/components/AffiliateModal";
 import { GlobalSearch } from "@/components/GlobalSearch";
 import { useState } from "react";
-import { Moon, Sun, Menu, Plus, BookOpen, Podcast, Zap, Radio, GraduationCap, LogIn, LogOut, Settings, Gift, User } from "lucide-react";
+import { Moon, Sun, Plus, BookOpen, Podcast, Zap, Radio, GraduationCap, LogIn, LogOut, Settings, Gift, User } from "lucide-react";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -38,6 +39,10 @@ export function Header({ variant = "home", title, showSearch = false, isExploreM
   
   const currentPlan = profile?.plan || 'free';
   const limitText = limit === Infinity ? 'ilimitados' : `${activeCount}/${limit}`;
+
+  const getInitials = (name: string) => {
+    return name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2);
+  };
 
   return (
     <header className="sticky top-0 z-50 border-b border-border/20 bg-background/95 backdrop-blur-xl">
@@ -86,11 +91,17 @@ export function Header({ variant = "home", title, showSearch = false, isExploreM
             </Button>
           )}
 
-          {/* Notification Bell */}
-          <NotificationBell />
+          {/* Notification Bell - Hidden on mobile */}
+          <div className="hidden sm:block">
+            <NotificationBell />
+          </div>
 
-          {/* Direct Messages */}
-          {user && <DirectMessagesButton />}
+          {/* Direct Messages - Hidden on mobile */}
+          {user && (
+            <div className="hidden sm:block">
+              <DirectMessagesButton />
+            </div>
+          )}
 
           {/* Creator Create Button - Shows for creators and admins on all pages */}
           {(role === 'creator' || role === 'admin') && (
@@ -145,8 +156,13 @@ export function Header({ variant = "home", title, showSearch = false, isExploreM
           {user ? (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="icon" className="text-foreground">
-                  <Menu className="w-5 h-5" />
+                <Button variant="ghost" size="icon" className="text-foreground rounded-full p-0 h-9 w-9">
+                  <Avatar className="h-8 w-8">
+                    <AvatarImage src={profile?.avatar_url || undefined} alt={profile?.display_name || 'Usuário'} />
+                    <AvatarFallback className="bg-primary/10 text-primary text-xs">
+                      {getInitials(profile?.display_name || 'U')}
+                    </AvatarFallback>
+                  </Avatar>
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-56">

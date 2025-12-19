@@ -42,7 +42,7 @@ const Watch = lazy(() => import("./pages/Watch"));
 const Listen = lazy(() => import("./pages/Listen"));
 const Shorts = lazy(() => import("./pages/Shorts"));
 const Planos = lazy(() => import("./pages/Planos"));
-const Search = lazy(() => import("./pages/Search"));
+
 const CreatorProfile = lazy(() => import("./pages/CreatorProfile"));
 const NotFound = lazy(() => import("./pages/NotFound"));
 
@@ -104,7 +104,7 @@ function AppContent() {
           <Route path="/shorts/:id" element={<Shorts />} />
           <Route path="/c/:id" element={<Study />} />
           <Route path="/study" element={<Study />} />
-          <Route path="/search" element={<Search />} />
+          
           <Route path="/planos" element={<Planos />} />
           <Route path="/messages" element={<Messages />} />
           <Route path="/:username" element={<CreatorProfile />} />

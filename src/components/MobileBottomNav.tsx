@@ -1,5 +1,5 @@
-import { useLocation, useNavigate } from "react-router-dom";
-import { Home, Search, Plus, MessageCircle, Gift } from "lucide-react";
+import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
+import { Home, Search, Target, MessageCircle, Gift } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/contexts/AuthContext";
 import { useUnreadMessages } from "@/hooks/useUnreadMessages";
@@ -7,25 +7,18 @@ import { useUnreadMessages } from "@/hooks/useUnreadMessages";
 interface NavItem {
   icon: React.ElementType;
   label: string;
-  path: string;
+  action: () => void;
   requiresAuth?: boolean;
   isCenter?: boolean;
 }
 
-const navItems: NavItem[] = [
-  { icon: Home, label: "Explorar", path: "/" },
-  { icon: Search, label: "Buscar", path: "/search" },
-  { icon: Plus, label: "Estudar", path: "/study", requiresAuth: true, isCenter: true },
-  { icon: MessageCircle, label: "Mensagens", path: "/messages", requiresAuth: true },
-  { icon: Gift, label: "Recompensas", path: "/recompensas", requiresAuth: true },
-];
-
 // Routes where the bottom nav should be hidden
-const hiddenRoutes = ["/watch", "/listen", "/shorts", "/auth", "/studio", "/admin", "/c/", "/messages"];
+const hiddenRoutes = ["/watch", "/listen", "/shorts", "/auth", "/studio", "/admin", "/c/"];
 
 export function MobileBottomNav() {
   const location = useLocation();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { user } = useAuth();
   const unreadCount = useUnreadMessages();
 
@@ -34,32 +27,79 @@ export function MobileBottomNav() {
   
   if (shouldHide) return null;
 
-  const handleNavClick = (item: NavItem) => {
-    if (item.requiresAuth && !user) {
+  const currentMode = searchParams.get('mode');
+
+  const openSearch = () => {
+    window.dispatchEvent(new CustomEvent('open-global-search'));
+  };
+
+  const goToExplore = () => {
+    navigate('/?mode=explore');
+  };
+
+  const goToFocus = () => {
+    if (!user) {
       navigate("/auth");
       return;
     }
-    navigate(item.path);
+    navigate('/?mode=focus');
   };
 
-  const isActive = (path: string) => {
-    if (path === "/") return location.pathname === "/";
-    return location.pathname.startsWith(path);
+  const goToMessages = () => {
+    if (!user) {
+      navigate("/auth");
+      return;
+    }
+    navigate('/messages');
+  };
+
+  const goToRewards = () => {
+    if (!user) {
+      navigate("/auth");
+      return;
+    }
+    navigate('/recompensas');
+  };
+
+  const navItems: NavItem[] = [
+    { icon: Home, label: "Explorar", action: goToExplore },
+    { icon: Search, label: "Buscar", action: openSearch },
+    { icon: Target, label: "Foco", action: goToFocus, requiresAuth: true, isCenter: true },
+    { icon: MessageCircle, label: "Mensagens", action: goToMessages, requiresAuth: true },
+    { icon: Gift, label: "Recompensas", action: goToRewards, requiresAuth: true },
+  ];
+
+  const isActive = (index: number) => {
+    if (index === 0) {
+      // Explorar - active when on home with explore mode or no mode
+      return location.pathname === "/" && currentMode !== 'focus';
+    }
+    if (index === 2) {
+      // Foco - active when on home with focus mode
+      return location.pathname === "/" && currentMode === 'focus';
+    }
+    if (index === 3) {
+      return location.pathname.startsWith('/messages');
+    }
+    if (index === 4) {
+      return location.pathname.startsWith('/recompensas');
+    }
+    return false;
   };
 
   return (
     <nav className="fixed bottom-0 left-0 right-0 z-50 bg-background/95 backdrop-blur-xl border-t border-border/20 pb-safe md:hidden">
       <div className="flex items-center justify-around h-16 px-2">
-        {navItems.map((item) => {
-          const active = isActive(item.path);
+        {navItems.map((item, index) => {
+          const active = isActive(index);
           const Icon = item.icon;
-          const showBadge = item.path === "/messages" && unreadCount > 0;
+          const showBadge = index === 3 && unreadCount > 0;
 
           if (item.isCenter) {
             return (
               <button
-                key={item.path}
-                onClick={() => handleNavClick(item)}
+                key={item.label}
+                onClick={item.action}
                 className="relative -mt-4 flex flex-col items-center justify-center"
               >
                 <div className={cn(
@@ -78,8 +118,8 @@ export function MobileBottomNav() {
 
           return (
             <button
-              key={item.path}
-              onClick={() => handleNavClick(item)}
+              key={item.label}
+              onClick={item.action}
               className={cn(
                 "relative flex flex-col items-center justify-center gap-0.5 py-2 px-3 rounded-lg transition-all duration-200",
                 "active:scale-95",
