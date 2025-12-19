@@ -272,7 +272,7 @@ export default function Index() {
           )}
 
           {/* Content Area */}
-          <main className="flex-1 flex flex-col items-center justify-start p-3 sm:p-6 md:p-12">
+          <main className="flex-1 flex flex-col items-center justify-start p-3 sm:p-6 md:p-12 pb-24 md:pb-12">
 
             {/* Modo Foco (Original) */}
             {!isExploreMode && (

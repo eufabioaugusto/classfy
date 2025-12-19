@@ -174,7 +174,7 @@ export default function Recompensas() {
         <div className="flex-1 flex flex-col">
           <Header variant="home" title="Minhas Recompensas" />
 
-          <main className="container mx-auto px-4 py-8 space-y-6">
+          <main className="container mx-auto px-4 py-8 pb-24 md:pb-8 space-y-6">
             {/* Hero Stats */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
               {/* Level Card */}
