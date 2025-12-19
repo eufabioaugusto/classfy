@@ -8,6 +8,7 @@ import { ThemeProvider } from "./contexts/ThemeContext";
 import { supabase } from "@/integrations/supabase/client";
 import { useEffect, Suspense, lazy } from "react";
 import { GlobalLoader } from "./components/GlobalLoader";
+import { MobileBottomNav } from "./components/MobileBottomNav";
 
 // Lazy load all pages for maximum code splitting
 const Index = lazy(() => import("./pages/Index"));
@@ -36,10 +37,12 @@ const BoostSuccess = lazy(() => import("./pages/BoostSuccess"));
 const StudioBoosts = lazy(() => import("./pages/StudioBoosts"));
 const StudioAnalytics = lazy(() => import("./pages/StudioAnalytics"));
 const Study = lazy(() => import("./pages/Study"));
+const Messages = lazy(() => import("./pages/Messages"));
 const Watch = lazy(() => import("./pages/Watch"));
 const Listen = lazy(() => import("./pages/Listen"));
 const Shorts = lazy(() => import("./pages/Shorts"));
 const Planos = lazy(() => import("./pages/Planos"));
+const Search = lazy(() => import("./pages/Search"));
 const CreatorProfile = lazy(() => import("./pages/CreatorProfile"));
 const NotFound = lazy(() => import("./pages/NotFound"));
 
@@ -67,43 +70,49 @@ function AppContent() {
   }, []);
 
   return (
-    <Suspense fallback={<GlobalLoader />}>
-      <Routes>
-        <Route path="/" element={<Index />} />
-        <Route path="/auth" element={<Auth />} />
-        <Route path="/conta" element={<Conta />} />
-        <Route path="/historico" element={<Historico />} />
-        <Route path="/favoritos" element={<Favoritos />} />
-        <Route path="/salvos" element={<Salvos />} />
-        <Route path="/studio" element={<Studio />} />
-        <Route path="/studio/upload" element={<StudioUpload />} />
-        <Route path="/studio/upload/curso" element={<StudioUploadCurso />} />
-        <Route path="/studio/contents" element={<StudioContents />} />
-        <Route path="/studio/boosts" element={<StudioBoosts />} />
-        <Route path="/studio/analytics" element={<StudioAnalytics />} />
-        <Route path="/admin" element={<AdminDashboard />} />
-        <Route path="/admin/creators" element={<AdminCreators />} />
-        <Route path="/admin/contents" element={<AdminContents />} />
-        <Route path="/admin/rewards" element={<AdminRewards />} />
-        <Route path="/admin/transcriptions" element={<AdminTranscriptions />} />
-        <Route path="/admin/featured-creators" element={<AdminFeaturedCreators />} />
-        <Route path="/admin/withdrawals" element={<AdminWithdrawals />} />
-        <Route path="/admin/users" element={<AdminUsers />} />
-        <Route path="/admin/settings" element={<AdminSettings />} />
-        <Route path="/rewards-history" element={<RewardsHistory />} />
-        <Route path="/recompensas" element={<Recompensas />} />
-        <Route path="/carteira" element={<Carteira />} />
-        <Route path="/boost-success" element={<BoostSuccess />} />
-        <Route path="/watch/:id" element={<Watch />} />
-        <Route path="/listen/:id" element={<Listen />} />
-        <Route path="/shorts" element={<Shorts />} />
-        <Route path="/shorts/:id" element={<Shorts />} />
-        <Route path="/c/:id" element={<Study />} />
-        <Route path="/planos" element={<Planos />} />
-        <Route path="/:username" element={<CreatorProfile />} />
-        <Route path="*" element={<NotFound />} />
-      </Routes>
-    </Suspense>
+    <>
+      <Suspense fallback={<GlobalLoader />}>
+        <Routes>
+          <Route path="/" element={<Index />} />
+          <Route path="/auth" element={<Auth />} />
+          <Route path="/conta" element={<Conta />} />
+          <Route path="/historico" element={<Historico />} />
+          <Route path="/favoritos" element={<Favoritos />} />
+          <Route path="/salvos" element={<Salvos />} />
+          <Route path="/studio" element={<Studio />} />
+          <Route path="/studio/upload" element={<StudioUpload />} />
+          <Route path="/studio/upload/curso" element={<StudioUploadCurso />} />
+          <Route path="/studio/contents" element={<StudioContents />} />
+          <Route path="/studio/boosts" element={<StudioBoosts />} />
+          <Route path="/studio/analytics" element={<StudioAnalytics />} />
+          <Route path="/admin" element={<AdminDashboard />} />
+          <Route path="/admin/creators" element={<AdminCreators />} />
+          <Route path="/admin/contents" element={<AdminContents />} />
+          <Route path="/admin/rewards" element={<AdminRewards />} />
+          <Route path="/admin/transcriptions" element={<AdminTranscriptions />} />
+          <Route path="/admin/featured-creators" element={<AdminFeaturedCreators />} />
+          <Route path="/admin/withdrawals" element={<AdminWithdrawals />} />
+          <Route path="/admin/users" element={<AdminUsers />} />
+          <Route path="/admin/settings" element={<AdminSettings />} />
+          <Route path="/rewards-history" element={<RewardsHistory />} />
+          <Route path="/recompensas" element={<Recompensas />} />
+          <Route path="/carteira" element={<Carteira />} />
+          <Route path="/boost-success" element={<BoostSuccess />} />
+          <Route path="/watch/:id" element={<Watch />} />
+          <Route path="/listen/:id" element={<Listen />} />
+          <Route path="/shorts" element={<Shorts />} />
+          <Route path="/shorts/:id" element={<Shorts />} />
+          <Route path="/c/:id" element={<Study />} />
+          <Route path="/study" element={<Study />} />
+          <Route path="/search" element={<Search />} />
+          <Route path="/planos" element={<Planos />} />
+          <Route path="/messages" element={<Messages />} />
+          <Route path="/:username" element={<CreatorProfile />} />
+          <Route path="*" element={<NotFound />} />
+        </Routes>
+      </Suspense>
+      <MobileBottomNav />
+    </>
   );
 }
 
