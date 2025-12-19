@@ -10,10 +10,8 @@ import { FeaturedCreators } from "@/components/FeaturedCreators";
 import { SidebarProvider } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/AppSidebar";
 import { Header } from "@/components/Header";
-import { Sparkles, AlertCircle, BookOpen, Compass, Target } from "lucide-react";
+import { Sparkles, AlertCircle, BookOpen } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Switch } from "@/components/ui/switch";
-import { Label } from "@/components/ui/label";
 import { useStudies } from "@/hooks/useStudies";
 import { GlobalLoader } from "@/components/GlobalLoader";
 import { supabase } from "@/integrations/supabase/client";
@@ -243,7 +241,12 @@ export default function Index() {
 
         {/* Main Content */}
         <div className="flex-1 flex flex-col">
-          <Header variant="home" />
+          <Header 
+            variant="home" 
+            showSearch={true}
+            isExploreMode={isExploreMode}
+            onModeChange={setIsExploreMode}
+          />
 
           {/* Modals */}
           <ConversionModal open={modalOpen} onOpenChange={setModalOpen} reason={modalReason} />
@@ -270,24 +273,6 @@ export default function Index() {
 
           {/* Content Area */}
           <main className="flex-1 flex flex-col items-center justify-start p-3 sm:p-6 md:p-12">
-            {/* Mode Toggle */}
-            <div className="w-full max-w-5xl mb-4 sm:mb-8">
-              <div className="flex items-center justify-center gap-2 sm:gap-4 p-3 sm:p-4 bg-card rounded-xl border border-border">
-                <div className="flex items-center gap-1 sm:gap-2">
-                  <Target className="w-4 h-4 sm:w-5 sm:h-5 text-muted-foreground" />
-                  <Label htmlFor="mode-toggle" className="text-xs sm:text-sm font-medium cursor-pointer">
-                    Foco
-                  </Label>
-                </div>
-                <Switch id="mode-toggle" checked={isExploreMode} onCheckedChange={setIsExploreMode} />
-                <div className="flex items-center gap-1 sm:gap-2">
-                  <Compass className="w-4 h-4 sm:w-5 sm:h-5 text-muted-foreground" />
-                  <Label htmlFor="mode-toggle" className="text-xs sm:text-sm font-medium cursor-pointer">
-                    Explorar
-                  </Label>
-                </div>
-              </div>
-            </div>
 
             {/* Modo Foco (Original) */}
             {!isExploreMode && (
@@ -489,7 +474,7 @@ export default function Index() {
                       premiumContents.length === 0 &&
                       courses.length === 0 && (
                         <div className="text-center py-20">
-                          <Compass className="w-16 h-16 mx-auto mb-4 text-muted-foreground" />
+                          <BookOpen className="w-16 h-16 mx-auto mb-4 text-muted-foreground" />
                           <h3 className="text-2xl font-bold text-foreground mb-2">Nenhum conteúdo disponível</h3>
                           <p className="text-muted-foreground">Conteúdos serão exibidos aqui quando disponíveis.</p>
                         </div>
