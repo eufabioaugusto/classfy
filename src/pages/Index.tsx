@@ -26,30 +26,33 @@ export default function Index() {
 
   // Mode from URL param, defaulting to localStorage value or explore
   const modeFromUrl = searchParams.get("mode");
-  const [isExploreMode, setIsExploreMode] = useState(() => {
-    if (modeFromUrl === "focus") return false;
-    if (modeFromUrl === "explore") return true;
-    const saved = localStorage.getItem("exploreMode");
-    return saved ? JSON.parse(saved) : true; // Default to explore mode
-  });
+  const [isExploreMode, setIsExploreMode] = useState(true);
 
-  // Sync URL with explore mode
-  useEffect(() => {
-    const newMode = isExploreMode ? "explore" : "focus";
-    if (searchParams.get("mode") !== newMode) {
-      setSearchParams({ mode: newMode }, { replace: true });
-    }
-    localStorage.setItem("exploreMode", JSON.stringify(isExploreMode));
-  }, [isExploreMode, searchParams, setSearchParams]);
+  const setMode = (isExplore: boolean) => {
+    setIsExploreMode(isExplore);
+    localStorage.setItem("exploreMode", JSON.stringify(isExplore));
+    setSearchParams({ mode: isExplore ? "explore" : "focus" }, { replace: true });
+  };
 
-  // Listen for URL changes
+  // URL is the source of truth. Only set a default when the param is missing.
   useEffect(() => {
-    if (modeFromUrl === "focus" && isExploreMode) {
-      setIsExploreMode(false);
-    } else if (modeFromUrl === "explore" && !isExploreMode) {
+    if (modeFromUrl === "explore") {
       setIsExploreMode(true);
+      localStorage.setItem("exploreMode", "true");
+      return;
     }
-  }, [modeFromUrl]);
+
+    if (modeFromUrl === "focus") {
+      setIsExploreMode(false);
+      localStorage.setItem("exploreMode", "false");
+      return;
+    }
+
+    const saved = localStorage.getItem("exploreMode");
+    const defaultExplore = saved ? JSON.parse(saved) : true;
+    setIsExploreMode(defaultExplore);
+    setSearchParams({ mode: defaultExplore ? "explore" : "focus" }, { replace: true });
+  }, [modeFromUrl, setSearchParams]);
 
   // Search state
   const [searchResults, setSearchResults] = useState<any[]>([]);
@@ -262,7 +265,7 @@ export default function Index() {
             variant="home" 
             showSearch={true}
             isExploreMode={isExploreMode}
-            onModeChange={setIsExploreMode}
+            onModeChange={setMode}
           />
 
           {/* Modals */}
