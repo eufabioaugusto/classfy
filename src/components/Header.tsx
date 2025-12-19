@@ -6,6 +6,7 @@ import { SidebarTrigger } from "@/components/ui/sidebar";
 import { NotificationBell } from "@/components/NotificationBell";
 import { DirectMessagesButton } from "@/components/DirectMessagesButton";
 import { AffiliateModal } from "@/components/AffiliateModal";
+import { GlobalSearch } from "@/components/GlobalSearch";
 import { useState } from "react";
 import { Moon, Sun, Menu, Plus, BookOpen, Podcast, Zap, Radio, GraduationCap, LogIn, LogOut, Settings, Gift, User } from "lucide-react";
 import {
@@ -21,9 +22,12 @@ import { useNotificationToasts } from "@/hooks/useNotificationToasts";
 interface HeaderProps {
   variant?: "home" | "studio";
   title?: string;
+  showSearch?: boolean;
+  isExploreMode?: boolean;
+  onModeChange?: (isExplore: boolean) => void;
 }
 
-export function Header({ variant = "home", title }: HeaderProps) {
+export function Header({ variant = "home", title, showSearch = false, isExploreMode = false, onModeChange }: HeaderProps) {
   const { user, signOut, profile, role } = useAuth();
   const { theme, toggleTheme } = useTheme();
   const navigate = useNavigate();
@@ -37,13 +41,21 @@ export function Header({ variant = "home", title }: HeaderProps) {
 
   return (
     <header className="sticky top-0 z-50 border-b border-border/20 bg-background/95 backdrop-blur-xl">
-      <div className="flex items-center justify-between px-3 sm:px-6 py-3 sm:py-4">
-      <div className="flex items-center gap-2 sm:gap-4">
+      <div className="flex items-center justify-between gap-2 px-3 sm:px-6 py-3 sm:py-4">
+        <div className="flex items-center gap-2 sm:gap-4 flex-shrink-0">
           <SidebarTrigger />
           {/* Logo visible only on mobile when menu is closed */}
           <span className="text-xl font-bold text-foreground sm:hidden">Classfy</span>
           {title && <h1 className="text-lg sm:text-2xl font-bold text-foreground truncate max-w-[150px] sm:max-w-none hidden sm:block">{title}</h1>}
         </div>
+
+        {/* Global Search - Only on home variant */}
+        {showSearch && variant === "home" && (
+          <GlobalSearch 
+            isExploreMode={isExploreMode} 
+            onModeChange={onModeChange || (() => {})} 
+          />
+        )}
 
         {/* User Actions */}
         <div className="flex items-center gap-1.5 sm:gap-3">
