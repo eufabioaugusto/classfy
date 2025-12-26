@@ -43,8 +43,33 @@ export function MobileVideoPlayer({
   const [showSpeedMenu, setShowSpeedMenu] = useState(false);
   const controlsTimeoutRef = useRef<NodeJS.Timeout>();
   const lastTapRef = useRef<number>(0);
+  const lastTapPositionRef = useRef<{ x: number; time: number }>({ x: 0, time: 0 });
 
   const mediaRef = isPodcast ? audioRef : videoRef;
+
+  // Auto-hide controls after interaction
+  const resetControlsTimeout = () => {
+    if (controlsTimeoutRef.current) {
+      clearTimeout(controlsTimeoutRef.current);
+    }
+    if (isPlaying) {
+      controlsTimeoutRef.current = setTimeout(() => {
+        setShowControls(false);
+      }, 3000);
+    }
+  };
+
+  useEffect(() => {
+    // When playing starts, begin auto-hide timer
+    if (isPlaying && showControls) {
+      resetControlsTimeout();
+    }
+    return () => {
+      if (controlsTimeoutRef.current) {
+        clearTimeout(controlsTimeoutRef.current);
+      }
+    };
+  }, [isPlaying, showControls]);
 
   useEffect(() => {
     if (seekToTime !== null && seekToTime !== undefined && mediaRef.current) {
@@ -63,15 +88,21 @@ export function MobileVideoPlayer({
       onTimeUpdate?.(media.currentTime);
     };
     const handleEnded = () => setIsPlaying(false);
+    const handlePlay = () => setIsPlaying(true);
+    const handlePause = () => setIsPlaying(false);
 
     media.addEventListener("loadedmetadata", handleLoadedMetadata);
     media.addEventListener("timeupdate", handleTimeUpdate);
     media.addEventListener("ended", handleEnded);
+    media.addEventListener("play", handlePlay);
+    media.addEventListener("pause", handlePause);
 
     return () => {
       media.removeEventListener("loadedmetadata", handleLoadedMetadata);
       media.removeEventListener("timeupdate", handleTimeUpdate);
       media.removeEventListener("ended", handleEnded);
+      media.removeEventListener("play", handlePlay);
+      media.removeEventListener("pause", handlePause);
     };
   }, []);
 
@@ -85,6 +116,7 @@ export function MobileVideoPlayer({
       media.play();
     }
     setIsPlaying(!isPlaying);
+    resetControlsTimeout();
   };
 
   const handleTap = (e: React.TouchEvent) => {
@@ -97,8 +129,13 @@ export function MobileVideoPlayer({
     const x = touch.clientX - rect.left;
     const width = rect.width;
 
-    // Double tap detection
-    if (now - lastTapRef.current < 300) {
+    const timeSinceLastTap = now - lastTapPositionRef.current.time;
+    const lastX = lastTapPositionRef.current.x;
+
+    // Double tap detection - must be in similar area
+    const isDoubleTap = timeSinceLastTap < 300 && Math.abs(x - lastX) < 100;
+
+    if (isDoubleTap) {
       const media = mediaRef.current;
       if (!media) return;
 
@@ -112,11 +149,28 @@ export function MobileVideoPlayer({
         // Center - toggle fullscreen
         toggleFullscreen();
       }
+      // Reset to prevent triple tap
+      lastTapPositionRef.current = { x: 0, time: 0 };
+      resetControlsTimeout();
     } else {
-      // Single tap - show/hide controls
-      setShowControls(!showControls);
+      // Single tap logic
+      if (!showControls) {
+        // Controls hidden - show them
+        setShowControls(true);
+        resetControlsTimeout();
+      } else {
+        // Controls visible - tap in center toggles play/pause, edges do nothing special
+        const isCenter = x > width / 4 && x < (width * 3) / 4;
+        if (isCenter) {
+          togglePlay();
+        } else {
+          // Tapping edges while controls visible - just reset timeout
+          resetControlsTimeout();
+        }
+      }
     }
 
+    lastTapPositionRef.current = { x, time: now };
     lastTapRef.current = now;
   };
 
