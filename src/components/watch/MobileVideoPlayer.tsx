@@ -159,7 +159,7 @@ export function MobileVideoPlayer({
   return (
     <div 
       ref={containerRef}
-      className="relative bg-black w-full aspect-video"
+      className="relative bg-black w-full max-w-full aspect-video overflow-hidden"
       onTouchEnd={handleTap}
     >
       {isPodcast ? (

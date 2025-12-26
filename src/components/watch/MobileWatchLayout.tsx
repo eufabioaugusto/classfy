@@ -87,7 +87,7 @@ export function MobileWatchLayout({
   const [descExpanded, setDescExpanded] = useState(false);
 
   return (
-    <div className="flex flex-col">
+    <div className="flex flex-col overflow-x-hidden w-full max-w-full">
       {/* Title - Compact */}
       <h1 className="text-base font-semibold leading-tight px-3 pt-3 pb-2 line-clamp-2">
         {content.title}
@@ -241,7 +241,7 @@ export function MobileWatchLayout({
 
       {/* Related Content - Compact Grid */}
       {relatedContents.length > 0 && (
-        <div className="px-3 pb-6">
+        <div className="px-3 pb-6 overflow-hidden">
           <h3 className="text-sm font-semibold mb-3 text-muted-foreground">
             A seguir
           </h3>
@@ -252,7 +252,7 @@ export function MobileWatchLayout({
                 onClick={() => onContentClick(item.id)}
                 className="flex gap-3 cursor-pointer group"
               >
-                <div className="relative w-40 aspect-video rounded-lg overflow-hidden flex-shrink-0 bg-muted">
+                <div className="relative w-36 min-w-[144px] aspect-video rounded-lg overflow-hidden flex-shrink-0 bg-muted">
                   <img
                     src={item.thumbnail_url}
                     alt={item.title}
@@ -262,7 +262,7 @@ export function MobileWatchLayout({
                     {formatDuration(item.duration_seconds)}
                   </div>
                 </div>
-                <div className="flex-1 min-w-0 py-0.5">
+                <div className="flex-1 min-w-0 py-0.5 overflow-hidden">
                   <h4 className="text-sm font-medium line-clamp-2 mb-1 group-active:text-primary transition-colors">
                     {item.title}
                   </h4>
