@@ -115,168 +115,121 @@ function WatchContent() {
     setTheaterMode(!theaterMode);
   };
 
+  // Start fetching content as early as possible - don't wait for role/profile
   useEffect(() => {
-    console.log("🔍 Watch useEffect - id:", id, "user:", !!user, "loading:", loading, "role:", role);
-    if (id && user && !loading && role) {
-      console.log("📥 Starting fetchContent...");
+    if (id && !loading) {
       fetchContent();
     }
-  }, [id, user, loading, role]);
+  }, [id, loading]);
 
   const fetchContent = async () => {
     try {
-      // First, try to fetch as regular content
-      let query = supabase
-        .from("contents")
-        .select(
-          `
-          id,
-          content_type,
-          title,
-          description,
-          file_url,
-          thumbnail_url,
-          visibility,
-          price,
-          duration_seconds,
-          views_count,
-          likes_count,
-          status,
-          creator_id,
-          category_id,
-          tags,
-          created_at,
-          creator:profiles!creator_id(id, display_name, avatar_url)
-        `,
-        )
-        .eq("id", id);
-
-      // Only filter by approved status if user is not admin
-      if (role !== "admin") {
-        query = query.eq("status", "approved");
-      }
-
-      let { data, error } = await query.maybeSingle();
-
-      // If not found as content, try as course
-      if (!data || error) {
-        let courseQuery = supabase
-          .from("courses")
-          .select(
-            `
-            id,
-            title,
-            description,
-            thumbnail_url,
-            visibility,
-            price,
-            total_duration_seconds,
-            views_count,
-            likes_count,
-            status,
-            creator_id,
-            tags,
-            total_lessons,
-            level,
-            what_you_learn,
-            requirements,
-            created_at,
+      // Fetch content and course in parallel for speed
+      const [contentResult, courseResult] = await Promise.all([
+        supabase
+          .from("contents")
+          .select(`
+            id, content_type, title, description, file_url, thumbnail_url,
+            visibility, price, duration_seconds, views_count, likes_count,
+            status, creator_id, category_id, tags, created_at,
             creator:profiles!creator_id(id, display_name, avatar_url)
-          `,
-          )
-          .eq("id", id);
+          `)
+          .eq("id", id)
+          .maybeSingle(),
+        supabase
+          .from("courses")
+          .select(`
+            id, title, description, thumbnail_url, visibility, price,
+            total_duration_seconds, views_count, likes_count, status,
+            creator_id, tags, total_lessons, level, what_you_learn,
+            requirements, created_at,
+            creator:profiles!creator_id(id, display_name, avatar_url)
+          `)
+          .eq("id", id)
+          .maybeSingle()
+      ]);
 
-        const courseResult = await courseQuery.maybeSingle();
+      const data = contentResult.data;
+      const courseData = courseResult.data;
 
-        if (courseResult.error || !courseResult.data) {
+      // Handle content
+      if (data) {
+        // Check access for non-admins
+        if (role !== "admin" && data.status !== "approved") {
           setContent(null);
           setLoadingContent(false);
           return;
         }
 
-        // Only allow non-admins to view pending courses if they are the creator
-        if (role !== "admin" && courseResult.data.status !== "approved" && courseResult.data.creator_id !== user?.id) {
-          setContent(null);
-          setLoadingContent(false);
-          return;
-        }
+        setIsCourse(false);
+        setContent(data);
+        checkAccess(data);
 
-        // Fetch course modules and lessons
-        const { data: modules } = await supabase
-          .from("course_modules")
-          .select(
-            `
-            *,
-            lessons:course_lessons(*)
-          `,
-          )
-          .eq("course_id", id)
-          .order("order_index", { ascending: true });
-
-        setCourseModules(modules || []);
-
-        // Get first lesson as current
-        if (modules && modules.length > 0 && modules[0].lessons && modules[0].lessons.length > 0) {
-          setCurrentLesson(modules[0].lessons[0]);
-        }
-
-        setIsCourse(true);
-        setContent({
-          ...courseResult.data,
-          content_type: "curso" as any,
-          duration_seconds: courseResult.data.total_duration_seconds || 0,
-          file_url: "", // Courses don't have single file_url
-          likes_count: courseResult.data.likes_count || 0,
-          category_id: null,
-        } as Content);
-
-        checkAccess(courseResult.data as any);
-
-        // Register view for course using the new RPC
-        const isAdminPreview = role === "admin" && courseResult.data.status === "pending";
+        // Register view in background (don't await)
+        const isAdminPreview = role === "admin" && data.status === "pending";
         if (!isAdminPreview && user) {
-          try {
-            const { data: viewResult, error: viewError } = await supabase.rpc("increment_course_view", {
-              p_user_id: user.id,
-              p_course_id: id,
-            });
-
-            if (viewError) {
-              console.error("Error registering course view:", viewError);
-            } else {
-              console.log("Course view registered:", viewResult);
-            }
-          } catch (error) {
-            console.error("Error incrementing course view:", error);
-          }
+          supabase.rpc("increment_content_view", {
+            p_user_id: user.id,
+            p_content_id: id,
+          }).then(({ error }) => {
+            if (error) console.error("Error registering view:", error);
+          });
         }
 
         setLoadingContent(false);
         return;
       }
 
-      setIsCourse(false);
-      setContent(data);
-      checkAccess(data);
-
-      // Register unique view only if not admin previewing pending content
-      const isAdminPreview = role === "admin" && data.status === "pending";
-      if (!isAdminPreview && user) {
-        try {
-          const { data: viewResult, error: viewError } = await supabase.rpc("increment_content_view", {
-            p_user_id: user.id,
-            p_content_id: id,
-          });
-
-          if (viewError) {
-            console.error("Error registering view:", viewError);
-          } else {
-            console.log("View registered:", viewResult);
-          }
-        } catch (error) {
-          console.error("Error incrementing view:", error);
+      // Handle course
+      if (courseData) {
+        if (role !== "admin" && courseData.status !== "approved" && courseData.creator_id !== user?.id) {
+          setContent(null);
+          setLoadingContent(false);
+          return;
         }
+
+        // Fetch modules (needed for course display)
+        const { data: modules } = await supabase
+          .from("course_modules")
+          .select(`*, lessons:course_lessons(*)`)
+          .eq("course_id", id)
+          .order("order_index", { ascending: true });
+
+        setCourseModules(modules || []);
+
+        if (modules?.[0]?.lessons?.[0]) {
+          setCurrentLesson(modules[0].lessons[0]);
+        }
+
+        setIsCourse(true);
+        setContent({
+          ...courseData,
+          content_type: "curso" as any,
+          duration_seconds: courseData.total_duration_seconds || 0,
+          file_url: "",
+          likes_count: courseData.likes_count || 0,
+          category_id: null,
+        } as Content);
+
+        checkAccess(courseData as any);
+
+        // Register view in background
+        const isAdminPreview = role === "admin" && courseData.status === "pending";
+        if (!isAdminPreview && user) {
+          supabase.rpc("increment_course_view", {
+            p_user_id: user.id,
+            p_course_id: id,
+          }).then(({ error }) => {
+            if (error) console.error("Error registering course view:", error);
+          });
+        }
+
+        setLoadingContent(false);
+        return;
       }
+
+      // Neither found
+      setContent(null);
     } catch (error: any) {
       console.error(error);
     } finally {
