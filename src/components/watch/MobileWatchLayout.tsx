@@ -87,7 +87,7 @@ export function MobileWatchLayout({
   const [descExpanded, setDescExpanded] = useState(false);
 
   return (
-    <div className="flex flex-col overflow-x-hidden w-full max-w-full">
+    <div className="flex flex-col w-full" style={{ maxWidth: '100vw', overflowX: 'hidden' }}>
       {/* Title - Compact */}
       <h1 className="text-base font-semibold leading-tight px-3 pt-3 pb-2 line-clamp-2">
         {content.title}
@@ -120,7 +120,7 @@ export function MobileWatchLayout({
       </div>
 
       {/* Action Buttons - Horizontal Scroll */}
-      <div className="flex gap-2 px-3 pb-3 overflow-x-auto scrollbar-hide">
+      <div className="flex gap-2 px-3 pb-3 overflow-x-auto scrollbar-hide" style={{ maxWidth: '100vw' }}>
         <Button
           variant="secondary"
           size="sm"
