@@ -256,11 +256,11 @@ export default function Planos() {
             <table className="w-full">
               <thead>
                 <tr className="border-b">
-                  <th className="text-left py-4 px-4"></th>
-                  <th className="text-center py-4 px-4">
+                  <th className="text-left py-4 px-4 pt-10"></th>
+                  <th className="text-center py-4 px-4 pt-10">
                     <div className="font-semibold">Gratuito</div>
                   </th>
-                  <th className="text-center py-4 px-4">
+                  <th className="text-center py-4 px-4 pt-10">
                     <div className="space-y-2">
                       <div className="font-bold text-lg">Pro</div>
                       <div className="text-xl font-bold text-primary">R$ 29,90/mês</div>
@@ -269,11 +269,11 @@ export default function Planos() {
                       </Button>
                     </div>
                   </th>
-                  <th className="text-center py-4 px-4 relative">
-                    <Badge className="absolute -top-2 left-1/2 -translate-x-1/2 bg-primary">
+                  <th className="text-center py-4 px-4 pt-10 relative">
+                    <Badge className="absolute top-2 left-1/2 -translate-x-1/2 bg-primary">
                       Recomendado
                     </Badge>
-                    <div className="space-y-2 mt-4">
+                    <div className="space-y-2">
                       <div className="font-bold text-lg">Premium</div>
                       <div className="text-xl font-bold text-primary">R$ 49,90/mês</div>
                       <Button size="sm" onClick={() => handleSubscribe("premium")}>

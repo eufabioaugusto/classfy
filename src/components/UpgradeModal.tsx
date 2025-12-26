@@ -240,16 +240,16 @@ export const UpgradeModal = ({ open, onOpenChange, requiredPlan = "pro" }: Upgra
                   <thead>
                     <tr className="border-b">
                       <th className="text-left py-4 px-4 font-medium text-muted-foreground"></th>
-                      <th className="text-center py-4 px-4">
+                      <th className="text-center py-4 px-4 pt-8">
                         <div className="text-sm font-semibold">Gratuito</div>
                         <div className="text-xs text-muted-foreground">R$ 0</div>
                       </th>
-                      <th className="text-center py-4 px-4">
+                      <th className="text-center py-4 px-4 pt-8">
                         <div className="text-sm font-bold">Pro</div>
                         <div className="text-xs text-primary font-semibold">R$ 29,90/mês</div>
                       </th>
-                      <th className="text-center py-4 px-4 relative">
-                        <Badge className="absolute -top-2 left-1/2 -translate-x-1/2 bg-primary text-[10px]">
+                      <th className="text-center py-4 px-4 pt-8 relative">
+                        <Badge className="absolute top-1 left-1/2 -translate-x-1/2 bg-primary text-[10px]">
                           Recomendado
                         </Badge>
                         <div className="text-sm font-bold mt-2">Premium</div>
