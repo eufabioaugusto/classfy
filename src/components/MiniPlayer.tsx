@@ -4,6 +4,8 @@ import { useNavigate } from "react-router-dom";
 import { X, Play, Pause, ChevronUp, ChevronDown, PictureInPicture2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { cn } from "@/lib/utils";
+import { useIsMobile } from "@/hooks/use-mobile";
+import { MobileMiniPlayer } from "@/components/watch/MobileMiniPlayer";
 
 interface RelatedContent {
   id: string;
@@ -14,6 +16,12 @@ interface RelatedContent {
 }
 
 export const MiniPlayer = () => {
+  const isMobile = useIsMobile();
+  
+  // Use mobile version on mobile
+  if (isMobile) {
+    return <MobileMiniPlayer />;
+  }
   const navigate = useNavigate();
   const {
     state,

@@ -31,6 +31,7 @@ import { MobileVideoPlayer } from "@/components/watch/MobileVideoPlayer";
 import { MobileWatchLayout } from "@/components/watch/MobileWatchLayout";
 import { MobileCommentsSheet } from "@/components/watch/MobileCommentsSheet";
 import { MobileNotesSheet } from "@/components/watch/MobileNotesSheet";
+import { MobileWatchOverlay } from "@/components/watch/MobileWatchOverlay";
 
 interface Content {
   id: string;
@@ -621,53 +622,72 @@ function WatchContent() {
         </Card>
       </div>
     );
-  // Mobile layout
+  // Mobile layout - with swipe-to-minimize overlay
   if (isMobile) {
+    const handleMinimize = () => {
+      // Navigate back - the overlay handles starting the mini player
+      navigate(-1);
+    };
+
     return (
-      <div className="min-h-screen bg-background flex flex-col">
-        <UpgradeModal open={showUpgradeModal} onOpenChange={setShowUpgradeModal} requiredPlan={requiredUpgradePlan} />
-        <PurchaseModal
-          open={showPurchaseModal}
-          onOpenChange={setShowPurchaseModal}
-          content={{ id: content.id, title: content.title, thumbnail_url: content.thumbnail_url, price: content.price, discount: 0, creator_name: content.creator?.display_name || "Criador" }}
-          onPurchaseComplete={() => { setShowPurchaseModal(false); fetchContent(); }}
-        />
-        <AddToStudyModal open={showAddToStudyModal} onOpenChange={setShowAddToStudyModal} contentId={content.id} contentTitle={content.title} />
-        <MobileCommentsSheet open={showMobileComments} onOpenChange={setShowMobileComments} contentId={content.id} />
-        <MobileNotesSheet open={showMobileNotes} onOpenChange={setShowMobileNotes} contentId={content.id} onSeekTo={setSeekToTime} refreshTrigger={notesRefreshTrigger} />
-
-        {/* Video Player - Full width, sticky top */}
-        <div className="sticky top-0 z-40 bg-black">
-          <MobileVideoPlayer
-            src={isCourse && currentLesson ? currentLesson.video_url : content.file_url}
-            poster={content.thumbnail_url}
-            title={isCourse && currentLesson ? currentLesson.title : content.title}
-            onTimeUpdate={handleTimeUpdate}
-            onNoteClick={() => setShowMobileNotes(true)}
-            seekToTime={seekToTime}
-            isPodcast={content.content_type === "podcast"}
+      <MobileWatchOverlay
+        isVisible={true}
+        content={{
+          id: content.id,
+          title: content.title,
+          file_url: isCourse && currentLesson ? currentLesson.video_url : content.file_url,
+          thumbnail_url: content.thumbnail_url,
+          duration_seconds: content.duration_seconds,
+          creator: content.creator,
+        }}
+        currentTime={currentPlaybackTime.current}
+        onClose={handleMinimize}
+      >
+        <div className="min-h-screen bg-background flex flex-col">
+          <UpgradeModal open={showUpgradeModal} onOpenChange={setShowUpgradeModal} requiredPlan={requiredUpgradePlan} />
+          <PurchaseModal
+            open={showPurchaseModal}
+            onOpenChange={setShowPurchaseModal}
+            content={{ id: content.id, title: content.title, thumbnail_url: content.thumbnail_url, price: content.price, discount: 0, creator_name: content.creator?.display_name || "Criador" }}
+            onPurchaseComplete={() => { setShowPurchaseModal(false); fetchContent(); }}
           />
-        </div>
+          <AddToStudyModal open={showAddToStudyModal} onOpenChange={setShowAddToStudyModal} contentId={content.id} contentTitle={content.title} />
+          <MobileCommentsSheet open={showMobileComments} onOpenChange={setShowMobileComments} contentId={content.id} />
+          <MobileNotesSheet open={showMobileNotes} onOpenChange={setShowMobileNotes} contentId={content.id} onSeekTo={setSeekToTime} refreshTrigger={notesRefreshTrigger} />
 
-        {/* Scrollable content */}
-        <div className="flex-1 overflow-auto pb-20">
-          <MobileWatchLayout
-            content={content}
-            followersCount={followersCount}
-            isLiked={isLiked}
-            isSaved={isSaved}
-            isFavorited={isFavorited}
-            likesCount={likesCount}
-            onToggleLike={toggleLike}
-            onToggleSave={toggleSave}
-            onToggleFavorite={toggleFavorite}
-            onAddToStudy={() => setShowAddToStudyModal(true)}
-            onShowComments={() => setShowMobileComments(true)}
-            relatedContents={relatedContents}
-            onContentClick={(id) => navigate(`/watch/${id}`)}
-          />
+          {/* Video Player - Full width, sticky top */}
+          <div className="sticky top-0 z-40 bg-black">
+            <MobileVideoPlayer
+              src={isCourse && currentLesson ? currentLesson.video_url : content.file_url}
+              poster={content.thumbnail_url}
+              title={isCourse && currentLesson ? currentLesson.title : content.title}
+              onTimeUpdate={handleTimeUpdate}
+              onNoteClick={() => setShowMobileNotes(true)}
+              seekToTime={seekToTime}
+              isPodcast={content.content_type === "podcast"}
+            />
+          </div>
+
+          {/* Scrollable content */}
+          <div className="flex-1 overflow-auto pb-20">
+            <MobileWatchLayout
+              content={content}
+              followersCount={followersCount}
+              isLiked={isLiked}
+              isSaved={isSaved}
+              isFavorited={isFavorited}
+              likesCount={likesCount}
+              onToggleLike={toggleLike}
+              onToggleSave={toggleSave}
+              onToggleFavorite={toggleFavorite}
+              onAddToStudy={() => setShowAddToStudyModal(true)}
+              onShowComments={() => setShowMobileComments(true)}
+              relatedContents={relatedContents}
+              onContentClick={(id) => navigate(`/watch/${id}`)}
+            />
+          </div>
         </div>
-      </div>
+      </MobileWatchOverlay>
     );
   }
 
