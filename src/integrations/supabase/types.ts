@@ -198,6 +198,7 @@ export type Database = {
           audience_type: Database["public"]["Enums"]["audience_type"]
           clicks_count: number | null
           content_id: string | null
+          course_id: string | null
           created_at: string | null
           daily_budget: number
           duration_days: number
@@ -217,6 +218,7 @@ export type Database = {
           audience_type?: Database["public"]["Enums"]["audience_type"]
           clicks_count?: number | null
           content_id?: string | null
+          course_id?: string | null
           created_at?: string | null
           daily_budget: number
           duration_days: number
@@ -236,6 +238,7 @@ export type Database = {
           audience_type?: Database["public"]["Enums"]["audience_type"]
           clicks_count?: number | null
           content_id?: string | null
+          course_id?: string | null
           created_at?: string | null
           daily_budget?: number
           duration_days?: number
@@ -256,6 +259,13 @@ export type Database = {
             columns: ["content_id"]
             isOneToOne: false
             referencedRelation: "contents"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "boosts_course_id_fkey"
+            columns: ["course_id"]
+            isOneToOne: false
+            referencedRelation: "courses"
             referencedColumns: ["id"]
           },
           {

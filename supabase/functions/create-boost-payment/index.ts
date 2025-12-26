@@ -26,23 +26,37 @@ serve(async (req) => {
     if (!user?.email) throw new Error("User not authenticated");
 
     const { boostData } = await req.json();
-    const { objective, contentId, audienceType, audienceFilters, dailyBudget, durationDays, boostId } = boostData;
+    const { objective, contentId, courseId, itemType, audienceType, audienceFilters, dailyBudget, durationDays, boostId } = boostData;
+
+    console.log('Boost data received:', { objective, contentId, courseId, itemType, dailyBudget, durationDays });
 
     // Validate data
     if (!objective || !dailyBudget || !durationDays) {
       throw new Error("Missing required fields");
     }
 
-    // Validate content exists if objective is content
-    if (objective === 'content' && contentId) {
-      const { data: content, error: contentError } = await supabaseClient
-        .from('contents')
-        .select('id')
-        .eq('id', contentId)
-        .single();
-      
-      if (contentError || !content) {
-        throw new Error("Conteúdo não encontrado. Por favor, selecione um conteúdo válido.");
+    // Validate content/course exists if objective is content
+    if (objective === 'content') {
+      if (itemType === 'curso' && courseId) {
+        const { data: course, error: courseError } = await supabaseClient
+          .from('courses')
+          .select('id')
+          .eq('id', courseId)
+          .maybeSingle();
+        
+        if (courseError || !course) {
+          throw new Error("Curso não encontrado. Por favor, selecione um curso válido.");
+        }
+      } else if (contentId) {
+        const { data: content, error: contentError } = await supabaseClient
+          .from('contents')
+          .select('id')
+          .eq('id', contentId)
+          .maybeSingle();
+        
+        if (contentError || !content) {
+          throw new Error("Conteúdo não encontrado. Por favor, selecione um conteúdo válido.");
+        }
       }
     }
 
@@ -74,27 +88,42 @@ serve(async (req) => {
       if (fetchError) throw fetchError;
       boost = existingBoost;
     } else {
-      // Criar novo boost
+      // Criar novo boost - determinar se é content ou course
+      const boostInsertData: any = {
+        user_id: user.id,
+        objective,
+        audience_type: audienceType,
+        audience_filters: audienceFilters || {},
+        daily_budget: dailyBudget,
+        duration_days: durationDays,
+        status: 'pending_payment'
+      };
+
+      if (objective === 'content') {
+        if (itemType === 'curso') {
+          boostInsertData.course_id = courseId;
+          boostInsertData.content_id = null;
+        } else {
+          boostInsertData.content_id = contentId;
+          boostInsertData.course_id = null;
+        }
+      }
+
       const { data: newBoost, error: boostError } = await supabaseClient
         .from('boosts')
-        .insert({
-          user_id: user.id,
-          content_id: objective === 'content' ? contentId : null,
-          objective,
-          audience_type: audienceType,
-          audience_filters: audienceFilters || {},
-          daily_budget: dailyBudget,
-          duration_days: durationDays,
-          status: 'pending_payment'
-        })
+        .insert(boostInsertData)
         .select()
         .single();
 
-      if (boostError) throw boostError;
+      if (boostError) {
+        console.error('Boost insert error:', boostError);
+        throw boostError;
+      }
       boost = newBoost;
     }
 
     // Create Stripe checkout session
+    const itemName = itemType === 'curso' ? 'Curso' : 'Conteúdo';
     const session = await stripe.checkout.sessions.create({
       customer: customerId,
       customer_email: customerId ? undefined : user.email,
@@ -104,7 +133,7 @@ serve(async (req) => {
           price_data: {
             currency: "brl",
             product_data: {
-              name: objective === 'profile' ? 'Impulsionar Perfil' : 'Impulsionar Conteúdo',
+              name: objective === 'profile' ? 'Impulsionar Perfil' : `Impulsionar ${itemName}`,
               description: `${durationDays} dias de anúncio - R$ ${dailyBudget}/dia`,
             },
             unit_amount: Math.round(totalAmount * 100), // Convert to centavos

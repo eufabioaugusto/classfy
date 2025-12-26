@@ -16,18 +16,20 @@ import { LocationInputMapbox } from "@/components/LocationInputMapbox";
 import { LocationMapView } from "@/components/LocationMapView";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { BoostItemType } from "@/hooks/useBoostContent";
 
 interface BoostModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   contentId?: string;
   contentTitle?: string;
+  itemType?: BoostItemType;
 }
 
 type BoostObjective = 'profile' | 'content';
 type AudienceType = 'automatic' | 'segmented';
 
-export const BoostModal = ({ open, onOpenChange, contentId, contentTitle }: BoostModalProps) => {
+export const BoostModal = ({ open, onOpenChange, contentId, contentTitle, itemType = 'aula' }: BoostModalProps) => {
   const [step, setStep] = useState(1);
   const [loading, setLoading] = useState(false);
   const [showExitConfirm, setShowExitConfirm] = useState(false);
@@ -64,11 +66,16 @@ export const BoostModal = ({ open, onOpenChange, contentId, contentTitle }: Boos
   const handleSubmit = async () => {
     setLoading(true);
     try {
+      // Determinar se é curso ou conteúdo
+      const isCourse = itemType === 'curso';
+      
       const { data, error } = await supabase.functions.invoke('create-boost-payment', {
         body: {
           boostData: {
             objective,
-            contentId: objective === 'content' ? contentId : null,
+            contentId: objective === 'content' && !isCourse ? contentId : null,
+            courseId: objective === 'content' && isCourse ? contentId : null,
+            itemType,
             audienceType,
             audienceFilters: audienceType === 'segmented' ? audienceFilters : {},
             dailyBudget: dailyBudget[0],
