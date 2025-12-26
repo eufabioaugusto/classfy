@@ -11,11 +11,13 @@ import {
   FileText
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useMediaSession } from "@/hooks/useMediaSession";
 
 interface MobileVideoPlayerProps {
   src: string;
   poster?: string;
   title: string;
+  artist?: string;
   onTimeUpdate?: (currentTime: number) => void;
   onNoteClick?: () => void;
   seekToTime?: number | null;
@@ -26,6 +28,7 @@ export function MobileVideoPlayer({
   src,
   poster,
   title,
+  artist,
   onTimeUpdate,
   onNoteClick,
   seekToTime,
@@ -44,8 +47,59 @@ export function MobileVideoPlayer({
   const controlsTimeoutRef = useRef<NodeJS.Timeout>();
   const lastTapRef = useRef<number>(0);
   const lastTapPositionRef = useRef<{ x: number; time: number }>({ x: 0, time: 0 });
+  const { setMetadata, setPlaybackState, setPositionState, clearSession } = useMediaSession();
 
   const mediaRef = isPodcast ? audioRef : videoRef;
+
+  // Setup Media Session for lock screen controls
+  useEffect(() => {
+    const media = mediaRef.current;
+    if (!media || !title) return;
+
+    setMetadata({
+      title,
+      artist: artist || 'Classfy',
+      artwork: poster,
+      onPlay: () => {
+        media.play();
+        setIsPlaying(true);
+      },
+      onPause: () => {
+        media.pause();
+        setIsPlaying(false);
+      },
+      onSeekBackward: () => {
+        media.currentTime = Math.max(0, media.currentTime - 10);
+      },
+      onSeekForward: () => {
+        media.currentTime = Math.min(media.duration || 0, media.currentTime + 10);
+      },
+      onSeekTo: (time) => {
+        media.currentTime = time;
+        setCurrentTime(time);
+      },
+    });
+
+    return () => {
+      clearSession();
+    };
+  }, [title, poster, artist, setMetadata, clearSession]);
+
+  // Update playback state when playing/paused
+  useEffect(() => {
+    setPlaybackState(isPlaying ? 'playing' : 'paused');
+  }, [isPlaying, setPlaybackState]);
+
+  // Update position state periodically
+  useEffect(() => {
+    if (duration > 0) {
+      setPositionState({
+        duration,
+        position: currentTime,
+        playbackRate,
+      });
+    }
+  }, [currentTime, duration, playbackRate, setPositionState]);
 
   // Auto-hide controls after interaction
   const resetControlsTimeout = () => {
