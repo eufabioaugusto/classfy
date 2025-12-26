@@ -127,6 +127,14 @@ function WatchContent() {
   const [isFavorited, setIsFavorited] = useState(false);
   const [likesCount, setLikesCount] = useState(0);
 
+  // Store content ref for cleanup
+  const contentRef = useRef<Content | null>(null);
+  
+  // Keep contentRef updated
+  useEffect(() => {
+    contentRef.current = content;
+  }, [content]);
+
   // Close mini player when entering this Watch page (we're now watching full screen)
   useEffect(() => {
     if (miniPlayerState.isVisible && miniPlayerState.content?.id === id) {
@@ -134,20 +142,26 @@ function WatchContent() {
     }
   }, [id]);
 
-  // Function to activate mini player when leaving the page
-  const activateMiniPlayer = () => {
-    if (content && currentPlaybackTime.current > 0) {
-      startMiniPlayer({
-        id: content.id,
-        title: content.title,
-        subtitle: content.creator?.display_name,
-        thumbnail_url: content.thumbnail_url,
-        file_url: content.file_url,
-        duration_seconds: content.duration_seconds,
-        creator: content.creator ? { display_name: content.creator.display_name } : undefined,
-      }, currentPlaybackTime.current);
-    }
-  };
+  // Activate mini player when leaving the Watch page
+  useEffect(() => {
+    return () => {
+      const currentContent = contentRef.current;
+      const playbackTime = currentPlaybackTime.current;
+      
+      // Only activate if we have content and some playback progress
+      if (currentContent && playbackTime > 0) {
+        startMiniPlayer({
+          id: currentContent.id,
+          title: currentContent.title,
+          subtitle: currentContent.creator?.display_name,
+          thumbnail_url: currentContent.thumbnail_url,
+          file_url: currentContent.file_url,
+          duration_seconds: currentContent.duration_seconds,
+          creator: currentContent.creator ? { display_name: currentContent.creator.display_name } : undefined,
+        }, playbackTime);
+      }
+    };
+  }, [startMiniPlayer]);
 
   const handleTheaterModeToggle = () => {
     if (!theaterMode) {
