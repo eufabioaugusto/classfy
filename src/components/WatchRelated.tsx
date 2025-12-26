@@ -5,12 +5,22 @@ import { Card } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Play, Clock } from "lucide-react";
+import { useMiniPlayer } from "@/contexts/MiniPlayerContext";
 
 interface WatchRelatedProps {
   contentId: string;
   categoryId?: string | null;
   tags: string[] | null;
   contentType: "aula" | "short" | "podcast" | "curso";
+  currentContent?: {
+    id: string;
+    title: string;
+    thumbnail_url?: string;
+    file_url: string;
+    duration_seconds?: number;
+    creator?: { display_name: string } | null;
+  };
+  currentTime?: number;
 }
 
 interface RelatedContent {
@@ -25,10 +35,11 @@ interface RelatedContent {
   } | null;
 }
 
-export const WatchRelated = ({ contentId, categoryId, tags, contentType }: WatchRelatedProps) => {
+export const WatchRelated = ({ contentId, categoryId, tags, contentType, currentContent, currentTime }: WatchRelatedProps) => {
   const [relatedContents, setRelatedContents] = useState<RelatedContent[]>([]);
   const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
+  const { startMiniPlayer } = useMiniPlayer();
 
   useEffect(() => {
     fetchRelatedContents();
@@ -82,6 +93,18 @@ export const WatchRelated = ({ contentId, categoryId, tags, contentType }: Watch
   };
 
   const handleContentClick = (id: string) => {
+    // If we have current content and time > 0, start mini player for current video
+    if (currentContent && currentTime && currentTime > 5) {
+      startMiniPlayer({
+        id: currentContent.id,
+        title: currentContent.title,
+        subtitle: currentContent.creator?.display_name,
+        thumbnail_url: currentContent.thumbnail_url,
+        file_url: currentContent.file_url,
+        duration_seconds: currentContent.duration_seconds,
+        creator: currentContent.creator ? { display_name: currentContent.creator.display_name } : undefined,
+      }, currentTime);
+    }
     navigate(`/watch/${id}`);
   };
 
