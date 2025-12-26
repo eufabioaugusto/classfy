@@ -33,6 +33,19 @@ serve(async (req) => {
       throw new Error("Missing required fields");
     }
 
+    // Validate content exists if objective is content
+    if (objective === 'content' && contentId) {
+      const { data: content, error: contentError } = await supabaseClient
+        .from('contents')
+        .select('id')
+        .eq('id', contentId)
+        .single();
+      
+      if (contentError || !content) {
+        throw new Error("Conteúdo não encontrado. Por favor, selecione um conteúdo válido.");
+      }
+    }
+
     const totalAmount = dailyBudget * durationDays;
 
     // Initialize Stripe
