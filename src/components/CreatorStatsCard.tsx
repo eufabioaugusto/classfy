@@ -118,34 +118,34 @@ export const CreatorStatsCard = ({ userId, collapsed }: CreatorStatsCardProps) =
       {/* Stats List */}
       <div className="divide-y divide-border/50">
         {/* Earnings */}
-        <div className="p-4 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <Wallet className="h-4 w-4 text-muted-foreground" />
-            <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Ganhos</span>
+        <div className="px-4 py-3 flex items-center justify-between">
+          <div className="flex items-center gap-1.5">
+            <Wallet className="h-3 w-3 text-muted-foreground" />
+            <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">Ganhos</span>
           </div>
-          <div className="text-right">
-            <div className="text-base font-bold text-foreground">
+          <div className="flex items-baseline gap-2">
+            <span className="text-sm font-semibold text-foreground">
               R$ {(wallet?.total_earned || 0).toFixed(2)}
-            </div>
-            <div className="text-[10px] text-muted-foreground">
+            </span>
+            <span className="text-[10px] text-muted-foreground">
               Saldo: R$ {(wallet?.balance || 0).toFixed(2)}
-            </div>
+            </span>
           </div>
         </div>
 
         {/* Contents */}
-        <div className="p-4 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <Play className="h-4 w-4 text-muted-foreground" />
-            <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Conteúdos</span>
+        <div className="px-4 py-3 flex items-center justify-between">
+          <div className="flex items-center gap-1.5">
+            <Play className="h-3 w-3 text-muted-foreground" />
+            <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">Conteúdos</span>
           </div>
-          <div className="text-right">
-            <div className="text-base font-bold text-foreground">
+          <div className="flex items-baseline gap-2">
+            <span className="text-sm font-semibold text-foreground">
               {stats.contentCount}
-            </div>
-            <div className="text-[10px] text-muted-foreground">
+            </span>
+            <span className="text-[10px] text-muted-foreground">
               publicados
-            </div>
+            </span>
           </div>
         </div>
       </div>
