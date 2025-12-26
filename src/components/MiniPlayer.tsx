@@ -15,8 +15,8 @@ interface RelatedContent {
   creator?: { display_name: string } | null;
 }
 
-export const MiniPlayer = () => {
-  const isMobile = useIsMobile();
+// Desktop MiniPlayer Component
+function DesktopMiniPlayer() {
   const navigate = useNavigate();
   const {
     state,
@@ -33,11 +33,6 @@ export const MiniPlayer = () => {
   const [isHovered, setIsHovered] = useState(false);
   const [relatedContents, setRelatedContents] = useState<RelatedContent[]>([]);
   const containerRef = useRef<HTMLDivElement>(null);
-  
-  // Use mobile version on mobile - AFTER all hooks
-  if (isMobile) {
-    return <MobileMiniPlayer />;
-  }
 
   // Fetch related contents when expanded
   useEffect(() => {
@@ -268,4 +263,15 @@ export const MiniPlayer = () => {
       )}
     </div>
   );
+}
+
+// Main export that chooses between Mobile and Desktop
+export const MiniPlayer = () => {
+  const isMobile = useIsMobile();
+  
+  if (isMobile) {
+    return <MobileMiniPlayer />;
+  }
+  
+  return <DesktopMiniPlayer />;
 };
