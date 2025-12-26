@@ -115,33 +115,37 @@ export const CreatorStatsCard = ({ userId, collapsed }: CreatorStatsCardProps) =
         </div>
       </div>
 
-      {/* Stats Grid */}
-      <div className="grid grid-cols-2 divide-x divide-border/50">
+      {/* Stats List */}
+      <div className="divide-y divide-border/50">
         {/* Earnings */}
-        <div className="p-4">
-          <div className="flex items-center gap-1.5 mb-2">
-            <Wallet className="h-3.5 w-3.5 text-muted-foreground" />
-            <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">Ganhos</span>
+        <div className="p-4 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Wallet className="h-4 w-4 text-muted-foreground" />
+            <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Ganhos</span>
           </div>
-          <div className="text-lg font-bold text-foreground">
-            R$ {(wallet?.total_earned || 0).toFixed(2)}
-          </div>
-          <div className="text-[10px] text-muted-foreground mt-0.5">
-            Saldo: R$ {(wallet?.balance || 0).toFixed(2)}
+          <div className="text-right">
+            <div className="text-base font-bold text-foreground">
+              R$ {(wallet?.total_earned || 0).toFixed(2)}
+            </div>
+            <div className="text-[10px] text-muted-foreground">
+              Saldo: R$ {(wallet?.balance || 0).toFixed(2)}
+            </div>
           </div>
         </div>
 
         {/* Contents */}
-        <div className="p-4">
-          <div className="flex items-center gap-1.5 mb-2">
-            <Play className="h-3.5 w-3.5 text-muted-foreground" />
-            <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">Conteúdos</span>
+        <div className="p-4 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Play className="h-4 w-4 text-muted-foreground" />
+            <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Conteúdos</span>
           </div>
-          <div className="text-lg font-bold text-foreground">
-            {stats.contentCount}
-          </div>
-          <div className="text-[10px] text-muted-foreground mt-0.5">
-            publicados
+          <div className="text-right">
+            <div className="text-base font-bold text-foreground">
+              {stats.contentCount}
+            </div>
+            <div className="text-[10px] text-muted-foreground">
+              publicados
+            </div>
           </div>
         </div>
       </div>
