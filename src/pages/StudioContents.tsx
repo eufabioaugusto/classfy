@@ -355,10 +355,10 @@ export default function StudioContents() {
                              <TableCell>
                                <div className="flex flex-col gap-1.5">
                                  {getStatusBadge(content.status)}
-                                 {content.status === 'approved' && content.content_type !== 'curso' && (
+                                 {content.status === 'approved' && (
                                    <Button
                                      size="sm"
-                                     onClick={() => openBoostModal(content.id, content.title)}
+                                     onClick={() => openBoostModal(content.id, content.title, content.content_type as any)}
                                      className="bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 text-white border-0 h-7 px-2 text-xs gap-1"
                                    >
                                      <Zap className="w-3 h-3" />
@@ -390,12 +390,10 @@ export default function StudioContents() {
                                      <Eye className="w-4 h-4 mr-2" />
                                      Ver
                                    </DropdownMenuItem>
-                                   {content.content_type !== 'curso' && (
-                                     <DropdownMenuItem onClick={() => openBoostModal(content.id, content.title)}>
-                                       <Zap className="w-4 h-4 mr-2" />
-                                       Impulsionar
-                                     </DropdownMenuItem>
-                                   )}
+                                   <DropdownMenuItem onClick={() => openBoostModal(content.id, content.title, content.content_type as any)}>
+                                     <Zap className="w-4 h-4 mr-2" />
+                                     Impulsionar
+                                   </DropdownMenuItem>
                                    <DropdownMenuItem onClick={() => navigate(`/studio/upload?edit=${content.id}`)}>
                                      <Edit className="w-4 h-4 mr-2" />
                                      Editar
@@ -407,11 +405,11 @@ export default function StudioContents() {
                                  </DropdownMenuContent>
                                </DropdownMenu>
                              </TableCell>
-                          </TableRow>;
-                  })}
-                    </TableBody>
-                  </Table>
-                </div>}
+                           </TableRow>;
+                   })}
+                     </TableBody>
+                   </Table>
+                 </div>}
             </div>
           </main>
         </div>
@@ -422,6 +420,7 @@ export default function StudioContents() {
         onOpenChange={closeBoostModal}
         contentId={selectedContent?.id}
         contentTitle={selectedContent?.title}
+        itemType={selectedContent?.itemType}
       />
     </SidebarProvider>;
 }

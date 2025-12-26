@@ -1,16 +1,17 @@
 import { useState } from "react";
-import { supabase } from "@/integrations/supabase/client";
-import { toast } from "sonner";
+
+export type BoostItemType = 'aula' | 'podcast' | 'short' | 'live' | 'curso';
 
 export const useBoostContent = () => {
   const [isBoostModalOpen, setIsBoostModalOpen] = useState(false);
   const [selectedContent, setSelectedContent] = useState<{
     id: string;
     title: string;
+    itemType: BoostItemType;
   } | null>(null);
 
-  const openBoostModal = (contentId: string, contentTitle: string) => {
-    setSelectedContent({ id: contentId, title: contentTitle });
+  const openBoostModal = (contentId: string, contentTitle: string, itemType: BoostItemType = 'aula') => {
+    setSelectedContent({ id: contentId, title: contentTitle, itemType });
     setIsBoostModalOpen(true);
   };
 
