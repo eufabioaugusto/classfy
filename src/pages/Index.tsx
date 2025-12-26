@@ -104,125 +104,75 @@ export default function Index() {
   const loadExploreData = async () => {
     setExploreLoading(true);
     try {
-      // 1. Em Alta - 4 cards (Apenas Aulas) - Prioriza boosted primeiro
-      const { data: trendingData } = await supabase
-        .from("contents")
-        .select(
-          `
-          *,
-          profiles:creator_id (
-            display_name,
-            avatar_url
-          )
-        `,
-        )
-        .eq("content_type", "aula")
-        .order("views_count", { ascending: false })
-        .limit(20); // Fetch more to ensure we get some
+      // Execute all queries in parallel for maximum speed
+      const [
+        trendingResult,
+        proResult,
+        podcastResult,
+        shortsResult,
+        premiumResult,
+        coursesResult
+      ] = await Promise.all([
+        // 1. Em Alta - 4 cards (Apenas Aulas)
+        supabase
+          .from("contents")
+          .select(`*, profiles:creator_id (display_name, avatar_url)`)
+          .eq("content_type", "aula")
+          .eq("status", "approved")
+          .order("views_count", { ascending: false })
+          .limit(4),
+        
+        // 2. Itens PRO - 4 cards
+        supabase
+          .from("contents")
+          .select(`*, profiles:creator_id (display_name, avatar_url)`)
+          .eq("visibility", "pro")
+          .eq("status", "approved")
+          .in("content_type", ["aula"])
+          .order("created_at", { ascending: false })
+          .limit(4),
+        
+        // 3. Podcasts em Alta - 6 itens
+        supabase
+          .from("contents")
+          .select(`*, profiles:creator_id (display_name, avatar_url)`)
+          .eq("content_type", "podcast")
+          .eq("status", "approved")
+          .order("views_count", { ascending: false })
+          .limit(6),
+        
+        // 4. Shorts - 6 itens
+        supabase
+          .from("contents")
+          .select(`*, profiles:creator_id (display_name, avatar_url)`)
+          .eq("content_type", "short")
+          .eq("status", "approved")
+          .order("created_at", { ascending: false })
+          .limit(6),
+        
+        // 5. Itens Premium - 4 cards
+        supabase
+          .from("contents")
+          .select(`*, profiles:creator_id (display_name, avatar_url)`)
+          .eq("visibility", "premium")
+          .eq("status", "approved")
+          .order("created_at", { ascending: false })
+          .limit(4),
+        
+        // 6. Cursos - 4 cards
+        supabase
+          .from("courses")
+          .select(`*, profiles:creator_id (display_name, avatar_url)`)
+          .order("created_at", { ascending: false })
+          .limit(4)
+      ]);
 
-      // Sort by boost status, then views
-      const sortedTrending = (trendingData || [])
-        .sort((a, b) => {
-          const aHasBoost = a.id ? false : false; // Will check boost later
-          const bHasBoost = b.id ? false : false;
-          if (aHasBoost && !bHasBoost) return -1;
-          if (!aHasBoost && bHasBoost) return 1;
-          return (b.views_count || 0) - (a.views_count || 0);
-        })
-        .slice(0, 4);
-
-      setTrendingClasses(sortedTrending);
-
-      // 2. Itens PRO - 4 cards (Aulas, Cursos)
-      const { data: proData } = await supabase
-        .from("contents")
-        .select(
-          `
-          *,
-          profiles:creator_id (
-            display_name,
-            avatar_url
-          )
-        `,
-        )
-        .eq("visibility", "pro")
-        .in("content_type", ["aula"])
-        .order("created_at", { ascending: false })
-        .limit(20);
-
-      const sortedPro = (proData || []).slice(0, 4);
-      setProContents(sortedPro);
-
-      // 3. Podcasts em Alta - 6 itens (cards square)
-      const { data: podcastData } = await supabase
-        .from("contents")
-        .select(
-          `
-          *,
-          profiles:creator_id (
-            display_name,
-            avatar_url
-          )
-        `,
-        )
-        .eq("content_type", "podcast")
-        .order("views_count", { ascending: false })
-        .limit(6);
-
-      setTrendingPodcasts(podcastData || []);
-
-      // 4. Shorts - 6 itens (cards verticais 9:16)
-      const { data: shortsData } = await supabase
-        .from("contents")
-        .select(
-          `
-          *,
-          profiles:creator_id (
-            display_name,
-            avatar_url
-          )
-        `,
-        )
-        .eq("content_type", "short")
-        .order("created_at", { ascending: false })
-        .limit(6);
-
-      setShorts(shortsData || []);
-
-      // 5. Itens Premium - 4 cards
-      const { data: premiumData } = await supabase
-        .from("contents")
-        .select(
-          `
-          *,
-          profiles:creator_id (
-            display_name,
-            avatar_url
-          )
-        `,
-        )
-        .eq("visibility", "premium")
-        .order("created_at", { ascending: false })
-        .limit(4);
-
-      setPremiumContents(premiumData || []);
-
-      // 6. Cursos - 4 cards
-      const { data: coursesData } = await supabase
-        .from("courses")
-        .select(
-          `
-          *,
-          profiles:creator_id (
-            display_name,
-            avatar_url
-          )
-        `,
-        )
-        .order("created_at", { ascending: false })
-        .limit(4);
-
-      setCourses(coursesData || []);
+      setTrendingClasses(trendingResult.data || []);
+      setProContents(proResult.data || []);
+      setTrendingPodcasts(podcastResult.data || []);
+      setShorts(shortsResult.data || []);
+      setPremiumContents(premiumResult.data || []);
+      setCourses(coursesResult.data || []);
     } catch (error) {
       console.error("Error loading explore data:", error);
     } finally {
