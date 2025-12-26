@@ -352,59 +352,61 @@ export default function StudioContents() {
                                 {getVisibilityLabel(content.visibility)}
                               </span>
                             </TableCell>
-                            <TableCell>
-                              <div className="flex flex-col gap-1.5">
-                                {getStatusBadge(content.status)}
-                                {content.status === 'approved' && (
-                                  <Button
-                                    size="sm"
-                                    onClick={() => openBoostModal(content.id, content.title)}
-                                    className="bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 text-white border-0 h-7 px-2 text-xs gap-1"
-                                  >
-                                    <Zap className="w-3 h-3" />
-                                    Boost
-                                  </Button>
-                                )}
-                              </div>
-                            </TableCell>
-                            <TableCell>
-                              <span className="text-sm text-muted-foreground">
-                                {formatDate(content.created_at)}
-                              </span>
-                            </TableCell>
-                            <TableCell className="text-right">
-                              <div className="flex items-center justify-end gap-1">
-                                <Eye className="w-4 h-4 text-muted-foreground" />
-                                <span className="text-sm">{content.views_count || 0}</span>
-                              </div>
-                            </TableCell>
-                            <TableCell>
-                              <DropdownMenu>
-                                <DropdownMenuTrigger asChild>
-                                  <Button variant="ghost" size="icon">
-                                    <MoreVertical className="w-4 h-4" />
-                                  </Button>
-                                </DropdownMenuTrigger>
-                                <DropdownMenuContent align="end">
-                                  <DropdownMenuItem onClick={() => navigate(content.content_type === 'curso' ? `/study/${content.id}` : `/watch/${content.id}`)}>
-                                    <Eye className="w-4 h-4 mr-2" />
-                                    Ver
-                                  </DropdownMenuItem>
-                                  <DropdownMenuItem onClick={() => openBoostModal(content.id, content.title)}>
-                                    <Zap className="w-4 h-4 mr-2" />
-                                    Impulsionar
-                                  </DropdownMenuItem>
-                                  <DropdownMenuItem onClick={() => navigate(`/studio/upload?edit=${content.id}`)}>
-                                    <Edit className="w-4 h-4 mr-2" />
-                                    Editar
-                                  </DropdownMenuItem>
-                                  <DropdownMenuItem onClick={() => handleDelete(content.id, content.content_type)} className="text-destructive">
-                                    <Trash2 className="w-4 h-4 mr-2" />
-                                    Deletar
-                                  </DropdownMenuItem>
-                                </DropdownMenuContent>
-                              </DropdownMenu>
-                            </TableCell>
+                             <TableCell>
+                               <div className="flex flex-col gap-1.5">
+                                 {getStatusBadge(content.status)}
+                                 {content.status === 'approved' && content.content_type !== 'curso' && (
+                                   <Button
+                                     size="sm"
+                                     onClick={() => openBoostModal(content.id, content.title)}
+                                     className="bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 text-white border-0 h-7 px-2 text-xs gap-1"
+                                   >
+                                     <Zap className="w-3 h-3" />
+                                     Boost
+                                   </Button>
+                                 )}
+                               </div>
+                             </TableCell>
+                             <TableCell>
+                               <span className="text-sm text-muted-foreground">
+                                 {formatDate(content.created_at)}
+                               </span>
+                             </TableCell>
+                             <TableCell className="text-right">
+                               <div className="flex items-center justify-end gap-1">
+                                 <Eye className="w-4 h-4 text-muted-foreground" />
+                                 <span className="text-sm">{content.views_count || 0}</span>
+                               </div>
+                             </TableCell>
+                             <TableCell>
+                               <DropdownMenu>
+                                 <DropdownMenuTrigger asChild>
+                                   <Button variant="ghost" size="icon">
+                                     <MoreVertical className="w-4 h-4" />
+                                   </Button>
+                                 </DropdownMenuTrigger>
+                                 <DropdownMenuContent align="end">
+                                   <DropdownMenuItem onClick={() => navigate(content.content_type === 'curso' ? `/study/${content.id}` : `/watch/${content.id}`)}>
+                                     <Eye className="w-4 h-4 mr-2" />
+                                     Ver
+                                   </DropdownMenuItem>
+                                   {content.content_type !== 'curso' && (
+                                     <DropdownMenuItem onClick={() => openBoostModal(content.id, content.title)}>
+                                       <Zap className="w-4 h-4 mr-2" />
+                                       Impulsionar
+                                     </DropdownMenuItem>
+                                   )}
+                                   <DropdownMenuItem onClick={() => navigate(`/studio/upload?edit=${content.id}`)}>
+                                     <Edit className="w-4 h-4 mr-2" />
+                                     Editar
+                                   </DropdownMenuItem>
+                                   <DropdownMenuItem onClick={() => handleDelete(content.id, content.content_type)} className="text-destructive">
+                                     <Trash2 className="w-4 h-4 mr-2" />
+                                     Deletar
+                                   </DropdownMenuItem>
+                                 </DropdownMenuContent>
+                               </DropdownMenu>
+                             </TableCell>
                           </TableRow>;
                   })}
                     </TableBody>
