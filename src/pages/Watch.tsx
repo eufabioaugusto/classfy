@@ -1,6 +1,7 @@
-import { useParams, Navigate, useNavigate } from "react-router-dom";
+import { useParams, Navigate, useNavigate, useLocation } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
+import { useMiniPlayer } from "@/contexts/MiniPlayerContext";
 import { useRewardSystem } from "@/hooks/useRewardSystem";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
@@ -76,9 +77,11 @@ const formatCount = (count: number) => {
 function WatchContent() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
   const isMobile = useIsMobile();
   const { user, profile, loading, role } = useAuth();
   const { setOpen: setSidebarOpen } = useSidebar();
+  const { startMiniPlayer, closeMiniPlayer, state: miniPlayerState } = useMiniPlayer();
   const [content, setContent] = useState<Content | null>(null);
   const [loadingContent, setLoadingContent] = useState(true);
   const [hasAccess, setHasAccess] = useState(false);
@@ -96,6 +99,9 @@ function WatchContent() {
   const [notesRefreshTrigger, setNotesRefreshTrigger] = useState(0);
   const [seekToTime, setSeekToTime] = useState<number | null>(null);
   const { processReward, handleLike, handleSave, handleFavorite } = useRewardSystem();
+  
+  // Track current playback time for mini player
+  const currentPlaybackTime = useRef(0);
 
   // Theater mode state
   const [theaterMode, setTheaterMode] = useState(false);
@@ -120,6 +126,28 @@ function WatchContent() {
   const [isSaved, setIsSaved] = useState(false);
   const [isFavorited, setIsFavorited] = useState(false);
   const [likesCount, setLikesCount] = useState(0);
+
+  // Close mini player when entering this Watch page (we're now watching full screen)
+  useEffect(() => {
+    if (miniPlayerState.isVisible && miniPlayerState.content?.id === id) {
+      closeMiniPlayer();
+    }
+  }, [id]);
+
+  // Function to activate mini player when leaving the page
+  const activateMiniPlayer = () => {
+    if (content && currentPlaybackTime.current > 0) {
+      startMiniPlayer({
+        id: content.id,
+        title: content.title,
+        subtitle: content.creator?.display_name,
+        thumbnail_url: content.thumbnail_url,
+        file_url: content.file_url,
+        duration_seconds: content.duration_seconds,
+        creator: content.creator ? { display_name: content.creator.display_name } : undefined,
+      }, currentPlaybackTime.current);
+    }
+  };
 
   const handleTheaterModeToggle = () => {
     if (!theaterMode) {
@@ -467,6 +495,9 @@ function WatchContent() {
 
   const handleTimeUpdate = async (currentTime: number) => {
     if (!content || !user) return;
+    
+    // Store current time for mini player
+    currentPlaybackTime.current = currentTime;
 
     const duration = content.duration_seconds || 0;
     const percent = (currentTime / duration) * 100;

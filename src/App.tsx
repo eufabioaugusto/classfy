@@ -5,10 +5,12 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { AuthProvider } from "./contexts/AuthContext";
 import { ThemeProvider } from "./contexts/ThemeContext";
+import { MiniPlayerProvider } from "./contexts/MiniPlayerContext";
 import { supabase } from "@/integrations/supabase/client";
 import { useEffect, Suspense, lazy } from "react";
 import { GlobalLoader } from "./components/GlobalLoader";
 import { MobileBottomNav } from "./components/MobileBottomNav";
+import { MiniPlayer } from "./components/MiniPlayer";
 
 // Lazy load all pages for maximum code splitting
 const Index = lazy(() => import("./pages/Index"));
@@ -111,6 +113,7 @@ function AppContent() {
           <Route path="*" element={<NotFound />} />
         </Routes>
       </Suspense>
+      <MiniPlayer />
       <MobileBottomNav />
     </>
   );
@@ -121,11 +124,13 @@ const App = () => (
     <BrowserRouter>
       <ThemeProvider>
         <AuthProvider>
-          <TooltipProvider>
-            <Toaster />
-            <Sonner />
-            <AppContent />
-          </TooltipProvider>
+          <MiniPlayerProvider>
+            <TooltipProvider>
+              <Toaster />
+              <Sonner />
+              <AppContent />
+            </TooltipProvider>
+          </MiniPlayerProvider>
         </AuthProvider>
       </ThemeProvider>
     </BrowserRouter>
