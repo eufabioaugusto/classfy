@@ -1,4 +1,4 @@
-import { useParams, Navigate } from "react-router-dom";
+import { useParams, Navigate, useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { useRewardSystem } from "@/hooks/useRewardSystem";
@@ -25,6 +25,11 @@ import { CourseCurriculum } from "@/components/CourseCurriculum";
 import { WatchRelated } from "@/components/WatchRelated";
 import { formatDistanceToNow } from "date-fns";
 import { ptBR } from "date-fns/locale";
+import { useIsMobile } from "@/hooks/use-mobile";
+import { MobileVideoPlayer } from "@/components/watch/MobileVideoPlayer";
+import { MobileWatchLayout } from "@/components/watch/MobileWatchLayout";
+import { MobileCommentsSheet } from "@/components/watch/MobileCommentsSheet";
+import { MobileNotesSheet } from "@/components/watch/MobileNotesSheet";
 
 interface Content {
   id: string;
@@ -70,6 +75,8 @@ const formatCount = (count: number) => {
 // Inner component to use sidebar hook
 function WatchContent() {
   const { id } = useParams();
+  const navigate = useNavigate();
+  const isMobile = useIsMobile();
   const { user, profile, loading, role } = useAuth();
   const { setOpen: setSidebarOpen } = useSidebar();
   const [content, setContent] = useState<Content | null>(null);
@@ -88,7 +95,7 @@ function WatchContent() {
   const [showAddToStudyModal, setShowAddToStudyModal] = useState(false);
   const [notesRefreshTrigger, setNotesRefreshTrigger] = useState(0);
   const [seekToTime, setSeekToTime] = useState<number | null>(null);
-  const { processReward } = useRewardSystem();
+  const { processReward, handleLike, handleSave, handleFavorite } = useRewardSystem();
 
   // Theater mode state
   const [theaterMode, setTheaterMode] = useState(false);
@@ -102,6 +109,17 @@ function WatchContent() {
   // YouTube-style UI state
   const [descExpanded, setDescExpanded] = useState(false);
   const [followersCount, setFollowersCount] = useState(0);
+
+  // Mobile sheet states
+  const [showMobileComments, setShowMobileComments] = useState(false);
+  const [showMobileNotes, setShowMobileNotes] = useState(false);
+  const [relatedContents, setRelatedContents] = useState<any[]>([]);
+
+  // Action states for mobile
+  const [isLiked, setIsLiked] = useState(false);
+  const [isSaved, setIsSaved] = useState(false);
+  const [isFavorited, setIsFavorited] = useState(false);
+  const [likesCount, setLikesCount] = useState(0);
 
   const handleTheaterModeToggle = () => {
     if (!theaterMode) {
@@ -246,12 +264,81 @@ function WatchContent() {
     setFollowersCount(count || 0);
   };
 
-  // Trigger followers count when content changes
+  // Trigger followers count and action states when content changes
   useEffect(() => {
     if (content?.creator?.id) {
       fetchFollowersCount(content.creator.id);
     }
-  }, [content?.creator?.id]);
+    if (content && user) {
+      checkActionStates();
+      fetchRelatedContents();
+    }
+  }, [content?.id, content?.creator?.id, user]);
+
+  const checkActionStates = async () => {
+    if (!user || !content) return;
+    
+    const [likeData, savedData, favoriteData, countResult] = await Promise.all([
+      supabase.from('actions').select('id').eq('user_id', user.id).eq('type', 'LIKE').eq(isCourse ? 'course_id' : 'content_id', content.id).maybeSingle(),
+      supabase.from('saved_contents').select('id').eq('user_id', user.id).eq(isCourse ? 'course_id' : 'content_id', content.id).maybeSingle(),
+      supabase.from('favorites').select('id').eq('user_id', user.id).eq(isCourse ? 'course_id' : 'content_id', content.id).maybeSingle(),
+      supabase.from('actions').select('*', { count: 'exact', head: true }).eq('type', 'LIKE').eq(isCourse ? 'course_id' : 'content_id', content.id),
+    ]);
+    
+    setIsLiked(!!likeData.data);
+    setIsSaved(!!savedData.data);
+    setIsFavorited(!!favoriteData.data);
+    setLikesCount(countResult.count || 0);
+  };
+
+  const fetchRelatedContents = async () => {
+    if (!content) return;
+    const { data } = await supabase
+      .from('contents')
+      .select('id, title, thumbnail_url, duration_seconds, views_count, creator:profiles!creator_id(display_name)')
+      .eq('status', 'approved')
+      .neq('id', content.id)
+      .limit(6);
+    setRelatedContents(data || []);
+  };
+
+  const toggleLike = async () => {
+    if (!user || !content) return;
+    if (isLiked) {
+      await supabase.from('actions').delete().eq('user_id', user.id).eq('type', 'LIKE').eq(isCourse ? 'course_id' : 'content_id', content.id);
+      setIsLiked(false);
+      setLikesCount(prev => Math.max(0, prev - 1));
+    } else {
+      await supabase.from('actions').insert({ user_id: user.id, type: 'LIKE', [isCourse ? 'course_id' : 'content_id']: content.id });
+      setIsLiked(true);
+      setLikesCount(prev => prev + 1);
+      await handleLike(user.id, content.id, true);
+    }
+  };
+
+  const toggleSave = async () => {
+    if (!user || !content) return;
+    if (isSaved) {
+      await supabase.from('saved_contents').delete().eq('user_id', user.id).eq(isCourse ? 'course_id' : 'content_id', content.id);
+      setIsSaved(false);
+    } else {
+      await supabase.from('saved_contents').insert({ user_id: user.id, [isCourse ? 'course_id' : 'content_id']: content.id });
+      setIsSaved(true);
+      await handleSave(user.id, content.id);
+    }
+  };
+
+  const toggleFavorite = async () => {
+    if (!user || !content) return;
+    if (isFavorited) {
+      await supabase.from('favorites').delete().eq('user_id', user.id).eq(isCourse ? 'course_id' : 'content_id', content.id);
+      setIsFavorited(false);
+    } else {
+      await supabase.from('favorites').insert({ user_id: user.id, [isCourse ? 'course_id' : 'content_id']: content.id });
+      setIsFavorited(true);
+      await handleFavorite(user.id, content.id);
+    }
+  };
 
   // Log content fetch errors for debugging
   useEffect(() => {
@@ -489,6 +576,57 @@ function WatchContent() {
         </Card>
       </div>
     );
+  // Mobile layout
+  if (isMobile) {
+    return (
+      <div className="min-h-screen bg-background flex flex-col">
+        <UpgradeModal open={showUpgradeModal} onOpenChange={setShowUpgradeModal} requiredPlan={requiredUpgradePlan} />
+        <PurchaseModal
+          open={showPurchaseModal}
+          onOpenChange={setShowPurchaseModal}
+          content={{ id: content.id, title: content.title, thumbnail_url: content.thumbnail_url, price: content.price, discount: 0, creator_name: content.creator?.display_name || "Criador" }}
+          onPurchaseComplete={() => { setShowPurchaseModal(false); fetchContent(); }}
+        />
+        <AddToStudyModal open={showAddToStudyModal} onOpenChange={setShowAddToStudyModal} contentId={content.id} contentTitle={content.title} />
+        <MobileCommentsSheet open={showMobileComments} onOpenChange={setShowMobileComments} contentId={content.id} />
+        <MobileNotesSheet open={showMobileNotes} onOpenChange={setShowMobileNotes} contentId={content.id} onSeekTo={setSeekToTime} refreshTrigger={notesRefreshTrigger} />
+
+        {/* Video Player - Full width, sticky top */}
+        <div className="sticky top-0 z-40 bg-black">
+          <MobileVideoPlayer
+            src={isCourse && currentLesson ? currentLesson.video_url : content.file_url}
+            poster={content.thumbnail_url}
+            title={isCourse && currentLesson ? currentLesson.title : content.title}
+            onTimeUpdate={handleTimeUpdate}
+            onNoteClick={() => setShowMobileNotes(true)}
+            seekToTime={seekToTime}
+            isPodcast={content.content_type === "podcast"}
+          />
+        </div>
+
+        {/* Scrollable content */}
+        <div className="flex-1 overflow-auto pb-20">
+          <MobileWatchLayout
+            content={content}
+            followersCount={followersCount}
+            isLiked={isLiked}
+            isSaved={isSaved}
+            isFavorited={isFavorited}
+            likesCount={likesCount}
+            onToggleLike={toggleLike}
+            onToggleSave={toggleSave}
+            onToggleFavorite={toggleFavorite}
+            onAddToStudy={() => setShowAddToStudyModal(true)}
+            onShowComments={() => setShowMobileComments(true)}
+            relatedContents={relatedContents}
+            onContentClick={(id) => navigate(`/watch/${id}`)}
+          />
+        </div>
+      </div>
+    );
+  }
+
+  // Desktop layout
   return (
     <div className="min-h-screen flex w-full bg-background">
       <AppSidebar />
