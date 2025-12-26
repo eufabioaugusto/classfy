@@ -1,4 +1,5 @@
-import { createContext, useContext, useState, useRef, useCallback, ReactNode } from "react";
+import { createContext, useContext, useState, useRef, useCallback, useEffect, ReactNode } from "react";
+import { useMediaSession } from "@/hooks/useMediaSession";
 
 export interface MiniPlayerContent {
   id: string;
@@ -47,6 +48,7 @@ export const useMiniPlayer = () => {
 
 export const MiniPlayerProvider = ({ children }: { children: ReactNode }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
+  const { setMetadata, setPlaybackState, setPositionState, clearSession } = useMediaSession();
   const [state, setState] = useState<MiniPlayerState>({
     content: null,
     isPlaying: false,
@@ -55,6 +57,70 @@ export const MiniPlayerProvider = ({ children }: { children: ReactNode }) => {
     isVisible: false,
     isExpanded: false,
   });
+
+  // Setup Media Session when mini player content changes
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!state.content || !state.isVisible) {
+      clearSession();
+      return;
+    }
+
+    setMetadata({
+      title: state.content.title,
+      artist: state.content.creator?.display_name || 'Classfy',
+      artwork: state.content.thumbnail_url,
+      onPlay: () => {
+        if (video) {
+          video.play();
+          setState(prev => ({ ...prev, isPlaying: true }));
+        }
+      },
+      onPause: () => {
+        if (video) {
+          video.pause();
+          setState(prev => ({ ...prev, isPlaying: false }));
+        }
+      },
+      onSeekBackward: () => {
+        if (video) {
+          video.currentTime = Math.max(0, video.currentTime - 10);
+        }
+      },
+      onSeekForward: () => {
+        if (video) {
+          video.currentTime = Math.min(video.duration || 0, video.currentTime + 10);
+        }
+      },
+      onSeekTo: (time) => {
+        if (video) {
+          video.currentTime = time;
+          setState(prev => ({ ...prev, currentTime: time }));
+        }
+      },
+    });
+
+    return () => {
+      clearSession();
+    };
+  }, [state.content, state.isVisible, setMetadata, clearSession]);
+
+  // Update playback state
+  useEffect(() => {
+    if (state.isVisible) {
+      setPlaybackState(state.isPlaying ? 'playing' : 'paused');
+    }
+  }, [state.isPlaying, state.isVisible, setPlaybackState]);
+
+  // Update position state
+  useEffect(() => {
+    if (state.isVisible && state.duration > 0) {
+      setPositionState({
+        duration: state.duration,
+        position: state.currentTime,
+      });
+    }
+  }, [state.currentTime, state.duration, state.isVisible, setPositionState]);
 
   const startMiniPlayer = useCallback((content: MiniPlayerContent, currentTime = 0) => {
     setState(prev => ({

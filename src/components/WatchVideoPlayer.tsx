@@ -9,6 +9,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
+import { useMediaSession } from "@/hooks/useMediaSession";
 
 interface WatchVideoPlayerProps {
   content: {
@@ -20,6 +21,9 @@ interface WatchVideoPlayerProps {
     duration_seconds?: number;
     content_id?: string | null; // ID do content real para lessons de curso
     lesson_id?: string | null; // ID da lesson quando for curso
+    creator?: {
+      display_name: string;
+    };
   };
   onTimeUpdate?: (currentTime: number) => void;
   onCreateNote?: () => void;
@@ -45,9 +49,60 @@ export const WatchVideoPlayer = ({ content, onTimeUpdate, onCreateNote, seekToTi
   const [noteMarkers, setNoteMarkers] = useState<number[]>([]);
   const { trackProgress } = useRewardSystem();
   const controlsTimeoutRef = useRef<NodeJS.Timeout>();
+  const { setMetadata, setPlaybackState, setPositionState, clearSession } = useMediaSession();
 
   const mediaRef = content.content_type === "podcast" ? audioRef : videoRef;
   const isVideo = content.content_type !== "podcast";
+
+  // Setup Media Session for lock screen controls
+  useEffect(() => {
+    const media = mediaRef.current;
+    if (!media || !content.title) return;
+
+    setMetadata({
+      title: content.title,
+      artist: content.creator?.display_name || 'Classfy',
+      artwork: content.thumbnail_url,
+      onPlay: () => {
+        media.play();
+        setIsPlaying(true);
+      },
+      onPause: () => {
+        media.pause();
+        setIsPlaying(false);
+      },
+      onSeekBackward: () => {
+        media.currentTime = Math.max(0, media.currentTime - 10);
+      },
+      onSeekForward: () => {
+        media.currentTime = Math.min(media.duration || 0, media.currentTime + 10);
+      },
+      onSeekTo: (time) => {
+        media.currentTime = time;
+        setCurrentTime(time);
+      },
+    });
+
+    return () => {
+      clearSession();
+    };
+  }, [content.title, content.thumbnail_url, content.creator?.display_name, setMetadata, clearSession]);
+
+  // Update playback state when playing/paused
+  useEffect(() => {
+    setPlaybackState(isPlaying ? 'playing' : 'paused');
+  }, [isPlaying, setPlaybackState]);
+
+  // Update position state periodically
+  useEffect(() => {
+    if (duration > 0) {
+      setPositionState({
+        duration,
+        position: currentTime,
+        playbackRate,
+      });
+    }
+  }, [currentTime, duration, playbackRate, setPositionState]);
 
   // Load saved position
   useEffect(() => {
