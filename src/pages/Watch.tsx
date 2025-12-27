@@ -661,8 +661,10 @@ function WatchContent() {
               src={isCourse && currentLesson ? currentLesson.video_url : content.file_url}
               poster={content.thumbnail_url}
               title={isCourse && currentLesson ? currentLesson.title : content.title}
+              artist={content.creator?.display_name}
               onTimeUpdate={handleTimeUpdate}
               onNoteClick={() => setShowMobileNotes(true)}
+              onMinimize={handleMinimize}
               seekToTime={seekToTime}
               isPodcast={content.content_type === "podcast"}
             />
