@@ -5,10 +5,10 @@ import {
   Volume2, 
   VolumeX, 
   Maximize, 
-  Settings,
   RotateCcw,
   RotateCw,
-  FileText
+  FileText,
+  ChevronDown
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useMediaSession } from "@/hooks/useMediaSession";
@@ -20,6 +20,7 @@ interface MobileVideoPlayerProps {
   artist?: string;
   onTimeUpdate?: (currentTime: number) => void;
   onNoteClick?: () => void;
+  onMinimize?: () => void;
   seekToTime?: number | null;
   isPodcast?: boolean;
 }
@@ -31,6 +32,7 @@ export function MobileVideoPlayer({
   artist,
   onTimeUpdate,
   onNoteClick,
+  onMinimize,
   seekToTime,
   isPodcast = false,
 }: MobileVideoPlayerProps) {
@@ -290,6 +292,22 @@ export function MobileVideoPlayer({
           poster={poster}
           playsInline
         />
+      )}
+
+      {/* Minimize button - top left when controls visible */}
+      {onMinimize && (
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            onMinimize();
+          }}
+          className={cn(
+            "absolute top-3 left-3 z-50 w-10 h-10 rounded-full bg-black/50 flex items-center justify-center text-white transition-opacity duration-200",
+            showControls ? "opacity-100" : "opacity-0 pointer-events-none"
+          )}
+        >
+          <ChevronDown className="w-6 h-6" />
+        </button>
       )}
 
       {/* Play button overlay */}

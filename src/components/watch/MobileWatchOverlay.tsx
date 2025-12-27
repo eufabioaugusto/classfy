@@ -85,54 +85,65 @@ export function MobileWatchOverlay({
   return (
     <AnimatePresence>
       {isVisible && (
-        <motion.div
-          ref={containerRef}
-          className="fixed inset-0 z-50 bg-background"
-          style={{
-            y,
-            opacity,
-            scale,
-            borderRadius,
-            transformOrigin: "top center",
-          }}
-          initial={{ y: "100%" }}
-          animate={{ y: 0 }}
-          exit={{ y: "100%" }}
-          transition={{ type: "spring", damping: 30, stiffness: 300 }}
-          drag="y"
-          dragConstraints={{ top: 0 }}
-          dragElastic={{ top: 0, bottom: 0.5 }}
-          onDragStart={handleDragStart}
-          onDragEnd={handleDragEnd}
-        >
-          {/* Drag indicator */}
-          <div 
-            className={cn(
-              "absolute top-0 left-0 right-0 z-50 flex items-center justify-center pt-2 pb-1 touch-none",
-              isDragging && "bg-gradient-to-b from-black/20 to-transparent"
-            )}
+        <>
+          {/* Background that shows when dragging */}
+          <motion.div 
+            className="fixed inset-0 z-40 bg-black/60"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: isDragging ? 1 : 0 }}
+            exit={{ opacity: 0 }}
+            style={{ pointerEvents: isDragging ? 'auto' : 'none' }}
+          />
+          
+          <motion.div
+            ref={containerRef}
+            className="fixed inset-0 z-50 bg-background"
+            style={{
+              y,
+              opacity,
+              scale,
+              borderRadius,
+              transformOrigin: "top center",
+            }}
+            initial={{ y: "100%" }}
+            animate={{ y: 0 }}
+            exit={{ y: "100%" }}
+            transition={{ type: "spring", damping: 30, stiffness: 300 }}
+            drag="y"
+            dragConstraints={{ top: 0 }}
+            dragElastic={{ top: 0, bottom: 0.5 }}
+            onDragStart={handleDragStart}
+            onDragEnd={handleDragEnd}
           >
-            <div className="w-10 h-1 rounded-full bg-white/30" />
-          </div>
-
-          {/* Hint text when dragging */}
-          {isDragging && (
-            <motion.div
-              initial={{ opacity: 0, y: -10 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="absolute top-8 left-0 right-0 z-50 flex justify-center"
+            {/* Drag indicator */}
+            <div 
+              className={cn(
+                "absolute top-0 left-0 right-0 z-50 flex items-center justify-center pt-2 pb-1 touch-none",
+                isDragging && "bg-gradient-to-b from-black/20 to-transparent"
+              )}
             >
-              <span className="text-xs text-white/70 bg-black/50 px-3 py-1 rounded-full">
-                Solte para minimizar
-              </span>
-            </motion.div>
-          )}
+              <div className="w-10 h-1 rounded-full bg-white/30" />
+            </div>
 
-          {/* Content */}
-          <div className="h-full overflow-hidden">
-            {children}
-          </div>
-        </motion.div>
+            {/* Hint text when dragging */}
+            {isDragging && (
+              <motion.div
+                initial={{ opacity: 0, y: -10 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="absolute top-8 left-0 right-0 z-50 flex justify-center"
+              >
+                <span className="text-xs text-white/70 bg-black/50 px-3 py-1 rounded-full">
+                  Solte para minimizar
+                </span>
+              </motion.div>
+            )}
+
+            {/* Content */}
+            <div className="h-full overflow-hidden">
+              {children}
+            </div>
+          </motion.div>
+        </>
       )}
     </AnimatePresence>
   );
