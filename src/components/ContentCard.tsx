@@ -1,7 +1,7 @@
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Play, Clock, BookOpen, Lock, Crown, ShoppingCart, Zap } from "lucide-react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { useState, useEffect, useRef } from "react";
 import { supabase } from "@/integrations/supabase/client";
@@ -77,6 +77,7 @@ export const ContentCard = ({
   const discount = propDiscount !== undefined ? propDiscount : content?.discount || 0;
   const isPurchased = propIsPurchased !== undefined ? propIsPurchased : false;
   const navigate = useNavigate();
+  const location = useLocation();
   const isRestricted = !isFree || requiredPlan;
   const isPaid = visibility === "paid";
   const [isBoosted, setIsBoosted] = useState(false);
@@ -194,7 +195,7 @@ export const ContentCard = ({
     } else if (onClick) {
       onClick();
     } else {
-      navigate(`/watch/${id}`);
+      navigate(`/watch/${id}`, isMobile ? { state: { backgroundLocation: location } } : undefined);
     }
   };
 

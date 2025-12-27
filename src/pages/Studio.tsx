@@ -1,5 +1,6 @@
 import { useAuth } from "@/contexts/AuthContext";
-import { Navigate, useNavigate } from "react-router-dom";
+import { Navigate, useNavigate, useLocation } from "react-router-dom";
+import { useIsMobile } from "@/hooks/use-mobile";
 import { SidebarProvider } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/AppSidebar";
 import { Header } from "@/components/Header";
@@ -28,6 +29,8 @@ import { ptBR } from "date-fns/locale";
 export default function Studio() {
   const { user, role, loading } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
+  const isMobile = useIsMobile();
 
   const [stats, setStats] = useState({
     totalContents: 0,
@@ -435,7 +438,7 @@ export default function Studio() {
                         <div 
                           key={content.id}
                           className="flex items-center gap-3 p-3 rounded-lg hover:bg-muted/30 transition-colors cursor-pointer"
-                          onClick={() => navigate(`/watch/${content.id}`)}
+                          onClick={() => navigate(`/watch/${content.id}`, isMobile ? { state: { backgroundLocation: location } } : undefined)}
                         >
                           <img 
                             src={content.thumbnail_url || '/placeholder.svg'} 

@@ -672,21 +672,27 @@ function WatchContent() {
 
           {/* Scrollable content */}
           <div className="flex-1 overflow-auto pb-20">
-            <MobileWatchLayout
-              content={content}
-              followersCount={followersCount}
-              isLiked={isLiked}
-              isSaved={isSaved}
-              isFavorited={isFavorited}
-              likesCount={likesCount}
-              onToggleLike={toggleLike}
-              onToggleSave={toggleSave}
-              onToggleFavorite={toggleFavorite}
-              onAddToStudy={() => setShowAddToStudyModal(true)}
-              onShowComments={() => setShowMobileComments(true)}
-              relatedContents={relatedContents}
-              onContentClick={(id) => navigate(`/watch/${id}`)}
-            />
+              <MobileWatchLayout
+                content={content}
+                followersCount={followersCount}
+                isLiked={isLiked}
+                isSaved={isSaved}
+                isFavorited={isFavorited}
+                likesCount={likesCount}
+                onToggleLike={toggleLike}
+                onToggleSave={toggleSave}
+                onToggleFavorite={toggleFavorite}
+                onAddToStudy={() => setShowAddToStudyModal(true)}
+                onShowComments={() => setShowMobileComments(true)}
+                relatedContents={relatedContents}
+                onContentClick={(nextId) =>
+                  navigate(`/watch/${nextId}`, {
+                    state: {
+                      backgroundLocation: (location.state as any)?.backgroundLocation ?? location,
+                    },
+                  })
+                }
+              />
           </div>
         </div>
       </MobileWatchOverlay>

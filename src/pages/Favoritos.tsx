@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { useAuth } from "@/contexts/AuthContext";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
+import { useIsMobile } from "@/hooks/use-mobile";
 import { AdminLayout } from "@/components/AdminLayout";
 import { ContentCard } from "@/components/ContentCard";
 import { supabase } from "@/integrations/supabase/client";
@@ -11,6 +12,8 @@ import { PurchaseModal } from "@/components/PurchaseModal";
 export default function Favoritos() {
   const { user, profile } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
+  const isMobile = useIsMobile();
   const [contents, setContents] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [showUpgradeModal, setShowUpgradeModal] = useState(false);
@@ -67,7 +70,7 @@ export default function Favoritos() {
   };
 
   const handleContentClick = (content: any) => {
-    navigate(`/watch/${content.id}`);
+    navigate(`/watch/${content.id}`, isMobile ? { state: { backgroundLocation: location } } : undefined);
   };
 
   const handleUpgradeClick = (plan: "pro" | "premium", content: any) => {

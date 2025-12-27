@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
+import { useIsMobile } from "@/hooks/use-mobile";
 import { supabase } from "@/integrations/supabase/client";
 import { Card } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -105,7 +106,7 @@ export const WatchRelated = ({ contentId, categoryId, tags, contentType, current
         creator: currentContent.creator ? { display_name: currentContent.creator.display_name } : undefined,
       }, currentTime);
     }
-    navigate(`/watch/${id}`);
+    navigate(`/watch/${id}`, isMobile ? { state: { backgroundLocation: location } } : undefined);
   };
 
   if (loading) {
