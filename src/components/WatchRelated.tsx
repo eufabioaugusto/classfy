@@ -40,6 +40,8 @@ export const WatchRelated = ({ contentId, categoryId, tags, contentType, current
   const [relatedContents, setRelatedContents] = useState<RelatedContent[]>([]);
   const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
+  const location = useLocation();
+  const isMobile = useIsMobile();
   const { startMiniPlayer } = useMiniPlayer();
 
   useEffect(() => {
