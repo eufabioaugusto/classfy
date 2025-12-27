@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { useAuth } from "@/contexts/AuthContext";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { useNavigate, useSearchParams, useLocation } from "react-router-dom";
+import { useIsMobile } from "@/hooks/use-mobile";
 import { ContentCard } from "@/components/ContentCard";
 import { ConversionModal } from "@/components/ConversionModal";
 import { SearchBar } from "@/components/SearchBar";
@@ -21,6 +22,8 @@ import { PurchaseModal } from "@/components/PurchaseModal";
 export default function Index() {
   const { user, loading: authLoading, profile } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
+  const isMobile = useIsMobile();
   const [searchParams, setSearchParams] = useSearchParams();
   const { activeCount, limit, canCreateMore } = useStudies();
 
@@ -187,7 +190,7 @@ export default function Index() {
       navigate("/auth");
       return;
     }
-    navigate(`/watch/${content.id}`);
+    navigate(`/watch/${content.id}`, isMobile ? { state: { backgroundLocation: location } } : undefined);
   };
 
   const handleUpgradeClick = (plan: "pro" | "premium", content: any) => {

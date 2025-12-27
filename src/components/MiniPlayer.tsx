@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { useMiniPlayer } from "@/contexts/MiniPlayerContext";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
 import { X, Play, Pause, ChevronUp, ChevronDown, PictureInPicture2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { cn } from "@/lib/utils";
@@ -18,6 +18,7 @@ interface RelatedContent {
 // Desktop MiniPlayer Component
 function DesktopMiniPlayer() {
   const navigate = useNavigate();
+  const location = useLocation();
   const {
     state,
     videoRef,
@@ -99,13 +100,13 @@ function DesktopMiniPlayer() {
 
   const handleGoToWatch = () => {
     if (state.content?.id) {
-      navigate(`/watch/${state.content.id}`);
+      navigate(`/watch/${state.content.id}`, { state: { backgroundLocation: location } });
       closeMiniPlayer();
     }
   };
 
   const handlePlayRelated = (content: RelatedContent) => {
-    navigate(`/watch/${content.id}`);
+    navigate(`/watch/${content.id}`, { state: { backgroundLocation: location } });
     closeMiniPlayer();
   };
 

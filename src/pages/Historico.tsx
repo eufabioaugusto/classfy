@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { useAuth } from "@/contexts/AuthContext";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
+import { useIsMobile } from "@/hooks/use-mobile";
 import { AdminLayout } from "@/components/AdminLayout";
 import { supabase } from "@/integrations/supabase/client";
 import { History, AlertCircle, Search, Trash2, MoreVertical, Bookmark, Share2, Clock, X, Play, Music, Video, Zap, Filter } from "lucide-react";
@@ -28,6 +29,8 @@ import {
 } from "@/components/ui/alert-dialog";
 import { toast } from "sonner";
 import { format, isToday, isYesterday, isThisWeek, isThisMonth, parseISO } from "date-fns";
+
+// ... keep existing code
 import { ptBR } from "date-fns/locale";
 
 interface HistoryItem {
@@ -263,7 +266,7 @@ export default function Historico() {
   };
 
   const handleContentClick = (item: HistoryItem) => {
-    navigate(`/watch/${item.content.id}`);
+    navigate(`/watch/${item.content.id}`, isMobile ? { state: { backgroundLocation: location } } : undefined);
   };
 
   const formatDuration = (seconds: number | null) => {

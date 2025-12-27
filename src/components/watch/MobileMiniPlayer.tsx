@@ -1,5 +1,5 @@
 import { useMiniPlayer } from "@/contexts/MiniPlayerContext";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
 import { X, Play, Pause } from "lucide-react";
 import { motion, useMotionValue, useTransform, PanInfo, AnimatePresence } from "framer-motion";
 import { useRef, useEffect, useCallback, useState } from "react";
@@ -9,6 +9,7 @@ const EXPAND_THRESHOLD = -80; // Drag up to expand
 
 export function MobileMiniPlayer() {
   const navigate = useNavigate();
+  const location = useLocation();
   const {
     state,
     videoRef,
@@ -72,7 +73,7 @@ export function MobileMiniPlayer() {
       // Drag up to expand (go to watch page)
       if (offset.y < EXPAND_THRESHOLD || velocity.y < -300) {
         if (state.content?.id) {
-          navigate(`/watch/${state.content.id}`);
+          navigate(`/watch/${state.content.id}`, { state: { backgroundLocation: location } });
         }
       }
       // Drag down to dismiss
@@ -88,7 +89,7 @@ export function MobileMiniPlayer() {
 
   const handleGoToWatch = () => {
     if (state.content?.id) {
-      navigate(`/watch/${state.content.id}`);
+      navigate(`/watch/${state.content.id}`, { state: { backgroundLocation: location } });
     }
   };
 
