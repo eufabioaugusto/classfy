@@ -13,7 +13,8 @@ import {
   MessageCircle,
   MoreHorizontal,
   Clock,
-  Play
+  Play,
+  ListVideo
 } from "lucide-react";
 import { FollowButton } from "@/components/FollowButton";
 import { ShareButton } from "@/components/ShareButton";
@@ -30,6 +31,7 @@ interface MobileWatchLayoutProps {
     likes_count: number;
     created_at?: string;
     tags: string[] | null;
+    content_type?: string;
     creator?: {
       id: string;
       display_name: string;
@@ -46,6 +48,9 @@ interface MobileWatchLayoutProps {
   onToggleFavorite: () => void;
   onAddToStudy: () => void;
   onShowComments: () => void;
+  onShowCurriculum?: () => void;
+  isCourse?: boolean;
+  totalLessons?: number;
   relatedContents: Array<{
     id: string;
     title: string;
@@ -81,6 +86,9 @@ export function MobileWatchLayout({
   onToggleFavorite,
   onAddToStudy,
   onShowComments,
+  onShowCurriculum,
+  isCourse = false,
+  totalLessons = 0,
   relatedContents,
   onContentClick,
 }: MobileWatchLayoutProps) {
@@ -88,10 +96,17 @@ export function MobileWatchLayout({
 
   return (
     <div className="flex flex-col w-full" style={{ maxWidth: '100vw', overflowX: 'hidden' }}>
-      {/* Title - Compact */}
-      <h1 className="text-base font-semibold leading-tight px-3 pt-3 pb-2 line-clamp-2">
-        {content.title}
-      </h1>
+      {/* Title with Course Badge */}
+      <div className="flex items-start gap-2 px-3 pt-3 pb-2">
+        <h1 className="text-base font-semibold leading-tight line-clamp-2 flex-1">
+          {content.title}
+        </h1>
+        {isCourse && (
+          <Badge variant="secondary" className="flex-shrink-0 bg-primary/10 text-primary border-primary/20">
+            Curso
+          </Badge>
+        )}
+      </div>
 
       {/* Creator Row - YouTube Style */}
       <div className="flex items-center justify-between px-3 pb-2">
@@ -226,6 +241,25 @@ export function MobileWatchLayout({
           </button>
         </div>
       </div>
+
+      {/* Course Curriculum Button - Only for courses */}
+      {isCourse && onShowCurriculum && (
+        <button
+          onClick={onShowCurriculum}
+          className="mx-3 mb-3 p-3 bg-secondary/50 rounded-xl flex items-center justify-between active:bg-secondary/70 transition-colors"
+        >
+          <div className="flex items-center gap-2">
+            <ListVideo className="h-5 w-5 text-muted-foreground" />
+            <span className="text-sm font-medium">Conteúdo do Curso</span>
+            {totalLessons > 0 && (
+              <Badge variant="secondary" className="text-xs">
+                {totalLessons} aulas
+              </Badge>
+            )}
+          </div>
+          <ChevronDown className="h-5 w-5 text-muted-foreground" />
+        </button>
+      )}
 
       {/* Comments Preview Button */}
       <button
