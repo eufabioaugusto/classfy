@@ -14,6 +14,7 @@ export interface FeaturedCreator {
   order_index: number;
   creator_name: string;
   total_duration: string;
+  slug?: string | null;
 }
 
 interface FeaturedCreatorsProps {
@@ -24,7 +25,12 @@ export const FeaturedCreators = ({ creators }: FeaturedCreatorsProps) => {
   const navigate = useNavigate();
 
   const handleClick = (creator: FeaturedCreator) => {
-    navigate(creator.link_url);
+    // Redirect to dedicated page if slug exists, otherwise fallback to link_url
+    if (creator.slug) {
+      navigate(`/creators/destaque/${creator.slug}`);
+    } else {
+      navigate(creator.link_url);
+    }
   };
 
   if (creators.length === 0) return null;
