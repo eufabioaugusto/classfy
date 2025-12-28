@@ -367,7 +367,7 @@ export default function Index() {
             {/* Modo Explorar (YouTube-style feed) */}
             {isExploreMode && (
               <div className="w-full max-w-7xl space-y-6 sm:space-y-12">
-                {/* Creator Approved Banner */}
+                {/* Creator Approved Banner - Always show first if applicable */}
                 <CreatorApprovedBanner />
 
                 {exploreLoading ? (
