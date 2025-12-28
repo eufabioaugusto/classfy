@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useNavigate, useSearchParams, useLocation } from "react-router-dom";
 import { useIsMobile } from "@/hooks/use-mobile";
+import { useQuery } from "@tanstack/react-query";
 import { ContentCard } from "@/components/ContentCard";
 import { ConversionModal } from "@/components/ConversionModal";
 import { SearchBar } from "@/components/SearchBar";
@@ -63,14 +64,81 @@ export default function Index() {
   const [error, setError] = useState<string | null>(null);
   const [hasSearched, setHasSearched] = useState(false);
 
-  // Explore mode state
-  const [trendingClasses, setTrendingClasses] = useState<any[]>([]);
-  const [proContents, setProContents] = useState<any[]>([]);
-  const [trendingPodcasts, setTrendingPodcasts] = useState<any[]>([]);
-  const [shorts, setShorts] = useState<any[]>([]);
-  const [premiumContents, setPremiumContents] = useState<any[]>([]);
-  const [courses, setCourses] = useState<any[]>([]);
-  const [exploreLoading, setExploreLoading] = useState(false);
+  // Explore mode data with React Query for caching
+  const { data: exploreData, isLoading: exploreLoading } = useQuery({
+    queryKey: ["explore-data"],
+    queryFn: async () => {
+      const [
+        trendingResult,
+        proResult,
+        podcastResult,
+        shortsResult,
+        premiumResult,
+        coursesResult
+      ] = await Promise.all([
+        supabase
+          .from("contents")
+          .select(`*, profiles:creator_id (display_name, avatar_url)`)
+          .eq("content_type", "aula")
+          .eq("status", "approved")
+          .order("views_count", { ascending: false })
+          .limit(4),
+        supabase
+          .from("contents")
+          .select(`*, profiles:creator_id (display_name, avatar_url)`)
+          .eq("visibility", "pro")
+          .eq("status", "approved")
+          .in("content_type", ["aula"])
+          .order("created_at", { ascending: false })
+          .limit(4),
+        supabase
+          .from("contents")
+          .select(`*, profiles:creator_id (display_name, avatar_url)`)
+          .eq("content_type", "podcast")
+          .eq("status", "approved")
+          .order("views_count", { ascending: false })
+          .limit(6),
+        supabase
+          .from("contents")
+          .select(`*, profiles:creator_id (display_name, avatar_url)`)
+          .eq("content_type", "short")
+          .eq("status", "approved")
+          .order("created_at", { ascending: false })
+          .limit(6),
+        supabase
+          .from("contents")
+          .select(`*, profiles:creator_id (display_name, avatar_url)`)
+          .eq("visibility", "premium")
+          .eq("status", "approved")
+          .order("created_at", { ascending: false })
+          .limit(4),
+        supabase
+          .from("courses")
+          .select(`*, profiles:creator_id (display_name, avatar_url)`)
+          .order("created_at", { ascending: false })
+          .limit(4)
+      ]);
+
+      return {
+        trendingClasses: trendingResult.data || [],
+        proContents: proResult.data || [],
+        trendingPodcasts: podcastResult.data || [],
+        shorts: shortsResult.data || [],
+        premiumContents: premiumResult.data || [],
+        courses: coursesResult.data || []
+      };
+    },
+    enabled: isExploreMode,
+    staleTime: 5 * 60 * 1000, // 5 minutes - prevents refetch on remount
+    gcTime: 10 * 60 * 1000, // 10 minutes cache
+  });
+
+  const trendingClasses = exploreData?.trendingClasses || [];
+  const proContents = exploreData?.proContents || [];
+  const trendingPodcasts = exploreData?.trendingPodcasts || [];
+  const shorts = exploreData?.shorts || [];
+  const premiumContents = exploreData?.premiumContents || [];
+  const courses = exploreData?.courses || [];
 
   // Modal state
   const [modalOpen, setModalOpen] = useState(false);
@@ -96,91 +164,6 @@ export default function Index() {
   };
   const handleSearchError = (error: string | null) => {
     setError(error);
-  };
-  // Load explore mode data - works even when not logged in
-  useEffect(() => {
-    if (isExploreMode) {
-      loadExploreData();
-    }
-  }, [isExploreMode]);
-
-  const loadExploreData = async () => {
-    setExploreLoading(true);
-    try {
-      // Execute all queries in parallel for maximum speed
-      const [
-        trendingResult,
-        proResult,
-        podcastResult,
-        shortsResult,
-        premiumResult,
-        coursesResult
-      ] = await Promise.all([
-        // 1. Em Alta - 4 cards (Apenas Aulas)
-        supabase
-          .from("contents")
-          .select(`*, profiles:creator_id (display_name, avatar_url)`)
-          .eq("content_type", "aula")
-          .eq("status", "approved")
-          .order("views_count", { ascending: false })
-          .limit(4),
-        
-        // 2. Itens PRO - 4 cards
-        supabase
-          .from("contents")
-          .select(`*, profiles:creator_id (display_name, avatar_url)`)
-          .eq("visibility", "pro")
-          .eq("status", "approved")
-          .in("content_type", ["aula"])
-          .order("created_at", { ascending: false })
-          .limit(4),
-        
-        // 3. Podcasts em Alta - 6 itens
-        supabase
-          .from("contents")
-          .select(`*, profiles:creator_id (display_name, avatar_url)`)
-          .eq("content_type", "podcast")
-          .eq("status", "approved")
-          .order("views_count", { ascending: false })
-          .limit(6),
-        
-        // 4. Shorts - 6 itens
-        supabase
-          .from("contents")
-          .select(`*, profiles:creator_id (display_name, avatar_url)`)
-          .eq("content_type", "short")
-          .eq("status", "approved")
-          .order("created_at", { ascending: false })
-          .limit(6),
-        
-        // 5. Itens Premium - 4 cards
-        supabase
-          .from("contents")
-          .select(`*, profiles:creator_id (display_name, avatar_url)`)
-          .eq("visibility", "premium")
-          .eq("status", "approved")
-          .order("created_at", { ascending: false })
-          .limit(4),
-        
-        // 6. Cursos - 4 cards
-        supabase
-          .from("courses")
-          .select(`*, profiles:creator_id (display_name, avatar_url)`)
-          .order("created_at", { ascending: false })
-          .limit(4)
-      ]);
-
-      setTrendingClasses(trendingResult.data || []);
-      setProContents(proResult.data || []);
-      setTrendingPodcasts(podcastResult.data || []);
-      setShorts(shortsResult.data || []);
-      setPremiumContents(premiumResult.data || []);
-      setCourses(coursesResult.data || []);
-    } catch (error) {
-      console.error("Error loading explore data:", error);
-    } finally {
-      setExploreLoading(false);
-    }
   };
 
   const handleContentClick = (content: any) => {
