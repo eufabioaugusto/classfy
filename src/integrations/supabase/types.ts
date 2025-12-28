@@ -1068,6 +1068,7 @@ export type Database = {
           creator_id: string
           description: string
           featured_image_url: string
+          hero_image_url: string | null
           id: string
           link_url: string
           order_index: number
@@ -1087,6 +1088,7 @@ export type Database = {
           creator_id: string
           description: string
           featured_image_url: string
+          hero_image_url?: string | null
           id?: string
           link_url: string
           order_index?: number
@@ -1106,6 +1108,7 @@ export type Database = {
           creator_id?: string
           description?: string
           featured_image_url?: string
+          hero_image_url?: string | null
           id?: string
           link_url?: string
           order_index?: number

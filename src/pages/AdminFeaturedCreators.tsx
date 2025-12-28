@@ -70,6 +70,7 @@ const AdminFeaturedCreators = () => {
   const [submitting, setSubmitting] = useState(false);
   const [showForm, setShowForm] = useState(false);
   const [backgroundImage, setBackgroundImage] = useState<File | null>(null);
+  const [heroImage, setHeroImage] = useState<File | null>(null);
   const [featuredImage, setFeaturedImage] = useState<File | null>(null);
   const [trailerFile, setTrailerFile] = useState<File | null>(null);
   const [skillImages, setSkillImages] = useState<(File | null)[]>([null, null, null, null]);
@@ -203,6 +204,12 @@ const AdminFeaturedCreators = () => {
       // Upload images
       const backgroundUrl = await uploadImage(backgroundImage, "background");
       const featuredUrl = await uploadImage(featuredImage, "featured");
+      
+      // Upload hero image if exists
+      let heroImageUrl: string | null = null;
+      if (heroImage) {
+        heroImageUrl = await uploadImage(heroImage, "hero");
+      }
 
       // Upload trailer if exists
       let trailerUrl: string | null = null;
@@ -239,6 +246,7 @@ const AdminFeaturedCreators = () => {
         description: formData.description,
         link_url: formData.link_url,
         background_image_url: backgroundUrl,
+        hero_image_url: heroImageUrl,
         featured_image_url: featuredUrl,
         order_index: maxOrder + 1,
         slug,
@@ -266,6 +274,7 @@ const AdminFeaturedCreators = () => {
   const resetForm = () => {
     setShowForm(false);
     setBackgroundImage(null);
+    setHeroImage(null);
     setFeaturedImage(null);
     setTrailerFile(null);
     setSkillImages([null, null, null, null]);
@@ -386,9 +395,10 @@ const AdminFeaturedCreators = () => {
                 </div>
 
                 {/* Images */}
-                <div className="grid md:grid-cols-2 gap-4">
+                <div className="grid md:grid-cols-3 gap-4">
                   <div>
-                    <Label>Imagem de Fundo (vertical)</Label>
+                    <Label>Imagem Vertical (Carrossel)</Label>
+                    <p className="text-xs text-muted-foreground mb-2">Proporção 9:16 para o carrossel</p>
                     <Input
                       type="file"
                       accept="image/*"
@@ -403,7 +413,23 @@ const AdminFeaturedCreators = () => {
                   </div>
 
                   <div>
-                    <Label>Imagem em Destaque (logo PNG)</Label>
+                    <Label>Imagem Hero 4:3 (Página Dedicada)</Label>
+                    <p className="text-xs text-muted-foreground mb-2">Proporção 4:3 horizontal</p>
+                    <Input
+                      type="file"
+                      accept="image/*"
+                      onChange={(e) => setHeroImage(e.target.files?.[0] || null)}
+                    />
+                    {heroImage && (
+                      <p className="text-xs text-muted-foreground mt-1">
+                        {heroImage.name}
+                      </p>
+                    )}
+                  </div>
+
+                  <div>
+                    <Label>Logo/Destaque (PNG)</Label>
+                    <p className="text-xs text-muted-foreground mb-2">Logo ou imagem em destaque</p>
                     <Input
                       type="file"
                       accept="image/*"
