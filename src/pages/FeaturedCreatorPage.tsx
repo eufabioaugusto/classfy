@@ -1,12 +1,20 @@
 import { useState, useEffect, useRef } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams, useNavigate, Link } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { GlobalLoader } from "@/components/GlobalLoader";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Play, Clock, Film, Users, Pause } from "lucide-react";
+import { Play, Clock, Film, Users, Moon, Sun, LogIn, LogOut, Settings, User, ArrowLeft } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
-import { Header } from "@/components/Header";
+import { useTheme } from "@/contexts/ThemeContext";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 interface Skill {
   image_url: string;
@@ -45,7 +53,8 @@ const formatDuration = (seconds: number): string => {
 const FeaturedCreatorPage = () => {
   const { slug } = useParams<{ slug: string }>();
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { user, signOut, profile } = useAuth();
+  const { theme, toggleTheme } = useTheme();
   const [creator, setCreator] = useState<FeaturedCreatorData | null>(null);
   const [loading, setLoading] = useState(true);
   const [isTrailerPaused, setIsTrailerPaused] = useState(false);
@@ -126,10 +135,80 @@ const FeaturedCreatorPage = () => {
 
   const heroImage = creator.hero_image_url || creator.background_image_url;
 
+  const getInitials = (name: string) => {
+    return name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2);
+  };
+
   return (
     <div className="min-h-screen bg-black text-white">
-      {/* HEADER */}
-      <Header />
+      {/* STANDALONE HEADER */}
+      <header className="absolute top-0 left-0 right-0 z-50 bg-gradient-to-b from-black/80 to-transparent">
+        <div className="flex items-center justify-between px-4 sm:px-6 py-4">
+          <div className="flex items-center gap-4">
+            <Button 
+              variant="ghost" 
+              size="icon" 
+              onClick={() => navigate(-1)}
+              className="text-white hover:bg-white/10"
+            >
+              <ArrowLeft className="w-5 h-5" />
+            </Button>
+            <Link to="/" className="text-xl font-bold text-white">Classfy</Link>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={toggleTheme}
+              className="text-white hover:bg-white/10"
+            >
+              {theme === "dark" ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
+            </Button>
+
+            {user ? (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="ghost" size="icon" className="text-white rounded-full p-0 h-9 w-9 hover:bg-white/10">
+                    <Avatar className="h-8 w-8">
+                      <AvatarImage src={profile?.avatar_url || undefined} alt={profile?.display_name || 'Usuário'} />
+                      <AvatarFallback className="bg-white/20 text-white text-xs">
+                        {getInitials(profile?.display_name || 'U')}
+                      </AvatarFallback>
+                    </Avatar>
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-56">
+                  <div className="px-2 py-1.5 text-sm">
+                    <div className="font-medium">{profile?.display_name || 'Usuário'}</div>
+                  </div>
+                  <DropdownMenuSeparator />
+                  {profile?.creator_channel_name && (
+                    <DropdownMenuItem onClick={() => navigate(`/@${profile.creator_channel_name}`)} className="cursor-pointer">
+                      <User className="w-4 h-4 mr-2" />
+                      Meu Perfil
+                    </DropdownMenuItem>
+                  )}
+                  <DropdownMenuItem onClick={() => navigate("/conta")} className="cursor-pointer">
+                    <Settings className="w-4 h-4 mr-2" />
+                    Configurações
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onClick={signOut} className="cursor-pointer text-destructive">
+                    <LogOut className="w-4 h-4 mr-2" />
+                    Sair
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            ) : (
+              <Button size="sm" onClick={() => navigate("/auth")} className="gap-2 bg-white text-black hover:bg-white/90">
+                <LogIn className="w-4 h-4" />
+                Entrar
+              </Button>
+            )}
+          </div>
+        </div>
+      </header>
 
       {/* HERO SECTION - Full Width */}
       <section className="w-full">
