@@ -8,40 +8,49 @@ import { Sparkles, Upload, X, PartyPopper } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
 export function CreatorApprovedBanner() {
-  const { user, profile } = useAuth();
+  const { user } = useAuth();
   const navigate = useNavigate();
   const [showBanner, setShowBanner] = useState(false);
   const [dismissed, setDismissed] = useState(false);
 
   useEffect(() => {
-    if (!user || !profile) return;
-
-    // Check if user is an approved creator
-    if (profile.creator_status !== "approved") return;
+    if (!user) return;
 
     // Check if banner was already dismissed (stored in localStorage)
     const dismissedKey = `creator_banner_dismissed_${user.id}`;
-    if (localStorage.getItem(dismissedKey)) return;
+    if (localStorage.getItem(dismissedKey)) {
+      setDismissed(true);
+      return;
+    }
 
-    // Check for unread creator_approved notification
-    const checkNotification = async () => {
+    // Check for creator_approved notification directly from database
+    const checkCreatorStatus = async () => {
+      // First check if user has the notification
       const { data: notification } = await supabase
         .from("notifications")
-        .select("id, is_read")
+        .select("id, is_read, created_at")
         .eq("user_id", user.id)
         .eq("type", "creator_approved")
         .order("created_at", { ascending: false })
         .limit(1)
         .maybeSingle();
 
-      // Show banner if notification exists and is recent (within last 7 days)
-      if (notification) {
+      if (!notification) return;
+
+      // Also verify user is actually an approved creator
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("creator_status")
+        .eq("id", user.id)
+        .single();
+
+      if (profile?.creator_status === "approved") {
         setShowBanner(true);
       }
     };
 
-    checkNotification();
-  }, [user, profile]);
+    checkCreatorStatus();
+  }, [user]);
 
   const handleDismiss = () => {
     setDismissed(true);
