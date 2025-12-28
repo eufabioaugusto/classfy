@@ -220,21 +220,29 @@ const FeaturedCreatorPage = () => {
               alt={creator.creator_name}
               className="w-full h-full object-cover"
             />
+            {/* Gradient fade to right */}
             <div className="absolute inset-0 bg-gradient-to-r from-transparent to-black/40 lg:block hidden" />
+            {/* Gradient fade from bottom */}
+            <div 
+              className="absolute inset-0 pointer-events-none"
+              style={{
+                background: 'linear-gradient(to top, rgba(0,0,0,1) 0%, rgba(0,0,0,0.6) 25%, rgba(0,0,0,0) 45%)'
+              }}
+            />
           </div>
 
           {/* Right Column - Content Vertically & Horizontally Centered */}
           <div className="flex items-center justify-center px-8 lg:px-16 py-12 lg:py-0 bg-black h-full">
-            <div className="max-w-lg w-full space-y-5 text-center lg:text-left">
+            <div className="max-w-lg w-full space-y-5 text-center">
               {/* Badge */}
-              <div className="flex justify-center lg:justify-start">
+              <div className="flex justify-center">
                 <Badge className="bg-white/10 text-white border-white/20 px-4 py-1.5 text-sm font-semibold">
                   {creator.badge_text}
                 </Badge>
               </div>
 
               {/* Featured Image/Logo */}
-              <div className="flex justify-center lg:justify-start">
+              <div className="flex justify-center">
                 <img
                   src={creator.featured_image_url}
                   alt={creator.creator_name}
@@ -255,7 +263,7 @@ const FeaturedCreatorPage = () => {
               )}
 
               {/* Stats */}
-              <div className="flex items-center justify-center lg:justify-start gap-6 text-white/70">
+              <div className="flex items-center justify-center gap-6 text-white/70">
                 {creator.total_videos > 0 && (
                   <div className="flex items-center gap-2">
                     <Film className="h-5 w-5" />
