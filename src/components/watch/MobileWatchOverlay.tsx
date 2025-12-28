@@ -1,5 +1,12 @@
 import React, { useRef, useState, useCallback, useEffect } from "react";
-import { motion, useMotionValue, useTransform, PanInfo, AnimatePresence } from "framer-motion";
+import {
+  motion,
+  useMotionValue,
+  useTransform,
+  PanInfo,
+  AnimatePresence,
+  useDragControls,
+} from "framer-motion";
 import { useMiniPlayer } from "@/contexts/MiniPlayerContext";
 import { useNavigate } from "react-router-dom";
 import { cn } from "@/lib/utils";
@@ -33,13 +40,14 @@ export function MobileWatchOverlay({
   const { startMiniPlayer } = useMiniPlayer();
   const containerRef = useRef<HTMLDivElement>(null);
   const [isDragging, setIsDragging] = useState(false);
-  
+
   // Motion values for gesture
+  const dragControls = useDragControls();
   const y = useMotionValue(0);
   const opacity = useTransform(y, [0, 200], [1, 0.5]);
   const scale = useTransform(y, [0, 300], [1, 0.85]);
   const borderRadius = useTransform(y, [0, 100], [0, 24]);
-  
+
   // Fade out content area as player is dragged
   const contentOpacity = useTransform(y, [0, 20, 100], [1, 1, 0]);
 
@@ -107,14 +115,14 @@ export function MobileWatchOverlay({
       {isVisible && (
         <>
           {/* Background that shows when dragging */}
-          <motion.div 
+          <motion.div
             className="fixed inset-0 z-40 bg-black/60"
             initial={{ opacity: 0 }}
             animate={{ opacity: isDragging ? 1 : 0 }}
             exit={{ opacity: 0 }}
-            style={{ pointerEvents: isDragging ? 'auto' : 'none' }}
+            style={{ pointerEvents: isDragging ? "auto" : "none" }}
           />
-          
+
           <motion.div
             ref={containerRef}
             className="fixed inset-0 z-50 bg-background flex flex-col"
@@ -129,18 +137,21 @@ export function MobileWatchOverlay({
             animate={{ y: 0 }}
             exit={{ y: "100%" }}
             transition={{ type: "spring", damping: 30, stiffness: 300 }}
+            drag="y"
+            dragControls={dragControls}
+            dragListener={false}
+            dragConstraints={{ top: 0 }}
+            dragElastic={{ top: 0, bottom: 0.5 }}
+            onDragStart={handleDragStart}
+            onDragEnd={handleDragEnd}
           >
             {/* Draggable area - only the player zone */}
             <motion.div
               className="flex-shrink-0 touch-none"
-              drag="y"
-              dragConstraints={{ top: 0 }}
-              dragElastic={{ top: 0, bottom: 0.5 }}
-              onDragStart={handleDragStart}
-              onDragEnd={handleDragEnd}
+              onPointerDown={(e) => dragControls.start(e)}
             >
               {/* Drag indicator */}
-              <div 
+              <div
                 className={cn(
                   "absolute top-0 left-0 right-0 z-50 flex items-center justify-center pt-2 pb-1",
                   isDragging && "bg-gradient-to-b from-black/20 to-transparent"
@@ -167,7 +178,7 @@ export function MobileWatchOverlay({
             </motion.div>
 
             {/* Scrollable content area - fades out as player is dragged */}
-            <motion.div 
+            <motion.div
               className="flex-1 overflow-y-auto overscroll-contain"
               style={{ opacity: contentOpacity }}
             >
