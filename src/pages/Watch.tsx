@@ -32,6 +32,7 @@ import { MobileWatchLayout } from "@/components/watch/MobileWatchLayout";
 import { MobileCommentsSheet } from "@/components/watch/MobileCommentsSheet";
 import { MobileNotesSheet } from "@/components/watch/MobileNotesSheet";
 import { MobileWatchOverlay } from "@/components/watch/MobileWatchOverlay";
+import { MobileCurriculumSheet } from "@/components/watch/MobileCurriculumSheet";
 
 interface Content {
   id: string;
@@ -120,6 +121,7 @@ function WatchContent() {
   // Mobile sheet states
   const [showMobileComments, setShowMobileComments] = useState(false);
   const [showMobileNotes, setShowMobileNotes] = useState(false);
+  const [showMobileCurriculum, setShowMobileCurriculum] = useState(false);
   const [relatedContents, setRelatedContents] = useState<any[]>([]);
 
   // Action states for mobile
@@ -670,6 +672,14 @@ function WatchContent() {
           <AddToStudyModal open={showAddToStudyModal} onOpenChange={setShowAddToStudyModal} contentId={content.id} contentTitle={content.title} />
           <MobileCommentsSheet open={showMobileComments} onOpenChange={setShowMobileComments} contentId={content.id} />
           <MobileNotesSheet open={showMobileNotes} onOpenChange={setShowMobileNotes} contentId={content.id} onSeekTo={setSeekToTime} refreshTrigger={notesRefreshTrigger} />
+          <MobileCurriculumSheet 
+            open={showMobileCurriculum} 
+            onOpenChange={setShowMobileCurriculum} 
+            modules={courseModules}
+            currentLesson={currentLesson}
+            onLessonSelect={setCurrentLesson}
+            hasAccess={hasAccess}
+          />
 
           <div className="pb-20">
             <MobileWatchLayout
@@ -684,6 +694,9 @@ function WatchContent() {
               onToggleFavorite={toggleFavorite}
               onAddToStudy={() => setShowAddToStudyModal(true)}
               onShowComments={() => setShowMobileComments(true)}
+              onShowCurriculum={() => setShowMobileCurriculum(true)}
+              isCourse={isCourse}
+              totalLessons={courseModules.reduce((acc, mod) => acc + (mod.lessons?.length || 0), 0)}
               relatedContents={relatedContents}
               onContentClick={(nextId) =>
                 navigate(`/watch/${nextId}`, {
