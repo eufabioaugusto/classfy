@@ -133,7 +133,7 @@ const FeaturedCreatorPage = () => {
     return null;
   }
 
-  const heroImage = creator.hero_image_url || creator.background_image_url;
+  // heroImage is no longer used as we reference fields directly
 
   const getInitials = (name: string) => {
     return name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2);
@@ -210,50 +210,52 @@ const FeaturedCreatorPage = () => {
         </div>
       </header>
 
-      {/* HERO SECTION - Full Width */}
-      <section className="w-full">
-        <div className="grid lg:grid-cols-2 min-h-[85vh]">
-          {/* Left Column - Hero Image 4:3 */}
-          <div className="relative">
+      {/* HERO SECTION - Full Width, Fixed Height */}
+      <section className="w-full h-[700px]">
+        <div className="grid lg:grid-cols-2 h-full">
+          {/* Left Column - Hero Image 4:3 (uses hero_image_url) */}
+          <div className="relative h-full">
             <img
-              src={heroImage}
+              src={creator.hero_image_url || creator.background_image_url}
               alt={creator.creator_name}
               className="w-full h-full object-cover"
             />
             <div className="absolute inset-0 bg-gradient-to-r from-transparent to-black/40 lg:block hidden" />
           </div>
 
-          {/* Right Column - Content Centered */}
-          <div className="flex items-center justify-center px-8 lg:px-16 py-12 lg:py-0 bg-black">
-            <div className="max-w-lg w-full space-y-6">
+          {/* Right Column - Content Vertically & Horizontally Centered */}
+          <div className="flex items-center justify-center px-8 lg:px-16 py-12 lg:py-0 bg-black h-full">
+            <div className="max-w-lg w-full space-y-5 text-center lg:text-left">
               {/* Badge */}
-              <Badge className="bg-white/10 text-white border-white/20 px-4 py-1.5 text-sm font-semibold">
-                {creator.badge_text}
-              </Badge>
+              <div className="flex justify-center lg:justify-start">
+                <Badge className="bg-white/10 text-white border-white/20 px-4 py-1.5 text-sm font-semibold">
+                  {creator.badge_text}
+                </Badge>
+              </div>
 
               {/* Featured Image/Logo */}
-              <div>
+              <div className="flex justify-center lg:justify-start">
                 <img
                   src={creator.featured_image_url}
                   alt={creator.creator_name}
-                  className="h-16 sm:h-20 lg:h-24 w-auto object-contain"
+                  className="h-14 sm:h-16 lg:h-20 w-auto object-contain"
                 />
               </div>
 
               {/* Description */}
-              <p className="text-lg sm:text-xl lg:text-2xl text-white/90 font-medium leading-relaxed">
+              <p className="text-lg sm:text-xl text-white/90 font-medium leading-relaxed">
                 {creator.description}
               </p>
 
               {/* Short Bio */}
               {creator.short_bio && (
-                <p className="text-white/60 text-base lg:text-lg">
+                <p className="text-white/60 text-sm lg:text-base">
                   {creator.short_bio}
                 </p>
               )}
 
               {/* Stats */}
-              <div className="flex items-center gap-6 text-white/70">
+              <div className="flex items-center justify-center lg:justify-start gap-6 text-white/70">
                 {creator.total_videos > 0 && (
                   <div className="flex items-center gap-2">
                     <Film className="h-5 w-5" />
@@ -269,35 +271,35 @@ const FeaturedCreatorPage = () => {
               </div>
 
               {/* Subscription Card */}
-              <div className="bg-white/5 backdrop-blur-sm border border-white/10 rounded-2xl p-6 lg:p-8">
-                <div className="flex items-center gap-3 mb-4">
+              <div className="bg-white/5 backdrop-blur-sm border border-white/10 rounded-2xl p-5 lg:p-6 text-left">
+                <div className="flex items-center gap-3 mb-3">
                   <div className="flex -space-x-2">
                     {[1, 2, 3, 4].map((i) => (
                       <div
                         key={i}
-                        className="w-8 h-8 rounded-full bg-white/20 border-2 border-black flex items-center justify-center"
+                        className="w-7 h-7 rounded-full bg-white/20 border-2 border-black flex items-center justify-center"
                       >
-                        <Users className="h-4 w-4 text-white/80" />
+                        <Users className="h-3 w-3 text-white/80" />
                       </div>
                     ))}
                   </div>
-                  <span className="text-sm text-white/60">
+                  <span className="text-xs text-white/60">
                     +200 alunos já assinaram
                   </span>
                 </div>
 
-                <h3 className="text-lg font-semibold mb-2 text-white">
+                <h3 className="text-base font-semibold mb-2 text-white">
                   Assine e tenha acesso completo aos conteúdos de {creator.creator_name}
                 </h3>
 
-                <p className="text-white/60 text-sm mb-6">
+                <p className="text-white/60 text-xs mb-4">
                   Acesso ilimitado a todas as aulas, materiais exclusivos e certificado de conclusão.
                 </p>
 
                 <Button
                   onClick={handleSubscribe}
                   size="lg"
-                  className="w-full bg-white hover:bg-white/90 text-black font-semibold text-lg py-6"
+                  className="w-full bg-white hover:bg-white/90 text-black font-semibold"
                 >
                   Assinar Agora
                 </Button>
@@ -353,13 +355,16 @@ const FeaturedCreatorPage = () => {
       {creator.trailer_url && (
         <section className="py-16 lg:py-24 bg-black border-t border-white/10">
           <div className="container mx-auto px-4">
-            <div className="max-w-5xl mx-auto">
-              <div className="flex items-center gap-3 mb-6">
-                <Play className="h-6 w-6 text-white" />
-                <h2 className="text-2xl lg:text-3xl font-bold text-white">Trailer</h2>
-              </div>
-
+            <div className="max-w-5xl mx-auto space-y-6">
+              {/* Video Container with Badge */}
               <div className="relative aspect-video rounded-2xl overflow-hidden bg-black/50 shadow-2xl">
+                {/* Trailer Badge - Top Right Corner */}
+                <div className="absolute top-4 right-4 z-10">
+                  <Badge className="bg-black/60 text-white border-white/20 px-3 py-1 text-sm font-medium backdrop-blur-sm">
+                    Trailer
+                  </Badge>
+                </div>
+
                 <video
                   ref={videoRef}
                   src={creator.trailer_url}
@@ -369,7 +374,7 @@ const FeaturedCreatorPage = () => {
                   onPlay={handleVideoPlay}
                   onPause={handleVideoPause}
                   controls
-                  poster={heroImage}
+                  poster={creator.hero_image_url || creator.background_image_url}
                   className="w-full h-full object-cover"
                 >
                   Seu navegador não suporta vídeos.
@@ -408,6 +413,18 @@ const FeaturedCreatorPage = () => {
                     </div>
                   </div>
                 )}
+              </div>
+
+              {/* Button below trailer */}
+              <div className="flex justify-center">
+                <Button
+                  onClick={() => navigate(`/@${creator.creator_name}`)}
+                  size="lg"
+                  variant="outline"
+                  className="border-white/30 text-white hover:bg-white/10 font-semibold px-8"
+                >
+                  Ver todos os conteúdos
+                </Button>
               </div>
             </div>
           </div>
