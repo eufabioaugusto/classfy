@@ -1,11 +1,9 @@
-import { useEffect, useState } from "react";
-import { supabase } from "@/integrations/supabase/client";
 import { Carousel, CarouselContent, CarouselItem, CarouselNext, CarouselPrevious } from "@/components/ui/carousel";
 import { Badge } from "@/components/ui/badge";
 import { Clock } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
-interface FeaturedCreator {
+export interface FeaturedCreator {
   id: string;
   creator_id: string;
   background_image_url: string;
@@ -18,66 +16,18 @@ interface FeaturedCreator {
   total_duration: string;
 }
 
-export const FeaturedCreators = () => {
-  const [creators, setCreators] = useState<FeaturedCreator[]>([]);
-  const [loading, setLoading] = useState(true);
+interface FeaturedCreatorsProps {
+  creators: FeaturedCreator[];
+}
+
+export const FeaturedCreators = ({ creators }: FeaturedCreatorsProps) => {
   const navigate = useNavigate();
-
-  useEffect(() => {
-    fetchFeaturedCreators();
-  }, []);
-
-  const fetchFeaturedCreators = async () => {
-    try {
-      const { data, error } = await supabase
-        .from("featured_creators")
-        .select(
-          `
-          *,
-          profiles:creator_id (
-            display_name,
-            creator_channel_name
-          )
-        `,
-        )
-        .order("order_index", { ascending: true });
-
-      if (error) throw error;
-
-      // Calculate total duration for each creator
-      const creatorsWithDuration = await Promise.all(
-        data.map(async (creator: any) => {
-          const { data: contents } = await supabase
-            .from("contents")
-            .select("duration_seconds")
-            .eq("creator_id", creator.creator_id)
-            .eq("status", "approved");
-
-          const totalSeconds = contents?.reduce((acc, c) => acc + (c.duration_seconds || 0), 0) || 0;
-          const hours = Math.floor(totalSeconds / 3600);
-          const minutes = Math.floor((totalSeconds % 3600) / 60);
-
-          return {
-            ...creator,
-            creator_name: creator.profiles?.creator_channel_name || creator.profiles?.display_name || "Creator",
-            total_duration: hours > 0 ? `${hours}h ${minutes}min` : `${minutes} minutos`,
-          };
-        }),
-      );
-
-      setCreators(creatorsWithDuration);
-    } catch (error) {
-      console.error("Error fetching featured creators:", error);
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const handleClick = (creator: FeaturedCreator) => {
     navigate(creator.link_url);
   };
 
-  if (loading || creators.length === 0) return null;
+  if (creators.length === 0) return null;
 
   const isCarousel = creators.length > 6;
 
