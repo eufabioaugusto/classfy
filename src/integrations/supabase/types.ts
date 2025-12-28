@@ -1063,6 +1063,7 @@ export type Database = {
         Row: {
           background_image_url: string
           badge_text: string
+          commission_link: string | null
           created_at: string | null
           creator_id: string
           description: string
@@ -1070,11 +1071,18 @@ export type Database = {
           id: string
           link_url: string
           order_index: number
+          short_bio: string | null
+          skills: Json | null
+          slug: string | null
+          total_duration_seconds: number | null
+          total_videos: number | null
+          trailer_url: string | null
           updated_at: string | null
         }
         Insert: {
           background_image_url: string
           badge_text?: string
+          commission_link?: string | null
           created_at?: string | null
           creator_id: string
           description: string
@@ -1082,11 +1090,18 @@ export type Database = {
           id?: string
           link_url: string
           order_index?: number
+          short_bio?: string | null
+          skills?: Json | null
+          slug?: string | null
+          total_duration_seconds?: number | null
+          total_videos?: number | null
+          trailer_url?: string | null
           updated_at?: string | null
         }
         Update: {
           background_image_url?: string
           badge_text?: string
+          commission_link?: string | null
           created_at?: string | null
           creator_id?: string
           description?: string
@@ -1094,6 +1109,12 @@ export type Database = {
           id?: string
           link_url?: string
           order_index?: number
+          short_bio?: string | null
+          skills?: Json | null
+          slug?: string | null
+          total_duration_seconds?: number | null
+          total_videos?: number | null
+          trailer_url?: string | null
           updated_at?: string | null
         }
         Relationships: [

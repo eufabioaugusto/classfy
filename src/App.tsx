@@ -45,6 +45,7 @@ const Watch = lazy(() => import("./pages/Watch"));
 const Listen = lazy(() => import("./pages/Listen"));
 const Shorts = lazy(() => import("./pages/Shorts"));
 const Planos = lazy(() => import("./pages/Planos"));
+const FeaturedCreatorPage = lazy(() => import("./pages/FeaturedCreatorPage"));
 
 const CreatorProfile = lazy(() => import("./pages/CreatorProfile"));
 const NotFound = lazy(() => import("./pages/NotFound"));
@@ -110,6 +111,7 @@ function AppContent() {
       <Route path="/study" element={<Study />} />
       <Route path="/planos" element={<Planos />} />
       <Route path="/messages" element={<Messages />} />
+      <Route path="/creators/destaque/:slug" element={<FeaturedCreatorPage />} />
       <Route path="/:username" element={<CreatorProfile />} />
       <Route path="*" element={<NotFound />} />
     </>
