@@ -279,16 +279,21 @@ const FeaturedCreatorPage = () => {
               </div>
 
               {/* Subscription Card */}
-              <div className="bg-white/5 backdrop-blur-sm border border-white/10 rounded-2xl p-5 lg:p-6 text-left">
-                <div className="flex items-center gap-3 mb-3">
+              <div className="bg-white/5 backdrop-blur-sm border border-white/10 rounded-2xl p-5 lg:p-6 text-center">
+                <div className="flex items-center justify-center gap-3 mb-3">
                   <div className="flex -space-x-2">
-                    {[1, 2, 3, 4].map((i) => (
-                      <div
+                    {[
+                      "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=100&h=100&fit=crop&crop=face",
+                      "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=100&h=100&fit=crop&crop=face",
+                      "https://images.unsplash.com/photo-1573497019940-1c28c88b4f3e?w=100&h=100&fit=crop&crop=face",
+                      "https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=100&h=100&fit=crop&crop=face"
+                    ].map((src, i) => (
+                      <img
                         key={i}
-                        className="w-7 h-7 rounded-full bg-white/20 border-2 border-black flex items-center justify-center"
-                      >
-                        <Users className="h-3 w-3 text-white/80" />
-                      </div>
+                        src={src}
+                        alt={`Aluno ${i + 1}`}
+                        className="w-7 h-7 rounded-full border-2 border-black object-cover"
+                      />
                     ))}
                   </div>
                   <span className="text-xs text-white/60">
@@ -307,7 +312,7 @@ const FeaturedCreatorPage = () => {
                 <Button
                   onClick={handleSubscribe}
                   size="lg"
-                  className="w-full bg-white hover:bg-white/90 text-black font-semibold"
+                  className="w-full bg-[#e21d48] hover:bg-[#c91a40] text-white font-semibold"
                 >
                   Assinar Agora
                 </Button>
@@ -395,7 +400,7 @@ const FeaturedCreatorPage = () => {
                     onClick={handlePlayClick}
                   >
                     <button 
-                      className="w-20 h-20 rounded-full bg-white/20 hover:bg-white/30 flex items-center justify-center transition-all"
+                      className="w-20 h-20 rounded-full bg-[#e21d48] hover:bg-[#c91a40] flex items-center justify-center transition-all"
                       onClick={(e) => {
                         e.stopPropagation();
                         handlePlayClick();
@@ -414,7 +419,7 @@ const FeaturedCreatorPage = () => {
                           handleSubscribe();
                         }}
                         size="lg"
-                        className="bg-white hover:bg-white/90 text-black font-semibold px-8"
+                        className="bg-[#e21d48] hover:bg-[#c91a40] text-white font-semibold px-8"
                       >
                         Assinar Agora
                       </Button>
@@ -428,8 +433,7 @@ const FeaturedCreatorPage = () => {
                 <Button
                   onClick={() => navigate(`/@${creator.creator_name}`)}
                   size="lg"
-                  variant="outline"
-                  className="border-white/30 text-white hover:bg-white/10 font-semibold px-8"
+                  className="bg-[#e21d48] hover:bg-[#c91a40] text-white font-semibold px-8"
                 >
                   Ver todos os conteúdos
                 </Button>
@@ -451,7 +455,7 @@ const FeaturedCreatorPage = () => {
           <Button
             onClick={handleSubscribe}
             size="lg"
-            className="bg-white hover:bg-white/90 text-black font-semibold text-lg px-12 py-6"
+            className="bg-[#e21d48] hover:bg-[#c91a40] text-white font-semibold text-lg px-12 py-6"
           >
             Começar Agora
           </Button>
