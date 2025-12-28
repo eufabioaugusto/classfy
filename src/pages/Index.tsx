@@ -19,6 +19,7 @@ import { GlobalLoader } from "@/components/GlobalLoader";
 import { supabase } from "@/integrations/supabase/client";
 import { UpgradeModal } from "@/components/UpgradeModal";
 import { PurchaseModal } from "@/components/PurchaseModal";
+import { CreatorApprovedBanner } from "@/components/CreatorApprovedBanner";
 
 export default function Index() {
   const { user, loading: authLoading, profile } = useAuth();
@@ -366,6 +367,9 @@ export default function Index() {
             {/* Modo Explorar (YouTube-style feed) */}
             {isExploreMode && (
               <div className="w-full max-w-7xl space-y-6 sm:space-y-12">
+                {/* Creator Approved Banner */}
+                <CreatorApprovedBanner />
+
                 {exploreLoading ? (
                   <div className="text-center py-20">
                     <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-muted/50 border border-border/30">

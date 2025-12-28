@@ -110,6 +110,20 @@ export default function AdminCreators() {
         throw roleError;
       }
 
+      // Create notification for the user
+      const { error: notificationError } = await supabase
+        .from('notifications')
+        .insert({
+          user_id: request.user_id,
+          type: 'creator_approved',
+          title: '🎉 Parabéns! Você agora é Creator!',
+          message: `Sua solicitação para o canal "${request.channel_name}" foi aprovada! Agora você pode enviar conteúdos e começar a ganhar com suas criações.`,
+        });
+
+      if (notificationError) {
+        console.error('Error creating notification:', notificationError);
+      }
+
       await fetchRequests();
     } catch (error: any) {
       setError(error.message);
