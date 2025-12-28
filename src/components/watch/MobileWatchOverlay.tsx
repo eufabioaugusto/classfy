@@ -135,7 +135,6 @@ export function MobileWatchOverlay({
               dragElastic={{ top: 0, bottom: 0.5 }}
               onDragStart={handleDragStart}
               onDragEnd={handleDragEnd}
-              style={{ y: 0 }}
             >
               {/* Drag indicator */}
               <div 
