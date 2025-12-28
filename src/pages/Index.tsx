@@ -69,6 +69,7 @@ export default function Index() {
     queryKey: ["explore-data"],
     queryFn: async () => {
       const [
+        featuredCreatorsResult,
         trendingResult,
         proResult,
         podcastResult,
@@ -76,6 +77,11 @@ export default function Index() {
         premiumResult,
         coursesResult
       ] = await Promise.all([
+        // Featured creators fetch (must load first visually)
+        supabase
+          .from("featured_creators")
+          .select(`*, profiles:creator_id (display_name, creator_channel_name)`)
+          .order("order_index", { ascending: true }),
         supabase
           .from("contents")
           .select(`*, profiles:creator_id (display_name, avatar_url)`)
@@ -119,7 +125,30 @@ export default function Index() {
           .limit(4)
       ]);
 
+      // Process featured creators with duration calculation
+      const featuredCreatorsData = featuredCreatorsResult.data || [];
+      const creatorsWithDuration = await Promise.all(
+        featuredCreatorsData.map(async (creator: any) => {
+          const { data: contents } = await supabase
+            .from("contents")
+            .select("duration_seconds")
+            .eq("creator_id", creator.creator_id)
+            .eq("status", "approved");
+
+          const totalSeconds = contents?.reduce((acc, c) => acc + (c.duration_seconds || 0), 0) || 0;
+          const hours = Math.floor(totalSeconds / 3600);
+          const minutes = Math.floor((totalSeconds % 3600) / 60);
+
+          return {
+            ...creator,
+            creator_name: creator.profiles?.creator_channel_name || creator.profiles?.display_name || "Creator",
+            total_duration: hours > 0 ? `${hours}h ${minutes}min` : `${minutes} minutos`,
+          };
+        })
+      );
+
       return {
+        featuredCreators: creatorsWithDuration,
         trendingClasses: trendingResult.data || [],
         proContents: proResult.data || [],
         trendingPodcasts: podcastResult.data || [],
@@ -133,6 +162,7 @@ export default function Index() {
     gcTime: 10 * 60 * 1000, // 10 minutes cache
   });
 
+  const featuredCreators = exploreData?.featuredCreators || [];
   const trendingClasses = exploreData?.trendingClasses || [];
   const proContents = exploreData?.proContents || [];
   const trendingPodcasts = exploreData?.trendingPodcasts || [];
@@ -346,7 +376,7 @@ export default function Index() {
                 ) : (
                   <>
                     {/* Featured Creators Section */}
-                    <FeaturedCreators />
+                    <FeaturedCreators creators={featuredCreators} />
 
                     {/* 1. Em Alta - 4 cards (Apenas Aulas) */}
                     {trendingClasses.length > 0 && (
