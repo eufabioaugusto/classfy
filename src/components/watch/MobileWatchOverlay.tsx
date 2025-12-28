@@ -1,4 +1,4 @@
-import { useRef, useState, useCallback, useEffect } from "react";
+import React, { useRef, useState, useCallback, useEffect } from "react";
 import { motion, useMotionValue, useTransform, PanInfo, AnimatePresence } from "framer-motion";
 import { useMiniPlayer } from "@/contexts/MiniPlayerContext";
 import { useNavigate } from "react-router-dom";
@@ -114,7 +114,7 @@ export function MobileWatchOverlay({
           
           <motion.div
             ref={containerRef}
-            className="fixed inset-0 z-50 bg-background"
+            className="fixed inset-0 z-50 bg-background flex flex-col"
             style={{
               y,
               opacity,
@@ -126,38 +126,47 @@ export function MobileWatchOverlay({
             animate={{ y: 0 }}
             exit={{ y: "100%" }}
             transition={{ type: "spring", damping: 30, stiffness: 300 }}
-            drag="y"
-            dragConstraints={{ top: 0 }}
-            dragElastic={{ top: 0, bottom: 0.5 }}
-            onDragStart={handleDragStart}
-            onDragEnd={handleDragEnd}
           >
-            {/* Drag indicator */}
-            <div 
-              className={cn(
-                "absolute top-0 left-0 right-0 z-50 flex items-center justify-center pt-2 pb-1 touch-none",
-                isDragging && "bg-gradient-to-b from-black/20 to-transparent"
-              )}
+            {/* Draggable area - only the player zone */}
+            <motion.div
+              className="flex-shrink-0 touch-none"
+              drag="y"
+              dragConstraints={{ top: 0 }}
+              dragElastic={{ top: 0, bottom: 0.5 }}
+              onDragStart={handleDragStart}
+              onDragEnd={handleDragEnd}
+              style={{ y: 0 }}
             >
-              <div className="w-10 h-1 rounded-full bg-white/30" />
-            </div>
-
-            {/* Hint text when dragging */}
-            {isDragging && (
-              <motion.div
-                initial={{ opacity: 0, y: -10 }}
-                animate={{ opacity: 1, y: 0 }}
-                className="absolute top-8 left-0 right-0 z-50 flex justify-center"
+              {/* Drag indicator */}
+              <div 
+                className={cn(
+                  "absolute top-0 left-0 right-0 z-50 flex items-center justify-center pt-2 pb-1",
+                  isDragging && "bg-gradient-to-b from-black/20 to-transparent"
+                )}
               >
-                <span className="text-xs text-white/70 bg-black/50 px-3 py-1 rounded-full">
-                  Solte para minimizar
-                </span>
-              </motion.div>
-            )}
+                <div className="w-10 h-1 rounded-full bg-white/30" />
+              </div>
 
-            {/* Content */}
-            <div className="h-full overflow-hidden">
-              {children}
+              {/* Hint text when dragging */}
+              {isDragging && (
+                <motion.div
+                  initial={{ opacity: 0, y: -10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="absolute top-8 left-0 right-0 z-50 flex justify-center"
+                >
+                  <span className="text-xs text-white/70 bg-black/50 px-3 py-1 rounded-full">
+                    Solte para minimizar
+                  </span>
+                </motion.div>
+              )}
+
+              {/* Video player slot - passed as first child */}
+              {React.Children.toArray(children)[0]}
+            </motion.div>
+
+            {/* Scrollable content area */}
+            <div className="flex-1 overflow-y-auto overscroll-contain">
+              {React.Children.toArray(children).slice(1)}
             </div>
           </motion.div>
         </>

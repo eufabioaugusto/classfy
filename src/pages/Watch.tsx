@@ -643,7 +643,23 @@ function WatchContent() {
         currentTime={currentPlaybackTime.current}
         onClose={handleMinimize}
       >
-        <div className="min-h-screen bg-background flex flex-col">
+        {/* First child: Player area (draggable to minimize) */}
+        <div className="bg-black">
+          <MobileVideoPlayer
+            src={isCourse && currentLesson ? currentLesson.video_url : content.file_url}
+            poster={content.thumbnail_url}
+            title={isCourse && currentLesson ? currentLesson.title : content.title}
+            artist={content.creator?.display_name}
+            onTimeUpdate={handleTimeUpdate}
+            onNoteClick={() => setShowMobileNotes(true)}
+            onMinimize={handleMinimize}
+            seekToTime={seekToTime}
+            isPodcast={content.content_type === "podcast"}
+          />
+        </div>
+
+        {/* Rest of children: Scrollable content area */}
+        <>
           <UpgradeModal open={showUpgradeModal} onOpenChange={setShowUpgradeModal} requiredPlan={requiredUpgradePlan} />
           <PurchaseModal
             open={showPurchaseModal}
@@ -655,46 +671,30 @@ function WatchContent() {
           <MobileCommentsSheet open={showMobileComments} onOpenChange={setShowMobileComments} contentId={content.id} />
           <MobileNotesSheet open={showMobileNotes} onOpenChange={setShowMobileNotes} contentId={content.id} onSeekTo={setSeekToTime} refreshTrigger={notesRefreshTrigger} />
 
-          {/* Video Player - Full width, sticky top */}
-          <div className="sticky top-0 z-40 bg-black">
-            <MobileVideoPlayer
-              src={isCourse && currentLesson ? currentLesson.video_url : content.file_url}
-              poster={content.thumbnail_url}
-              title={isCourse && currentLesson ? currentLesson.title : content.title}
-              artist={content.creator?.display_name}
-              onTimeUpdate={handleTimeUpdate}
-              onNoteClick={() => setShowMobileNotes(true)}
-              onMinimize={handleMinimize}
-              seekToTime={seekToTime}
-              isPodcast={content.content_type === "podcast"}
+          <div className="pb-20">
+            <MobileWatchLayout
+              content={content}
+              followersCount={followersCount}
+              isLiked={isLiked}
+              isSaved={isSaved}
+              isFavorited={isFavorited}
+              likesCount={likesCount}
+              onToggleLike={toggleLike}
+              onToggleSave={toggleSave}
+              onToggleFavorite={toggleFavorite}
+              onAddToStudy={() => setShowAddToStudyModal(true)}
+              onShowComments={() => setShowMobileComments(true)}
+              relatedContents={relatedContents}
+              onContentClick={(nextId) =>
+                navigate(`/watch/${nextId}`, {
+                  state: {
+                    backgroundLocation: (location.state as any)?.backgroundLocation ?? location,
+                  },
+                })
+              }
             />
           </div>
-
-          {/* Scrollable content */}
-          <div className="flex-1 overflow-auto pb-20">
-              <MobileWatchLayout
-                content={content}
-                followersCount={followersCount}
-                isLiked={isLiked}
-                isSaved={isSaved}
-                isFavorited={isFavorited}
-                likesCount={likesCount}
-                onToggleLike={toggleLike}
-                onToggleSave={toggleSave}
-                onToggleFavorite={toggleFavorite}
-                onAddToStudy={() => setShowAddToStudyModal(true)}
-                onShowComments={() => setShowMobileComments(true)}
-                relatedContents={relatedContents}
-                onContentClick={(nextId) =>
-                  navigate(`/watch/${nextId}`, {
-                    state: {
-                      backgroundLocation: (location.state as any)?.backgroundLocation ?? location,
-                    },
-                  })
-                }
-              />
-          </div>
-        </div>
+        </>
       </MobileWatchOverlay>
     );
   }
