@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
-import { Loader2, Plus, Trash2, GripVertical, ExternalLink, Image, X } from "lucide-react";
+import { Loader2, Plus, Trash2, GripVertical, ExternalLink, Pencil } from "lucide-react";
 import { GlobalLoader } from "@/components/GlobalLoader";
 import {
   Select,
@@ -29,6 +29,7 @@ interface FeaturedCreator {
   id: string;
   creator_id: string;
   background_image_url: string;
+  hero_image_url?: string | null;
   badge_text: string;
   featured_image_url: string;
   description: string;
@@ -69,11 +70,20 @@ const AdminFeaturedCreators = () => {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [showForm, setShowForm] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [backgroundImage, setBackgroundImage] = useState<File | null>(null);
   const [heroImage, setHeroImage] = useState<File | null>(null);
   const [featuredImage, setFeaturedImage] = useState<File | null>(null);
   const [trailerFile, setTrailerFile] = useState<File | null>(null);
   const [skillImages, setSkillImages] = useState<(File | null)[]>([null, null, null, null]);
+  
+  // URLs existentes para modo de edição
+  const [existingUrls, setExistingUrls] = useState({
+    background_image_url: "",
+    hero_image_url: "",
+    featured_image_url: "",
+    trailer_url: "",
+  });
   
   const [formData, setFormData] = useState({
     creator_id: "",
@@ -185,34 +195,80 @@ const AdminFeaturedCreators = () => {
     return publicUrl;
   };
 
+  const handleEdit = (creator: FeaturedCreator) => {
+    setEditingId(creator.id);
+    setShowForm(true);
+    
+    // Popula o formulário com os dados existentes
+    const skills = creator.skills || [];
+    const paddedSkills: Skill[] = [
+      skills[0] || { image_url: "", title: "", description: "" },
+      skills[1] || { image_url: "", title: "", description: "" },
+      skills[2] || { image_url: "", title: "", description: "" },
+      skills[3] || { image_url: "", title: "", description: "" },
+    ];
+
+    setFormData({
+      creator_id: creator.creator_id,
+      badge_text: creator.badge_text || "New",
+      description: creator.description || "",
+      link_url: creator.link_url || "",
+      short_bio: creator.short_bio || "",
+      total_videos: creator.total_videos || 0,
+      total_duration_seconds: creator.total_duration_seconds || 0,
+      commission_link: creator.commission_link || "",
+      skills: paddedSkills,
+    });
+
+    setExistingUrls({
+      background_image_url: creator.background_image_url || "",
+      hero_image_url: creator.hero_image_url || "",
+      featured_image_url: creator.featured_image_url || "",
+      trailer_url: creator.trailer_url || "",
+    });
+
+    // Limpa arquivos selecionados
+    setBackgroundImage(null);
+    setHeroImage(null);
+    setFeaturedImage(null);
+    setTrailerFile(null);
+    setSkillImages([null, null, null, null]);
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    if (!backgroundImage) {
-      toast.error("Adicione a imagem de fundo");
-      return;
-    }
-    
-    if (!featuredImage) {
-      toast.error("Adicione a imagem em destaque");
-      return;
+    // Para novo: exige imagens obrigatórias
+    // Para edição: usa as existentes se não forem substituídas
+    if (!editingId) {
+      if (!backgroundImage) {
+        toast.error("Adicione a imagem de fundo");
+        return;
+      }
+      if (!featuredImage) {
+        toast.error("Adicione a imagem em destaque");
+        return;
+      }
     }
 
     setSubmitting(true);
 
     try {
-      // Upload images
-      const backgroundUrl = await uploadImage(backgroundImage, "background");
-      const featuredUrl = await uploadImage(featuredImage, "featured");
-      
-      // Upload hero image if exists
-      let heroImageUrl: string | null = null;
+      // Upload ou usa URLs existentes
+      let backgroundUrl = existingUrls.background_image_url;
+      let featuredUrl = existingUrls.featured_image_url;
+      let heroImageUrl: string | null = existingUrls.hero_image_url || null;
+      let trailerUrl: string | null = existingUrls.trailer_url || null;
+
+      if (backgroundImage) {
+        backgroundUrl = await uploadImage(backgroundImage, "background");
+      }
+      if (featuredImage) {
+        featuredUrl = await uploadImage(featuredImage, "featured");
+      }
       if (heroImage) {
         heroImageUrl = await uploadImage(heroImage, "hero");
       }
-
-      // Upload trailer if exists
-      let trailerUrl: string | null = null;
       if (trailerFile) {
         trailerUrl = await uploadVideo(trailerFile, "trailer");
       }
@@ -233,39 +289,63 @@ const AdminFeaturedCreators = () => {
         }
       }
 
-      const maxOrder = Math.max(...featuredCreators.map((f) => f.order_index), -1);
+      if (editingId) {
+        // Atualiza existente
+        const { error } = await supabase
+          .from("featured_creators")
+          .update({
+            creator_id: formData.creator_id,
+            badge_text: formData.badge_text,
+            description: formData.description,
+            link_url: formData.link_url,
+            background_image_url: backgroundUrl,
+            hero_image_url: heroImageUrl,
+            featured_image_url: featuredUrl,
+            short_bio: formData.short_bio || null,
+            total_videos: formData.total_videos || 0,
+            total_duration_seconds: formData.total_duration_seconds || 0,
+            commission_link: formData.commission_link || null,
+            skills: JSON.parse(JSON.stringify(uploadedSkills)),
+            trailer_url: trailerUrl,
+          })
+          .eq("id", editingId);
 
-      // Get creator name for slug
-      const selectedCreator = creators.find(c => c.id === formData.creator_id);
-      const creatorName = selectedCreator?.creator_channel_name || selectedCreator?.display_name || "";
-      const slug = generateSlug(creatorName) + "-" + (maxOrder + 1);
+        if (error) throw error;
+        toast.success("Creator atualizado!");
+      } else {
+        // Cria novo
+        const maxOrder = Math.max(...featuredCreators.map((f) => f.order_index), -1);
+        const selectedCreator = creators.find(c => c.id === formData.creator_id);
+        const creatorName = selectedCreator?.creator_channel_name || selectedCreator?.display_name || "";
+        const slug = generateSlug(creatorName) + "-" + (maxOrder + 1);
 
-      const { error } = await supabase.from("featured_creators").insert([{
-        creator_id: formData.creator_id,
-        badge_text: formData.badge_text,
-        description: formData.description,
-        link_url: formData.link_url,
-        background_image_url: backgroundUrl,
-        hero_image_url: heroImageUrl,
-        featured_image_url: featuredUrl,
-        order_index: maxOrder + 1,
-        slug,
-        short_bio: formData.short_bio || null,
-        total_videos: formData.total_videos || 0,
-        total_duration_seconds: formData.total_duration_seconds || 0,
-        commission_link: formData.commission_link || null,
-        skills: JSON.parse(JSON.stringify(uploadedSkills)),
-        trailer_url: trailerUrl,
-      }]);
+        const { error } = await supabase.from("featured_creators").insert([{
+          creator_id: formData.creator_id,
+          badge_text: formData.badge_text,
+          description: formData.description,
+          link_url: formData.link_url,
+          background_image_url: backgroundUrl,
+          hero_image_url: heroImageUrl,
+          featured_image_url: featuredUrl,
+          order_index: maxOrder + 1,
+          slug,
+          short_bio: formData.short_bio || null,
+          total_videos: formData.total_videos || 0,
+          total_duration_seconds: formData.total_duration_seconds || 0,
+          commission_link: formData.commission_link || null,
+          skills: JSON.parse(JSON.stringify(uploadedSkills)),
+          trailer_url: trailerUrl,
+        }]);
 
-      if (error) throw error;
+        if (error) throw error;
+        toast.success("Creator em destaque adicionado!");
+      }
 
-      toast.success("Creator em destaque adicionado!");
       resetForm();
       fetchData();
     } catch (error) {
-      console.error("Error creating featured creator:", error);
-      toast.error("Erro ao adicionar creator");
+      console.error("Error saving featured creator:", error);
+      toast.error("Erro ao salvar creator");
     } finally {
       setSubmitting(false);
     }
@@ -273,11 +353,18 @@ const AdminFeaturedCreators = () => {
 
   const resetForm = () => {
     setShowForm(false);
+    setEditingId(null);
     setBackgroundImage(null);
     setHeroImage(null);
     setFeaturedImage(null);
     setTrailerFile(null);
     setSkillImages([null, null, null, null]);
+    setExistingUrls({
+      background_image_url: "",
+      hero_image_url: "",
+      featured_image_url: "",
+      trailer_url: "",
+    });
     setFormData({
       creator_id: "",
       badge_text: "New",
@@ -348,7 +435,7 @@ const AdminFeaturedCreators = () => {
           <p className="text-muted-foreground">
             Gerencie os creators que aparecerão na seção de destaque da home
           </p>
-          <Button onClick={() => setShowForm(!showForm)}>
+          <Button onClick={() => { resetForm(); setShowForm(!showForm); }}>
             <Plus className="h-4 w-4 mr-2" />
             Adicionar Creator
           </Button>
@@ -357,7 +444,7 @@ const AdminFeaturedCreators = () => {
         {showForm && (
           <Card>
             <CardHeader>
-              <CardTitle>Novo Creator em Destaque</CardTitle>
+              <CardTitle>{editingId ? "Editar Creator em Destaque" : "Novo Creator em Destaque"}</CardTitle>
             </CardHeader>
             <CardContent>
               <form onSubmit={handleSubmit} className="space-y-6">
@@ -397,17 +484,21 @@ const AdminFeaturedCreators = () => {
                 {/* Images */}
                 <div className="grid md:grid-cols-3 gap-4">
                   <div>
-                    <Label>Imagem Vertical (Carrossel)</Label>
+                    <Label>Imagem Vertical (Carrossel){!editingId && " *"}</Label>
                     <p className="text-xs text-muted-foreground mb-2">Proporção 9:16 para o carrossel</p>
                     <Input
                       type="file"
                       accept="image/*"
                       onChange={(e) => setBackgroundImage(e.target.files?.[0] || null)}
-                      required
+                      required={!editingId}
                     />
-                    {backgroundImage && (
+                    {backgroundImage ? (
                       <p className="text-xs text-muted-foreground mt-1">
                         {backgroundImage.name}
+                      </p>
+                    ) : existingUrls.background_image_url && (
+                      <p className="text-xs text-green-600 mt-1">
+                        ✓ Imagem existente (manter se não selecionar nova)
                       </p>
                     )}
                   </div>
@@ -420,25 +511,33 @@ const AdminFeaturedCreators = () => {
                       accept="image/*"
                       onChange={(e) => setHeroImage(e.target.files?.[0] || null)}
                     />
-                    {heroImage && (
+                    {heroImage ? (
                       <p className="text-xs text-muted-foreground mt-1">
                         {heroImage.name}
+                      </p>
+                    ) : existingUrls.hero_image_url && (
+                      <p className="text-xs text-green-600 mt-1">
+                        ✓ Imagem existente
                       </p>
                     )}
                   </div>
 
                   <div>
-                    <Label>Logo/Destaque (PNG)</Label>
+                    <Label>Logo/Destaque (PNG){!editingId && " *"}</Label>
                     <p className="text-xs text-muted-foreground mb-2">Logo ou imagem em destaque</p>
                     <Input
                       type="file"
                       accept="image/*"
                       onChange={(e) => setFeaturedImage(e.target.files?.[0] || null)}
-                      required
+                      required={!editingId}
                     />
-                    {featuredImage && (
+                    {featuredImage ? (
                       <p className="text-xs text-muted-foreground mt-1">
                         {featuredImage.name}
+                      </p>
+                    ) : existingUrls.featured_image_url && (
+                      <p className="text-xs text-green-600 mt-1">
+                        ✓ Imagem existente
                       </p>
                     )}
                   </div>
@@ -513,9 +612,13 @@ const AdminFeaturedCreators = () => {
                         accept="video/*"
                         onChange={(e) => setTrailerFile(e.target.files?.[0] || null)}
                       />
-                      {trailerFile && (
+                      {trailerFile ? (
                         <p className="text-xs text-muted-foreground mt-1">
                           {trailerFile.name}
+                        </p>
+                      ) : existingUrls.trailer_url && (
+                        <p className="text-xs text-green-600 mt-1">
+                          ✓ Trailer existente
                         </p>
                       )}
                     </div>
@@ -555,6 +658,15 @@ const AdminFeaturedCreators = () => {
                               onChange={(e) => handleSkillImageChange(index, e.target.files?.[0] || null)}
                               className="text-sm"
                             />
+                            {skillImages[index] ? (
+                              <p className="text-xs text-muted-foreground mt-1">
+                                {skillImages[index]?.name}
+                              </p>
+                            ) : formData.skills[index]?.image_url && (
+                              <p className="text-xs text-green-600 mt-1">
+                                ✓ Imagem existente
+                              </p>
+                            )}
                           </div>
 
                           <div>
@@ -586,7 +698,7 @@ const AdminFeaturedCreators = () => {
                 <div className="flex gap-2 pt-4">
                   <Button type="submit" disabled={submitting}>
                     {submitting && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-                    Adicionar
+                    {editingId ? "Salvar Alterações" : "Adicionar"}
                   </Button>
                   <Button type="button" variant="outline" onClick={resetForm}>
                     Cancelar
@@ -606,7 +718,7 @@ const AdminFeaturedCreators = () => {
             </Card>
           ) : (
             featuredCreators.map((creator) => (
-              <Card key={creator.id}>
+              <Card key={creator.id} className="hover:shadow-md transition-shadow cursor-pointer" onClick={() => handleEdit(creator)}>
                 <CardContent className="p-6">
                   <div className="flex gap-4">
                     <div className="flex-shrink-0">
@@ -633,11 +745,18 @@ const AdminFeaturedCreators = () => {
                           )}
                         </div>
                         <div className="flex items-center gap-2">
+                          <Button
+                            variant="outline"
+                            size="icon"
+                            onClick={(e) => { e.stopPropagation(); handleEdit(creator); }}
+                          >
+                            <Pencil className="h-4 w-4" />
+                          </Button>
                           {creator.slug && (
                             <Button
                               variant="outline"
                               size="icon"
-                              onClick={() => window.open(`/creators/destaque/${creator.slug}`, "_blank")}
+                              onClick={(e) => { e.stopPropagation(); window.open(`/creators/destaque/${creator.slug}`, "_blank"); }}
                             >
                               <ExternalLink className="h-4 w-4" />
                             </Button>
@@ -645,7 +764,7 @@ const AdminFeaturedCreators = () => {
                           <Button
                             variant="destructive"
                             size="icon"
-                            onClick={() => handleDelete(creator.id)}
+                            onClick={(e) => { e.stopPropagation(); handleDelete(creator.id); }}
                           >
                             <Trash2 className="h-4 w-4" />
                           </Button>
