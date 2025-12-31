@@ -12,6 +12,8 @@ export interface Study {
   plan_at_creation: 'free' | 'pro' | 'premium';
   created_at: string;
   last_activity_at: string;
+  message_count: number;
+  topic_deviations_count: number;
 }
 
 export interface StudyMessage {
@@ -22,10 +24,11 @@ export interface StudyMessage {
   created_at: string;
 }
 
-const PLAN_LIMITS = {
-  free: 5,
-  pro: 50,
-  premium: Infinity,
+// Plan limits for studies, messages, and deviations
+export const PLAN_LIMITS = {
+  free: { studies: 5, messages: 30, deviations: 3 },
+  pro: { studies: 50, messages: 200, deviations: 20 },
+  premium: { studies: Infinity, messages: Infinity, deviations: Infinity },
 };
 
 export function useStudies() {
@@ -34,8 +37,8 @@ export function useStudies() {
   const [loading, setLoading] = useState(true);
   const [activeCount, setActiveCount] = useState(0);
 
-  const currentPlan = profile?.plan || 'free';
-  const limit = PLAN_LIMITS[currentPlan];
+  const currentPlan = (profile?.plan || 'free') as keyof typeof PLAN_LIMITS;
+  const limits = PLAN_LIMITS[currentPlan];
 
   useEffect(() => {
     if (user) {
@@ -58,8 +61,15 @@ export function useStudies() {
 
       if (error) throw error;
 
-      setStudies((data || []) as Study[]);
-      setActiveCount(data?.filter(s => s.status === 'active').length || 0);
+      // Map to include new columns with defaults
+      const mappedStudies = (data || []).map(s => ({
+        ...s,
+        message_count: s.message_count || 0,
+        topic_deviations_count: s.topic_deviations_count || 0,
+      })) as Study[];
+
+      setStudies(mappedStudies);
+      setActiveCount(mappedStudies.filter(s => s.status === 'active').length);
     } catch (error) {
       console.error("Error fetching studies:", error);
     } finally {
@@ -71,7 +81,7 @@ export function useStudies() {
     if (!user) return null;
 
     // Check limit
-    if (activeCount >= limit) {
+    if (activeCount >= limits.studies) {
       return { error: 'LIMIT_REACHED' };
     }
 
@@ -124,7 +134,24 @@ export function useStudies() {
     }
   };
 
-  const canCreateMore = activeCount < limit;
+  // Get usage stats for a specific study
+  const getStudyUsage = (studyId: string) => {
+    const study = studies.find(s => s.id === studyId);
+    if (!study) return null;
+
+    return {
+      messageCount: study.message_count,
+      maxMessages: limits.messages,
+      messagePercent: Math.min(100, Math.round((study.message_count / limits.messages) * 100)),
+      deviationCount: study.topic_deviations_count,
+      maxDeviations: limits.deviations,
+      deviationPercent: Math.min(100, Math.round((study.topic_deviations_count / limits.deviations) * 100)),
+      isNearLimit: study.message_count >= limits.messages * 0.8,
+      isAtLimit: study.message_count >= limits.messages,
+    };
+  };
+
+  const canCreateMore = activeCount < limits.studies;
 
   return {
     studies,
@@ -132,11 +159,13 @@ export function useStudies() {
     archivedStudies: studies.filter(s => s.status === 'archived'),
     loading,
     activeCount,
-    limit,
+    limits,
+    currentPlan,
     canCreateMore,
     createStudy,
     archiveStudy,
     updateLastActivity,
+    getStudyUsage,
     refetch: fetchStudies,
   };
 }
