@@ -7,10 +7,10 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type",
 };
 
-// Plan limits for messages and topic deviations
+// Plan limits for messages (user messages only) and topic deviations
 const PLAN_LIMITS = {
-  free: { maxMessages: 30, maxDeviations: 3 },
-  pro: { maxMessages: 200, maxDeviations: 20 },
+  free: { maxMessages: 5, maxDeviations: 3 },
+  pro: { maxMessages: 30, maxDeviations: 20 },
   premium: { maxMessages: 999999, maxDeviations: 999999 },
 };
 
