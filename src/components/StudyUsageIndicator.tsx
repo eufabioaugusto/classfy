@@ -21,10 +21,10 @@ export function StudyUsageIndicator({
   const percent = Math.min(100, Math.round((messageCount / maxMessages) * 100));
   const isPremium = plan === 'premium';
 
-  // Color thresholds based on message count
-  const isGreen = messageCount <= 15;
-  const isYellow = messageCount >= 16 && messageCount <= 25;
-  const isRed = messageCount >= 26;
+  // Color thresholds based on percentage of limit
+  const isGreen = percent < 60;
+  const isYellow = percent >= 60 && percent < 80;
+  const isRed = percent >= 80;
 
   // Don't show for premium users
   if (isPremium) return null;
