@@ -24,10 +24,10 @@ export interface StudyMessage {
   created_at: string;
 }
 
-// Plan limits for studies, messages, and deviations
+// Plan limits for studies, messages (user messages only), and deviations
 export const PLAN_LIMITS = {
-  free: { studies: 5, messages: 30, deviations: 3 },
-  pro: { studies: 50, messages: 200, deviations: 20 },
+  free: { studies: 5, messages: 5, deviations: 3 },
+  pro: { studies: 50, messages: 30, deviations: 20 },
   premium: { studies: Infinity, messages: Infinity, deviations: Infinity },
 };
 
