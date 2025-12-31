@@ -1,5 +1,6 @@
 import { ContentCard } from "@/components/ContentCard";
 import { Card } from "@/components/ui/card";
+import { useIsMobile } from "@/hooks/use-mobile";
 
 interface ContentSectionProps {
   title: string;
@@ -24,10 +25,12 @@ export const ContentSection = ({
   onUpgradeClick,
   onPurchaseClick,
 }: ContentSectionProps) => {
+  const isMobile = useIsMobile();
+
   const getGridCols = () => {
     if (aspectRatio === "vertical") {
-      // Shorts: 2 em mobile, 3 em sm, 4 em md, 6 em lg+
-      return "grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6";
+      // Shorts: 2 em mobile (4 itens = 2x2), 5 em desktop
+      return "grid-cols-2 lg:grid-cols-5";
     }
     if (aspectRatio === "square") {
       // Podcasts: 2 em mobile, 3 em sm, 4 em md, 6 em lg+
@@ -38,9 +41,15 @@ export const ContentSection = ({
   };
 
   const getSkeletonCount = () => {
-    if (aspectRatio === "vertical" || aspectRatio === "square") return 6;
+    if (aspectRatio === "vertical") return isMobile ? 4 : 5;
+    if (aspectRatio === "square") return 6;
     return 4;
   };
+
+  // Limit shorts to 4 on mobile, 5 on desktop
+  const displayContents = aspectRatio === "vertical" 
+    ? contents.slice(0, isMobile ? 4 : 5)
+    : contents;
 
   if (loading) {
     return (
@@ -76,7 +85,7 @@ export const ContentSection = ({
         </div>
       )}
       <div className={`grid ${getGridCols()} gap-3 sm:gap-4`}>
-        {contents.map((content) => (
+        {displayContents.map((content) => (
           <ContentCard
             key={content.id}
             content={content}
