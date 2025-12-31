@@ -319,6 +319,13 @@ function StudyContent() {
       if (error) throw error;
 
       setStudy(data);
+      // Initialize usage from study data
+      if (data) {
+        setStudyUsage({
+          messageCount: data.message_count || 0,
+          maxMessages: messageLimit
+        });
+      }
     } catch (error) {
       console.error("Error fetching study:", error);
       toast.error("Estudo não encontrado");
