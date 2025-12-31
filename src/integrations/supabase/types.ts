@@ -2448,6 +2448,10 @@ export type Database = {
         Args: { p_conversation_id: string; p_user_id: string }
         Returns: undefined
       }
+      get_daily_tracking_key: {
+        Args: { p_action_key: string }
+        Returns: string
+      }
       get_public_profile: {
         Args: { profile_id: string }
         Returns: {
