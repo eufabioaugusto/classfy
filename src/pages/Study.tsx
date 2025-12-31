@@ -9,6 +9,7 @@ import { Loader2, Send, ArrowLeft, MoreVertical, Edit2, Share2, Trash2, X, List,
 import { StudyMessage } from "@/hooks/useStudies";
 import { useStudies } from "@/hooks/useStudies";
 import { ChatContentCard } from "@/components/ChatContentCard";
+import { ChatMessage } from "@/components/chat/ChatMessage";
 import { StudyVideoPlayer } from "@/components/StudyVideoPlayer";
 import { StudyQuiz } from "@/components/StudyQuiz";
 import { StudyNotes } from "@/components/StudyNotes";
@@ -96,6 +97,7 @@ function StudyContent() {
   const [activePlaylist, setActivePlaylist] = useState<{messageId: string, currentIndex: number} | null>(null);
   const [autoplayCountdown, setAutoplayCountdown] = useState<number | null>(null);
   const [playlistsCount, setPlaylistsCount] = useState(0);
+  const [newestMessageId, setNewestMessageId] = useState<string | null>(null);
   const autoplayTimerRef = useRef<NodeJS.Timeout | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   
@@ -390,6 +392,8 @@ function StudyContent() {
 
       if (aiMessageError) throw aiMessageError;
 
+      // Mark this message as the newest for typewriter animation
+      setNewestMessageId(aiMessageData.id);
       await fetchMessages();
       
       setTimeout(async () => {
@@ -468,6 +472,8 @@ function StudyContent() {
 
       if (aiMessageError) throw aiMessageError;
 
+      // Mark this message as the newest for typewriter animation
+      setNewestMessageId(aiMessageData.id);
       await fetchMessages();
     } catch (error: any) {
       console.error("Error sending message:", error);
@@ -906,21 +912,18 @@ function StudyContent() {
               </div>
             ) : (
               messages.map((message) => (
-                <div key={message.id} className="space-y-3 w-full overflow-hidden">
+                <div key={message.id} className="space-y-3 w-full overflow-hidden animate-fade-in">
                   <div
                     className={`flex w-full ${
                       message.role === "user" ? "justify-end" : "justify-start"
                     }`}
                   >
-                    <div
-                      className={`rounded-lg px-3 py-2 max-w-[80%] overflow-hidden break-words ${
-                        message.role === "user"
-                          ? "bg-primary text-primary-foreground"
-                          : "bg-muted text-foreground"
-                      }`}
-                    >
-                      <p className="whitespace-pre-wrap text-sm break-words [overflow-wrap:anywhere]">{message.content}</p>
-                    </div>
+                    <ChatMessage
+                      content={message.content}
+                      role={message.role}
+                      isNew={message.id === newestMessageId && message.role === 'assistant'}
+                      className="text-sm"
+                    />
                   </div>
                   
                   {/* Mobile Content Cards */}
@@ -1020,9 +1023,16 @@ function StudyContent() {
               ))
             )}
             {sending && (
-              <div className="flex justify-start">
-                <div className="bg-muted rounded-lg px-3 py-2">
-                  <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
+              <div className="flex justify-start animate-fade-in">
+                <div className="bg-muted/50 border border-border/30 rounded-2xl rounded-tl-md px-4 py-3 shadow-sm">
+                  <div className="flex items-center gap-2">
+                    <div className="flex gap-1">
+                      <span className="w-1.5 h-1.5 bg-primary/60 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
+                      <span className="w-1.5 h-1.5 bg-primary/60 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
+                      <span className="w-1.5 h-1.5 bg-primary/60 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+                    </div>
+                    <span className="text-xs text-muted-foreground">Pensando...</span>
+                  </div>
                 </div>
               </div>
             )}
@@ -1760,21 +1770,17 @@ function StudyContent() {
                   </div>
                 ) : (
                   messages.map((message) => (
-                    <div key={message.id} className="space-y-4">
+                    <div key={message.id} className="space-y-4 animate-fade-in">
                       <div
                         className={`flex ${
                           message.role === "user" ? "justify-end" : "justify-start"
                         }`}
                       >
-                        <div
-                          className={`max-w-[80%] rounded-lg px-4 py-3 ${
-                            message.role === "user"
-                              ? "bg-primary text-primary-foreground"
-                              : "bg-muted text-foreground"
-                          }`}
-                        >
-                          <p className="whitespace-pre-wrap">{message.content}</p>
-                        </div>
+                        <ChatMessage
+                          content={message.content}
+                          role={message.role}
+                          isNew={message.id === newestMessageId && message.role === 'assistant'}
+                        />
                       </div>
                       
                       {/* Render content cards if available */}
@@ -1841,7 +1847,7 @@ function StudyContent() {
                             </div>
                           )}
                           {messageContents.get(message.id) && messageContents.get(message.id)!.length > 1 && (
-                            <div className="flex gap-2 justify-start pt-2">
+                            <div className="flex gap-2 justify-start pt-3 mt-1 border-t border-border/30">
                               {savedPlaylists.has(message.id) ? (
                                 <Button
                                   size="sm"
@@ -1851,12 +1857,10 @@ function StudyContent() {
                                     const firstContent = messageContents.get(message.id)?.[0];
                                     if (firstContent) handlePlayContent(firstContent.id);
                                   }}
-                                  className="gap-2 shadow-sm hover:shadow-md transition-all"
+                                  className="gap-2 shadow-sm hover:shadow-md transition-all h-9"
                                 >
-                                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                                  </svg>
-                                  Playlist Criada - Assistir
+                                  <Play className="w-4 h-4" />
+                                  Assistir Playlist
                                 </Button>
                               ) : (
                                 <Button
@@ -1866,11 +1870,9 @@ function StudyContent() {
                                     const contentIds = messageContents.get(message.id)?.map(c => c.id) || [];
                                     handleCreatePlaylist(message.id, contentIds);
                                   }}
-                                  className="gap-2 shadow-sm hover:shadow-md transition-all hover:border-primary/50"
+                                  className="gap-2 shadow-sm hover:shadow-md transition-all hover:border-primary/50 h-9"
                                 >
-                                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
-                                  </svg>
+                                  <List className="w-4 h-4" />
                                   Salvar Playlist ({messageContents.get(message.id)!.length} conteúdos)
                                 </Button>
                               )}
@@ -1882,9 +1884,16 @@ function StudyContent() {
                   ))
                 )}
                 {sending && (
-                  <div className="flex justify-start">
-                    <div className="bg-muted rounded-lg px-4 py-3">
-                      <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
+                  <div className="flex justify-start animate-fade-in">
+                    <div className="bg-muted/50 border border-border/30 rounded-2xl rounded-tl-md px-5 py-4 shadow-sm">
+                      <div className="flex items-center gap-2">
+                        <div className="flex gap-1">
+                          <span className="w-2 h-2 bg-primary/60 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
+                          <span className="w-2 h-2 bg-primary/60 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
+                          <span className="w-2 h-2 bg-primary/60 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+                        </div>
+                        <span className="text-sm text-muted-foreground ml-1">Pensando...</span>
+                      </div>
                     </div>
                   </div>
                 )}

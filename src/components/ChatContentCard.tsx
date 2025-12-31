@@ -214,11 +214,11 @@ export const ChatContentCard = ({
     );
   }
 
-  // Default full card
+  // Default full card - Uniform height design
   return (
-    <Card className="overflow-hidden bg-card/80 backdrop-blur-sm border border-border/30 hover:border-primary/40 hover:shadow-xl hover:shadow-primary/5 transition-all duration-300 group cursor-pointer">
+    <Card className="overflow-hidden bg-card/80 backdrop-blur-sm border border-border/30 hover:border-primary/40 hover:shadow-xl hover:shadow-primary/5 transition-all duration-300 group cursor-pointer h-full flex flex-col">
       {/* Thumbnail */}
-      <div className="relative overflow-hidden bg-muted aspect-[16/9]">
+      <div className="relative overflow-hidden bg-muted aspect-[16/9] flex-shrink-0">
         <img
           src={thumbnail_url || "/placeholder.svg"}
           alt={title}
@@ -269,21 +269,20 @@ export const ChatContentCard = ({
         </div>
       </div>
 
-      {/* Content */}
-      <div className="p-3 space-y-2.5">
-        <div className="space-y-1">
+      {/* Content - Flex grow to fill remaining space */}
+      <div className="p-3 flex flex-col flex-grow">
+        <div className="space-y-1 flex-grow">
           <h3 className="font-semibold text-foreground text-sm leading-tight line-clamp-2 min-h-[2.5rem]">
             {title}
           </h3>
-          {description && (
-            <p className="text-xs text-muted-foreground line-clamp-2 leading-relaxed">
-              {description}
-            </p>
-          )}
+          {/* Description with fixed height - always reserve space */}
+          <p className="text-xs text-muted-foreground line-clamp-2 leading-relaxed min-h-[2rem]">
+            {description || '\u00A0'}
+          </p>
         </div>
 
-        {/* Action Buttons */}
-        <div className="flex gap-2 pt-1">
+        {/* Action Buttons - Fixed at bottom */}
+        <div className="flex gap-2 pt-2 mt-auto">
           <Button
             onClick={handleWatch}
             className="flex-1 h-8 text-xs font-medium shadow-sm hover:shadow-md transition-shadow"
