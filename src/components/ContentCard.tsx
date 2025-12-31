@@ -284,7 +284,7 @@ export const ContentCard = ({
               {requiredPlan}
             </Badge>
           )}
-          {visibility === "free" && !requiredPlan && (
+          {visibility === "free" && !requiredPlan && !isShort && (
             <Badge className="bg-badge-free/95 backdrop-blur-md text-white font-semibold text-[9px] px-1.5 py-0.5 shadow-md">
               FREE
             </Badge>
