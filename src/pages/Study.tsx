@@ -73,8 +73,8 @@ function StudyContent() {
     premium: Infinity,
   };
   const MESSAGE_LIMITS: Record<'free' | 'pro' | 'premium', number> = {
-    free: 30,
-    pro: 200,
+    free: 5,
+    pro: 30,
     premium: Infinity,
   };
   const playlistLimit = PLAYLIST_LIMITS[currentPlan];
