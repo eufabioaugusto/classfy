@@ -324,7 +324,7 @@ function ShortsBottomNav() {
   ];
 
   return (
-    <nav className="fixed bottom-0 left-0 right-0 z-50 bg-black/90 backdrop-blur-xl border-t border-white/10" style={{ paddingBottom: 'max(env(safe-area-inset-bottom), 24px)' }}>
+    <nav className="fixed bottom-0 left-0 right-0 z-50 bg-black/90 backdrop-blur-xl border-t border-white/10 pb-safe">
       <div className="flex items-stretch h-16">
         {navItems.map((item, index) => {
           const Icon = item.icon;
