@@ -1023,16 +1023,14 @@ function StudyContent() {
               ))
             )}
             {sending && (
-              <div className="flex justify-start animate-fade-in">
-                <div className="bg-muted/50 border border-border/30 rounded-2xl rounded-tl-md px-4 py-3 shadow-sm">
-                  <div className="flex items-center gap-2">
-                    <div className="flex gap-1">
-                      <span className="w-1.5 h-1.5 bg-primary/60 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
-                      <span className="w-1.5 h-1.5 bg-primary/60 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
-                      <span className="w-1.5 h-1.5 bg-primary/60 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
-                    </div>
-                    <span className="text-xs text-muted-foreground">Pensando...</span>
+              <div className="flex justify-start animate-fade-in pl-1">
+                <div className="flex items-center gap-2 py-2">
+                  <div className="flex gap-1">
+                    <span className="w-1.5 h-1.5 bg-muted-foreground/60 rounded-full animate-pulse" />
+                    <span className="w-1.5 h-1.5 bg-muted-foreground/60 rounded-full animate-pulse" style={{ animationDelay: '150ms' }} />
+                    <span className="w-1.5 h-1.5 bg-muted-foreground/60 rounded-full animate-pulse" style={{ animationDelay: '300ms' }} />
                   </div>
+                  <span className="text-xs text-muted-foreground">Pensando...</span>
                 </div>
               </div>
             )}
@@ -1788,7 +1786,7 @@ function StudyContent() {
                         <div className="space-y-4 w-full">
                           {messageContents.get(message.id)!.length >= 4 ? (
                             /* Carousel for 4+ cards */
-                            <div className="relative px-12">
+                            <div className="relative">
                               <Carousel
                                 opts={{
                                   align: "start",
@@ -1796,9 +1794,9 @@ function StudyContent() {
                                 }}
                                 className="w-full"
                               >
-                                <CarouselContent className="-ml-3">
+                                <CarouselContent className="-ml-4">
                                   {messageContents.get(message.id)?.map((content: any) => (
-                                    <CarouselItem key={content.id} className="pl-3 basis-1/3">
+                                    <CarouselItem key={content.id} className="pl-4 basis-1/3">
                                       <ChatContentCard
                                         id={content.id}
                                         title={content.title}
@@ -1814,8 +1812,8 @@ function StudyContent() {
                                     </CarouselItem>
                                   ))}
                                 </CarouselContent>
-                                <CarouselPrevious className="absolute left-0 top-1/2 -translate-y-1/2" />
-                                <CarouselNext className="absolute right-0 top-1/2 -translate-y-1/2" />
+                                <CarouselPrevious className="absolute -left-4 top-1/2 -translate-y-1/2" />
+                                <CarouselNext className="absolute -right-4 top-1/2 -translate-y-1/2" />
                               </Carousel>
                             </div>
                           ) : (
@@ -1884,16 +1882,14 @@ function StudyContent() {
                   ))
                 )}
                 {sending && (
-                  <div className="flex justify-start animate-fade-in">
-                    <div className="bg-muted/50 border border-border/30 rounded-2xl rounded-tl-md px-5 py-4 shadow-sm">
-                      <div className="flex items-center gap-2">
-                        <div className="flex gap-1">
-                          <span className="w-2 h-2 bg-primary/60 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
-                          <span className="w-2 h-2 bg-primary/60 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
-                          <span className="w-2 h-2 bg-primary/60 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
-                        </div>
-                        <span className="text-sm text-muted-foreground ml-1">Pensando...</span>
+                  <div className="flex justify-start animate-fade-in pl-1">
+                    <div className="flex items-center gap-2 py-2">
+                      <div className="flex gap-1">
+                        <span className="w-1.5 h-1.5 bg-muted-foreground/60 rounded-full animate-pulse" />
+                        <span className="w-1.5 h-1.5 bg-muted-foreground/60 rounded-full animate-pulse" style={{ animationDelay: '150ms' }} />
+                        <span className="w-1.5 h-1.5 bg-muted-foreground/60 rounded-full animate-pulse" style={{ animationDelay: '300ms' }} />
                       </div>
+                      <span className="text-sm text-muted-foreground">Pensando...</span>
                     </div>
                   </div>
                 )}
