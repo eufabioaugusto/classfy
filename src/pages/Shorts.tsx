@@ -589,11 +589,9 @@ export default function Shorts() {
   };
 
   if (!user) {
-    return (
-      <div className="flex items-center justify-center h-screen bg-background">
-        <p className="text-muted-foreground">Faça login para ver os shorts</p>
-      </div>
-    );
+    // Redirect to auth page if not logged in
+    window.location.href = '/auth';
+    return null;
   }
 
   if (loading && shorts.length === 0) {
