@@ -17,7 +17,7 @@ interface ChatContentCardProps {
   duration_minutes?: number;
   required_plan?: "free" | "pro" | "premium";
   is_free?: boolean;
-  matchScore?: number;
+  relevanceScore?: number; // 0-100% relevance
   onPlay?: (contentId: string) => void;
   compact?: boolean;
 }
@@ -31,7 +31,7 @@ export const ChatContentCard = ({
   duration_minutes,
   required_plan,
   is_free = true,
-  matchScore,
+  relevanceScore,
   onPlay,
   compact = false,
 }: ChatContentCardProps) => {
@@ -230,9 +230,15 @@ export const ChatContentCard = ({
           <Badge className="bg-primary/95 backdrop-blur-md text-primary-foreground text-[10px] font-medium px-2 py-0.5 shadow-md">
             {contentTypeLabel[content_type]}
           </Badge>
-          {matchScore && matchScore > 3 && (
-            <Badge className="bg-cinematic-accent/95 backdrop-blur-md text-white text-[10px] font-medium px-2 py-0.5 shadow-md">
-              {Math.min(100, Math.round((matchScore / 10) * 100))}% relevante
+          {relevanceScore && relevanceScore >= 50 && (
+            <Badge 
+              className={`backdrop-blur-md text-white text-[10px] font-medium px-2 py-0.5 shadow-md ${
+                relevanceScore >= 85 ? 'bg-green-600/95' : 
+                relevanceScore >= 70 ? 'bg-emerald-500/95' : 
+                'bg-amber-500/95'
+              }`}
+            >
+              {relevanceScore}% match
             </Badge>
           )}
           {required_plan && required_plan !== 'free' && (

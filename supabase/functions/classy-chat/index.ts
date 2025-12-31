@@ -211,7 +211,7 @@ serve(async (req) => {
         console.log(`Total de itens disponíveis: ${availableItems.length} (${contents?.length || 0} conteúdos + ${courses?.length || 0} cursos)`);
 
         // ===== PHASE 1: DIRECT KEYWORD MATCHING (No AI, No Cost) =====
-        console.log('\n🔍 PHASE 1: Busca por palavras-chave direta...');
+        console.log('\n🔍 PHASE 1: Análise de relevância aprimorada...');
 
         const normalizeText = (text: string) => text
           .toLowerCase()
@@ -219,8 +219,9 @@ serve(async (req) => {
           .replace(/[\u0300-\u036f]/g, "");
 
         const queryNorm = normalizeText(searchQuery);
-        const stopwords = ['o', 'a', 'de', 'da', 'do', 'em', 'no', 'na', 'por', 'para', 'com', 'quero', 'quer', 'aprender', 'sobre'];
+        const stopwords = ['o', 'a', 'de', 'da', 'do', 'em', 'no', 'na', 'por', 'para', 'com', 'quero', 'quer', 'aprender', 'sobre', 'como', 'que', 'um', 'uma', 'os', 'as', 'e', 'ou', 'mas', 'se', 'qual', 'quais', 'isso', 'esse', 'essa', 'este', 'esta', 'aqui', 'ali', 'la', 'muito', 'bem', 'mais', 'menos', 'agora', 'hoje', 'me', 'meu', 'minha', 'seu', 'sua', 'voce', 'eu', 'nos'];
         
+        // Extract meaningful keywords (min 3 chars, not stopwords)
         const keywords = queryNorm
           .split(/\s+/)
           .map((w: string) => w.replace(/[!?,;.]/g, ""))
@@ -228,105 +229,132 @@ serve(async (req) => {
 
         console.log(`Keywords extraídas: [${keywords.join(', ')}]`);
 
-        const keywordMatches = availableItems.map((item: any) => {
+        // Calculate relevance score (0-100%)
+        const calculateRelevance = (item: any): { score: number; matches: string[] } => {
           const titleNorm = normalizeText(item.title);
           const descNorm = normalizeText(item.description || "");
           const tagsNorm = (item.tags || []).map((t: string) => normalizeText(t));
           const transcriptionNorm = item.transcriptions?.[0]?.text 
-            ? normalizeText(item.transcriptions[0].text) 
+            ? normalizeText(item.transcriptions[0].text.substring(0, 2000)) 
             : "";
 
-          let score = 0;
+          let baseScore = 0;
           const matches: string[] = [];
-
-          // 1. Exact phrase match (altíssima prioridade)
-          if (titleNorm.includes(queryNorm)) {
-            score += 100;
-            matches.push('exact_title');
-          }
-          if (descNorm.includes(queryNorm)) {
-            score += 60;
-            matches.push('exact_desc');
-          }
-          if (transcriptionNorm && transcriptionNorm.includes(queryNorm)) {
-            score += 40;
-            matches.push('exact_transcription');
+          
+          // 1. EXACT PHRASE MATCH (highest priority) - up to 50 points
+          if (titleNorm.includes(queryNorm) && queryNorm.length > 5) {
+            baseScore += 50;
+            matches.push('exact_phrase_title');
+          } else if (descNorm.includes(queryNorm) && queryNorm.length > 5) {
+            baseScore += 35;
+            matches.push('exact_phrase_desc');
           }
 
-          // 2. Individual keyword matches
-          keywords.forEach((keyword: string) => {
-            if (titleNorm.includes(keyword)) {
-              score += 25;
-              matches.push(`title:${keyword}`);
-            }
-            if (descNorm.includes(keyword)) {
-              score += 12;
-              matches.push(`desc:${keyword}`);
-            }
-            if (transcriptionNorm && transcriptionNorm.includes(keyword)) {
-              score += 8;
-              matches.push(`transcription:${keyword}`);
-            }
-            tagsNorm.forEach((tag: string) => {
-              if (tag.includes(keyword) || keyword.includes(tag)) {
-                score += 30;
+          // 2. KEYWORD MATCHING - remaining 50 points distributed across keywords
+          if (keywords.length > 0) {
+            const pointsPerKeyword = 50 / keywords.length;
+            
+            keywords.forEach((keyword: string) => {
+              let keywordMatched = false;
+              
+              // Title match (full points for keyword)
+              if (titleNorm.includes(keyword)) {
+                baseScore += pointsPerKeyword;
+                matches.push(`title:${keyword}`);
+                keywordMatched = true;
+              }
+              // Description match (70% of points)
+              else if (descNorm.includes(keyword)) {
+                baseScore += pointsPerKeyword * 0.7;
+                matches.push(`desc:${keyword}`);
+                keywordMatched = true;
+              }
+              // Tag match (full points)
+              else if (tagsNorm.some((tag: string) => tag.includes(keyword) || keyword.includes(tag))) {
+                baseScore += pointsPerKeyword;
                 matches.push(`tag:${keyword}`);
+                keywordMatched = true;
+              }
+              // Transcription match (40% of points - less reliable)
+              else if (transcriptionNorm && transcriptionNorm.includes(keyword)) {
+                baseScore += pointsPerKeyword * 0.4;
+                matches.push(`transcription:${keyword}`);
+                keywordMatched = true;
               }
             });
-          });
-
-          if (score > 0) {
-            console.log(`✓ "${item.title}" (${item.itemType}) - Score: ${score} | Matches: ${matches.join(', ')}`);
           }
 
-          return { ...item, keywordScore: score, matches };
+          // Ensure score is between 0 and 100
+          const finalScore = Math.min(100, Math.round(baseScore));
+          
+          return { score: finalScore, matches };
+        };
+
+        // Calculate relevance for all items
+        const scoredItems = availableItems.map((item: any) => {
+          const { score, matches } = calculateRelevance(item);
+          return { ...item, relevanceScore: score, matches };
         });
 
-        const directMatches = keywordMatches
-          .filter((c: any) => c.keywordScore > 0)
-          .sort((a: any, b: any) => b.keywordScore - a.keywordScore);
+        // Log top matches for debugging
+        const topMatches = scoredItems
+          .filter((c: any) => c.relevanceScore > 0)
+          .sort((a: any, b: any) => b.relevanceScore - a.relevanceScore)
+          .slice(0, 10);
+        
+        console.log(`\n📊 Top 10 matches antes do filtro:`);
+        topMatches.forEach((c: any) => {
+          console.log(`  ${c.relevanceScore}% - "${c.title}" | ${c.matches.join(', ')}`);
+        });
 
-        console.log(`\n✅ PHASE 1: ${directMatches.length} matches diretos encontrados`);
+        // Filter only items with >= 50% relevance
+        const MIN_RELEVANCE = 50;
+        const directMatches = scoredItems
+          .filter((c: any) => c.relevanceScore >= MIN_RELEVANCE)
+          .sort((a: any, b: any) => b.relevanceScore - a.relevanceScore);
 
-        // Se encontrou pelo menos 3 matches diretos, use apenas eles
-        if (directMatches.length >= 3) {
-          relatedContents = directMatches.slice(0, 15);
-          console.log(`✓ Suficientes! Usando ${relatedContents.length} matches diretos (sem IA)`);
+        console.log(`\n✅ PHASE 1: ${directMatches.length} matches com relevância >= ${MIN_RELEVANCE}%`);
+
+        // If we have enough direct matches, use them
+        if (directMatches.length >= 2) {
+          relatedContents = directMatches.slice(0, 10);
+          console.log(`✓ Usando ${relatedContents.length} matches diretos`);
         } else {
           // ===== PHASE 2: AI SEMANTIC ANALYSIS (Only if needed) =====
           console.log(`\n🤖 PHASE 2: Poucos matches (${directMatches.length}). Ativando análise semântica com IA...`);
 
           const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
           
-          // Pega top 20 candidatos (mesmo com score baixo) para análise IA
-          const topCandidates = keywordMatches
-            .sort((a: any, b: any) => b.keywordScore - a.keywordScore)
-            .slice(0, 20);
+          // Get top 15 candidates (even with low scores) for AI analysis
+          const topCandidates = scoredItems
+            .sort((a: any, b: any) => b.relevanceScore - a.relevanceScore)
+            .slice(0, 15);
 
           console.log(`Analisando ${topCandidates.length} candidatos com IA...`);
 
-          const semanticPrompt = `Você é um analisador de relevância semântica para conteúdos educacionais.
+          const semanticPrompt = `Você é um analisador de relevância para conteúdos educacionais.
 
-BUSCA DO USUÁRIO: "${searchQuery}"
+TEMA BUSCADO: "${searchQuery}"
 
-CONTEÚDOS:
+CONTEÚDOS A ANALISAR:
 ${topCandidates.map((c: any, i: number) => `
-${i + 1}. "${c.title}" [${c.itemType === 'course' ? 'CURSO' : c.content_type.toUpperCase()}]
-   Descrição: ${c.description || 'Sem descrição'}
+${i + 1}. "${c.title}" [${c.itemType === 'course' ? 'CURSO' : c.content_type?.toUpperCase() || 'CONTEÚDO'}]
+   Descrição: ${(c.description || 'Sem descrição').substring(0, 150)}
    Tags: ${(c.tags || []).join(', ') || 'Sem tags'}
 `).join('')}
 
-TAREFA:
-Retorne APENAS os números (separados por vírgula) dos conteúdos que são SEMANTICAMENTE RELEVANTES.
+TAREFA: Para cada conteúdo, avalie sua RELEVÂNCIA REAL para o tema buscado.
 
-EXEMPLO:
-- Busca "Deus" → Relevante: "Espiritualidade", "Luz Divina", "Fé"
-- Busca "IA" → Relevante: "Inteligência Artificial", "Machine Learning"
+CRITÉRIOS:
+- 100% = Totalmente sobre o tema (ex: busca "marketing digital" → "Curso de Marketing Digital")
+- 75% = Muito relacionado (ex: busca "marketing digital" → "SEO para E-commerce")  
+- 50% = Relacionado mas não central (ex: busca "marketing digital" → "Criação de Conteúdo")
+- 0% = Não relacionado (ex: busca "marketing digital" → "Meditação", "Mindfulness")
 
-Se NENHUM for relevante: retorne "NENHUM"
-Se houver relevantes: retorne apenas números separados por vírgula (ex: "1,3,5")
+RESPONDA APENAS no formato JSON:
+{"results": [{"index": 1, "relevance": 85}, {"index": 3, "relevance": 70}]}
 
-SUA RESPOSTA (apenas números ou NENHUM):`;
+Inclua APENAS os itens com relevância >= 50%.`;
 
           try {
             const aiResponse = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
@@ -338,55 +366,69 @@ SUA RESPOSTA (apenas números ou NENHUM):`;
               body: JSON.stringify({
                 model: "google/gemini-2.5-flash",
                 messages: [{ role: "user", content: semanticPrompt }],
-                temperature: 0.2,
+                temperature: 0.1,
               }),
             });
 
             if (!aiResponse.ok) {
               console.error('❌ IA falhou:', await aiResponse.text());
-              relatedContents = directMatches.slice(0, 15);
+              relatedContents = directMatches.slice(0, 10);
             } else {
               const aiData = await aiResponse.json();
-              const aiResult = aiData.choices[0]?.message?.content?.trim() || "NENHUM";
+              const aiResult = aiData.choices[0]?.message?.content?.trim() || "";
               console.log(`IA respondeu: ${aiResult}`);
 
-              if (aiResult === "NENHUM") {
-                relatedContents = directMatches.slice(0, 15);
-                console.log('IA não encontrou matches semânticos. Usando keywords.');
-              } else {
-                const indices = aiResult
-                  .split(',')
-                  .map((n: string) => parseInt(n.trim()) - 1)
-                  .filter((idx: number) => !isNaN(idx) && idx >= 0 && idx < topCandidates.length);
+              try {
+                // Parse JSON response
+                const jsonMatch = aiResult.match(/\{[\s\S]*\}/);
+                if (jsonMatch) {
+                  const parsed = JSON.parse(jsonMatch[0]);
+                  const results = parsed.results || [];
+                  
+                  const semanticMatches = results
+                    .filter((r: any) => r.relevance >= 50)
+                    .map((r: any) => {
+                      const idx = r.index - 1;
+                      if (idx >= 0 && idx < topCandidates.length) {
+                        return {
+                          ...topCandidates[idx],
+                          relevanceScore: r.relevance,
+                          semanticMatch: true,
+                        };
+                      }
+                      return null;
+                    })
+                    .filter((x: any) => x !== null);
 
-                const semanticMatches = indices.map((idx: number) => ({
-                  ...topCandidates[idx],
-                  keywordScore: topCandidates[idx].keywordScore + 50, // Boost semântico
-                  semanticMatch: true,
-                }));
+                  console.log(`✅ IA encontrou ${semanticMatches.length} matches semânticos`);
 
-                console.log(`✅ IA encontrou ${semanticMatches.length} matches semânticos`);
-
-                // Combina matches diretos + semânticos
-                const combined = [...directMatches, ...semanticMatches];
-                const unique = Array.from(new Map(combined.map((c: any) => [c.id, c])).values());
-                
-                relatedContents = unique
-                  .sort((a: any, b: any) => b.keywordScore - a.keywordScore)
-                  .slice(0, 15);
+                  // Combine direct + semantic, remove duplicates, sort by score
+                  const combined = [...directMatches, ...semanticMatches];
+                  const unique = Array.from(new Map(combined.map((c: any) => [c.id, c])).values());
+                  
+                  relatedContents = unique
+                    .sort((a: any, b: any) => b.relevanceScore - a.relevanceScore)
+                    .slice(0, 10);
+                } else {
+                  console.log('Resposta IA não é JSON válido, usando matches diretos');
+                  relatedContents = directMatches.slice(0, 10);
+                }
+              } catch (parseError) {
+                console.error('Erro ao parsear resposta IA:', parseError);
+                relatedContents = directMatches.slice(0, 10);
               }
             }
           } catch (aiError) {
             console.error('❌ Erro na IA:', aiError);
-            relatedContents = directMatches.slice(0, 15);
+            relatedContents = directMatches.slice(0, 10);
           }
         }
 
-        console.log(`\n🎯 RESULTADO FINAL: ${relatedContents.length} conteúdos selecionados`);
+        console.log(`\n🎯 RESULTADO FINAL: ${relatedContents.length} conteúdos com relevância >= 50%`);
         if (relatedContents.length > 0) {
-          console.log('Top 3:', relatedContents.slice(0, 3).map((c: any) => ({
+          console.log('Selecionados:', relatedContents.map((c: any) => ({
             title: c.title,
-            score: c.keywordScore,
+            relevance: `${c.relevanceScore}%`,
             semantic: c.semanticMatch || false
           })));
         }
@@ -673,12 +715,12 @@ Responda APENAS com o título, sem explicações adicionais.`;
       }
     }
 
-    // Return both message and related contents (including matchScore for debugging)
+    // Return both message and related contents with relevance percentage
     const responseData: any = { message: aiMessage };
     if (relatedContents.length > 0) {
       responseData.relatedContents = relatedContents.map((c: any) => ({
         ...c,
-        matchScore: c.matchScore // Keep score for debugging/logging
+        relevanceScore: c.relevanceScore // 0-100% relevance
       }));
     }
 
