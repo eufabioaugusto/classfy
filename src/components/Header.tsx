@@ -32,13 +32,13 @@ export function Header({ variant = "home", title, showSearch = false, isExploreM
   const { user, signOut, profile, role } = useAuth();
   const { theme, toggleTheme } = useTheme();
   const navigate = useNavigate();
-  const { activeCount, limit } = useStudies();
+  const { activeCount, limits } = useStudies();
   const [affiliateModalOpen, setAffiliateModalOpen] = useState(false);
   
   useNotificationToasts();
   
   const currentPlan = profile?.plan || 'free';
-  const limitText = limit === Infinity ? 'ilimitados' : `${activeCount}/${limit}`;
+  const limitText = limits.studies === Infinity ? 'ilimitados' : `${activeCount}/${limits.studies}`;
 
   const getInitials = (name: string) => {
     return name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2);

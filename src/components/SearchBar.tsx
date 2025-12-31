@@ -20,7 +20,7 @@ export function SearchBar({ onResults, onLoading, onError, onLimitReached }: Sea
   const [placeholderIndex, setPlaceholderIndex] = useState(0);
   const { user, profile } = useAuth();
   const navigate = useNavigate();
-  const { createStudy, canCreateMore, activeCount, limit } = useStudies();
+  const { createStudy, canCreateMore, activeCount, limits } = useStudies();
   const recognitionRef = useRef<any>(null);
 
   const placeholders = [
@@ -38,7 +38,7 @@ export function SearchBar({ onResults, onLoading, onError, onLimitReached }: Sea
   ];
 
   const currentPlan = profile?.plan || 'free';
-  const limitText = limit === Infinity ? 'ilimitados' : `${activeCount}/${limit}`;
+  const limitText = limits.studies === Infinity ? 'ilimitados' : `${activeCount}/${limits.studies}`;
 
   useEffect(() => {
     const interval = setInterval(() => {
