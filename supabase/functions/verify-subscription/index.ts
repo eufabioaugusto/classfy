@@ -21,9 +21,13 @@ serve(async (req) => {
   try {
     const authHeader = req.headers.get("Authorization");
     if (!authHeader) {
-      return new Response(JSON.stringify({ error: "Missing authorization header" }), {
+      // No auth header - return free plan gracefully
+      return new Response(JSON.stringify({ 
+        hasSubscription: false,
+        plan: 'free'
+      }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
-        status: 401,
+        status: 200,
       });
     }
 
@@ -31,10 +35,14 @@ serve(async (req) => {
     const { data: { user }, error: authError } = await supabaseClient.auth.getUser(token);
     
     if (authError || !user?.email) {
-      console.error("[VERIFY-SUBSCRIPTION] Auth error:", authError);
-      return new Response(JSON.stringify({ error: "User not authenticated" }), {
+      // Auth error or no email - return free plan gracefully instead of 401
+      console.log("[VERIFY-SUBSCRIPTION] No valid user session, returning free plan");
+      return new Response(JSON.stringify({ 
+        hasSubscription: false,
+        plan: 'free'
+      }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
-        status: 401,
+        status: 200,
       });
     }
 
