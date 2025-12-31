@@ -12,6 +12,7 @@ import { StudyUsageIndicator } from "@/components/StudyUsageIndicator";
 import { StudyLimitModal } from "@/components/StudyLimitModal";
 import { ChatContentCard } from "@/components/ChatContentCard";
 import { ChatMessage } from "@/components/chat/ChatMessage";
+import { UpgradePromptCard } from "@/components/chat/UpgradePromptCard";
 import { StudyVideoPlayer } from "@/components/StudyVideoPlayer";
 import { StudyQuiz } from "@/components/StudyQuiz";
 import { StudyNotes } from "@/components/StudyNotes";
@@ -1022,19 +1023,34 @@ function StudyContent() {
                 <p className="text-sm">Iniciando conversa...</p>
               </div>
             ) : (
-              messages.map((message) => (
+              messages.map((message) => {
+                // Check if this is a limit reached message
+                const isLimitMessage = message.role === 'assistant' && 
+                  message.content.includes('atingiu o limite');
+                
+                return (
                 <div key={message.id} className="space-y-3 w-full overflow-hidden animate-fade-in">
                   <div
                     className={`flex w-full ${
                       message.role === "user" ? "justify-end" : "justify-start"
                     }`}
                   >
-                    <ChatMessage
-                      content={message.content}
-                      role={message.role}
-                      isNew={message.id === newestMessageId && message.role === 'assistant'}
-                      className="text-sm"
-                    />
+                    {isLimitMessage ? (
+                      <UpgradePromptCard
+                        userName={profile?.display_name}
+                        currentPlan={currentPlan}
+                        messageCount={studyUsage?.messageCount || study?.message_count || 0}
+                        maxMessages={studyUsage?.maxMessages || messageLimit}
+                        onArchiveAndNew={handleArchiveAndNew}
+                      />
+                    ) : (
+                      <ChatMessage
+                        content={message.content}
+                        role={message.role}
+                        isNew={message.id === newestMessageId && message.role === 'assistant'}
+                        className="text-sm"
+                      />
+                    )}
                   </div>
                   
                   {/* Mobile Content Cards */}
@@ -1131,7 +1147,8 @@ function StudyContent() {
                     </div>
                   )}
                 </div>
-              ))
+                );
+              })
             )}
             {sending && (
               <div className="flex justify-start animate-fade-in pl-1">
@@ -1897,18 +1914,33 @@ function StudyContent() {
                     <p>Iniciando conversa sobre {study.title}...</p>
                   </div>
                 ) : (
-                  messages.map((message) => (
+                  messages.map((message) => {
+                    // Check if this is a limit reached message
+                    const isLimitMessage = message.role === 'assistant' && 
+                      message.content.includes('atingiu o limite');
+                    
+                    return (
                     <div key={message.id} className="space-y-4 animate-fade-in">
                       <div
                         className={`flex ${
                           message.role === "user" ? "justify-end" : "justify-start"
                         }`}
                       >
-                        <ChatMessage
-                          content={message.content}
-                          role={message.role}
-                          isNew={message.id === newestMessageId && message.role === 'assistant'}
-                        />
+                        {isLimitMessage ? (
+                          <UpgradePromptCard
+                            userName={profile?.display_name}
+                            currentPlan={currentPlan}
+                            messageCount={studyUsage?.messageCount || study?.message_count || 0}
+                            maxMessages={studyUsage?.maxMessages || messageLimit}
+                            onArchiveAndNew={handleArchiveAndNew}
+                          />
+                        ) : (
+                          <ChatMessage
+                            content={message.content}
+                            role={message.role}
+                            isNew={message.id === newestMessageId && message.role === 'assistant'}
+                          />
+                        )}
                       </div>
                       
                       {/* Render content cards if available */}
@@ -2009,7 +2041,8 @@ function StudyContent() {
                         </div>
                       )}
                     </div>
-                  ))
+                    );
+                  })
                 )}
                 {sending && (
                   <div className="flex justify-start animate-fade-in pl-1">
