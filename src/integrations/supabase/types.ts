@@ -1721,9 +1721,11 @@ export type Database = {
           id: string
           last_activity_at: string
           main_topic: string | null
+          message_count: number | null
           plan_at_creation: Database["public"]["Enums"]["plan_type"]
           status: string
           title: string
+          topic_deviations_count: number | null
           user_id: string
         }
         Insert: {
@@ -1732,9 +1734,11 @@ export type Database = {
           id?: string
           last_activity_at?: string
           main_topic?: string | null
+          message_count?: number | null
           plan_at_creation?: Database["public"]["Enums"]["plan_type"]
           status?: string
           title: string
+          topic_deviations_count?: number | null
           user_id: string
         }
         Update: {
@@ -1743,9 +1747,11 @@ export type Database = {
           id?: string
           last_activity_at?: string
           main_topic?: string | null
+          message_count?: number | null
           plan_at_creation?: Database["public"]["Enums"]["plan_type"]
           status?: string
           title?: string
+          topic_deviations_count?: number | null
           user_id?: string
         }
         Relationships: []
@@ -2466,6 +2472,10 @@ export type Database = {
           id: string
           updated_at: string
         }[]
+      }
+      get_study_limits: {
+        Args: { p_plan: Database["public"]["Enums"]["plan_type"] }
+        Returns: Json
       }
       has_role: {
         Args: {

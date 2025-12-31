@@ -7,6 +7,13 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type",
 };
 
+// Plan limits for messages and topic deviations
+const PLAN_LIMITS = {
+  free: { maxMessages: 30, maxDeviations: 3 },
+  pro: { maxMessages: 200, maxDeviations: 20 },
+  premium: { maxMessages: 999999, maxDeviations: 999999 },
+};
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -103,14 +110,42 @@ serve(async (req) => {
       );
     }
 
-    // Fetch user profile for personalization
+    // Fetch user profile for personalization and plan
     const { data: profile } = await supabaseServiceClient
       .from("profiles")
-      .select("display_name")
+      .select("display_name, plan")
       .eq("id", user.id)
       .single();
 
     const userName = profile?.display_name?.split(' ')[0] || 'você';
+    const userPlan = (profile?.plan || 'free') as keyof typeof PLAN_LIMITS;
+    const limits = PLAN_LIMITS[userPlan];
+
+    // ===== CHECK MESSAGE LIMIT =====
+    const currentMessageCount = study.message_count || 0;
+    const currentDeviations = study.topic_deviations_count || 0;
+    
+    console.log(`[CLASSY-CHAT] Message count: ${currentMessageCount}/${limits.maxMessages}, Deviations: ${currentDeviations}/${limits.maxDeviations}`);
+
+    // Check if message limit reached
+    if (currentMessageCount >= limits.maxMessages) {
+      console.log('[CLASSY-CHAT] Message limit reached!');
+      return new Response(
+        JSON.stringify({ 
+          error: 'MESSAGE_LIMIT_REACHED',
+          message: `${userName}, você atingiu o limite de ${limits.maxMessages} mensagens neste estudo! 📚\n\nPara continuar aprendendo, você pode:\n• Arquivar este estudo e criar um novo\n• Fazer upgrade do seu plano para mais mensagens`,
+          limitReached: true,
+          limitType: 'messages',
+          current: currentMessageCount,
+          max: limits.maxMessages,
+          plan: userPlan
+        }),
+        {
+          status: 200,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        }
+      );
+    }
 
     // Fetch active content and transcription if available
     let activeContentData: any = null;
@@ -153,6 +188,113 @@ serve(async (req) => {
     })) || [];
 
     const isFirstMessage = !messages || messages.length === 0;
+
+    // ===== CHECK TOPIC DEVIATION (only after first few messages) =====
+    let isOffTopic = false;
+    let deviationWarning = "";
+    
+    if (!isFirstMessage && currentMessageCount >= 3 && !playlistSummary && study.main_topic) {
+      // Use AI to check if message is on-topic
+      const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
+      
+      const topicCheckPrompt = `Você é um classificador de relevância de mensagens educacionais.
+
+TEMA PRINCIPAL DO ESTUDO: "${study.main_topic || study.title}"
+
+MENSAGEM DO USUÁRIO: "${message}"
+
+TAREFA: Determine se a mensagem do usuário está RELACIONADA ao tema principal do estudo.
+
+CRITÉRIOS:
+- ON_TOPIC: A mensagem pergunta ou discute algo relacionado ao tema (mesmo que tangencialmente)
+- OFF_TOPIC: A mensagem é sobre um tema COMPLETAMENTE diferente (ex: tema é "marketing", pergunta sobre "meditação")
+
+Considere ON_TOPIC:
+- Perguntas sobre o conteúdo atual
+- Pedidos de explicação ou exemplos
+- Temas relacionados ou complementares
+- Dúvidas gerais sobre aprendizado no tema
+
+Considere OFF_TOPIC APENAS se:
+- For um tema totalmente desconectado
+- Não tem nenhuma relação com o assunto principal
+
+RESPONDA APENAS: "ON_TOPIC" ou "OFF_TOPIC"`;
+
+      try {
+        const topicResponse = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${LOVABLE_API_KEY}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            model: "google/gemini-2.5-flash-lite",
+            messages: [{ role: "user", content: topicCheckPrompt }],
+            temperature: 0.1,
+          }),
+        });
+
+        if (topicResponse.ok) {
+          const topicData = await topicResponse.json();
+          const result = topicData.choices?.[0]?.message?.content?.trim().toUpperCase() || "";
+          
+          isOffTopic = result.includes("OFF_TOPIC");
+          console.log(`[CLASSY-CHAT] Topic check result: ${result}, isOffTopic: ${isOffTopic}`);
+
+          if (isOffTopic) {
+            // Increment deviation count
+            const newDeviationCount = currentDeviations + 1;
+            
+            await supabaseServiceClient
+              .from("studies")
+              .update({ topic_deviations_count: newDeviationCount })
+              .eq("id", studyId);
+
+            console.log(`[CLASSY-CHAT] Deviation count incremented to: ${newDeviationCount}`);
+
+            // Check if deviation limit reached
+            if (newDeviationCount >= limits.maxDeviations) {
+              return new Response(
+                JSON.stringify({ 
+                  error: 'DEVIATION_LIMIT_REACHED',
+                  message: `${userName}, parece que você está explorando um tema diferente de "${study.main_topic || study.title}"! 🎯\n\nEste estudo atingiu o limite de temas. Para organizar melhor seu aprendizado:\n• Crie um novo estudo para este tema\n• Ou faça upgrade para mais flexibilidade`,
+                  limitReached: true,
+                  limitType: 'deviations',
+                  current: newDeviationCount,
+                  max: limits.maxDeviations,
+                  plan: userPlan,
+                  suggestedTopic: message.substring(0, 50)
+                }),
+                {
+                  status: 200,
+                  headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+                }
+              );
+            }
+
+            // Prepare warning for the AI response
+            const remainingDeviations = limits.maxDeviations - newDeviationCount;
+            deviationWarning = `\n\n🎯 **Sugestão:** Esse tema parece diferente de "${study.main_topic || study.title}". Que tal criar um estudo separado? Você ainda tem ${remainingDeviations} desvio(s) disponível(is) neste estudo.`;
+          }
+        }
+      } catch (topicError) {
+        console.error('[CLASSY-CHAT] Topic check error:', topicError);
+        // Continue without blocking
+      }
+    }
+
+    // ===== SET MAIN TOPIC ON FIRST MESSAGE =====
+    if (isFirstMessage && !study.main_topic) {
+      // Extract main topic from the first message/title
+      const mainTopic = study.title || message.substring(0, 100);
+      await supabaseServiceClient
+        .from("studies")
+        .update({ main_topic: mainTopic })
+        .eq("id", studyId);
+      
+      console.log(`[CLASSY-CHAT] Set main_topic to: ${mainTopic}`);
+    }
 
     // Search for related content ONLY if user is not asking about current content AND not a playlist summary
     const isAskingAboutCurrentContent = activeContentData && (
@@ -450,8 +592,11 @@ Seu objetivo: ENSINAR, não apenas recomendar. Você GUIA o aprendizado do usuá
 
 CONTEXTO DO ESTUDO:
 - Tema do estudo: ${study?.title || "Sem título"}
+- Tema principal: ${study?.main_topic || study?.title || "Não definido"}
 - ${study?.description ? `Descrição: ${study.description}` : ""}
 - Nome do usuário: ${userName}
+- Plano: ${userPlan}
+- Mensagens usadas: ${currentMessageCount + 1}/${limits.maxMessages}
 ${activeContentData ? `
 CONTEÚDO ATIVO ATUAL:
 - Título: ${activeContentData.title}
@@ -650,7 +795,12 @@ INSTRUÇÕES OBRIGATÓRIAS:
     }
 
     const data = await response.json();
-    const aiMessage = data.choices?.[0]?.message?.content || "Desculpe, não consegui processar sua mensagem.";
+    let aiMessage = data.choices?.[0]?.message?.content || "Desculpe, não consegui processar sua mensagem.";
+
+    // Append deviation warning if needed
+    if (deviationWarning) {
+      aiMessage += deviationWarning;
+    }
 
     // Generate intelligent title after first interaction
     if (isFirstMessage && aiMessage) {
@@ -695,10 +845,10 @@ Responda APENAS com o título, sem explicações adicionais.`;
           const generatedTitle = titleData.choices?.[0]?.message?.content?.trim();
           
           if (generatedTitle && generatedTitle.length > 0 && generatedTitle.length <= 100) {
-            // Update study title in background (don't wait for it)
+            // Update study title AND main_topic in background (don't wait for it)
             supabaseServiceClient
               .from("studies")
-              .update({ title: generatedTitle })
+              .update({ title: generatedTitle, main_topic: generatedTitle })
               .eq("id", studyId)
               .then(({ error: updateError }) => {
                 if (updateError) {
@@ -716,7 +866,17 @@ Responda APENAS com o título, sem explicações adicionais.`;
     }
 
     // Return both message and related contents with relevance percentage
-    const responseData: any = { message: aiMessage };
+    const responseData: any = { 
+      message: aiMessage,
+      // Include usage info for UI feedback
+      usage: {
+        messageCount: currentMessageCount + 1, // +1 for the message being processed
+        maxMessages: limits.maxMessages,
+        deviationCount: currentDeviations,
+        maxDeviations: limits.maxDeviations,
+        plan: userPlan
+      }
+    };
     if (relatedContents.length > 0) {
       responseData.relatedContents = relatedContents.map((c: any) => ({
         ...c,
