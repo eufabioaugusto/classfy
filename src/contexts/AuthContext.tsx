@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useState } from "react";
+import React, { createContext, useContext, useEffect, useState, useRef } from "react";
 import { User, Session } from "@supabase/supabase-js";
 import { supabase } from "@/integrations/supabase/client";
 import { useNavigate } from "react-router-dom";
@@ -39,6 +39,11 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const navigate = useNavigate();
   const { checkDailyLogin } = useRewardSystem();
+  
+  // Track if we've already processed the initial session
+  const hasProcessedSession = useRef(false);
+  // Track the last user ID we processed daily login for
+  const lastDailyLoginUserId = useRef<string | null>(null);
 
   const fetchUserProfile = async (userId: string) => {
     try {
@@ -93,23 +98,46 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     }
   };
 
+  // Handle daily login check - only once per session per user
+  const handleDailyLogin = async (userId: string) => {
+    // Prevent duplicate calls for the same user in this session
+    if (lastDailyLoginUserId.current === userId) {
+      console.log('Daily login already checked for this user in this session');
+      return;
+    }
+    
+    lastDailyLoginUserId.current = userId;
+    await checkDailyLogin(userId);
+  };
+
   useEffect(() => {
     // Set up auth state listener
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       (event, session) => {
+        console.log('Auth state change:', event);
+        
         setSession(session);
         setUser(session?.user ?? null);
         
-        // Defer profile fetch
+        // Only process for specific events, not every state change
         if (session?.user) {
-          setTimeout(() => {
-            fetchUserProfile(session.user.id);
-            checkDailyLogin(session.user.id);
-            verifySubscription();
-          }, 0);
+          // Only fetch profile on meaningful events
+          if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED' || event === 'INITIAL_SESSION') {
+            setTimeout(() => {
+              fetchUserProfile(session.user.id);
+              
+              // Only check daily login on actual sign in, not token refresh
+              if (event === 'SIGNED_IN') {
+                handleDailyLogin(session.user.id);
+              }
+              
+              verifySubscription();
+            }, 0);
+          }
         } else {
           setProfile(null);
           setRole('user');
+          lastDailyLoginUserId.current = null;
         }
       }
     );
@@ -121,6 +149,13 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       
       if (session?.user) {
         fetchUserProfile(session.user.id).finally(() => setLoading(false));
+        
+        // Only check daily login once on initial page load
+        if (!hasProcessedSession.current) {
+          hasProcessedSession.current = true;
+          handleDailyLogin(session.user.id);
+        }
+        
         verifySubscription();
       } else {
         setLoading(false);

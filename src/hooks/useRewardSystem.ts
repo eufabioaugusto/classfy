@@ -9,6 +9,9 @@ interface ProcessRewardParams {
   metadata?: Record<string, any>;
 }
 
+// Session-level tracking to prevent duplicate calls
+const sessionRewardTracker = new Set<string>();
+
 export function useRewardSystem() {
   // Track in-flight reward processing to prevent duplicates
   const processingRewards = useRef<Set<string>>(new Set());
@@ -19,19 +22,43 @@ export function useRewardSystem() {
     contentId,
     metadata = {},
   }: ProcessRewardParams) => {
-    // Create unique key for this reward
-    const rewardKey = `${actionKey}_${userId}_${contentId || 'no-content'}`;
+    // Create unique key for this reward based on action type
+    const today = new Date().toISOString().split('T')[0];
+    let rewardKey: string;
+    
+    // Match the server-side tracking key logic
+    const dailyActions = ['DAILY_LOGIN', 'FIRST_CONTENT_WEEK'];
+    const uniquePerContentActions = ['LIKE_CONTENT', 'SAVE_CONTENT', 'FAVORITE_CONTENT', 'WATCH_50', 'WATCH_100', 'COMMENT_CONTENT'];
+    
+    if (dailyActions.includes(actionKey)) {
+      rewardKey = `${actionKey}_${userId}_${today}`;
+    } else if (uniquePerContentActions.includes(actionKey) && contentId) {
+      rewardKey = `${actionKey}_${userId}_${contentId}`;
+    } else if (metadata?.creatorId) {
+      rewardKey = `${actionKey}_${userId}_${metadata.creatorId}`;
+    } else {
+      rewardKey = `${actionKey}_${userId}_${contentId || 'no-content'}`;
+    }
+    
+    // Check session-level tracker first (survives component re-renders)
+    if (sessionRewardTracker.has(rewardKey)) {
+      console.log('Skipping reward (session tracker):', rewardKey);
+      return null;
+    }
     
     // If already processing, skip
     if (processingRewards.current.has(rewardKey)) {
-      console.log('Skipping duplicate reward call:', rewardKey);
+      console.log('Skipping duplicate reward call (in-flight):', rewardKey);
       return null;
     }
 
-    // Mark as processing
+    // Mark as processing in both trackers
     processingRewards.current.add(rewardKey);
+    sessionRewardTracker.add(rewardKey);
 
     try {
+      console.log('Processing reward:', { actionKey, rewardKey });
+      
       const { data, error } = await supabase.functions.invoke('process-reward', {
         body: {
           actionKey,
@@ -42,6 +69,12 @@ export function useRewardSystem() {
       });
 
       if (error) throw error;
+
+      // If already tracked on server, keep in session tracker
+      if (data?.alreadyTracked) {
+        console.log('Reward already tracked on server:', rewardKey);
+        return null;
+      }
 
       if (data?.rewards && data.rewards.length > 0) {
         // Show toast for user rewards
@@ -57,12 +90,12 @@ export function useRewardSystem() {
       return data;
     } catch (error) {
       console.error('Error processing reward:', error);
+      // On error, remove from session tracker to allow retry
+      sessionRewardTracker.delete(rewardKey);
       return null;
     } finally {
-      // Remove from processing after 2 seconds to allow retry if needed
-      setTimeout(() => {
-        processingRewards.current.delete(rewardKey);
-      }, 2000);
+      // Remove from in-flight tracker
+      processingRewards.current.delete(rewardKey);
     }
   };
 
