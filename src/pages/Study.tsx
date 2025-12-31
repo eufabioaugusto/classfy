@@ -950,7 +950,7 @@ function StudyContent() {
                                     duration_minutes={content.duration_minutes}
                                     required_plan={content.required_plan}
                                     is_free={content.is_free}
-                                    matchScore={content.matchScore}
+                                    relevanceScore={content.relevanceScore}
                                     onPlay={handlePlayContent}
                                     compact
                                   />
@@ -978,7 +978,7 @@ function StudyContent() {
                               duration_minutes={content.duration_minutes}
                               required_plan={content.required_plan}
                               is_free={content.is_free}
-                              matchScore={content.matchScore}
+                              relevanceScore={content.relevanceScore}
                               onPlay={handlePlayContent}
                               compact
                             />
@@ -1806,7 +1806,7 @@ function StudyContent() {
                                         duration_minutes={content.duration_minutes}
                                         required_plan={content.required_plan}
                                         is_free={content.is_free}
-                                        matchScore={content.matchScore}
+                                        relevanceScore={content.relevanceScore}
                                         onPlay={handlePlayContent}
                                       />
                                     </CarouselItem>
@@ -1838,7 +1838,7 @@ function StudyContent() {
                                   duration_minutes={content.duration_minutes}
                                   required_plan={content.required_plan}
                                   is_free={content.is_free}
-                                  matchScore={content.matchScore}
+                                  relevanceScore={content.relevanceScore}
                                   onPlay={handlePlayContent}
                                 />
                               ))}
