@@ -8,6 +8,8 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Loader2, Send, ArrowLeft, MoreVertical, Edit2, Share2, Trash2, X, List, FileText, Brain, StickyNote, MessageSquare, Lightbulb, Minimize2, Maximize2, Play, ChevronLeft, ChevronRight } from "lucide-react";
 import { StudyMessage } from "@/hooks/useStudies";
 import { useStudies } from "@/hooks/useStudies";
+import { StudyUsageIndicator } from "@/components/StudyUsageIndicator";
+import { StudyLimitModal } from "@/components/StudyLimitModal";
 import { ChatContentCard } from "@/components/ChatContentCard";
 import { ChatMessage } from "@/components/chat/ChatMessage";
 import { StudyVideoPlayer } from "@/components/StudyVideoPlayer";
@@ -60,7 +62,7 @@ function StudyContent() {
   const { user, profile } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
-  const { updateLastActivity } = useStudies();
+  const { updateLastActivity, archiveStudy, createStudy, getStudyUsage, refetch: refetchStudies } = useStudies();
   const { setOpen, open } = useSidebar();
   const isMobile = useIsMobile();
 
@@ -70,7 +72,13 @@ function StudyContent() {
     pro: 50,
     premium: Infinity,
   };
+  const MESSAGE_LIMITS: Record<'free' | 'pro' | 'premium', number> = {
+    free: 30,
+    pro: 200,
+    premium: Infinity,
+  };
   const playlistLimit = PLAYLIST_LIMITS[currentPlan];
+  const messageLimit = MESSAGE_LIMITS[currentPlan];
   
   const [study, setStudy] = useState<any>(null);
   const [messages, setMessages] = useState<StudyMessage[]>([]);
@@ -110,6 +118,12 @@ function StudyContent() {
 
   // Mobile-specific state
   const [showPlaylistSheet, setShowPlaylistSheet] = useState(false);
+
+  // Limit modal state
+  const [limitModalOpen, setLimitModalOpen] = useState(false);
+  const [limitType, setLimitType] = useState<'messages' | 'deviations'>('messages');
+  const [suggestedTopic, setSuggestedTopic] = useState<string | undefined>();
+  const [studyUsage, setStudyUsage] = useState<{ messageCount: number; maxMessages: number } | null>(null);
 
   // Focus Mode: Auto-collapse sidebar when content is playing
   useEffect(() => {
@@ -379,6 +393,14 @@ function StudyContent() {
 
       if (aiError) throw aiError;
 
+      // Update usage info from response
+      if (aiData.usage) {
+        setStudyUsage({
+          messageCount: aiData.usage.messageCount,
+          maxMessages: aiData.usage.maxMessages
+        });
+      }
+
       const { data: aiMessageData, error: aiMessageError } = await supabase
         .from("study_messages")
         .insert({
@@ -396,17 +418,16 @@ function StudyContent() {
       setNewestMessageId(aiMessageData.id);
       await fetchMessages();
       
-      setTimeout(async () => {
-        const { data: updatedStudy } = await supabase
-          .from("studies")
-          .select("*")
-          .eq("id", id)
-          .single();
-        
-        if (updatedStudy) {
-          setStudy(updatedStudy);
-        }
-      }, 2000);
+      // Update study to get latest message_count
+      const { data: updatedStudy } = await supabase
+        .from("studies")
+        .select("*")
+        .eq("id", id)
+        .single();
+      
+      if (updatedStudy) {
+        setStudy(updatedStudy);
+      }
     } catch (error: any) {
       console.error("Error sending initial message:", error);
       toast.error("Erro ao iniciar conversa. Estudo não encontrado.");
@@ -459,6 +480,45 @@ function StudyContent() {
 
       if (aiError) throw aiError;
 
+      // Handle limit errors
+      if (aiData.limitReached) {
+        setLimitType(aiData.limitType === 'DEVIATION_LIMIT_REACHED' ? 'deviations' : 'messages');
+        setSuggestedTopic(aiData.suggestedTopic);
+        setStudyUsage({
+          messageCount: aiData.usage?.messageCount || study?.message_count || 0,
+          maxMessages: aiData.usage?.maxMessages || messageLimit
+        });
+        setLimitModalOpen(true);
+        
+        // Still show the AI message (which includes the limit warning)
+        if (aiData.message) {
+          const { data: aiMessageData, error: aiMessageError } = await supabase
+            .from("study_messages")
+            .insert({
+              study_id: id,
+              role: "assistant",
+              content: aiData.message,
+              related_contents: null,
+            })
+            .select()
+            .single();
+
+          if (!aiMessageError) {
+            setNewestMessageId(aiMessageData.id);
+            await fetchMessages();
+          }
+        }
+        return;
+      }
+
+      // Update usage info
+      if (aiData.usage) {
+        setStudyUsage({
+          messageCount: aiData.usage.messageCount,
+          maxMessages: aiData.usage.maxMessages
+        });
+      }
+
       const { data: aiMessageData, error: aiMessageError } = await supabase
         .from("study_messages")
         .insert({
@@ -475,11 +535,47 @@ function StudyContent() {
       // Mark this message as the newest for typewriter animation
       setNewestMessageId(aiMessageData.id);
       await fetchMessages();
+      
+      // Update study to get latest message_count
+      const { data: updatedStudy } = await supabase
+        .from("studies")
+        .select("*")
+        .eq("id", id)
+        .single();
+      
+      if (updatedStudy) {
+        setStudy(updatedStudy);
+      }
     } catch (error: any) {
       console.error("Error sending message:", error);
       toast.error("Erro ao enviar mensagem");
     } finally {
       setSending(false);
+    }
+  };
+
+  // Handle archive current study and create new one
+  const handleArchiveAndNew = async () => {
+    if (!id) return;
+    
+    try {
+      await archiveStudy(id);
+      await refetchStudies();
+      
+      // Create new study with suggested topic or generic title
+      const newTitle = suggestedTopic || "Novo Estudo";
+      const result = await createStudy(newTitle);
+      
+      if (result?.data) {
+        toast.success("Estudo arquivado! Redirecionando para novo estudo...");
+        setLimitModalOpen(false);
+        navigate(`/study/${result.data.id}`);
+      } else {
+        toast.error("Não foi possível criar novo estudo. Verifique seus limites.");
+      }
+    } catch (error) {
+      console.error("Error archiving and creating new study:", error);
+      toast.error("Erro ao arquivar estudo");
     }
   };
 
@@ -747,6 +843,14 @@ function StudyContent() {
                 {study.title}
               </h1>
             </div>
+
+            {/* Usage Indicator - Mobile Compact */}
+            <StudyUsageIndicator
+              messageCount={studyUsage?.messageCount || study?.message_count || 0}
+              maxMessages={studyUsage?.maxMessages || messageLimit}
+              plan={currentPlan}
+              compact
+            />
 
             <div className="flex items-center gap-1">
               {savedPlaylists.size > 0 && (
@@ -1440,6 +1544,18 @@ function StudyContent() {
             </DialogFooter>
           </DialogContent>
         </Dialog>
+
+        {/* Study Limit Modal */}
+        <StudyLimitModal
+          open={limitModalOpen}
+          onOpenChange={setLimitModalOpen}
+          limitType={limitType}
+          current={studyUsage?.messageCount || study?.message_count || 0}
+          max={studyUsage?.maxMessages || messageLimit}
+          plan={currentPlan}
+          suggestedTopic={suggestedTopic}
+          onArchiveAndNew={handleArchiveAndNew}
+        />
       </>
     );
   }
@@ -1462,6 +1578,13 @@ function StudyContent() {
               </p>
             )}
           </div>
+
+          {/* Usage Indicator - Desktop */}
+          <StudyUsageIndicator
+            messageCount={studyUsage?.messageCount || study?.message_count || 0}
+            maxMessages={studyUsage?.maxMessages || messageLimit}
+            plan={currentPlan}
+          />
 
           <div className="flex items-center gap-2">
             {/* Playlists Button */}
