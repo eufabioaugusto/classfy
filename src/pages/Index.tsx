@@ -27,7 +27,7 @@ export default function Index() {
   const location = useLocation();
   const isMobile = useIsMobile();
   const [searchParams, setSearchParams] = useSearchParams();
-  const { activeCount, limit, canCreateMore } = useStudies();
+  const { activeCount, limits, canCreateMore } = useStudies();
 
   // Mode from URL param, defaulting to localStorage value or explore
   const modeFromUrl = searchParams.get("mode");
@@ -182,7 +182,7 @@ export default function Index() {
   const [selectedContent, setSelectedContent] = useState<any>(null);
 
   const currentPlan = profile?.plan || "free";
-  const limitText = limit === Infinity ? "ilimitados" : `${activeCount}/${limit}`;
+  const limitText = limits.studies === Infinity ? "ilimitados" : `${activeCount}/${limits.studies}`;
   const handleSearchResults = (results: any[]) => {
     setSearchResults(results);
     setHasSearched(true);
