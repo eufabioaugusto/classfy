@@ -12,6 +12,8 @@ import { PurchaseModal } from "@/components/PurchaseModal";
 import { SidebarProvider } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/AppSidebar";
 import { Header } from "@/components/Header";
+import { useIsMobile } from "@/hooks/use-mobile";
+import { MobileShortsView } from "@/components/shorts/MobileShortsView";
 
 interface ShortContent {
   id: string;
@@ -38,6 +40,7 @@ export default function Shorts() {
   const { id } = useParams();
   const navigate = useNavigate();
   const { user, profile } = useAuth();
+  const isMobile = useIsMobile();
   const [shorts, setShorts] = useState<ShortContent[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -611,6 +614,67 @@ export default function Shorts() {
 
   const currentShort = shorts[currentIndex];
 
+  const handleAccessBlocked = () => {
+    if (currentShort?.visibility === "paid") {
+      setShowPurchaseModal(true);
+    } else {
+      setShowUpgradeModal(true);
+    }
+  };
+
+  // Mobile fullscreen view
+  if (isMobile) {
+    return (
+      <>
+        <MobileShortsView
+          shorts={shorts}
+          currentIndex={currentIndex}
+          onIndexChange={setCurrentIndex}
+          hasAccess={hasAccess}
+          isMuted={isMuted}
+          onToggleMute={() => setIsMuted(!isMuted)}
+          isLiked={isLiked}
+          onLike={handleLike}
+          isSaved={isSaved}
+          onSave={handleSave}
+          isFollowing={isFollowing}
+          onFollow={handleFollow}
+          onShare={handleShare}
+          localLikesCount={localLikesCount}
+          commentsCount={commentsCount}
+          onTimeUpdate={handleTimeUpdate}
+          onAccessBlocked={handleAccessBlocked}
+        />
+
+        <UpgradeModal
+          open={showUpgradeModal}
+          onOpenChange={setShowUpgradeModal}
+          requiredPlan={currentShort?.visibility === "premium" ? "premium" : "pro"}
+        />
+
+        {currentShort && (
+          <PurchaseModal
+            open={showPurchaseModal}
+            onOpenChange={setShowPurchaseModal}
+            content={{
+              id: currentShort.id,
+              title: currentShort.title,
+              thumbnail_url: currentShort.thumbnail_url,
+              price: currentShort.price,
+              creator_name:
+                currentShort.creator.creator_channel_name || currentShort.creator.display_name,
+            }}
+            onPurchaseComplete={() => {
+              setShowPurchaseModal(false);
+              checkAccess(currentShort);
+            }}
+          />
+        )}
+      </>
+    );
+  }
+
+  // Desktop view (existing layout)
   return (
     <>
       <SidebarProvider defaultOpen={true}>
@@ -657,15 +721,7 @@ export default function Shorts() {
                               ? `Este short custa R$ ${currentShort.price?.toFixed(2)}`
                               : `Assine o plano ${currentShort.visibility === "pro" ? "Pro" : "Premium"} para acessar`}
                           </p>
-                          <Button
-                            onClick={() => {
-                              if (currentShort.visibility === "paid") {
-                                setShowPurchaseModal(true);
-                              } else {
-                                setShowUpgradeModal(true);
-                              }
-                            }}
-                          >
+                          <Button onClick={handleAccessBlocked}>
                             {currentShort.visibility === "paid" ? "Comprar Agora" : "Assinar"}
                           </Button>
                         </div>
