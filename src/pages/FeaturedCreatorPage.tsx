@@ -317,7 +317,7 @@ const FeaturedCreatorPage = () => {
                   Assinar Agora
                 </Button>
                 <p className="text-white/50 text-[10px] sm:text-xs mt-3">
-                  A partir de <span className="line-through">R$ 59</span> R$ 29 por mês para todas as aulas e sessões.
+                  A partir de <span className="line-through">R$ 59</span> R$ 29 por mês para aulas do plano Pro
                 </p>
               </div>
             </div>
@@ -463,7 +463,7 @@ const FeaturedCreatorPage = () => {
             Começar Agora
           </Button>
           <p className="text-white/50 text-[10px] sm:text-sm mt-4">
-            A partir de <span className="line-through">R$ 59</span> R$ 29 por mês para todas as aulas e sessões.
+            A partir de <span className="line-through">R$ 59</span> R$ 29 por mês para aulas do plano Pro
           </p>
         </div>
       </section>
