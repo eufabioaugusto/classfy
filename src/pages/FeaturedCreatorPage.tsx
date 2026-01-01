@@ -210,8 +210,8 @@ const FeaturedCreatorPage = () => {
         </div>
       </header>
 
-      {/* HERO SECTION - Full Width, Auto Height on Mobile */}
-      <section className="w-full min-h-screen lg:h-[700px]">
+      {/* HERO SECTION - Full Width */}
+      <section className="w-full lg:h-[700px]">
         <div className="grid lg:grid-cols-2 h-full">
           {/* Left Column - Hero Image 4:3 (uses hero_image_url) */}
           <div className="relative h-full">
@@ -317,7 +317,7 @@ const FeaturedCreatorPage = () => {
                   Assinar Agora
                 </Button>
                 <p className="text-white/50 text-[10px] sm:text-xs mt-3">
-                  A partir de <span className="line-through">R$ 59</span> R$ 29/mês
+                  A partir de <span className="line-through">R$ 59</span> R$ 29 por mês para todas as aulas e sessões.
                 </p>
               </div>
             </div>
@@ -462,8 +462,8 @@ const FeaturedCreatorPage = () => {
           >
             Começar Agora
           </Button>
-          <p className="text-white/50 text-xs sm:text-sm mt-4">
-            A partir de <span className="line-through">R$ 59</span> R$ 29/mês
+          <p className="text-white/50 text-[10px] sm:text-sm mt-4">
+            A partir de <span className="line-through">R$ 59</span> R$ 29 por mês para todas as aulas e sessões.
           </p>
         </div>
       </section>
