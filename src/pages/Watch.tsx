@@ -347,28 +347,45 @@ function WatchContent() {
     setRelatedContents(data || []);
   };
 
+  // Refresh likes count from database (single source of truth)
+  const refreshLikesCount = async () => {
+    if (!content) return;
+    
+    const table = isCourse ? 'courses' : 'contents';
+    const { data } = await supabase
+      .from(table)
+      .select('likes_count')
+      .eq('id', content.id)
+      .single();
+    
+    if (data) {
+      const count = data.likes_count || 0;
+      setLikesCount(count);
+      setContent(prev => prev ? { ...prev, likes_count: count } : prev);
+    }
+  };
+
   const toggleLike = async () => {
     if (!user || !content) return;
     
     try {
       if (isLiked) {
-        const { error } = await supabase.from('actions').delete().eq('user_id', user.id).eq('type', 'LIKE').eq(isCourse ? 'course_id' : 'content_id', content.id);
-        if (!error) {
-          setIsLiked(false);
-          setLikesCount(prev => Math.max(0, prev - 1));
-        }
+        // Remove like
+        await supabase.from('actions').delete().eq('user_id', user.id).eq('type', 'LIKE').eq(isCourse ? 'course_id' : 'content_id', content.id);
+        setIsLiked(false);
       } else {
+        // Add like
         const { error } = await supabase.from('actions').insert({ user_id: user.id, type: 'LIKE', [isCourse ? 'course_id' : 'content_id']: content.id });
-        // If no error (or duplicate error which is fine), update state
         if (!error) {
           setIsLiked(true);
-          setLikesCount(prev => prev + 1);
           await handleLike(user.id, content.id, true);
         } else if (error.code === '23505') {
-          // Duplicate - user already liked, just update UI
+          // Already liked (duplicate), just update UI state
           setIsLiked(true);
         }
       }
+      // Always refresh count from database after any action
+      await refreshLikesCount();
     } catch (error) {
       console.error('Error toggling like:', error);
     }
