@@ -72,7 +72,7 @@ export function MobileShortsView({
 
   const currentShort = shorts[currentIndex];
 
-  // Nav height constant (64px nav + 16px safe area buffer)
+  // Nav height constant for positioning info above nav
   const NAV_HEIGHT = 80;
 
   // Handle snap scrolling
@@ -80,7 +80,7 @@ export function MobileShortsView({
     const container = containerRef.current;
     if (!container) return;
 
-    const getItemHeight = () => window.innerHeight - NAV_HEIGHT;
+    const getItemHeight = () => window.innerHeight;
 
     const handleScroll = () => {
       if (scrollTimeoutRef.current) {
@@ -126,7 +126,7 @@ export function MobileShortsView({
   useEffect(() => {
     const container = containerRef.current;
     if (container && !isScrolling) {
-      const itemHeight = window.innerHeight - NAV_HEIGHT;
+      const itemHeight = window.innerHeight;
       container.scrollTo({
         top: currentIndex * itemHeight,
         behavior: "smooth",
@@ -141,8 +141,8 @@ export function MobileShortsView({
   };
 
   return (
-    <div className="fixed inset-x-0 top-0 bg-black z-40" style={{ height: `calc(100dvh - ${NAV_HEIGHT}px)` }}>
-      {/* Scrollable container with snap - height accounts for bottom nav */}
+    <div className="fixed inset-0 bg-black z-40">
+      {/* Scrollable container with snap - full height, nav overlays on top */}
       <div
         ref={containerRef}
         className="w-full h-full overflow-y-scroll snap-y snap-mandatory scrollbar-hide"
@@ -151,11 +151,8 @@ export function MobileShortsView({
         {shorts.map((short, index) => (
           <div
             key={short.id}
-            className="w-full snap-start snap-always relative"
-            style={{ 
-              scrollSnapAlign: "start",
-              height: `calc(100dvh - ${NAV_HEIGHT}px)`
-            }}
+            className="w-full h-[100dvh] snap-start snap-always relative"
+            style={{ scrollSnapAlign: "start" }}
           >
             {/* Video */}
             <video
@@ -272,7 +269,7 @@ export function MobileShortsView({
 
             {/* Bottom info - positioned 20px from bottom of video area */}
             {index === currentIndex && hasAccess && (
-              <div className="absolute left-4 right-20 z-10" style={{ bottom: '20px' }}>
+              <div className="absolute left-4 right-20 z-10" style={{ bottom: `${NAV_HEIGHT + 16}px` }}>
                 <div className="flex items-center gap-2 mb-2">
                   <span className="text-white font-semibold text-sm drop-shadow-lg">
                     @{short.creator.creator_channel_name || short.creator.display_name}
