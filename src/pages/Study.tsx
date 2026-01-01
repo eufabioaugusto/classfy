@@ -1041,7 +1041,6 @@ function StudyContent() {
                         currentPlan={currentPlan}
                         messageCount={studyUsage?.messageCount || study?.message_count || 0}
                         maxMessages={studyUsage?.maxMessages || messageLimit}
-                        onArchiveAndNew={handleArchiveAndNew}
                       />
                     ) : (
                       <ChatMessage
@@ -1932,7 +1931,6 @@ function StudyContent() {
                             currentPlan={currentPlan}
                             messageCount={studyUsage?.messageCount || study?.message_count || 0}
                             maxMessages={studyUsage?.maxMessages || messageLimit}
-                            onArchiveAndNew={handleArchiveAndNew}
                           />
                         ) : (
                           <ChatMessage
