@@ -105,16 +105,24 @@ export function ContentActions({
 
   // Refresh likes count from database (single source of truth)
   const refreshLikesCount = async () => {
-    const table = isCourse ? 'courses' : 'contents';
+    const table = isCourse ? "courses" : "contents";
     const { data } = await supabase
       .from(table)
-      .select('likes_count')
-      .eq('id', contentId)
+      .select("likes_count")
+      .eq("id", contentId)
       .single();
-    
+
     if (data) {
       setLikesCount(data.likes_count || 0);
     }
+  };
+
+  // DB trigger update can be slightly async; refresh a few times to converge
+  const refreshLikesCountEventually = async () => {
+    await new Promise((r) => setTimeout(r, 250));
+    await refreshLikesCount();
+    await new Promise((r) => setTimeout(r, 250));
+    await refreshLikesCount();
   };
 
   const toggleLike = async () => {
@@ -131,24 +139,29 @@ export function ContentActions({
       if (isLiked) {
         // Remove like
         const deleteQuery = supabase
-          .from('actions')
+          .from("actions")
           .delete()
-          .eq('user_id', user.id)
-          .eq('type', 'LIKE');
+          .eq("user_id", user.id)
+          .eq("type", "LIKE");
 
         if (isCourse) {
-          deleteQuery.eq('course_id', contentId);
+          deleteQuery.eq("course_id", contentId);
         } else {
-          deleteQuery.eq('content_id', contentId);
+          deleteQuery.eq("content_id", contentId);
         }
 
-        await deleteQuery;
+        const { data: deleted } = await deleteQuery.select("id");
         setIsLiked(false);
+
+        // Update UI immediately; then we sync with DB value
+        if ((deleted?.length || 0) > 0) {
+          setLikesCount((prev) => Math.max(0, prev - 1));
+        }
       } else {
         // Add like
         const insertData: any = {
           user_id: user.id,
-          type: 'LIKE',
+          type: "LIKE",
         };
 
         if (isCourse) {
@@ -157,23 +170,25 @@ export function ContentActions({
           insertData.content_id = contentId;
         }
 
-        const { error } = await supabase.from('actions').insert(insertData);
-        
+        const { error } = await supabase.from("actions").insert(insertData);
+
         if (!error) {
           setIsLiked(true);
+          setLikesCount((prev) => prev + 1);
           triggerLikeBurst();
           await handleLike(user.id, contentId, true);
-        } else if (error.code === '23505') {
-          // Already liked (duplicate), just update UI state
+        } else if (error.code === "23505") {
+          // Already liked (duplicate)
           setIsLiked(true);
         } else {
           throw error;
         }
       }
-      // Always refresh count from database after any action
-      await refreshLikesCount();
+
+      // Always converge UI to the DB value (no page reload)
+      await refreshLikesCountEventually();
     } catch (error) {
-      console.error('Error toggling like:', error);
+      console.error("Error toggling like:", error);
       toast({
         title: "Erro",
         description: "Não foi possível processar sua ação",
