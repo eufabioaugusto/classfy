@@ -4,15 +4,12 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { 
   ThumbsUp, 
-  Share2, 
   Bookmark, 
   Star, 
   BookOpen, 
   ChevronDown,
   ChevronUp,
   MessageCircle,
-  MoreHorizontal,
-  Clock,
   Play,
   ListVideo
 } from "lucide-react";
@@ -21,6 +18,9 @@ import { ShareButton } from "@/components/ShareButton";
 import { formatDistanceToNow } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { cn } from "@/lib/utils";
+import { motion } from "framer-motion";
+import { ParticleBurst } from "@/components/ui/particle-burst";
+import { useParticleBurst } from "@/hooks/useParticleBurst";
 
 interface MobileWatchLayoutProps {
   content: {
@@ -93,7 +93,14 @@ export function MobileWatchLayout({
   onContentClick,
 }: MobileWatchLayoutProps) {
   const [descExpanded, setDescExpanded] = useState(false);
+  const { isBursting: isLikeBursting, triggerBurst: triggerLikeBurst } = useParticleBurst();
 
+  const handleLikeClick = () => {
+    if (!isLiked) {
+      triggerLikeBurst();
+    }
+    onToggleLike();
+  };
   return (
     <div className="flex flex-col w-full" style={{ maxWidth: '100vw', overflowX: 'hidden' }}>
       {/* Title with Course Badge */}
@@ -136,18 +143,26 @@ export function MobileWatchLayout({
 
       {/* Action Buttons - Horizontal Scroll */}
       <div className="flex gap-2 px-3 pb-3 overflow-x-auto scrollbar-hide" style={{ maxWidth: '100vw' }}>
-        <Button
-          variant="secondary"
-          size="sm"
-          onClick={onToggleLike}
-          className={cn(
-            "gap-1.5 rounded-full px-4 h-9 flex-shrink-0",
-            isLiked && "bg-primary text-primary-foreground"
-          )}
-        >
-          <ThumbsUp className={cn("h-4 w-4", isLiked && "fill-current")} />
-          <span className="text-sm font-medium">{formatCount(likesCount)}</span>
-        </Button>
+        <div className="relative flex-shrink-0">
+          <ParticleBurst isActive={isLikeBursting} color="primary" />
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={handleLikeClick}
+            className={cn(
+              "gap-1.5 rounded-full px-4 h-9",
+              isLiked && "bg-primary text-primary-foreground hover:bg-primary/90"
+            )}
+          >
+            <motion.div
+              animate={isLikeBursting ? { scale: [1, 1.3, 1] } : {}}
+              transition={{ duration: 0.3, ease: "easeOut" }}
+            >
+              <ThumbsUp className={cn("h-4 w-4", isLiked && "fill-current")} />
+            </motion.div>
+            <span className="text-sm font-medium">{formatCount(likesCount)}</span>
+          </Button>
+        </div>
 
         <ShareButton 
           contentId={content.id} 
@@ -161,7 +176,7 @@ export function MobileWatchLayout({
           onClick={onToggleSave}
           className={cn(
             "gap-1.5 rounded-full px-4 h-9 flex-shrink-0",
-            isSaved && "bg-primary text-primary-foreground"
+            isSaved && "bg-primary text-primary-foreground hover:bg-primary/90"
           )}
         >
           <Bookmark className={cn("h-4 w-4", isSaved && "fill-current")} />
