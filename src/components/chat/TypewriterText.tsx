@@ -7,6 +7,7 @@ interface TypewriterTextProps {
   speed?: number;
   className?: string;
   onComplete?: () => void;
+  onContentGrow?: () => void;
 }
 
 export const TypewriterText: React.FC<TypewriterTextProps> = ({ 
@@ -14,7 +15,8 @@ export const TypewriterText: React.FC<TypewriterTextProps> = ({
   isNew = false,
   speed = 8, // Characters per frame (faster = more chars)
   className = '',
-  onComplete
+  onComplete,
+  onContentGrow
 }) => {
   const [displayedContent, setDisplayedContent] = useState(isNew ? '' : content);
   const [isAnimating, setIsAnimating] = useState(isNew);
@@ -37,6 +39,8 @@ export const TypewriterText: React.FC<TypewriterTextProps> = ({
         const nextIndex = Math.min(indexRef.current + speed, content.length);
         setDisplayedContent(content.substring(0, nextIndex));
         indexRef.current = nextIndex;
+        // Notify parent to scroll as content grows
+        onContentGrow?.();
         animationRef.current = requestAnimationFrame(animate);
       } else {
         setIsAnimating(false);
