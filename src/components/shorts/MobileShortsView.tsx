@@ -72,10 +72,15 @@ export function MobileShortsView({
 
   const currentShort = shorts[currentIndex];
 
+  // Nav height constant (64px nav + 16px safe area buffer)
+  const NAV_HEIGHT = 80;
+
   // Handle snap scrolling
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
+
+    const getItemHeight = () => window.innerHeight - NAV_HEIGHT;
 
     const handleScroll = () => {
       if (scrollTimeoutRef.current) {
@@ -87,7 +92,7 @@ export function MobileShortsView({
       scrollTimeoutRef.current = setTimeout(() => {
         setIsScrolling(false);
         const scrollTop = container.scrollTop;
-        const itemHeight = window.innerHeight;
+        const itemHeight = getItemHeight();
         const newIndex = Math.round(scrollTop / itemHeight);
         
         if (newIndex !== currentIndex && newIndex >= 0 && newIndex < shorts.length) {
@@ -121,8 +126,9 @@ export function MobileShortsView({
   useEffect(() => {
     const container = containerRef.current;
     if (container && !isScrolling) {
+      const itemHeight = window.innerHeight - NAV_HEIGHT;
       container.scrollTo({
-        top: currentIndex * window.innerHeight,
+        top: currentIndex * itemHeight,
         behavior: "smooth",
       });
     }
@@ -136,17 +142,23 @@ export function MobileShortsView({
 
   return (
     <div className="fixed inset-0 bg-black z-40">
-      {/* Scrollable container with snap */}
+      {/* Scrollable container with snap - height accounts for bottom nav */}
       <div
         ref={containerRef}
-        className="h-full w-full overflow-y-scroll snap-y snap-mandatory scrollbar-hide"
-        style={{ scrollSnapType: "y mandatory" }}
+        className="w-full overflow-y-scroll snap-y snap-mandatory scrollbar-hide"
+        style={{ 
+          scrollSnapType: "y mandatory",
+          height: `calc(100dvh - ${NAV_HEIGHT}px)`
+        }}
       >
         {shorts.map((short, index) => (
           <div
             key={short.id}
-            className="h-screen w-full snap-start snap-always relative"
-            style={{ scrollSnapAlign: "start" }}
+            className="w-full snap-start snap-always relative"
+            style={{ 
+              scrollSnapAlign: "start",
+              height: `calc(100dvh - ${NAV_HEIGHT}px)`
+            }}
           >
             {/* Video */}
             <video
@@ -261,9 +273,9 @@ export function MobileShortsView({
               </div>
             )}
 
-            {/* Bottom info - increased bottom margin for browser bar + nav */}
+            {/* Bottom info - positioned 20px from bottom of video area */}
             {index === currentIndex && hasAccess && (
-              <div className="absolute left-4 bottom-32 right-20 z-10 pb-safe">
+              <div className="absolute left-4 right-20 z-10" style={{ bottom: '20px' }}>
                 <div className="flex items-center gap-2 mb-2">
                   <span className="text-white font-semibold text-sm drop-shadow-lg">
                     @{short.creator.creator_channel_name || short.creator.display_name}
