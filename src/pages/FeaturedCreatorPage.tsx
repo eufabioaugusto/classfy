@@ -399,21 +399,21 @@ const FeaturedCreatorPage = () => {
                 {/* CTA Overlay when paused */}
                 {isTrailerPaused && (
                   <div 
-                    className="absolute inset-0 bg-black/70 flex flex-col items-center justify-center gap-6 cursor-pointer"
+                    className="absolute inset-0 bg-black/70 flex flex-col items-center justify-center gap-3 sm:gap-6 cursor-pointer"
                     onClick={handlePlayClick}
                   >
                     <button 
-                      className="w-20 h-20 rounded-full bg-[#e21d48] hover:bg-[#c91a40] flex items-center justify-center transition-all"
+                      className="w-14 h-14 sm:w-20 sm:h-20 rounded-full bg-[#e21d48] hover:bg-[#c91a40] flex items-center justify-center transition-all"
                       onClick={(e) => {
                         e.stopPropagation();
                         handlePlayClick();
                       }}
                     >
-                      <Play className="h-10 w-10 text-white ml-1" fill="white" />
+                      <Play className="h-7 w-7 sm:h-10 sm:w-10 text-white ml-0.5 sm:ml-1" fill="white" />
                     </button>
                     
-                    <div className="text-center space-y-4">
-                      <p className="text-white/80 text-lg">
+                    <div className="text-center space-y-2 sm:space-y-4">
+                      <p className="text-white/80 text-sm sm:text-lg">
                         Quer ter acesso a todo o conteúdo?
                       </p>
                       <Button
@@ -421,8 +421,8 @@ const FeaturedCreatorPage = () => {
                           e.stopPropagation();
                           handleSubscribe();
                         }}
-                        size="lg"
-                        className="bg-[#e21d48] hover:bg-[#c91a40] text-white font-semibold px-8"
+                        size="default"
+                        className="bg-[#e21d48] hover:bg-[#c91a40] text-white font-semibold px-4 sm:px-8 text-sm sm:text-base"
                       >
                         Assinar Agora
                       </Button>
