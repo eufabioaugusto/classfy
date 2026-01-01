@@ -1,12 +1,14 @@
 import { useState, useEffect } from "react";
-import { ThumbsUp, Share2, Bookmark, Star, BookOpen } from "lucide-react";
+import { ThumbsUp, Bookmark, Star, BookOpen } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { useRewardSystem } from "@/hooks/useRewardSystem";
 import { toast } from "@/hooks/use-toast";
 import { ShareButton } from "@/components/ShareButton";
-
+import { motion } from "framer-motion";
+import { ParticleBurst } from "@/components/ui/particle-burst";
+import { useParticleBurst } from "@/hooks/useParticleBurst";
 interface ContentActionsProps {
   contentId: string;
   isCourse?: boolean;
@@ -28,6 +30,7 @@ export function ContentActions({
   const [isSaved, setIsSaved] = useState(false);
   const [isFavorited, setIsFavorited] = useState(false);
   const [likesCount, setLikesCount] = useState(0);
+  const { isBursting: isLikeBursting, triggerBurst: triggerLikeBurst } = useParticleBurst();
 
   useEffect(() => {
     if (!user) return;
@@ -162,6 +165,7 @@ export function ContentActions({
 
         setIsLiked(true);
         setLikesCount(prev => prev + 1);
+        triggerLikeBurst();
         await handleLike(user.id, contentId, true);
       }
     } catch (error) {
@@ -299,15 +303,23 @@ export function ContentActions({
   return (
     <div className="flex items-center gap-1.5 sm:gap-2 flex-nowrap">
       {/* Like */}
-      <Button
-        variant="secondary"
-        size="sm"
-        onClick={toggleLike}
-        className="gap-1.5 sm:gap-2 rounded-full px-3 sm:px-4 h-8 sm:h-9"
-      >
-        <ThumbsUp className={`h-3.5 w-3.5 sm:h-4 sm:w-4 ${isLiked ? 'fill-current' : ''}`} />
-        <span className="text-xs sm:text-sm">{formatCount(likesCount)}</span>
-      </Button>
+      <div className="relative">
+        <ParticleBurst isActive={isLikeBursting} color="primary" />
+        <Button
+          variant="secondary"
+          size="sm"
+          onClick={toggleLike}
+          className="gap-1.5 sm:gap-2 rounded-full px-3 sm:px-4 h-8 sm:h-9"
+        >
+          <motion.div
+            animate={isLikeBursting ? { scale: [1, 1.3, 1] } : {}}
+            transition={{ duration: 0.3, ease: "easeOut" }}
+          >
+            <ThumbsUp className={`h-3.5 w-3.5 sm:h-4 sm:w-4 ${isLiked ? 'fill-current' : ''}`} />
+          </motion.div>
+          <span className="text-xs sm:text-sm">{formatCount(likesCount)}</span>
+        </Button>
+      </div>
 
       {/* Compartilhar */}
       <ShareButton 

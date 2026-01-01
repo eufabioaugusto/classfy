@@ -5,6 +5,9 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { useRewardSystem } from "@/hooks/useRewardSystem";
 import { useToast } from "@/hooks/use-toast";
+import { motion } from "framer-motion";
+import { ParticleBurst } from "@/components/ui/particle-burst";
+import { useParticleBurst } from "@/hooks/useParticleBurst";
 
 interface FollowButtonProps {
   creatorId: string;
@@ -18,6 +21,7 @@ export function FollowButton({ creatorId, size = "default", variant = "outline" 
   const { toast } = useToast();
   const [isFollowing, setIsFollowing] = useState(false);
   const [loading, setLoading] = useState(true);
+  const { isBursting, triggerBurst } = useParticleBurst();
 
   useEffect(() => {
     checkFollowStatus();
@@ -87,6 +91,7 @@ export function FollowButton({ creatorId, size = "default", variant = "outline" 
         if (error) throw error;
 
         setIsFollowing(true);
+        triggerBurst();
         
         // Trigger reward
         await handleFollow(user.id, creatorId);
@@ -111,24 +116,32 @@ export function FollowButton({ creatorId, size = "default", variant = "outline" 
   if (!user || user.id === creatorId) return null;
 
   return (
-    <Button
-      onClick={toggleFollow}
-      disabled={loading}
-      size={size}
-      variant={variant}
-      className="gap-2"
-    >
-      {isFollowing ? (
-        <>
-          <UserMinus className="h-4 w-4" />
-          Seguindo
-        </>
-      ) : (
-        <>
-          <UserPlus className="h-4 w-4" />
-          Seguir
-        </>
-      )}
-    </Button>
+    <div className="relative inline-block">
+      <ParticleBurst isActive={isBursting} color="pink" />
+      <Button
+        onClick={toggleFollow}
+        disabled={loading}
+        size={size}
+        variant={variant}
+        className="gap-2"
+      >
+        {isFollowing ? (
+          <>
+            <motion.div
+              animate={isBursting ? { scale: [1, 1.3, 1] } : {}}
+              transition={{ duration: 0.3, ease: "easeOut" }}
+            >
+              <UserMinus className="h-4 w-4" />
+            </motion.div>
+            Seguindo
+          </>
+        ) : (
+          <>
+            <UserPlus className="h-4 w-4" />
+            Seguir
+          </>
+        )}
+      </Button>
+    </div>
   );
 }
