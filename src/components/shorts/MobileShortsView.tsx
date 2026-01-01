@@ -141,15 +141,12 @@ export function MobileShortsView({
   };
 
   return (
-    <div className="fixed inset-0 bg-black z-40">
+    <div className="fixed inset-x-0 top-0 bg-black z-40" style={{ height: `calc(100dvh - ${NAV_HEIGHT}px)` }}>
       {/* Scrollable container with snap - height accounts for bottom nav */}
       <div
         ref={containerRef}
-        className="w-full overflow-y-scroll snap-y snap-mandatory scrollbar-hide"
-        style={{ 
-          scrollSnapType: "y mandatory",
-          height: `calc(100dvh - ${NAV_HEIGHT}px)`
-        }}
+        className="w-full h-full overflow-y-scroll snap-y snap-mandatory scrollbar-hide"
+        style={{ scrollSnapType: "y mandatory" }}
       >
         {shorts.map((short, index) => (
           <div
