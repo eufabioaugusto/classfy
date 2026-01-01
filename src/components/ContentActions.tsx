@@ -82,20 +82,22 @@ export function ContentActions({
       const { data: favoriteData } = await favoriteQuery.maybeSingle();
       setIsFavorited(!!favoriteData);
 
-      // Get likes count
-      const countQuery = supabase
-        .from('actions')
-        .select('*', { count: 'exact', head: true })
-        .eq('type', 'LIKE');
-
+      // Get likes count from content/course (synced by database trigger)
       if (isCourse) {
-        countQuery.eq('course_id', contentId);
+        const { data: courseData } = await supabase
+          .from('courses')
+          .select('likes_count')
+          .eq('id', contentId)
+          .single();
+        setLikesCount(courseData?.likes_count || 0);
       } else {
-        countQuery.eq('content_id', contentId);
+        const { data: contentData } = await supabase
+          .from('contents')
+          .select('likes_count')
+          .eq('id', contentId)
+          .single();
+        setLikesCount(contentData?.likes_count || 0);
       }
-
-      const { count } = await countQuery;
-      setLikesCount(count || 0);
     };
 
     checkStatus();
@@ -125,23 +127,11 @@ export function ContentActions({
           deleteQuery.eq('content_id', contentId);
         }
 
-        await deleteQuery;
-
-        if (isCourse) {
-          const { data: course } = await supabase
-            .from('courses')
-            .select('likes_count')
-            .eq('id', contentId)
-            .single();
-          
-          await supabase
-            .from('courses')
-            .update({ likes_count: Math.max(0, (course?.likes_count || 1) - 1) })
-            .eq('id', contentId);
+        const { error } = await deleteQuery;
+        if (!error) {
+          setIsLiked(false);
+          setLikesCount(prev => Math.max(0, prev - 1));
         }
-
-        setIsLiked(false);
-        setLikesCount(prev => Math.max(0, prev - 1));
       } else {
         const insertData: any = {
           user_id: user.id,
@@ -154,19 +144,20 @@ export function ContentActions({
           insertData.content_id = contentId;
         }
 
-        await supabase.from('actions').insert(insertData);
-
-        if (isCourse) {
-          await supabase
-            .from('courses')
-            .update({ likes_count: likesCount + 1 })
-            .eq('id', contentId);
+        const { error } = await supabase.from('actions').insert(insertData);
+        
+        // If no error (or duplicate error which means already liked)
+        if (!error) {
+          setIsLiked(true);
+          setLikesCount(prev => prev + 1);
+          triggerLikeBurst();
+          await handleLike(user.id, contentId, true);
+        } else if (error.code === '23505') {
+          // Duplicate - user already liked, just update UI
+          setIsLiked(true);
+        } else {
+          throw error;
         }
-
-        setIsLiked(true);
-        setLikesCount(prev => prev + 1);
-        triggerLikeBurst();
-        await handleLike(user.id, contentId, true);
       }
     } catch (error) {
       console.error('Error toggling like:', error);

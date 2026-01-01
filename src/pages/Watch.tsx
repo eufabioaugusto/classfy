@@ -323,17 +323,17 @@ function WatchContent() {
   const checkActionStates = async () => {
     if (!user || !content) return;
     
-    const [likeData, savedData, favoriteData, countResult] = await Promise.all([
+    const [likeData, savedData, favoriteData] = await Promise.all([
       supabase.from('actions').select('id').eq('user_id', user.id).eq('type', 'LIKE').eq(isCourse ? 'course_id' : 'content_id', content.id).maybeSingle(),
       supabase.from('saved_contents').select('id').eq('user_id', user.id).eq(isCourse ? 'course_id' : 'content_id', content.id).maybeSingle(),
       supabase.from('favorites').select('id').eq('user_id', user.id).eq(isCourse ? 'course_id' : 'content_id', content.id).maybeSingle(),
-      supabase.from('actions').select('*', { count: 'exact', head: true }).eq('type', 'LIKE').eq(isCourse ? 'course_id' : 'content_id', content.id),
     ]);
     
     setIsLiked(!!likeData.data);
     setIsSaved(!!savedData.data);
     setIsFavorited(!!favoriteData.data);
-    setLikesCount(countResult.count || 0);
+    // Use likes_count from content (synced by database trigger)
+    setLikesCount(content.likes_count || 0);
   };
 
   const fetchRelatedContents = async () => {
@@ -349,15 +349,28 @@ function WatchContent() {
 
   const toggleLike = async () => {
     if (!user || !content) return;
-    if (isLiked) {
-      await supabase.from('actions').delete().eq('user_id', user.id).eq('type', 'LIKE').eq(isCourse ? 'course_id' : 'content_id', content.id);
-      setIsLiked(false);
-      setLikesCount(prev => Math.max(0, prev - 1));
-    } else {
-      await supabase.from('actions').insert({ user_id: user.id, type: 'LIKE', [isCourse ? 'course_id' : 'content_id']: content.id });
-      setIsLiked(true);
-      setLikesCount(prev => prev + 1);
-      await handleLike(user.id, content.id, true);
+    
+    try {
+      if (isLiked) {
+        const { error } = await supabase.from('actions').delete().eq('user_id', user.id).eq('type', 'LIKE').eq(isCourse ? 'course_id' : 'content_id', content.id);
+        if (!error) {
+          setIsLiked(false);
+          setLikesCount(prev => Math.max(0, prev - 1));
+        }
+      } else {
+        const { error } = await supabase.from('actions').insert({ user_id: user.id, type: 'LIKE', [isCourse ? 'course_id' : 'content_id']: content.id });
+        // If no error (or duplicate error which is fine), update state
+        if (!error) {
+          setIsLiked(true);
+          setLikesCount(prev => prev + 1);
+          await handleLike(user.id, content.id, true);
+        } else if (error.code === '23505') {
+          // Duplicate - user already liked, just update UI
+          setIsLiked(true);
+        }
+      }
+    } catch (error) {
+      console.error('Error toggling like:', error);
     }
   };
 
