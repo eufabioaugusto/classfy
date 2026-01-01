@@ -246,7 +246,7 @@ const FeaturedCreatorPage = () => {
                 <img
                   src={creator.featured_image_url}
                   alt={creator.creator_name}
-                  className="h-14 sm:h-16 lg:h-20 w-auto object-contain"
+                  className="h-[68px] sm:h-[77px] lg:h-24 w-auto object-contain"
                 />
               </div>
 
