@@ -103,6 +103,20 @@ export function ContentActions({
     checkStatus();
   }, [user, contentId, isCourse]);
 
+  // Refresh likes count from database (single source of truth)
+  const refreshLikesCount = async () => {
+    const table = isCourse ? 'courses' : 'contents';
+    const { data } = await supabase
+      .from(table)
+      .select('likes_count')
+      .eq('id', contentId)
+      .single();
+    
+    if (data) {
+      setLikesCount(data.likes_count || 0);
+    }
+  };
+
   const toggleLike = async () => {
     if (!user) {
       toast({
@@ -115,6 +129,7 @@ export function ContentActions({
 
     try {
       if (isLiked) {
+        // Remove like
         const deleteQuery = supabase
           .from('actions')
           .delete()
@@ -127,12 +142,10 @@ export function ContentActions({
           deleteQuery.eq('content_id', contentId);
         }
 
-        const { error } = await deleteQuery;
-        if (!error) {
-          setIsLiked(false);
-          setLikesCount(prev => Math.max(0, prev - 1));
-        }
+        await deleteQuery;
+        setIsLiked(false);
       } else {
+        // Add like
         const insertData: any = {
           user_id: user.id,
           type: 'LIKE',
@@ -146,19 +159,19 @@ export function ContentActions({
 
         const { error } = await supabase.from('actions').insert(insertData);
         
-        // If no error (or duplicate error which means already liked)
         if (!error) {
           setIsLiked(true);
-          setLikesCount(prev => prev + 1);
           triggerLikeBurst();
           await handleLike(user.id, contentId, true);
         } else if (error.code === '23505') {
-          // Duplicate - user already liked, just update UI
+          // Already liked (duplicate), just update UI state
           setIsLiked(true);
         } else {
           throw error;
         }
       }
+      // Always refresh count from database after any action
+      await refreshLikesCount();
     } catch (error) {
       console.error('Error toggling like:', error);
       toast({
