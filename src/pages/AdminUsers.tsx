@@ -54,6 +54,7 @@ export default function AdminUsers() {
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedUser, setSelectedUser] = useState<UserData | null>(null);
   const [newRole, setNewRole] = useState<string>("");
+  const [newPlan, setNewPlan] = useState<string>("");
   const [processing, setProcessing] = useState(false);
 
   useEffect(() => {
@@ -88,38 +89,54 @@ export default function AdminUsers() {
     }
   };
 
-  const handleChangeRole = async () => {
-    if (!selectedUser || !newRole) return;
+  const handleSaveChanges = async () => {
+    if (!selectedUser) return;
     setProcessing(true);
 
     try {
-      // Remove existing roles
-      await supabase
-        .from("user_roles")
-        .delete()
-        .eq("user_id", selectedUser.id);
+      // Update role if changed
+      const currentRole = selectedUser.user_roles[0]?.role || "user";
+      if (newRole && newRole !== currentRole) {
+        await supabase
+          .from("user_roles")
+          .delete()
+          .eq("user_id", selectedUser.id);
 
-      // Add new role
-      const { error } = await supabase
-        .from("user_roles")
-        .insert({
-          user_id: selectedUser.id,
-          role: newRole as "user" | "creator" | "admin",
-        });
+        const { error: roleError } = await supabase
+          .from("user_roles")
+          .insert({
+            user_id: selectedUser.id,
+            role: newRole as "user" | "creator" | "admin",
+          });
 
-      if (error) throw error;
+        if (roleError) throw roleError;
+      }
+
+      // Update plan if changed
+      if (newPlan && newPlan !== selectedUser.plan) {
+        const { error: planError } = await supabase
+          .from("profiles")
+          .update({ 
+            plan: newPlan as "free" | "pro" | "premium",
+            plan_expires_at: newPlan === "free" ? null : new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString()
+          })
+          .eq("id", selectedUser.id);
+
+        if (planError) throw planError;
+      }
 
       toast({
-        title: "Função atualizada!",
-        description: `${selectedUser.display_name} agora é ${newRole}.`,
+        title: "Usuário atualizado!",
+        description: `${selectedUser.display_name} foi atualizado com sucesso.`,
       });
 
       setSelectedUser(null);
       setNewRole("");
+      setNewPlan("");
       fetchUsers();
     } catch (error: any) {
       toast({
-        title: "Erro ao atualizar função",
+        title: "Erro ao atualizar usuário",
         description: error.message,
         variant: "destructive",
       });
@@ -323,9 +340,10 @@ export default function AdminUsers() {
                       onClick={() => {
                         setSelectedUser(user);
                         setNewRole(user.user_roles[0]?.role || "user");
+                        setNewPlan(user.plan || "free");
                       }}
                     >
-                      Editar Função
+                      Editar
                     </Button>
                   </TableCell>
                 </TableRow>
@@ -335,17 +353,17 @@ export default function AdminUsers() {
         </Table>
       </Card>
 
-      {/* Edit Role Dialog */}
+      {/* Edit User Dialog */}
       <Dialog open={!!selectedUser} onOpenChange={() => setSelectedUser(null)}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Alterar Função do Usuário</DialogTitle>
+            <DialogTitle>Editar Usuário</DialogTitle>
             <DialogDescription>
-              Altere a função de {selectedUser?.display_name}
+              Altere a função ou plano de {selectedUser?.display_name}
             </DialogDescription>
           </DialogHeader>
 
-          <div className="space-y-4 py-4">
+          <div className="space-y-6 py-4">
             <div className="space-y-2">
               <Label>Função Atual</Label>
               <div>{getRoleBadge(selectedUser?.user_roles || [])}</div>
@@ -364,6 +382,28 @@ export default function AdminUsers() {
                 </SelectContent>
               </Select>
             </div>
+
+            <div className="space-y-2">
+              <Label>Plano Atual</Label>
+              <div>{getPlanBadge(selectedUser?.plan || "free")}</div>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="plan">Novo Plano</Label>
+              <Select value={newPlan} onValueChange={setNewPlan}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Selecione um plano" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="free">Free</SelectItem>
+                  <SelectItem value="pro">Pro</SelectItem>
+                  <SelectItem value="premium">Premium</SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                Planos Pro/Premium terão validade de 1 ano a partir de agora.
+              </p>
+            </div>
           </div>
 
           <DialogFooter>
@@ -372,13 +412,14 @@ export default function AdminUsers() {
               onClick={() => {
                 setSelectedUser(null);
                 setNewRole("");
+                setNewPlan("");
               }}
               disabled={processing}
             >
               Cancelar
             </Button>
-            <Button onClick={handleChangeRole} disabled={processing}>
-              Salvar Alteração
+            <Button onClick={handleSaveChanges} disabled={processing}>
+              Salvar Alterações
             </Button>
           </DialogFooter>
         </DialogContent>
