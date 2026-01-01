@@ -78,43 +78,43 @@ const CreatorCard = ({ creator, onClick }: CreatorCardProps) => {
   return (
     <div
       onClick={onClick}
-      className="group relative rounded-lg sm:rounded-xl overflow-hidden cursor-pointer transition-all duration-300 hover:shadow-2xl h-[240px] sm:h-[340px] md:h-[440px] w-auto text-center"
+      className="group relative rounded-xl overflow-hidden cursor-pointer transition-all duration-300 hover:shadow-2xl h-[380px] sm:h-[400px] md:h-[480px] w-auto text-center"
     >
       {/* Background Image */}
       <div
         className="absolute inset-0 bg-cover bg-center transition-transform duration-500 group-hover:scale-110"
         style={{ backgroundImage: `url(${creator.background_image_url})` }}
       >
-        <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/50 to-transparent" />
+        <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/40 to-transparent" />
       </div>
 
       {/* Badge */}
-      <div className="absolute top-2 sm:top-4 left-2 sm:left-4 z-10">
-        <Badge variant="secondary" className="bg-background/90 backdrop-blur-sm text-foreground font-semibold text-[10px] sm:text-xs px-1.5 sm:px-2 py-0.5">
+      <div className="absolute top-3 sm:top-4 left-3 sm:left-4 z-10">
+        <Badge variant="secondary" className="bg-background/95 backdrop-blur-sm text-foreground font-semibold text-xs px-3 py-1 rounded-full">
           {creator.badge_text}
         </Badge>
       </div>
 
       {/* Content */}
-      <div className="absolute inset-0 flex flex-col justify-end p-3 sm:p-6 z-10">
+      <div className="absolute inset-0 flex flex-col justify-end p-4 sm:p-6 z-10">
         {/* Featured Image/Logo */}
-        <div className="mb-2 sm:mb-4 flex justify-center">
+        <div className="mb-3 sm:mb-4 flex justify-center">
           <img
             src={creator.featured_image_url}
             alt={creator.creator_name}
-            className="h-12 sm:h-16 md:h-24 w-auto object-contain drop-shadow-2xl"
+            className="h-16 sm:h-20 md:h-24 w-auto object-contain drop-shadow-2xl"
           />
         </div>
 
         {/* Separator */}
-        <div className="w-full h-px bg-white/20 mb-2 sm:mb-4" />
+        <div className="w-12 h-0.5 bg-white/40 mb-3 sm:mb-4 mx-auto" />
 
         {/* Description */}
-        <p className="text-white font-semibold text-[10px] sm:text-xs md:text-sm line-clamp-2 mb-1 sm:mb-2 leading-tight">{creator.description}</p>
+        <p className="text-white font-semibold text-sm sm:text-base md:text-lg line-clamp-2 mb-2 sm:mb-3 leading-snug">{creator.description}</p>
 
         {/* Duration */}
-        <div className="flex items-center gap-1 text-white/80 text-[9px] sm:text-xs justify-center">
-          <Clock className="h-2.5 w-2.5 sm:h-3 sm:w-3" />
+        <div className="flex items-center gap-1.5 text-white/80 text-xs sm:text-sm justify-center">
+          <Clock className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
           <span>{creator.total_duration}</span>
         </div>
       </div>
