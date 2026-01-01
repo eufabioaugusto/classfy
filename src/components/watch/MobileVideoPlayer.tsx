@@ -270,7 +270,6 @@ export function MobileVideoPlayer({
     <div 
       ref={containerRef}
       className="relative bg-black w-full max-w-full aspect-video overflow-hidden"
-      onTouchEnd={handleTap}
     >
       {isPodcast ? (
         <>
@@ -310,17 +309,20 @@ export function MobileVideoPlayer({
         </button>
       )}
 
-      {/* Play button overlay */}
-      {!isPlaying && (
-        <button
-          onClick={togglePlay}
-          className="absolute inset-0 flex items-center justify-center bg-black/30"
-        >
-          <div className="w-16 h-16 rounded-full bg-white/90 flex items-center justify-center shadow-lg">
-            <Play className="w-8 h-8 text-black fill-black ml-1" />
+      {/* Tap area for play/pause - excludes bottom controls */}
+      <div 
+        className="absolute inset-0 bottom-16"
+        onTouchEnd={handleTap}
+      >
+        {/* Play button overlay */}
+        {!isPlaying && (
+          <div className="absolute inset-0 flex items-center justify-center bg-black/30 pointer-events-none">
+            <div className="w-16 h-16 rounded-full bg-white/90 flex items-center justify-center shadow-lg">
+              <Play className="w-8 h-8 text-black fill-black ml-1" />
+            </div>
           </div>
-        </button>
-      )}
+        )}
+      </div>
 
       {/* Controls overlay */}
       <div
@@ -348,16 +350,21 @@ export function MobileVideoPlayer({
         <div className="flex items-center justify-between px-2 pb-2">
           <div className="flex items-center gap-1">
             <button
-              onClick={togglePlay}
+              onClick={(e) => {
+                e.stopPropagation();
+                togglePlay();
+              }}
               className="w-10 h-10 flex items-center justify-center text-white"
             >
               {isPlaying ? <Pause className="w-6 h-6" /> : <Play className="w-6 h-6" />}
             </button>
 
             <button
-              onClick={() => {
+              onClick={(e) => {
+                e.stopPropagation();
                 const media = mediaRef.current;
                 if (media) media.currentTime = Math.max(0, media.currentTime - 10);
+                resetControlsTimeout();
               }}
               className="w-10 h-10 flex items-center justify-center text-white"
             >
@@ -365,9 +372,11 @@ export function MobileVideoPlayer({
             </button>
 
             <button
-              onClick={() => {
+              onClick={(e) => {
+                e.stopPropagation();
                 const media = mediaRef.current;
                 if (media) media.currentTime = Math.min(duration, media.currentTime + 10);
+                resetControlsTimeout();
               }}
               className="w-10 h-10 flex items-center justify-center text-white"
             >
