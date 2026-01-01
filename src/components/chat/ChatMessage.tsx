@@ -7,13 +7,15 @@ interface ChatMessageProps {
   role: 'user' | 'assistant' | 'system';
   isNew?: boolean;
   className?: string;
+  onContentGrow?: () => void;
 }
 
 export const ChatMessage: React.FC<ChatMessageProps> = ({ 
   content, 
   role, 
   isNew = false,
-  className = ''
+  className = '',
+  onContentGrow
 }) => {
   const [animationComplete, setAnimationComplete] = useState(!isNew);
 
@@ -45,6 +47,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({
         content={content} 
         isNew={isNew}
         onComplete={() => setAnimationComplete(true)}
+        onContentGrow={onContentGrow}
       />
     </div>
   );

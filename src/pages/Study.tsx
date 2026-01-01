@@ -108,6 +108,7 @@ function StudyContent() {
   const [newestMessageId, setNewestMessageId] = useState<string | null>(null);
   const autoplayTimerRef = useRef<NodeJS.Timeout | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
   
   // Tool panels state
   const [activeToolPanel, setActiveToolPanel] = useState<'transcription' | 'quiz' | 'notes' | 'comments' | 'recommendations' | null>(null);
@@ -281,6 +282,11 @@ function StudyContent() {
   };
 
   const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
+  };
+
+  // Scroll callback for typewriter animation - uses scrollTop for smoother continuous scroll
+  const handleContentGrow = () => {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
@@ -1007,6 +1013,7 @@ function StudyContent() {
                       role={message.role}
                       isNew={message.id === newestMessageId && message.role === 'assistant'}
                       className="text-sm"
+                      onContentGrow={message.id === newestMessageId && message.role === 'assistant' ? handleContentGrow : undefined}
                     />
                   </div>
                   
@@ -1107,6 +1114,7 @@ function StudyContent() {
                 );
               })
             )}
+            <div ref={messagesEndRef} />
             {sending && (
               <div className="flex justify-start animate-fade-in pl-1">
                 <div className="flex items-center gap-2 py-2">
@@ -1898,6 +1906,7 @@ function StudyContent() {
                           content={message.content}
                           role={message.role}
                           isNew={message.id === newestMessageId && message.role === 'assistant'}
+                          onContentGrow={message.id === newestMessageId && message.role === 'assistant' ? handleContentGrow : undefined}
                         />
                       </div>
                       
@@ -2002,6 +2011,7 @@ function StudyContent() {
                     );
                   })
                 )}
+                <div ref={messagesEndRef} />
                 {sending && (
                   <div className="flex justify-start animate-fade-in pl-1">
                     <div className="flex items-center gap-2 py-2">
