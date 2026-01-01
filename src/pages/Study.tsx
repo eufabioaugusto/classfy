@@ -5,11 +5,10 @@ import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Loader2, Send, ArrowLeft, MoreVertical, Edit2, Share2, Trash2, X, List, FileText, Brain, StickyNote, MessageSquare, Lightbulb, Minimize2, Maximize2, Play, ChevronLeft, ChevronRight } from "lucide-react";
+import { Loader2, Send, ArrowLeft, MoreVertical, Edit2, Share2, Trash2, X, List, FileText, Brain, StickyNote, MessageSquare, Lightbulb, Minimize2, Maximize2, Play, ChevronLeft, ChevronRight, AlertCircle } from "lucide-react";
 import { StudyMessage } from "@/hooks/useStudies";
 import { useStudies } from "@/hooks/useStudies";
 import { StudyUsageIndicator } from "@/components/StudyUsageIndicator";
-import { StudyLimitModal } from "@/components/StudyLimitModal";
 import { ChatContentCard } from "@/components/ChatContentCard";
 import { ChatMessage } from "@/components/chat/ChatMessage";
 import { UpgradePromptCard } from "@/components/chat/UpgradePromptCard";
@@ -120,10 +119,11 @@ function StudyContent() {
   // Mobile-specific state
   const [showPlaylistSheet, setShowPlaylistSheet] = useState(false);
 
-  // Limit modal state
-  const [limitModalOpen, setLimitModalOpen] = useState(false);
-  const [limitType, setLimitType] = useState<'messages' | 'deviations'>('messages');
-  const [suggestedTopic, setSuggestedTopic] = useState<string | undefined>();
+  // Limit state (inline alert + CTA card)
+  const [limitReached, setLimitReached] = useState<{
+    type: 'messages' | 'deviations';
+    suggestedTopic?: string;
+  } | null>(null);
   const [studyUsage, setStudyUsage] = useState<{ messageCount: number; maxMessages: number } | null>(null);
 
   // Focus Mode: Auto-collapse sidebar when content is playing
@@ -445,7 +445,16 @@ function StudyContent() {
     }
   };
 
+  const messageCount = studyUsage?.messageCount || study?.message_count || 0;
+  const maxMessages = studyUsage?.maxMessages || messageLimit;
+  const isMessageLimitReached = currentPlan !== 'premium' && maxMessages !== Infinity && messageCount >= maxMessages;
+  const isChatLocked = Boolean(limitReached) || isMessageLimitReached;
+
   const handleSend = async () => {
+    if (isChatLocked) {
+      toast.error("Limite atingido. Faça upgrade para continuar.");
+      return;
+    }
     if (!input.trim() || !id || !user) return;
 
     const userMessage = input.trim();
@@ -490,32 +499,18 @@ function StudyContent() {
 
       // Handle limit errors
       if (aiData.limitReached) {
-        setLimitType(aiData.limitType === 'DEVIATION_LIMIT_REACHED' ? 'deviations' : 'messages');
-        setSuggestedTopic(aiData.suggestedTopic);
+        const limitType = aiData.limitType === 'DEVIATION_LIMIT_REACHED' ? 'deviations' : 'messages';
+
+        setLimitReached({
+          type: limitType,
+          suggestedTopic: aiData.suggestedTopic,
+        });
+
         setStudyUsage({
           messageCount: aiData.usage?.messageCount || study?.message_count || 0,
-          maxMessages: aiData.usage?.maxMessages || messageLimit
+          maxMessages: aiData.usage?.maxMessages || messageLimit,
         });
-        setLimitModalOpen(true);
-        
-        // Still show the AI message (which includes the limit warning)
-        if (aiData.message) {
-          const { data: aiMessageData, error: aiMessageError } = await supabase
-            .from("study_messages")
-            .insert({
-              study_id: id,
-              role: "assistant",
-              content: aiData.message,
-              related_contents: null,
-            })
-            .select()
-            .single();
 
-          if (!aiMessageError) {
-            setNewestMessageId(aiMessageData.id);
-            await fetchMessages();
-          }
-        }
         return;
       }
 
@@ -1000,10 +995,6 @@ function StudyContent() {
               </div>
             ) : (
               messages.map((message) => {
-                // Check if this is a limit reached message
-                const isLimitMessage = message.role === 'assistant' && 
-                  message.content.includes('atingiu o limite');
-                
                 return (
                 <div key={message.id} className="space-y-3 w-full overflow-hidden animate-fade-in">
                   <div
@@ -1011,21 +1002,12 @@ function StudyContent() {
                       message.role === "user" ? "justify-end" : "justify-start"
                     }`}
                   >
-                    {isLimitMessage ? (
-                      <UpgradePromptCard
-                        userName={profile?.display_name}
-                        currentPlan={currentPlan}
-                        messageCount={studyUsage?.messageCount || study?.message_count || 0}
-                        maxMessages={studyUsage?.maxMessages || messageLimit}
-                      />
-                    ) : (
-                      <ChatMessage
-                        content={message.content}
-                        role={message.role}
-                        isNew={message.id === newestMessageId && message.role === 'assistant'}
-                        className="text-sm"
-                      />
-                    )}
+                    <ChatMessage
+                      content={message.content}
+                      role={message.role}
+                      isNew={message.id === newestMessageId && message.role === 'assistant'}
+                      className="text-sm"
+                    />
                   </div>
                   
                   {/* Mobile Content Cards */}
@@ -1137,6 +1119,33 @@ function StudyContent() {
                 </div>
               </div>
             )}
+
+            {isChatLocked && (
+              <div className="space-y-3 w-full overflow-hidden animate-fade-in">
+                <div className="flex w-full justify-start">
+                  <div className="w-full">
+                    <div className="w-full rounded-xl border border-destructive/30 bg-destructive/10 px-4 py-3">
+                      <div className="flex items-start gap-3">
+                        <AlertCircle className="w-5 h-5 text-destructive mt-0.5" />
+                        <p className="text-sm text-destructive">
+                          {limitReached?.type === 'deviations'
+                            ? `Novo tema detectado${limitReached?.suggestedTopic ? `: "${limitReached.suggestedTopic}"` : ''}. Faça upgrade para continuar explorando sem limites.`
+                            : 'Você atingiu o limite de mensagens do seu plano. Faça upgrade para continuar.'}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="mt-3">
+                      <UpgradePromptCard
+                        userName={profile?.display_name}
+                        currentPlan={currentPlan}
+                        messageCount={messageCount}
+                        maxMessages={maxMessages}
+                      />
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
             </div>
           </ScrollArea>
         </div>
@@ -1153,11 +1162,11 @@ function StudyContent() {
             <Input
               value={input}
               onChange={(e) => setInput(e.target.value)}
-              placeholder="Digite sua mensagem..."
-              disabled={sending}
+              placeholder={isChatLocked ? "Limite atingido — faça upgrade para continuar" : "Digite sua mensagem..."}
+              disabled={sending || isChatLocked}
               className="flex-1 h-10"
             />
-            <Button type="submit" disabled={sending || !input.trim()} size="icon" className="h-10 w-10 shrink-0">
+            <Button type="submit" disabled={sending || isChatLocked || !input.trim()} size="icon" className="h-10 w-10 shrink-0">
               {sending ? (
                 <Loader2 className="w-4 h-4 animate-spin" />
               ) : (
@@ -1543,17 +1552,6 @@ function StudyContent() {
             </DialogFooter>
           </DialogContent>
         </Dialog>
-
-        {/* Study Limit Modal */}
-        <StudyLimitModal
-          open={limitModalOpen}
-          onOpenChange={setLimitModalOpen}
-          limitType={limitType}
-          current={studyUsage?.messageCount || study?.message_count || 0}
-          max={studyUsage?.maxMessages || messageLimit}
-          plan={currentPlan}
-          suggestedTopic={suggestedTopic}
-        />
       </>
     );
   }
@@ -1889,10 +1887,6 @@ function StudyContent() {
                   </div>
                 ) : (
                   messages.map((message) => {
-                    // Check if this is a limit reached message
-                    const isLimitMessage = message.role === 'assistant' && 
-                      message.content.includes('atingiu o limite');
-                    
                     return (
                     <div key={message.id} className="space-y-4 animate-fade-in">
                       <div
@@ -1900,20 +1894,11 @@ function StudyContent() {
                           message.role === "user" ? "justify-end" : "justify-start"
                         }`}
                       >
-                        {isLimitMessage ? (
-                          <UpgradePromptCard
-                            userName={profile?.display_name}
-                            currentPlan={currentPlan}
-                            messageCount={studyUsage?.messageCount || study?.message_count || 0}
-                            maxMessages={studyUsage?.maxMessages || messageLimit}
-                          />
-                        ) : (
-                          <ChatMessage
-                            content={message.content}
-                            role={message.role}
-                            isNew={message.id === newestMessageId && message.role === 'assistant'}
-                          />
-                        )}
+                        <ChatMessage
+                          content={message.content}
+                          role={message.role}
+                          isNew={message.id === newestMessageId && message.role === 'assistant'}
+                        />
                       </div>
                       
                       {/* Render content cards if available */}
@@ -2035,6 +2020,29 @@ function StudyContent() {
             {/* Input */}
             <div className="border-t border-border bg-card px-6 py-4 flex-shrink-0">
               <div className="max-w-4xl mx-auto">
+                {isChatLocked && (
+                  <div className="pb-4">
+                    <div className="w-full rounded-xl border border-destructive/30 bg-destructive/10 px-4 py-3">
+                      <div className="flex items-start gap-3">
+                        <AlertCircle className="w-5 h-5 text-destructive mt-0.5" />
+                        <p className="text-sm text-destructive">
+                          {limitReached?.type === 'deviations'
+                            ? `Novo tema detectado${limitReached?.suggestedTopic ? `: "${limitReached.suggestedTopic}"` : ''}. Faça upgrade para continuar explorando sem limites.`
+                            : 'Você atingiu o limite de mensagens do seu plano. Faça upgrade para continuar.'}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="mt-3">
+                      <UpgradePromptCard
+                        userName={profile?.display_name}
+                        currentPlan={currentPlan}
+                        messageCount={messageCount}
+                        maxMessages={maxMessages}
+                      />
+                    </div>
+                  </div>
+                )}
+
                 <form
                   onSubmit={(e) => {
                     e.preventDefault();
@@ -2045,11 +2053,11 @@ function StudyContent() {
                   <Input
                     value={input}
                     onChange={(e) => setInput(e.target.value)}
-                    placeholder="Digite sua mensagem..."
-                    disabled={sending}
+                    placeholder={isChatLocked ? "Limite atingido — faça upgrade para continuar" : "Digite sua mensagem..."}
+                    disabled={sending || isChatLocked}
                     className="flex-1"
                   />
-                  <Button type="submit" disabled={sending || !input.trim()}>
+                  <Button type="submit" disabled={sending || isChatLocked || !input.trim()}>
                     {sending ? (
                       <Loader2 className="w-4 h-4 animate-spin" />
                     ) : (
