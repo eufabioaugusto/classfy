@@ -63,7 +63,7 @@ function StudyContent() {
   const { user, profile } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
-  const { updateLastActivity, archiveStudy, createStudy, getStudyUsage, refetch: refetchStudies } = useStudies();
+  const { updateLastActivity, getStudyUsage } = useStudies();
   const { setOpen, open } = useSidebar();
   const isMobile = useIsMobile();
 
@@ -562,30 +562,6 @@ function StudyContent() {
     }
   };
 
-  // Handle archive current study and create new one
-  const handleArchiveAndNew = async () => {
-    if (!id) return;
-    
-    try {
-      await archiveStudy(id);
-      await refetchStudies();
-      
-      // Create new study with suggested topic or generic title
-      const newTitle = suggestedTopic || "Novo Estudo";
-      const result = await createStudy(newTitle);
-      
-      if (result?.data) {
-        toast.success("Estudo arquivado! Redirecionando para novo estudo...");
-        setLimitModalOpen(false);
-        navigate(`/study/${result.data.id}`);
-      } else {
-        toast.error("Não foi possível criar novo estudo. Verifique seus limites.");
-      }
-    } catch (error) {
-      console.error("Error archiving and creating new study:", error);
-      toast.error("Erro ao arquivar estudo");
-    }
-  };
 
   const handleRename = async () => {
     if (!newTitle.trim() || !id) return;
@@ -1577,7 +1553,6 @@ function StudyContent() {
           max={studyUsage?.maxMessages || messageLimit}
           plan={currentPlan}
           suggestedTopic={suggestedTopic}
-          onArchiveAndNew={handleArchiveAndNew}
         />
       </>
     );
