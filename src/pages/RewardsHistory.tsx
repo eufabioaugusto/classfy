@@ -291,7 +291,7 @@ export default function RewardsHistory() {
 
         {/* Filters */}
         <Card>
-          <CardHeader className="flex flex-row items-center justify-between">
+          <CardHeader className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
             <div>
               <CardTitle className="flex items-center gap-2">
                 <Filter className="w-5 h-5" />
@@ -299,13 +299,13 @@ export default function RewardsHistory() {
               </CardTitle>
               <CardDescription>Filtre o histórico por tipo de ação e período</CardDescription>
             </div>
-            <div className="flex gap-2">
-              <Button variant="outline" size="sm" onClick={clearFilters}>
-                Limpar Filtros
+            <div className="flex gap-2 w-full sm:w-auto">
+              <Button variant="outline" size="sm" onClick={clearFilters} className="flex-1 sm:flex-none">
+                Limpar
               </Button>
-              <Button variant="outline" size="sm" onClick={exportToCSV}>
-                <Download className="w-4 h-4 mr-2" />
-                Exportar CSV
+              <Button variant="outline" size="sm" onClick={exportToCSV} className="flex-1 sm:flex-none">
+                <Download className="w-4 h-4 sm:mr-2" />
+                <span className="hidden sm:inline">Exportar CSV</span>
               </Button>
             </div>
           </CardHeader>
@@ -355,8 +355,8 @@ export default function RewardsHistory() {
           </CardContent>
         </Card>
 
-        {/* Events Table */}
-        <Card>
+        {/* Events Table - Desktop */}
+        <Card className="hidden md:block">
           <CardHeader>
             <CardTitle>Eventos de Recompensa</CardTitle>
             <CardDescription>
@@ -439,6 +439,86 @@ export default function RewardsHistory() {
               <div className="flex items-center justify-between">
                 <p className="text-sm text-muted-foreground">
                   Página {currentPage} de {totalPages}
+                </p>
+                <div className="flex gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                    disabled={currentPage === 1}
+                  >
+                    Anterior
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                    disabled={currentPage === totalPages}
+                  >
+                    Próxima
+                  </Button>
+                </div>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Events Cards - Mobile */}
+        <Card className="md:hidden">
+          <CardHeader>
+            <CardTitle className="text-base">Eventos de Recompensa</CardTitle>
+            <CardDescription>
+              Mostrando {paginatedEvents.length} de {filteredEvents.length} eventos
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3 px-3">
+            {paginatedEvents.length === 0 ? (
+              <div className="text-center py-8 text-muted-foreground">
+                Nenhum evento encontrado
+              </div>
+            ) : (
+              paginatedEvents.map((event) => (
+                <div 
+                  key={event.id} 
+                  className="border rounded-lg p-3 space-y-2"
+                  onClick={() => handleViewDetails(event)}
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <Badge className={`${getActionColor(event.action_key)} text-xs`} variant="outline">
+                      {getActionLabel(event.action_key)}
+                    </Badge>
+                    <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                      <Calendar className="h-3 w-3" />
+                      {format(new Date(event.created_at), "dd/MM/yy", { locale: ptBR })}
+                    </div>
+                  </div>
+                  
+                  {event.contents && (
+                    <p className="text-sm text-foreground line-clamp-1">
+                      {event.contents.title}
+                    </p>
+                  )}
+                  
+                  <div className="flex items-center justify-between pt-1 border-t">
+                    <div className="flex items-center gap-3">
+                      <span className="text-sm font-semibold text-primary">
+                        +{event.points} pts
+                      </span>
+                      <span className="text-sm font-semibold text-green-600">
+                        R$ {event.value.toFixed(2)}
+                      </span>
+                    </div>
+                    <Eye className="w-4 h-4 text-muted-foreground" />
+                  </div>
+                </div>
+              ))
+            )}
+
+            {/* Pagination - Mobile */}
+            {totalPages > 1 && (
+              <div className="flex items-center justify-between pt-2">
+                <p className="text-xs text-muted-foreground">
+                  {currentPage}/{totalPages}
                 </p>
                 <div className="flex gap-2">
                   <Button
