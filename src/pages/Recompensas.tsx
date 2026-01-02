@@ -427,15 +427,15 @@ export default function Recompensas() {
 
             {/* Link to Detailed History */}
             <Card className="mt-6">
-              <CardContent className="p-6">
-                <div className="flex items-center justify-between">
+              <CardContent className="p-4 sm:p-6">
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                   <div>
-                    <h3 className="text-lg font-semibold">Histórico Detalhado</h3>
-                    <p className="text-sm text-muted-foreground">
+                    <h3 className="text-base sm:text-lg font-semibold">Histórico Detalhado</h3>
+                    <p className="text-xs sm:text-sm text-muted-foreground">
                       Veja todas as suas recompensas com filtros avançados
                     </p>
                   </div>
-                  <Button onClick={() => navigate('/rewards-history')}>
+                  <Button onClick={() => navigate('/rewards-history')} className="w-full sm:w-auto">
                     Ver Histórico Completo
                   </Button>
                 </div>
