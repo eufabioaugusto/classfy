@@ -407,11 +407,11 @@ export default function Historico() {
                 {groupedItems[group].map((item) => (
                   <div
                     key={item.id}
-                    className="flex gap-4 group hover:bg-muted/50 p-2 -mx-2 rounded-lg transition-colors"
+                    className="flex gap-3 group hover:bg-muted/50 p-2 -mx-2 rounded-lg transition-colors overflow-hidden"
                   >
                     {/* Thumbnail */}
                     <div 
-                      className="relative w-40 h-24 flex-shrink-0 cursor-pointer"
+                      className="relative w-32 sm:w-40 aspect-video flex-shrink-0 cursor-pointer"
                       onClick={() => handleContentClick(item)}
                     >
                       <img
@@ -446,21 +446,21 @@ export default function Historico() {
                     </div>
 
                     {/* Content Info */}
-                    <div className="flex-1 min-w-0">
+                    <div className="flex-1 min-w-0 overflow-hidden">
                       <div className="flex items-start justify-between gap-2">
                         <div 
-                          className="cursor-pointer flex-1"
+                          className="cursor-pointer flex-1 min-w-0"
                           onClick={() => handleContentClick(item)}
                         >
-                          <h3 className="text-sm font-medium text-foreground line-clamp-2 hover:text-primary transition-colors">
+                          <h3 className="text-sm font-medium text-foreground line-clamp-2 hover:text-primary transition-colors break-words">
                             {item.content.title}
                           </h3>
-                          <div className="flex items-center gap-2 mt-0.5 text-xs text-muted-foreground">
-                            <span className="hover:text-foreground cursor-pointer">
+                          <div className="flex items-center gap-1.5 mt-0.5 text-xs text-muted-foreground flex-wrap">
+                            <span className="hover:text-foreground cursor-pointer truncate max-w-[120px] sm:max-w-none">
                               {item.content.profiles?.creator_channel_name || item.content.profiles?.display_name}
                             </span>
                             <span>•</span>
-                            <span>{formatViews(item.content.views_count)}</span>
+                            <span className="whitespace-nowrap">{formatViews(item.content.views_count)}</span>
                             {getContentTypeIcon(item.content.content_type)}
                           </div>
                           {item.content.description && (
