@@ -403,12 +403,12 @@ export default function Recompensas() {
                     <CardDescription>Continue criando para alcançar a próxima recompensa</CardDescription>
                   </CardHeader>
                   <CardContent className="space-y-4">
-                    <div className="flex justify-between items-end">
-                      <div>
-                        <p className="text-sm text-muted-foreground">Meta</p>
-                        <p className="text-2xl font-bold">{stats.creatorStats.nextMilestone.target.toLocaleString()} views</p>
+                    <div className="flex justify-between items-end gap-2">
+                      <div className="min-w-0">
+                        <p className="text-xs sm:text-sm text-muted-foreground">Meta</p>
+                        <p className="text-lg sm:text-2xl font-bold">{stats.creatorStats.nextMilestone.target.toLocaleString()} views</p>
                       </div>
-                      <Badge variant="secondary" className="text-lg px-4 py-2">
+                      <Badge variant="secondary" className="text-xs sm:text-lg px-2 sm:px-4 py-1 sm:py-2 flex-shrink-0">
                         {stats.creatorStats.nextMilestone.reward}
                       </Badge>
                     </div>
