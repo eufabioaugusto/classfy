@@ -92,15 +92,29 @@ export default function StudioAnalytics() {
       // Fetch creator's contents
       const { data: creatorContents } = await supabase
         .from('contents')
-        .select('id, title, views_count')
+        .select('id, title, views_count, likes_count')
         .eq('creator_id', user.id)
         .eq('status', 'approved');
 
-      if (!creatorContents) return;
+      if (!creatorContents || creatorContents.length === 0) {
+        setContents([]);
+        setTotalStats({
+          totalViews: 0,
+          uniqueViewers: 0,
+          totalLikes: 0,
+          totalSaves: 0,
+          totalComments: 0,
+          avgCompletionRate: 0,
+          totalWatchTimeHours: 0
+        });
+        setViewsOverTime([]);
+        setLoadingData(false);
+        return;
+      }
 
-      // Fetch metrics for each content
+      // Fetch metrics for each content - using accumulated totals
       const metricsPromises = creatorContents.map(async (content) => {
-        // Views unique (excluding creator's own views)
+        // Views unique (excluding creator's own views) within period
         const { count: uniqueViewers } = await supabase
           .from('content_views')
           .select('*', { count: 'exact', head: true })
@@ -108,7 +122,7 @@ export default function StudioAnalytics() {
           .neq('user_id', user.id)
           .gte('view_date', startDate.toISOString().split('T')[0]);
 
-        // Total watch time
+        // Total watch time within period
         const { data: watchTime } = await supabase
           .from('content_views')
           .select('total_watch_time_seconds')
@@ -118,49 +132,45 @@ export default function StudioAnalytics() {
 
         const totalWatchTime = watchTime?.reduce((sum, v) => sum + (v.total_watch_time_seconds || 0), 0) || 0;
 
-        // Likes (excluding creator's own)
+        // Likes - using actions table (total count, not date-filtered for accuracy)
         const { count: likes } = await supabase
           .from('actions')
           .select('*', { count: 'exact', head: true })
           .eq('content_id', content.id)
           .eq('type', 'LIKE')
-          .neq('user_id', user.id)
-          .gte('created_at', startDate.toISOString());
+          .neq('user_id', user.id);
 
-        // Saves (excluding creator's own)
+        // Saves (total accumulated)
         const { count: saves } = await supabase
           .from('saved_contents')
           .select('*', { count: 'exact', head: true })
           .eq('content_id', content.id)
-          .neq('user_id', user.id)
-          .gte('created_at', startDate.toISOString());
+          .neq('user_id', user.id);
 
-        // Favorites (excluding creator's own)
+        // Favorites (total accumulated)
         const { count: favorites } = await supabase
           .from('favorites')
           .select('*', { count: 'exact', head: true })
           .eq('content_id', content.id)
-          .neq('user_id', user.id)
-          .gte('created_at', startDate.toISOString());
+          .neq('user_id', user.id);
 
-        // Comments (excluding creator's own)
+        // Comments (total accumulated)
         const { count: comments } = await supabase
           .from('comments')
           .select('*', { count: 'exact', head: true })
           .eq('content_id', content.id)
-          .neq('user_id', user.id)
-          .gte('created_at', startDate.toISOString());
+          .neq('user_id', user.id);
 
-        // Completion rate
+        // Completion rate (total)
         const { count: completions } = await supabase
           .from('user_progress')
           .select('*', { count: 'exact', head: true })
           .eq('content_id', content.id)
           .eq('completed', true)
-          .neq('user_id', user.id)
-          .gte('updated_at', startDate.toISOString());
+          .neq('user_id', user.id);
 
-        const completionRate = uniqueViewers && uniqueViewers > 0 ? ((completions || 0) / uniqueViewers) * 100 : 0;
+        const totalViewers = content.views_count || 1;
+        const completionRate = totalViewers > 0 ? ((completions || 0) / totalViewers) * 100 : 0;
 
         return {
           id: content.id,
@@ -171,7 +181,7 @@ export default function StudioAnalytics() {
           saves: saves || 0,
           favorites: favorites || 0,
           comments: comments || 0,
-          completionRate,
+          completionRate: Math.min(completionRate, 100),
           avgWatchTime: uniqueViewers && uniqueViewers > 0 ? totalWatchTime / uniqueViewers : 0,
           totalWatchTime
         };
@@ -281,20 +291,20 @@ export default function StudioAnalytics() {
         <div className="flex-1 flex flex-col">
           <Header variant="studio" title="Analytics" />
 
-          <main className="flex-1 p-6 md:p-12">
-            <div className="max-w-7xl mx-auto space-y-8">
+          <main className="flex-1 p-4 sm:p-6 md:p-12 overflow-x-hidden">
+            <div className="max-w-7xl mx-auto space-y-6 sm:space-y-8">
               {/* Header with filters */}
-              <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+              <div className="flex flex-col gap-4">
                 <div>
-                  <h2 className="text-3xl font-bold text-foreground mb-2">Analytics dos Conteúdos</h2>
-                  <p className="text-muted-foreground">
-                    Métricas detalhadas e insights sobre o desempenho dos seus conteúdos
+                  <h2 className="text-xl sm:text-2xl md:text-3xl font-bold text-foreground mb-1 sm:mb-2">Analytics dos Conteúdos</h2>
+                  <p className="text-sm sm:text-base text-muted-foreground">
+                    Métricas detalhadas sobre o desempenho dos seus conteúdos
                   </p>
                 </div>
                 
-                <div className="flex gap-3">
+                <div className="grid grid-cols-2 gap-2 sm:flex sm:gap-3">
                   <Select value={selectedContent} onValueChange={setSelectedContent}>
-                    <SelectTrigger className="w-[200px]">
+                    <SelectTrigger className="w-full sm:w-[200px] text-xs sm:text-sm">
                       <SelectValue placeholder="Selecionar conteúdo" />
                     </SelectTrigger>
                     <SelectContent>
@@ -308,7 +318,7 @@ export default function StudioAnalytics() {
                   </Select>
 
                   <Select value={selectedPeriod} onValueChange={setSelectedPeriod}>
-                    <SelectTrigger className="w-[150px]">
+                    <SelectTrigger className="w-full sm:w-[150px] text-xs sm:text-sm">
                       <SelectValue placeholder="Período" />
                     </SelectTrigger>
                     <SelectContent>
@@ -322,85 +332,86 @@ export default function StudioAnalytics() {
               </div>
 
               {/* Overview Stats */}
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-                <Card className="p-6 bg-card border-border">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="text-sm text-muted-foreground mb-1">Visualizações</p>
-                      <p className="text-2xl font-bold text-foreground">{totalStats.totalViews}</p>
-                      <p className="text-xs text-muted-foreground mt-1">
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-6">
+                <Card className="p-3 sm:p-6 bg-card border-border">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="text-xs sm:text-sm text-muted-foreground mb-0.5 sm:mb-1">Visualizações</p>
+                      <p className="text-lg sm:text-2xl font-bold text-foreground">{totalStats.totalViews}</p>
+                      <p className="text-[10px] sm:text-xs text-muted-foreground mt-0.5 sm:mt-1">
                         {totalStats.uniqueViewers} únicos
                       </p>
                     </div>
-                    <Eye className="w-8 h-8 text-blue-500" />
+                    <Eye className="w-6 h-6 sm:w-8 sm:h-8 text-blue-500 flex-shrink-0" />
                   </div>
                 </Card>
 
-                <Card className="p-6 bg-card border-border">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="text-sm text-muted-foreground mb-1">Tempo Assistido</p>
-                      <p className="text-2xl font-bold text-foreground">
+                <Card className="p-3 sm:p-6 bg-card border-border">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="text-xs sm:text-sm text-muted-foreground mb-0.5 sm:mb-1">Tempo Assistido</p>
+                      <p className="text-lg sm:text-2xl font-bold text-foreground">
                         {totalStats.totalWatchTimeHours.toFixed(1)}h
                       </p>
-                      <p className="text-xs text-muted-foreground mt-1">Total acumulado</p>
+                      <p className="text-[10px] sm:text-xs text-muted-foreground mt-0.5 sm:mt-1">Total acumulado</p>
                     </div>
-                    <Clock className="w-8 h-8 text-green-500" />
+                    <Clock className="w-6 h-6 sm:w-8 sm:h-8 text-green-500 flex-shrink-0" />
                   </div>
                 </Card>
 
-                <Card className="p-6 bg-card border-border">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="text-sm text-muted-foreground mb-1">Taxa de Conclusão</p>
-                      <p className="text-2xl font-bold text-foreground">
+                <Card className="p-3 sm:p-6 bg-card border-border">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="text-xs sm:text-sm text-muted-foreground mb-0.5 sm:mb-1">Taxa de Conclusão</p>
+                      <p className="text-lg sm:text-2xl font-bold text-foreground">
                         {totalStats.avgCompletionRate.toFixed(1)}%
                       </p>
-                      <p className="text-xs text-muted-foreground mt-1">Média geral</p>
+                      <p className="text-[10px] sm:text-xs text-muted-foreground mt-0.5 sm:mt-1">Média geral</p>
                     </div>
-                    <TrendingUp className="w-8 h-8 text-cinematic-accent" />
+                    <TrendingUp className="w-6 h-6 sm:w-8 sm:h-8 text-cinematic-accent flex-shrink-0" />
                   </div>
                 </Card>
 
-                <Card className="p-6 bg-card border-border">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="text-sm text-muted-foreground mb-1">Engajamento</p>
-                      <p className="text-2xl font-bold text-foreground">
+                <Card className="p-3 sm:p-6 bg-card border-border">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="text-xs sm:text-sm text-muted-foreground mb-0.5 sm:mb-1">Engajamento</p>
+                      <p className="text-lg sm:text-2xl font-bold text-foreground">
                         {totalStats.totalLikes + totalStats.totalSaves + totalStats.totalComments}
                       </p>
-                      <p className="text-xs text-muted-foreground mt-1">Total de interações</p>
+                      <p className="text-[10px] sm:text-xs text-muted-foreground mt-0.5 sm:mt-1">Total de interações</p>
                     </div>
-                    <Heart className="w-8 h-8 text-red-500" />
+                    <Heart className="w-6 h-6 sm:w-8 sm:h-8 text-red-500 flex-shrink-0" />
                   </div>
                 </Card>
               </div>
 
               {/* Charts */}
-              <Tabs defaultValue="views" className="space-y-6">
-                <TabsList>
-                  <TabsTrigger value="views">Visualizações</TabsTrigger>
-                  <TabsTrigger value="engagement">Engajamento</TabsTrigger>
-                  <TabsTrigger value="performance">Performance</TabsTrigger>
+              <Tabs defaultValue="views" className="space-y-4 sm:space-y-6">
+                <TabsList className="grid w-full grid-cols-3">
+                  <TabsTrigger value="views" className="text-xs sm:text-sm">Visualizações</TabsTrigger>
+                  <TabsTrigger value="engagement" className="text-xs sm:text-sm">Engajamento</TabsTrigger>
+                  <TabsTrigger value="performance" className="text-xs sm:text-sm">Performance</TabsTrigger>
                 </TabsList>
 
-                <TabsContent value="views" className="space-y-6">
-                  <Card className="p-6 bg-card border-border">
-                    <h3 className="text-lg font-semibold text-foreground mb-4">Visualizações ao Longo do Tempo</h3>
+                <TabsContent value="views" className="space-y-4 sm:space-y-6">
+                  <Card className="p-4 sm:p-6 bg-card border-border">
+                    <h3 className="text-base sm:text-lg font-semibold text-foreground mb-4">Visualizações ao Longo do Tempo</h3>
                     {viewsOverTime.length > 0 ? (
-                      <ResponsiveContainer width="100%" height={300}>
+                      <ResponsiveContainer width="100%" height={250}>
                         <LineChart data={viewsOverTime}>
                           <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-                          <XAxis dataKey="date" stroke="hsl(var(--foreground))" />
-                          <YAxis stroke="hsl(var(--foreground))" />
+                          <XAxis dataKey="date" stroke="hsl(var(--foreground))" tick={{ fontSize: 10 }} />
+                          <YAxis stroke="hsl(var(--foreground))" tick={{ fontSize: 10 }} width={30} />
                           <Tooltip 
                             contentStyle={{ 
                               backgroundColor: 'hsl(var(--card))', 
                               border: '1px solid hsl(var(--border))',
-                              borderRadius: '8px'
+                              borderRadius: '8px',
+                              fontSize: '12px'
                             }}
                           />
-                          <Legend />
+                          <Legend wrapperStyle={{ fontSize: '12px' }} />
                           <Line 
                             type="monotone" 
                             dataKey="views" 
@@ -418,17 +429,17 @@ export default function StudioAnalytics() {
                         </LineChart>
                       </ResponsiveContainer>
                     ) : (
-                      <div className="h-[300px] flex items-center justify-center text-muted-foreground">
+                      <div className="h-[250px] flex items-center justify-center text-muted-foreground text-sm">
                         Nenhum dado disponível para o período selecionado
                       </div>
                     )}
                   </Card>
                 </TabsContent>
 
-                <TabsContent value="engagement" className="space-y-6">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <Card className="p-6 bg-card border-border">
-                      <h3 className="text-lg font-semibold text-foreground mb-4">Distribuição de Engajamento</h3>
+                <TabsContent value="engagement" className="space-y-4 sm:space-y-6">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6">
+                    <Card className="p-4 sm:p-6 bg-card border-border">
+                      <h3 className="text-base sm:text-lg font-semibold text-foreground mb-4">Distribuição de Engajamento</h3>
                       {engagementData.some(d => d.value > 0) ? (
                         <ResponsiveContainer width="100%" height={300}>
                           <PieChart>
@@ -462,9 +473,9 @@ export default function StudioAnalytics() {
                       )}
                     </Card>
 
-                    <Card className="p-6 bg-card border-border">
-                      <h3 className="text-lg font-semibold text-foreground mb-4">Métricas de Engajamento</h3>
-                      <div className="space-y-4">
+                    <Card className="p-4 sm:p-6 bg-card border-border">
+                      <h3 className="text-base sm:text-lg font-semibold text-foreground mb-4">Métricas de Engajamento</h3>
+                      <div className="space-y-3 sm:space-y-4">
                         <div className="flex items-center justify-between p-3 bg-muted/50 rounded-lg">
                           <div className="flex items-center gap-3">
                             <Heart className="w-5 h-5 text-red-500" />
@@ -491,43 +502,46 @@ export default function StudioAnalytics() {
                   </div>
                 </TabsContent>
 
-                <TabsContent value="performance" className="space-y-6">
-                  <Card className="p-6 bg-card border-border">
-                    <h3 className="text-lg font-semibold text-foreground mb-4">Performance por Conteúdo</h3>
+                <TabsContent value="performance" className="space-y-4 sm:space-y-6">
+                  <Card className="p-4 sm:p-6 bg-card border-border">
+                    <h3 className="text-base sm:text-lg font-semibold text-foreground mb-4">Performance por Conteúdo</h3>
                     {contents.length > 0 ? (
-                      <ResponsiveContainer width="100%" height={400}>
-                        <BarChart data={contents}>
+                      <ResponsiveContainer width="100%" height={300}>
+                        <BarChart data={contents} margin={{ bottom: 60 }}>
                           <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
                           <XAxis 
                             dataKey="title" 
                             stroke="hsl(var(--foreground))"
                             angle={-45}
                             textAnchor="end"
-                            height={100}
+                            height={80}
+                            tick={{ fontSize: 10 }}
+                            interval={0}
                           />
-                          <YAxis stroke="hsl(var(--foreground))" />
+                          <YAxis stroke="hsl(var(--foreground))" tick={{ fontSize: 10 }} width={30} />
                           <Tooltip 
                             contentStyle={{ 
                               backgroundColor: 'hsl(var(--card))', 
                               border: '1px solid hsl(var(--border))',
-                              borderRadius: '8px'
+                              borderRadius: '8px',
+                              fontSize: '12px'
                             }}
                           />
-                          <Legend />
+                          <Legend wrapperStyle={{ fontSize: '12px' }} />
                           <Bar dataKey="uniqueViewers" fill="hsl(var(--cinematic-accent))" name="Viewers Únicos" />
                           <Bar dataKey="likes" fill="hsl(var(--primary))" name="Likes" />
                         </BarChart>
                       </ResponsiveContainer>
                     ) : (
-                      <div className="h-[400px] flex items-center justify-center text-muted-foreground">
+                      <div className="h-[300px] flex items-center justify-center text-muted-foreground text-sm">
                         Nenhum conteúdo disponível
                       </div>
                     )}
                   </Card>
 
-                  {/* Detailed content table */}
-                  <Card className="p-6 bg-card border-border">
-                    <h3 className="text-lg font-semibold text-foreground mb-4">Detalhamento por Conteúdo</h3>
+                  {/* Desktop table */}
+                  <Card className="p-4 sm:p-6 bg-card border-border hidden md:block">
+                    <h3 className="text-base sm:text-lg font-semibold text-foreground mb-4">Detalhamento por Conteúdo</h3>
                     <div className="overflow-x-auto">
                       <table className="w-full">
                         <thead>
@@ -570,6 +584,48 @@ export default function StudioAnalytics() {
                       </table>
                     </div>
                   </Card>
+
+                  {/* Mobile cards */}
+                  <div className="md:hidden space-y-3">
+                    <h3 className="text-base font-semibold text-foreground">Detalhamento por Conteúdo</h3>
+                    {contents.length > 0 ? (
+                      contents.map((content) => (
+                        <Card key={content.id} className="p-4 bg-card border-border">
+                          <p className="font-medium text-foreground text-sm mb-3 truncate">{content.title}</p>
+                          <div className="grid grid-cols-3 gap-3 text-center">
+                            <div>
+                              <p className="text-lg font-bold text-foreground">{content.views}</p>
+                              <p className="text-[10px] text-muted-foreground">Views</p>
+                            </div>
+                            <div>
+                              <p className="text-lg font-bold text-foreground">{content.uniqueViewers}</p>
+                              <p className="text-[10px] text-muted-foreground">Únicos</p>
+                            </div>
+                            <div>
+                              <p className="text-lg font-bold text-foreground">{content.likes + content.saves + content.comments}</p>
+                              <p className="text-[10px] text-muted-foreground">Engajamento</p>
+                            </div>
+                          </div>
+                          <div className="grid grid-cols-2 gap-3 text-center mt-3 pt-3 border-t border-border">
+                            <div>
+                              <p className="text-sm font-semibold text-foreground">{content.completionRate.toFixed(1)}%</p>
+                              <p className="text-[10px] text-muted-foreground">Conclusão</p>
+                            </div>
+                            <div>
+                              <p className="text-sm font-semibold text-foreground">
+                                {Math.floor(content.avgWatchTime / 60)}m {Math.floor(content.avgWatchTime % 60)}s
+                              </p>
+                              <p className="text-[10px] text-muted-foreground">Tempo Médio</p>
+                            </div>
+                          </div>
+                        </Card>
+                      ))
+                    ) : (
+                      <Card className="p-8 bg-card border-border">
+                        <p className="text-center text-muted-foreground text-sm">Nenhum conteúdo encontrado</p>
+                      </Card>
+                    )}
+                  </div>
                 </TabsContent>
               </Tabs>
             </div>
