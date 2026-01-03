@@ -25,6 +25,7 @@ import { WatchNotes } from "@/components/WatchNotes";
 import { CourseCurriculum } from "@/components/CourseCurriculum";
 import { WatchRelated } from "@/components/WatchRelated";
 import { formatDistanceToNow } from "date-fns";
+import { AccessBlockedOverlay } from "@/components/watch/AccessBlockedOverlay";
 import { ptBR } from "date-fns/locale";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { MobileVideoPlayer } from "@/components/watch/MobileVideoPlayer";
@@ -90,6 +91,7 @@ function WatchContent() {
   const [showUpgradeModal, setShowUpgradeModal] = useState(false);
   const [showPurchaseModal, setShowPurchaseModal] = useState(false);
   const [requiredUpgradePlan, setRequiredUpgradePlan] = useState<"pro" | "premium">("pro");
+  const [accessBlockedReason, setAccessBlockedReason] = useState<"plan" | "purchase" | null>(null);
   const [isPurchased, setIsPurchased] = useState(false);
   const [metricsRecorded, setMetricsRecorded] = useState({
     start: false,
@@ -454,7 +456,24 @@ function WatchContent() {
   }, [content]);
 
   const checkAccess = async (content: Content) => {
-    if (!profile || !user) return;
+    // Reset access state
+    setAccessBlockedReason(null);
+    
+    if (!profile || !user) {
+      // User not logged in - block access for non-free content
+      if (content.visibility !== "free") {
+        setHasAccess(false);
+        if (content.visibility === "paid") {
+          setAccessBlockedReason("purchase");
+        } else {
+          setAccessBlockedReason("plan");
+          setRequiredUpgradePlan(content.visibility === "premium" ? "premium" : "pro");
+        }
+      } else {
+        setHasAccess(true);
+      }
+      return;
+    }
 
     // Admins always have access
     if (role === "admin") {
@@ -480,7 +499,7 @@ function WatchContent() {
       } else {
         setIsPurchased(false);
         setHasAccess(false);
-        setShowPurchaseModal(true);
+        setAccessBlockedReason("purchase");
         return;
       }
     }
@@ -494,7 +513,7 @@ function WatchContent() {
       } else {
         setHasAccess(false);
         setRequiredUpgradePlan("pro");
-        setShowUpgradeModal(true);
+        setAccessBlockedReason("plan");
       }
     } else if (content.visibility === "premium") {
       if (userPlan === "premium") {
@@ -502,7 +521,7 @@ function WatchContent() {
       } else {
         setHasAccess(false);
         setRequiredUpgradePlan("premium");
-        setShowUpgradeModal(true);
+        setAccessBlockedReason("plan");
       }
     } else {
       setHasAccess(false);
@@ -706,19 +725,30 @@ function WatchContent() {
         currentTime={currentPlaybackTime.current}
         onClose={handleMinimize}
       >
-        {/* First child: Player area (draggable to minimize) */}
+        {/* First child: Player area (or blocked overlay) */}
         <div className="bg-black">
-          <MobileVideoPlayer
-            src={isCourse && currentLesson ? currentLesson.video_url : content.file_url}
-            poster={content.thumbnail_url}
-            title={isCourse && currentLesson ? currentLesson.title : content.title}
-            artist={content.creator?.display_name}
-            onTimeUpdate={handleTimeUpdate}
-            onNoteClick={() => setShowMobileNotes(true)}
-            onMinimize={handleMinimize}
-            seekToTime={seekToTime}
-            isPodcast={content.content_type === "podcast"}
-          />
+          {!hasAccess && accessBlockedReason ? (
+            <AccessBlockedOverlay
+              reason={accessBlockedReason}
+              requiredPlan={requiredUpgradePlan}
+              price={content.price}
+              thumbnail={content.thumbnail_url}
+              onUpgradeClick={() => setShowUpgradeModal(true)}
+              onPurchaseClick={() => setShowPurchaseModal(true)}
+            />
+          ) : (
+            <MobileVideoPlayer
+              src={isCourse && currentLesson ? currentLesson.video_url : content.file_url}
+              poster={content.thumbnail_url}
+              title={isCourse && currentLesson ? currentLesson.title : content.title}
+              artist={content.creator?.display_name}
+              onTimeUpdate={handleTimeUpdate}
+              onNoteClick={() => setShowMobileNotes(true)}
+              onMinimize={handleMinimize}
+              seekToTime={seekToTime}
+              isPodcast={content.content_type === "podcast"}
+            />
+          )}
         </div>
 
         {/* Rest of children: Scrollable content area */}
@@ -813,7 +843,17 @@ function WatchContent() {
             <div className="w-full">
               <div className={`flex gap-4 sm:gap-6 p-3 sm:p-6 ${theaterMode ? 'flex-col' : 'flex-col lg:flex-row'}`}>
                 <div className={`min-w-0 space-y-3 sm:space-y-4 ${theaterMode ? 'w-full' : 'flex-1'}`}>
-                  {isCourse && currentLesson ? (
+                  {/* Access Blocked Overlay - shown when user doesn't have access */}
+                  {!hasAccess && accessBlockedReason ? (
+                    <AccessBlockedOverlay
+                      reason={accessBlockedReason}
+                      requiredPlan={requiredUpgradePlan}
+                      price={content.price}
+                      thumbnail={content.thumbnail_url}
+                      onUpgradeClick={() => setShowUpgradeModal(true)}
+                      onPurchaseClick={() => setShowPurchaseModal(true)}
+                    />
+                  ) : isCourse && currentLesson ? (
                     <WatchVideoPlayer
                       content={{
                         id: currentLesson.id, // ID interno da lesson
