@@ -103,6 +103,11 @@ export function AppSidebar() {
     role !== "creator" &&
     role !== "admin" &&
     (profile?.creator_status === "none" || profile?.creator_status === "rejected");
+  const showPendingCreator =
+    user &&
+    role !== "creator" &&
+    role !== "admin" &&
+    profile?.creator_status === "pending";
   const showStudio = user && (role === "creator" || role === "admin");
   const showAdmin = user && role === "admin";
 
@@ -355,6 +360,47 @@ export function AppSidebar() {
                       )}
                     </SidebarMenuItem>
                   </SidebarMenu>
+                </SidebarGroupContent>
+              </SidebarGroup>
+              <Separator className="bg-border my-2" />
+            </>
+          )}
+
+          {/* Pending Creator Status Card */}
+          {showPendingCreator && (
+            <>
+              <SidebarGroup>
+                <SidebarGroupContent>
+                  {collapsed ? (
+                    <div className="flex justify-center py-2">
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <div className="p-2 rounded-lg bg-muted/60">
+                            <Crown className="h-4 w-4 text-muted-foreground" />
+                          </div>
+                        </TooltipTrigger>
+                        <TooltipContent side="right">
+                          <p>Solicitação em análise</p>
+                        </TooltipContent>
+                      </Tooltip>
+                    </div>
+                  ) : (
+                    <div className="mx-2 p-4 rounded-xl border border-border/40 bg-muted/30 backdrop-blur-sm">
+                      <div className="flex items-start gap-3">
+                        <div className="p-2 rounded-lg bg-muted shrink-0">
+                          <Crown className="h-4 w-4 text-muted-foreground" />
+                        </div>
+                        <div className="flex-1 min-w-0 space-y-1">
+                          <p className="text-sm font-medium text-foreground leading-tight">
+                            Solicitação em análise
+                          </p>
+                          <p className="text-xs text-muted-foreground leading-relaxed">
+                            Sua conta creator está sendo avaliada. Você será notificado assim que for aprovada.
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </SidebarGroupContent>
               </SidebarGroup>
               <Separator className="bg-border my-2" />
