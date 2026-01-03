@@ -5,7 +5,8 @@ import { supabase } from "@/integrations/supabase/client";
 import { Card } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Play, Clock, Lock } from "lucide-react";
+import { Play, Clock, Crown, ShoppingCart } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
 import { useMiniPlayer } from "@/contexts/MiniPlayerContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { UpgradeModal } from "@/components/UpgradeModal";
@@ -40,6 +41,7 @@ interface RelatedContent {
   visibility: ContentVisibility | null;
   price: number | null;
   is_free: boolean;
+  discount?: number | null;
   creator?: {
     display_name?: string | null;
   } | null;
@@ -96,6 +98,7 @@ export const WatchRelated = ({ contentId, categoryId, tags, contentType, current
           visibility,
           price,
           is_free,
+          discount,
           creator:profiles!creator_id(display_name)
         `)
         .eq('status', 'approved')
@@ -181,9 +184,6 @@ export const WatchRelated = ({ contentId, categoryId, tags, contentType, current
     navigate(`/watch/${content.id}`, isMobile ? { state: { backgroundLocation: location } } : undefined);
   };
 
-  const isContentLocked = (content: RelatedContent): boolean => {
-    return !checkAccess(content).hasAccess;
-  };
 
   if (loading) {
     return (
@@ -220,7 +220,12 @@ export const WatchRelated = ({ contentId, categoryId, tags, contentType, current
         <ScrollArea className="h-[600px]">
           <div className="p-4 space-y-4">
             {relatedContents.map((content) => {
-              const locked = isContentLocked(content);
+              const { hasAccess, reason } = checkAccess(content);
+              const isPaid = !content.is_free && content.price && content.price > 0;
+              const isPro = content.visibility === 'pro';
+              const isPremium = content.visibility === 'premium';
+              const discount = content.discount || 0;
+              
               return (
                 <div
                   key={content.id}
@@ -231,20 +236,37 @@ export const WatchRelated = ({ contentId, categoryId, tags, contentType, current
                     <img
                       src={content.thumbnail_url}
                       alt={content.title}
-                      className={`w-full h-full object-cover group-hover:scale-105 transition-transform duration-200 ${locked ? 'opacity-60' : ''}`}
+                      className={`w-full h-full object-cover group-hover:scale-105 transition-transform duration-200 ${!hasAccess ? 'opacity-70' : ''}`}
                     />
                     <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                      {locked ? (
-                        <Lock className="h-6 w-6 text-white" />
-                      ) : (
-                        <Play className="h-6 w-6 text-white fill-white" />
-                      )}
+                      <Play className="h-6 w-6 text-white fill-white" />
                     </div>
-                    {locked && (
-                      <div className="absolute top-1 right-1 bg-black/80 text-white p-1 rounded">
-                        <Lock className="h-3 w-3" />
+                    
+                    {/* Plan indicator - Top Right */}
+                    {(isPro || isPremium) && (
+                      <div className="absolute top-1 right-1">
+                        <Crown
+                          className={`w-4 h-4 drop-shadow-lg ${isPro ? "text-yellow-400" : "text-red-500"}`}
+                          fill="currentColor"
+                        />
                       </div>
                     )}
+                    
+                    {/* Paid indicator - Top Left */}
+                    {isPaid && (
+                      <div className="absolute top-1 left-1 flex gap-1">
+                        <Badge className="bg-badge-hot/95 backdrop-blur-md text-white font-semibold text-[8px] px-1 py-0.5 shadow-md flex items-center gap-0.5">
+                          <ShoppingCart className="w-2.5 h-2.5" />
+                          R$ {((content.price || 0) * (1 - discount / 100)).toFixed(0)}
+                        </Badge>
+                        {discount > 0 && (
+                          <Badge className="bg-green-600/95 backdrop-blur-md text-white font-semibold text-[8px] px-1 py-0.5 shadow-md">
+                            -{discount}%
+                          </Badge>
+                        )}
+                      </div>
+                    )}
+                    
                     <div className="absolute bottom-1 right-1 bg-black/80 text-white text-xs px-1.5 py-0.5 rounded">
                       {formatDuration(content.duration_seconds)}
                     </div>
