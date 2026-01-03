@@ -211,6 +211,78 @@ export const WatchRelated = ({ contentId, categoryId, tags, contentType, current
     return null;
   }
 
+  // Separate free/plan-based content from paid content
+  const freeOrPlanContent = relatedContents.filter(c => c.is_free || !c.price || c.price <= 0);
+  const paidContent = relatedContents.filter(c => !c.is_free && c.price && c.price > 0);
+
+  const renderContentCard = (content: RelatedContent) => {
+    const isPaid = !content.is_free && content.price && content.price > 0;
+    const isPro = content.visibility === 'pro';
+    const isPremium = content.visibility === 'premium';
+    const discount = content.discount || 0;
+    const finalPrice = isPaid ? (content.price || 0) * (1 - discount / 100) : 0;
+    
+    return (
+      <div
+        key={content.id}
+        onClick={() => handleContentClick(content)}
+        className="flex gap-3 cursor-pointer group"
+      >
+        <div className="relative w-32 h-20 rounded-lg overflow-hidden flex-shrink-0 bg-muted">
+          <img
+            src={content.thumbnail_url}
+            alt={content.title}
+            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
+          />
+          <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+            <Play className="h-6 w-6 text-white fill-white" />
+          </div>
+          
+          {/* Plan indicator - Top Right */}
+          {(isPro || isPremium) && (
+            <div className="absolute top-1 right-1">
+              <Crown
+                className={`w-4 h-4 drop-shadow-lg ${isPro ? "text-yellow-400" : "text-red-500"}`}
+                fill="currentColor"
+              />
+            </div>
+          )}
+          
+          {/* Paid indicator - Top Left */}
+          {isPaid && (
+            <div className="absolute top-1 left-1 flex gap-1">
+              <Badge className="bg-badge-hot/95 backdrop-blur-md text-white font-semibold text-[8px] px-1 py-0.5 shadow-md flex items-center gap-0.5">
+                <ShoppingCart className="w-2.5 h-2.5" />
+                R$ {finalPrice.toFixed(0)}
+              </Badge>
+              {discount > 0 && (
+                <Badge className="bg-green-600/95 backdrop-blur-md text-white font-semibold text-[8px] px-1 py-0.5 shadow-md">
+                  -{discount}%
+                </Badge>
+              )}
+            </div>
+          )}
+          
+          <div className="absolute bottom-1 right-1 bg-black/80 text-white text-xs px-1.5 py-0.5 rounded">
+            {formatDuration(content.duration_seconds)}
+          </div>
+        </div>
+        <div className="flex-1 min-w-0">
+          <h6 className="font-medium text-sm line-clamp-2 group-hover:text-primary transition-colors">
+            {content.title}
+          </h6>
+          <p className="text-xs text-muted-foreground mt-1">
+            {content.creator?.display_name || "Criador"}
+          </p>
+          <p className="text-xs text-muted-foreground flex items-center gap-1 mt-1">
+            <Clock className="h-3 w-3" />
+            {content.views_count.toLocaleString()} visualizações
+          </p>
+        </div>
+      </div>
+    );
+  };
+
   return (
     <>
       <Card className="overflow-hidden bg-muted/30">
@@ -219,73 +291,21 @@ export const WatchRelated = ({ contentId, categoryId, tags, contentType, current
         </div>
         <ScrollArea className="h-[600px]">
           <div className="p-4 space-y-4">
-            {relatedContents.map((content) => {
-              const { hasAccess, reason } = checkAccess(content);
-              const isPaid = !content.is_free && content.price && content.price > 0;
-              const isPro = content.visibility === 'pro';
-              const isPremium = content.visibility === 'premium';
-              const discount = content.discount || 0;
-              
-              return (
-                <div
-                  key={content.id}
-                  onClick={() => handleContentClick(content)}
-                  className="flex gap-3 cursor-pointer group"
-                >
-                  <div className="relative w-32 h-20 rounded-lg overflow-hidden flex-shrink-0 bg-muted">
-                    <img
-                      src={content.thumbnail_url}
-                      alt={content.title}
-                      className={`w-full h-full object-cover group-hover:scale-105 transition-transform duration-200 ${!hasAccess ? 'opacity-70' : ''}`}
-                    />
-                    <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                      <Play className="h-6 w-6 text-white fill-white" />
-                    </div>
-                    
-                    {/* Plan indicator - Top Right */}
-                    {(isPro || isPremium) && (
-                      <div className="absolute top-1 right-1">
-                        <Crown
-                          className={`w-4 h-4 drop-shadow-lg ${isPro ? "text-yellow-400" : "text-red-500"}`}
-                          fill="currentColor"
-                        />
-                      </div>
-                    )}
-                    
-                    {/* Paid indicator - Top Left */}
-                    {isPaid && (
-                      <div className="absolute top-1 left-1 flex gap-1">
-                        <Badge className="bg-badge-hot/95 backdrop-blur-md text-white font-semibold text-[8px] px-1 py-0.5 shadow-md flex items-center gap-0.5">
-                          <ShoppingCart className="w-2.5 h-2.5" />
-                          R$ {((content.price || 0) * (1 - discount / 100)).toFixed(0)}
-                        </Badge>
-                        {discount > 0 && (
-                          <Badge className="bg-green-600/95 backdrop-blur-md text-white font-semibold text-[8px] px-1 py-0.5 shadow-md">
-                            -{discount}%
-                          </Badge>
-                        )}
-                      </div>
-                    )}
-                    
-                    <div className="absolute bottom-1 right-1 bg-black/80 text-white text-xs px-1.5 py-0.5 rounded">
-                      {formatDuration(content.duration_seconds)}
-                    </div>
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <h6 className="font-medium text-sm line-clamp-2 group-hover:text-primary transition-colors">
-                      {content.title}
-                    </h6>
-                    <p className="text-xs text-muted-foreground mt-1">
-                      {content.creator?.display_name || "Criador"}
-                    </p>
-                    <p className="text-xs text-muted-foreground flex items-center gap-1 mt-1">
-                      <Clock className="h-3 w-3" />
-                      {content.views_count.toLocaleString()} visualizações
-                    </p>
-                  </div>
+            {/* Free/Plan-based content first */}
+            {freeOrPlanContent.map(renderContentCard)}
+            
+            {/* Paid content section */}
+            {paidContent.length > 0 && (
+              <>
+                <div className="pt-4 pb-2 border-t border-border">
+                  <h6 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
+                    <ShoppingCart className="w-3 h-3" />
+                    Itens pagos
+                  </h6>
                 </div>
-              );
-            })}
+                {paidContent.map(renderContentCard)}
+              </>
+            )}
           </div>
         </ScrollArea>
       </Card>
