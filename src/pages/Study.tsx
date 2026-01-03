@@ -1040,6 +1040,8 @@ function StudyContent() {
                                     content_type={content.content_type}
                                     duration_minutes={content.duration_minutes}
                                     required_plan={content.required_plan}
+                                    visibility={content.visibility}
+                                    price={content.price}
                                     is_free={content.is_free}
                                     relevanceScore={content.relevanceScore}
                                     onPlay={handlePlayContent}
@@ -1068,6 +1070,8 @@ function StudyContent() {
                               content_type={content.content_type}
                               duration_minutes={content.duration_minutes}
                               required_plan={content.required_plan}
+                              visibility={content.visibility}
+                              price={content.price}
                               is_free={content.is_free}
                               relevanceScore={content.relevanceScore}
                               onPlay={handlePlayContent}
@@ -1934,6 +1938,8 @@ function StudyContent() {
                                         content_type={content.content_type}
                                         duration_minutes={content.duration_minutes}
                                         required_plan={content.required_plan}
+                                        visibility={content.visibility}
+                                        price={content.price}
                                         is_free={content.is_free}
                                         relevanceScore={content.relevanceScore}
                                         onPlay={handlePlayContent}
@@ -1966,6 +1972,8 @@ function StudyContent() {
                                   content_type={content.content_type}
                                   duration_minutes={content.duration_minutes}
                                   required_plan={content.required_plan}
+                                  visibility={content.visibility}
+                                  price={content.price}
                                   is_free={content.is_free}
                                   relevanceScore={content.relevanceScore}
                                   onPlay={handlePlayContent}
