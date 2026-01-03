@@ -183,7 +183,7 @@ export function Header({ variant = "home", title, showSearch = false, isExploreM
                   Programa de Afiliados
                 </DropdownMenuItem>
                 <DropdownMenuSeparator className="sm:hidden" />
-                {profile?.creator_channel_name && (
+                {(role === 'creator' || role === 'admin') && profile?.creator_channel_name && (
                   <DropdownMenuItem onClick={() => navigate(`/@${profile.creator_channel_name}`)} className="cursor-pointer">
                     <User className="w-4 h-4 mr-2" />
                     Meu Perfil Público
