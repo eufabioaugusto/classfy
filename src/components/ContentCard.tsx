@@ -206,9 +206,9 @@ export const ContentCard = ({
       onMouseEnter={() => isShort && !isMobile && setIsHovered(true)}
       onMouseLeave={() => isShort && !isMobile && setIsHovered(false)}
     >
-      {/* Thumbnail with dynamic aspect ratio */}
+      {/* Thumbnail with dynamic aspect ratio - 12px radius like YouTube */}
       <div
-        className={`relative overflow-hidden bg-muted rounded-xl ${
+        className={`relative overflow-hidden bg-muted rounded-[12px] ${
           aspectRatio === "square" ? "aspect-square" : aspectRatio === "vertical" ? "aspect-[9/16]" : "aspect-[16/9]"
         }`}
       >
@@ -307,23 +307,23 @@ export const ContentCard = ({
           </div>
 
           {/* Creator name */}
-          <p className="text-xs sm:text-sm text-muted-foreground mt-1 truncate">
+          <p className="text-[11px] sm:text-xs text-muted-foreground mt-1 truncate">
             {creatorName}
           </p>
 
           {/* Views + Tier/Price */}
           <div className="flex items-center gap-2 mt-0.5">
-            <span className="text-xs sm:text-sm text-muted-foreground">
+            <span className="text-[11px] sm:text-xs text-muted-foreground">
               {views.toLocaleString()} views
             </span>
             
             {/* Tier/Price indicator */}
             {isPaid && !isPurchased ? (
-              <span className="text-xs sm:text-sm font-semibold text-foreground">
+              <span className="text-[11px] sm:text-xs font-semibold text-foreground">
                 {discount > 0 ? (
                   <>
                     <span className="text-primary">R$ {(price * (1 - discount / 100)).toFixed(2)}</span>
-                    <span className="ml-1 line-through text-muted-foreground text-[11px]">
+                    <span className="ml-1 line-through text-muted-foreground text-[10px]">
                       R$ {price.toFixed(2)}
                     </span>
                   </>
@@ -332,11 +332,11 @@ export const ContentCard = ({
                 )}
               </span>
             ) : visibility === "premium" ? (
-              <Crown className="w-4 h-4 text-red-500" fill="currentColor" />
+              <Crown className="w-3.5 h-3.5 text-red-500" fill="currentColor" />
             ) : visibility === "pro" ? (
-              <Crown className="w-4 h-4 text-yellow-400" fill="currentColor" />
+              <Crown className="w-3.5 h-3.5 text-yellow-400" fill="currentColor" />
             ) : !isShort && visibility === "free" ? (
-              <span className="text-xs sm:text-sm font-semibold text-green-500">FREE</span>
+              <span className="text-[11px] sm:text-xs font-semibold text-green-500">FREE</span>
             ) : null}
           </div>
         </div>
