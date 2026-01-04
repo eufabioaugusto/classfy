@@ -113,7 +113,7 @@ function WatchContent() {
   const [showAddToStudyModal, setShowAddToStudyModal] = useState(false);
   const [notesRefreshTrigger, setNotesRefreshTrigger] = useState(0);
   const [seekToTime, setSeekToTime] = useState<number | null>(null);
-  const { processReward, handleLike, handleSave, handleFavorite } = useRewardSystem();
+  const { processReward, handleLike, handleSave, handleFavorite, reverseReward } = useRewardSystem();
   
   // Track current playback time for mini player
   const currentPlaybackTime = useRef(0);
@@ -147,6 +147,10 @@ function WatchContent() {
   const [isSaved, setIsSaved] = useState(false);
   const [isFavorited, setIsFavorited] = useState(false);
   const [likesCount, setLikesCount] = useState(0);
+  const [unlikeConfirmation, setUnlikeConfirmation] = useState<{ pending: boolean; rewardValue: number }>({
+    pending: false,
+    rewardValue: 0,
+  });
 
   // Store content ref for cleanup
   const contentRef = useRef<Content | null>(null);
@@ -392,48 +396,101 @@ function WatchContent() {
     await refreshLikesCount();
   };
 
+  const getLikeRewardValue = async (): Promise<number> => {
+    if (!user || !content) return 0;
+
+    const { data, error } = await supabase
+      .from("reward_events")
+      .select("value, created_at")
+      .eq("user_id", user.id)
+      .eq("content_id", content.id)
+      .eq("action_key", "LIKE_CONTENT")
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (error) return 0;
+    return data?.value || 0;
+  };
+
+  const performUnlike = async () => {
+    if (!user || !content) return;
+
+    const { data: deleted, error } = await supabase
+      .from("actions")
+      .delete()
+      .eq("user_id", user.id)
+      .eq("type", "LIKE")
+      .eq(isCourse ? "course_id" : "content_id", content.id)
+      .select("id");
+
+    if (!error) {
+      setIsLiked(false);
+      if ((deleted?.length || 0) > 0) {
+        setLikesCount((prev) => Math.max(0, prev - 1));
+      }
+    }
+
+    await refreshLikesCountEventually();
+  };
+
+  const confirmUnlike = async () => {
+    if (!user || !content || !unlikeConfirmation.pending) return;
+
+    try {
+      await reverseReward(user.id, content.id, "LIKE_CONTENT");
+      await performUnlike();
+
+      toast.success(
+        `Like removido. R$ ${unlikeConfirmation.rewardValue.toFixed(2)} deduzido dos seus ganhos.`,
+      );
+    } finally {
+      setUnlikeConfirmation({ pending: false, rewardValue: 0 });
+    }
+  };
+
+  const cancelUnlike = () => {
+    setUnlikeConfirmation({ pending: false, rewardValue: 0 });
+  };
+
   const toggleLike = async () => {
     if (!user || !content) return;
 
     try {
       if (isLiked) {
-        // Remove like
-        const deleteQuery = supabase
-          .from("actions")
-          .delete()
-          .eq("user_id", user.id)
-          .eq("type", "LIKE")
-          .eq(isCourse ? "course_id" : "content_id", content.id)
-          .select("id");
-
-        const { data: deleted, error } = await deleteQuery;
-
-        if (!error) {
-          setIsLiked(false);
-          // Update UI immediately; then we sync with DB value
-          if ((deleted?.length || 0) > 0) {
-            setLikesCount((prev) => Math.max(0, prev - 1));
-          }
-        }
-      } else {
-        // Add like
-        const { error } = await supabase.from("actions").insert({
-          user_id: user.id,
-          type: "LIKE",
-          [isCourse ? "course_id" : "content_id"]: content.id,
+        const rewardValue = await getLikeRewardValue();
+        console.log("[toggleLike] attempting unlike", {
+          contentId: content.id,
+          hasReward: rewardValue > 0,
+          rewardValue,
         });
 
-        if (!error) {
-          setIsLiked(true);
-          setLikesCount((prev) => prev + 1);
-          await handleLike(user.id, content.id, true);
-        } else if (error.code === "23505") {
-          // Already liked (duplicate)
-          setIsLiked(true);
+        if (rewardValue > 0) {
+          setUnlikeConfirmation({ pending: true, rewardValue });
+          return;
         }
+
+        await performUnlike();
+        return;
       }
 
-      // Always converge UI to the DB value (no page reload)
+      // Add like
+      const { error } = await supabase.from("actions").insert({
+        user_id: user.id,
+        type: "LIKE",
+        [isCourse ? "course_id" : "content_id"]: content.id,
+      });
+
+      if (!error) {
+        setIsLiked(true);
+        setLikesCount((prev) => prev + 1);
+        if (hasAccess) {
+          await handleLike(user.id, content.id, true);
+        }
+      } else if (error.code === "23505") {
+        setIsLiked(true);
+      }
+
       await refreshLikesCountEventually();
     } catch (error) {
       console.error("Error toggling like:", error);
@@ -924,6 +981,9 @@ function WatchContent() {
               onToggleLike={toggleLike}
               onToggleSave={toggleSave}
               onToggleFavorite={toggleFavorite}
+              unlikeConfirmation={unlikeConfirmation}
+              onConfirmUnlike={confirmUnlike}
+              onCancelUnlike={cancelUnlike}
               onAddToStudy={() => setShowAddToStudyModal(true)}
               onShowComments={() => setShowMobileComments(true)}
               onShowCurriculum={() => setShowMobileCurriculum(true)}

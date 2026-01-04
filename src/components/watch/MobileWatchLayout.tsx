@@ -2,11 +2,11 @@ import { useState } from "react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { 
-  ThumbsUp, 
-  Bookmark, 
-  Star, 
-  BookOpen, 
+import {
+  ThumbsUp,
+  Bookmark,
+  Star,
+  BookOpen,
   ChevronDown,
   ChevronUp,
   MessageCircle,
@@ -16,7 +16,7 @@ import {
   Brain,
   StickyNote,
   Lightbulb,
-  Sparkles
+  Sparkles,
 } from "lucide-react";
 import { FollowButton } from "@/components/FollowButton";
 import { ShareButton } from "@/components/ShareButton";
@@ -27,6 +27,16 @@ import { motion } from "framer-motion";
 import { ParticleBurst } from "@/components/ui/particle-burst";
 import type { ToolPanel } from "@/components/unified/StudyToolbar";
 import { useParticleBurst } from "@/hooks/useParticleBurst";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 interface MobileWatchLayoutProps {
   content: {
@@ -67,6 +77,9 @@ interface MobileWatchLayoutProps {
     creator?: { display_name?: string | null } | null;
   }>;
   onContentClick: (id: string) => void;
+  unlikeConfirmation?: { pending: boolean; rewardValue: number };
+  onConfirmUnlike?: () => void;
+  onCancelUnlike?: () => void;
 }
 
 const formatCount = (count: number) => {
@@ -78,7 +91,7 @@ const formatCount = (count: number) => {
 const formatDuration = (seconds: number) => {
   const mins = Math.floor(seconds / 60);
   const secs = seconds % 60;
-  return `${mins}:${secs.toString().padStart(2, '0')}`;
+  return `${mins}:${secs.toString().padStart(2, "0")}`;
 };
 
 export function MobileWatchLayout({
@@ -99,6 +112,9 @@ export function MobileWatchLayout({
   totalLessons = 0,
   relatedContents,
   onContentClick,
+  unlikeConfirmation = { pending: false, rewardValue: 0 },
+  onConfirmUnlike,
+  onCancelUnlike,
 }: MobileWatchLayoutProps) {
   const [descExpanded, setDescExpanded] = useState(false);
   const { isBursting: isLikeBursting, triggerBurst: triggerLikeBurst } = useParticleBurst();
@@ -109,19 +125,21 @@ export function MobileWatchLayout({
     }
     onToggleLike();
   };
+
   return (
-    <div className="flex flex-col w-full" style={{ maxWidth: '100vw', overflowX: 'hidden' }}>
-      {/* Title with Course Badge */}
-      <div className="flex items-start gap-2 px-3 pt-3 pb-2">
-        <h1 className="text-base font-semibold leading-tight line-clamp-2 flex-1">
-          {content.title}
-        </h1>
-        {isCourse && (
-          <Badge variant="secondary" className="flex-shrink-0 bg-primary/10 text-primary border-primary/20">
-            Curso
-          </Badge>
-        )}
-      </div>
+    <>
+      <div className="flex flex-col w-full" style={{ maxWidth: "100vw", overflowX: "hidden" }}>
+        {/* Title with Course Badge */}
+        <div className="flex items-start gap-2 px-3 pt-3 pb-2">
+          <h1 className="text-base font-semibold leading-tight line-clamp-2 flex-1">
+            {content.title}
+          </h1>
+          {isCourse && (
+            <Badge variant="secondary" className="flex-shrink-0 bg-primary/10 text-primary border-primary/20">
+              Curso
+            </Badge>
+          )}
+        </div>
 
       {/* Creator Row - YouTube Style */}
       <div className="flex items-center justify-between px-3 pb-2">
@@ -391,5 +409,36 @@ export function MobileWatchLayout({
         </div>
       )}
     </div>
-  );
+
+    {/* Unlike Confirmation Dialog */}
+    <AlertDialog
+      open={unlikeConfirmation.pending}
+      onOpenChange={(open) => {
+        if (!open) onCancelUnlike?.();
+      }}
+    >
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Tem certeza disso?</AlertDialogTitle>
+          <AlertDialogDescription>
+            Ao remover o like, você reduzirá{" "}
+            <span className="font-bold text-destructive">
+              R$ {unlikeConfirmation.rewardValue.toFixed(2)}
+            </span>{" "}
+            dos seus ganhos.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel onClick={onCancelUnlike}>Cancelar</AlertDialogCancel>
+          <AlertDialogAction
+            onClick={onConfirmUnlike}
+            className="bg-destructive hover:bg-destructive/90"
+          >
+            Remover like
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  </>
+);
 }
