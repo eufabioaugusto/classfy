@@ -25,6 +25,7 @@ import { ContentComments } from "@/components/ContentComments";
 import { WatchRelated } from "@/components/WatchRelated";
 import { formatDistanceToNow } from "date-fns";
 import { ptBR } from "date-fns/locale";
+import { MobileStudyPlayer } from "@/components/study/MobileStudyPlayer";
 
 import { StudyQuiz } from "@/components/StudyQuiz";
 import { StudyNotes } from "@/components/StudyNotes";
@@ -1005,79 +1006,18 @@ function StudyContent() {
 
         {/* Mobile Video Player - Inline when active */}
         {activeContent && !miniPlayerActive && (
-          <div className="flex-shrink-0">
-            {/* Mobile Study Toolbar - ABOVE player */}
-            <div className="px-2 py-1.5 bg-card border-b border-border overflow-x-auto scrollbar-hide flex items-center gap-2">
-              <StudyToolbar
-                activePanel={activeToolPanel}
-                onPanelChange={setActiveToolPanel}
-                compact
-              />
-              
-              <div className="flex-1" />
-              
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => setMiniPlayerActive(true)}
-                className="h-8 px-2.5 shrink-0"
-              >
-                <Minimize2 className="w-4 h-4" />
-              </Button>
-            </div>
-
-            {/* Video Container with aspect ratio */}
-            <div className="relative bg-black" style={{ maxHeight: '30vh' }}>
-              <div className="aspect-video max-h-[30vh]">
-                <UnifiedVideoPlayer
-                  content={{
-                    id: activeContent.id,
-                    title: activeContent.title,
-                    file_url: activeContent.file_url,
-                    content_type: activeContent.content_type,
-                    duration_seconds: activeContent.duration_seconds,
-                    content_id: activeContent.id,
-                    creator: activeContent.creator,
-                  }}
-                  mode="study"
-                  compact
-                  onVideoEnded={handleVideoEnded}
-                  onNoteCreated={() => setNotesRefresh((prev) => prev + 1)}
-                />
-              </div>
-
-              {/* Autoplay Countdown Overlay - Mobile */}
-              {autoplayCountdown !== null && activePlaylist && (
-                <div className="absolute inset-0 bg-background/90 backdrop-blur-sm flex items-center justify-center z-50">
-                  <div className="bg-card border border-border rounded-lg p-4 text-center space-y-2 mx-4">
-                    <h3 className="text-base font-bold text-foreground">Próximo Vídeo</h3>
-                    <p className="text-xs text-muted-foreground line-clamp-2">
-                      {(() => {
-                        const playlistContents = messageContents.get(activePlaylist.messageId) || [];
-                        const nextContent = playlistContents[activePlaylist.currentIndex + 1];
-                        return nextContent?.title || "Carregando...";
-                      })()}
-                    </p>
-                    <div className="text-2xl font-bold text-primary">{autoplayCountdown}</div>
-                    <Button variant="outline" size="sm" onClick={cancelAutoplay}>
-                      Cancelar
-                    </Button>
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {/* Mobile Social Bar - BELOW player */}
-            <div className="px-2 py-2 bg-card border-b border-border">
-              <SocialBar
-                contentId={activeContent.id}
-                contentTitle={activeContent.title}
-                creator={activeContent.creator}
-                compact
-                showCreator={false}
-              />
-            </div>
-          </div>
+          <MobileStudyPlayer
+            activeContent={activeContent}
+            activePlaylist={activePlaylist}
+            messageContents={messageContents}
+            autoplayCountdown={autoplayCountdown}
+            activeToolPanel={activeToolPanel}
+            onToolPanelChange={setActiveToolPanel}
+            onMinimize={() => setMiniPlayerActive(true)}
+            onVideoEnded={handleVideoEnded}
+            onNoteCreated={() => setNotesRefresh((prev) => prev + 1)}
+            onCancelAutoplay={cancelAutoplay}
+          />
         )}
 
         {/* Mobile Chat Area */}
