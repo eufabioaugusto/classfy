@@ -73,19 +73,58 @@ Deno.serve(async (req) => {
 
     console.log('Processing reward request:', { actionKey, userId: userId.slice(0, 8) + '...', hasContent: !!contentId });
 
+    // Resolve whether contentId refers to a content or a course.
+    // IMPORTANT: reward_action_tracking.content_id has a FK to contents, so we must only
+    // write a content_id when it actually exists in public.contents.
+    let resolvedContentId: string | null = null;
+    let resolvedCourseId: string | null = null;
+    let resolvedTitle: string | null = null;
+    let creatorId: string | null = null;
+
+    if (contentId) {
+      const { data: contentRow } = await supabase
+        .from('contents')
+        .select('id, creator_id, title')
+        .eq('id', contentId)
+        .maybeSingle();
+
+      if (contentRow) {
+        resolvedContentId = contentRow.id;
+        creatorId = contentRow.creator_id;
+        resolvedTitle = contentRow.title;
+      } else {
+        const { data: courseRow } = await supabase
+          .from('courses')
+          .select('id, creator_id, title')
+          .eq('id', contentId)
+          .maybeSingle();
+
+        if (courseRow) {
+          resolvedCourseId = courseRow.id;
+          creatorId = courseRow.creator_id;
+          resolvedTitle = courseRow.title;
+        }
+      }
+    }
+
     // STEP 1: ATOMIC FRAUD PREVENTION - Insert tracking FIRST with unique constraint check
     // This prevents race conditions by using database-level uniqueness
     const today = new Date().toISOString().split('T')[0];
-    
+
     let trackingKey: string;
     let trackingMetadata: Record<string, any> = { ...metadata };
-    
+
+    if (resolvedCourseId) {
+      trackingMetadata.course_id = resolvedCourseId;
+      if (resolvedTitle) trackingMetadata.course_title = resolvedTitle;
+    }
+
     if (DAILY_ACTIONS.includes(actionKey)) {
       // For daily actions, include date in the key
       trackingKey = `${actionKey}_${today}`;
       trackingMetadata.tracking_date = today;
     } else if (UNIQUE_PER_CONTENT_ACTIONS.includes(actionKey)) {
-      // For per-content actions, include content_id
+      // For per-content actions, include the id being acted on (content or course)
       trackingKey = contentId ? `${actionKey}_${contentId}` : actionKey;
     } else if (ONE_TIME_ACTIONS.includes(actionKey)) {
       // For one-time actions, just the action key
@@ -95,8 +134,8 @@ Deno.serve(async (req) => {
       trackingKey = contentId ? `${actionKey}_${contentId}` : actionKey;
     } else {
       // For other actions (like SUBSCRIBE_CREATOR), use metadata to create unique key
-      const creatorId = metadata?.creatorId;
-      trackingKey = creatorId ? `${actionKey}_${creatorId}` : actionKey;
+      const creatorIdFromMeta = metadata?.creatorId;
+      trackingKey = creatorIdFromMeta ? `${actionKey}_${creatorIdFromMeta}` : actionKey;
     }
 
     // Try to insert tracking record FIRST - this is the atomic lock
@@ -119,34 +158,34 @@ Deno.serve(async (req) => {
     if (existingTracking && existingTracking.length > 0) {
       console.log('Action already tracked, skipping reward:', { actionKey, trackingKey });
       return new Response(
-        JSON.stringify({ 
-          success: false, 
+        JSON.stringify({
+          success: false,
           message: 'Action already rewarded',
           alreadyTracked: true,
-          trackedAt: existingTracking[0].created_at
+          trackedAt: existingTracking[0].created_at,
         }),
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
     // Insert tracking record BEFORE processing reward (atomic lock)
+    // NOTE: Only write content_id when it's a real content (FK constraint).
     const { error: insertTrackingError } = await supabase
       .from('reward_action_tracking')
       .insert({
         user_id: userId,
-        content_id: contentId || null,
+        content_id: resolvedContentId,
         action_key: trackingKey,
-        metadata: trackingMetadata
+        metadata: trackingMetadata,
       });
 
     if (insertTrackingError) {
-      // If insert fails (likely duplicate), another request beat us
-      console.log('Tracking insert failed (likely duplicate):', insertTrackingError.message);
+      console.log('Tracking insert failed:', insertTrackingError.message);
       return new Response(
-        JSON.stringify({ 
-          success: false, 
+        JSON.stringify({
+          success: false,
           message: 'Action already being processed or was already rewarded',
-          alreadyTracked: true 
+          alreadyTracked: true,
         }),
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
@@ -181,18 +220,7 @@ Deno.serve(async (req) => {
     const userPlan = (userProfile?.plan || 'free') as keyof PlanMultipliers;
     const planMultiplier = PLAN_MULTIPLIERS[userPlan] || 1.0;
 
-    let creatorId: string | null = null;
-
-    // Get creator if content is involved
-    if (contentId) {
-      const { data: content } = await supabase
-        .from('contents')
-        .select('creator_id')
-        .eq('id', contentId)
-        .single();
-
-      creatorId = content?.creator_id || null;
-    }
+    // creatorId is already resolved above (from contents or courses, if contentId was provided)
 
     const rewards = [];
     const notifications = [];
@@ -207,11 +235,11 @@ Deno.serve(async (req) => {
         .insert({
           user_id: userId,
           related_user_id: creatorId,
-          content_id: contentId,
+          content_id: resolvedContentId,
           action_key: actionKey,
           points: userPoints,
           value: userValue,
-          metadata: { ...metadata, tracking_key: trackingKey },
+          metadata: { ...trackingMetadata, tracking_key: trackingKey },
         })
         .select()
         .single();
@@ -240,7 +268,7 @@ Deno.serve(async (req) => {
 
         // Create notification
         const notificationData = getNotificationText(actionKey, userPoints, userValue);
-        
+
         const { data: notification } = await supabase
           .from('notifications')
           .insert({
@@ -248,7 +276,7 @@ Deno.serve(async (req) => {
             type: 'reward',
             title: notificationData.title,
             message: notificationData.message,
-            related_content_id: contentId,
+            related_content_id: resolvedContentId,
             related_reward_id: userReward.id,
           })
           .select()
@@ -279,11 +307,11 @@ Deno.serve(async (req) => {
         .insert({
           user_id: creatorId,
           related_user_id: userId,
-          content_id: contentId,
+          content_id: resolvedContentId,
           action_key: actionKey,
           points: creatorPoints,
           value: creatorValue,
-          metadata: { ...metadata, as_creator: true, tracking_key: trackingKey },
+          metadata: { ...trackingMetadata, as_creator: true, tracking_key: trackingKey },
         })
         .select()
         .single();
@@ -310,15 +338,12 @@ Deno.serve(async (req) => {
             .eq('user_id', creatorId);
         }
 
-        // Get content title for notification
-        const { data: content } = await supabase
-          .from('contents')
-          .select('title')
-          .eq('id', contentId)
-          .single();
-
-        const contentTitle = content?.title || 'seu conteúdo';
-        const creatorNotification = getCreatorNotificationText(actionKey, creatorPoints, creatorValue, contentTitle);
+        const creatorNotification = getCreatorNotificationText(
+          actionKey,
+          creatorPoints,
+          creatorValue,
+          resolvedTitle || 'seu conteúdo'
+        );
 
         const { data: notification } = await supabase
           .from('notifications')
@@ -327,7 +352,7 @@ Deno.serve(async (req) => {
             type: 'reward',
             title: creatorNotification.title,
             message: creatorNotification.message,
-            related_content_id: contentId,
+            related_content_id: resolvedContentId,
             related_reward_id: creatorReward.id,
           })
           .select()
@@ -338,6 +363,7 @@ Deno.serve(async (req) => {
         }
       }
     }
+
 
     console.log('Rewards processed successfully:', { 
       actionKey, 
