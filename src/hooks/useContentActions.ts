@@ -8,11 +8,17 @@ import { useParticleBurst } from "@/hooks/useParticleBurst";
 interface UseContentActionsProps {
   contentId: string;
   isCourse?: boolean;
+  hasAccess?: boolean;
 }
 
-export function useContentActions({ contentId, isCourse = false }: UseContentActionsProps) {
-  const { user } = useAuth();
-  const { handleLike: rewardLike, handleSave: rewardSave, handleFavorite: rewardFavorite } = useRewardSystem();
+interface UnlikeConfirmation {
+  pending: boolean;
+  rewardValue: number;
+}
+
+export function useContentActions({ contentId, isCourse = false, hasAccess = true }: UseContentActionsProps) {
+  const { user, profile, role } = useAuth();
+  const { handleLike: rewardLike, handleSave: rewardSave, handleFavorite: rewardFavorite, reverseReward } = useRewardSystem();
   const { isBursting: isLikeBursting, triggerBurst: triggerLikeBurst } = useParticleBurst();
 
   const [isLiked, setIsLiked] = useState(false);
@@ -20,6 +26,7 @@ export function useContentActions({ contentId, isCourse = false }: UseContentAct
   const [isFavorited, setIsFavorited] = useState(false);
   const [likesCount, setLikesCount] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [unlikeConfirmation, setUnlikeConfirmation] = useState<UnlikeConfirmation>({ pending: false, rewardValue: 0 });
 
   // Check initial status
   useEffect(() => {
@@ -95,6 +102,21 @@ export function useContentActions({ contentId, isCourse = false }: UseContentAct
     await refreshLikesCount();
   }, [refreshLikesCount]);
 
+  // Get reward value for this like
+  const getLikeRewardValue = useCallback(async (): Promise<number> => {
+    if (!user) return 0;
+    
+    const { data } = await supabase
+      .from("reward_events")
+      .select("value")
+      .eq("user_id", user.id)
+      .eq("content_id", contentId)
+      .eq("action_key", "LIKE_CONTENT")
+      .maybeSingle();
+    
+    return data?.value || 0;
+  }, [user, contentId]);
+
   const toggleLike = useCallback(async () => {
     if (!user) {
       toast({
@@ -107,18 +129,17 @@ export function useContentActions({ contentId, isCourse = false }: UseContentAct
 
     try {
       if (isLiked) {
-        const { data: deleted } = await supabase
-          .from("actions")
-          .delete()
-          .eq("user_id", user.id)
-          .eq("type", "LIKE")
-          .eq(isCourse ? "course_id" : "content_id", contentId)
-          .select("id");
-
-        setIsLiked(false);
-        if ((deleted?.length || 0) > 0) {
-          setLikesCount((prev) => Math.max(0, prev - 1));
+        // Check if there's a reward to reverse
+        const rewardValue = await getLikeRewardValue();
+        
+        if (rewardValue > 0) {
+          // Show confirmation pending - will be handled by confirmUnlike
+          setUnlikeConfirmation({ pending: true, rewardValue });
+          return;
         }
+        
+        // No reward to reverse, just unlike
+        await performUnlike();
       } else {
         const insertData: any = {
           user_id: user.id,
@@ -132,7 +153,11 @@ export function useContentActions({ contentId, isCourse = false }: UseContentAct
           setIsLiked(true);
           setLikesCount((prev) => prev + 1);
           triggerLikeBurst();
-          await rewardLike(user.id, contentId, true);
+          
+          // Only give reward if user has access to the content
+          if (hasAccess) {
+            await rewardLike(user.id, contentId, true);
+          }
         } else if (error.code === "23505") {
           setIsLiked(true);
         } else {
@@ -149,7 +174,55 @@ export function useContentActions({ contentId, isCourse = false }: UseContentAct
         variant: "destructive",
       });
     }
-  }, [user, isLiked, contentId, isCourse, triggerLikeBurst, rewardLike, refreshLikesCountEventually]);
+  }, [user, isLiked, contentId, isCourse, triggerLikeBurst, rewardLike, refreshLikesCountEventually, hasAccess, getLikeRewardValue]);
+
+  const performUnlike = useCallback(async () => {
+    if (!user) return;
+    
+    const { data: deleted } = await supabase
+      .from("actions")
+      .delete()
+      .eq("user_id", user.id)
+      .eq("type", "LIKE")
+      .eq(isCourse ? "course_id" : "content_id", contentId)
+      .select("id");
+
+    setIsLiked(false);
+    if ((deleted?.length || 0) > 0) {
+      setLikesCount((prev) => Math.max(0, prev - 1));
+    }
+    await refreshLikesCountEventually();
+  }, [user, contentId, isCourse, refreshLikesCountEventually]);
+
+  const confirmUnlike = useCallback(async () => {
+    if (!user || !unlikeConfirmation.pending) return;
+    
+    try {
+      // Reverse the reward
+      await reverseReward(user.id, contentId, "LIKE_CONTENT");
+      
+      // Perform the unlike
+      await performUnlike();
+      
+      toast({
+        title: "Like removido",
+        description: `R$ ${unlikeConfirmation.rewardValue.toFixed(2)} deduzido dos seus ganhos`,
+      });
+    } catch (error) {
+      console.error("Error confirming unlike:", error);
+      toast({
+        title: "Erro",
+        description: "Não foi possível remover o like",
+        variant: "destructive",
+      });
+    } finally {
+      setUnlikeConfirmation({ pending: false, rewardValue: 0 });
+    }
+  }, [user, contentId, unlikeConfirmation, performUnlike, reverseReward]);
+
+  const cancelUnlike = useCallback(() => {
+    setUnlikeConfirmation({ pending: false, rewardValue: 0 });
+  }, []);
 
   const toggleSave = useCallback(async () => {
     if (!user) {
@@ -252,9 +325,12 @@ export function useContentActions({ contentId, isCourse = false }: UseContentAct
     likesCount,
     loading,
     isLikeBursting,
+    unlikeConfirmation,
     toggleLike,
     toggleSave,
     toggleFavorite,
+    confirmUnlike,
+    cancelUnlike,
     formatCount,
     refreshLikesCount,
   };
