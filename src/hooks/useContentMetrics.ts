@@ -126,6 +126,20 @@ export function useContentMetrics({ contentId, duration }: UseContentMetricsProp
     if (currentTime % 5 < 0.5) {
       await trackProgress(user.id, contentId, percent, currentTime);
     }
+
+    // Update watch time in content_views every 10 seconds
+    if (currentTime % 10 < 0.5 && currentTime > 0) {
+      const today = new Date().toISOString().split('T')[0];
+      await supabase
+        .from('content_views')
+        .update({ 
+          total_watch_time_seconds: Math.floor(currentTime),
+          last_viewed_at: new Date().toISOString()
+        })
+        .eq('content_id', contentId)
+        .eq('user_id', user.id)
+        .eq('view_date', today);
+    }
   }, [contentId, user, duration, metricsRecorded, recordMetric, processReward, trackProgress, checkFirstContentWeek, checkBingeWatch]);
 
   const registerView = useCallback(async () => {
