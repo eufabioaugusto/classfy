@@ -36,20 +36,24 @@ export const ContentSection = ({
       // Podcasts: 2 em mobile, 3 em sm, 4 em md, 6 em lg+
       return "grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6";
     }
-    // Default: 1 em mobile, 2 em sm, 3 em md, 4 em lg+
-    return "grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4";
+    // Default: 1 em mobile, 2 em sm, 3 em lg+ (larger cards)
+    return "grid-cols-1 sm:grid-cols-2 lg:grid-cols-3";
   };
 
   const getSkeletonCount = () => {
     if (aspectRatio === "vertical") return isMobile ? 4 : 5;
     if (aspectRatio === "square") return 6;
-    return 4;
+    return 6; // 2 rows x 3 cols
   };
 
-  // Limit shorts to 4 on mobile, 5 on desktop
-  const displayContents = aspectRatio === "vertical" 
-    ? contents.slice(0, isMobile ? 4 : 5)
-    : contents;
+  const getMaxItems = () => {
+    if (aspectRatio === "vertical") return isMobile ? 4 : 5;
+    if (aspectRatio === "square") return 6;
+    return 6; // 2 rows x 3 cols = 6 items
+  };
+
+  // Limit items based on aspect ratio
+  const displayContents = contents.slice(0, getMaxItems());
 
   if (loading) {
     return (
