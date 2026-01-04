@@ -1084,6 +1084,7 @@ function WatchContent() {
                           avatar_url: content.creator.avatar_url
                         } : null}
                         followersCount={followersCount}
+                        hasAccess={hasAccess}
                         onAddToStudy={() => setShowAddToStudyModal(true)}
                         showCreator={true}
                       />

@@ -282,7 +282,7 @@ export default function Listen() {
             <Badge variant="outline">{content.content_type}</Badge>
           </div>
           
-          <ContentActions contentId={content.id} />
+          <ContentActions contentId={content.id} hasAccess={hasAccess} />
 
           <Card className="p-4">
             <div className="flex items-center justify-between mb-4">
