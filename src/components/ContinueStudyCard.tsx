@@ -89,70 +89,54 @@ export function ContinueStudyCard({ userId }: ContinueStudyCardProps) {
           let firstContentId: string | null = null;
           let thumbnailUrl = null;
           let videoUrl = null;
-
-          console.log(`[Study ${study.title}] Messages found:`, messages?.length);
+          const allContentIds: string[] = [];
 
           if (messages && messages.length > 0) {
-            // Find the first message with content IDs
             for (const msg of messages) {
               if (msg.related_contents && Array.isArray(msg.related_contents) && msg.related_contents.length > 0) {
-                console.log(`[Study ${study.title}] Message ${msg.id} has contents:`, msg.related_contents);
-                
-                if (!firstContentId) {
-                  // Extract ID from content object or use string directly
-                  const firstContent = msg.related_contents[0];
-                  if (typeof firstContent === 'object' && firstContent !== null && 'id' in firstContent) {
-                    firstContentId = firstContent.id as string;
-                  } else if (typeof firstContent === 'string') {
-                    firstContentId = firstContent;
+                for (const content of msg.related_contents) {
+                  let contentId: string | null = null;
+                  if (typeof content === 'object' && content !== null && 'id' in content) {
+                    contentId = content.id as string;
+                  } else if (typeof content === 'string') {
+                    contentId = content;
                   }
-                  console.log(`[Study ${study.title}] First content ID extracted:`, firstContentId);
+                  if (contentId) {
+                    allContentIds.push(contentId);
+                    if (!firstContentId) firstContentId = contentId;
+                  }
                 }
                 videosWatchedCount += msg.related_contents.length;
               }
             }
 
-            // Fetch thumbnail and video from first content of THIS study
+            // Fetch thumbnail and video from first content
             if (firstContentId) {
-              try {
-                console.log(`[Study ${study.title}] Fetching content details for:`, firstContentId);
-                
-                const { data: content, error: contentError } = await supabase
-                  .from("contents")
-                  .select("id, title, thumbnail_url, video_url, file_url")
-                  .eq("id", firstContentId)
-                  .maybeSingle();
-                
-                if (contentError) {
-                  console.error(`[Study ${study.title}] Error fetching content:`, contentError);
-                } else if (content) {
-                  console.log(`[Study ${study.title}] Content found:`, {
-                    id: content.id,
-                    title: content.title,
-                    hasThumbnail: !!content.thumbnail_url,
-                    hasVideo: !!content.video_url,
-                    hasFile: !!content.file_url
-                  });
-                  
-                  thumbnailUrl = content.thumbnail_url;
-                  // Try video_url first, then file_url as fallback
-                  videoUrl = content.video_url || content.file_url;
-                  
-                  console.log(`[Study ${study.title}] Final media URLs:`, {
-                    thumbnail: thumbnailUrl,
-                    video: videoUrl
-                  });
-                } else {
-                  console.warn(`[Study ${study.title}] No content found for ID:`, firstContentId);
-                }
-              } catch (error) {
-                console.error(`[Study ${study.title}] Exception fetching content:`, error);
+              const { data: content } = await supabase
+                .from("contents")
+                .select("thumbnail_url, video_url, file_url")
+                .eq("id", firstContentId)
+                .maybeSingle();
+              
+              if (content) {
+                thumbnailUrl = content.thumbnail_url;
+                videoUrl = content.video_url || content.file_url;
               }
-            } else {
-              console.warn(`[Study ${study.title}] No content ID found in messages`);
             }
-          } else {
-            console.warn(`[Study ${study.title}] No messages found`);
+          }
+
+          // Calculate total rewards from reward_events for contents in this study
+          let totalRewards = 0;
+          if (allContentIds.length > 0) {
+            const { data: rewards } = await supabase
+              .from("reward_events")
+              .select("value")
+              .eq("user_id", userId)
+              .in("content_id", allContentIds);
+            
+            if (rewards) {
+              totalRewards = rewards.reduce((sum, r) => sum + (r.value || 0), 0);
+            }
           }
 
           // Estimate study time (10 minutes per video + 2 minutes per note)
@@ -181,7 +165,7 @@ export function ContinueStudyCard({ userId }: ContinueStudyCardProps) {
             videosWatchedCount,
             notesCount: notesCount || 0,
             totalStudyTime,
-            totalRewards: 0, // TODO: Calculate from reward_events
+            totalRewards,
             progressPercent,
             thumbnailUrl,
             videoUrl,
