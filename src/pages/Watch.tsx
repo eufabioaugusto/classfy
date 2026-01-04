@@ -836,6 +836,82 @@ function WatchContent() {
             onLessonSelect={setCurrentLesson}
             hasAccess={hasAccess}
           />
+          
+          {/* Study Tool Sheets */}
+          <Sheet open={activeStudyPanel === 'transcription'} onOpenChange={(open) => !open && setActiveStudyPanel(null)}>
+            <SheetContent side="bottom" className="h-[80vh] rounded-t-3xl p-0 flex flex-col">
+              <SheetHeader className="px-4 py-3 border-b flex-row items-center justify-between">
+                <SheetTitle className="text-base font-semibold">Transcrição</SheetTitle>
+              </SheetHeader>
+              <div className="flex-1 overflow-auto p-4">
+                {transcriptionLoading ? (
+                  <div className="flex items-center justify-center py-12">
+                    <Loader2 className="h-6 w-6 animate-spin text-primary" />
+                  </div>
+                ) : transcription ? (
+                  <div className="prose prose-sm dark:prose-invert max-w-none whitespace-pre-wrap">
+                    {transcription}
+                  </div>
+                ) : (
+                  <div className="flex flex-col items-center justify-center py-12 text-center">
+                    <p className="text-muted-foreground text-sm mb-4">Transcrição não disponível</p>
+                    <Button onClick={generateTranscription} disabled={transcriptionLoading}>
+                      Gerar Transcrição
+                    </Button>
+                  </div>
+                )}
+              </div>
+            </SheetContent>
+          </Sheet>
+
+          <Sheet open={activeStudyPanel === 'quiz'} onOpenChange={(open) => !open && setActiveStudyPanel(null)}>
+            <SheetContent side="bottom" className="h-[80vh] rounded-t-3xl p-0 flex flex-col">
+              <SheetHeader className="px-4 py-3 border-b">
+                <SheetTitle className="text-base font-semibold">Quiz</SheetTitle>
+              </SheetHeader>
+              <div className="flex-1 overflow-auto p-4">
+                <StudyQuiz 
+                  studyId={content.id} 
+                  contentId={content.id}
+                  contentTitle={content.title}
+                />
+              </div>
+            </SheetContent>
+          </Sheet>
+
+          <Sheet open={activeStudyPanel === 'notes'} onOpenChange={(open) => !open && setActiveStudyPanel(null)}>
+            <SheetContent side="bottom" className="h-[80vh] rounded-t-3xl p-0 flex flex-col">
+              <SheetHeader className="px-4 py-3 border-b">
+                <SheetTitle className="text-base font-semibold">Anotações</SheetTitle>
+              </SheetHeader>
+              <div className="flex-1 overflow-auto">
+                <StudyNotes
+                  studyId={content.id}
+                  activeContentId={content.id}
+                  onSeekToTimestamp={(time) => {
+                    setSeekToTime(time);
+                    setActiveStudyPanel(null);
+                  }}
+                />
+              </div>
+            </SheetContent>
+          </Sheet>
+
+          <Sheet open={activeStudyPanel === 'recommendations'} onOpenChange={(open) => !open && setActiveStudyPanel(null)}>
+            <SheetContent side="bottom" className="h-[80vh] rounded-t-3xl p-0 flex flex-col">
+              <SheetHeader className="px-4 py-3 border-b">
+                <SheetTitle className="text-base font-semibold">Sugestões</SheetTitle>
+              </SheetHeader>
+              <div className="flex-1 overflow-auto p-4">
+                <WatchRelated 
+                  contentId={content.id}
+                  categoryId={content.category_id}
+                  tags={content.tags}
+                  contentType={content.content_type as "aula" | "short" | "podcast" | "curso"}
+                />
+              </div>
+            </SheetContent>
+          </Sheet>
 
           <div className="pb-20">
             <MobileWatchLayout
