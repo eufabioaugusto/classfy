@@ -135,28 +135,31 @@ export function AppSidebar() {
             {user && !collapsed && (
               <>
                 <div
-                  className="flex items-center gap-3 p-3 rounded-lg bg-muted/50 hover:bg-muted cursor-pointer transition-colors"
+                  className="flex items-center gap-3 p-3 rounded-xl bg-muted/40 hover:bg-muted/60 cursor-pointer transition-colors"
                   onClick={() => navigate("/conta")}
                 >
                   <ProfileAvatar size="sm" />
                   <div className="flex flex-col gap-0.5 leading-none flex-1 min-w-0">
                     <span className="text-sm font-medium truncate">{profile?.display_name}</span>
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs text-muted-foreground capitalize">{profile?.plan}</span>
-                      {profile?.plan && profile.plan !== "premium" && (
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            navigate("/planos");
-                          }}
-                          className="text-xs text-primary hover:underline font-medium"
-                        >
-                          Fazer upgrade
-                        </button>
-                      )}
-                    </div>
+                    <span className="text-xs text-muted-foreground capitalize">{profile?.plan}</span>
                   </div>
                 </div>
+
+                {/* Upgrade Card */}
+                {profile?.plan && profile.plan !== "premium" && (
+                  <button
+                    onClick={() => navigate("/planos")}
+                    className="w-full flex items-center justify-between gap-3 p-4 rounded-xl bg-red-50 dark:bg-red-950/30 hover:bg-red-100 dark:hover:bg-red-900/40 transition-colors"
+                  >
+                    <div className="flex flex-col items-start">
+                      <span className="text-sm font-semibold text-foreground">Fazer upgrade</span>
+                      <span className="text-xs text-muted-foreground">Desbloquear benefícios</span>
+                    </div>
+                    <div className="p-2 rounded-full bg-red-100 dark:bg-red-900/50">
+                      <Zap className="h-4 w-4 text-red-500" />
+                    </div>
+                  </button>
+                )}
 
                 {/* Creator Stats Card */}
                 {(role === "creator" || role === "admin") && (
@@ -385,18 +388,18 @@ export function AppSidebar() {
                       </Tooltip>
                     </div>
                   ) : (
-                    <div className="mx-2 p-4 rounded-xl border border-border/40 bg-muted/30 backdrop-blur-sm">
-                      <div className="flex items-start gap-3">
-                        <div className="p-2 rounded-lg bg-muted shrink-0">
-                          <Crown className="h-4 w-4 text-muted-foreground" />
-                        </div>
-                        <div className="flex-1 min-w-0 space-y-1">
-                          <p className="text-sm font-medium text-foreground leading-tight">
+                    <div className="mx-2 p-4 rounded-xl bg-muted/40 dark:bg-muted/20">
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="flex-1 min-w-0 space-y-0.5">
+                          <p className="text-sm font-semibold text-foreground leading-tight">
                             Solicitação em análise
                           </p>
                           <p className="text-xs text-muted-foreground leading-relaxed">
-                            Sua conta creator está sendo avaliada. Você será notificado assim que for aprovada.
+                            Aguardando aprovação
                           </p>
+                        </div>
+                        <div className="p-2 rounded-full bg-background shrink-0">
+                          <Crown className="h-4 w-4 text-red-500" />
                         </div>
                       </div>
                     </div>
