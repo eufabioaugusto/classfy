@@ -8,11 +8,12 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { CheckCircle, XCircle, AlertCircle } from "lucide-react";
-import { ContentActions } from "@/components/ContentActions";
 import { ContentComments } from "@/components/ContentComments";
 import { FollowButton } from "@/components/FollowButton";
 import { AddToStudyModal } from "@/components/AddToStudyModal";
-import { WatchVideoPlayer } from "@/components/WatchVideoPlayer";
+import { UnifiedVideoPlayer } from "@/components/unified/UnifiedVideoPlayer";
+import { SocialBar } from "@/components/unified/SocialBar";
+import { StudyToolbar, ToolPanel } from "@/components/unified/StudyToolbar";
 import { Header } from "@/components/Header";
 import { AppSidebar } from "@/components/AppSidebar";
 import { SidebarProvider, useSidebar } from "@/components/ui/sidebar";
@@ -110,6 +111,9 @@ function WatchContent() {
   // Theater mode state
   const [theaterMode, setTheaterMode] = useState(false);
   const previousSidebarState = useRef(true);
+  
+  // Study toolbar state
+  const [activeStudyPanel, setActiveStudyPanel] = useState<ToolPanel>(null);
 
   // Course-specific state
   const [isCourse, setIsCourse] = useState(false);
@@ -854,25 +858,26 @@ function WatchContent() {
                       onPurchaseClick={() => setShowPurchaseModal(true)}
                     />
                   ) : isCourse && currentLesson ? (
-                    <WatchVideoPlayer
+                    <UnifiedVideoPlayer
                       content={{
-                        id: currentLesson.id, // ID interno da lesson
+                        id: currentLesson.id,
                         title: currentLesson.title,
                         file_url: currentLesson.video_url || "",
                         thumbnail_url: content.thumbnail_url,
-                        content_type: "aula" as any,
+                        content_type: "aula" as const,
                         duration_seconds: currentLesson.duration_seconds || 0,
-                        content_id: currentLesson.content_id || null, // FK real para contents.id (quando existir)
-                        lesson_id: currentLesson.id, // ID da lesson para salvar notas
+                        content_id: currentLesson.content_id || null,
+                        lesson_id: currentLesson.id,
                       }}
+                      mode="watch"
                       onTimeUpdate={handleTimeUpdate}
-                      onCreateNote={() => setNotesRefreshTrigger((prev) => prev + 1)}
+                      onNoteCreated={() => setNotesRefreshTrigger((prev) => prev + 1)}
                       seekToTime={seekToTime}
                       theaterMode={theaterMode}
                       onTheaterModeToggle={handleTheaterModeToggle}
                     />
                   ) : !isCourse ? (
-                    <WatchVideoPlayer
+                    <UnifiedVideoPlayer
                       content={{
                         id: content.id,
                         title: content.title,
@@ -880,10 +885,11 @@ function WatchContent() {
                         thumbnail_url: content.thumbnail_url,
                         content_type: content.content_type,
                         duration_seconds: content.duration_seconds,
-                        content_id: content.id, // aqui sempre existe em contents
+                        content_id: content.id,
                       }}
+                      mode="watch"
                       onTimeUpdate={handleTimeUpdate}
-                      onCreateNote={() => setNotesRefreshTrigger((prev) => prev + 1)}
+                      onNoteCreated={() => setNotesRefreshTrigger((prev) => prev + 1)}
                       seekToTime={seekToTime}
                       theaterMode={theaterMode}
                       onTheaterModeToggle={handleTheaterModeToggle}
@@ -920,29 +926,20 @@ function WatchContent() {
                       </Button>
                     </div>
                   ) : (
-                    <div className="flex items-center justify-between flex-wrap gap-3 sm:gap-4 py-2 sm:py-3">
-                      {/* Left - Creator info */}
-                      <div className="flex items-center gap-2 sm:gap-3">
-                        <Avatar className="h-8 w-8 sm:h-10 sm:w-10">
-                          <AvatarImage src={content.creator?.avatar_url || ""} />
-                          <AvatarFallback>{content.creator?.display_name?.[0] || "C"}</AvatarFallback>
-                        </Avatar>
-                        <div className="mr-1 sm:mr-2">
-                          <p className="font-semibold text-xs sm:text-sm">{content.creator?.display_name || "Criador"}</p>
-                          <p className="text-[10px] sm:text-xs text-muted-foreground">{followersCount} seguidores</p>
-                        </div>
-                        {content.creator?.id && <FollowButton creatorId={content.creator.id} size="sm" />}
-                      </div>
-
-                      {/* Right - Actions */}
-                      <div className="w-full sm:w-auto overflow-x-auto scrollbar-hide -mx-3 px-3 sm:mx-0 sm:px-0">
-                        <ContentActions 
-                          contentId={content.id} 
-                          isCourse={isCourse}
-                          contentTitle={content.title}
-                          onAddToStudy={() => setShowAddToStudyModal(true)}
-                        />
-                      </div>
+                    <div className="py-2 sm:py-3">
+                      <SocialBar
+                        contentId={content.id}
+                        isCourse={isCourse}
+                        contentTitle={content.title}
+                        creator={content.creator ? {
+                          id: content.creator.id,
+                          display_name: content.creator.display_name,
+                          avatar_url: content.creator.avatar_url
+                        } : null}
+                        followersCount={followersCount}
+                        onAddToStudy={() => setShowAddToStudyModal(true)}
+                        showCreator={true}
+                      />
                     </div>
                   )}
 

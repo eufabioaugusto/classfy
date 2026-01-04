@@ -5,14 +5,21 @@ import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Loader2, Send, ArrowLeft, MoreVertical, Edit2, Share2, Trash2, X, List, FileText, Brain, StickyNote, MessageSquare, Lightbulb, Minimize2, Maximize2, Play, ChevronLeft, ChevronRight, AlertCircle } from "lucide-react";
+import { Loader2, Send, MoreVertical, Edit2, Share2, Trash2, X, List, Minimize2, Maximize2, Play, ChevronLeft, ChevronRight, AlertCircle } from "lucide-react";
 import { StudyMessage } from "@/hooks/useStudies";
 import { useStudies } from "@/hooks/useStudies";
 import { StudyUsageIndicator } from "@/components/StudyUsageIndicator";
 import { ChatContentCard } from "@/components/ChatContentCard";
 import { ChatMessage } from "@/components/chat/ChatMessage";
 import { UpgradePromptCard } from "@/components/chat/UpgradePromptCard";
-import { StudyVideoPlayer } from "@/components/StudyVideoPlayer";
+import { UnifiedVideoPlayer } from "@/components/unified/UnifiedVideoPlayer";
+
+import { StudyToolbar, ToolPanel } from "@/components/unified/StudyToolbar";
+import { useAccessControl } from "@/hooks/useAccessControl";
+
+import { UpgradeModal } from "@/components/UpgradeModal";
+import { PurchaseModal } from "@/components/PurchaseModal";
+
 import { StudyQuiz } from "@/components/StudyQuiz";
 import { StudyNotes } from "@/components/StudyNotes";
 import { Textarea } from "@/components/ui/textarea";
@@ -110,8 +117,8 @@ function StudyContent() {
   const scrollRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   
-  // Tool panels state
-  const [activeToolPanel, setActiveToolPanel] = useState<'transcription' | 'quiz' | 'notes' | 'comments' | 'recommendations' | null>(null);
+  // Tool panels state - using unified ToolPanel type
+  const [activeToolPanel, setActiveToolPanel] = useState<ToolPanel>(null);
   const [miniPlayerActive, setMiniPlayerActive] = useState(false);
   const [miniPlayerPosition, setMiniPlayerPosition] = useState({ x: 20, y: 20 });
   const miniPlayerRef = useRef<HTMLDivElement>(null);
@@ -126,6 +133,12 @@ function StudyContent() {
     suggestedTopic?: string;
   } | null>(null);
   const [studyUsage, setStudyUsage] = useState<{ messageCount: number; maxMessages: number } | null>(null);
+
+  // Access control state
+  const { checkAccess, hasAccess, blockReason, requiredPlan } = useAccessControl();
+  const [showUpgradeModal, setShowUpgradeModal] = useState(false);
+  const [showPurchaseModal, setShowPurchaseModal] = useState(false);
+  const [activeContentInfo, setActiveContentInfo] = useState<{ price?: number } | null>(null);
 
   // Focus Mode: Auto-collapse sidebar when content is playing
   useEffect(() => {
@@ -620,11 +633,36 @@ function StudyContent() {
     try {
       const { data, error } = await supabase
         .from("contents")
-        .select("id, title, file_url, content_type, duration_seconds")
+        .select("id, title, file_url, content_type, duration_seconds, visibility, price, creator_id, creator:profiles!creator_id(id, display_name, avatar_url)")
         .eq("id", contentId)
         .single();
 
       if (error) throw error;
+
+      // Check access control
+      const accessResult = await checkAccess({
+        contentId: data.id,
+        visibility: data.visibility as any,
+        price: data.price,
+      });
+
+      if (!accessResult.hasAccess) {
+        setActiveContentInfo({ price: data.price });
+        if (accessResult.blockReason === "purchase") {
+          setShowPurchaseModal(true);
+        } else if (accessResult.blockReason === "plan") {
+          setShowUpgradeModal(true);
+        }
+        return;
+      }
+
+      // Register view for metrics
+      if (user) {
+        await supabase.rpc("increment_content_view", {
+          p_user_id: user.id,
+          p_content_id: contentId,
+        });
+      }
 
       if (user) {
         const { data: progressData } = await supabase
@@ -888,27 +926,47 @@ function StudyContent() {
           </div>
         </header>
 
+        {/* Modals for access control */}
+        <UpgradeModal open={showUpgradeModal} onOpenChange={setShowUpgradeModal} requiredPlan={requiredPlan} />
+        {activeContentInfo && (
+          <PurchaseModal
+            open={showPurchaseModal}
+            onOpenChange={setShowPurchaseModal}
+            content={{
+              id: activeContent?.id || "",
+              title: activeContent?.title || "",
+              thumbnail_url: activeContent?.thumbnail_url || "",
+              price: activeContentInfo.price || 0,
+              discount: 0,
+              creator_name: activeContent?.creator?.display_name || "Criador",
+            }}
+            onPurchaseComplete={() => {
+              setShowPurchaseModal(false);
+              if (activeContent?.id) handlePlayContent(activeContent.id);
+            }}
+          />
+        )}
+
         {/* Mobile Video Player - Inline when active */}
         {activeContent && !miniPlayerActive && (
           <div className="flex-shrink-0">
             {/* Video Container with aspect ratio */}
             <div className="relative bg-black" style={{ maxHeight: '30vh' }}>
               <div className="aspect-video max-h-[30vh]">
-                <StudyVideoPlayer
-                  studyId={id!}
-                  content={activeContent}
-                  compact
-                  onClose={() => {
-                    setActiveContent(null);
-                    setActivePlaylist(null);
-                    setTranscription("");
-                    setSearchQuery("");
-                    cancelAutoplay();
-                    setActiveToolPanel(null);
+                <UnifiedVideoPlayer
+                  content={{
+                    id: activeContent.id,
+                    title: activeContent.title,
+                    file_url: activeContent.file_url,
+                    content_type: activeContent.content_type,
+                    duration_seconds: activeContent.duration_seconds,
+                    content_id: activeContent.id,
+                    creator: activeContent.creator,
                   }}
-                  onTranscriptionUpdate={() => loadTranscription(activeContent.id)}
-                  onCreateNote={handleCreateNote}
+                  mode="study"
+                  compact
                   onVideoEnded={handleVideoEnded}
+                  onNoteCreated={() => setNotesRefresh((prev) => prev + 1)}
                 />
               </div>
 
@@ -933,48 +991,13 @@ function StudyContent() {
               )}
             </div>
 
-            {/* Mobile Tool Buttons - Horizontal Scroll */}
-            <div className="flex items-center gap-1 px-2 py-1.5 bg-card border-b border-border overflow-x-auto scrollbar-hide">
-              <Button
-                variant={activeToolPanel === 'transcription' ? 'secondary' : 'ghost'}
-                size="sm"
-                onClick={() => setActiveToolPanel(activeToolPanel === 'transcription' ? null : 'transcription')}
-                className="h-8 px-2.5 shrink-0"
-              >
-                <FileText className="w-4 h-4" />
-              </Button>
-              <Button
-                variant={activeToolPanel === 'quiz' ? 'secondary' : 'ghost'}
-                size="sm"
-                onClick={() => setActiveToolPanel(activeToolPanel === 'quiz' ? null : 'quiz')}
-                className="h-8 px-2.5 shrink-0"
-              >
-                <Brain className="w-4 h-4" />
-              </Button>
-              <Button
-                variant={activeToolPanel === 'notes' ? 'secondary' : 'ghost'}
-                size="sm"
-                onClick={() => setActiveToolPanel(activeToolPanel === 'notes' ? null : 'notes')}
-                className="h-8 px-2.5 shrink-0"
-              >
-                <StickyNote className="w-4 h-4" />
-              </Button>
-              <Button
-                variant={activeToolPanel === 'comments' ? 'secondary' : 'ghost'}
-                size="sm"
-                onClick={() => setActiveToolPanel(activeToolPanel === 'comments' ? null : 'comments')}
-                className="h-8 px-2.5 shrink-0"
-              >
-                <MessageSquare className="w-4 h-4" />
-              </Button>
-              <Button
-                variant={activeToolPanel === 'recommendations' ? 'secondary' : 'ghost'}
-                size="sm"
-                onClick={() => setActiveToolPanel(activeToolPanel === 'recommendations' ? null : 'recommendations')}
-                className="h-8 px-2.5 shrink-0"
-              >
-                <Lightbulb className="w-4 h-4" />
-              </Button>
+            {/* Mobile Tool Buttons - Using unified StudyToolbar */}
+            <div className="px-2 py-1.5 bg-card border-b border-border overflow-x-auto scrollbar-hide flex items-center gap-2">
+              <StudyToolbar
+                activePanel={activeToolPanel}
+                onPanelChange={setActiveToolPanel}
+                compact
+              />
               
               <div className="flex-1" />
               
@@ -1224,13 +1247,17 @@ function StudyContent() {
               </Button>
             </div>
             <div className="aspect-video bg-black max-h-36">
-              <StudyVideoPlayer
-                studyId={id!}
-                content={activeContent}
+              <UnifiedVideoPlayer
+                content={{
+                  id: activeContent.id,
+                  title: activeContent.title,
+                  file_url: activeContent.file_url,
+                  content_type: activeContent.content_type,
+                  duration_seconds: activeContent.duration_seconds,
+                  content_id: activeContent.id,
+                }}
+                mode="study"
                 compact
-                onClose={() => {}}
-                onTranscriptionUpdate={() => {}}
-                onCreateNote={() => {}}
                 onVideoEnded={handleVideoEnded}
               />
             </div>
@@ -1673,53 +1700,12 @@ function StudyContent() {
           <>
             <ResizablePanel defaultSize={activePlaylist ? 50 : 60} minSize={40}>
               <div className="relative h-full flex flex-col bg-background">
-                {/* Video Tools Bar */}
-                <div className="flex items-center gap-1 p-2 bg-card/50 backdrop-blur-sm border-b border-border">
-                  <Button
-                    variant={activeToolPanel === 'transcription' ? 'secondary' : 'ghost'}
-                    size="sm"
-                    onClick={() => setActiveToolPanel(activeToolPanel === 'transcription' ? null : 'transcription')}
-                    className="gap-2"
-                  >
-                    <FileText className="w-4 h-4" />
-                    Transcrição
-                  </Button>
-                  <Button
-                    variant={activeToolPanel === 'quiz' ? 'secondary' : 'ghost'}
-                    size="sm"
-                    onClick={() => setActiveToolPanel(activeToolPanel === 'quiz' ? null : 'quiz')}
-                    className="gap-2"
-                  >
-                    <Brain className="w-4 h-4" />
-                    Quiz
-                  </Button>
-                  <Button
-                    variant={activeToolPanel === 'notes' ? 'secondary' : 'ghost'}
-                    size="sm"
-                    onClick={() => setActiveToolPanel(activeToolPanel === 'notes' ? null : 'notes')}
-                    className="gap-2"
-                  >
-                    <StickyNote className="w-4 h-4" />
-                    Anotações
-                  </Button>
-                  <Button
-                    variant={activeToolPanel === 'comments' ? 'secondary' : 'ghost'}
-                    size="sm"
-                    onClick={() => setActiveToolPanel(activeToolPanel === 'comments' ? null : 'comments')}
-                    className="gap-2"
-                  >
-                    <MessageSquare className="w-4 h-4" />
-                    Comentários
-                  </Button>
-                  <Button
-                    variant={activeToolPanel === 'recommendations' ? 'secondary' : 'ghost'}
-                    size="sm"
-                    onClick={() => setActiveToolPanel(activeToolPanel === 'recommendations' ? null : 'recommendations')}
-                    className="gap-2"
-                  >
-                    <Lightbulb className="w-4 h-4" />
-                    Recomendações
-                  </Button>
+                {/* Video Tools Bar - Using unified StudyToolbar */}
+                <div className="flex items-center gap-2 p-2 bg-card/50 backdrop-blur-sm border-b border-border">
+                  <StudyToolbar
+                    activePanel={activeToolPanel}
+                    onPanelChange={setActiveToolPanel}
+                  />
                   
                   <div className="flex-1" />
                   
@@ -1737,20 +1723,19 @@ function StudyContent() {
 
                 {/* Video Player */}
                 <div className="flex-1 relative">
-                  <StudyVideoPlayer
-                    studyId={id!}
-                    content={activeContent}
-                    onClose={() => {
-                      setActiveContent(null);
-                      setActivePlaylist(null);
-                      setTranscription("");
-                      setSearchQuery("");
-                      cancelAutoplay();
-                      setActiveToolPanel(null);
+                  <UnifiedVideoPlayer
+                    content={{
+                      id: activeContent.id,
+                      title: activeContent.title,
+                      file_url: activeContent.file_url,
+                      content_type: activeContent.content_type,
+                      duration_seconds: activeContent.duration_seconds,
+                      content_id: activeContent.id,
+                      creator: activeContent.creator,
                     }}
-                    onTranscriptionUpdate={() => loadTranscription(activeContent.id)}
-                    onCreateNote={handleCreateNote}
+                    mode="study"
                     onVideoEnded={handleVideoEnded}
+                    onNoteCreated={() => setNotesRefresh((prev) => prev + 1)}
                   />
 
                   {/* Autoplay Countdown Overlay */}
@@ -2160,12 +2145,17 @@ function StudyContent() {
 
           {/* Mini Video Player */}
           <div className="aspect-video bg-black">
-            <StudyVideoPlayer
-              studyId={id!}
-              content={activeContent}
-              onClose={() => {}}
-              onTranscriptionUpdate={() => {}}
-              onCreateNote={() => {}}
+            <UnifiedVideoPlayer
+              content={{
+                id: activeContent.id,
+                title: activeContent.title,
+                file_url: activeContent.file_url,
+                content_type: activeContent.content_type,
+                duration_seconds: activeContent.duration_seconds,
+                content_id: activeContent.id,
+              }}
+              mode="study"
+              compact
               onVideoEnded={handleVideoEnded}
             />
           </div>
