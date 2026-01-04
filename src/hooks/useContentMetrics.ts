@@ -25,6 +25,8 @@ export function useContentMetrics({ contentId, duration }: UseContentMetricsProp
     view15s: false,
   });
   const currentTimeRef = useRef(0);
+  const lastProgressUpdateRef = useRef(0);
+  const lastWatchTimeUpdateRef = useRef(0);
 
   const recordMetric = useCallback(async (event: "start" | "half" | "complete") => {
     if (metricsRecorded[event] || !user || !contentId) return;
@@ -88,6 +90,25 @@ export function useContentMetrics({ contentId, duration }: UseContentMetricsProp
     }
   }, [user, contentId, processReward]);
 
+  const updateWatchTime = useCallback(async (currentTime: number) => {
+    if (!user || !contentId) return;
+    
+    const today = new Date().toISOString().split('T')[0];
+    try {
+      await supabase
+        .from('content_views')
+        .update({ 
+          total_watch_time_seconds: Math.floor(currentTime),
+          last_viewed_at: new Date().toISOString()
+        })
+        .eq('content_id', contentId)
+        .eq('user_id', user.id)
+        .eq('view_date', today);
+    } catch (error) {
+      console.error('Error updating watch time:', error);
+    }
+  }, [user, contentId]);
+
   const handleTimeUpdate = useCallback(async (currentTime: number) => {
     if (!contentId || !user || duration === 0) return;
 
@@ -122,29 +143,19 @@ export function useContentMetrics({ contentId, duration }: UseContentMetricsProp
       await checkBingeWatch();
     }
 
-    // Track progress every 5 seconds
-    if (Math.floor(currentTime) % 5 === 0 && currentTime > 0) {
+    // Track progress every 5 seconds (throttled)
+    const floorTime = Math.floor(currentTime);
+    if (floorTime >= lastProgressUpdateRef.current + 5 && currentTime > 0) {
+      lastProgressUpdateRef.current = floorTime;
       await trackProgress(user.id, contentId, percent, currentTime);
     }
 
-    // Update watch time in content_views every 10 seconds
-    if (Math.floor(currentTime) % 10 === 0 && currentTime >= 10) {
-      const today = new Date().toISOString().split('T')[0];
-      try {
-        await supabase
-          .from('content_views')
-          .update({ 
-            total_watch_time_seconds: Math.floor(currentTime),
-            last_viewed_at: new Date().toISOString()
-          })
-          .eq('content_id', contentId)
-          .eq('user_id', user.id)
-          .eq('view_date', today);
-      } catch (error) {
-        console.error('Error updating watch time:', error);
-      }
+    // Update watch time every 10 seconds (throttled)
+    if (floorTime >= lastWatchTimeUpdateRef.current + 10 && currentTime >= 10) {
+      lastWatchTimeUpdateRef.current = floorTime;
+      await updateWatchTime(currentTime);
     }
-  }, [contentId, user, duration, metricsRecorded, recordMetric, processReward, trackProgress, checkFirstContentWeek, checkBingeWatch]);
+  }, [contentId, user, duration, metricsRecorded, recordMetric, processReward, trackProgress, checkFirstContentWeek, checkBingeWatch, updateWatchTime]);
 
   const registerView = useCallback(async () => {
     if (!user || !contentId) return;
@@ -179,6 +190,8 @@ export function useContentMetrics({ contentId, duration }: UseContentMetricsProp
       complete: false,
       view15s: false,
     });
+    lastProgressUpdateRef.current = 0;
+    lastWatchTimeUpdateRef.current = 0;
   }, []);
 
   return {

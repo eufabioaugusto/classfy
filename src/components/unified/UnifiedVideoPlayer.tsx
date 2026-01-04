@@ -209,8 +209,31 @@ export function UnifiedVideoPlayer({
       trackMetrics(time);
     };
 
-    const handleEnded = () => {
+    const handleEnded = async () => {
       setIsPlaying(false);
+      // Save final position with completed status
+      if (user && content.id && media.duration) {
+        try {
+          await supabase
+            .from("user_progress")
+            .upsert(
+              {
+                user_id: user.id,
+                content_id: content.content_id ?? content.id,
+                last_position_seconds: Math.floor(media.duration),
+                progress_percent: 100,
+                completed: true,
+                completed_at: new Date().toISOString(),
+                updated_at: new Date().toISOString(),
+              },
+              {
+                onConflict: "user_id,content_id",
+              }
+            );
+        } catch (error) {
+          console.error("Error saving completed progress:", error);
+        }
+      }
       onVideoEnded?.();
     };
 
@@ -230,7 +253,7 @@ export function UnifiedVideoPlayer({
       media.removeEventListener("ended", handleEnded);
       media.removeEventListener("pause", handlePause);
     };
-  }, [content.id, onTimeUpdate, onVideoEnded, trackMetrics]);
+  }, [content.id, content.content_id, user, duration, onTimeUpdate, onVideoEnded, trackMetrics]);
 
   const saveCurrentPosition = useCallback(async (time: number) => {
     if (!user || !content.id || !time || time < 1) return;
