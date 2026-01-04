@@ -13,12 +13,13 @@ import { ChatContentCard } from "@/components/ChatContentCard";
 import { ChatMessage } from "@/components/chat/ChatMessage";
 import { UpgradePromptCard } from "@/components/chat/UpgradePromptCard";
 import { UnifiedVideoPlayer } from "@/components/unified/UnifiedVideoPlayer";
-
+import { SocialBar } from "@/components/unified/SocialBar";
 import { StudyToolbar, ToolPanel } from "@/components/unified/StudyToolbar";
 import { useAccessControl } from "@/hooks/useAccessControl";
-
+import { useContentMetrics } from "@/hooks/useContentMetrics";
 import { UpgradeModal } from "@/components/UpgradeModal";
 import { PurchaseModal } from "@/components/PurchaseModal";
+import { AddToStudyModal } from "@/components/AddToStudyModal";
 
 import { StudyQuiz } from "@/components/StudyQuiz";
 import { StudyNotes } from "@/components/StudyNotes";
@@ -991,6 +992,17 @@ function StudyContent() {
               )}
             </div>
 
+            {/* Mobile Social Bar */}
+            <div className="px-2 py-2 bg-card border-b border-border">
+              <SocialBar
+                contentId={activeContent.id}
+                contentTitle={activeContent.title}
+                creator={activeContent.creator}
+                compact
+                showCreator={false}
+              />
+            </div>
+
             {/* Mobile Tool Buttons - Using unified StudyToolbar */}
             <div className="px-2 py-1.5 bg-card border-b border-border overflow-x-auto scrollbar-hide flex items-center gap-2">
               <StudyToolbar
@@ -1719,6 +1731,16 @@ function StudyContent() {
                     <Minimize2 className="w-4 h-4" />
                     Minimizar
                   </Button>
+                </div>
+
+                {/* Social Bar - Desktop */}
+                <div className="px-3 py-2 bg-card/30 border-b border-border">
+                  <SocialBar
+                    contentId={activeContent.id}
+                    contentTitle={activeContent.title}
+                    creator={activeContent.creator}
+                    showCreator={true}
+                  />
                 </div>
 
                 {/* Video Player */}
