@@ -36,6 +36,7 @@ import {
   AlertTriangle,
   Zap,
   Crown,
+  Circle,
 } from "lucide-react";
 import {
   Sidebar,
@@ -141,7 +142,12 @@ export function AppSidebar() {
                   <ProfileAvatar size="sm" />
                   <div className="flex flex-col gap-0.5 leading-none flex-1 min-w-0">
                     <span className="text-sm font-medium truncate">{profile?.display_name}</span>
-                    <span className="text-xs text-muted-foreground capitalize">{profile?.plan}</span>
+                    <span className="text-xs text-muted-foreground capitalize flex items-center gap-1.5">
+                      {profile?.plan === 'free' && <Circle className="h-3 w-3 text-emerald-500 fill-emerald-500" />}
+                      {profile?.plan === 'pro' && <Crown className="h-3 w-3 text-amber-500" />}
+                      {profile?.plan === 'premium' && <Crown className="h-3 w-3 text-red-500" />}
+                      {profile?.plan}
+                    </span>
                   </div>
                 </div>
 
