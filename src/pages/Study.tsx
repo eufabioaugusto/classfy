@@ -20,6 +20,8 @@ import { useContentMetrics } from "@/hooks/useContentMetrics";
 import { UpgradeModal } from "@/components/UpgradeModal";
 import { PurchaseModal } from "@/components/PurchaseModal";
 import { AddToStudyModal } from "@/components/AddToStudyModal";
+import { ContentComments } from "@/components/ContentComments";
+import { WatchRelated } from "@/components/WatchRelated";
 
 import { StudyQuiz } from "@/components/StudyQuiz";
 import { StudyNotes } from "@/components/StudyNotes";
@@ -1711,112 +1713,142 @@ function StudyContent() {
         {activeContent && !miniPlayerActive && (
           <>
             <ResizablePanel defaultSize={activePlaylist ? 50 : 60} minSize={40}>
-              <div className="relative h-full flex flex-col bg-background">
-                {/* Video Tools Bar - Using unified StudyToolbar - ABOVE player */}
-                <div className="flex items-center gap-2 p-2 bg-card/50 backdrop-blur-sm border-b border-border">
-                  <StudyToolbar
-                    activePanel={activeToolPanel}
-                    onPanelChange={setActiveToolPanel}
-                  />
-                  
-                  <div className="flex-1" />
-                  
-                  {/* Mini Player Toggle */}
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => setMiniPlayerActive(true)}
-                    className="gap-2"
-                  >
-                    <Minimize2 className="w-4 h-4" />
-                    Minimizar
-                  </Button>
-                </div>
+              <ScrollArea className="h-full">
+                <div className="flex flex-col bg-background">
+                  {/* Video Tools Bar - Using unified StudyToolbar - ABOVE player */}
+                  <div className="flex items-center gap-2 p-2 bg-card/50 backdrop-blur-sm border-b border-border sticky top-0 z-10">
+                    <StudyToolbar
+                      activePanel={activeToolPanel}
+                      onPanelChange={setActiveToolPanel}
+                    />
+                    
+                    <div className="flex-1" />
+                    
+                    {/* Mini Player Toggle */}
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setMiniPlayerActive(true)}
+                      className="gap-2"
+                    >
+                      <Minimize2 className="w-4 h-4" />
+                      Minimizar
+                    </Button>
+                  </div>
 
-                {/* Video Player */}
-                <div className="flex-1 relative">
-                  <UnifiedVideoPlayer
-                    content={{
-                      id: activeContent.id,
-                      title: activeContent.title,
-                      file_url: activeContent.file_url,
-                      content_type: activeContent.content_type,
-                      duration_seconds: activeContent.duration_seconds,
-                      content_id: activeContent.id,
-                      creator: activeContent.creator,
-                    }}
-                    mode="study"
-                    onVideoEnded={handleVideoEnded}
-                    onNoteCreated={() => setNotesRefresh((prev) => prev + 1)}
-                  />
+                  {/* Video Player */}
+                  <div className="relative">
+                    <div className="aspect-video">
+                      <UnifiedVideoPlayer
+                        content={{
+                          id: activeContent.id,
+                          title: activeContent.title,
+                          file_url: activeContent.file_url,
+                          content_type: activeContent.content_type,
+                          duration_seconds: activeContent.duration_seconds,
+                          content_id: activeContent.id,
+                          creator: activeContent.creator,
+                        }}
+                        mode="study"
+                        onVideoEnded={handleVideoEnded}
+                        onNoteCreated={() => setNotesRefresh((prev) => prev + 1)}
+                      />
+                    </div>
 
-                  {/* Social Bar - Desktop - BELOW player */}
-                  <div className="absolute bottom-0 left-0 right-0 px-3 py-2 bg-gradient-to-t from-background/90 to-transparent">
+                    {/* Autoplay Countdown Overlay */}
+                    {autoplayCountdown !== null && activePlaylist && (
+                      <div className="absolute inset-0 bg-background/90 backdrop-blur-sm flex items-center justify-center z-50">
+                        <div className="bg-card border border-border rounded-lg p-8 text-center space-y-4 max-w-md mx-4">
+                          <div className="space-y-2">
+                            <h3 className="text-2xl font-bold text-foreground">Próximo Vídeo</h3>
+                            <p className="text-muted-foreground">
+                              {(() => {
+                                const playlistContents = messageContents.get(activePlaylist.messageId) || [];
+                                const nextContent = playlistContents[activePlaylist.currentIndex + 1];
+                                return nextContent?.title || "Carregando...";
+                              })()}
+                            </p>
+                          </div>
+                          
+                          <div className="flex items-center justify-center">
+                            <div className="relative w-24 h-24">
+                              <svg className="w-24 h-24 transform -rotate-90">
+                                <circle
+                                  cx="48"
+                                  cy="48"
+                                  r="40"
+                                  stroke="currentColor"
+                                  strokeWidth="4"
+                                  fill="none"
+                                  className="text-muted"
+                                />
+                                <circle
+                                  cx="48"
+                                  cy="48"
+                                  r="40"
+                                  stroke="currentColor"
+                                  strokeWidth="4"
+                                  fill="none"
+                                  strokeDasharray={`${2 * Math.PI * 40}`}
+                                  strokeDashoffset={`${2 * Math.PI * 40 * (1 - autoplayCountdown / 5)}`}
+                                  className="text-primary transition-all duration-1000 ease-linear"
+                                />
+                              </svg>
+                              <span className="absolute inset-0 flex items-center justify-center text-3xl font-bold">
+                                {autoplayCountdown}
+                              </span>
+                            </div>
+                          </div>
+                          
+                          <Button variant="outline" onClick={cancelAutoplay}>
+                            Cancelar
+                          </Button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Title */}
+                  <div className="px-3 pt-3">
+                    <h1 className="text-lg font-bold">{activeContent.title}</h1>
+                  </div>
+
+                  {/* Social Bar - BELOW player */}
+                  <div className="px-3 py-2">
                     <SocialBar
                       contentId={activeContent.id}
                       contentTitle={activeContent.title}
                       creator={activeContent.creator}
                       showCreator={true}
+                      onAddToStudy={() => {}}
                     />
                   </div>
 
-                  {/* Autoplay Countdown Overlay */}
-                  {autoplayCountdown !== null && activePlaylist && (
-                    <div className="absolute inset-0 bg-background/90 backdrop-blur-sm flex items-center justify-center z-50">
-                      <div className="bg-card border border-border rounded-lg p-8 text-center space-y-4 max-w-md mx-4">
-                        <div className="space-y-2">
-                          <h3 className="text-2xl font-bold text-foreground">Próximo Vídeo</h3>
-                          <p className="text-muted-foreground">
-                            {(() => {
-                              const playlistContents = messageContents.get(activePlaylist.messageId) || [];
-                              const nextContent = playlistContents[activePlaylist.currentIndex + 1];
-                              return nextContent?.title || "Carregando...";
-                            })()}
-                          </p>
-                        </div>
-                        
-                        <div className="flex items-center justify-center">
-                          <div className="relative w-24 h-24">
-                            <svg className="w-24 h-24 transform -rotate-90">
-                              <circle
-                                cx="48"
-                                cy="48"
-                                r="40"
-                                stroke="currentColor"
-                                strokeWidth="4"
-                                fill="none"
-                                className="text-muted"
-                              />
-                              <circle
-                                cx="48"
-                                cy="48"
-                                r="40"
-                                stroke="currentColor"
-                                strokeWidth="4"
-                                fill="none"
-                                strokeDasharray={`${2 * Math.PI * 40}`}
-                                strokeDashoffset={`${2 * Math.PI * 40 * (1 - autoplayCountdown / 5)}`}
-                                className="text-primary transition-all duration-1000 ease-linear"
-                              />
-                            </svg>
-                            <div className="absolute inset-0 flex items-center justify-center">
-                              <span className="text-4xl font-bold text-foreground">{autoplayCountdown}</span>
-                            </div>
-                          </div>
-                        </div>
-                        
-                        <Button 
-                          variant="outline" 
-                          onClick={cancelAutoplay}
-                          className="w-full"
-                        >
-                          Cancelar
-                        </Button>
+                  {/* Description */}
+                  {activeContent.description && (
+                    <div className="px-3 pb-3">
+                      <div className="bg-secondary/50 rounded-lg p-3">
+                        <p className="text-sm text-muted-foreground">{activeContent.description}</p>
                       </div>
                     </div>
                   )}
+
+                  {/* Comments */}
+                  <div className="px-3 pb-3">
+                    <ContentComments contentId={activeContent.id} />
+                  </div>
+
+                  {/* Related Content */}
+                  <div className="px-3 pb-6">
+                    <WatchRelated
+                      contentId={activeContent.id}
+                      categoryId={activeContent.category_id}
+                      tags={activeContent.tags || []}
+                      contentType={activeContent.content_type}
+                    />
+                  </div>
                 </div>
-              </div>
+              </ScrollArea>
             </ResizablePanel>
             <ResizableHandle withHandle />
 
