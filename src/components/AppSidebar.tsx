@@ -145,21 +145,6 @@ export function AppSidebar() {
                   </div>
                 </div>
 
-                {/* Upgrade Card */}
-                {profile?.plan && profile.plan !== "premium" && (
-                  <button
-                    onClick={() => navigate("/planos")}
-                    className="w-full flex items-center justify-between gap-3 p-4 rounded-xl bg-red-50 dark:bg-red-950/30 hover:bg-red-100 dark:hover:bg-red-900/40 transition-colors"
-                  >
-                    <div className="flex flex-col items-start">
-                      <span className="text-sm font-semibold text-foreground">Fazer upgrade</span>
-                      <span className="text-xs text-muted-foreground">Desbloquear benefícios</span>
-                    </div>
-                    <div className="p-2 rounded-full bg-red-100 dark:bg-red-900/50">
-                      <Zap className="h-4 w-4 text-red-500" />
-                    </div>
-                  </button>
-                )}
 
                 {/* Creator Stats Card */}
                 {(role === "creator" || role === "admin") && (
@@ -387,23 +372,7 @@ export function AppSidebar() {
                         </TooltipContent>
                       </Tooltip>
                     </div>
-                  ) : (
-                    <div className="mx-2 p-4 rounded-xl bg-muted/40 dark:bg-muted/20">
-                      <div className="flex items-center justify-between gap-3">
-                        <div className="flex-1 min-w-0 space-y-0.5">
-                          <p className="text-sm font-semibold text-foreground leading-tight">
-                            Solicitação em análise
-                          </p>
-                          <p className="text-xs text-muted-foreground leading-relaxed">
-                            Aguardando aprovação
-                          </p>
-                        </div>
-                        <div className="p-2 rounded-full bg-background shrink-0">
-                          <Crown className="h-4 w-4 text-red-500" />
-                        </div>
-                      </div>
-                    </div>
-                  )}
+                  ) : null}
                 </SidebarGroupContent>
               </SidebarGroup>
               <Separator className="bg-border my-2" />
@@ -508,6 +477,43 @@ export function AppSidebar() {
           {user && (
             <>
               <div className="mt-auto" />
+              
+              {/* Cards de Status - próximo ao rodapé */}
+              {!collapsed && (
+                <div className="px-2 pb-2 space-y-2">
+                  {/* Solicitação em análise */}
+                  {profile?.creator_status === 'pending' && (
+                    <div className="p-3 rounded-xl bg-muted/40 dark:bg-muted/20">
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="flex-1 min-w-0">
+                          <p className="text-xs font-semibold text-foreground">Solicitação em análise</p>
+                          <p className="text-[11px] text-muted-foreground">Aguardando aprovação</p>
+                        </div>
+                        <div className="p-1.5 rounded-full bg-background shrink-0">
+                          <Crown className="h-3.5 w-3.5 text-red-500" />
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                  
+                  {/* Fazer upgrade */}
+                  {profile?.plan && profile.plan !== "premium" && (
+                    <button
+                      onClick={() => navigate("/planos")}
+                      className="w-full flex items-center justify-between gap-3 p-3 rounded-xl bg-red-50 dark:bg-red-950/30 hover:bg-red-100 dark:hover:bg-red-900/40 transition-colors"
+                    >
+                      <div className="flex-1 min-w-0 text-left">
+                        <p className="text-xs font-semibold text-foreground">Fazer upgrade</p>
+                        <p className="text-[11px] text-muted-foreground">Desbloquear benefícios</p>
+                      </div>
+                      <div className="p-1.5 rounded-full bg-red-100 dark:bg-red-900/50 shrink-0">
+                        <Zap className="h-3.5 w-3.5 text-red-500" />
+                      </div>
+                    </button>
+                  )}
+                </div>
+              )}
+
               <Separator className="bg-border mb-2" />
               <SidebarGroup>
                 <SidebarGroupContent>
