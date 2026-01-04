@@ -34,7 +34,8 @@ const UNIQUE_PER_CONTENT_ACTIONS = [
   'FAVORITE_CONTENT', 
   'WATCH_50', 
   'WATCH_100', 
-  'COMMENT_CONTENT'
+  'COMMENT_CONTENT',
+  'VIEW_15S'
 ];
 
 // Actions that can only be rewarded once ever per user
