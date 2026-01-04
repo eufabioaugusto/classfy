@@ -2,6 +2,7 @@ import { useEffect, useState, useRef } from "react";
 import { useParams, useNavigate, useLocation } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
+import { useMiniPlayer } from "@/contexts/MiniPlayerContext";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -22,6 +23,8 @@ import { PurchaseModal } from "@/components/PurchaseModal";
 import { AddToStudyModal } from "@/components/AddToStudyModal";
 import { ContentComments } from "@/components/ContentComments";
 import { WatchRelated } from "@/components/WatchRelated";
+import { formatDistanceToNow } from "date-fns";
+import { ptBR } from "date-fns/locale";
 
 import { StudyQuiz } from "@/components/StudyQuiz";
 import { StudyNotes } from "@/components/StudyNotes";
@@ -75,6 +78,7 @@ function StudyContent() {
   const { updateLastActivity, getStudyUsage } = useStudies();
   const { setOpen, open } = useSidebar();
   const isMobile = useIsMobile();
+  const { startMiniPlayer, closeMiniPlayer, state: miniPlayerState } = useMiniPlayer();
 
   const currentPlan = (profile?.plan || 'free') as 'free' | 'pro' | 'premium';
   const PLAYLIST_LIMITS: Record<'free' | 'pro' | 'premium', number> = {
@@ -142,6 +146,52 @@ function StudyContent() {
   const [showUpgradeModal, setShowUpgradeModal] = useState(false);
   const [showPurchaseModal, setShowPurchaseModal] = useState(false);
   const [activeContentInfo, setActiveContentInfo] = useState<{ price?: number } | null>(null);
+  const [followersCount, setFollowersCount] = useState(0);
+  
+  // Track current playback time for mini player
+  const currentPlaybackTimeRef = useRef(0);
+  const activeContentRef = useRef<any>(null);
+  
+  // Keep activeContentRef updated
+  useEffect(() => {
+    activeContentRef.current = activeContent;
+  }, [activeContent]);
+
+  // Fetch followers count when content changes
+  useEffect(() => {
+    if (activeContent?.creator?.id) {
+      fetchFollowersCount(activeContent.creator.id);
+    }
+  }, [activeContent?.creator?.id]);
+
+  const fetchFollowersCount = async (creatorId: string) => {
+    const { count } = await supabase
+      .from("follows")
+      .select("*", { count: "exact", head: true })
+      .eq("following_id", creatorId);
+    setFollowersCount(count || 0);
+  };
+
+  // Activate mini player when leaving Study page with active content
+  useEffect(() => {
+    return () => {
+      const content = activeContentRef.current;
+      const playbackTime = currentPlaybackTimeRef.current;
+      
+      // Only activate if we have content and some playback progress
+      if (content && playbackTime > 0) {
+        startMiniPlayer({
+          id: content.id,
+          title: content.title,
+          subtitle: content.creator?.display_name,
+          thumbnail_url: content.thumbnail_url,
+          file_url: content.file_url,
+          duration_seconds: content.duration_seconds,
+          creator: content.creator ? { display_name: content.creator.display_name } : undefined,
+        }, playbackTime);
+      }
+    };
+  }, [startMiniPlayer]);
 
   // Focus Mode: Auto-collapse sidebar when content is playing
   useEffect(() => {
@@ -634,9 +684,12 @@ function StudyContent() {
 
   const handlePlayContent = async (contentId: string) => {
     try {
+      // Reset playback time for mini player tracking
+      currentPlaybackTimeRef.current = 0;
+      
       const { data, error } = await supabase
         .from("contents")
-        .select("id, title, file_url, content_type, duration_seconds, visibility, price, creator_id, creator:profiles!creator_id(id, display_name, avatar_url)")
+        .select("id, title, file_url, content_type, duration_seconds, visibility, price, creator_id, views_count, created_at, tags, thumbnail_url, description, category_id, creator:profiles!creator_id(id, display_name, avatar_url)")
         .eq("id", contentId)
         .single();
 
@@ -1752,6 +1805,7 @@ function StudyContent() {
                         mode="study"
                         onVideoEnded={handleVideoEnded}
                         onNoteCreated={() => setNotesRefresh((prev) => prev + 1)}
+                        onTimeUpdate={(time) => { currentPlaybackTimeRef.current = time; }}
                       />
                     </div>
 
@@ -1819,19 +1873,28 @@ function StudyContent() {
                       contentId={activeContent.id}
                       contentTitle={activeContent.title}
                       creator={activeContent.creator}
+                      followersCount={followersCount}
                       showCreator={true}
                       onAddToStudy={() => {}}
                     />
                   </div>
 
-                  {/* Description */}
-                  {activeContent.description && (
-                    <div className="px-3 pb-3">
-                      <div className="bg-secondary/50 rounded-lg p-3">
+                  {/* Description with views/date - YouTube style */}
+                  <div className="px-3 pb-3">
+                    <div className="bg-secondary/50 rounded-lg p-3">
+                      <p className="text-xs sm:text-sm font-medium text-muted-foreground mb-1">
+                        {activeContent.views_count ? `${activeContent.views_count} visualizações` : "0 visualizações"} • {activeContent.created_at ? formatDistanceToNow(new Date(activeContent.created_at), { addSuffix: true, locale: ptBR }) : "recentemente"}
+                        {activeContent.tags && activeContent.tags.length > 0 && (
+                          <span className="ml-2">
+                            {activeContent.tags.slice(0, 3).map((tag: string) => `#${tag}`).join(' ')}
+                          </span>
+                        )}
+                      </p>
+                      {activeContent.description && (
                         <p className="text-sm text-muted-foreground">{activeContent.description}</p>
-                      </div>
+                      )}
                     </div>
-                  )}
+                  </div>
 
                   {/* Comments */}
                   <div className="px-3 pb-3">

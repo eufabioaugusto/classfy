@@ -7,7 +7,8 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { CheckCircle, XCircle, AlertCircle } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { CheckCircle, XCircle, AlertCircle, Loader2, X } from "lucide-react";
 import { ContentComments } from "@/components/ContentComments";
 import { FollowButton } from "@/components/FollowButton";
 import { AddToStudyModal } from "@/components/AddToStudyModal";
@@ -35,6 +36,15 @@ import { MobileCommentsSheet } from "@/components/watch/MobileCommentsSheet";
 import { MobileNotesSheet } from "@/components/watch/MobileNotesSheet";
 import { MobileWatchOverlay } from "@/components/watch/MobileWatchOverlay";
 import { MobileCurriculumSheet } from "@/components/watch/MobileCurriculumSheet";
+import { StudyQuiz } from "@/components/StudyQuiz";
+import { StudyNotes } from "@/components/StudyNotes";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
 
 interface Content {
   id: string;
@@ -114,7 +124,9 @@ function WatchContent() {
   
   // Study toolbar state
   const [activeStudyPanel, setActiveStudyPanel] = useState<ToolPanel>(null);
-
+  const [transcription, setTranscription] = useState<string>("");
+  const [transcriptionLoading, setTranscriptionLoading] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
   // Course-specific state
   const [isCourse, setIsCourse] = useState(false);
   const [courseModules, setCourseModules] = useState<any[]>([]);
@@ -678,6 +690,55 @@ function WatchContent() {
     }
   };
 
+  // Load transcription for study tools
+  const loadTranscription = async (contentId: string) => {
+    setTranscriptionLoading(true);
+    try {
+      const { data } = await supabase
+        .from("transcriptions")
+        .select("text")
+        .eq("content_id", contentId)
+        .maybeSingle();
+      setTranscription(data?.text || "");
+    } catch (error) {
+      console.error("Error loading transcription:", error);
+    } finally {
+      setTranscriptionLoading(false);
+    }
+  };
+
+  // Generate transcription manually
+  const generateTranscription = async () => {
+    if (!content) return;
+    setTranscriptionLoading(true);
+    try {
+      const { error } = await supabase.functions.invoke("transcribe-content", {
+        body: { contentId: content.id },
+      });
+      if (error) throw error;
+      toast.success("Transcrição sendo gerada. Aguarde alguns minutos.");
+    } catch (error) {
+      console.error("Error generating transcription:", error);
+      toast.error("Erro ao gerar transcrição");
+    } finally {
+      setTranscriptionLoading(false);
+    }
+  };
+
+  // Highlight search results in transcription
+  const highlightSearchResults = (text: string, query: string) => {
+    if (!query.trim()) return text;
+    const regex = new RegExp(`(${query})`, "gi");
+    return text.replace(regex, '<mark class="bg-yellow-200 dark:bg-yellow-800 rounded px-0.5">$1</mark>');
+  };
+
+  // Load transcription when panel opens
+  useEffect(() => {
+    if (activeStudyPanel === 'transcription' && content) {
+      loadTranscription(content.id);
+    }
+  }, [activeStudyPanel, content?.id]);
+
 // Debug logs
   console.log("🎬 Watch render - loading:", loading, "loadingContent:", loadingContent, "user:", !!user, "content:", !!content);
 
@@ -847,6 +908,15 @@ function WatchContent() {
             <div className="w-full">
               <div className={`flex gap-4 sm:gap-6 p-3 sm:p-6 ${theaterMode ? 'flex-col' : 'flex-col lg:flex-row'}`}>
                 <div className={`min-w-0 space-y-3 sm:space-y-4 ${theaterMode ? 'w-full' : 'flex-1'}`}>
+                  {/* Study Toolbar */}
+                  <div className="flex items-center gap-2 bg-card/50 backdrop-blur-sm border border-border rounded-lg p-2">
+                    <StudyToolbar
+                      activePanel={activeStudyPanel}
+                      onPanelChange={setActiveStudyPanel}
+                      disabled={!hasAccess}
+                    />
+                  </div>
+
                   {/* Access Blocked Overlay - shown when user doesn't have access */}
                   {!hasAccess && accessBlockedReason ? (
                     <AccessBlockedOverlay
@@ -1030,6 +1100,126 @@ function WatchContent() {
               </div>
             </div>
           </main>
+
+          {/* Study Tool Panels - Sheets */}
+          {/* Transcription Sheet */}
+          <Sheet open={activeStudyPanel === 'transcription'} onOpenChange={(open) => !open && setActiveStudyPanel(null)}>
+            <SheetContent side="right" className="w-full sm:w-[500px] sm:max-w-[600px] overflow-y-auto">
+              <SheetHeader>
+                <SheetTitle>Transcrição</SheetTitle>
+                <SheetDescription className="line-clamp-1">{content.title}</SheetDescription>
+              </SheetHeader>
+              <div className="mt-6 space-y-4">
+                {!transcription && !transcriptionLoading ? (
+                  <div className="space-y-4">
+                    <div className="text-muted-foreground text-sm">
+                      <p>A transcrição deste conteúdo está sendo processada automaticamente.</p>
+                      <p className="mt-2">
+                        Isso acontece em segundo plano quando o conteúdo é aprovado. Recarregue a página em alguns minutos.
+                      </p>
+                    </div>
+                    <Button onClick={generateTranscription} disabled={transcriptionLoading} variant="outline" size="sm">
+                      Tentar Gerar Novamente
+                    </Button>
+                  </div>
+                ) : transcriptionLoading ? (
+                  <div className="flex items-center gap-2 text-muted-foreground">
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <p className="text-sm">Carregando transcrição...</p>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    <div className="flex gap-2">
+                      <Input
+                        placeholder="Buscar na transcrição..."
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                        className="flex-1"
+                      />
+                      {searchQuery && (
+                        <Button variant="ghost" size="icon" onClick={() => setSearchQuery("")}>
+                          <X className="h-4 w-4" />
+                        </Button>
+                      )}
+                    </div>
+                    <div className="prose prose-sm max-w-none text-foreground">
+                      <div 
+                        dangerouslySetInnerHTML={{ 
+                          __html: highlightSearchResults(transcription, searchQuery) 
+                        }}
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+            </SheetContent>
+          </Sheet>
+
+          {/* Quiz Sheet */}
+          <Sheet open={activeStudyPanel === 'quiz'} onOpenChange={(open) => !open && setActiveStudyPanel(null)}>
+            <SheetContent side="right" className="w-full sm:w-[500px] sm:max-w-[600px] overflow-y-auto">
+              <SheetHeader>
+                <SheetTitle>Quiz</SheetTitle>
+                <SheetDescription className="line-clamp-1">Teste seus conhecimentos</SheetDescription>
+              </SheetHeader>
+              <div className="mt-6">
+                <StudyQuiz 
+                  studyId={content.id}
+                  contentId={content.id}
+                  contentTitle={content.title}
+                />
+              </div>
+            </SheetContent>
+          </Sheet>
+
+          {/* Notes Sheet */}
+          <Sheet open={activeStudyPanel === 'notes'} onOpenChange={(open) => !open && setActiveStudyPanel(null)}>
+            <SheetContent side="right" className="w-full sm:w-[500px] sm:max-w-[600px] overflow-y-auto">
+              <SheetHeader>
+                <SheetTitle>Anotações</SheetTitle>
+                <SheetDescription>Suas anotações de estudo</SheetDescription>
+              </SheetHeader>
+              <div className="mt-6">
+                <StudyNotes
+                  studyId={content.id}
+                  activeContentId={content.id}
+                  onSeekToTimestamp={(time) => setSeekToTime(time)}
+                  key={notesRefreshTrigger}
+                />
+              </div>
+            </SheetContent>
+          </Sheet>
+
+          {/* Comments Sheet */}
+          <Sheet open={activeStudyPanel === 'comments'} onOpenChange={(open) => !open && setActiveStudyPanel(null)}>
+            <SheetContent side="right" className="w-full sm:w-[500px] sm:max-w-[600px] overflow-y-auto">
+              <SheetHeader>
+                <SheetTitle>Comentários</SheetTitle>
+                <SheetDescription className="line-clamp-1">Discussões sobre {content.title}</SheetDescription>
+              </SheetHeader>
+              <div className="mt-6">
+                <ContentComments contentId={content.id} />
+              </div>
+            </SheetContent>
+          </Sheet>
+
+          {/* Recommendations Sheet */}
+          <Sheet open={activeStudyPanel === 'recommendations'} onOpenChange={(open) => !open && setActiveStudyPanel(null)}>
+            <SheetContent side="right" className="w-full sm:w-[500px] sm:max-w-[600px] overflow-y-auto">
+              <SheetHeader>
+                <SheetTitle>Recomendações</SheetTitle>
+                <SheetDescription>Conteúdos relacionados</SheetDescription>
+              </SheetHeader>
+              <div className="mt-6">
+                <WatchRelated
+                  contentId={content.id}
+                  categoryId={content.category_id}
+                  tags={content.tags}
+                  contentType={content.content_type}
+                />
+              </div>
+            </SheetContent>
+          </Sheet>
       </div>
     </div>
   );
