@@ -11,7 +11,12 @@ import {
   ChevronUp,
   MessageCircle,
   Play,
-  ListVideo
+  ListVideo,
+  FileText,
+  Brain,
+  StickyNote,
+  Lightbulb,
+  Sparkles
 } from "lucide-react";
 import { FollowButton } from "@/components/FollowButton";
 import { ShareButton } from "@/components/ShareButton";
@@ -20,6 +25,7 @@ import { ptBR } from "date-fns/locale";
 import { cn } from "@/lib/utils";
 import { motion } from "framer-motion";
 import { ParticleBurst } from "@/components/ui/particle-burst";
+import type { ToolPanel } from "@/components/unified/StudyToolbar";
 import { useParticleBurst } from "@/hooks/useParticleBurst";
 
 interface MobileWatchLayoutProps {
@@ -49,6 +55,7 @@ interface MobileWatchLayoutProps {
   onAddToStudy: () => void;
   onShowComments: () => void;
   onShowCurriculum?: () => void;
+  onShowStudyTool?: (panel: ToolPanel) => void;
   isCourse?: boolean;
   totalLessons?: number;
   relatedContents: Array<{
@@ -87,6 +94,7 @@ export function MobileWatchLayout({
   onAddToStudy,
   onShowComments,
   onShowCurriculum,
+  onShowStudyTool,
   isCourse = false,
   totalLessons = 0,
   relatedContents,
@@ -274,6 +282,61 @@ export function MobileWatchLayout({
           </div>
           <ChevronDown className="h-5 w-5 text-muted-foreground" />
         </button>
+      )}
+
+      {/* Study Tools - Premium Section */}
+      {onShowStudyTool && (
+        <div className="mx-3 mb-3">
+          <div className="flex items-center gap-2 mb-2">
+            <Sparkles className="h-4 w-4 text-primary" />
+            <h3 className="text-sm font-semibold text-foreground">Ferramentas de Estudo</h3>
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <motion.button
+              whileTap={{ scale: 0.97 }}
+              onClick={() => onShowStudyTool('transcription')}
+              className="p-3 bg-secondary/50 hover:bg-secondary/70 rounded-xl flex items-center gap-3 active:bg-secondary transition-colors"
+            >
+              <div className="h-9 w-9 rounded-lg bg-primary/10 flex items-center justify-center">
+                <FileText className="h-4 w-4 text-primary" />
+              </div>
+              <span className="text-sm font-medium">Transcrição</span>
+            </motion.button>
+
+            <motion.button
+              whileTap={{ scale: 0.97 }}
+              onClick={() => onShowStudyTool('quiz')}
+              className="p-3 bg-secondary/50 hover:bg-secondary/70 rounded-xl flex items-center gap-3 active:bg-secondary transition-colors"
+            >
+              <div className="h-9 w-9 rounded-lg bg-primary/10 flex items-center justify-center">
+                <Brain className="h-4 w-4 text-primary" />
+              </div>
+              <span className="text-sm font-medium">Quiz</span>
+            </motion.button>
+
+            <motion.button
+              whileTap={{ scale: 0.97 }}
+              onClick={() => onShowStudyTool('notes')}
+              className="p-3 bg-secondary/50 hover:bg-secondary/70 rounded-xl flex items-center gap-3 active:bg-secondary transition-colors"
+            >
+              <div className="h-9 w-9 rounded-lg bg-primary/10 flex items-center justify-center">
+                <StickyNote className="h-4 w-4 text-primary" />
+              </div>
+              <span className="text-sm font-medium">Anotações</span>
+            </motion.button>
+
+            <motion.button
+              whileTap={{ scale: 0.97 }}
+              onClick={() => onShowStudyTool('recommendations')}
+              className="p-3 bg-secondary/50 hover:bg-secondary/70 rounded-xl flex items-center gap-3 active:bg-secondary transition-colors"
+            >
+              <div className="h-9 w-9 rounded-lg bg-primary/10 flex items-center justify-center">
+                <Lightbulb className="h-4 w-4 text-primary" />
+              </div>
+              <span className="text-sm font-medium">Sugestões</span>
+            </motion.button>
+          </div>
+        </div>
       )}
 
       {/* Comments Preview Button */}
