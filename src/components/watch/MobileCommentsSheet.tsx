@@ -97,18 +97,10 @@ export function MobileCommentsSheet({ open, onOpenChange, contentId }: MobileCom
         className="h-[80vh] rounded-t-3xl p-0 flex flex-col"
       >
         {/* Header */}
-        <div className="flex items-center justify-between px-4 py-3 border-b">
+        <div className="px-4 py-3 border-b">
           <SheetTitle className="text-base font-semibold">
             Comentários ({comments.length})
           </SheetTitle>
-          <Button 
-            variant="ghost" 
-            size="icon" 
-            className="h-8 w-8"
-            onClick={() => onOpenChange(false)}
-          >
-            <X className="h-5 w-5" />
-          </Button>
         </div>
 
         {/* Comments List */}
