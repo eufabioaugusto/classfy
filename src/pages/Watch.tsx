@@ -851,6 +851,7 @@ function WatchContent() {
               onAddToStudy={() => setShowAddToStudyModal(true)}
               onShowComments={() => setShowMobileComments(true)}
               onShowCurriculum={() => setShowMobileCurriculum(true)}
+              onShowStudyTool={(panel) => setActiveStudyPanel(panel)}
               isCourse={isCourse}
               totalLessons={courseModules.reduce((acc, mod) => acc + (mod.lessons?.length || 0), 0)}
               relatedContents={relatedContents}
