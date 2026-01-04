@@ -101,61 +101,23 @@ export function useRewardSystem() {
 
   const reverseReward = async (userId: string, contentId: string, actionKey: string) => {
     try {
-      // Find and delete the reward event
-      const { data: reward, error: findError } = await supabase
-        .from("reward_events")
-        .select("id, value, points")
-        .eq("user_id", userId)
-        .eq("content_id", contentId)
-        .eq("action_key", actionKey)
-        .maybeSingle();
+      const { data, error } = await supabase.functions.invoke("reverse-reward", {
+        body: {
+          actionKey,
+          userId,
+          contentId,
+        },
+      });
 
-      if (findError || !reward) {
-        console.log('No reward found to reverse');
-        return null;
-      }
+      if (error) throw error;
 
-      // Delete the reward event
-      await supabase
-        .from("reward_events")
-        .delete()
-        .eq("id", reward.id);
-
-      // Deduct from wallet using direct update
-      if (reward.value > 0) {
-        const { data: wallet } = await supabase
-          .from("wallets")
-          .select("balance")
-          .eq("user_id", userId)
-          .single();
-        
-        if (wallet) {
-          const newBalance = Math.max(0, (wallet.balance || 0) - reward.value);
-          await supabase
-            .from("wallets")
-            .update({ 
-              balance: newBalance,
-              updated_at: new Date().toISOString()
-            })
-            .eq("user_id", userId);
-        }
-      }
-
-      // Remove from tracking
+      // Keep client-side trackers aligned with server reversal
       const rewardKey = `${actionKey}_${userId}_${contentId}`;
       sessionRewardTracker.delete(rewardKey);
 
-      // Also remove from reward_action_tracking
-      await supabase
-        .from("reward_action_tracking")
-        .delete()
-        .eq("user_id", userId)
-        .eq("content_id", contentId)
-        .eq("action_key", actionKey);
-
-      return reward;
+      return data;
     } catch (error) {
-      console.error('Error reversing reward:', error);
+      console.error("Error reversing reward:", error);
       return null;
     }
   };
