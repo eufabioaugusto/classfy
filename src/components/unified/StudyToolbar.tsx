@@ -13,11 +13,11 @@ interface StudyToolbarProps {
 }
 
 const tools = [
-  { id: "transcription" as const, icon: FileText, label: "Transcrição", shortLabel: "Trans" },
-  { id: "quiz" as const, icon: Brain, label: "Quiz", shortLabel: "Quiz" },
-  { id: "notes" as const, icon: StickyNote, label: "Anotações", shortLabel: "Notas" },
-  { id: "comments" as const, icon: MessageSquare, label: "Comentários", shortLabel: "Coment" },
-  { id: "recommendations" as const, icon: Lightbulb, label: "Recomendações", shortLabel: "Recom" },
+  { id: "transcription" as const, icon: FileText, label: "Transcrição" },
+  { id: "quiz" as const, icon: Brain, label: "Quiz" },
+  { id: "notes" as const, icon: StickyNote, label: "Anotações" },
+  { id: "comments" as const, icon: MessageSquare, label: "Comentários" },
+  { id: "recommendations" as const, icon: Lightbulb, label: "Recomendações" },
 ];
 
 export function StudyToolbar({ activePanel, onPanelChange, compact = false, disabled = false }: StudyToolbarProps) {
@@ -51,9 +51,7 @@ export function StudyToolbar({ activePanel, onPanelChange, compact = false, disa
                   )}
                 >
                   <Icon className="w-4 h-4" />
-                  {!compact && (
-                    <span className="text-xs hidden sm:inline">{tool.shortLabel}</span>
-                  )}
+                  <span className={cn("text-xs", compact ? "hidden sm:inline" : "")}>{tool.label}</span>
                 </Button>
               </TooltipTrigger>
               <TooltipContent side="bottom">
