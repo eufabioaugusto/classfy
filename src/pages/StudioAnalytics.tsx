@@ -351,7 +351,10 @@ export default function StudioAnalytics() {
                     <div className="min-w-0">
                       <p className="text-xs sm:text-sm text-muted-foreground mb-0.5 sm:mb-1">Tempo Assistido</p>
                       <p className="text-lg sm:text-2xl font-bold text-foreground">
-                        {totalStats.totalWatchTimeHours.toFixed(1)}h
+                        {totalStats.totalWatchTimeHours >= 1 
+                          ? `${totalStats.totalWatchTimeHours.toFixed(1)}h`
+                          : `${Math.round(totalStats.totalWatchTimeHours * 60)}min`
+                        }
                       </p>
                       <p className="text-[10px] sm:text-xs text-muted-foreground mt-0.5 sm:mt-1">Total acumulado</p>
                     </div>
