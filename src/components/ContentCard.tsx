@@ -247,46 +247,12 @@ export const ContentCard = ({
           </div>
         </div>
 
-        {/* Plan Badge - Top Right */}
-        {(visibility === "pro" || visibility === "premium") && (
-          <div className="absolute top-1.5 right-1.5">
-            <Crown
-              className={`w-3 h-3 drop-shadow-lg ${visibility === "pro" ? "text-yellow-400" : "text-red-500"}`}
-              fill="currentColor"
-            />
-          </div>
-        )}
-
-        {/* Badges - Top Left */}
+        {/* Badges - Top Left (only boost badge now) */}
         <div className="absolute top-1.5 left-1.5 flex gap-1 flex-wrap max-w-[calc(100%-3rem)]">
           {isBoosted && (
             <Badge className="bg-primary/95 backdrop-blur-md text-primary-foreground font-semibold text-[9px] px-1.5 py-0.5 shadow-md flex items-center gap-0.5">
               <Zap className="w-2.5 h-2.5" />
               Anúncio
-            </Badge>
-          )}
-          {isPaid && (
-            <>
-              <Badge className="bg-badge-hot/95 backdrop-blur-md text-white font-semibold text-[9px] px-1.5 py-0.5 shadow-md">
-                Pago
-              </Badge>
-              {discount > 0 && (
-                <Badge className="bg-green-600/95 backdrop-blur-md text-white font-semibold text-[9px] px-1.5 py-0.5 shadow-md">
-                  -{discount}%
-                </Badge>
-              )}
-            </>
-          )}
-          {!isPaid && requiredPlan && requiredPlan !== "free" && (
-            <Badge
-              className={`${getPlanBadgeColor(requiredPlan)} backdrop-blur-md text-white font-semibold uppercase text-[9px] px-1.5 py-0.5 shadow-md`}
-            >
-              {requiredPlan}
-            </Badge>
-          )}
-          {visibility === "free" && !requiredPlan && !isShort && (
-            <Badge className="bg-badge-free/95 backdrop-blur-md text-white font-semibold text-[9px] px-1.5 py-0.5 shadow-md">
-              FREE
             </Badge>
           )}
         </div>
@@ -368,9 +334,35 @@ export const ContentCard = ({
           {title}
         </h3>
 
-        {/* Views - Always show */}
-        <div className="pt-1 sm:pt-1.5 border-t border-border/30">
+        {/* Views + Tier/Price indicator */}
+        <div className="pt-1 sm:pt-1.5 border-t border-border/30 flex items-center justify-between">
           <p className="text-[9px] sm:text-[10px] text-muted-foreground">{views.toLocaleString()} views</p>
+          
+          {/* Tier/Price indicator */}
+          {isPaid && !isPurchased ? (
+            <div className="flex items-center gap-1">
+              {discount > 0 ? (
+                <>
+                  <span className="text-[9px] sm:text-[10px] font-bold text-primary">
+                    R$ {(price * (1 - discount / 100)).toFixed(2)}
+                  </span>
+                  <span className="text-[8px] sm:text-[9px] line-through text-muted-foreground">
+                    R$ {price.toFixed(2)}
+                  </span>
+                </>
+              ) : (
+                <span className="text-[9px] sm:text-[10px] font-bold text-foreground">
+                  R$ {price?.toFixed(2)}
+                </span>
+              )}
+            </div>
+          ) : visibility === "premium" ? (
+            <Crown className="w-3 h-3 text-red-500" fill="currentColor" />
+          ) : visibility === "pro" ? (
+            <Crown className="w-3 h-3 text-yellow-400" fill="currentColor" />
+          ) : !isShort && visibility === "free" ? (
+            <span className="text-[9px] sm:text-[10px] font-semibold text-green-500">FREE</span>
+          ) : null}
         </div>
       </div>
     </Card>
