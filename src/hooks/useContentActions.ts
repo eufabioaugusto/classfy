@@ -102,18 +102,25 @@ export function useContentActions({ contentId, isCourse = false, hasAccess = tru
     await refreshLikesCount();
   }, [refreshLikesCount]);
 
-  // Get reward value for this like
+  // Get reward value for this like (if any)
   const getLikeRewardValue = useCallback(async (): Promise<number> => {
     if (!user) return 0;
-    
-    const { data } = await supabase
+
+    const { data, error } = await supabase
       .from("reward_events")
-      .select("value")
+      .select("value, created_at")
       .eq("user_id", user.id)
       .eq("content_id", contentId)
       .eq("action_key", "LIKE_CONTENT")
+      .order("created_at", { ascending: false })
+      .limit(1)
       .maybeSingle();
-    
+
+    if (error) {
+      console.warn("Could not fetch like reward value:", error);
+      return 0;
+    }
+
     return data?.value || 0;
   }, [user, contentId]);
 
