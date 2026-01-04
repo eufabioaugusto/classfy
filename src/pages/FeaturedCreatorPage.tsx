@@ -211,20 +211,26 @@ const FeaturedCreatorPage = () => {
       </header>
 
       {/* HERO SECTION - Full Width */}
-      <section className="w-full lg:h-[700px]">
+      <section className="w-full lg:h-[700px] relative">
         <div className="grid lg:grid-cols-2 h-full">
           {/* Left Column - Hero Image 4:3 (uses hero_image_url) */}
-          <div className="relative h-full">
+          <div className="relative h-[55vh] sm:h-[45vh] lg:h-full">
             <img
               src={creator.hero_image_url || creator.background_image_url}
               alt={creator.creator_name}
-              className="w-full h-full object-cover"
+              className="w-full h-full object-cover object-center"
             />
             {/* Gradient fade to right */}
             <div className="absolute inset-0 bg-gradient-to-r from-transparent to-black/40 lg:block hidden" />
-            {/* Gradient fade from bottom */}
+            {/* Gradient fade from bottom - stronger on mobile */}
             <div 
-              className="absolute inset-0 pointer-events-none"
+              className="absolute inset-0 pointer-events-none lg:hidden"
+              style={{
+                background: 'linear-gradient(to top, rgba(0,0,0,1) 0%, rgba(0,0,0,0.85) 20%, rgba(0,0,0,0.4) 50%, rgba(0,0,0,0) 70%)'
+              }}
+            />
+            <div 
+              className="absolute inset-0 pointer-events-none hidden lg:block"
               style={{
                 background: 'linear-gradient(to top, rgba(0,0,0,1) 0%, rgba(0,0,0,0.6) 25%, rgba(0,0,0,0) 45%)'
               }}
@@ -232,7 +238,8 @@ const FeaturedCreatorPage = () => {
           </div>
 
           {/* Right Column - Content Vertically & Horizontally Centered */}
-          <div className="flex items-center justify-center px-8 lg:px-16 py-12 lg:py-0 bg-black h-full">
+          {/* On mobile: overlaps on top of the image */}
+          <div className="flex items-center justify-center px-6 lg:px-16 py-8 lg:py-0 bg-black h-full relative lg:static -mt-24 lg:mt-0 z-10">
             <div className="max-w-lg w-full space-y-5 text-center">
               {/* Badge */}
               <div className="flex justify-center">
@@ -246,7 +253,7 @@ const FeaturedCreatorPage = () => {
                 <img
                   src={creator.featured_image_url}
                   alt={creator.creator_name}
-                  className="h-[68px] sm:h-[77px] lg:h-24 w-auto object-contain"
+                  className="h-[60px] sm:h-[70px] lg:h-24 w-auto object-contain"
                 />
               </div>
 
