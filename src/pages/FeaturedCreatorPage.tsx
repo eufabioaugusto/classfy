@@ -212,34 +212,143 @@ const FeaturedCreatorPage = () => {
 
       {/* HERO SECTION - Full Width */}
       <section className="w-full lg:h-[700px] relative">
-        <div className="grid lg:grid-cols-2 h-full">
-          {/* Left Column - Hero Image 4:3 (uses hero_image_url) */}
-          <div className="relative h-[55vh] sm:h-[45vh] lg:h-full">
+        {/* Mobile: stacked layout with image flowing into content */}
+        <div className="lg:hidden relative">
+          {/* Hero Image */}
+          <div className="relative h-[65vh]">
+            <img
+              src={creator.hero_image_url || creator.background_image_url}
+              alt={creator.creator_name}
+              className="w-full h-full object-cover object-center"
+            />
+            {/* Gradient fade from bottom - seamless fade to black */}
+            <div 
+              className="absolute inset-0 pointer-events-none"
+              style={{
+                background: 'linear-gradient(to top, rgb(0,0,0) 0%, rgba(0,0,0,0.95) 8%, rgba(0,0,0,0.7) 25%, rgba(0,0,0,0.3) 50%, rgba(0,0,0,0) 70%)'
+              }}
+            />
+          </div>
+          
+          {/* Content overlapping the gradient - positioned absolute at bottom of image */}
+          <div className="absolute bottom-0 left-0 right-0 translate-y-1/2 z-10 px-6">
+            <div className="max-w-lg w-full mx-auto space-y-5 text-center">
+              {/* Badge */}
+              <div className="flex justify-center">
+                <Badge className="bg-white/10 text-white border-white/20 px-4 py-1.5 text-sm font-semibold backdrop-blur-sm">
+                  {creator.badge_text}
+                </Badge>
+              </div>
+
+              {/* Featured Image/Logo */}
+              <div className="flex justify-center">
+                <img
+                  src={creator.featured_image_url}
+                  alt={creator.creator_name}
+                  className="h-[60px] sm:h-[70px] w-auto object-contain"
+                />
+              </div>
+            </div>
+          </div>
+        </div>
+        
+        {/* Mobile: rest of the content below image */}
+        <div className="lg:hidden bg-black px-6 pt-16 pb-8">
+          <div className="max-w-lg w-full mx-auto space-y-5 text-center">
+            {/* Description */}
+            <p className="text-lg sm:text-xl text-white/90 font-medium leading-relaxed">
+              {creator.description}
+            </p>
+
+            {/* Short Bio */}
+            {creator.short_bio && (
+              <p className="text-white/60 text-sm">
+                {creator.short_bio}
+              </p>
+            )}
+
+            {/* Stats */}
+            <div className="flex items-center justify-center gap-6 text-white/70">
+              {creator.total_videos > 0 && (
+                <div className="flex items-center gap-2">
+                  <Film className="h-5 w-5" />
+                  <span className="font-semibold">{creator.total_videos} aulas</span>
+                </div>
+              )}
+              {creator.total_duration_seconds > 0 && (
+                <div className="flex items-center gap-2">
+                  <Clock className="h-5 w-5" />
+                  <span className="font-semibold">{formatDuration(creator.total_duration_seconds)}</span>
+                </div>
+              )}
+            </div>
+
+            {/* Subscription Card - Mobile */}
+            <div className="bg-white/5 backdrop-blur-sm border border-white/10 rounded-2xl p-5 text-center">
+              <div className="flex items-center justify-center gap-3 mb-3">
+                <div className="flex -space-x-2">
+                  {[
+                    "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=100&h=100&fit=crop&crop=face",
+                    "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=100&h=100&fit=crop&crop=face",
+                    "https://images.unsplash.com/photo-1573497019940-1c28c88b4f3e?w=100&h=100&fit=crop&crop=face",
+                    "https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=100&h=100&fit=crop&crop=face"
+                  ].map((src, i) => (
+                    <img
+                      key={i}
+                      src={src}
+                      alt={`Aluno ${i + 1}`}
+                      className="w-7 h-7 rounded-full border-2 border-black object-cover"
+                    />
+                  ))}
+                </div>
+                <span className="text-xs text-white/60">
+                  +200 alunos já assinaram
+                </span>
+              </div>
+
+              <h3 className="text-base font-semibold mb-2 text-white">
+                Assine e tenha acesso completo aos conteúdos de {creator.creator_name}
+              </h3>
+
+              <p className="text-white/60 text-xs mb-4">
+                Acesso ilimitado a todas as aulas, materiais exclusivos e certificado de conclusão.
+              </p>
+
+              <Button
+                onClick={handleSubscribe}
+                size="lg"
+                className="w-full bg-[#e21d48] hover:bg-[#c91a40] text-white font-semibold"
+              >
+                Assinar Agora
+              </Button>
+              <p className="text-white/50 text-[10px] sm:text-xs mt-3">
+                A partir de <span className="line-through">R$ 59</span> R$ 29 por mês para aulas do plano Pro
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {/* Desktop: grid layout */}
+        <div className="hidden lg:grid lg:grid-cols-2 h-full">
+          {/* Left Column - Hero Image */}
+          <div className="relative h-full">
             <img
               src={creator.hero_image_url || creator.background_image_url}
               alt={creator.creator_name}
               className="w-full h-full object-cover object-center"
             />
             {/* Gradient fade to right */}
-            <div className="absolute inset-0 bg-gradient-to-r from-transparent to-black/40 lg:block hidden" />
-            {/* Gradient fade from bottom - stronger on mobile */}
+            <div className="absolute inset-0 bg-gradient-to-r from-transparent to-black/40" />
             <div 
-              className="absolute inset-0 pointer-events-none lg:hidden"
-              style={{
-                background: 'linear-gradient(to top, rgba(0,0,0,1) 0%, rgba(0,0,0,0.85) 20%, rgba(0,0,0,0.4) 50%, rgba(0,0,0,0) 70%)'
-              }}
-            />
-            <div 
-              className="absolute inset-0 pointer-events-none hidden lg:block"
+              className="absolute inset-0 pointer-events-none"
               style={{
                 background: 'linear-gradient(to top, rgba(0,0,0,1) 0%, rgba(0,0,0,0.6) 25%, rgba(0,0,0,0) 45%)'
               }}
             />
           </div>
 
-          {/* Right Column - Content Vertically & Horizontally Centered */}
-          {/* On mobile: overlaps on top of the image */}
-          <div className="flex items-center justify-center px-6 lg:px-16 py-8 lg:py-0 bg-black h-full relative lg:static -mt-24 lg:mt-0 z-10">
+          {/* Right Column - Content */}
+          <div className="flex items-center justify-center px-16 py-0 bg-black h-full">
             <div className="max-w-lg w-full space-y-5 text-center">
               {/* Badge */}
               <div className="flex justify-center">
