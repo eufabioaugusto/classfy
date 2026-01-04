@@ -951,6 +951,26 @@ function StudyContent() {
         {/* Mobile Video Player - Inline when active */}
         {activeContent && !miniPlayerActive && (
           <div className="flex-shrink-0">
+            {/* Mobile Study Toolbar - ABOVE player */}
+            <div className="px-2 py-1.5 bg-card border-b border-border overflow-x-auto scrollbar-hide flex items-center gap-2">
+              <StudyToolbar
+                activePanel={activeToolPanel}
+                onPanelChange={setActiveToolPanel}
+                compact
+              />
+              
+              <div className="flex-1" />
+              
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setMiniPlayerActive(true)}
+                className="h-8 px-2.5 shrink-0"
+              >
+                <Minimize2 className="w-4 h-4" />
+              </Button>
+            </div>
+
             {/* Video Container with aspect ratio */}
             <div className="relative bg-black" style={{ maxHeight: '30vh' }}>
               <div className="aspect-video max-h-[30vh]">
@@ -992,7 +1012,7 @@ function StudyContent() {
               )}
             </div>
 
-            {/* Mobile Social Bar */}
+            {/* Mobile Social Bar - BELOW player */}
             <div className="px-2 py-2 bg-card border-b border-border">
               <SocialBar
                 contentId={activeContent.id}
@@ -1001,26 +1021,6 @@ function StudyContent() {
                 compact
                 showCreator={false}
               />
-            </div>
-
-            {/* Mobile Tool Buttons - Using unified StudyToolbar */}
-            <div className="px-2 py-1.5 bg-card border-b border-border overflow-x-auto scrollbar-hide flex items-center gap-2">
-              <StudyToolbar
-                activePanel={activeToolPanel}
-                onPanelChange={setActiveToolPanel}
-                compact
-              />
-              
-              <div className="flex-1" />
-              
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => setMiniPlayerActive(true)}
-                className="h-8 px-2.5 shrink-0"
-              >
-                <Minimize2 className="w-4 h-4" />
-              </Button>
             </div>
           </div>
         )}
@@ -1712,7 +1712,7 @@ function StudyContent() {
           <>
             <ResizablePanel defaultSize={activePlaylist ? 50 : 60} minSize={40}>
               <div className="relative h-full flex flex-col bg-background">
-                {/* Video Tools Bar - Using unified StudyToolbar */}
+                {/* Video Tools Bar - Using unified StudyToolbar - ABOVE player */}
                 <div className="flex items-center gap-2 p-2 bg-card/50 backdrop-blur-sm border-b border-border">
                   <StudyToolbar
                     activePanel={activeToolPanel}
@@ -1733,16 +1733,6 @@ function StudyContent() {
                   </Button>
                 </div>
 
-                {/* Social Bar - Desktop */}
-                <div className="px-3 py-2 bg-card/30 border-b border-border">
-                  <SocialBar
-                    contentId={activeContent.id}
-                    contentTitle={activeContent.title}
-                    creator={activeContent.creator}
-                    showCreator={true}
-                  />
-                </div>
-
                 {/* Video Player */}
                 <div className="flex-1 relative">
                   <UnifiedVideoPlayer
@@ -1759,6 +1749,16 @@ function StudyContent() {
                     onVideoEnded={handleVideoEnded}
                     onNoteCreated={() => setNotesRefresh((prev) => prev + 1)}
                   />
+
+                  {/* Social Bar - Desktop - BELOW player */}
+                  <div className="absolute bottom-0 left-0 right-0 px-3 py-2 bg-gradient-to-t from-background/90 to-transparent">
+                    <SocialBar
+                      contentId={activeContent.id}
+                      contentTitle={activeContent.title}
+                      creator={activeContent.creator}
+                      showCreator={true}
+                    />
+                  </div>
 
                   {/* Autoplay Countdown Overlay */}
                   {autoplayCountdown !== null && activePlaylist && (
