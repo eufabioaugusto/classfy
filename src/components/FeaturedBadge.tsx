@@ -1,4 +1,3 @@
-import { BadgeCheck } from "lucide-react";
 import { useIsCreatorFeatured } from "@/hooks/useFeaturedCreators";
 import { cn } from "@/lib/utils";
 
@@ -21,10 +20,19 @@ export const FeaturedBadge = ({ creatorId, size = "sm", className }: FeaturedBad
   };
 
   return (
-    <BadgeCheck 
-      className={cn(sizeClasses[size], "text-blue-500 flex-shrink-0", className)}
-      fill="currentColor"
-      strokeWidth={1.5}
-    />
+    <svg 
+      viewBox="0 0 24 24" 
+      className={cn(sizeClasses[size], "flex-shrink-0", className)}
+      fill="none"
+    >
+      <circle cx="12" cy="12" r="10" fill="#3b82f6" />
+      <path 
+        d="M9 12l2 2 4-4" 
+        stroke="white" 
+        strokeWidth="2.5" 
+        strokeLinecap="round" 
+        strokeLinejoin="round"
+      />
+    </svg>
   );
 };
