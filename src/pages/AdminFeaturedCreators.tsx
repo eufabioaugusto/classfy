@@ -18,6 +18,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
 
 interface Skill {
   image_url: string;
@@ -43,6 +44,7 @@ interface FeaturedCreator {
   commission_link?: string | null;
   skills?: Skill[];
   trailer_url?: string | null;
+  show_on_home?: boolean;
 }
 
 interface Creator {
@@ -94,6 +96,7 @@ const AdminFeaturedCreators = () => {
     total_videos: 0,
     total_duration_seconds: 0,
     commission_link: "",
+    show_on_home: true,
     skills: [
       { image_url: "", title: "", description: "" },
       { image_url: "", title: "", description: "" },
@@ -217,6 +220,7 @@ const AdminFeaturedCreators = () => {
       total_videos: creator.total_videos || 0,
       total_duration_seconds: creator.total_duration_seconds || 0,
       commission_link: creator.commission_link || "",
+      show_on_home: creator.show_on_home !== false,
       skills: paddedSkills,
     });
 
@@ -307,6 +311,7 @@ const AdminFeaturedCreators = () => {
             commission_link: formData.commission_link || null,
             skills: JSON.parse(JSON.stringify(uploadedSkills)),
             trailer_url: trailerUrl,
+            show_on_home: formData.show_on_home,
           })
           .eq("id", editingId);
 
@@ -335,6 +340,7 @@ const AdminFeaturedCreators = () => {
           commission_link: formData.commission_link || null,
           skills: JSON.parse(JSON.stringify(uploadedSkills)),
           trailer_url: trailerUrl,
+          show_on_home: formData.show_on_home,
         }]);
 
         if (error) throw error;
@@ -374,6 +380,7 @@ const AdminFeaturedCreators = () => {
       total_videos: 0,
       total_duration_seconds: 0,
       commission_link: "",
+      show_on_home: true,
       skills: [
         { image_url: "", title: "", description: "" },
         { image_url: "", title: "", description: "" },
@@ -479,6 +486,21 @@ const AdminFeaturedCreators = () => {
                       required
                     />
                   </div>
+                </div>
+
+                {/* Show on Home Toggle */}
+                <div className="flex items-center justify-between rounded-lg border p-4">
+                  <div className="space-y-0.5">
+                    <Label htmlFor="show-on-home" className="text-base">Exibir na Home</Label>
+                    <p className="text-sm text-muted-foreground">
+                      Mostrar este creator no slider principal da página inicial
+                    </p>
+                  </div>
+                  <Switch
+                    id="show-on-home"
+                    checked={formData.show_on_home}
+                    onCheckedChange={(checked) => setFormData({ ...formData, show_on_home: checked })}
+                  />
                 </div>
 
                 {/* Images */}
