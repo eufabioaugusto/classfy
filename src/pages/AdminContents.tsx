@@ -10,6 +10,7 @@ import { CheckCircle, XCircle, Clock, Video, Music, Film, Eye } from "lucide-rea
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { FeaturedBadge } from "@/components/FeaturedBadge";
 import { GlobalLoader } from "@/components/GlobalLoader";
 
 interface Content {
@@ -241,7 +242,10 @@ export default function AdminContents() {
                           <AvatarImage src={content.creator.avatar_url || undefined} />
                           <AvatarFallback>{content.creator.display_name.charAt(0)}</AvatarFallback>
                         </Avatar>
-                        <span className="text-sm">{content.creator.display_name}</span>
+                        <span className="text-sm flex items-center gap-1">
+                          {content.creator.display_name}
+                          <FeaturedBadge creatorId={content.creator_id} size="sm" />
+                        </span>
                       </div>
                     </TableCell>
                     <TableCell>

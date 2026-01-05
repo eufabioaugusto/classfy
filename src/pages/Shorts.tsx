@@ -12,6 +12,7 @@ import { PurchaseModal } from "@/components/PurchaseModal";
 import { SidebarProvider } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/AppSidebar";
 import { Header } from "@/components/Header";
+import { FeaturedBadge } from "@/components/FeaturedBadge";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { MobileShortsView } from "@/components/shorts/MobileShortsView";
 
@@ -757,8 +758,9 @@ export default function Shorts() {
                             </AvatarFallback>
                           </Avatar>
                           <div className="flex-1">
-                            <p className="text-white font-semibold text-sm">
+                            <p className="text-white font-semibold text-sm flex items-center gap-1">
                               @{currentShort.creator.creator_channel_name || currentShort.creator.display_name}
+                              <FeaturedBadge creatorId={currentShort.creator.id} size="sm" className="text-blue-400" />
                             </p>
                           </div>
                           <Button

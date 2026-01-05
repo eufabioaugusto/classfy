@@ -4,6 +4,7 @@ import { useNavigate, useLocation } from "react-router-dom";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { AdminLayout } from "@/components/AdminLayout";
 import { supabase } from "@/integrations/supabase/client";
+import { FeaturedBadge } from "@/components/FeaturedBadge";
 import { History, AlertCircle, Search, Trash2, MoreVertical, Bookmark, Share2, Clock, X, Play, Music, Video, Zap, Filter } from "lucide-react";
 import { UpgradeModal } from "@/components/UpgradeModal";
 import { PurchaseModal } from "@/components/PurchaseModal";
@@ -52,6 +53,7 @@ interface HistoryItem {
     is_free: boolean;
     required_plan: string | null;
     profiles: {
+      id: string;
       display_name: string;
       avatar_url: string | null;
       creator_channel_name: string | null;
@@ -122,6 +124,7 @@ export default function Historico() {
             is_free,
             required_plan,
             profiles:creator_id (
+              id,
               display_name,
               avatar_url,
               creator_channel_name
@@ -138,6 +141,7 @@ export default function Historico() {
             discount,
             visibility,
             profiles:creator_id (
+              id,
               display_name,
               avatar_url,
               creator_channel_name
@@ -456,8 +460,9 @@ export default function Historico() {
                             {item.content.title}
                           </h3>
                           <div className="flex items-center gap-1.5 mt-0.5 text-xs text-muted-foreground flex-wrap">
-                            <span className="hover:text-foreground cursor-pointer truncate max-w-[120px] sm:max-w-none">
+                            <span className="hover:text-foreground cursor-pointer truncate max-w-[120px] sm:max-w-none flex items-center gap-1">
                               {item.content.profiles?.creator_channel_name || item.content.profiles?.display_name}
+                              <FeaturedBadge creatorId={item.content.profiles?.id} size="xs" />
                             </span>
                             <span>•</span>
                             <span className="whitespace-nowrap">{formatViews(item.content.views_count)}</span>
