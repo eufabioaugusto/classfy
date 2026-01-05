@@ -962,6 +962,113 @@ export type Database = {
           },
         ]
       }
+      creator_milestone_progress: {
+        Row: {
+          claimed: boolean
+          claimed_at: string | null
+          completed_at: string | null
+          created_at: string
+          creator_id: string
+          current_value: number
+          id: string
+          milestone_id: string
+          updated_at: string
+        }
+        Insert: {
+          claimed?: boolean
+          claimed_at?: string | null
+          completed_at?: string | null
+          created_at?: string
+          creator_id: string
+          current_value?: number
+          id?: string
+          milestone_id: string
+          updated_at?: string
+        }
+        Update: {
+          claimed?: boolean
+          claimed_at?: string | null
+          completed_at?: string | null
+          created_at?: string
+          creator_id?: string
+          current_value?: number
+          id?: string
+          milestone_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "creator_milestone_progress_creator_id_fkey"
+            columns: ["creator_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "creator_milestone_progress_milestone_id_fkey"
+            columns: ["milestone_id"]
+            isOneToOne: false
+            referencedRelation: "creator_milestones"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      creator_milestones: {
+        Row: {
+          active: boolean
+          badge_id: string | null
+          created_at: string
+          description: string | null
+          icon: string | null
+          id: string
+          milestone_type: string
+          milestone_value: number
+          order_index: number
+          points_reward: number
+          title: string
+          updated_at: string
+          value_reward: number
+        }
+        Insert: {
+          active?: boolean
+          badge_id?: string | null
+          created_at?: string
+          description?: string | null
+          icon?: string | null
+          id?: string
+          milestone_type: string
+          milestone_value: number
+          order_index?: number
+          points_reward?: number
+          title: string
+          updated_at?: string
+          value_reward?: number
+        }
+        Update: {
+          active?: boolean
+          badge_id?: string | null
+          created_at?: string
+          description?: string | null
+          icon?: string | null
+          id?: string
+          milestone_type?: string
+          milestone_value?: number
+          order_index?: number
+          points_reward?: number
+          title?: string
+          updated_at?: string
+          value_reward?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "creator_milestones_badge_id_fkey"
+            columns: ["badge_id"]
+            isOneToOne: false
+            referencedRelation: "badges"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       creator_requests: {
         Row: {
           admin_notes: string | null

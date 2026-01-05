@@ -9,6 +9,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Progress } from "@/components/ui/progress";
 import {
   Table,
   TableBody,
@@ -32,7 +34,14 @@ import {
   TrendingUp,
   Activity,
   DollarSign,
-  Coins
+  Coins,
+  Target,
+  Trophy,
+  Video,
+  Users,
+  Wallet,
+  Eye,
+  Heart
 } from "lucide-react";
 
 interface RewardConfig {
@@ -56,6 +65,26 @@ interface RewardStats {
   last_used: string | null;
 }
 
+interface CreatorMilestone {
+  id: string;
+  milestone_type: string;
+  milestone_value: number;
+  points_reward: number;
+  value_reward: number;
+  title: string;
+  description: string | null;
+  icon: string;
+  active: boolean;
+  order_index: number;
+  created_at: string;
+}
+
+interface MilestoneStats {
+  milestone_id: string;
+  completed_count: number;
+  claimed_count: number;
+}
+
 export default function AdminRewards() {
   const { role, loading: authLoading } = useAuth();
   const navigate = useNavigate();
@@ -65,6 +94,14 @@ export default function AdminRewards() {
   const [searchTerm, setSearchTerm] = useState("");
   const [editingReward, setEditingReward] = useState<RewardConfig | null>(null);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [activeTab, setActiveTab] = useState("rewards");
+
+  // Creator Milestones state
+  const [milestones, setMilestones] = useState<CreatorMilestone[]>([]);
+  const [milestoneStats, setMilestoneStats] = useState<Map<string, MilestoneStats>>(new Map());
+  const [editingMilestone, setEditingMilestone] = useState<CreatorMilestone | null>(null);
+  const [isMilestoneDialogOpen, setIsMilestoneDialogOpen] = useState(false);
+  const [milestoneSearchTerm, setMilestoneSearchTerm] = useState("");
 
   // Global stats
   const [globalStats, setGlobalStats] = useState({
@@ -74,11 +111,19 @@ export default function AdminRewards() {
     totalValueDistributed: 0,
   });
 
+  const [milestoneGlobalStats, setMilestoneGlobalStats] = useState({
+    totalMilestones: 0,
+    activeMilestones: 0,
+    totalCompleted: 0,
+    totalClaimed: 0,
+  });
+
   useEffect(() => {
     if (!authLoading && role !== 'admin') {
       navigate("/");
     } else if (role === 'admin') {
       fetchData();
+      fetchMilestones();
     }
   }, [role, authLoading, navigate]);
 
@@ -148,6 +193,63 @@ export default function AdminRewards() {
     }
   };
 
+  const fetchMilestones = async () => {
+    try {
+      // Fetch milestones
+      const { data: milestonesData, error: milestonesError } = await supabase
+        .from('creator_milestones')
+        .select('*')
+        .order('order_index', { ascending: true });
+
+      if (milestonesError) throw milestonesError;
+      setMilestones(milestonesData || []);
+
+      // Fetch milestone progress stats
+      const { data: progressData, error: progressError } = await supabase
+        .from('creator_milestone_progress')
+        .select('milestone_id, completed_at, claimed');
+
+      if (progressError) throw progressError;
+
+      // Calculate stats per milestone
+      const statsMap = new Map<string, MilestoneStats>();
+      let totalCompleted = 0;
+      let totalClaimed = 0;
+
+      progressData?.forEach((progress) => {
+        const existing = statsMap.get(progress.milestone_id);
+        const isCompleted = progress.completed_at !== null;
+        const isClaimed = progress.claimed;
+
+        if (isCompleted) totalCompleted++;
+        if (isClaimed) totalClaimed++;
+
+        if (existing) {
+          if (isCompleted) existing.completed_count++;
+          if (isClaimed) existing.claimed_count++;
+        } else {
+          statsMap.set(progress.milestone_id, {
+            milestone_id: progress.milestone_id,
+            completed_count: isCompleted ? 1 : 0,
+            claimed_count: isClaimed ? 1 : 0,
+          });
+        }
+      });
+
+      setMilestoneStats(statsMap);
+
+      setMilestoneGlobalStats({
+        totalMilestones: milestonesData?.length || 0,
+        activeMilestones: milestonesData?.filter(m => m.active).length || 0,
+        totalCompleted,
+        totalClaimed,
+      });
+
+    } catch (error) {
+      console.error('Error fetching milestones:', error);
+    }
+  };
+
   const handleUpdateReward = async () => {
     if (!editingReward) return;
 
@@ -177,6 +279,34 @@ export default function AdminRewards() {
     }
   };
 
+  const handleUpdateMilestone = async () => {
+    if (!editingMilestone) return;
+
+    try {
+      const { error } = await supabase
+        .from('creator_milestones')
+        .update({
+          points_reward: editingMilestone.points_reward,
+          value_reward: editingMilestone.value_reward,
+          title: editingMilestone.title,
+          description: editingMilestone.description,
+          active: editingMilestone.active,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', editingMilestone.id);
+
+      if (error) throw error;
+
+      toast.success('Meta atualizada com sucesso!');
+      setIsMilestoneDialogOpen(false);
+      setEditingMilestone(null);
+      fetchMilestones();
+    } catch (error) {
+      console.error('Error updating milestone:', error);
+      toast.error('Erro ao atualizar meta');
+    }
+  };
+
   const handleToggleActive = async (reward: RewardConfig) => {
     try {
       const { error } = await supabase
@@ -197,15 +327,67 @@ export default function AdminRewards() {
     }
   };
 
+  const handleToggleMilestoneActive = async (milestone: CreatorMilestone) => {
+    try {
+      const { error } = await supabase
+        .from('creator_milestones')
+        .update({ 
+          active: !milestone.active,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', milestone.id);
+
+      if (error) throw error;
+
+      toast.success(`Meta ${!milestone.active ? 'ativada' : 'desativada'} com sucesso!`);
+      fetchMilestones();
+    } catch (error) {
+      console.error('Error toggling milestone:', error);
+      toast.error('Erro ao atualizar status');
+    }
+  };
+
   const openEditDialog = (reward: RewardConfig) => {
     setEditingReward({ ...reward });
     setIsDialogOpen(true);
+  };
+
+  const openMilestoneEditDialog = (milestone: CreatorMilestone) => {
+    setEditingMilestone({ ...milestone });
+    setIsMilestoneDialogOpen(true);
   };
 
   const filteredRewards = rewards.filter(reward =>
     reward.action_key.toLowerCase().includes(searchTerm.toLowerCase()) ||
     reward.description?.toLowerCase().includes(searchTerm.toLowerCase())
   );
+
+  const filteredMilestones = milestones.filter(milestone =>
+    milestone.title.toLowerCase().includes(milestoneSearchTerm.toLowerCase()) ||
+    milestone.milestone_type.toLowerCase().includes(milestoneSearchTerm.toLowerCase())
+  );
+
+  const getMilestoneTypeIcon = (type: string) => {
+    switch (type) {
+      case 'contents': return Video;
+      case 'followers': return Users;
+      case 'earnings': return Wallet;
+      case 'views': return Eye;
+      case 'engagement': return Heart;
+      default: return Trophy;
+    }
+  };
+
+  const getMilestoneTypeLabel = (type: string) => {
+    switch (type) {
+      case 'contents': return 'Produção';
+      case 'followers': return 'Audiência';
+      case 'earnings': return 'Monetização';
+      case 'views': return 'Alcance';
+      case 'engagement': return 'Engajamento';
+      default: return type;
+    }
+  };
 
   if (authLoading || loading) {
     return <GlobalLoader />;
@@ -214,259 +396,531 @@ export default function AdminRewards() {
   return (
     <AdminLayout title="Recompensas">
       <div className="container mx-auto p-6 space-y-6">
+        <Tabs value={activeTab} onValueChange={setActiveTab}>
+          <TabsList className="mb-6">
+            <TabsTrigger value="rewards" className="gap-2">
+              <Coins className="w-4 h-4" />
+              Recompensas Usuários
+            </TabsTrigger>
+            <TabsTrigger value="milestones" className="gap-2">
+              <Target className="w-4 h-4" />
+              Metas de Creators
+            </TabsTrigger>
+          </TabsList>
 
-      {/* Global Stats */}
-      <div className="grid gap-4 md:grid-cols-4">
-        <Card className="p-6">
-          <div className="flex items-center gap-3">
-            <div className="p-3 bg-primary/10 rounded-lg">
-              <Activity className="h-6 w-6 text-primary" />
+          {/* User Rewards Tab */}
+          <TabsContent value="rewards" className="space-y-6">
+            {/* Global Stats */}
+            <div className="grid gap-4 md:grid-cols-4">
+              <Card className="p-6">
+                <div className="flex items-center gap-3">
+                  <div className="p-3 bg-primary/10 rounded-lg">
+                    <Activity className="h-6 w-6 text-primary" />
+                  </div>
+                  <div>
+                    <p className="text-sm text-muted-foreground">Total de Recompensas</p>
+                    <h3 className="text-2xl font-bold">{globalStats.totalRewards}</h3>
+                    <p className="text-xs text-green-600">{globalStats.activeRewards} ativas</p>
+                  </div>
+                </div>
+              </Card>
+
+              <Card className="p-6">
+                <div className="flex items-center gap-3">
+                  <div className="p-3 bg-blue-500/10 rounded-lg">
+                    <TrendingUp className="h-6 w-6 text-blue-500" />
+                  </div>
+                  <div>
+                    <p className="text-sm text-muted-foreground">Eventos Totais</p>
+                    <h3 className="text-2xl font-bold">
+                      {Array.from(rewardStats.values()).reduce((sum, stat) => sum + stat.total_events, 0).toLocaleString('pt-BR')}
+                    </h3>
+                  </div>
+                </div>
+              </Card>
+
+              <Card className="p-6">
+                <div className="flex items-center gap-3">
+                  <div className="p-3 bg-purple-500/10 rounded-lg">
+                    <Coins className="h-6 w-6 text-purple-500" />
+                  </div>
+                  <div>
+                    <p className="text-sm text-muted-foreground">Pontos Distribuídos</p>
+                    <h3 className="text-2xl font-bold">{globalStats.totalPointsDistributed.toLocaleString('pt-BR')}</h3>
+                  </div>
+                </div>
+              </Card>
+
+              <Card className="p-6">
+                <div className="flex items-center gap-3">
+                  <div className="p-3 bg-green-500/10 rounded-lg">
+                    <DollarSign className="h-6 w-6 text-green-500" />
+                  </div>
+                  <div>
+                    <p className="text-sm text-muted-foreground">Valor Distribuído</p>
+                    <h3 className="text-2xl font-bold">
+                      R$ {globalStats.totalValueDistributed.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                    </h3>
+                  </div>
+                </div>
+              </Card>
             </div>
-            <div>
-              <p className="text-sm text-muted-foreground">Total de Recompensas</p>
-              <h3 className="text-2xl font-bold">{globalStats.totalRewards}</h3>
-              <p className="text-xs text-green-600">{globalStats.activeRewards} ativas</p>
-            </div>
-          </div>
-        </Card>
 
-        <Card className="p-6">
-          <div className="flex items-center gap-3">
-            <div className="p-3 bg-blue-500/10 rounded-lg">
-              <TrendingUp className="h-6 w-6 text-blue-500" />
-            </div>
-            <div>
-              <p className="text-sm text-muted-foreground">Eventos Totais</p>
-              <h3 className="text-2xl font-bold">
-                {Array.from(rewardStats.values()).reduce((sum, stat) => sum + stat.total_events, 0).toLocaleString('pt-BR')}
-              </h3>
-            </div>
-          </div>
-        </Card>
-
-        <Card className="p-6">
-          <div className="flex items-center gap-3">
-            <div className="p-3 bg-purple-500/10 rounded-lg">
-              <Coins className="h-6 w-6 text-purple-500" />
-            </div>
-            <div>
-              <p className="text-sm text-muted-foreground">Pontos Distribuídos</p>
-              <h3 className="text-2xl font-bold">{globalStats.totalPointsDistributed.toLocaleString('pt-BR')}</h3>
-            </div>
-          </div>
-        </Card>
-
-        <Card className="p-6">
-          <div className="flex items-center gap-3">
-            <div className="p-3 bg-green-500/10 rounded-lg">
-              <DollarSign className="h-6 w-6 text-green-500" />
-            </div>
-            <div>
-              <p className="text-sm text-muted-foreground">Valor Distribuído</p>
-              <h3 className="text-2xl font-bold">
-                R$ {globalStats.totalValueDistributed.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-              </h3>
-            </div>
-          </div>
-        </Card>
-      </div>
-
-      {/* Search */}
-      <Card className="p-4">
-        <div className="relative">
-          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-          <Input
-            placeholder="Buscar por ação ou descrição..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="pl-10"
-          />
-        </div>
-      </Card>
-
-      {/* Rewards Table */}
-      <Card className="p-6">
-        <div className="rounded-md border">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Ação</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead className="text-center">Pontos Usuário</TableHead>
-                <TableHead className="text-center">Pontos Criador</TableHead>
-                <TableHead className="text-center">Valor Usuário</TableHead>
-                <TableHead className="text-center">Valor Criador</TableHead>
-                <TableHead className="text-center">Uso Total</TableHead>
-                <TableHead className="text-center">Último Uso</TableHead>
-                <TableHead className="text-right">Ações</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {filteredRewards.map((reward) => {
-                const stats = rewardStats.get(reward.action_key);
-                return (
-                  <TableRow key={reward.id}>
-                    <TableCell>
-                      <div>
-                        <p className="font-medium">{reward.action_key}</p>
-                        {reward.description && (
-                          <p className="text-xs text-muted-foreground">{reward.description}</p>
-                        )}
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <Switch
-                        checked={reward.active}
-                        onCheckedChange={() => handleToggleActive(reward)}
-                      />
-                    </TableCell>
-                    <TableCell className="text-center">{reward.points_user}</TableCell>
-                    <TableCell className="text-center">{reward.points_creator}</TableCell>
-                    <TableCell className="text-center">
-                      R$ {reward.value_user.toFixed(2)}
-                    </TableCell>
-                    <TableCell className="text-center">
-                      R$ {reward.value_creator.toFixed(2)}
-                    </TableCell>
-                    <TableCell className="text-center">
-                      {stats ? (
-                        <div>
-                          <p className="font-medium">{stats.total_events.toLocaleString('pt-BR')}</p>
-                          <p className="text-xs text-muted-foreground">
-                            {stats.total_points} pts / R$ {stats.total_value.toFixed(2)}
-                          </p>
-                        </div>
-                      ) : (
-                        <Badge variant="outline">Sem uso</Badge>
-                      )}
-                    </TableCell>
-                    <TableCell className="text-center">
-                      {stats?.last_used ? (
-                        <span className="text-xs text-muted-foreground">
-                          {new Date(stats.last_used).toLocaleDateString('pt-BR')}
-                        </span>
-                      ) : (
-                        '-'
-                      )}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => openEditDialog(reward)}
-                      >
-                        <Pencil className="h-4 w-4" />
-                      </Button>
-                    </TableCell>
-                  </TableRow>
-                );
-              })}
-            </TableBody>
-          </Table>
-        </div>
-      </Card>
-
-      {/* Edit Dialog */}
-      <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-        <DialogContent className="max-w-2xl">
-          <DialogHeader>
-            <DialogTitle>Editar Recompensa</DialogTitle>
-            <DialogDescription>
-              Ajuste os valores de pontos e recompensas para esta ação
-            </DialogDescription>
-          </DialogHeader>
-
-          {editingReward && (
-            <div className="space-y-4">
-              <div>
-                <label className="text-sm font-medium">Ação</label>
-                <Input value={editingReward.action_key} disabled />
-              </div>
-
-              <div>
-                <label className="text-sm font-medium">Descrição</label>
-                <Textarea
-                  value={editingReward.description || ''}
-                  onChange={(e) =>
-                    setEditingReward({ ...editingReward, description: e.target.value })
-                  }
-                  placeholder="Descrição da recompensa..."
-                  rows={2}
+            {/* Search */}
+            <Card className="p-4">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Input
+                  placeholder="Buscar por ação ou descrição..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="pl-10"
                 />
               </div>
+            </Card>
 
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="text-sm font-medium">Pontos Usuário</label>
-                  <Input
-                    type="number"
-                    value={editingReward.points_user}
-                    onChange={(e) =>
-                      setEditingReward({ ...editingReward, points_user: Number(e.target.value) })
-                    }
-                  />
-                </div>
-                <div>
-                  <label className="text-sm font-medium">Pontos Criador</label>
-                  <Input
-                    type="number"
-                    value={editingReward.points_creator}
-                    onChange={(e) =>
-                      setEditingReward({ ...editingReward, points_creator: Number(e.target.value) })
-                    }
-                  />
-                </div>
+            {/* Rewards Table */}
+            <Card className="p-6">
+              <div className="rounded-md border">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Ação</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead className="text-center">Pontos Usuário</TableHead>
+                      <TableHead className="text-center">Pontos Criador</TableHead>
+                      <TableHead className="text-center">Valor Usuário</TableHead>
+                      <TableHead className="text-center">Valor Criador</TableHead>
+                      <TableHead className="text-center">Uso Total</TableHead>
+                      <TableHead className="text-center">Último Uso</TableHead>
+                      <TableHead className="text-right">Ações</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {filteredRewards.map((reward) => {
+                      const stats = rewardStats.get(reward.action_key);
+                      return (
+                        <TableRow key={reward.id}>
+                          <TableCell>
+                            <div>
+                              <p className="font-medium">{reward.action_key}</p>
+                              {reward.description && (
+                                <p className="text-xs text-muted-foreground">{reward.description}</p>
+                              )}
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <Switch
+                              checked={reward.active}
+                              onCheckedChange={() => handleToggleActive(reward)}
+                            />
+                          </TableCell>
+                          <TableCell className="text-center">{reward.points_user}</TableCell>
+                          <TableCell className="text-center">{reward.points_creator}</TableCell>
+                          <TableCell className="text-center">
+                            R$ {reward.value_user.toFixed(2)}
+                          </TableCell>
+                          <TableCell className="text-center">
+                            R$ {reward.value_creator.toFixed(2)}
+                          </TableCell>
+                          <TableCell className="text-center">
+                            {stats ? (
+                              <div>
+                                <p className="font-medium">{stats.total_events.toLocaleString('pt-BR')}</p>
+                                <p className="text-xs text-muted-foreground">
+                                  {stats.total_points} pts / R$ {stats.total_value.toFixed(2)}
+                                </p>
+                              </div>
+                            ) : (
+                              <Badge variant="outline">Sem uso</Badge>
+                            )}
+                          </TableCell>
+                          <TableCell className="text-center">
+                            {stats?.last_used ? (
+                              <span className="text-xs text-muted-foreground">
+                                {new Date(stats.last_used).toLocaleDateString('pt-BR')}
+                              </span>
+                            ) : (
+                              '-'
+                            )}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => openEditDialog(reward)}
+                            >
+                              <Pencil className="h-4 w-4" />
+                            </Button>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
               </div>
+            </Card>
+          </TabsContent>
 
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="text-sm font-medium">Valor Usuário (R$)</label>
-                  <Input
-                    type="number"
-                    step="0.01"
-                    value={editingReward.value_user}
-                    onChange={(e) =>
-                      setEditingReward({ ...editingReward, value_user: Number(e.target.value) })
-                    }
-                  />
+          {/* Creator Milestones Tab */}
+          <TabsContent value="milestones" className="space-y-6">
+            {/* Milestone Global Stats */}
+            <div className="grid gap-4 md:grid-cols-4">
+              <Card className="p-6">
+                <div className="flex items-center gap-3">
+                  <div className="p-3 bg-primary/10 rounded-lg">
+                    <Target className="h-6 w-6 text-primary" />
+                  </div>
+                  <div>
+                    <p className="text-sm text-muted-foreground">Total de Metas</p>
+                    <h3 className="text-2xl font-bold">{milestoneGlobalStats.totalMilestones}</h3>
+                    <p className="text-xs text-green-600">{milestoneGlobalStats.activeMilestones} ativas</p>
+                  </div>
                 </div>
-                <div>
-                  <label className="text-sm font-medium">Valor Criador (R$)</label>
-                  <Input
-                    type="number"
-                    step="0.01"
-                    value={editingReward.value_creator}
-                    onChange={(e) =>
-                      setEditingReward({ ...editingReward, value_creator: Number(e.target.value) })
-                    }
-                  />
+              </Card>
+
+              <Card className="p-6">
+                <div className="flex items-center gap-3">
+                  <div className="p-3 bg-blue-500/10 rounded-lg">
+                    <Trophy className="h-6 w-6 text-blue-500" />
+                  </div>
+                  <div>
+                    <p className="text-sm text-muted-foreground">Metas Completadas</p>
+                    <h3 className="text-2xl font-bold">{milestoneGlobalStats.totalCompleted}</h3>
+                  </div>
                 </div>
-              </div>
+              </Card>
 
-              <div className="flex items-center gap-2">
-                <Switch
-                  checked={editingReward.active}
-                  onCheckedChange={(checked) =>
-                    setEditingReward({ ...editingReward, active: checked })
-                  }
-                />
-                <label className="text-sm font-medium">
-                  {editingReward.active ? 'Ativa' : 'Inativa'}
-                </label>
-              </div>
+              <Card className="p-6">
+                <div className="flex items-center gap-3">
+                  <div className="p-3 bg-green-500/10 rounded-lg">
+                    <DollarSign className="h-6 w-6 text-green-500" />
+                  </div>
+                  <div>
+                    <p className="text-sm text-muted-foreground">Resgatadas</p>
+                    <h3 className="text-2xl font-bold">{milestoneGlobalStats.totalClaimed}</h3>
+                  </div>
+                </div>
+              </Card>
 
-              <div className="flex justify-end gap-2 pt-4">
-                <Button variant="outline" onClick={() => setIsDialogOpen(false)}>
-                  Cancelar
-                </Button>
-                <Button onClick={handleUpdateReward}>
-                  Salvar Alterações
-                </Button>
-              </div>
+              <Card className="p-6">
+                <div className="flex items-center gap-3">
+                  <div className="p-3 bg-orange-500/10 rounded-lg">
+                    <Activity className="h-6 w-6 text-orange-500" />
+                  </div>
+                  <div>
+                    <p className="text-sm text-muted-foreground">Taxa de Resgate</p>
+                    <h3 className="text-2xl font-bold">
+                      {milestoneGlobalStats.totalCompleted > 0 
+                        ? Math.round((milestoneGlobalStats.totalClaimed / milestoneGlobalStats.totalCompleted) * 100)
+                        : 0}%
+                    </h3>
+                  </div>
+                </div>
+              </Card>
             </div>
-          )}
-        </DialogContent>
-      </Dialog>
+
+            {/* Search */}
+            <Card className="p-4">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Input
+                  placeholder="Buscar por título ou tipo..."
+                  value={milestoneSearchTerm}
+                  onChange={(e) => setMilestoneSearchTerm(e.target.value)}
+                  className="pl-10"
+                />
+              </div>
+            </Card>
+
+            {/* Milestones Table */}
+            <Card className="p-6">
+              <div className="rounded-md border">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Meta</TableHead>
+                      <TableHead>Tipo</TableHead>
+                      <TableHead className="text-center">Valor Alvo</TableHead>
+                      <TableHead className="text-center">Pontos</TableHead>
+                      <TableHead className="text-center">Valor R$</TableHead>
+                      <TableHead className="text-center">Completaram</TableHead>
+                      <TableHead className="text-center">Resgataram</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead className="text-right">Ações</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {filteredMilestones.map((milestone) => {
+                      const stats = milestoneStats.get(milestone.id);
+                      const TypeIcon = getMilestoneTypeIcon(milestone.milestone_type);
+                      return (
+                        <TableRow key={milestone.id}>
+                          <TableCell>
+                            <div className="flex items-center gap-3">
+                              <div className="p-2 rounded-lg bg-muted">
+                                <TypeIcon className="w-4 h-4" />
+                              </div>
+                              <div>
+                                <p className="font-medium">{milestone.title}</p>
+                                {milestone.description && (
+                                  <p className="text-xs text-muted-foreground line-clamp-1">{milestone.description}</p>
+                                )}
+                              </div>
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <Badge variant="outline">
+                              {getMilestoneTypeLabel(milestone.milestone_type)}
+                            </Badge>
+                          </TableCell>
+                          <TableCell className="text-center font-medium">
+                            {milestone.milestone_type === 'earnings' 
+                              ? `R$ ${milestone.milestone_value.toLocaleString('pt-BR')}`
+                              : milestone.milestone_type === 'engagement'
+                                ? `${milestone.milestone_value}%`
+                                : milestone.milestone_value.toLocaleString('pt-BR')}
+                          </TableCell>
+                          <TableCell className="text-center">
+                            <span className="text-purple-600 font-medium">+{milestone.points_reward}</span>
+                          </TableCell>
+                          <TableCell className="text-center">
+                            <span className="text-green-600 font-medium">R$ {milestone.value_reward.toFixed(2)}</span>
+                          </TableCell>
+                          <TableCell className="text-center">
+                            {stats?.completed_count || 0}
+                          </TableCell>
+                          <TableCell className="text-center">
+                            <div className="flex items-center justify-center gap-2">
+                              <span>{stats?.claimed_count || 0}</span>
+                              {stats && stats.completed_count > 0 && (
+                                <Progress 
+                                  value={(stats.claimed_count / stats.completed_count) * 100} 
+                                  className="w-12 h-1.5" 
+                                />
+                              )}
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <Switch
+                              checked={milestone.active}
+                              onCheckedChange={() => handleToggleMilestoneActive(milestone)}
+                            />
+                          </TableCell>
+                          <TableCell className="text-right">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => openMilestoneEditDialog(milestone)}
+                            >
+                              <Pencil className="h-4 w-4" />
+                            </Button>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              </div>
+            </Card>
+          </TabsContent>
+        </Tabs>
+
+        {/* Edit Reward Dialog */}
+        <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+          <DialogContent className="max-w-2xl">
+            <DialogHeader>
+              <DialogTitle>Editar Recompensa</DialogTitle>
+              <DialogDescription>
+                Ajuste os valores de pontos e recompensas para esta ação
+              </DialogDescription>
+            </DialogHeader>
+
+            {editingReward && (
+              <div className="space-y-4">
+                <div>
+                  <label className="text-sm font-medium">Ação</label>
+                  <Input value={editingReward.action_key} disabled />
+                </div>
+
+                <div>
+                  <label className="text-sm font-medium">Descrição</label>
+                  <Textarea
+                    value={editingReward.description || ''}
+                    onChange={(e) =>
+                      setEditingReward({ ...editingReward, description: e.target.value })
+                    }
+                    placeholder="Descrição da recompensa..."
+                    rows={2}
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="text-sm font-medium">Pontos Usuário</label>
+                    <Input
+                      type="number"
+                      value={editingReward.points_user}
+                      onChange={(e) =>
+                        setEditingReward({ ...editingReward, points_user: Number(e.target.value) })
+                      }
+                    />
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium">Pontos Criador</label>
+                    <Input
+                      type="number"
+                      value={editingReward.points_creator}
+                      onChange={(e) =>
+                        setEditingReward({ ...editingReward, points_creator: Number(e.target.value) })
+                      }
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="text-sm font-medium">Valor Usuário (R$)</label>
+                    <Input
+                      type="number"
+                      step="0.01"
+                      value={editingReward.value_user}
+                      onChange={(e) =>
+                        setEditingReward({ ...editingReward, value_user: Number(e.target.value) })
+                      }
+                    />
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium">Valor Criador (R$)</label>
+                    <Input
+                      type="number"
+                      step="0.01"
+                      value={editingReward.value_creator}
+                      onChange={(e) =>
+                        setEditingReward({ ...editingReward, value_creator: Number(e.target.value) })
+                      }
+                    />
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <Switch
+                    checked={editingReward.active}
+                    onCheckedChange={(checked) =>
+                      setEditingReward({ ...editingReward, active: checked })
+                    }
+                  />
+                  <label className="text-sm font-medium">
+                    {editingReward.active ? 'Ativa' : 'Inativa'}
+                  </label>
+                </div>
+
+                <div className="flex justify-end gap-2 pt-4">
+                  <Button variant="outline" onClick={() => setIsDialogOpen(false)}>
+                    Cancelar
+                  </Button>
+                  <Button onClick={handleUpdateReward}>
+                    Salvar Alterações
+                  </Button>
+                </div>
+              </div>
+            )}
+          </DialogContent>
+        </Dialog>
+
+        {/* Edit Milestone Dialog */}
+        <Dialog open={isMilestoneDialogOpen} onOpenChange={setIsMilestoneDialogOpen}>
+          <DialogContent className="max-w-2xl">
+            <DialogHeader>
+              <DialogTitle>Editar Meta de Creator</DialogTitle>
+              <DialogDescription>
+                Ajuste os valores de recompensa para esta meta
+              </DialogDescription>
+            </DialogHeader>
+
+            {editingMilestone && (
+              <div className="space-y-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="text-sm font-medium">Tipo</label>
+                    <Input value={getMilestoneTypeLabel(editingMilestone.milestone_type)} disabled />
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium">Valor Alvo</label>
+                    <Input value={editingMilestone.milestone_value} disabled />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="text-sm font-medium">Título</label>
+                  <Input
+                    value={editingMilestone.title}
+                    onChange={(e) =>
+                      setEditingMilestone({ ...editingMilestone, title: e.target.value })
+                    }
+                  />
+                </div>
+
+                <div>
+                  <label className="text-sm font-medium">Descrição</label>
+                  <Textarea
+                    value={editingMilestone.description || ''}
+                    onChange={(e) =>
+                      setEditingMilestone({ ...editingMilestone, description: e.target.value })
+                    }
+                    placeholder="Descrição da meta..."
+                    rows={2}
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="text-sm font-medium">Pontos de Recompensa</label>
+                    <Input
+                      type="number"
+                      value={editingMilestone.points_reward}
+                      onChange={(e) =>
+                        setEditingMilestone({ ...editingMilestone, points_reward: Number(e.target.value) })
+                      }
+                    />
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium">Valor de Recompensa (R$)</label>
+                    <Input
+                      type="number"
+                      step="0.01"
+                      value={editingMilestone.value_reward}
+                      onChange={(e) =>
+                        setEditingMilestone({ ...editingMilestone, value_reward: Number(e.target.value) })
+                      }
+                    />
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <Switch
+                    checked={editingMilestone.active}
+                    onCheckedChange={(checked) =>
+                      setEditingMilestone({ ...editingMilestone, active: checked })
+                    }
+                  />
+                  <label className="text-sm font-medium">
+                    {editingMilestone.active ? 'Ativa' : 'Inativa'}
+                  </label>
+                </div>
+
+                <div className="flex justify-end gap-2 pt-4">
+                  <Button variant="outline" onClick={() => setIsMilestoneDialogOpen(false)}>
+                    Cancelar
+                  </Button>
+                  <Button onClick={handleUpdateMilestone}>
+                    Salvar Alterações
+                  </Button>
+                </div>
+              </div>
+            )}
+          </DialogContent>
+        </Dialog>
       </div>
     </AdminLayout>
   );

@@ -39,6 +39,7 @@ const Carteira = lazy(() => import("./pages/Carteira"));
 const BoostSuccess = lazy(() => import("./pages/BoostSuccess"));
 const StudioBoosts = lazy(() => import("./pages/StudioBoosts"));
 const StudioAnalytics = lazy(() => import("./pages/StudioAnalytics"));
+const StudioGoals = lazy(() => import("./pages/StudioGoals"));
 const Study = lazy(() => import("./pages/Study"));
 const Messages = lazy(() => import("./pages/Messages"));
 const Watch = lazy(() => import("./pages/Watch"));
@@ -91,6 +92,7 @@ function AppContent() {
       <Route path="/studio/contents" element={<StudioContents />} />
       <Route path="/studio/boosts" element={<StudioBoosts />} />
       <Route path="/studio/analytics" element={<StudioAnalytics />} />
+      <Route path="/studio/goals" element={<StudioGoals />} />
       <Route path="/admin" element={<AdminDashboard />} />
       <Route path="/admin/creators" element={<AdminCreators />} />
       <Route path="/admin/contents" element={<AdminContents />} />

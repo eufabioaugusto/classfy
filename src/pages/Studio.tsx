@@ -25,6 +25,7 @@ import { useState, useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { formatDistanceToNow } from "date-fns";
 import { ptBR } from "date-fns/locale";
+import { CreatorMilestonesCard } from "@/components/CreatorMilestonesCard";
 
 export default function Studio() {
   const { user, role, loading } = useAuth();
@@ -411,6 +412,9 @@ export default function Studio() {
                   </div>
                 </Card>
               </div>
+
+              {/* Creator Milestones Section */}
+              <CreatorMilestonesCard creatorId={user.id} compact />
 
               {/* Content Cards Grid - 2 columns */}
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
