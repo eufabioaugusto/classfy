@@ -3,6 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { ShareButton } from "@/components/ShareButton";
 import { FollowButton } from "@/components/FollowButton";
+import { FeaturedBadge } from "@/components/FeaturedBadge";
 import { ParticleBurst } from "@/components/ui/particle-burst";
 import { motion } from "framer-motion";
 import { useContentActions } from "@/hooks/useContentActions";
@@ -76,8 +77,9 @@ export function SocialBar({
               <AvatarFallback>{creator.display_name?.[0] || "C"}</AvatarFallback>
             </Avatar>
             <div className="mr-1 sm:mr-2">
-              <p className={cn("font-semibold", compact ? "text-xs" : "text-xs sm:text-sm")}>
+              <p className={cn("font-semibold flex items-center gap-1", compact ? "text-xs" : "text-xs sm:text-sm")}>
                 {creator.display_name || "Criador"}
+                <FeaturedBadge creatorId={creator.id} size="sm" />
               </p>
               <p className="text-[10px] sm:text-xs text-muted-foreground">
                 {followersCount} seguidores

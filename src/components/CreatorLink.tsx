@@ -1,5 +1,7 @@
 import { Link } from "react-router-dom";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
+import { BadgeCheck } from "lucide-react";
+import { useIsCreatorFeatured } from "@/hooks/useFeaturedCreators";
 
 interface CreatorLinkProps {
   creatorId: string;
@@ -9,6 +11,7 @@ interface CreatorLinkProps {
   className?: string;
   showName?: boolean;
   avatarSize?: "sm" | "md" | "lg";
+  showFeaturedBadge?: boolean;
 }
 
 export const CreatorLink = ({
@@ -19,7 +22,10 @@ export const CreatorLink = ({
   className = "",
   showName = true,
   avatarSize = "sm",
+  showFeaturedBadge = true,
 }: CreatorLinkProps) => {
+  const isFeatured = useIsCreatorFeatured(creatorId);
+  
   const sizeClasses = {
     sm: "w-7 h-7",
     md: "w-10 h-10",
@@ -32,6 +38,18 @@ export const CreatorLink = ({
     lg: "text-base",
   };
 
+  const badgeSizeClasses = {
+    sm: "w-3.5 h-3.5",
+    md: "w-4 h-4",
+    lg: "w-5 h-5",
+  };
+
+  const FeaturedBadge = () => (
+    showFeaturedBadge && isFeatured ? (
+      <BadgeCheck className={`${badgeSizeClasses[avatarSize]} text-blue-500 flex-shrink-0`} />
+    ) : null
+  );
+
   // If no channel name, return non-clickable version
   if (!channelName) {
     return (
@@ -43,9 +61,10 @@ export const CreatorLink = ({
           </AvatarFallback>
         </Avatar>
         {showName && (
-          <p className={`${textSizeClasses[avatarSize]} font-medium text-foreground truncate`}>
+          <span className={`${textSizeClasses[avatarSize]} font-medium text-foreground truncate flex items-center gap-1`}>
             {creatorName}
-          </p>
+            <FeaturedBadge />
+          </span>
         )}
       </div>
     );
@@ -65,9 +84,10 @@ export const CreatorLink = ({
         </AvatarFallback>
       </Avatar>
       {showName && (
-        <p className={`${textSizeClasses[avatarSize]} font-medium text-foreground truncate hover:text-primary transition-colors`}>
+        <span className={`${textSizeClasses[avatarSize]} font-medium text-foreground truncate hover:text-primary transition-colors flex items-center gap-1`}>
           {creatorName}
-        </p>
+          <FeaturedBadge />
+        </span>
       )}
     </Link>
   );

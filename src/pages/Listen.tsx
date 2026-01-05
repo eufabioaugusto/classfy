@@ -10,6 +10,7 @@ import { useRewardSystem } from "@/hooks/useRewardSystem";
 import { ContentActions } from "@/components/ContentActions";
 import { ContentComments } from "@/components/ContentComments";
 import { FollowButton } from "@/components/FollowButton";
+import { FeaturedBadge } from "@/components/FeaturedBadge";
 import { GlobalLoader } from "@/components/GlobalLoader";
 import { UpgradeModal } from "@/components/UpgradeModal";
 import { PurchaseModal } from "@/components/PurchaseModal";
@@ -291,7 +292,10 @@ export default function Listen() {
                   {content.creator.display_name.charAt(0)}
                 </div>
                 <div>
-                  <p className="font-semibold">{content.creator.display_name}</p>
+                  <p className="font-semibold flex items-center gap-1">
+                    {content.creator.display_name}
+                    <FeaturedBadge creatorId={content.creator.id} size="sm" />
+                  </p>
                 </div>
               </div>
               <FollowButton creatorId={content.creator.id} size="sm" />

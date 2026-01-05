@@ -19,6 +19,7 @@ import {
   Sparkles,
 } from "lucide-react";
 import { FollowButton } from "@/components/FollowButton";
+import { FeaturedBadge } from "@/components/FeaturedBadge";
 import { ShareButton } from "@/components/ShareButton";
 import { formatDistanceToNow } from "date-fns";
 import { ptBR } from "date-fns/locale";
@@ -154,8 +155,9 @@ export function MobileWatchLayout({
             </AvatarFallback>
           </Avatar>
           <div className="min-w-0 flex-1">
-            <p className="font-medium text-sm truncate">
+            <p className="font-medium text-sm truncate flex items-center gap-1">
               {content.creator?.display_name || "Criador"}
+              <FeaturedBadge creatorId={content.creator?.id} size="sm" />
             </p>
             <p className="text-xs text-muted-foreground">
               {formatCount(followersCount)} seguidores

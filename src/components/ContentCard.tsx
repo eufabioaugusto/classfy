@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { useState, useEffect, useRef } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { CreatorLink } from "@/components/CreatorLink";
+import { FeaturedBadge } from "@/components/FeaturedBadge";
 import { useIsMobile } from "@/hooks/use-mobile";
 
 interface ContentCardProps {
@@ -333,8 +334,9 @@ export const ContentCard = ({
           </div>
 
           {/* Creator name */}
-          <p className="text-[11px] sm:text-xs text-muted-foreground mt-1 truncate">
+          <p className="text-[11px] sm:text-xs text-muted-foreground mt-1 truncate flex items-center gap-1">
             {creatorName}
+            <FeaturedBadge creatorId={creatorId} size="xs" />
           </p>
 
           {/* Views */}

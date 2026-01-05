@@ -13,6 +13,7 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { FollowButton } from "@/components/FollowButton";
 import { ContentCard } from "@/components/ContentCard";
+import { FeaturedBadge } from "@/components/FeaturedBadge";
 import { Trophy, Users, Video, Headphones, Zap, GraduationCap, Share2, MessageCircle } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
@@ -228,7 +229,10 @@ export default function CreatorProfile() {
                   </Avatar>
                   
                   <div className="space-y-2 max-w-sm">
-                    <h1 className="text-3xl font-bold">{creator.display_name}</h1>
+                    <h1 className="text-3xl font-bold flex items-center gap-2">
+                      {creator.display_name}
+                      <FeaturedBadge creatorId={creator.id} size="lg" />
+                    </h1>
                     
                     <div className="flex items-center gap-2 flex-wrap">
                       <p className="text-muted-foreground">@{creator.creator_channel_name}</p>

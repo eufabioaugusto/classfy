@@ -4,6 +4,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/contexts/AuthContext";
 import { useUnreadMessages } from "@/hooks/useUnreadMessages";
+import { FeaturedBadge } from "@/components/FeaturedBadge";
 
 interface ShortContent {
   id: string;
@@ -271,8 +272,9 @@ export function MobileShortsView({
             {index === currentIndex && hasAccess && (
               <div className="absolute left-4 right-20 z-10" style={{ bottom: `${NAV_HEIGHT + 16}px` }}>
                 <div className="flex items-center gap-2 mb-2">
-                  <span className="text-white font-semibold text-sm drop-shadow-lg">
+                  <span className="text-white font-semibold text-sm drop-shadow-lg flex items-center gap-1">
                     @{short.creator.creator_channel_name || short.creator.display_name}
+                    <FeaturedBadge creatorId={short.creator.id} size="sm" className="text-blue-400" />
                   </span>
                   <Button
                     size="sm"
