@@ -247,6 +247,18 @@ export const ContentCard = ({
           </div>
         )}
 
+        {/* Tier badge - Top Right */}
+        {visibility === "premium" && !isPurchased && (
+          <div className="absolute top-2 right-2">
+            <Crown className="w-5 h-5 text-red-500 drop-shadow-md" fill="currentColor" />
+          </div>
+        )}
+        {visibility === "pro" && !isPurchased && (
+          <div className="absolute top-2 right-2">
+            <Crown className="w-5 h-5 text-yellow-400 drop-shadow-md" fill="currentColor" />
+          </div>
+        )}
+
         {/* Duration/Lessons - Bottom Right */}
         <div className="absolute bottom-2 right-2 flex gap-1">
           {duration && (
@@ -290,19 +302,33 @@ export const ContentCard = ({
               {title}
             </h3>
             
-            {/* Buy button for paid content */}
+            {/* Buy button + price for paid content */}
             {isPaid && !isPurchased && (
-              <Button
-                size="sm"
-                className="h-7 px-3 text-xs flex-shrink-0"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onPurchaseClick?.();
-                }}
-              >
-                <ShoppingCart className="w-3.5 h-3.5 mr-1.5" />
-                Comprar
-              </Button>
+              <div className="flex flex-col items-end gap-0.5 flex-shrink-0">
+                <Button
+                  size="sm"
+                  className="h-7 px-3 text-xs"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onPurchaseClick?.();
+                  }}
+                >
+                  <ShoppingCart className="w-3.5 h-3.5 mr-1.5" />
+                  Comprar
+                </Button>
+                <span className="text-[10px] sm:text-[11px] font-semibold text-foreground">
+                  {discount > 0 ? (
+                    <>
+                      <span className="text-primary">R$ {(price * (1 - discount / 100)).toFixed(2)}</span>
+                      <span className="ml-1 line-through text-muted-foreground text-[9px]">
+                        R$ {price.toFixed(2)}
+                      </span>
+                    </>
+                  ) : (
+                    `R$ ${price?.toFixed(2)}`
+                  )}
+                </span>
+              </div>
             )}
           </div>
 
@@ -311,31 +337,11 @@ export const ContentCard = ({
             {creatorName}
           </p>
 
-          {/* Views + Tier/Price */}
+          {/* Views */}
           <div className="flex items-center gap-2 mt-0.5">
             <span className="text-[11px] sm:text-xs text-muted-foreground">
               {views.toLocaleString()} views
             </span>
-            
-            {/* Tier/Price indicator */}
-            {isPaid && !isPurchased ? (
-              <span className="text-[11px] sm:text-xs font-semibold text-foreground">
-                {discount > 0 ? (
-                  <>
-                    <span className="text-primary">R$ {(price * (1 - discount / 100)).toFixed(2)}</span>
-                    <span className="ml-1 line-through text-muted-foreground text-[10px]">
-                      R$ {price.toFixed(2)}
-                    </span>
-                  </>
-                ) : (
-                  `R$ ${price?.toFixed(2)}`
-                )}
-              </span>
-            ) : visibility === "premium" ? (
-              <Crown className="w-3.5 h-3.5 text-red-500" fill="currentColor" />
-            ) : visibility === "pro" ? (
-              <Crown className="w-3.5 h-3.5 text-yellow-400" fill="currentColor" />
-            ) : null}
           </div>
         </div>
       </div>
