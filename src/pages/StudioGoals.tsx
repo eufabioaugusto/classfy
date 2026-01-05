@@ -9,6 +9,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Progress } from '@/components/ui/progress';
 import { Skeleton } from '@/components/ui/skeleton';
 import { CreatorMilestoneItem } from '@/components/CreatorMilestoneItem';
+import { CreatorAchievementBadge } from '@/components/CreatorAchievementBadge';
 import { useCreatorMilestones } from '@/hooks/useCreatorMilestones';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { 
@@ -21,7 +22,8 @@ import {
   TrendingUp,
   Target,
   Medal,
-  ArrowLeft
+  ArrowLeft,
+  Award
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
@@ -193,7 +195,67 @@ export default function StudioGoals() {
               </CardContent>
             </Card>
 
-            {/* Tabs */}
+            {/* Achievement Badges Section */}
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="flex items-center gap-2 text-lg">
+                  <Award className="w-5 h-5 text-primary" />
+                  Suas Conquistas
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <Tabs defaultValue="unlocked">
+                  <TabsList className="w-full grid grid-cols-2 mb-4">
+                    <TabsTrigger value="unlocked" className="gap-1.5">
+                      Desbloqueadas
+                      <span className="bg-primary/20 text-primary px-1.5 py-0.5 rounded-full text-xs">
+                        {milestones.filter(m => m.isClaimed).length}
+                      </span>
+                    </TabsTrigger>
+                    <TabsTrigger value="locked" className="gap-1.5">
+                      Bloqueadas
+                      <span className="bg-muted px-1.5 py-0.5 rounded-full text-xs">
+                        {milestones.filter(m => !m.isClaimed).length}
+                      </span>
+                    </TabsTrigger>
+                  </TabsList>
+
+                  <TabsContent value="unlocked" className="mt-0">
+                    {milestones.filter(m => m.isClaimed).length > 0 ? (
+                      <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-8 gap-4">
+                        {milestones.filter(m => m.isClaimed).map((milestone) => (
+                          <CreatorAchievementBadge
+                            key={milestone.id}
+                            milestone={milestone}
+                            size="md"
+                          />
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="text-center py-8 text-muted-foreground">
+                        <Trophy className="w-12 h-12 mx-auto mb-3 opacity-30" />
+                        <p className="text-sm">Nenhuma conquista desbloqueada ainda</p>
+                        <p className="text-xs mt-1">Complete metas para ganhar selos!</p>
+                      </div>
+                    )}
+                  </TabsContent>
+
+                  <TabsContent value="locked" className="mt-0">
+                    <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-8 gap-4">
+                      {milestones.filter(m => !m.isClaimed).map((milestone) => (
+                        <CreatorAchievementBadge
+                          key={milestone.id}
+                          milestone={milestone}
+                          size="md"
+                        />
+                      ))}
+                    </div>
+                  </TabsContent>
+                </Tabs>
+              </CardContent>
+            </Card>
+
+            {/* Milestones List Tabs */}
             <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
               <TabsList className={cn(
                 "w-full justify-start gap-1 bg-muted/50 p-1",
