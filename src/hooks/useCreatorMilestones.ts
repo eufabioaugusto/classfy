@@ -225,25 +225,49 @@ export function useCreatorMilestones(creatorId?: string) {
           });
       }
 
-      // Process reward via edge function
-      const { error: rewardError } = await supabase.functions.invoke('process-reward', {
-        body: {
-          userId: creatorId,
-          actionKey: `CREATOR_MILESTONE_${milestone.milestone_type.toUpperCase()}_${milestone.milestone_value}`,
+      // Process reward directly - update wallet
+      const { data: wallet } = await supabase
+        .from('wallets')
+        .select('balance, total_earned')
+        .eq('user_id', creatorId)
+        .single();
+
+      if (wallet) {
+        await supabase
+          .from('wallets')
+          .update({
+            balance: parseFloat(String(wallet.balance)) + milestone.value_reward,
+            total_earned: parseFloat(String(wallet.total_earned)) + milestone.value_reward,
+            updated_at: new Date().toISOString()
+          })
+          .eq('user_id', creatorId);
+      }
+
+      // Insert reward event
+      await supabase
+        .from('reward_events')
+        .insert({
+          user_id: creatorId,
+          action_key: 'CREATOR_MILESTONE_CLAIM',
+          points: milestone.points_reward,
+          value: milestone.value_reward,
           metadata: {
             milestoneId: milestone.id,
             milestoneTitle: milestone.title,
             milestoneType: milestone.milestone_type,
-            milestoneValue: milestone.milestone_value,
-            pointsReward: milestone.points_reward,
-            valueReward: milestone.value_reward
+            milestoneValue: milestone.milestone_value
           }
-        }
-      });
+        });
 
-      if (rewardError) {
-        console.error('Error processing reward:', rewardError);
-      }
+      // Create notification
+      await supabase
+        .from('notifications')
+        .insert({
+          user_id: creatorId,
+          type: 'reward',
+          title: '🎉 Meta alcançada!',
+          message: `Você resgatou "${milestone.title}" e ganhou ${milestone.points_reward} pontos e R$ ${milestone.value_reward.toFixed(2)}!`
+        });
 
       toast({
         title: '🎉 Meta alcançada!',
