@@ -1073,6 +1073,7 @@ export type Database = {
           link_url: string
           order_index: number
           short_bio: string | null
+          show_on_home: boolean
           skills: Json | null
           slug: string | null
           total_duration_seconds: number | null
@@ -1093,6 +1094,7 @@ export type Database = {
           link_url: string
           order_index?: number
           short_bio?: string | null
+          show_on_home?: boolean
           skills?: Json | null
           slug?: string | null
           total_duration_seconds?: number | null
@@ -1113,6 +1115,7 @@ export type Database = {
           link_url?: string
           order_index?: number
           short_bio?: string | null
+          show_on_home?: boolean
           skills?: Json | null
           slug?: string | null
           total_duration_seconds?: number | null
