@@ -335,8 +335,6 @@ export const ContentCard = ({
               <Crown className="w-3.5 h-3.5 text-red-500" fill="currentColor" />
             ) : visibility === "pro" ? (
               <Crown className="w-3.5 h-3.5 text-yellow-400" fill="currentColor" />
-            ) : !isShort && visibility === "free" ? (
-              <span className="text-[11px] sm:text-xs font-semibold text-green-500">FREE</span>
             ) : null}
           </div>
         </div>
