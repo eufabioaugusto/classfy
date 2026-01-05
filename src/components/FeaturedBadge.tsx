@@ -22,7 +22,9 @@ export const FeaturedBadge = ({ creatorId, size = "sm", className }: FeaturedBad
 
   return (
     <BadgeCheck 
-      className={cn(sizeClasses[size], "text-blue-500 flex-shrink-0", className)} 
+      className={cn(sizeClasses[size], "text-blue-500 flex-shrink-0", className)}
+      fill="currentColor"
+      strokeWidth={1.5}
     />
   );
 };
