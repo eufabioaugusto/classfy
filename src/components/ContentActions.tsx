@@ -1,9 +1,12 @@
-import { ThumbsUp, Bookmark, Star, BookOpen } from "lucide-react";
+import { useState } from "react";
+import { ThumbsUp, Bookmark, Star, BookOpen, Send } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ShareButton } from "@/components/ShareButton";
 import { motion } from "framer-motion";
 import { ParticleBurst } from "@/components/ui/particle-burst";
 import { useContentActions } from "@/hooks/useContentActions";
+import { useAuth } from "@/contexts/AuthContext";
+import { ShareViaDMModal } from "@/components/direct-messages/ShareViaDMModal";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -19,6 +22,8 @@ interface ContentActionsProps {
   contentId: string;
   isCourse?: boolean;
   contentTitle?: string;
+  contentThumbnail?: string;
+  creatorName?: string;
   hasAccess?: boolean;
   onAddToStudy?: () => void;
   onShare?: () => void;
@@ -28,10 +33,15 @@ export function ContentActions({
   contentId, 
   isCourse = false, 
   contentTitle = "Conteúdo",
+  contentThumbnail,
+  creatorName,
   hasAccess = true,
   onAddToStudy,
   onShare 
 }: ContentActionsProps) {
+  const { user } = useAuth();
+  const [showDMModal, setShowDMModal] = useState(false);
+  
   const {
     isLiked,
     isSaved,
@@ -69,10 +79,25 @@ export function ContentActions({
           </Button>
         </div>
 
+        {/* Send via DM (aviãozinho) */}
+        {user && (
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => setShowDMModal(true)}
+            className="gap-1.5 sm:gap-2 rounded-full px-3 sm:px-4 h-8 sm:h-9"
+          >
+            <Send className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
+            <span className="hidden sm:inline text-xs sm:text-sm">Enviar</span>
+          </Button>
+        )}
+
         {/* Compartilhar */}
         <ShareButton 
           contentId={contentId} 
           contentTitle={contentTitle} 
+          contentThumbnail={contentThumbnail}
+          creatorName={creatorName}
           variant="secondary"
         />
 
@@ -129,6 +154,16 @@ export function ContentActions({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* DM Share Modal */}
+      <ShareViaDMModal
+        open={showDMModal}
+        onClose={() => setShowDMModal(false)}
+        contentId={contentId}
+        contentTitle={contentTitle}
+        contentThumbnail={contentThumbnail}
+        creatorName={creatorName}
+      />
     </>
   );
 }

@@ -1138,6 +1138,7 @@ function WatchContent() {
                         contentId={content.id}
                         isCourse={isCourse}
                         contentTitle={content.title}
+                        contentThumbnail={content.thumbnail_url || undefined}
                         creator={content.creator ? {
                           id: content.creator.id,
                           display_name: content.creator.display_name,

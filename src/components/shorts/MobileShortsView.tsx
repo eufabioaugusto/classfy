@@ -1,10 +1,11 @@
 import { useRef, useState, useEffect } from "react";
-import { Heart, MessageCircle, Share2, Bookmark, Volume2, VolumeX, Home, Search, Target, Gift } from "lucide-react";
+import { Heart, MessageCircle, Share2, Bookmark, Volume2, VolumeX, Home, Search, Target, Gift, Send } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/contexts/AuthContext";
 import { useUnreadMessages } from "@/hooks/useUnreadMessages";
 import { FeaturedBadge } from "@/components/FeaturedBadge";
+import { ShareViaDMModal } from "@/components/direct-messages/ShareViaDMModal";
 
 interface ShortContent {
   id: string;
@@ -66,9 +67,11 @@ export function MobileShortsView({
   onTimeUpdate,
   onAccessBlocked,
 }: MobileShortsViewProps) {
+  const { user } = useAuth();
   const containerRef = useRef<HTMLDivElement>(null);
   const videoRefs = useRef<(HTMLVideoElement | null)[]>([]);
   const [isScrolling, setIsScrolling] = useState(false);
+  const [showDMModal, setShowDMModal] = useState(false);
   const scrollTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   const currentShort = shorts[currentIndex];
@@ -222,14 +225,23 @@ export function MobileShortsView({
                   </span>
                 </button>
 
+                {/* Send via DM (aviãozinho) */}
+                {user && (
+                  <button onClick={() => setShowDMModal(true)} className="flex flex-col items-center">
+                    <Send
+                      className="w-7 h-7 text-white"
+                      style={{ filter: "drop-shadow(0 2px 4px rgba(0,0,0,0.5))" }}
+                    />
+                  </button>
+                )}
+
                 {/* Share */}
                 <button onClick={onShare} className="flex flex-col items-center">
                   <Share2
-                    className="w-7 h-7 text-white"
+                    className="w-6 h-6 text-white"
                     style={{ filter: "drop-shadow(0 2px 4px rgba(0,0,0,0.5))" }}
                   />
                 </button>
-
                 {/* Save */}
                 <button onClick={onSave} className="flex flex-col items-center">
                   <Bookmark
@@ -306,6 +318,18 @@ export function MobileShortsView({
 
       {/* Bottom nav - reuse MobileBottomNav styled for shorts */}
       <ShortsBottomNav />
+
+      {/* DM Share Modal */}
+      {currentShort && (
+        <ShareViaDMModal
+          open={showDMModal}
+          onClose={() => setShowDMModal(false)}
+          contentId={currentShort.id}
+          contentTitle={currentShort.title}
+          contentThumbnail={currentShort.thumbnail_url}
+          creatorName={currentShort.creator.display_name}
+        />
+      )}
     </div>
   );
 }
