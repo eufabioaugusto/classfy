@@ -8,24 +8,35 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { Share2, Copy, Check } from "lucide-react";
+import { Share2, Copy, Check, Send } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useRewardSystem } from "@/hooks/useRewardSystem";
 import { useToast } from "@/hooks/use-toast";
+import { ShareViaDMModal } from "@/components/direct-messages/ShareViaDMModal";
 
 interface ShareButtonProps {
   contentId: string;
   contentTitle: string;
+  contentThumbnail?: string;
+  creatorName?: string;
   size?: "default" | "sm" | "lg" | "icon";
   variant?: "default" | "outline" | "secondary" | "ghost";
 }
 
-export function ShareButton({ contentId, contentTitle, size = "sm", variant = "ghost" }: ShareButtonProps) {
+export function ShareButton({ 
+  contentId, 
+  contentTitle, 
+  contentThumbnail,
+  creatorName,
+  size = "sm", 
+  variant = "ghost" 
+}: ShareButtonProps) {
   const { user } = useAuth();
   const { processReward } = useRewardSystem();
   const { toast } = useToast();
   const [copied, setCopied] = useState(false);
   const [open, setOpen] = useState(false);
+  const [showDMModal, setShowDMModal] = useState(false);
 
   const shareUrl = `${window.location.origin}/watch/${contentId}`;
 
@@ -107,6 +118,21 @@ export function ShareButton({ contentId, contentTitle, size = "sm", variant = "g
             </Button>
           </div>
 
+          {/* Send via DM */}
+          {user && (
+            <Button 
+              onClick={() => {
+                setOpen(false);
+                setShowDMModal(true);
+              }} 
+              variant="outline"
+              className="w-full"
+            >
+              <Send className="h-4 w-4 mr-2" />
+              Enviar via mensagem
+            </Button>
+          )}
+
           {navigator.share && (
             <Button onClick={handleNativeShare} className="w-full">
               <Share2 className="h-4 w-4 mr-2" />
@@ -115,6 +141,16 @@ export function ShareButton({ contentId, contentTitle, size = "sm", variant = "g
           )}
         </div>
       </DialogContent>
+
+      {/* DM Share Modal */}
+      <ShareViaDMModal
+        open={showDMModal}
+        onClose={() => setShowDMModal(false)}
+        contentId={contentId}
+        contentTitle={contentTitle}
+        contentThumbnail={contentThumbnail}
+        creatorName={creatorName}
+      />
     </Dialog>
   );
 }

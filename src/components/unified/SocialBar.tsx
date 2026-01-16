@@ -1,4 +1,5 @@
-import { ThumbsUp, Bookmark, Star, BookOpen } from "lucide-react";
+import { useState } from "react";
+import { ThumbsUp, Bookmark, Star, BookOpen, Send } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { ShareButton } from "@/components/ShareButton";
@@ -7,7 +8,9 @@ import { FeaturedBadge } from "@/components/FeaturedBadge";
 import { ParticleBurst } from "@/components/ui/particle-burst";
 import { motion } from "framer-motion";
 import { useContentActions } from "@/hooks/useContentActions";
+import { useAuth } from "@/contexts/AuthContext";
 import { cn } from "@/lib/utils";
+import { ShareViaDMModal } from "@/components/direct-messages/ShareViaDMModal";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -29,6 +32,7 @@ interface SocialBarProps {
   contentId: string;
   isCourse?: boolean;
   contentTitle?: string;
+  contentThumbnail?: string;
   creator?: CreatorInfo | null;
   followersCount?: number;
   hasAccess?: boolean;
@@ -41,6 +45,7 @@ export function SocialBar({
   contentId,
   isCourse = false,
   contentTitle = "Conteúdo",
+  contentThumbnail,
   creator,
   followersCount = 0,
   hasAccess = true,
@@ -48,6 +53,9 @@ export function SocialBar({
   showCreator = true,
   compact = false,
 }: SocialBarProps) {
+  const { user } = useAuth();
+  const [showDMModal, setShowDMModal] = useState(false);
+  
   const {
     isLiked,
     isSaved,
@@ -119,10 +127,28 @@ export function SocialBar({
             </Button>
           </div>
 
+          {/* Send via DM (aviãozinho) */}
+          {user && (
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => setShowDMModal(true)}
+              className={cn(
+                "gap-1.5 sm:gap-2 rounded-full h-8 sm:h-9",
+                compact ? "px-2.5" : "px-3 sm:px-4"
+              )}
+            >
+              <Send className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
+              {!compact && <span className="hidden sm:inline text-xs sm:text-sm">Enviar</span>}
+            </Button>
+          )}
+
           {/* Share */}
           <ShareButton
             contentId={contentId}
             contentTitle={contentTitle}
+            contentThumbnail={contentThumbnail}
+            creatorName={creator?.display_name}
             variant="secondary"
           />
 
@@ -197,6 +223,15 @@ export function SocialBar({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+      {/* DM Share Modal */}
+      <ShareViaDMModal
+        open={showDMModal}
+        onClose={() => setShowDMModal(false)}
+        contentId={contentId}
+        contentTitle={contentTitle}
+        contentThumbnail={contentThumbnail}
+        creatorName={creator?.display_name}
+      />
     </>
   );
 }
