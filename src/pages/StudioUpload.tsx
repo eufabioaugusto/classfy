@@ -12,7 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Card } from "@/components/ui/card";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
-import { Upload, Video, Music, Film, BookOpen, Radio, X, ImagePlus } from "lucide-react";
+import { Upload, Video, Music, Film, BookOpen, Radio, Trash2, ImagePlus, CheckCircle2 } from "lucide-react";
 import { Progress } from "@/components/ui/progress";
 import { TagsInput } from "@/components/TagsInput";
 
@@ -133,64 +133,55 @@ export default function StudioUpload() {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    // Create preview
-    const previewUrl = URL.createObjectURL(file);
-    setFilePreview(previewUrl);
+    // Start upload immediately - don't wait for preview
+    setFileUploading(true);
+    setFileProgress(0);
 
-    // Validações
+    // For duration validation on shorts, we still need to check
     if (contentType === "short") {
+      const previewUrl = URL.createObjectURL(file);
       const video = document.createElement("video");
       video.src = previewUrl;
       video.onloadedmetadata = () => {
         if (video.duration > 180) {
           toast.error("Shorts devem ter no máximo 180 segundos");
-          setFilePreview("");
+          setFileUploading(false);
+          URL.revokeObjectURL(previewUrl);
           return;
         }
         setDuration(Math.floor(video.duration));
+        URL.revokeObjectURL(previewUrl);
       };
     }
 
+    // Extract duration for audio/video without showing preview
     if (contentType === "podcast") {
+      const tempUrl = URL.createObjectURL(file);
       const audio = document.createElement("audio");
-      audio.src = previewUrl;
+      audio.src = tempUrl;
       audio.onloadedmetadata = () => {
         setDuration(Math.floor(audio.duration));
+        URL.revokeObjectURL(tempUrl);
       };
     }
 
     if (contentType === "aula" || contentType === "curso" || contentType === "live") {
+      const tempUrl = URL.createObjectURL(file);
       const video = document.createElement("video");
-      video.src = previewUrl;
+      video.src = tempUrl;
       video.onloadedmetadata = () => {
         setDuration(Math.floor(video.duration));
+        URL.revokeObjectURL(tempUrl);
       };
     }
-
-    setFileUploading(true);
-    setFileProgress(0);
 
     try {
       const fileExt = file.name.split('.').pop();
       const fileName = `${user.id}/${Date.now()}.${fileExt}`;
-      
-      // Simulate progress for better UX
-      const progressInterval = setInterval(() => {
-        setFileProgress(prev => {
-          if (prev >= 90) {
-            clearInterval(progressInterval);
-            return prev;
-          }
-          return prev + 10;
-        });
-      }, 200);
 
       const { error } = await supabase.storage
         .from('contents')
         .upload(fileName, file);
-
-      clearInterval(progressInterval);
-      setFileProgress(100);
 
       if (error) throw error;
 
@@ -199,6 +190,8 @@ export default function StudioUpload() {
         .getPublicUrl(fileName);
 
       setFileUrl(publicUrl);
+      setFilePreview(publicUrl);
+      setFileProgress(100);
       toast.success("Arquivo enviado com sucesso!");
     } catch (error: any) {
       toast.error(error.message || "Erro ao enviar arquivo");
@@ -478,36 +471,46 @@ export default function StudioUpload() {
                           />
                         </label>
                       ) : (
-                        <div className={`relative w-full h-64 rounded-lg overflow-hidden ${fileUploading ? 'opacity-50' : ''}`}>
-                          {contentType === "podcast" ? (
-                            <div className="flex items-center justify-center w-full h-full bg-muted">
-                              <Music className="w-16 h-16 text-primary" />
-                            </div>
-                          ) : (
-                            <video
-                              src={filePreview}
-                              className="w-full h-full object-cover"
-                              controls={!fileUploading}
+                        <div className="relative w-full">
+                          {/* Gradient progress bar at top - Instagram style */}
+                          {fileUploading && (
+                            <Progress 
+                              variant="gradient" 
+                              indeterminate 
+                              className="absolute top-0 left-0 right-0 z-10"
                             />
                           )}
+                          
+                          <div className={`w-full h-64 rounded-lg overflow-hidden ${fileUploading ? 'opacity-70' : ''}`}>
+                            {contentType === "podcast" ? (
+                              <div className="flex items-center justify-center w-full h-full bg-muted">
+                                <Music className="w-16 h-16 text-primary" />
+                              </div>
+                            ) : (
+                              <div className="flex items-center justify-center w-full h-full bg-muted">
+                                {fileUploading ? (
+                                  <div className="text-center">
+                                    <Video className="w-16 h-16 mx-auto mb-3 text-muted-foreground animate-pulse" />
+                                    <p className="text-sm text-muted-foreground">Enviando vídeo...</p>
+                                  </div>
+                                ) : (
+                                  <div className="text-center">
+                                    <CheckCircle2 className="w-16 h-16 mx-auto mb-3 text-green-500" />
+                                    <p className="text-sm text-muted-foreground">Vídeo enviado</p>
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                          </div>
                           
                           {!fileUploading && (
                             <button
                               onClick={handleRemoveFile}
-                              className="absolute top-2 right-2 p-2 bg-destructive text-destructive-foreground rounded-full hover:bg-destructive/90 transition-colors"
+                              className="absolute top-2 right-2 p-2 bg-muted/80 backdrop-blur-sm text-muted-foreground rounded-lg hover:bg-muted hover:text-foreground transition-colors"
                             >
-                              <X className="w-4 h-4" />
+                              <Trash2 className="w-4 h-4" />
                             </button>
                           )}
-                        </div>
-                      )}
-
-                      {fileUploading && (
-                        <div className="mt-4 space-y-2">
-                          <Progress value={fileProgress} />
-                          <p className="text-xs text-center text-muted-foreground">
-                            Enviando... {fileProgress}%
-                          </p>
                         </div>
                       )}
 
@@ -542,30 +545,32 @@ export default function StudioUpload() {
                           />
                         </label>
                       ) : (
-                        <div className={`relative w-full h-64 rounded-lg overflow-hidden ${thumbnailUploading ? 'opacity-50' : ''}`}>
-                          <img
-                            src={thumbnailPreview}
-                            alt="Thumbnail preview"
-                            className="w-full h-full object-cover"
-                          />
+                        <div className="relative w-full">
+                          {/* Gradient progress bar at top - Instagram style */}
+                          {thumbnailUploading && (
+                            <Progress 
+                              variant="gradient" 
+                              indeterminate 
+                              className="absolute top-0 left-0 right-0 z-10"
+                            />
+                          )}
+                          
+                          <div className={`w-full h-64 rounded-lg overflow-hidden ${thumbnailUploading ? 'opacity-70' : ''}`}>
+                            <img
+                              src={thumbnailPreview}
+                              alt="Thumbnail preview"
+                              className="w-full h-full object-cover"
+                            />
+                          </div>
                           
                           {!thumbnailUploading && (
                             <button
                               onClick={handleRemoveThumbnail}
-                              className="absolute top-2 right-2 p-2 bg-destructive text-destructive-foreground rounded-full hover:bg-destructive/90 transition-colors"
+                              className="absolute top-2 right-2 p-2 bg-muted/80 backdrop-blur-sm text-muted-foreground rounded-lg hover:bg-muted hover:text-foreground transition-colors"
                             >
-                              <X className="w-4 h-4" />
+                              <Trash2 className="w-4 h-4" />
                             </button>
                           )}
-                        </div>
-                      )}
-
-                      {thumbnailUploading && (
-                        <div className="mt-4 space-y-2">
-                          <Progress value={thumbnailProgress} />
-                          <p className="text-xs text-center text-muted-foreground">
-                            Enviando... {thumbnailProgress}%
-                          </p>
                         </div>
                       )}
                     </div>
