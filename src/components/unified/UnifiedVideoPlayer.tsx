@@ -429,10 +429,21 @@ export function UnifiedVideoPlayer({
           />
         ) : (
           <>
-            <div className="w-full aspect-video bg-gradient-to-br from-primary/20 to-background flex items-center justify-center">
-              <div className="text-center">
-                <Volume2 className="w-16 h-16 mx-auto mb-4 text-primary" />
-                <h3 className="text-xl font-semibold">{content.title}</h3>
+            <div 
+              className="w-full aspect-video bg-gradient-to-br from-primary/20 to-background flex items-center justify-center relative"
+              style={content.thumbnail_url ? {
+                backgroundImage: `url(${content.thumbnail_url})`,
+                backgroundSize: 'cover',
+                backgroundPosition: 'center',
+              } : undefined}
+            >
+              {/* Overlay for better text readability */}
+              {content.thumbnail_url && (
+                <div className="absolute inset-0 bg-black/40" />
+              )}
+              <div className="text-center relative z-10">
+                <Volume2 className="w-16 h-16 mx-auto mb-4 text-white drop-shadow-lg" />
+                <h3 className="text-xl font-semibold text-white drop-shadow-lg">{content.title}</h3>
               </div>
             </div>
             <audio ref={audioRef} src={content.file_url} />
