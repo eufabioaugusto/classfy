@@ -266,8 +266,8 @@ export const ConversationList = ({
               <button
                 key={conv.id}
                 onClick={() => onSelectConversation(conv.id)}
-                className={`w-full p-3 rounded-lg flex items-center gap-3 hover:bg-accent transition-colors ${
-                  selectedConversationId === conv.id ? "bg-accent" : ""
+                className={`w-full p-3 rounded-lg flex items-center gap-3 hover:bg-muted/60 transition-colors ${
+                  selectedConversationId === conv.id ? "bg-muted" : ""
                 }`}
               >
                 <Avatar className="h-12 w-12">
