@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Search, Edit } from "lucide-react";
+import { Search, Edit, Play } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
@@ -11,6 +11,25 @@ import { ptBR } from "date-fns/locale";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { NewConversationModal } from "./NewConversationModal";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { isContentShareMessage } from "./ContentMessageCard";
+
+// Helper to format message preview
+const formatMessagePreview = (content: string, isFromCurrentUser: boolean): React.ReactNode => {
+  const contentShare = isContentShareMessage(content);
+  const prefix = isFromCurrentUser ? "Você: " : "";
+  
+  if (contentShare) {
+    return (
+      <span className="flex items-center gap-1">
+        {prefix}
+        <Play className="h-3 w-3 inline" />
+        {contentShare.contentTitle || "enviou um vídeo"}
+      </span>
+    );
+  }
+  
+  return `${prefix}${content}`;
+};
 
 interface Conversation {
   id: string;
@@ -275,10 +294,10 @@ export const ConversationList = ({
                   <div className="flex items-center justify-between">
                     <p className="text-sm text-muted-foreground truncate">
                       {conv.last_message ? (
-                        <>
-                          {conv.last_message.sender_id === user?.id && "Você: "}
-                          {conv.last_message.content}
-                        </>
+                        formatMessagePreview(
+                          conv.last_message.content,
+                          conv.last_message.sender_id === user?.id
+                        )
                       ) : (
                         "Sem mensagens"
                       )}

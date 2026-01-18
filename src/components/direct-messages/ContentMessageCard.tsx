@@ -1,5 +1,5 @@
 import { Play, ExternalLink } from "lucide-react";
-import { Link } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 
 interface ContentShareData {
   type: "content_share";
@@ -17,10 +17,18 @@ interface ContentMessageCardProps {
 }
 
 export const ContentMessageCard = ({ data, isOwn }: ContentMessageCardProps) => {
+  const navigate = useNavigate();
+
+  const handleClick = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    navigate(`/watch/${data.contentId}`);
+  };
+
   return (
-    <Link 
-      to={`/watch/${data.contentId}`}
-      className={`block rounded-xl overflow-hidden border transition-all hover:scale-[1.02] ${
+    <div 
+      onClick={handleClick}
+      className={`block rounded-xl overflow-hidden border transition-all hover:scale-[1.02] cursor-pointer ${
         isOwn 
           ? "bg-primary/90 border-primary-foreground/20" 
           : "bg-background border-border"
@@ -67,7 +75,7 @@ export const ContentMessageCard = ({ data, isOwn }: ContentMessageCardProps) => 
           <span>Toque para assistir</span>
         </div>
       </div>
-    </Link>
+    </div>
   );
 };
 
