@@ -133,45 +133,42 @@ export default function StudioUpload() {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    // Start upload immediately - don't wait for preview
+    // Create preview immediately using local blob URL
+    const previewUrl = URL.createObjectURL(file);
+    setFilePreview(previewUrl);
     setFileUploading(true);
     setFileProgress(0);
 
-    // For duration validation on shorts, we still need to check
+    // For duration validation on shorts
     if (contentType === "short") {
-      const previewUrl = URL.createObjectURL(file);
       const video = document.createElement("video");
       video.src = previewUrl;
       video.onloadedmetadata = () => {
         if (video.duration > 180) {
           toast.error("Shorts devem ter no máximo 180 segundos");
           setFileUploading(false);
+          setFilePreview("");
           URL.revokeObjectURL(previewUrl);
           return;
         }
         setDuration(Math.floor(video.duration));
-        URL.revokeObjectURL(previewUrl);
       };
     }
 
-    // Extract duration for audio/video without showing preview
+    // Extract duration for audio/video
     if (contentType === "podcast") {
-      const tempUrl = URL.createObjectURL(file);
       const audio = document.createElement("audio");
-      audio.src = tempUrl;
+      audio.src = previewUrl;
       audio.onloadedmetadata = () => {
         setDuration(Math.floor(audio.duration));
-        URL.revokeObjectURL(tempUrl);
       };
     }
 
     if (contentType === "aula" || contentType === "curso" || contentType === "live") {
-      const tempUrl = URL.createObjectURL(file);
       const video = document.createElement("video");
-      video.src = tempUrl;
+      video.src = previewUrl;
       video.onloadedmetadata = () => {
         setDuration(Math.floor(video.duration));
-        URL.revokeObjectURL(tempUrl);
       };
     }
 
