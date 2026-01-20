@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { Navigate, useNavigate, useSearchParams } from "react-router-dom";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
@@ -12,12 +12,13 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Card } from "@/components/ui/card";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
-import { Upload, Video, Music, Film, BookOpen, Radio, Trash2, ImagePlus, CheckCircle2 } from "lucide-react";
+import { Upload, Video, Music, Film, BookOpen, Radio, Trash2, ImagePlus, CheckCircle2, Loader2 } from "lucide-react";
 import { Progress } from "@/components/ui/progress";
 import { TagsInput } from "@/components/TagsInput";
 
 type ContentType = "aula" | "short" | "podcast" | "curso" | "live";
 type Visibility = "free" | "pro" | "premium" | "paid";
+type UploadState = "idle" | "uploading" | "processing" | "complete";
 
 export default function StudioUpload() {
   const { user, role, profile, loading } = useAuth();
@@ -53,6 +54,9 @@ export default function StudioUpload() {
   const [thumbnailPreview, setThumbnailPreview] = useState("");
   const [tags, setTags] = useState<string[]>([]);
   const [isGeneratingTags, setIsGeneratingTags] = useState(false);
+  const [uploadState, setUploadState] = useState<UploadState>("idle");
+  const [fileSize, setFileSize] = useState<number>(0);
+  const xhrRef = useRef<XMLHttpRequest | null>(null);
   
   // Load content data if editing
   useEffect(() => {
@@ -129,6 +133,14 @@ export default function StudioUpload() {
     );
   }
 
+  const formatFileSize = (bytes: number): string => {
+    if (bytes === 0) return '0 Bytes';
+    const k = 1024;
+    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+  };
+
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -137,7 +149,9 @@ export default function StudioUpload() {
     const previewUrl = URL.createObjectURL(file);
     setFilePreview(previewUrl);
     setFileUploading(true);
+    setUploadState("uploading");
     setFileProgress(0);
+    setFileSize(file.size);
 
     // For duration validation on shorts
     if (contentType === "short") {
@@ -147,6 +161,7 @@ export default function StudioUpload() {
         if (video.duration > 180) {
           toast.error("Shorts devem ter no máximo 180 segundos");
           setFileUploading(false);
+          setUploadState("idle");
           setFilePreview("");
           URL.revokeObjectURL(previewUrl);
           return;
@@ -176,33 +191,76 @@ export default function StudioUpload() {
       const fileExt = file.name.split('.').pop();
       const fileName = `${user.id}/${Date.now()}.${fileExt}`;
 
-      const { error } = await supabase.storage
-        .from('contents')
-        .upload(fileName, file);
+      // Get upload URL for tracking progress
+      const { data: session } = await supabase.auth.getSession();
+      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+      const uploadUrl = `${supabaseUrl}/storage/v1/object/contents/${fileName}`;
 
-      if (error) throw error;
+      // Use XMLHttpRequest for real progress tracking
+      await new Promise<void>((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhrRef.current = xhr;
 
+        xhr.upload.addEventListener('progress', (event) => {
+          if (event.lengthComputable) {
+            const percent = Math.round((event.loaded / event.total) * 100);
+            setFileProgress(percent);
+          }
+        });
+
+        xhr.addEventListener('load', () => {
+          if (xhr.status >= 200 && xhr.status < 300) {
+            resolve();
+          } else {
+            reject(new Error(`Upload failed with status ${xhr.status}`));
+          }
+        });
+
+        xhr.addEventListener('error', () => reject(new Error('Upload failed')));
+        xhr.addEventListener('abort', () => reject(new Error('Upload aborted')));
+
+        xhr.open('POST', uploadUrl);
+        xhr.setRequestHeader('Authorization', `Bearer ${session?.session?.access_token}`);
+        xhr.setRequestHeader('x-upsert', 'true');
+        xhr.send(file);
+      });
+
+      // Show processing state briefly
+      setUploadState("processing");
+      
       const { data: { publicUrl } } = supabase.storage
         .from('contents')
         .getPublicUrl(fileName);
 
+      // Small delay to show processing state
+      await new Promise(resolve => setTimeout(resolve, 500));
+
       setFileUrl(publicUrl);
-      setFilePreview(publicUrl);
+      setUploadState("complete");
       setFileProgress(100);
       toast.success("Arquivo enviado com sucesso!");
     } catch (error: any) {
       toast.error(error.message || "Erro ao enviar arquivo");
       setFilePreview("");
       setFileProgress(0);
+      setUploadState("idle");
     } finally {
       setFileUploading(false);
+      xhrRef.current = null;
     }
   };
 
   const handleRemoveFile = () => {
+    // Cancel ongoing upload if any
+    if (xhrRef.current) {
+      xhrRef.current.abort();
+      xhrRef.current = null;
+    }
     setFileUrl("");
     setFilePreview("");
     setFileProgress(0);
+    setUploadState("idle");
+    setFileSize(0);
   };
 
   const handleThumbnailUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -470,40 +528,71 @@ export default function StudioUpload() {
                       ) : (
                         <div className="relative w-full">
                           {/* Gradient progress bar at top - Instagram style */}
-                          {fileUploading && (
+                          {(uploadState === "uploading" || uploadState === "processing") && (
                             <Progress 
                               variant="gradient" 
-                              indeterminate 
-                              className="absolute top-0 left-0 right-0 z-10"
+                              value={fileProgress}
+                              className="absolute top-0 left-0 right-0 z-20"
                             />
                           )}
                           
-                          <div className={`w-full h-64 rounded-lg overflow-hidden ${fileUploading ? 'opacity-70' : ''}`}>
+                          <div className="w-full h-64 rounded-lg overflow-hidden relative">
                             {contentType === "podcast" ? (
                               <div className="flex items-center justify-center w-full h-full bg-muted">
                                 <Music className="w-16 h-16 text-primary" />
                               </div>
                             ) : (
-                              <div className="flex items-center justify-center w-full h-full bg-muted">
-                                {fileUploading ? (
-                                  <div className="text-center">
-                                    <Video className="w-16 h-16 mx-auto mb-3 text-muted-foreground animate-pulse" />
-                                    <p className="text-sm text-muted-foreground">Enviando vídeo...</p>
-                                  </div>
-                                ) : (
-                                  <div className="text-center">
-                                    <CheckCircle2 className="w-16 h-16 mx-auto mb-3 text-green-500" />
-                                    <p className="text-sm text-muted-foreground">Vídeo enviado</p>
+                              <>
+                                {/* Real video preview */}
+                                <video
+                                  src={filePreview}
+                                  className="w-full h-full object-cover"
+                                  muted
+                                  playsInline
+                                />
+                                
+                                {/* Overlay during upload/processing */}
+                                {(uploadState === "uploading" || uploadState === "processing") && (
+                                  <div className="absolute inset-0 bg-black/60 backdrop-blur-sm flex flex-col items-center justify-center gap-3 z-10">
+                                    {uploadState === "uploading" ? (
+                                      <>
+                                        <div className="text-white text-4xl font-bold tabular-nums">
+                                          {fileProgress}%
+                                        </div>
+                                        <Progress 
+                                          value={fileProgress} 
+                                          variant="gradient" 
+                                          className="w-3/4 h-2"
+                                        />
+                                        <p className="text-white/70 text-sm">
+                                          Enviando {formatFileSize(fileSize)}...
+                                        </p>
+                                      </>
+                                    ) : (
+                                      <>
+                                        <Loader2 className="w-10 h-10 text-white animate-spin" />
+                                        <p className="text-white text-sm">Processando...</p>
+                                      </>
+                                    )}
                                   </div>
                                 )}
-                              </div>
+                                
+                                {/* Success state */}
+                                {uploadState === "complete" && (
+                                  <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity z-10">
+                                    <CheckCircle2 className="w-12 h-12 text-green-500" />
+                                  </div>
+                                )}
+                              </>
                             )}
                           </div>
                           
-                          {!fileUploading && (
+                          {/* Remove button - show when not uploading */}
+                          {uploadState !== "uploading" && uploadState !== "processing" && (
                             <button
+                              type="button"
                               onClick={handleRemoveFile}
-                              className="absolute top-2 right-2 p-2 bg-muted/80 backdrop-blur-sm text-muted-foreground rounded-lg hover:bg-muted hover:text-foreground transition-colors"
+                              className="absolute top-2 right-2 p-2 bg-muted/80 backdrop-blur-sm text-muted-foreground rounded-lg hover:bg-muted hover:text-foreground transition-colors z-20"
                             >
                               <Trash2 className="w-4 h-4" />
                             </button>
