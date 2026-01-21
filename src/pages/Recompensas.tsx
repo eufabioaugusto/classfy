@@ -11,6 +11,9 @@ import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Button } from "@/components/ui/button";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { CreatorAchievementBadge } from "@/components/CreatorAchievementBadge";
+import { useCreatorMilestones } from "@/hooks/useCreatorMilestones";
 import { 
   Trophy, 
   Zap, 
@@ -63,6 +66,12 @@ export default function Recompensas() {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState<UserStats | null>(null);
+
+  // Use creator milestones hook for achievements
+  const {
+    milestones,
+    loading: milestonesLoading
+  } = useCreatorMilestones(user?.id);
 
   useEffect(() => {
     if (!authLoading && !user) {
@@ -260,7 +269,7 @@ export default function Recompensas() {
                 </CardContent>
               </Card>
 
-              {/* Badges Card */}
+              {/* Achievements Card - Creator Milestones */}
               <Card>
                 <CardHeader>
                   <div className="flex items-center gap-2">
@@ -270,21 +279,65 @@ export default function Recompensas() {
                   <CardDescription>Badges conquistadas</CardDescription>
                 </CardHeader>
                 <CardContent>
-                  {stats.badges.length === 0 ? (
+                  {milestonesLoading ? (
                     <div className="text-center py-8 text-muted-foreground">
-                      <Award className="w-12 h-12 mx-auto mb-2 opacity-50" />
-                      <p className="text-sm">Nenhuma badge conquistada ainda</p>
-                      <p className="text-xs">Continue engajando para desbloquear conquistas!</p>
+                      <Award className="w-12 h-12 mx-auto mb-2 opacity-50 animate-pulse" />
+                      <p className="text-sm">Carregando conquistas...</p>
                     </div>
                   ) : (
-                    <div className="grid grid-cols-3 gap-3">
-                      {stats.badges.map((badge: any) => (
-                        <div key={badge.id} className="flex flex-col items-center gap-2 p-3 rounded-lg bg-accent/10 border border-accent/20">
-                          <Award className="w-8 h-8 text-accent" />
-                          <span className="text-xs font-medium text-center">{badge.badges.name}</span>
+                    <Tabs defaultValue="unlocked">
+                      <TabsList className="w-full grid grid-cols-2 mb-4">
+                        <TabsTrigger value="unlocked" className="gap-1.5">
+                          Desbloqueadas
+                          <span className="bg-primary/20 text-primary px-1.5 py-0.5 rounded-full text-xs">
+                            {milestones.filter(m => m.isClaimed).length}
+                          </span>
+                        </TabsTrigger>
+                        <TabsTrigger value="locked" className="gap-1.5">
+                          Bloqueadas
+                          <span className="bg-muted px-1.5 py-0.5 rounded-full text-xs">
+                            {milestones.filter(m => !m.isClaimed).length}
+                          </span>
+                        </TabsTrigger>
+                      </TabsList>
+
+                      <TabsContent value="unlocked" className="mt-0">
+                        {milestones.filter(m => m.isClaimed).length > 0 ? (
+                          <div className="grid grid-cols-3 sm:grid-cols-4 gap-4">
+                            {milestones.filter(m => m.isClaimed).map((milestone) => (
+                              <CreatorAchievementBadge
+                                key={milestone.id}
+                                milestone={milestone}
+                                size="sm"
+                              />
+                            ))}
+                          </div>
+                        ) : (
+                          <div className="text-center py-8 text-muted-foreground">
+                            <Trophy className="w-12 h-12 mx-auto mb-3 opacity-30" />
+                            <p className="text-sm">Nenhuma conquista desbloqueada ainda</p>
+                            <p className="text-xs mt-1">Complete metas para ganhar selos!</p>
+                          </div>
+                        )}
+                      </TabsContent>
+
+                      <TabsContent value="locked" className="mt-0">
+                        <div className="grid grid-cols-3 sm:grid-cols-4 gap-4">
+                          {milestones.filter(m => !m.isClaimed).slice(0, 8).map((milestone) => (
+                            <CreatorAchievementBadge
+                              key={milestone.id}
+                              milestone={milestone}
+                              size="sm"
+                            />
+                          ))}
                         </div>
-                      ))}
-                    </div>
+                        {milestones.filter(m => !m.isClaimed).length > 8 && (
+                          <p className="text-center text-xs text-muted-foreground mt-4">
+                            +{milestones.filter(m => !m.isClaimed).length - 8} conquistas restantes
+                          </p>
+                        )}
+                      </TabsContent>
+                    </Tabs>
                   )}
                 </CardContent>
               </Card>
