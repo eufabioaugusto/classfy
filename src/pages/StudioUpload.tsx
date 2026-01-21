@@ -527,15 +527,6 @@ export default function StudioUpload() {
                         </label>
                       ) : (
                         <div className="relative w-full">
-                          {/* Gradient progress bar at top - Instagram style */}
-                          {(uploadState === "uploading" || uploadState === "processing") && (
-                            <Progress 
-                              variant="gradient" 
-                              value={fileProgress}
-                              className="absolute top-0 left-0 right-0 z-20"
-                            />
-                          )}
-                          
                           <div className="w-full h-64 rounded-lg overflow-hidden relative">
                             {contentType === "podcast" ? (
                               <div className="flex items-center justify-center w-full h-full bg-muted">
@@ -543,11 +534,12 @@ export default function StudioUpload() {
                               </div>
                             ) : (
                               <>
-                                {/* Real video preview */}
+                                {/* Video preview - interactive when upload complete */}
                                 <video
                                   src={filePreview}
                                   className="w-full h-full object-cover"
-                                  muted
+                                  controls={uploadState === "complete" || uploadState === "idle"}
+                                  muted={uploadState !== "complete" && uploadState !== "idle"}
                                   playsInline
                                 />
                                 
@@ -574,13 +566,6 @@ export default function StudioUpload() {
                                         <p className="text-white text-sm">Processando...</p>
                                       </>
                                     )}
-                                  </div>
-                                )}
-                                
-                                {/* Success state */}
-                                {uploadState === "complete" && (
-                                  <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity z-10">
-                                    <CheckCircle2 className="w-12 h-12 text-green-500" />
                                   </div>
                                 )}
                               </>
