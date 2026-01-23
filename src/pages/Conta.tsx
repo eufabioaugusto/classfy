@@ -35,12 +35,13 @@ import {
 } from "@/components/ui/table";
 import { BecomeCreatorModal } from "@/components/BecomeCreatorModal";
 import { EditableAvatar } from "@/components/EditableAvatar";
-import { UserBadges } from "@/components/UserBadges";
 import { useProfileComplete } from "@/hooks/useProfileComplete";
 import { CoverUpload } from "@/components/CoverUpload";
 import { AdminLayout } from "@/components/AdminLayout";
 import { Separator } from "@/components/ui/separator";
 import { MessagePrivacySettings } from "@/components/settings/MessagePrivacySettings";
+import { useCreatorMilestones } from "@/hooks/useCreatorMilestones";
+import { CreatorAchievementBadge } from "@/components/CreatorAchievementBadge";
 
 export default function Conta() {
   const { user, loading: authLoading, role, profile: userProfile, refreshProfile } = useAuth();
@@ -347,7 +348,7 @@ export default function Conta() {
                   <div className="flex-1 space-y-4 w-full">
                     <div className="space-y-2">
                       <Label>Conquistas & Badges</Label>
-                      <UserBadges userId={user?.id || ""} />
+                      <AchievementsSection userId={user?.id} />
                     </div>
 
                     <Separator />
@@ -1142,5 +1143,79 @@ export default function Conta() {
         onOpenChange={setCreatorModalOpen} 
       />
     </AdminLayout>
+  );
+}
+
+// Achievements Section Component
+function AchievementsSection({ userId }: { userId?: string }) {
+  const { milestones, loading } = useCreatorMilestones(userId);
+  
+  const unlockedMilestones = milestones.filter(m => m.isClaimed);
+  const lockedMilestones = milestones.filter(m => !m.isClaimed);
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-8">
+        <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  return (
+    <Card className="p-4">
+      <Tabs defaultValue="unlocked">
+        <TabsList className="w-full grid grid-cols-2 mb-4">
+          <TabsTrigger value="unlocked" className="gap-1.5">
+            Desbloqueadas
+            <span className="bg-primary/20 text-primary px-1.5 py-0.5 rounded-full text-xs">
+              {unlockedMilestones.length}
+            </span>
+          </TabsTrigger>
+          <TabsTrigger value="locked" className="gap-1.5">
+            Bloqueadas
+            <span className="bg-muted px-1.5 py-0.5 rounded-full text-xs">
+              {lockedMilestones.length}
+            </span>
+          </TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="unlocked" className="mt-0">
+          {unlockedMilestones.length > 0 ? (
+            <div className="grid grid-cols-3 sm:grid-cols-4 gap-4">
+              {unlockedMilestones.map((milestone) => (
+                <CreatorAchievementBadge
+                  key={milestone.id}
+                  milestone={milestone}
+                  size="sm"
+                />
+              ))}
+            </div>
+          ) : (
+            <div className="text-center py-8 text-muted-foreground">
+              <Trophy className="w-12 h-12 mx-auto mb-3 opacity-30" />
+              <p className="text-sm">Nenhuma conquista desbloqueada ainda</p>
+              <p className="text-xs mt-1">Complete metas para ganhar selos!</p>
+            </div>
+          )}
+        </TabsContent>
+
+        <TabsContent value="locked" className="mt-0">
+          <div className="grid grid-cols-3 sm:grid-cols-4 gap-4">
+            {lockedMilestones.slice(0, 8).map((milestone) => (
+              <CreatorAchievementBadge
+                key={milestone.id}
+                milestone={milestone}
+                size="sm"
+              />
+            ))}
+          </div>
+          {lockedMilestones.length > 8 && (
+            <p className="text-center text-xs text-muted-foreground mt-4">
+              +{lockedMilestones.length - 8} conquistas restantes
+            </p>
+          )}
+        </TabsContent>
+      </Tabs>
+    </Card>
   );
 }
