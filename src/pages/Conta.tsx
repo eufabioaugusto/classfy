@@ -21,7 +21,10 @@ import {
   Video,
   CreditCard,
   Settings as SettingsIcon,
-  Loader2
+  Loader2,
+  Check,
+  X,
+  Crown
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -774,7 +777,7 @@ export default function Conta() {
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
-                  <Trophy className="w-5 h-5" />
+                  <Crown className="w-5 h-5 text-primary" />
                   Plano de Assinatura
                 </CardTitle>
                 <CardDescription>
@@ -782,81 +785,125 @@ export default function Conta() {
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-6">
-                {/* Current Plan Display */}
-                <div className="p-6 rounded-lg bg-gradient-to-br from-primary/10 to-primary/5 border-2 border-primary/20">
-                  <div className="flex items-start justify-between mb-4">
+                {/* Current Plan Badge */}
+                <div className="p-4 rounded-lg bg-gradient-to-br from-primary/10 to-primary/5 border border-primary/20">
+                  <div className="flex items-center justify-between">
                     <div className="space-y-1">
                       <div className="flex items-center gap-2">
-                        <h3 className="text-2xl font-bold">
+                        <h3 className="text-xl font-bold">
                           Plano {profile?.plan?.toUpperCase() || "FREE"}
                         </h3>
-                        <Badge variant="secondary" className="text-xs">
+                        <Badge className="bg-primary text-primary-foreground text-xs">
                           Atual
                         </Badge>
                       </div>
-                      <p className="text-sm text-muted-foreground">
-                        {profile?.plan === "free" && "Monetização padrão da plataforma"}
-                        {profile?.plan === "pro" && "R$ 29,90/mês • +10% de bônus em ganhos"}
-                        {profile?.plan === "premium" && "R$ 49,90/mês • +25% de bônus em ganhos"}
-                      </p>
                       {profile?.plan_expires_at && (
-                        <p className="text-xs text-muted-foreground flex items-center gap-1 mt-2">
+                        <p className="text-xs text-muted-foreground flex items-center gap-1">
                           <Clock className="w-3 h-3" />
-                          Renova em: {new Date(profile.plan_expires_at).toLocaleDateString("pt-BR", {
-                            day: "2-digit",
-                            month: "long",
-                            year: "numeric"
-                          })}
+                          Renova em: {new Date(profile.plan_expires_at).toLocaleDateString("pt-BR")}
                         </p>
                       )}
                     </div>
-                    <div className="p-3 rounded-full bg-primary/10">
-                      <Trophy className="w-6 h-6 text-primary" />
-                    </div>
-                  </div>
-
-                  {/* Plan Benefits */}
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-4">
-                    <div className="flex items-center gap-2 text-sm">
-                      <CheckCircle className="w-4 h-4 text-green-500" />
-                      <span>Monetização</span>
-                    </div>
-                    {profile?.plan === "pro" && (
-                      <>
-                        <div className="flex items-center gap-2 text-sm">
-                          <CheckCircle className="w-4 h-4 text-green-500" />
-                          <span>+10% Bônus</span>
-                        </div>
-                        <div className="flex items-center gap-2 text-sm">
-                          <CheckCircle className="w-4 h-4 text-green-500" />
-                          <span>Prioridade</span>
-                        </div>
-                      </>
-                    )}
-                    {profile?.plan === "premium" && (
-                      <>
-                        <div className="flex items-center gap-2 text-sm">
-                          <CheckCircle className="w-4 h-4 text-green-500" />
-                          <span>+25% Bônus</span>
-                        </div>
-                        <div className="flex items-center gap-2 text-sm">
-                          <CheckCircle className="w-4 h-4 text-green-500" />
-                          <span>VIP Access</span>
-                        </div>
-                      </>
+                    {(profile?.plan === "pro" || profile?.plan === "premium") && (
+                      <div className="flex gap-2">
+                        <Button 
+                          variant="outline"
+                          size="sm"
+                          onClick={async () => {
+                            try {
+                              const { data, error } = await supabase.functions.invoke('customer-portal');
+                              if (error) throw error;
+                              if (data?.url) window.open(data.url, '_blank');
+                            } catch (error: any) {
+                              toast({
+                                title: "Erro",
+                                description: error.message,
+                                variant: "destructive",
+                              });
+                            }
+                          }}
+                        >
+                          <CreditCard className="w-4 h-4 mr-1" />
+                          Gerenciar
+                        </Button>
+                      </div>
                     )}
                   </div>
                 </div>
 
-                <Separator />
+                {/* Plan Cards Comparison */}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  {/* Free Plan */}
+                  <div className={`p-4 rounded-lg border-2 transition-all ${
+                    profile?.plan === "free" 
+                      ? "border-primary bg-primary/5" 
+                      : "border-border hover:border-muted-foreground/30"
+                  }`}>
+                    <div className="flex items-center justify-between mb-3">
+                      <div>
+                        <h4 className="font-semibold">Gratuito</h4>
+                        <p className="text-2xl font-bold">R$ 0</p>
+                      </div>
+                      {profile?.plan === "free" && (
+                        <Badge variant="outline" className="border-primary text-primary">Seu Plano</Badge>
+                      )}
+                    </div>
+                    <ul className="space-y-2 text-sm">
+                      <li className="flex items-center gap-2">
+                        <Check className="w-4 h-4 text-primary" />
+                        Acesso ao Classy Chat
+                      </li>
+                      <li className="flex items-center gap-2 text-muted-foreground">
+                        <X className="w-4 h-4" />
+                        Vídeos sem anúncios
+                      </li>
+                      <li className="flex items-center gap-2 text-muted-foreground">
+                        <X className="w-4 h-4" />
+                        Downloads
+                      </li>
+                    </ul>
+                  </div>
 
-                {/* Plan Actions */}
-                <div className="space-y-3">
-                  {profile?.plan === "free" && (
-                    <>
+                  {/* Pro Plan */}
+                  <div className={`p-4 rounded-lg border-2 transition-all ${
+                    profile?.plan === "pro" 
+                      ? "border-primary bg-primary/5" 
+                      : "border-border hover:border-yellow-500/50"
+                  }`}>
+                    <div className="flex items-center justify-between mb-3">
+                      <div>
+                        <h4 className="font-semibold flex items-center gap-1">
+                          <User className="w-4 h-4" />
+                          Pro
+                        </h4>
+                        <p className="text-2xl font-bold">R$ 29,90<span className="text-sm font-normal text-muted-foreground">/mês</span></p>
+                      </div>
+                      {profile?.plan === "pro" && (
+                        <Badge variant="outline" className="border-primary text-primary">Seu Plano</Badge>
+                      )}
+                    </div>
+                    <ul className="space-y-2 text-sm mb-4">
+                      <li className="flex items-center gap-2">
+                        <Check className="w-4 h-4 text-primary" />
+                        Sem anúncios
+                      </li>
+                      <li className="flex items-center gap-2">
+                        <Check className="w-4 h-4 text-primary" />
+                        Classy Chat (IA)
+                      </li>
+                      <li className="flex items-center gap-2">
+                        <Check className="w-4 h-4 text-primary" />
+                        Downloads ilimitados
+                      </li>
+                      <li className="flex items-center gap-2 text-muted-foreground">
+                        <X className="w-4 h-4" />
+                        Cursos completos
+                      </li>
+                    </ul>
+                    {profile?.plan === "free" && (
                       <Button 
-                        size="lg"
-                        className="w-full bg-gradient-to-r from-yellow-500 to-amber-600 hover:opacity-90 text-white font-semibold"
+                        size="sm"
+                        className="w-full bg-gradient-to-r from-yellow-500 to-amber-600 hover:opacity-90"
                         onClick={async () => {
                           try {
                             const { data, error } = await supabase.functions.invoke('create-subscription-checkout', {
@@ -873,216 +920,204 @@ export default function Conta() {
                           }
                         }}
                       >
-                        <Sparkles className="w-4 h-4 mr-2" />
-                        Fazer Upgrade para Pro - R$ 29,90/mês
+                        <Sparkles className="w-4 h-4 mr-1" />
+                        Assinar Pro
                       </Button>
-                      <Button 
-                        size="lg"
-                        className="w-full bg-gradient-to-r from-red-500 to-rose-600 hover:opacity-90 text-white font-semibold"
-                        onClick={async () => {
-                          try {
-                            const { data, error } = await supabase.functions.invoke('create-subscription-checkout', {
-                              body: { plan: 'premium' }
-                            });
-                            if (error) throw error;
-                            if (data?.url) window.open(data.url, '_blank');
-                          } catch (error: any) {
-                            toast({
-                              title: "Erro",
-                              description: error.message,
-                              variant: "destructive",
-                            });
-                          }
-                        }}
-                      >
-                        <Trophy className="w-4 h-4 mr-2" />
-                        Fazer Upgrade para Premium - R$ 49,90/mês
-                      </Button>
-                    </>
-                  )}
-
-                  {profile?.plan === "pro" && (
-                    <>
-                      <Button 
-                        size="lg"
-                        className="w-full bg-gradient-to-r from-red-500 to-rose-600 hover:opacity-90 text-white font-semibold"
-                        onClick={async () => {
-                          try {
-                            setSubmitting(true);
-                            const { data, error } = await supabase.functions.invoke('manage-subscription', {
-                              body: { action: 'upgrade', newPlan: 'premium' }
-                            });
-                            if (error) throw error;
-                            toast({
-                              title: "Sucesso!",
-                              description: data.message || "Plano atualizado!",
-                            });
-                            await fetchData();
-                          } catch (error: any) {
-                            toast({
-                              title: "Erro",
-                              description: error.message,
-                              variant: "destructive",
-                            });
-                          } finally {
-                            setSubmitting(false);
-                          }
-                        }}
-                        disabled={submitting}
-                      >
-                        {submitting ? (
-                          <>
-                            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                            Atualizando...
-                          </>
-                        ) : (
-                          <>
-                            <Trophy className="w-4 h-4 mr-2" />
-                            Fazer Upgrade para Premium
-                          </>
-                        )}
-                      </Button>
-                      <div className="grid grid-cols-2 gap-3">
-                        <Button 
-                          variant="outline"
-                          onClick={async () => {
-                            try {
-                              const { data, error } = await supabase.functions.invoke('customer-portal');
-                              if (error) throw error;
-                              if (data?.url) window.open(data.url, '_blank');
-                            } catch (error: any) {
-                              toast({
-                                title: "Erro",
-                                description: error.message,
-                                variant: "destructive",
-                              });
-                            }
-                          }}
-                        >
-                          <CreditCard className="w-4 h-4 mr-2" />
-                          Gerenciar Pagamento
-                        </Button>
-                        <Button 
-                          variant="outline"
-                          className="text-destructive hover:bg-destructive/10"
-                          onClick={async () => {
-                            if (!confirm("Tem certeza que deseja cancelar? Você perderá acesso ao plano Pro ao final do período.")) return;
-                            try {
-                              setSubmitting(true);
-                              const { data, error } = await supabase.functions.invoke('manage-subscription', {
-                                body: { action: 'cancel' }
-                              });
-                              if (error) throw error;
-                              toast({
-                                title: "Assinatura Cancelada",
-                                description: data.message,
-                              });
-                              await fetchData();
-                            } catch (error: any) {
-                              toast({
-                                title: "Erro",
-                                description: error.message,
-                                variant: "destructive",
-                              });
-                            } finally {
-                              setSubmitting(false);
-                            }
-                          }}
-                          disabled={submitting}
-                        >
-                          Cancelar Plano
-                        </Button>
-                      </div>
-                    </>
-                  )}
-
-                  {profile?.plan === "premium" && (
-                    <>
+                    )}
+                    {profile?.plan === "premium" && (
                       <Button 
                         variant="outline"
-                        size="lg"
+                        size="sm"
                         className="w-full"
+                        disabled={submitting}
                         onClick={async () => {
-                          if (!confirm("Deseja fazer downgrade para o plano Pro? O ajuste será feito na próxima cobrança.")) return;
+                          if (!confirm("Deseja fazer downgrade para o plano Pro?")) return;
                           try {
                             setSubmitting(true);
                             const { data, error } = await supabase.functions.invoke('manage-subscription', {
                               body: { action: 'downgrade', newPlan: 'pro' }
                             });
                             if (error) throw error;
-                            toast({
-                              title: "Sucesso!",
-                              description: data.message || "Plano alterado!",
-                            });
+                            toast({ title: "Sucesso!", description: data.message });
                             await fetchData();
                           } catch (error: any) {
-                            toast({
-                              title: "Erro",
-                              description: error.message,
-                              variant: "destructive",
-                            });
+                            toast({ title: "Erro", description: error.message, variant: "destructive" });
                           } finally {
                             setSubmitting(false);
                           }
                         }}
-                        disabled={submitting}
                       >
-                        {submitting ? "Processando..." : "Fazer Downgrade para Pro"}
+                        {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : "Downgrade"}
                       </Button>
-                      <div className="grid grid-cols-2 gap-3">
-                        <Button 
-                          variant="outline"
-                          onClick={async () => {
-                            try {
-                              const { data, error } = await supabase.functions.invoke('customer-portal');
-                              if (error) throw error;
-                              if (data?.url) window.open(data.url, '_blank');
-                            } catch (error: any) {
-                              toast({
-                                title: "Erro",
-                                description: error.message,
-                                variant: "destructive",
-                              });
-                            }
-                          }}
-                        >
-                          <CreditCard className="w-4 h-4 mr-2" />
-                          Gerenciar Pagamento
-                        </Button>
-                        <Button 
-                          variant="outline"
-                          className="text-destructive hover:bg-destructive/10"
-                          onClick={async () => {
-                            if (!confirm("Tem certeza que deseja cancelar? Você perderá acesso ao plano Premium ao final do período.")) return;
-                            try {
+                    )}
+                  </div>
+
+                  {/* Premium Plan */}
+                  <div className={`p-4 rounded-lg border-2 transition-all relative ${
+                    profile?.plan === "premium" 
+                      ? "border-primary bg-primary/5" 
+                      : "border-red-500/50 hover:border-red-500"
+                  }`}>
+                    <Badge className="absolute -top-2.5 left-1/2 -translate-x-1/2 bg-red-500">
+                      Recomendado
+                    </Badge>
+                    <div className="flex items-center justify-between mb-3 pt-1">
+                      <div>
+                        <h4 className="font-semibold flex items-center gap-1">
+                          <Sparkles className="w-4 h-4" />
+                          Premium
+                        </h4>
+                        <p className="text-2xl font-bold">R$ 49,90<span className="text-sm font-normal text-muted-foreground">/mês</span></p>
+                      </div>
+                      {profile?.plan === "premium" && (
+                        <Badge variant="outline" className="border-primary text-primary">Seu Plano</Badge>
+                      )}
+                    </div>
+                    <ul className="space-y-2 text-sm mb-4">
+                      <li className="flex items-center gap-2">
+                        <Check className="w-4 h-4 text-primary" />
+                        Tudo do Pro
+                      </li>
+                      <li className="flex items-center gap-2">
+                        <Check className="w-4 h-4 text-primary" />
+                        Cursos completos
+                      </li>
+                      <li className="flex items-center gap-2">
+                        <Check className="w-4 h-4 text-primary" />
+                        Reprodução offline
+                      </li>
+                      <li className="flex items-center gap-2">
+                        <Check className="w-4 h-4 text-primary" />
+                        Segundo plano
+                      </li>
+                    </ul>
+                    {(profile?.plan === "free" || profile?.plan === "pro") && (
+                      <Button 
+                        size="sm"
+                        className="w-full bg-gradient-to-r from-red-500 to-rose-600 hover:opacity-90"
+                        disabled={submitting}
+                        onClick={async () => {
+                          try {
+                            if (profile?.plan === "pro") {
                               setSubmitting(true);
                               const { data, error } = await supabase.functions.invoke('manage-subscription', {
-                                body: { action: 'cancel' }
+                                body: { action: 'upgrade', newPlan: 'premium' }
                               });
                               if (error) throw error;
-                              toast({
-                                title: "Assinatura Cancelada",
-                                description: data.message,
-                              });
+                              toast({ title: "Sucesso!", description: data.message });
                               await fetchData();
-                            } catch (error: any) {
-                              toast({
-                                title: "Erro",
-                                description: error.message,
-                                variant: "destructive",
+                            } else {
+                              const { data, error } = await supabase.functions.invoke('create-subscription-checkout', {
+                                body: { plan: 'premium' }
                               });
-                            } finally {
-                              setSubmitting(false);
+                              if (error) throw error;
+                              if (data?.url) window.open(data.url, '_blank');
                             }
-                          }}
-                          disabled={submitting}
-                        >
-                          Cancelar Plano
-                        </Button>
-                      </div>
-                    </>
-                  )}
+                          } catch (error: any) {
+                            toast({ title: "Erro", description: error.message, variant: "destructive" });
+                          } finally {
+                            setSubmitting(false);
+                          }
+                        }}
+                      >
+                        {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : (
+                          <>
+                            <Trophy className="w-4 h-4 mr-1" />
+                            {profile?.plan === "pro" ? "Upgrade" : "Assinar Premium"}
+                          </>
+                        )}
+                      </Button>
+                    )}
+                  </div>
                 </div>
+
+                {/* Comparison Table */}
+                <div className="mt-6">
+                  <h4 className="font-semibold mb-4 text-sm uppercase tracking-wider text-muted-foreground">
+                    Comparar recursos
+                  </h4>
+                  <div className="rounded-lg border overflow-hidden">
+                    <Table>
+                      <TableHeader>
+                        <TableRow className="bg-muted/50">
+                          <TableHead className="font-semibold">Recurso</TableHead>
+                          <TableHead className="text-center font-semibold">Free</TableHead>
+                          <TableHead className="text-center font-semibold">Pro</TableHead>
+                          <TableHead className="text-center font-semibold">Premium</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        <TableRow>
+                          <TableCell>Acesso ao Classy Chat</TableCell>
+                          <TableCell className="text-center"><Check className="w-4 h-4 text-primary mx-auto" /></TableCell>
+                          <TableCell className="text-center"><Check className="w-4 h-4 text-primary mx-auto" /></TableCell>
+                          <TableCell className="text-center"><Check className="w-4 h-4 text-primary mx-auto" /></TableCell>
+                        </TableRow>
+                        <TableRow>
+                          <TableCell>Vídeos sem anúncios</TableCell>
+                          <TableCell className="text-center"><X className="w-4 h-4 text-muted-foreground mx-auto" /></TableCell>
+                          <TableCell className="text-center"><Check className="w-4 h-4 text-primary mx-auto" /></TableCell>
+                          <TableCell className="text-center"><Check className="w-4 h-4 text-primary mx-auto" /></TableCell>
+                        </TableRow>
+                        <TableRow>
+                          <TableCell>Downloads ilimitados</TableCell>
+                          <TableCell className="text-center"><X className="w-4 h-4 text-muted-foreground mx-auto" /></TableCell>
+                          <TableCell className="text-center"><Check className="w-4 h-4 text-primary mx-auto" /></TableCell>
+                          <TableCell className="text-center"><Check className="w-4 h-4 text-primary mx-auto" /></TableCell>
+                        </TableRow>
+                        <TableRow>
+                          <TableCell>Cursos completos</TableCell>
+                          <TableCell className="text-center"><X className="w-4 h-4 text-muted-foreground mx-auto" /></TableCell>
+                          <TableCell className="text-center"><X className="w-4 h-4 text-muted-foreground mx-auto" /></TableCell>
+                          <TableCell className="text-center"><Check className="w-4 h-4 text-primary mx-auto" /></TableCell>
+                        </TableRow>
+                        <TableRow>
+                          <TableCell>Reprodução offline</TableCell>
+                          <TableCell className="text-center"><X className="w-4 h-4 text-muted-foreground mx-auto" /></TableCell>
+                          <TableCell className="text-center"><X className="w-4 h-4 text-muted-foreground mx-auto" /></TableCell>
+                          <TableCell className="text-center"><Check className="w-4 h-4 text-primary mx-auto" /></TableCell>
+                        </TableRow>
+                        <TableRow>
+                          <TableCell>Segundo plano</TableCell>
+                          <TableCell className="text-center"><X className="w-4 h-4 text-muted-foreground mx-auto" /></TableCell>
+                          <TableCell className="text-center"><X className="w-4 h-4 text-muted-foreground mx-auto" /></TableCell>
+                          <TableCell className="text-center"><Check className="w-4 h-4 text-primary mx-auto" /></TableCell>
+                        </TableRow>
+                      </TableBody>
+                    </Table>
+                  </div>
+                </div>
+
+                {/* Cancel subscription for paid users */}
+                {(profile?.plan === "pro" || profile?.plan === "premium") && (
+                  <div className="pt-4 border-t">
+                    <Button 
+                      variant="ghost"
+                      size="sm"
+                      className="text-muted-foreground hover:text-destructive"
+                      disabled={submitting}
+                      onClick={async () => {
+                        if (!confirm(`Tem certeza que deseja cancelar? Você perderá acesso ao plano ${profile?.plan?.toUpperCase()} ao final do período.`)) return;
+                        try {
+                          setSubmitting(true);
+                          const { data, error } = await supabase.functions.invoke('manage-subscription', {
+                            body: { action: 'cancel' }
+                          });
+                          if (error) throw error;
+                          toast({ title: "Assinatura Cancelada", description: data.message });
+                          await fetchData();
+                        } catch (error: any) {
+                          toast({ title: "Erro", description: error.message, variant: "destructive" });
+                        } finally {
+                          setSubmitting(false);
+                        }
+                      }}
+                    >
+                      {submitting ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
+                      Cancelar assinatura
+                    </Button>
+                  </div>
+                )}
               </CardContent>
             </Card>
           </TabsContent>
