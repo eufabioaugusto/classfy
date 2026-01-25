@@ -104,12 +104,35 @@ export default {
             opacity: "1",
           },
         },
+        // Toast animations - entrada de baixo, saída para baixo
+        "toast-in": {
+          "0%": {
+            opacity: "0",
+            transform: "translateY(100%) scale(0.95)",
+          },
+          "100%": {
+            opacity: "1",
+            transform: "translateY(0) scale(1)",
+          },
+        },
+        "toast-out": {
+          "0%": {
+            opacity: "1",
+            transform: "translateY(0) scale(1)",
+          },
+          "100%": {
+            opacity: "0",
+            transform: "translateY(100%) scale(0.95)",
+          },
+        },
       },
       animation: {
         "accordion-down": "accordion-down 0.2s ease-out",
         "accordion-up": "accordion-up 0.2s ease-out",
         "fade-in": "fade-in 0.3s ease-out",
         "scale-in": "scale-in 0.2s ease-out",
+        "toast-in": "toast-in 0.35s cubic-bezier(0.16, 1, 0.3, 1)",
+        "toast-out": "toast-out 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards",
       },
     },
   },
