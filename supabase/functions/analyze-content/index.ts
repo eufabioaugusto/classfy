@@ -63,7 +63,7 @@ serve(async (req) => {
       );
     }
 
-    // Check for existing transcription
+    // Check for existing transcription (do NOT generate here - use transcribe-content function separately)
     let transcriptionText: string | null = null;
     const { data: existingTranscription } = await supabase
       .from("transcriptions")
@@ -73,73 +73,9 @@ serve(async (req) => {
 
     if (existingTranscription?.text) {
       transcriptionText = existingTranscription.text;
-      console.log("Using existing transcription");
+      console.log("Using existing transcription for analysis");
     } else {
-      // Generate transcription first
-      console.log("Generating transcription for content:", content.title);
-      
-      if (content.file_url) {
-        try {
-          // Download and transcribe the video
-          const fileResponse = await fetch(content.file_url);
-          if (fileResponse.ok) {
-            const fileBlob = await fileResponse.blob();
-            const arrayBuffer = await fileBlob.arrayBuffer();
-            const audioData = new Uint8Array(arrayBuffer);
-            
-            // Only process if file is not too large (< 20MB for transcription)
-            if (audioData.length < 20 * 1024 * 1024) {
-              const base64Audio = btoa(String.fromCharCode(...audioData));
-              
-              const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
-              if (LOVABLE_API_KEY) {
-                const transcribeResponse = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-                  method: "POST",
-                  headers: {
-                    Authorization: `Bearer ${LOVABLE_API_KEY}`,
-                    "Content-Type": "application/json",
-                  },
-                  body: JSON.stringify({
-                    model: "google/gemini-2.5-flash",
-                    messages: [
-                      {
-                        role: "system",
-                        content: "Você é um transcritor profissional. Transcreva o áudio com precisão, incluindo pontuação adequada.",
-                      },
-                      {
-                        role: "user",
-                        content: [
-                          { type: "text", text: `Transcreva este conteúdo: "${content.title}"` },
-                          { type: "image_url", image_url: { url: `data:audio/webm;base64,${base64Audio}` } },
-                        ],
-                      },
-                    ],
-                  }),
-                });
-
-                if (transcribeResponse.ok) {
-                  const transcribeData = await transcribeResponse.json();
-                  transcriptionText = transcribeData.choices?.[0]?.message?.content;
-                  
-                  // Save transcription
-                  if (transcriptionText) {
-                    await supabase.from("transcriptions").insert({
-                      content_id: contentId,
-                      text: transcriptionText,
-                      language: "pt-BR",
-                    });
-                    console.log("Transcription saved");
-                  }
-                }
-              }
-            } else {
-              console.log("File too large for transcription, analyzing metadata only");
-            }
-          }
-        } catch (e) {
-          console.error("Error generating transcription:", e);
-        }
-      }
+      console.log("No transcription available, analyzing based on metadata only");
     }
 
     // Prepare content for analysis
