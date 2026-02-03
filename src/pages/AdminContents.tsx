@@ -6,12 +6,13 @@ import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
-import { CheckCircle, XCircle, Clock, Video, Music, Film, Eye } from "lucide-react";
+import { CheckCircle, XCircle, Clock, Video, Music, Film, Eye, Bot } from "lucide-react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { FeaturedBadge } from "@/components/FeaturedBadge";
 import { GlobalLoader } from "@/components/GlobalLoader";
+import { ContentAnalysisModal } from "@/components/ContentAnalysisModal";
 
 interface Content {
   id: string;
@@ -32,6 +33,7 @@ export default function AdminContents() {
   const [loadingData, setLoadingData] = useState(true);
   const [processingId, setProcessingId] = useState<string | null>(null);
   const [selectedContents, setSelectedContents] = useState<Set<string>>(new Set());
+  const [analysisModal, setAnalysisModal] = useState<{ open: boolean; contentId: string; contentTitle: string } | null>(null);
 
   useEffect(() => { if (user && role === 'admin') fetchPendingContents(); }, [user, role]);
 
@@ -256,6 +258,17 @@ export default function AdminContents() {
                         <Button variant="ghost" size="icon" onClick={() => window.open(`/watch/${content.id}`, '_blank')}>
                           <Eye className="h-4 w-4" />
                         </Button>
+                        {content.item_type === 'content' && (
+                          <Button 
+                            variant="outline" 
+                            size="sm" 
+                            onClick={() => setAnalysisModal({ open: true, contentId: content.id, contentTitle: content.title })}
+                            className="gap-1"
+                          >
+                            <Bot className="h-4 w-4" />
+                            Analisar
+                          </Button>
+                        )}
                         <Button variant="default" size="sm" onClick={() => handleApprove(content.id)} disabled={processingId === content.id}>
                           <CheckCircle className="h-4 w-4 mr-1" />
                           Aprovar
@@ -273,6 +286,18 @@ export default function AdminContents() {
           </div>
         )}
       </div>
+
+      {/* Analysis Modal */}
+      {analysisModal && (
+        <ContentAnalysisModal
+          open={analysisModal.open}
+          onOpenChange={(open) => !open && setAnalysisModal(null)}
+          contentId={analysisModal.contentId}
+          contentTitle={analysisModal.contentTitle}
+          onApprove={() => handleApprove(analysisModal.contentId)}
+          onReject={() => handleReject(analysisModal.contentId)}
+        />
+      )}
     </AdminLayout>
   );
 }
