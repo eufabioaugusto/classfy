@@ -226,7 +226,7 @@ export default function AdminContents() {
                         <img src={content.thumbnail_url} alt={content.title} className="h-16 w-24 object-cover rounded" />
                         <div className="flex-1 min-w-0">
                           <p className="font-medium truncate">{content.title}</p>
-                          <p className="text-sm text-muted-foreground truncate">{content.description || 'Sem descrição'}</p>
+                          <p className="text-sm text-muted-foreground line-clamp-2 max-w-md">{content.description || 'Sem descrição'}</p>
                           <div className="flex items-center gap-2 mt-1">
                             <Badge variant="outline" className="flex items-center gap-1">
                               {getContentTypeIcon(content.content_type)}
