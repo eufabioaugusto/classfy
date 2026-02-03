@@ -2,10 +2,12 @@ import { NavLink } from "@/components/NavLink";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { useStudies } from "@/hooks/useStudies";
+import { useAdminPendingCounts } from "@/hooks/useAdminPendingCounts";
 import { BecomeCreatorModal } from "@/components/BecomeCreatorModal";
 import { UpgradeModal } from "@/components/UpgradeModal";
 import { ProfileAvatar } from "@/components/ProfileAvatar";
 import { CreatorStatsCard } from "@/components/CreatorStatsCard";
+import { Badge } from "@/components/ui/badge";
 import { useState } from "react";
 import {
   Home,
@@ -74,15 +76,15 @@ const studioItems = [
 ];
 
 const adminItems = [
-  { title: "Dashboard", url: "/admin", icon: BarChart },
-  { title: "Aprovar Creators", url: "/admin/creators", icon: CheckSquare },
-  { title: "Aprovar Conteúdos", url: "/admin/contents", icon: Video },
-  { title: "Transcrições", url: "/admin/transcriptions", icon: FileText },
-  { title: "Creators em Destaque", url: "/admin/featured-creators", icon: Users },
-  { title: "Recompensas", url: "/admin/rewards", icon: Trophy },
-  { title: "Saques", url: "/admin/withdrawals", icon: DollarSign },
-  { title: "Gerenciar Usuários", url: "/admin/users", icon: Users },
-  { title: "Configurações", url: "/admin/settings", icon: Settings },
+  { title: "Dashboard", url: "/admin", icon: BarChart, countKey: null },
+  { title: "Aprovar Creators", url: "/admin/creators", icon: CheckSquare, countKey: "creators" as const },
+  { title: "Aprovar Conteúdos", url: "/admin/contents", icon: Video, countKey: "contents" as const },
+  { title: "Transcrições", url: "/admin/transcriptions", icon: FileText, countKey: null },
+  { title: "Creators em Destaque", url: "/admin/featured-creators", icon: Users, countKey: null },
+  { title: "Recompensas", url: "/admin/rewards", icon: Trophy, countKey: null },
+  { title: "Saques", url: "/admin/withdrawals", icon: DollarSign, countKey: "withdrawals" as const },
+  { title: "Gerenciar Usuários", url: "/admin/users", icon: Users, countKey: null },
+  { title: "Configurações", url: "/admin/settings", icon: Settings, countKey: null },
 ];
 
 export function AppSidebar() {
@@ -91,6 +93,7 @@ export function AppSidebar() {
   const navigate = useNavigate();
   const { user, signOut, role, profile } = useAuth();
   const { activeStudies, activeCount, limits, canCreateMore } = useStudies();
+  const { counts: adminCounts } = useAdminPendingCounts();
   const [studiesOpen, setStudiesOpen] = useState(true);
   const [creatorModalOpen, setCreatorModalOpen] = useState(false);
   const [upgradeModalOpen, setUpgradeModalOpen] = useState(false);
@@ -440,39 +443,58 @@ export function AppSidebar() {
                 {!collapsed && <SidebarGroupLabel className="text-muted-foreground">Administração</SidebarGroupLabel>}
                 <SidebarGroupContent>
                   <SidebarMenu>
-                    {adminItems.map((item) => (
-                      <SidebarMenuItem key={item.title}>
-                        {collapsed ? (
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <SidebarMenuButton asChild>
-                                <NavLink
-                                  to={item.url}
-                                  className="text-foreground/80 hover:bg-muted hover:text-foreground justify-center"
-                                  activeClassName="bg-muted text-cinematic-accent font-medium"
-                                >
-                                  <item.icon className="w-4 h-4" />
-                                </NavLink>
-                              </SidebarMenuButton>
-                            </TooltipTrigger>
-                            <TooltipContent side="right">
-                              <p>{item.title}</p>
-                            </TooltipContent>
-                          </Tooltip>
-                        ) : (
-                          <SidebarMenuButton asChild>
-                            <NavLink
-                              to={item.url}
-                              className="text-foreground/80 hover:bg-muted hover:text-foreground"
-                              activeClassName="bg-muted text-cinematic-accent font-medium"
-                            >
-                              <item.icon className="w-4 h-4" />
-                              <span>{item.title}</span>
-                            </NavLink>
-                          </SidebarMenuButton>
-                        )}
-                      </SidebarMenuItem>
-                    ))}
+                    {adminItems.map((item) => {
+                      const pendingCount = item.countKey ? adminCounts[item.countKey] : 0;
+                      return (
+                        <SidebarMenuItem key={item.title}>
+                          {collapsed ? (
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <SidebarMenuButton asChild>
+                                  <NavLink
+                                    to={item.url}
+                                    className="text-foreground/80 hover:bg-muted hover:text-foreground justify-center relative"
+                                    activeClassName="bg-muted text-cinematic-accent font-medium"
+                                  >
+                                    <item.icon className="w-4 h-4" />
+                                    {pendingCount > 0 && (
+                                      <span className="absolute -top-1 -right-1 h-4 min-w-4 px-1 text-[10px] font-bold rounded-full bg-red-500 text-white flex items-center justify-center">
+                                        {pendingCount > 99 ? "99+" : pendingCount}
+                                      </span>
+                                    )}
+                                  </NavLink>
+                                </SidebarMenuButton>
+                              </TooltipTrigger>
+                              <TooltipContent side="right">
+                                <p>
+                                  {item.title}
+                                  {pendingCount > 0 && ` (${pendingCount})`}
+                                </p>
+                              </TooltipContent>
+                            </Tooltip>
+                          ) : (
+                            <SidebarMenuButton asChild>
+                              <NavLink
+                                to={item.url}
+                                className="text-foreground/80 hover:bg-muted hover:text-foreground"
+                                activeClassName="bg-muted text-cinematic-accent font-medium"
+                              >
+                                <item.icon className="w-4 h-4" />
+                                <span className="flex-1">{item.title}</span>
+                                {pendingCount > 0 && (
+                                  <Badge 
+                                    variant="destructive" 
+                                    className="h-5 min-w-5 px-1.5 text-[10px] font-bold rounded-full"
+                                  >
+                                    {pendingCount > 99 ? "99+" : pendingCount}
+                                  </Badge>
+                                )}
+                              </NavLink>
+                            </SidebarMenuButton>
+                          )}
+                        </SidebarMenuItem>
+                      );
+                    })}
                   </SidebarMenu>
                 </SidebarGroupContent>
               </SidebarGroup>
