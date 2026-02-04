@@ -89,7 +89,7 @@ export default function Index() {
           .eq("content_type", "aula")
           .eq("status", "approved")
           .order("views_count", { ascending: false })
-          .limit(4),
+          .limit(6),
         supabase
           .from("contents")
           .select(`*, profiles:creator_id (display_name, avatar_url)`)
