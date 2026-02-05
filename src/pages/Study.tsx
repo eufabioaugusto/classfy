@@ -1700,12 +1700,12 @@ function StudyContent() {
         </div>
       </header>
 
-      {/* Main Content Area - Resizable Panels */}
-      <ResizablePanelGroup direction="horizontal" className="flex-1">
+      {/* Main Content Area - Flex Layout (adapts to sidebar) */}
+      <div className="flex-1 flex min-w-0 overflow-hidden">
         {/* Left Panel - Video Player (when active and not minimized) */}
         {activeContent && !miniPlayerActive && (
           <>
-            <ResizablePanel defaultSize={activePlaylist ? 50 : 60} minSize={40}>
+            <div className={`flex-shrink-0 ${activePlaylist ? 'w-[50%]' : 'w-[55%]'} min-w-[400px] max-w-[900px]`}>
               <ScrollArea className="h-full">
                 <div className="flex flex-col bg-background">
                   {/* Video Tools Bar - Using unified StudyToolbar - ABOVE player */}
@@ -1852,82 +1852,75 @@ function StudyContent() {
                   </div>
                 </div>
               </ScrollArea>
-            </ResizablePanel>
+            </div>
 
             {/* Active Playlist Panel */}
             {activePlaylist && (
-              <>
-                <ResizablePanel defaultSize={25} minSize={15} maxSize={35}>
-                  <div className="h-full flex flex-col bg-card border-l border-border">
-                    <div className="p-3 border-b border-border flex-shrink-0">
-                      <div className="flex items-center justify-between">
-                        <h3 className="font-semibold text-sm">Playlist</h3>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => setActivePlaylist(null)}
-                          className="h-8 w-8"
-                        >
-                          <X className="h-4 w-4" />
-                        </Button>
-                      </div>
-                      <p className="text-xs text-muted-foreground">
-                        {messageContents.get(activePlaylist.messageId)?.length || 0} conteúdos
-                      </p>
-                    </div>
-                    
-                    <ScrollArea className="flex-1">
-                      <div className="p-2 space-y-2">
-                        {messageContents.get(activePlaylist.messageId)?.map((content, idx) => (
-                          <button
-                            key={content.id}
-                            onClick={() => {
-                              setActivePlaylist({ ...activePlaylist, currentIndex: idx });
-                              handlePlayContent(content.id);
-                            }}
-                            className={`w-full text-left p-3 rounded-lg transition-all ${
-                              idx === activePlaylist.currentIndex
-                                ? 'bg-primary text-primary-foreground'
-                                : 'bg-muted hover:bg-muted/80'
-                            }`}
-                          >
-                            <div className="flex items-start gap-2">
-                              <span className={`text-xs font-semibold mt-1 ${
-                                idx === activePlaylist.currentIndex ? 'text-primary-foreground' : 'text-muted-foreground'
-                              }`}>
-                                {idx + 1}
-                              </span>
-                              <div className="flex-1 min-w-0">
-                                <p className={`text-sm font-medium line-clamp-2 ${
-                                  idx === activePlaylist.currentIndex ? 'text-primary-foreground' : 'text-foreground'
-                                }`}>
-                                  {content.title}
-                                </p>
-                                {content.description && (
-                                  <p className={`text-xs mt-1 line-clamp-1 ${
-                                    idx === activePlaylist.currentIndex ? 'text-primary-foreground/80' : 'text-muted-foreground'
-                                  }`}>
-                                    {content.description}
-                                  </p>
-                                )}
-                              </div>
-                            </div>
-                          </button>
-                        ))}
-                      </div>
-                    </ScrollArea>
+              <div className="flex-shrink-0 w-[240px] min-w-[200px] max-w-[300px] h-full flex flex-col bg-card border-l border-border">
+                <div className="p-3 border-b border-border flex-shrink-0">
+                  <div className="flex items-center justify-between">
+                    <h3 className="font-semibold text-sm">Playlist</h3>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => setActivePlaylist(null)}
+                      className="h-8 w-8"
+                    >
+                      <X className="h-4 w-4" />
+                    </Button>
                   </div>
-                </ResizablePanel>
-              </>
+                  <p className="text-xs text-muted-foreground">
+                    {messageContents.get(activePlaylist.messageId)?.length || 0} conteúdos
+                  </p>
+                </div>
+                
+                <ScrollArea className="flex-1">
+                  <div className="p-2 space-y-2">
+                    {messageContents.get(activePlaylist.messageId)?.map((content, idx) => (
+                      <button
+                        key={content.id}
+                        onClick={() => {
+                          setActivePlaylist({ ...activePlaylist, currentIndex: idx });
+                          handlePlayContent(content.id);
+                        }}
+                        className={`w-full text-left p-3 rounded-lg transition-all ${
+                          idx === activePlaylist.currentIndex
+                            ? 'bg-primary text-primary-foreground'
+                            : 'bg-muted hover:bg-muted/80'
+                        }`}
+                      >
+                        <div className="flex items-start gap-2">
+                          <span className={`text-xs font-semibold mt-1 ${
+                            idx === activePlaylist.currentIndex ? 'text-primary-foreground' : 'text-muted-foreground'
+                          }`}>
+                            {idx + 1}
+                          </span>
+                          <div className="flex-1 min-w-0">
+                            <p className={`text-sm font-medium line-clamp-2 ${
+                              idx === activePlaylist.currentIndex ? 'text-primary-foreground' : 'text-foreground'
+                            }`}>
+                              {content.title}
+                            </p>
+                            {content.description && (
+                              <p className={`text-xs mt-1 line-clamp-1 ${
+                                idx === activePlaylist.currentIndex ? 'text-primary-foreground/80' : 'text-muted-foreground'
+                              }`}>
+                                {content.description}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                </ScrollArea>
+              </div>
             )}
           </>
         )}
 
-        {/* Right Panel - Chat - Fixed size based on context */}
-        <ResizablePanel 
-          defaultSize={miniPlayerActive ? 100 : (activeContent ? (activePlaylist ? 30 : 45) : 100)} 
-          minSize={30}
-        >
+        {/* Right Panel - Chat - Takes remaining space */}
+        <div className={`flex-1 min-w-[320px] flex flex-col ${activeContent && !miniPlayerActive ? 'border-l border-border' : ''}`}>
           <div className="flex flex-col h-full">
             {/* Chat Messages */}
             <ScrollArea className="flex-1 px-6" ref={scrollRef}>
@@ -2102,8 +2095,8 @@ function StudyContent() {
               </div>
             </div>
           </div>
-        </ResizablePanel>
-      </ResizablePanelGroup>
+        </div>
+      </div>
 
       {/* Tool Panels - Sheets */}
       {renderToolSheets()}
