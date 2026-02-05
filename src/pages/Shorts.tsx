@@ -2,9 +2,6 @@ import { useParams, useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { useRewardSystem } from "@/hooks/useRewardSystem";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { Button } from "@/components/ui/button";
-import { Heart, MessageCircle, Share2, MoreVertical, Volume2, VolumeX, ChevronUp, ChevronDown, Bookmark } from "lucide-react";
 import { useState, useEffect, useRef } from "react";
 import { toast } from "sonner";
 import { UpgradeModal } from "@/components/UpgradeModal";
@@ -12,9 +9,9 @@ import { PurchaseModal } from "@/components/PurchaseModal";
 import { SidebarProvider } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/AppSidebar";
 import { Header } from "@/components/Header";
-import { FeaturedBadge } from "@/components/FeaturedBadge";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { MobileShortsView } from "@/components/shorts/MobileShortsView";
+import { DesktopShortsView } from "@/components/shorts/DesktopShortsView";
 
 interface ShortContent {
   id: string;
@@ -673,200 +670,38 @@ export default function Shorts() {
     );
   }
 
-  // Desktop view (existing layout)
+  // Desktop view - YouTube-style premium layout
   return (
     <>
       <SidebarProvider defaultOpen={true}>
         <div className="min-h-screen flex w-full bg-background">
-          {/* Sidebar */}
           <AppSidebar />
-
-          {/* Main content */}
           <div className="flex-1 flex flex-col">
             <Header variant="home" />
-
-            <main className="flex-1 flex items-center justify-center px-4 py-6" onWheel={handleWheel}>
-              <div className="flex w-full max-w-6xl gap-6 items-center justify-center">
-                {/* Video column */}
-                <div className="flex-1 flex items-center justify-center">
-                  <div className="relative w-full max-w-[380px] md:max-w-[420px] aspect-[9/16] rounded-2xl overflow-hidden bg-black">
-                    <video
-                      ref={(el) => (videoRefs.current[currentIndex] = el)}
-                      src={currentShort.video_url || currentShort.file_url || ""}
-                      className="w-full h-full object-cover"
-                      loop
-                      playsInline
-                      muted={isMuted}
-                      onTimeUpdate={handleTimeUpdate}
-                      onClick={() => {
-                        const video = videoRefs.current[currentIndex];
-                        if (video) {
-                          if (video.paused) {
-                            video.play();
-                          } else {
-                            video.pause();
-                          }
-                        }
-                      }}
-                    />
-
-                    {/* Access overlay */}
-                    {!hasAccess && (
-                      <div className="absolute inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-20">
-                        <div className="text-center px-6">
-                          <h3 className="text-xl font-bold text-white mb-2">Conteúdo Bloqueado</h3>
-                          <p className="text-gray-300 mb-4">
-                            {currentShort.visibility === "paid"
-                              ? `Este short custa R$ ${currentShort.price?.toFixed(2)}`
-                              : `Assine o plano ${currentShort.visibility === "pro" ? "Pro" : "Premium"} para acessar`}
-                          </p>
-                          <Button onClick={handleAccessBlocked}>
-                            {currentShort.visibility === "paid" ? "Comprar Agora" : "Assinar"}
-                          </Button>
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Navigation arrows */}
-                    <div className="absolute inset-y-0 left-0 right-0 flex items-center justify-between px-3 pointer-events-none">
-                      {currentIndex > 0 && (
-                        <button
-                          onClick={handlePrevious}
-                          className="pointer-events-auto bg-black/50 text-white p-2 rounded-full hover:bg-black/70 transition-colors"
-                        >
-                          <ChevronUp className="w-5 h-5" />
-                        </button>
-                      )}
-                      {currentIndex < shorts.length - 1 && (
-                        <button
-                          onClick={handleNext}
-                          className="pointer-events-auto bg-black/50 text-white p-2 rounded-full hover:bg-black/70 transition-colors"
-                        >
-                          <ChevronDown className="w-5 h-5" />
-                        </button>
-                      )}
-                    </div>
-
-                    {/* Bottom info */}
-                    {hasAccess && (
-                      <div className="absolute left-4 bottom-4 right-24 z-10">
-                        <div className="flex items-center gap-3 mb-3">
-                          <Avatar className="w-10 h-10 border-2 border-white">
-                            <AvatarImage src={currentShort.creator.avatar_url || ""} />
-                            <AvatarFallback className="bg-primary text-primary-foreground">
-                              {currentShort.creator.display_name[0]}
-                            </AvatarFallback>
-                          </Avatar>
-                          <div className="flex-1">
-                            <p className="text-white font-semibold text-sm flex items-center gap-1">
-                              @{currentShort.creator.creator_channel_name || currentShort.creator.display_name}
-                              <FeaturedBadge creatorId={currentShort.creator.id} size="sm" className="text-blue-400" />
-                            </p>
-                          </div>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={handleFollow}
-                            className={isFollowing 
-                              ? "bg-muted/50 backdrop-blur-sm border-muted text-foreground hover:bg-muted/70" 
-                              : "bg-white/10 backdrop-blur-sm border-white text-white hover:bg-white/20"
-                            }
-                          >
-                            {isFollowing ? "Seguindo" : "Seguir"}
-                          </Button>
-                        </div>
-
-                        <div className="text-white">
-                          <h2 className="font-bold text-base mb-1">{currentShort.title}</h2>
-                          {currentShort.description && (
-                            <p className="text-sm text-white/90 line-clamp-2">{currentShort.description}</p>
-                          )}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                {/* Side actions */}
-                {hasAccess && (
-                  <div className="flex flex-col gap-6 items-center justify-center">
-                    {/* Arrows outside video */}
-                    <div className="flex flex-col gap-3 items-center">
-                      <button
-                        onClick={handlePrevious}
-                        disabled={currentIndex === 0}
-                        className="bg-black/30 backdrop-blur-sm p-2 rounded-full disabled:opacity-40 hover:bg-black/50 transition-colors"
-                      >
-                        <ChevronUp className="w-6 h-6 text-white" />
-                      </button>
-                      <button
-                        onClick={handleNext}
-                        disabled={currentIndex === shorts.length - 1}
-                        className="bg-black/30 backdrop-blur-sm p-2 rounded-full disabled:opacity-40 hover:bg-black/50 transition-colors"
-                      >
-                        <ChevronDown className="w-6 h-6 text-white" />
-                      </button>
-                    </div>
-
-                    {/* Like */}
-                    <button onClick={handleLike} className="flex flex-col items-center gap-1">
-                      <div className="bg-black/30 backdrop-blur-sm p-3 rounded-full">
-                        <Heart
-                          className={`w-7 h-7 ${isLiked ? "fill-red-500 text-red-500" : "text-white"}`}
-                        />
-                      </div>
-                      <span className="text-sm font-medium text-foreground">
-                        {localLikesCount > 999 ? `${(localLikesCount / 1000).toFixed(1)}k` : localLikesCount}
-                      </span>
-                    </button>
-
-                    {/* Comment */}
-                    <button className="flex flex-col items-center gap-1">
-                      <div className="bg-black/30 backdrop-blur-sm p-3 rounded-full">
-                        <MessageCircle className="w-7 h-7 text-white" />
-                      </div>
-                      <span className="text-sm font-medium text-foreground">{commentsCount}</span>
-                    </button>
-
-                    {/* Save */}
-                    <button onClick={handleSave} className="flex flex-col items-center gap-1">
-                      <div className="bg-black/30 backdrop-blur-sm p-3 rounded-full">
-                        <Bookmark
-                          className={`w-7 h-7 ${isSaved ? "fill-white text-white" : "text-white"}`}
-                        />
-                      </div>
-                    </button>
-
-                    {/* Share */}
-                    <button onClick={handleShare} className="flex flex-col items-center gap-1">
-                      <div className="bg-black/30 backdrop-blur-sm p-3 rounded-full">
-                        <Share2 className="w-7 h-7 text-white" />
-                      </div>
-                    </button>
-
-                    {/* Mute */}
-                    <button
-                      onClick={() => setIsMuted(!isMuted)}
-                      className="flex flex-col items-center gap-1"
-                    >
-                      <div className="bg-black/30 backdrop-blur-sm p-3 rounded-full">
-                        {isMuted ? (
-                          <VolumeX className="w-7 h-7 text-white" />
-                        ) : (
-                          <Volume2 className="w-7 h-7 text-white" />
-                        )}
-                      </div>
-                    </button>
-
-                    {/* More */}
-                    <button className="flex flex-col items-center gap-1">
-                      <div className="bg-black/30 backdrop-blur-sm p-3 rounded-full">
-                        <MoreVertical className="w-7 h-7 text-white" />
-                      </div>
-                    </button>
-                  </div>
-                )}
-              </div>
+            <main 
+              className="flex-1 flex items-center justify-center px-4 py-6" 
+              onWheel={handleWheel}
+            >
+              <DesktopShortsView
+                shorts={shorts}
+                currentIndex={currentIndex}
+                hasAccess={hasAccess}
+                isMuted={isMuted}
+                onToggleMute={() => setIsMuted(!isMuted)}
+                isLiked={isLiked}
+                onLike={handleLike}
+                isSaved={isSaved}
+                onSave={handleSave}
+                isFollowing={isFollowing}
+                onFollow={handleFollow}
+                onShare={handleShare}
+                onPrevious={handlePrevious}
+                onNext={handleNext}
+                localLikesCount={localLikesCount}
+                commentsCount={commentsCount}
+                onTimeUpdate={handleTimeUpdate}
+                onAccessBlocked={handleAccessBlocked}
+              />
             </main>
           </div>
         </div>
