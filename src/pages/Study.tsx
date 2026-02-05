@@ -1853,7 +1853,6 @@ function StudyContent() {
                 </div>
               </ScrollArea>
             </ResizablePanel>
-            <ResizableHandle withHandle />
 
             {/* Active Playlist Panel */}
             {activePlaylist && (
@@ -1919,16 +1918,15 @@ function StudyContent() {
                     </ScrollArea>
                   </div>
                 </ResizablePanel>
-                <ResizableHandle withHandle />
               </>
             )}
           </>
         )}
 
-        {/* Right Panel - Chat */}
+        {/* Right Panel - Chat - Fixed size based on context */}
         <ResizablePanel 
-          defaultSize={miniPlayerActive ? 100 : (activeContent ? (activePlaylist ? 25 : 40) : 100)} 
-          minSize={20}
+          defaultSize={miniPlayerActive ? 100 : (activeContent ? (activePlaylist ? 30 : 45) : 100)} 
+          minSize={30}
         >
           <div className="flex flex-col h-full">
             {/* Chat Messages */}
@@ -1956,73 +1954,49 @@ function StudyContent() {
                         />
                       </div>
                       
-                      {/* Render content cards if available */}
+                      {/* Render content cards if available - Always carousel for responsive behavior */}
                       {message.role === "assistant" && messageContents.has(message.id) && (
                         <div className="space-y-4 w-full">
-                          {messageContents.get(message.id)!.length >= 4 ? (
-                            /* Carousel for 4+ cards */
-                            <div className="relative">
-                              <Carousel
-                                opts={{
-                                  align: "start",
-                                  loop: false,
-                                }}
-                                className="w-full"
-                              >
-                                <CarouselContent className="-ml-4">
-                                  {messageContents.get(message.id)?.map((content: any) => (
-                                    <CarouselItem key={content.id} className="pl-4 basis-1/3">
-                                      <ChatContentCard
-                                        id={content.id}
-                                        title={content.title}
-                                        description={content.description}
-                                        thumbnail_url={content.thumbnail_url}
-                                        content_type={content.content_type}
-                                        duration_minutes={content.duration_minutes}
-                                        required_plan={content.required_plan}
-                                        visibility={content.visibility}
-                                        price={content.price}
-                                        is_free={content.is_free}
-                                        relevanceScore={content.relevanceScore}
-                                        onPlay={handlePlayContent}
-                                      />
-                                    </CarouselItem>
-                                  ))}
-                                </CarouselContent>
-                                <CarouselPrevious className="absolute -left-4 top-1/2 -translate-y-1/2" />
-                                <CarouselNext className="absolute -right-4 top-1/2 -translate-y-1/2" />
-                              </Carousel>
-                            </div>
-                          ) : (
-                            /* Grid for 1-3 cards */
-                            <div 
-                              className={`grid gap-3 w-full ${
-                                messageContents.get(message.id)!.length === 1 
-                                  ? 'grid-cols-1' 
-                                  : messageContents.get(message.id)!.length === 2 
-                                  ? 'grid-cols-2' 
-                                  : 'grid-cols-3'
-                              }`}
+                          <div className="relative">
+                            <Carousel
+                              opts={{
+                                align: "start",
+                                loop: false,
+                              }}
+                              className="w-full"
                             >
-                              {messageContents.get(message.id)?.map((content: any) => (
-                                <ChatContentCard
-                                  key={content.id}
-                                  id={content.id}
-                                  title={content.title}
-                                  description={content.description}
-                                  thumbnail_url={content.thumbnail_url}
-                                  content_type={content.content_type}
-                                  duration_minutes={content.duration_minutes}
-                                  required_plan={content.required_plan}
-                                  visibility={content.visibility}
-                                  price={content.price}
-                                  is_free={content.is_free}
-                                  relevanceScore={content.relevanceScore}
-                                  onPlay={handlePlayContent}
-                                />
-                              ))}
-                            </div>
-                          )}
+                              <CarouselContent className="-ml-2">
+                                {messageContents.get(message.id)?.map((content: any) => (
+                                  <CarouselItem 
+                                    key={content.id} 
+                                    className="pl-2 basis-[280px] max-w-[280px]"
+                                  >
+                                    <ChatContentCard
+                                      id={content.id}
+                                      title={content.title}
+                                      description={content.description}
+                                      thumbnail_url={content.thumbnail_url}
+                                      content_type={content.content_type}
+                                      duration_minutes={content.duration_minutes}
+                                      required_plan={content.required_plan}
+                                      visibility={content.visibility}
+                                      price={content.price}
+                                      is_free={content.is_free}
+                                      relevanceScore={content.relevanceScore}
+                                      onPlay={handlePlayContent}
+                                      compact
+                                    />
+                                  </CarouselItem>
+                                ))}
+                              </CarouselContent>
+                              {(messageContents.get(message.id)?.length ?? 0) > 1 && (
+                                <>
+                                  <CarouselPrevious className="absolute -left-3 top-1/2 -translate-y-1/2 h-8 w-8 bg-background/80 backdrop-blur-sm border-border" />
+                                  <CarouselNext className="absolute -right-3 top-1/2 -translate-y-1/2 h-8 w-8 bg-background/80 backdrop-blur-sm border-border" />
+                                </>
+                              )}
+                            </Carousel>
+                          </div>
                           {messageContents.get(message.id) && messageContents.get(message.id)!.length > 1 && (
                             <div className="flex gap-2 justify-start pt-3 mt-1 border-t border-border/30">
                               {savedPlaylists.has(message.id) ? (
