@@ -3,16 +3,16 @@ import { useParams, useNavigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
 import { toast } from "sonner";
-import { Radio, Users, Gift, PhoneOff, Loader2 } from "lucide-react";
-import { useState, useRef } from "react";
+import { Users, Gift, PhoneOff, Loader2, MessageCircle, X } from "lucide-react";
+import { useState } from "react";
 import { useMediaDevices } from "@/hooks/useMediaDevices";
 import { useLiveChat } from "@/hooks/useLiveChat";
 import { useLiveViewers } from "@/hooks/useLiveViewers";
 import { CameraPreview } from "@/components/live/CameraPreview";
 import { LiveChat } from "@/components/live/LiveChat";
 import { cn } from "@/lib/utils";
+import { motion, AnimatePresence } from "framer-motion";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -44,6 +44,7 @@ export default function LiveBroadcast() {
   const [isLoading, setIsLoading] = useState(true);
   const [isEnding, setIsEnding] = useState(false);
   const [showEndDialog, setShowEndDialog] = useState(false);
+  const [showChat, setShowChat] = useState(false);
   const [duration, setDuration] = useState(0);
 
   const {
@@ -148,62 +149,85 @@ export default function LiveBroadcast() {
     }
   };
 
+  // Count unread messages (simple approximation - messages received while chat is closed)
+  const unreadCount = !showChat ? messages.length : 0;
+
   if (isLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-black">
+      <div className="h-screen w-screen flex items-center justify-center bg-black">
         <Loader2 className="w-8 h-8 animate-spin text-white" />
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-black text-white flex">
-      {/* Main Video Area */}
-      <div className="flex-1 flex flex-col">
-        {/* Top Bar */}
-        <div className="flex items-center justify-between p-4 bg-black/80">
-          <div className="flex items-center gap-4">
-            <div className="flex items-center gap-2 px-3 py-1.5 bg-destructive rounded-full">
-              <span className="w-2 h-2 bg-white rounded-full animate-pulse" />
-              <span className="text-sm font-medium">AO VIVO</span>
-            </div>
-            <span className="text-sm text-muted-foreground">{formatDuration(duration)}</span>
-          </div>
+    <div className="h-screen w-screen overflow-hidden bg-black text-white relative">
+      {/* Fullscreen Video */}
+      <div className="absolute inset-0">
+        <CameraPreview
+          stream={stream}
+          isCameraOn={isCameraOn}
+          isMicOn={isMicOn}
+          audioLevel={audioLevel}
+          cameras={cameras}
+          microphones={microphones}
+          selectedCamera={selectedCamera}
+          selectedMicrophone={selectedMicrophone}
+          onToggleCamera={toggleCamera}
+          onToggleMic={toggleMic}
+          onFlipCamera={flipCamera}
+          onSelectCamera={selectCamera}
+          onSelectMicrophone={selectMicrophone}
+          size="full"
+          className="w-full h-full"
+        />
+      </div>
 
-          <div className="flex items-center gap-4">
-            <div className="flex items-center gap-2 text-sm">
-              <Users className="w-4 h-4" />
-              <span>{viewerCount}</span>
-            </div>
-            <div className="flex items-center gap-2 text-sm text-yellow-500">
-              <Gift className="w-4 h-4" />
-              <span>R$ {(live?.total_gifts_value || 0).toFixed(2)}</span>
-            </div>
+      {/* Top Bar Overlay */}
+      <div className="absolute top-0 left-0 right-0 z-10 flex items-center justify-between p-4 bg-gradient-to-b from-black/70 to-transparent">
+        <div className="flex items-center gap-4">
+          <div className="flex items-center gap-2 px-3 py-1.5 bg-destructive rounded-full">
+            <span className="w-2 h-2 bg-white rounded-full animate-pulse" />
+            <span className="text-sm font-medium">AO VIVO</span>
           </div>
+          <span className="text-sm text-white/80">{formatDuration(duration)}</span>
         </div>
 
-        {/* Video */}
-        <div className="flex-1 relative">
-          <CameraPreview
-            stream={stream}
-            isCameraOn={isCameraOn}
-            isMicOn={isMicOn}
-            audioLevel={audioLevel}
-            cameras={cameras}
-            microphones={microphones}
-            selectedCamera={selectedCamera}
-            selectedMicrophone={selectedMicrophone}
-            onToggleCamera={toggleCamera}
-            onToggleMic={toggleMic}
-            onFlipCamera={flipCamera}
-            onSelectCamera={selectCamera}
-            onSelectMicrophone={selectMicrophone}
-            size="full"
-          />
+        <div className="flex items-center gap-4">
+          <div className="flex items-center gap-2 text-sm bg-black/40 px-3 py-1.5 rounded-full">
+            <Users className="w-4 h-4" />
+            <span>{viewerCount}</span>
+          </div>
+          <div className="flex items-center gap-2 text-sm text-yellow-500 bg-black/40 px-3 py-1.5 rounded-full">
+            <Gift className="w-4 h-4" />
+            <span>R$ {(live?.total_gifts_value || 0).toFixed(2)}</span>
+          </div>
         </div>
+      </div>
 
-        {/* Bottom Controls */}
-        <div className="p-4 bg-black/80 flex items-center justify-center gap-4">
+      {/* Bottom Controls Overlay */}
+      <div className="absolute bottom-0 left-0 right-0 z-10 p-4 bg-gradient-to-t from-black/70 to-transparent">
+        <div className="flex items-center justify-center gap-4">
+          {/* Chat Toggle Button */}
+          <Button
+            variant="outline"
+            size="lg"
+            onClick={() => setShowChat(!showChat)}
+            className={cn(
+              "gap-2 bg-black/40 border-white/20 hover:bg-white/20 relative",
+              showChat && "bg-white/20"
+            )}
+          >
+            <MessageCircle className="w-5 h-5" />
+            Chat
+            {unreadCount > 0 && !showChat && (
+              <span className="absolute -top-1 -right-1 w-5 h-5 bg-accent text-accent-foreground text-xs rounded-full flex items-center justify-center">
+                {unreadCount > 9 ? "9+" : unreadCount}
+              </span>
+            )}
+          </Button>
+
+          {/* End Live Button */}
           <Button
             variant="destructive"
             size="lg"
@@ -216,27 +240,50 @@ export default function LiveBroadcast() {
         </div>
       </div>
 
-      {/* Chat Sidebar */}
-      <div className="w-80 border-l border-border flex flex-col bg-card">
-        <div className="p-3 border-b">
-          <h3 className="font-semibold">{live?.title}</h3>
-          <p className="text-xs text-muted-foreground">Pico: {peakViewers} espectadores</p>
-        </div>
-        <div className="flex-1">
-          <LiveChat
-            messages={messages}
-            pinnedMessage={pinnedMessage}
-            isLoading={chatLoading}
-            isSending={isSending}
-            onSendMessage={sendMessage}
-            onDeleteMessage={deleteMessage}
-            onPinMessage={pinMessage}
-            onUnpinMessage={unpinMessage}
-            isCreator={true}
-            className="h-full"
-          />
-        </div>
-      </div>
+      {/* Chat Overlay Panel */}
+      <AnimatePresence>
+        {showChat && (
+          <motion.div
+            initial={{ x: "100%", opacity: 0 }}
+            animate={{ x: 0, opacity: 1 }}
+            exit={{ x: "100%", opacity: 0 }}
+            transition={{ type: "spring", damping: 25, stiffness: 300 }}
+            className="absolute top-0 right-0 bottom-0 w-80 z-20 flex flex-col bg-card/95 backdrop-blur-lg border-l border-border"
+          >
+            {/* Chat Header */}
+            <div className="flex items-center justify-between p-3 border-b">
+              <div>
+                <h3 className="font-semibold text-sm">{live?.title}</h3>
+                <p className="text-xs text-muted-foreground">Pico: {peakViewers} espectadores</p>
+              </div>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => setShowChat(false)}
+                className="h-8 w-8"
+              >
+                <X className="w-4 h-4" />
+              </Button>
+            </div>
+
+            {/* Chat Content */}
+            <div className="flex-1 overflow-hidden">
+              <LiveChat
+                messages={messages}
+                pinnedMessage={pinnedMessage}
+                isLoading={chatLoading}
+                isSending={isSending}
+                onSendMessage={sendMessage}
+                onDeleteMessage={deleteMessage}
+                onPinMessage={pinMessage}
+                onUnpinMessage={unpinMessage}
+                isCreator={true}
+                className="h-full"
+              />
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* End Live Dialog */}
       <AlertDialog open={showEndDialog} onOpenChange={setShowEndDialog}>
