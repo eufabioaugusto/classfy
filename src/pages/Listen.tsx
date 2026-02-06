@@ -17,7 +17,7 @@ import { PurchaseModal } from "@/components/PurchaseModal";
 
 interface Content {
   id: string;
-  content_type: "aula" | "short" | "podcast";
+  content_type: "aula" | "short" | "podcast" | "live";
   title: string;
   description: string | null;
   file_url: string;

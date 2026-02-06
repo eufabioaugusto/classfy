@@ -48,7 +48,7 @@ import {
 
 interface Content {
   id: string;
-  content_type: "aula" | "short" | "podcast" | "curso";
+  content_type: "aula" | "short" | "podcast" | "curso" | "live";
   title: string;
   description: string | null;
   file_url: string;

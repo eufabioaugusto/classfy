@@ -1276,6 +1276,290 @@ export type Database = {
           },
         ]
       }
+      live_gift_transactions: {
+        Row: {
+          amount: number
+          created_at: string
+          creator_id: string
+          creator_share: number
+          gift_id: string
+          id: string
+          live_id: string
+          platform_share: number
+          sender_id: string
+          status: string | null
+          stripe_payment_id: string | null
+        }
+        Insert: {
+          amount: number
+          created_at?: string
+          creator_id: string
+          creator_share: number
+          gift_id: string
+          id?: string
+          live_id: string
+          platform_share: number
+          sender_id: string
+          status?: string | null
+          stripe_payment_id?: string | null
+        }
+        Update: {
+          amount?: number
+          created_at?: string
+          creator_id?: string
+          creator_share?: number
+          gift_id?: string
+          id?: string
+          live_id?: string
+          platform_share?: number
+          sender_id?: string
+          status?: string | null
+          stripe_payment_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "live_gift_transactions_creator_id_fkey"
+            columns: ["creator_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "live_gift_transactions_gift_id_fkey"
+            columns: ["gift_id"]
+            isOneToOne: false
+            referencedRelation: "live_gifts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "live_gift_transactions_live_id_fkey"
+            columns: ["live_id"]
+            isOneToOne: false
+            referencedRelation: "lives"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "live_gift_transactions_sender_id_fkey"
+            columns: ["sender_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      live_gifts: {
+        Row: {
+          active: boolean | null
+          animation_type: string | null
+          color: string | null
+          created_at: string
+          icon: string
+          id: string
+          name: string
+          order_index: number | null
+          price: number
+        }
+        Insert: {
+          active?: boolean | null
+          animation_type?: string | null
+          color?: string | null
+          created_at?: string
+          icon: string
+          id?: string
+          name: string
+          order_index?: number | null
+          price: number
+        }
+        Update: {
+          active?: boolean | null
+          animation_type?: string | null
+          color?: string | null
+          created_at?: string
+          icon?: string
+          id?: string
+          name?: string
+          order_index?: number | null
+          price?: number
+        }
+        Relationships: []
+      }
+      live_messages: {
+        Row: {
+          content: string
+          created_at: string
+          gift_id: string | null
+          id: string
+          is_pinned: boolean | null
+          live_id: string
+          type: Database["public"]["Enums"]["live_message_type"]
+          user_id: string
+        }
+        Insert: {
+          content: string
+          created_at?: string
+          gift_id?: string | null
+          id?: string
+          is_pinned?: boolean | null
+          live_id: string
+          type?: Database["public"]["Enums"]["live_message_type"]
+          user_id: string
+        }
+        Update: {
+          content?: string
+          created_at?: string
+          gift_id?: string | null
+          id?: string
+          is_pinned?: boolean | null
+          live_id?: string
+          type?: Database["public"]["Enums"]["live_message_type"]
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "live_messages_gift_id_fkey"
+            columns: ["gift_id"]
+            isOneToOne: false
+            referencedRelation: "live_gifts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "live_messages_live_id_fkey"
+            columns: ["live_id"]
+            isOneToOne: false
+            referencedRelation: "lives"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "live_messages_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      live_viewers: {
+        Row: {
+          id: string
+          is_active: boolean | null
+          joined_at: string
+          left_at: string | null
+          live_id: string
+          user_id: string
+        }
+        Insert: {
+          id?: string
+          is_active?: boolean | null
+          joined_at?: string
+          left_at?: string | null
+          live_id: string
+          user_id: string
+        }
+        Update: {
+          id?: string
+          is_active?: boolean | null
+          joined_at?: string
+          left_at?: string | null
+          live_id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "live_viewers_live_id_fkey"
+            columns: ["live_id"]
+            isOneToOne: false
+            referencedRelation: "lives"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "live_viewers_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      lives: {
+        Row: {
+          chat_enabled: boolean | null
+          created_at: string
+          creator_id: string
+          description: string | null
+          ended_at: string | null
+          gifts_enabled: boolean | null
+          id: string
+          peak_viewers: number | null
+          playback_url: string | null
+          price: number | null
+          recording_url: string | null
+          scheduled_for: string | null
+          started_at: string | null
+          status: Database["public"]["Enums"]["live_status"]
+          stream_key: string | null
+          thumbnail_url: string | null
+          title: string
+          total_gifts_value: number | null
+          updated_at: string
+          viewer_count: number | null
+          visibility: Database["public"]["Enums"]["content_visibility"]
+        }
+        Insert: {
+          chat_enabled?: boolean | null
+          created_at?: string
+          creator_id: string
+          description?: string | null
+          ended_at?: string | null
+          gifts_enabled?: boolean | null
+          id?: string
+          peak_viewers?: number | null
+          playback_url?: string | null
+          price?: number | null
+          recording_url?: string | null
+          scheduled_for?: string | null
+          started_at?: string | null
+          status?: Database["public"]["Enums"]["live_status"]
+          stream_key?: string | null
+          thumbnail_url?: string | null
+          title: string
+          total_gifts_value?: number | null
+          updated_at?: string
+          viewer_count?: number | null
+          visibility?: Database["public"]["Enums"]["content_visibility"]
+        }
+        Update: {
+          chat_enabled?: boolean | null
+          created_at?: string
+          creator_id?: string
+          description?: string | null
+          ended_at?: string | null
+          gifts_enabled?: boolean | null
+          id?: string
+          peak_viewers?: number | null
+          playback_url?: string | null
+          price?: number | null
+          recording_url?: string | null
+          scheduled_for?: string | null
+          started_at?: string | null
+          status?: Database["public"]["Enums"]["live_status"]
+          stream_key?: string | null
+          thumbnail_url?: string | null
+          title?: string
+          total_gifts_value?: number | null
+          updated_at?: string
+          viewer_count?: number | null
+          visibility?: Database["public"]["Enums"]["content_visibility"]
+        }
+        Relationships: [
+          {
+            foreignKeyName: "lives_creator_id_fkey"
+            columns: ["creator_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       message_settings: {
         Row: {
           created_at: string
@@ -2634,9 +2918,11 @@ export type Database = {
         | "paused"
         | "completed"
         | "cancelled"
-      content_type: "aula" | "short" | "podcast"
+      content_type: "aula" | "short" | "podcast" | "live"
       content_visibility: "free" | "pro" | "premium" | "paid"
       creator_status: "none" | "pending" | "approved" | "rejected"
+      live_message_type: "text" | "gift" | "system" | "pinned"
+      live_status: "scheduled" | "waiting" | "live" | "ended" | "cancelled"
       plan_type: "free" | "pro" | "premium"
       withdraw_status: "pending" | "approved" | "rejected"
     }
@@ -2786,9 +3072,11 @@ export const Constants = {
         "completed",
         "cancelled",
       ],
-      content_type: ["aula", "short", "podcast"],
+      content_type: ["aula", "short", "podcast", "live"],
       content_visibility: ["free", "pro", "premium", "paid"],
       creator_status: ["none", "pending", "approved", "rejected"],
+      live_message_type: ["text", "gift", "system", "pinned"],
+      live_status: ["scheduled", "waiting", "live", "ended", "cancelled"],
       plan_type: ["free", "pro", "premium"],
       withdraw_status: ["pending", "approved", "rejected"],
     },

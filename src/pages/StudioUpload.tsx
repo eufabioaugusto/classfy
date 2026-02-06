@@ -34,10 +34,14 @@ export default function StudioUpload() {
   
   useEffect(() => {
     const type = searchParams.get('type') as ContentType;
-    if (type && ["aula", "short", "podcast", "curso", "live"].includes(type)) {
+    if (type === 'live') {
+      navigate('/studio/live');
+      return;
+    }
+    if (type && ["aula", "short", "podcast", "curso"].includes(type)) {
       setContentType(type);
     }
-  }, [searchParams]);
+  }, [searchParams, navigate]);
   
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
