@@ -1705,14 +1705,14 @@ function StudyContent() {
         {/* Left Panel - Video Player (when active and not minimized) */}
         {activeContent && !miniPlayerActive && (
           <>
-            {/* Video Panel: 70% when sidebar closed, ~60% when sidebar open (sidebar takes ~16rem/256px) */}
+            {/* Video Panel: flex-[7] = 70% of available space, reduced when playlist open */}
             <div 
-              className="flex-shrink-0 overflow-hidden"
+              className="overflow-hidden"
               style={{ 
-                width: open ? 'calc(60% - 60px)' : '70%',
-                minWidth: '400px',
-                maxWidth: open ? '700px' : '900px',
-                transition: 'width 0.2s ease-out, max-width 0.2s ease-out'
+                flex: activePlaylist ? '5 1 0%' : '7 1 0%',
+                minWidth: '350px',
+                maxWidth: '900px',
+                transition: 'flex 0.2s ease-out'
               }}
             >
               <ScrollArea className="h-full">
@@ -1863,11 +1863,15 @@ function StudyContent() {
               </ScrollArea>
             </div>
 
-            {/* Active Playlist Panel */}
+            {/* Active Playlist Panel - fixed width, shrinks when sidebar open */}
             {activePlaylist && (
               <div 
                 className="flex-shrink-0 h-full flex flex-col bg-card border-l border-border"
-                style={{ width: open ? '180px' : '220px', minWidth: '160px', maxWidth: '260px' }}
+                style={{ 
+                  width: '200px',
+                  minWidth: '160px',
+                  transition: 'width 0.2s ease-out'
+                }}
               >
                 <div className="p-3 border-b border-border flex-shrink-0">
                   <div className="flex items-center justify-between">
@@ -1931,12 +1935,13 @@ function StudyContent() {
           </>
         )}
 
-        {/* Right Panel - Chat - Takes remaining space with min-width based on sidebar */}
+        {/* Right Panel - Chat - flex-[3] = 30% of space, adapts to remaining */}
         <div 
-          className={`flex-1 flex flex-col overflow-hidden ${activeContent && !miniPlayerActive ? 'border-l border-border' : ''}`}
+          className={`flex flex-col overflow-hidden ${activeContent && !miniPlayerActive ? 'border-l border-border' : ''}`}
           style={{ 
-            minWidth: activeContent && !miniPlayerActive ? (open ? '280px' : '30%') : '100%',
-            transition: 'min-width 0.2s ease-out'
+            flex: activeContent && !miniPlayerActive ? '3 1 0%' : '1 1 0%',
+            minWidth: activeContent && !miniPlayerActive ? '300px' : '100%',
+            transition: 'flex 0.2s ease-out'
           }}
         >
           <div className="flex flex-col h-full overflow-hidden">
