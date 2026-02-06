@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { Navigate, useNavigate, useSearchParams } from "react-router-dom";
-import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
+import { SidebarProvider } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/AppSidebar";
 import { Header } from "@/components/Header";
 import { Button } from "@/components/ui/button";
@@ -12,15 +12,31 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Card } from "@/components/ui/card";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
-import { Upload, Video, Music, Film, BookOpen, Radio, Trash2, ImagePlus, CheckCircle2, Loader2, Zap, ArrowDown } from "lucide-react";
+import { Upload, Video, Music, Film, BookOpen, Trash2, ImagePlus, Loader2, Zap, ArrowDown, Sparkles, Eye, Lock, Crown, DollarSign, CheckCircle2 } from "lucide-react";
 import { Progress } from "@/components/ui/progress";
 import { TagsInput } from "@/components/TagsInput";
 import { useVideoCompression } from "@/hooks/useVideoCompression";
 import { Badge } from "@/components/ui/badge";
+import { cn } from "@/lib/utils";
+import { motion, AnimatePresence } from "framer-motion";
 
-type ContentType = "aula" | "short" | "podcast" | "curso" | "live";
+type ContentType = "aula" | "short" | "podcast" | "curso";
 type Visibility = "free" | "pro" | "premium" | "paid";
 type UploadState = "idle" | "compressing" | "uploading" | "processing" | "complete";
+
+const contentTypes = [
+  { id: "aula" as const, label: "Aula", icon: Video, description: "Vídeo educacional completo" },
+  { id: "curso" as const, label: "Curso", icon: BookOpen, description: "Série de aulas estruturada" },
+  { id: "podcast" as const, label: "Podcast", icon: Music, description: "Conteúdo em áudio" },
+  { id: "short" as const, label: "Short", icon: Film, description: "Vídeo curto de até 3 min" },
+];
+
+const visibilityOptions = [
+  { id: "free" as const, label: "Gratuito", icon: Eye, description: "Acessível para todos", color: "text-green-500" },
+  { id: "pro" as const, label: "PRO", icon: Sparkles, description: "Assinantes PRO", color: "text-blue-500" },
+  { id: "premium" as const, label: "Premium", icon: Crown, description: "Assinantes Premium", color: "text-yellow-500" },
+  { id: "paid" as const, label: "Pago", icon: DollarSign, description: "Venda avulsa", color: "text-accent" },
+];
 
 export default function StudioUpload() {
   const { user, role, profile, loading } = useAuth();
@@ -33,13 +49,13 @@ export default function StudioUpload() {
   const [contentType, setContentType] = useState<ContentType>("aula");
   
   useEffect(() => {
-    const type = searchParams.get('type') as ContentType;
+    const type = searchParams.get('type');
     if (type === 'live') {
       navigate('/studio/live');
       return;
     }
     if (type && ["aula", "short", "podcast", "curso"].includes(type)) {
-      setContentType(type);
+      setContentType(type as ContentType);
     }
   }, [searchParams, navigate]);
   
@@ -65,7 +81,6 @@ export default function StudioUpload() {
   const [originalFileSize, setOriginalFileSize] = useState<number>(0);
   const xhrRef = useRef<XMLHttpRequest | null>(null);
   
-  // Video compression hook
   const {
     isCompressing,
     isLoading: compressionLoading,
@@ -80,7 +95,6 @@ export default function StudioUpload() {
     reset: resetCompression,
   } = useVideoCompression();
   
-  // Load content data if editing
   useEffect(() => {
     if (editId && user) {
       loadContentForEdit();
@@ -126,7 +140,11 @@ export default function StudioUpload() {
   };
 
   if (loading) {
-    return <div className="min-h-screen flex items-center justify-center">Carregando...</div>;
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <Loader2 className="w-8 h-8 animate-spin text-accent" />
+      </div>
+    );
   }
 
   if (!user || (role !== 'creator' && role !== 'admin')) {
@@ -141,11 +159,13 @@ export default function StudioUpload() {
           <div className="flex-1 flex flex-col">
             <Header variant="studio" title="Publicar Conteúdo" />
             <main className="flex-1 p-6 md:p-12 flex items-center justify-center">
-              <Card className="p-8 text-center max-w-md">
-                <Upload className="w-12 h-12 mx-auto mb-4 text-muted-foreground" />
-                <h2 className="text-xl font-bold mb-2">Apenas Creators podem publicar conteúdos</h2>
+              <Card className="p-8 text-center max-w-md border-0 bg-gradient-to-b from-card to-card/50">
+                <div className="w-16 h-16 mx-auto mb-6 rounded-2xl bg-accent/10 flex items-center justify-center">
+                  <Lock className="w-8 h-8 text-accent" />
+                </div>
+                <h2 className="text-xl font-bold mb-2">Acesso Exclusivo para Creators</h2>
                 <p className="text-muted-foreground">
-                  Você precisa ser um Creator aprovado para publicar conteúdos na Classfy.
+                  Você precisa ser um Creator aprovado para publicar conteúdos.
                 </p>
               </Card>
             </main>
@@ -167,7 +187,6 @@ export default function StudioUpload() {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    // Create preview immediately using local blob URL
     const previewUrl = URL.createObjectURL(file);
     setFilePreview(previewUrl);
     setFileUploading(true);
@@ -175,7 +194,6 @@ export default function StudioUpload() {
     setOriginalFileSize(file.size);
     setFileSize(file.size);
 
-    // For duration validation on shorts
     if (contentType === "short") {
       const video = document.createElement("video");
       video.src = previewUrl;
@@ -192,7 +210,6 @@ export default function StudioUpload() {
       };
     }
 
-    // Extract duration for audio/video
     if (contentType === "podcast") {
       const audio = document.createElement("audio");
       audio.src = previewUrl;
@@ -201,7 +218,7 @@ export default function StudioUpload() {
       };
     }
 
-    if (contentType === "aula" || contentType === "curso" || contentType === "live") {
+    if (contentType === "aula" || contentType === "curso") {
       const video = document.createElement("video");
       video.src = previewUrl;
       video.onloadedmetadata = () => {
@@ -212,7 +229,6 @@ export default function StudioUpload() {
     try {
       let fileToUpload = file;
       
-      // Compress video files (not podcasts/audio)
       if (contentType !== "podcast") {
         setUploadState("compressing");
         
@@ -223,10 +239,8 @@ export default function StudioUpload() {
             maxHeight: 1080,
           });
           
-          // Update file size to compressed size
           setFileSize(fileToUpload.size);
           
-          // Update preview if file was compressed
           if (fileToUpload !== file) {
             URL.revokeObjectURL(previewUrl);
             const newPreviewUrl = URL.createObjectURL(fileToUpload);
@@ -234,23 +248,19 @@ export default function StudioUpload() {
           }
         } catch (compressionError) {
           console.warn('Compression failed, using original file:', compressionError);
-          // Continue with original file if compression fails
         }
       }
       
-      // Now upload the file
       setUploadState("uploading");
       setFileProgress(0);
       
       const fileExt = fileToUpload.name.split('.').pop();
       const fileName = `${user.id}/${Date.now()}.${fileExt}`;
 
-      // Get upload URL for tracking progress
       const { data: session } = await supabase.auth.getSession();
       const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
       const uploadUrl = `${supabaseUrl}/storage/v1/object/contents/${fileName}`;
 
-      // Use XMLHttpRequest for real progress tracking
       await new Promise<void>((resolve, reject) => {
         const xhr = new XMLHttpRequest();
         xhrRef.current = xhr;
@@ -279,23 +289,20 @@ export default function StudioUpload() {
         xhr.send(fileToUpload);
       });
 
-      // Show processing state briefly
       setUploadState("processing");
       
       const { data: { publicUrl } } = supabase.storage
         .from('contents')
         .getPublicUrl(fileName);
 
-      // Small delay to show processing state
       await new Promise(resolve => setTimeout(resolve, 500));
 
       setFileUrl(publicUrl);
       setUploadState("complete");
       setFileProgress(100);
       
-      // Show compression savings if applicable
       if (compressionRatio > 5) {
-        toast.success(`Arquivo enviado! Comprimido ${compressionRatio.toFixed(0)}% (${formatFileSize(originalFileSize)} → ${formatFileSize(fileSize)})`);
+        toast.success(`Arquivo enviado! Comprimido ${compressionRatio.toFixed(0)}%`);
       } else {
         toast.success("Arquivo enviado com sucesso!");
       }
@@ -312,12 +319,10 @@ export default function StudioUpload() {
   };
 
   const handleRemoveFile = () => {
-    // Cancel ongoing upload if any
     if (xhrRef.current) {
       xhrRef.current.abort();
       xhrRef.current = null;
     }
-    // Cancel compression if in progress
     if (isCompressing) {
       abortCompression();
     }
@@ -334,7 +339,6 @@ export default function StudioUpload() {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    // Create preview
     const previewUrl = URL.createObjectURL(file);
     setThumbnailPreview(previewUrl);
 
@@ -345,7 +349,6 @@ export default function StudioUpload() {
       const fileExt = file.name.split('.').pop();
       const fileName = `thumbnails/${user.id}/${Date.now()}.${fileExt}`;
       
-      // Simulate progress for better UX
       const progressInterval = setInterval(() => {
         setThumbnailProgress(prev => {
           if (prev >= 90) {
@@ -370,7 +373,7 @@ export default function StudioUpload() {
         .getPublicUrl(fileName);
 
       setThumbnailUrl(publicUrl);
-      toast.success("Thumbnail enviada com sucesso!");
+      toast.success("Thumbnail enviada!");
     } catch (error: any) {
       toast.error(error.message || "Erro ao enviar thumbnail");
       setThumbnailPreview("");
@@ -406,7 +409,7 @@ export default function StudioUpload() {
 
       if (data?.tags) {
         setTags(data.tags);
-        toast.success(`${data.tags.length} tags geradas com sucesso!`);
+        toast.success(`${data.tags.length} tags geradas!`);
       }
     } catch (error: any) {
       console.error("Erro ao gerar tags:", error);
@@ -426,8 +429,7 @@ export default function StudioUpload() {
 
     setSubmitting(true);
     try {
-      // Map frontend content types to database types
-      const dbContentType = contentType === "curso" || contentType === "live" ? "aula" : contentType;
+      const dbContentType = contentType === "curso" ? "aula" : contentType;
       
       const contentData = {
         content_type: dbContentType,
@@ -443,8 +445,6 @@ export default function StudioUpload() {
       };
 
       if (isEditMode && editId) {
-        // UPDATE existing content
-        // If content was approved, set back to pending for re-approval
         const newStatus = originalStatus === 'approved' ? 'pending' : originalStatus;
         
         const { error } = await supabase
@@ -460,12 +460,11 @@ export default function StudioUpload() {
         if (error) throw error;
 
         if (originalStatus === 'approved') {
-          toast.success("Conteúdo atualizado! Como estava aprovado, voltará para revisão do admin.");
+          toast.success("Conteúdo atualizado! Voltará para revisão.");
         } else {
-          toast.success("Conteúdo atualizado com sucesso!");
+          toast.success("Conteúdo atualizado!");
         }
       } else {
-        // INSERT new content
         const { error } = await supabase
           .from('contents')
           .insert({
@@ -478,7 +477,7 @@ export default function StudioUpload() {
 
         if (error) throw error;
 
-        toast.success("Seu conteúdo foi enviado e aguarda aprovação!");
+        toast.success("Conteúdo enviado para aprovação!");
       }
       
       navigate('/studio/contents');
@@ -488,6 +487,9 @@ export default function StudioUpload() {
       setSubmitting(false);
     }
   };
+
+  const selectedType = contentTypes.find(t => t.id === contentType);
+  const selectedVisibility = visibilityOptions.find(v => v.id === visibility);
 
   return (
     <SidebarProvider defaultOpen={true}>
@@ -502,334 +504,498 @@ export default function StudioUpload() {
               contentType === "aula" ? "Publicar Aula" :
               contentType === "curso" ? "Criar Curso" :
               contentType === "podcast" ? "Enviar Podcast" :
-              contentType === "short" ? "Postar Short" :
-              "Transmitir ao Vivo"
+              "Postar Short"
             }
           />
 
-          <main className="flex-1 p-6 md:p-12">
-            <div className="max-w-3xl mx-auto">
-              <form onSubmit={handleSubmit} className="space-y-6">
-                {/* Tipo de Conteúdo */}
-                <Card className="p-6">
-                  <Label>Tipo de Conteúdo</Label>
-                  <div className="grid grid-cols-3 md:grid-cols-5 gap-4 mt-4">
-                    <Button
-                      type="button"
-                      variant={contentType === "aula" ? "default" : "outline"}
-                      onClick={() => setContentType("aula")}
-                      className="flex flex-col gap-2 h-auto py-4"
-                    >
-                      <Video className="w-6 h-6" />
-                      <span className="text-xs">Aula</span>
-                    </Button>
-                    <Button
-                      type="button"
-                      variant={contentType === "curso" ? "default" : "outline"}
-                      onClick={() => setContentType("curso")}
-                      className="flex flex-col gap-2 h-auto py-4"
-                    >
-                      <BookOpen className="w-6 h-6" />
-                      <span className="text-xs">Curso</span>
-                    </Button>
-                    <Button
-                      type="button"
-                      variant={contentType === "podcast" ? "default" : "outline"}
-                      onClick={() => setContentType("podcast")}
-                      className="flex flex-col gap-2 h-auto py-4"
-                    >
-                      <Music className="w-6 h-6" />
-                      <span className="text-xs">Podcast</span>
-                    </Button>
-                    <Button
-                      type="button"
-                      variant={contentType === "short" ? "default" : "outline"}
-                      onClick={() => setContentType("short")}
-                      className="flex flex-col gap-2 h-auto py-4"
-                    >
-                      <Film className="w-6 h-6" />
-                      <span className="text-xs">Short</span>
-                    </Button>
-                    <Button
-                      type="button"
-                      variant={contentType === "live" ? "default" : "outline"}
-                      onClick={() => setContentType("live")}
-                      className="flex flex-col gap-2 h-auto py-4"
-                    >
-                      <Radio className="w-6 h-6" />
-                      <span className="text-xs">Ao Vivo</span>
-                    </Button>
+          <main className="flex-1 overflow-auto">
+            {/* Hero Section */}
+            <div className="relative overflow-hidden border-b bg-gradient-to-br from-accent/5 via-background to-background">
+              <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-accent/10 via-transparent to-transparent" />
+              <div className="relative max-w-5xl mx-auto px-6 py-8 md:py-12">
+                <motion.div
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="flex items-center gap-4"
+                >
+                  <div className="w-14 h-14 rounded-2xl bg-accent/10 border border-accent/20 flex items-center justify-center">
+                    {selectedType && <selectedType.icon className="w-7 h-7 text-accent" />}
                   </div>
-                </Card>
+                  <div>
+                    <h1 className="text-2xl md:text-3xl font-bold">
+                      {isEditMode ? "Editar" : "Novo"} {selectedType?.label}
+                    </h1>
+                    <p className="text-muted-foreground mt-0.5">
+                      {selectedType?.description}
+                    </p>
+                  </div>
+                </motion.div>
+              </div>
+            </div>
 
-                {/* Upload de Arquivo e Thumbnail - Lado a Lado */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  {/* Upload de Arquivo */}
-                  <Card className="p-6">
-                    <Label>Arquivo {contentType === "podcast" ? "de Áudio" : "de Vídeo"} *</Label>
-                    
-                    <div className="mt-4">
-                      {!filePreview ? (
-                        <label className="flex flex-col items-center justify-center w-full h-64 border-2 border-dashed border-border rounded-lg cursor-pointer hover:border-primary transition-colors bg-muted/20">
-                          <div className="flex flex-col items-center justify-center pt-5 pb-6">
-                            {contentType === "podcast" ? (
-                              <Music className="w-12 h-12 mb-4 text-muted-foreground" />
-                            ) : (
-                              <Video className="w-12 h-12 mb-4 text-muted-foreground" />
-                            )}
-                            <p className="mb-2 text-sm text-muted-foreground font-medium">
-                              Enviar arquivo
-                            </p>
-                            <p className="text-xs text-muted-foreground">
-                              Clique ou arraste {contentType === "podcast" ? "o áudio" : "o vídeo"}
+            {/* Form Content */}
+            <div className="max-w-5xl mx-auto px-6 py-8">
+              <form onSubmit={handleSubmit} className="space-y-8">
+                {/* Content Type Selection */}
+                <motion.div
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.1 }}
+                >
+                  <div className="flex items-center justify-between mb-4">
+                    <div>
+                      <h2 className="text-lg font-semibold">Tipo de Conteúdo</h2>
+                      <p className="text-sm text-muted-foreground">Selecione o formato do seu conteúdo</p>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                    {contentTypes.map((type) => {
+                      const isActive = contentType === type.id;
+                      return (
+                        <motion.button
+                          key={type.id}
+                          type="button"
+                          whileHover={{ scale: 1.02 }}
+                          whileTap={{ scale: 0.98 }}
+                          onClick={() => setContentType(type.id)}
+                          className={cn(
+                            "relative flex flex-col items-center gap-3 p-5 rounded-xl border-2 transition-all duration-200",
+                            isActive
+                              ? "border-accent bg-accent/5 shadow-lg shadow-accent/10"
+                              : "border-border hover:border-accent/50 hover:bg-accent/5"
+                          )}
+                        >
+                          <div className={cn(
+                            "w-12 h-12 rounded-xl flex items-center justify-center transition-colors",
+                            isActive ? "bg-accent text-accent-foreground" : "bg-secondary"
+                          )}>
+                            <type.icon className="w-6 h-6" />
+                          </div>
+                          <div className="text-center">
+                            <span className="font-medium text-sm">{type.label}</span>
+                            <p className="text-xs text-muted-foreground mt-0.5 line-clamp-1">
+                              {type.description}
                             </p>
                           </div>
-                          <input
-                            type="file"
-                            className="hidden"
-                            accept={contentType === "podcast" ? "audio/*" : "video/*"}
-                            onChange={handleFileUpload}
-                            disabled={fileUploading}
-                          />
-                        </label>
-                      ) : (
-                        <div className="relative w-full">
-                          <div className="w-full h-64 rounded-lg overflow-hidden relative">
-                            {contentType === "podcast" ? (
-                              <div className="flex items-center justify-center w-full h-full bg-muted">
-                                <Music className="w-16 h-16 text-primary" />
+                          {isActive && (
+                            <motion.div
+                              initial={{ scale: 0 }}
+                              animate={{ scale: 1 }}
+                              className="absolute -top-1.5 -right-1.5 w-5 h-5 bg-accent rounded-full flex items-center justify-center"
+                            >
+                              <CheckCircle2 className="w-3.5 h-3.5 text-accent-foreground" />
+                            </motion.div>
+                          )}
+                        </motion.button>
+                      );
+                    })}
+                  </div>
+                </motion.div>
+
+                {/* Upload Section */}
+                <motion.div
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.2 }}
+                >
+                  <div className="mb-4">
+                    <h2 className="text-lg font-semibold">Arquivos</h2>
+                    <p className="text-sm text-muted-foreground">Faça upload do conteúdo e da capa</p>
+                  </div>
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    {/* Video/Audio Upload */}
+                    <div className="space-y-3">
+                      <Label className="text-sm font-medium flex items-center gap-2">
+                        {contentType === "podcast" ? <Music className="w-4 h-4" /> : <Video className="w-4 h-4" />}
+                        {contentType === "podcast" ? "Arquivo de Áudio" : "Arquivo de Vídeo"}
+                        <span className="text-accent">*</span>
+                      </Label>
+                      
+                      <div className="relative">
+                        <AnimatePresence mode="wait">
+                          {!filePreview ? (
+                            <motion.label
+                              key="upload"
+                              initial={{ opacity: 0, scale: 0.95 }}
+                              animate={{ opacity: 1, scale: 1 }}
+                              exit={{ opacity: 0, scale: 0.95 }}
+                              className="flex flex-col items-center justify-center w-full aspect-video rounded-xl border-2 border-dashed border-border cursor-pointer hover:border-accent hover:bg-accent/5 transition-all duration-200 group"
+                            >
+                              <div className="flex flex-col items-center justify-center py-8">
+                                <div className="w-16 h-16 rounded-2xl bg-secondary flex items-center justify-center mb-4 group-hover:bg-accent/10 transition-colors">
+                                  {contentType === "podcast" ? (
+                                    <Music className="w-8 h-8 text-muted-foreground group-hover:text-accent transition-colors" />
+                                  ) : (
+                                    <Video className="w-8 h-8 text-muted-foreground group-hover:text-accent transition-colors" />
+                                  )}
+                                </div>
+                                <p className="font-medium text-sm group-hover:text-accent transition-colors">
+                                  Clique para fazer upload
+                                </p>
+                                <p className="text-xs text-muted-foreground mt-1">
+                                  ou arraste e solte aqui
+                                </p>
+                                {contentType === "short" && (
+                                  <Badge variant="secondary" className="mt-3">Máx. 180 segundos</Badge>
+                                )}
                               </div>
-                            ) : (
-                              <>
-                                {/* Video preview - interactive when upload complete */}
-                                <video
-                                  src={filePreview}
-                                  className="w-full h-full object-cover"
-                                  controls={uploadState === "complete" || uploadState === "idle"}
-                                  muted={uploadState !== "complete" && uploadState !== "idle"}
-                                  playsInline
-                                />
-                                
-                                {/* Overlay during compression/upload/processing */}
-                                {(uploadState === "compressing" || uploadState === "uploading" || uploadState === "processing") && (
-                                  <div className="absolute inset-0 bg-black/60 backdrop-blur-sm flex flex-col items-center justify-center gap-3 z-10">
-                                    {uploadState === "compressing" ? (
-                                      <>
-                                        <Zap className="w-10 h-10 text-yellow-400 animate-pulse" />
-                                        <div className="text-white text-2xl font-bold tabular-nums">
-                                          {compressionProgress}%
-                                        </div>
-                                        <Progress 
-                                          value={compressionProgress} 
-                                          variant="gradient" 
-                                          className="w-3/4 h-2"
-                                        />
-                                        <p className="text-white/70 text-sm text-center px-4">
-                                          {compressionMessage || 'Otimizando vídeo...'}
-                                        </p>
-                                        {originalFileSize > 0 && (
-                                          <div className="flex items-center gap-2 text-white/50 text-xs mt-1">
-                                            <span>{formatFileSize(originalFileSize)}</span>
-                                            <ArrowDown className="w-3 h-3" />
-                                            <span className="text-green-400">Comprimindo...</span>
-                                          </div>
-                                        )}
-                                      </>
-                                    ) : uploadState === "uploading" ? (
-                                      <>
-                                        <div className="text-white text-4xl font-bold tabular-nums">
-                                          {fileProgress}%
-                                        </div>
-                                        <Progress 
-                                          value={fileProgress} 
-                                          variant="gradient" 
-                                          className="w-3/4 h-2"
-                                        />
-                                        <p className="text-white/70 text-sm">
-                                          Enviando {formatFileSize(fileSize)}...
-                                        </p>
-                                        {compressionRatio > 5 && (
-                                          <Badge variant="secondary" className="bg-green-500/20 text-green-300 border-green-500/30">
-                                            <ArrowDown className="w-3 h-3 mr-1" />
-                                            {compressionRatio.toFixed(0)}% menor
-                                          </Badge>
-                                        )}
-                                      </>
-                                    ) : (
-                                      <>
-                                        <Loader2 className="w-10 h-10 text-white animate-spin" />
-                                        <p className="text-white text-sm">Finalizando...</p>
-                                      </>
+                              <input
+                                type="file"
+                                className="hidden"
+                                accept={contentType === "podcast" ? "audio/*" : "video/*"}
+                                onChange={handleFileUpload}
+                                disabled={fileUploading}
+                              />
+                            </motion.label>
+                          ) : (
+                            <motion.div
+                              key="preview"
+                              initial={{ opacity: 0, scale: 0.95 }}
+                              animate={{ opacity: 1, scale: 1 }}
+                              exit={{ opacity: 0, scale: 0.95 }}
+                              className="relative w-full aspect-video rounded-xl overflow-hidden bg-black"
+                            >
+                              {contentType === "podcast" ? (
+                                <div className="flex items-center justify-center w-full h-full bg-gradient-to-br from-secondary to-background">
+                                  <div className="text-center">
+                                    <div className="w-20 h-20 mx-auto rounded-2xl bg-accent/10 flex items-center justify-center mb-3">
+                                      <Music className="w-10 h-10 text-accent" />
+                                    </div>
+                                    {uploadState === "complete" && (
+                                      <Badge className="bg-green-500/20 text-green-400 border-green-500/30">
+                                        <CheckCircle2 className="w-3 h-3 mr-1" />
+                                        Áudio pronto
+                                      </Badge>
                                     )}
                                   </div>
+                                </div>
+                              ) : (
+                                <>
+                                  <video
+                                    src={filePreview}
+                                    className="w-full h-full object-cover"
+                                    controls={uploadState === "complete" || uploadState === "idle"}
+                                    muted={uploadState !== "complete" && uploadState !== "idle"}
+                                    playsInline
+                                  />
+                                  
+                                  {/* Upload Overlay */}
+                                  {(uploadState === "compressing" || uploadState === "uploading" || uploadState === "processing") && (
+                                    <div className="absolute inset-0 bg-black/80 backdrop-blur-sm flex flex-col items-center justify-center gap-4 z-10">
+                                      {uploadState === "compressing" ? (
+                                        <>
+                                          <div className="w-16 h-16 rounded-2xl bg-yellow-500/20 flex items-center justify-center">
+                                            <Zap className="w-8 h-8 text-yellow-400 animate-pulse" />
+                                          </div>
+                                          <div className="text-white text-3xl font-bold tabular-nums">
+                                            {compressionProgress}%
+                                          </div>
+                                          <Progress 
+                                            value={compressionProgress} 
+                                            variant="gradient" 
+                                            className="w-2/3 h-2"
+                                          />
+                                          <p className="text-white/70 text-sm">
+                                            {compressionMessage || 'Otimizando vídeo...'}
+                                          </p>
+                                          {originalFileSize > 0 && (
+                                            <div className="flex items-center gap-2 text-white/50 text-xs">
+                                              <span>{formatFileSize(originalFileSize)}</span>
+                                              <ArrowDown className="w-3 h-3" />
+                                              <span className="text-green-400">Comprimindo...</span>
+                                            </div>
+                                          )}
+                                        </>
+                                      ) : uploadState === "uploading" ? (
+                                        <>
+                                          <div className="text-white text-5xl font-bold tabular-nums">
+                                            {fileProgress}%
+                                          </div>
+                                          <Progress 
+                                            value={fileProgress} 
+                                            variant="gradient" 
+                                            className="w-2/3 h-2"
+                                          />
+                                          <p className="text-white/70 text-sm">
+                                            Enviando {formatFileSize(fileSize)}...
+                                          </p>
+                                          {compressionRatio > 5 && (
+                                            <Badge className="bg-green-500/20 text-green-300 border-green-500/30">
+                                              <ArrowDown className="w-3 h-3 mr-1" />
+                                              {compressionRatio.toFixed(0)}% menor
+                                            </Badge>
+                                          )}
+                                        </>
+                                      ) : (
+                                        <>
+                                          <Loader2 className="w-12 h-12 text-white animate-spin" />
+                                          <p className="text-white text-sm">Finalizando...</p>
+                                        </>
+                                      )}
+                                    </div>
+                                  )}
+                                </>
+                              )}
+                              
+                              {/* Remove Button */}
+                              {uploadState !== "uploading" && uploadState !== "processing" && uploadState !== "compressing" && (
+                                <button
+                                  type="button"
+                                  onClick={handleRemoveFile}
+                                  className="absolute top-3 right-3 p-2.5 bg-black/60 backdrop-blur-sm text-white rounded-xl hover:bg-black/80 transition-colors z-20"
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
+                              )}
+                            </motion.div>
+                          )}
+                        </AnimatePresence>
+                      </div>
+                    </div>
+
+                    {/* Thumbnail Upload */}
+                    <div className="space-y-3">
+                      <Label className="text-sm font-medium flex items-center gap-2">
+                        <ImagePlus className="w-4 h-4" />
+                        Thumbnail
+                        <span className="text-accent">*</span>
+                      </Label>
+                      
+                      <div className="relative">
+                        <AnimatePresence mode="wait">
+                          {!thumbnailPreview ? (
+                            <motion.label
+                              key="upload"
+                              initial={{ opacity: 0, scale: 0.95 }}
+                              animate={{ opacity: 1, scale: 1 }}
+                              exit={{ opacity: 0, scale: 0.95 }}
+                              className="flex flex-col items-center justify-center w-full aspect-video rounded-xl border-2 border-dashed border-border cursor-pointer hover:border-accent hover:bg-accent/5 transition-all duration-200 group"
+                            >
+                              <div className="flex flex-col items-center justify-center py-8">
+                                <div className="w-16 h-16 rounded-2xl bg-secondary flex items-center justify-center mb-4 group-hover:bg-accent/10 transition-colors">
+                                  <ImagePlus className="w-8 h-8 text-muted-foreground group-hover:text-accent transition-colors" />
+                                </div>
+                                <p className="font-medium text-sm group-hover:text-accent transition-colors">
+                                  Clique para fazer upload
+                                </p>
+                                <p className="text-xs text-muted-foreground mt-1">
+                                  Imagem de capa do conteúdo
+                                </p>
+                                <Badge variant="secondary" className="mt-3">16:9 recomendado</Badge>
+                              </div>
+                              <input
+                                type="file"
+                                className="hidden"
+                                accept="image/*"
+                                onChange={handleThumbnailUpload}
+                                disabled={thumbnailUploading}
+                              />
+                            </motion.label>
+                          ) : (
+                            <motion.div
+                              key="preview"
+                              initial={{ opacity: 0, scale: 0.95 }}
+                              animate={{ opacity: 1, scale: 1 }}
+                              exit={{ opacity: 0, scale: 0.95 }}
+                              className="relative w-full aspect-video rounded-xl overflow-hidden"
+                            >
+                              {thumbnailUploading && (
+                                <Progress 
+                                  variant="gradient" 
+                                  indeterminate 
+                                  className="absolute top-0 left-0 right-0 z-10"
+                                />
+                              )}
+                              
+                              <img
+                                src={thumbnailPreview}
+                                alt="Thumbnail preview"
+                                className={cn(
+                                  "w-full h-full object-cover transition-opacity",
+                                  thumbnailUploading && "opacity-70"
                                 )}
-                              </>
-                            )}
-                          </div>
-                          
-                          {/* Remove button - show when not uploading/compressing */}
-                          {uploadState !== "uploading" && uploadState !== "processing" && uploadState !== "compressing" && (
-                            <button
-                              type="button"
-                              onClick={handleRemoveFile}
-                              className="absolute top-2 right-2 p-2 bg-muted/80 backdrop-blur-sm text-muted-foreground rounded-lg hover:bg-muted hover:text-foreground transition-colors z-20"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
+                              />
+                              
+                              {!thumbnailUploading && (
+                                <button
+                                  type="button"
+                                  onClick={handleRemoveThumbnail}
+                                  className="absolute top-3 right-3 p-2.5 bg-black/60 backdrop-blur-sm text-white rounded-xl hover:bg-black/80 transition-colors"
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
+                              )}
+                            </motion.div>
                           )}
-                        </div>
-                      )}
-
-                      {contentType === "short" && (
-                        <p className="text-xs text-muted-foreground mt-2">Máximo 180 segundos</p>
-                      )}
+                        </AnimatePresence>
+                      </div>
                     </div>
-                  </Card>
-
-                  {/* Upload de Thumbnail */}
-                  <Card className="p-6">
-                    <Label>Thumbnail *</Label>
-                    
-                    <div className="mt-4">
-                      {!thumbnailPreview ? (
-                        <label className="flex flex-col items-center justify-center w-full h-64 border-2 border-dashed border-border rounded-lg cursor-pointer hover:border-primary transition-colors bg-muted/20">
-                          <div className="flex flex-col items-center justify-center pt-5 pb-6">
-                            <ImagePlus className="w-12 h-12 mb-4 text-muted-foreground" />
-                            <p className="mb-2 text-sm text-muted-foreground font-medium">
-                              Enviar arquivo
-                            </p>
-                            <p className="text-xs text-muted-foreground">
-                              Clique ou arraste a imagem
-                            </p>
-                          </div>
-                          <input
-                            type="file"
-                            className="hidden"
-                            accept="image/*"
-                            onChange={handleThumbnailUpload}
-                            disabled={thumbnailUploading}
-                          />
-                        </label>
-                      ) : (
-                        <div className="relative w-full">
-                          {/* Gradient progress bar at top - Instagram style */}
-                          {thumbnailUploading && (
-                            <Progress 
-                              variant="gradient" 
-                              indeterminate 
-                              className="absolute top-0 left-0 right-0 z-10"
-                            />
-                          )}
-                          
-                          <div className={`w-full h-64 rounded-lg overflow-hidden ${thumbnailUploading ? 'opacity-70' : ''}`}>
-                            <img
-                              src={thumbnailPreview}
-                              alt="Thumbnail preview"
-                              className="w-full h-full object-cover"
-                            />
-                          </div>
-                          
-                          {!thumbnailUploading && (
-                            <button
-                              onClick={handleRemoveThumbnail}
-                              className="absolute top-2 right-2 p-2 bg-muted/80 backdrop-blur-sm text-muted-foreground rounded-lg hover:bg-muted hover:text-foreground transition-colors"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  </Card>
-                </div>
-
-                {/* Informações */}
-                <Card className="p-6 space-y-4">
-                  <div>
-                    <Label>Título *</Label>
-                    <Input
-                      value={title}
-                      onChange={(e) => setTitle(e.target.value)}
-                      placeholder="Digite o título"
-                      className="mt-2"
-                    />
                   </div>
+                </motion.div>
 
-                  {(contentType === "aula" || contentType === "podcast") && (
-                    <div>
-                      <Label>Descrição</Label>
-                      <Textarea
-                        value={description}
-                        onChange={(e) => setDescription(e.target.value)}
-                        placeholder="Descreva o conteúdo"
-                        className="mt-2"
+                {/* Details Section */}
+                <motion.div
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.3 }}
+                  className="space-y-6"
+                >
+                  <div>
+                    <h2 className="text-lg font-semibold">Detalhes</h2>
+                    <p className="text-sm text-muted-foreground">Informações sobre o conteúdo</p>
+                  </div>
+                  
+                  <Card className="p-6 space-y-5 border-0 bg-gradient-to-b from-card to-card/50">
+                    <div className="space-y-2">
+                      <Label>Título <span className="text-accent">*</span></Label>
+                      <Input
+                        value={title}
+                        onChange={(e) => setTitle(e.target.value)}
+                        placeholder="Digite um título atrativo"
+                        className="h-12 text-base"
                       />
                     </div>
-                  )}
 
-                  <div>
-                    <Label>Tags</Label>
-                    <div className="mt-2">
+                    {(contentType === "aula" || contentType === "podcast" || contentType === "curso") && (
+                      <div className="space-y-2">
+                        <Label>Descrição</Label>
+                        <Textarea
+                          value={description}
+                          onChange={(e) => setDescription(e.target.value)}
+                          placeholder="Descreva o conteúdo para engajar seu público..."
+                          rows={4}
+                          className="resize-none"
+                        />
+                      </div>
+                    )}
+
+                    <div className="space-y-2">
+                      <Label>Tags</Label>
                       <TagsInput
                         tags={tags}
                         onChange={setTags}
                         onGenerateTags={handleGenerateTags}
                         isGenerating={isGeneratingTags}
-                        placeholder="Digite tags para melhorar a descoberta do conteúdo..."
+                        placeholder="Adicione tags para melhorar a descoberta..."
                       />
                     </div>
-                  </div>
-                </Card>
+                  </Card>
+                </motion.div>
 
-                {/* Visibilidade e Preço */}
-                <Card className="p-6 space-y-4">
+                {/* Visibility Section */}
+                <motion.div
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.4 }}
+                  className="space-y-6"
+                >
                   <div>
-                    <Label>Visibilidade</Label>
-                    <Select value={visibility} onValueChange={(v) => setVisibility(v as Visibility)}>
-                      <SelectTrigger className="mt-2">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="free">Gratuito</SelectItem>
-                        <SelectItem value="pro">PRO</SelectItem>
-                        <SelectItem value="premium">Premium</SelectItem>
-                        <SelectItem value="paid">Pago</SelectItem>
-                      </SelectContent>
-                    </Select>
+                    <h2 className="text-lg font-semibold">Acesso</h2>
+                    <p className="text-sm text-muted-foreground">Defina quem pode visualizar</p>
+                  </div>
+                  
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                    {visibilityOptions.map((option) => {
+                      const isActive = visibility === option.id;
+                      return (
+                        <motion.button
+                          key={option.id}
+                          type="button"
+                          whileHover={{ scale: 1.02 }}
+                          whileTap={{ scale: 0.98 }}
+                          onClick={() => setVisibility(option.id)}
+                          className={cn(
+                            "relative flex flex-col items-center gap-2 p-4 rounded-xl border-2 transition-all duration-200",
+                            isActive
+                              ? "border-accent bg-accent/5 shadow-lg shadow-accent/10"
+                              : "border-border hover:border-accent/50 hover:bg-accent/5"
+                          )}
+                        >
+                          <option.icon className={cn("w-5 h-5", isActive ? "text-accent" : option.color)} />
+                          <span className="font-medium text-sm">{option.label}</span>
+                          <p className="text-xs text-muted-foreground text-center line-clamp-1">
+                            {option.description}
+                          </p>
+                          {isActive && (
+                            <motion.div
+                              initial={{ scale: 0 }}
+                              animate={{ scale: 1 }}
+                              className="absolute -top-1.5 -right-1.5 w-5 h-5 bg-accent rounded-full flex items-center justify-center"
+                            >
+                              <CheckCircle2 className="w-3.5 h-3.5 text-accent-foreground" />
+                            </motion.div>
+                          )}
+                        </motion.button>
+                      );
+                    })}
                   </div>
 
-                  {visibility === "paid" && (
-                    <>
-                      <div>
-                        <Label>Preço (R$)</Label>
-                        <Input
-                          type="number"
-                          step="0.01"
-                          value={price}
-                          onChange={(e) => setPrice(e.target.value)}
-                          className="mt-2"
-                        />
-                      </div>
-                      <div>
-                        <Label>Desconto (%)</Label>
-                        <Input
-                          type="number"
-                          step="1"
-                          value={discount}
-                          onChange={(e) => setDiscount(e.target.value)}
-                          className="mt-2"
-                        />
-                      </div>
-                    </>
-                  )}
-                </Card>
+                  <AnimatePresence>
+                    {visibility === "paid" && (
+                      <motion.div
+                        initial={{ opacity: 0, height: 0 }}
+                        animate={{ opacity: 1, height: "auto" }}
+                        exit={{ opacity: 0, height: 0 }}
+                        className="overflow-hidden"
+                      >
+                        <Card className="p-6 space-y-4 border-0 bg-gradient-to-b from-card to-card/50">
+                          <div className="grid grid-cols-2 gap-4">
+                            <div className="space-y-2">
+                              <Label>Preço (R$)</Label>
+                              <Input
+                                type="number"
+                                step="0.01"
+                                value={price}
+                                onChange={(e) => setPrice(e.target.value)}
+                                className="h-12"
+                              />
+                            </div>
+                            <div className="space-y-2">
+                              <Label>Desconto (%)</Label>
+                              <Input
+                                type="number"
+                                step="1"
+                                value={discount}
+                                onChange={(e) => setDiscount(e.target.value)}
+                                className="h-12"
+                              />
+                            </div>
+                          </div>
+                        </Card>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </motion.div>
 
-                <Button type="submit" disabled={submitting} className="w-full">
-                  {submitting 
-                    ? (isEditMode ? "Salvando..." : "Publicando...") 
-                    : (isEditMode ? "Salvar Alterações" : "Publicar Conteúdo")
-                  }
-                </Button>
+                {/* Submit Button */}
+                <motion.div
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.5 }}
+                  className="pt-4"
+                >
+                  <Button 
+                    type="submit" 
+                    disabled={submitting || !title || !fileUrl || !thumbnailUrl} 
+                    size="lg"
+                    className="w-full h-14 text-base font-semibold"
+                  >
+                    {submitting ? (
+                      <>
+                        <Loader2 className="w-5 h-5 mr-2 animate-spin" />
+                        {isEditMode ? "Salvando..." : "Publicando..."}
+                      </>
+                    ) : (
+                      <>
+                        <Upload className="w-5 h-5 mr-2" />
+                        {isEditMode ? "Salvar Alterações" : "Publicar Conteúdo"}
+                      </>
+                    )}
+                  </Button>
+                  <p className="text-xs text-center text-muted-foreground mt-3">
+                    Seu conteúdo será revisado antes de ser publicado
+                  </p>
+                </motion.div>
               </form>
             </div>
           </main>
