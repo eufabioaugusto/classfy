@@ -1705,14 +1705,12 @@ function StudyContent() {
         {/* Left Panel - Video Player (when active and not minimized) */}
         {activeContent && !miniPlayerActive && (
           <>
-            {/* Video Panel: flex-[7] = 70% of available space, reduced when playlist open */}
+            {/* Video Panel: 70% width (or 60% if playlist visible) */}
             <div 
-              className="overflow-hidden"
+              className="overflow-hidden flex-shrink-0"
               style={{ 
-                flex: activePlaylist ? '5 1 0%' : '7 1 0%',
-                minWidth: '350px',
-                maxWidth: '900px',
-                transition: 'flex 0.2s ease-out'
+                width: activePlaylist ? '55%' : '70%',
+                minWidth: '400px',
               }}
             >
               <ScrollArea className="h-full">
@@ -1935,13 +1933,11 @@ function StudyContent() {
           </>
         )}
 
-        {/* Right Panel - Chat - flex-[3] = 30% of space, adapts to remaining */}
+        {/* Right Panel - Chat - fills remaining space (30% when video active) */}
         <div 
-          className={`flex flex-col overflow-hidden ${activeContent && !miniPlayerActive ? 'border-l border-border' : ''}`}
+          className={`flex-1 flex flex-col overflow-hidden ${activeContent && !miniPlayerActive ? 'border-l border-border' : ''}`}
           style={{ 
-            flex: activeContent && !miniPlayerActive ? '3 1 0%' : '1 1 0%',
-            minWidth: activeContent && !miniPlayerActive ? '300px' : '100%',
-            transition: 'flex 0.2s ease-out'
+            minWidth: activeContent && !miniPlayerActive ? '280px' : undefined,
           }}
         >
           <div className="flex flex-col h-full overflow-hidden">
