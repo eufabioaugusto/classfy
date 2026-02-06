@@ -12,13 +12,15 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Card } from "@/components/ui/card";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
-import { Upload, Video, Music, Film, BookOpen, Radio, Trash2, ImagePlus, CheckCircle2, Loader2 } from "lucide-react";
+import { Upload, Video, Music, Film, BookOpen, Radio, Trash2, ImagePlus, CheckCircle2, Loader2, Zap, ArrowDown } from "lucide-react";
 import { Progress } from "@/components/ui/progress";
 import { TagsInput } from "@/components/TagsInput";
+import { useVideoCompression } from "@/hooks/useVideoCompression";
+import { Badge } from "@/components/ui/badge";
 
 type ContentType = "aula" | "short" | "podcast" | "curso" | "live";
 type Visibility = "free" | "pro" | "premium" | "paid";
-type UploadState = "idle" | "uploading" | "processing" | "complete";
+type UploadState = "idle" | "compressing" | "uploading" | "processing" | "complete";
 
 export default function StudioUpload() {
   const { user, role, profile, loading } = useAuth();
@@ -56,7 +58,23 @@ export default function StudioUpload() {
   const [isGeneratingTags, setIsGeneratingTags] = useState(false);
   const [uploadState, setUploadState] = useState<UploadState>("idle");
   const [fileSize, setFileSize] = useState<number>(0);
+  const [originalFileSize, setOriginalFileSize] = useState<number>(0);
   const xhrRef = useRef<XMLHttpRequest | null>(null);
+  
+  // Video compression hook
+  const {
+    isCompressing,
+    isLoading: compressionLoading,
+    progress: compressionProgress,
+    stage: compressionStage,
+    message: compressionMessage,
+    originalSize,
+    compressedSize,
+    compressionRatio,
+    compressVideo,
+    abort: abortCompression,
+    reset: resetCompression,
+  } = useVideoCompression();
   
   // Load content data if editing
   useEffect(() => {
@@ -149,8 +167,8 @@ export default function StudioUpload() {
     const previewUrl = URL.createObjectURL(file);
     setFilePreview(previewUrl);
     setFileUploading(true);
-    setUploadState("uploading");
     setFileProgress(0);
+    setOriginalFileSize(file.size);
     setFileSize(file.size);
 
     // For duration validation on shorts
@@ -188,7 +206,39 @@ export default function StudioUpload() {
     }
 
     try {
-      const fileExt = file.name.split('.').pop();
+      let fileToUpload = file;
+      
+      // Compress video files (not podcasts/audio)
+      if (contentType !== "podcast") {
+        setUploadState("compressing");
+        
+        try {
+          fileToUpload = await compressVideo(file, {
+            quality: 'balanced',
+            maxWidth: 1920,
+            maxHeight: 1080,
+          });
+          
+          // Update file size to compressed size
+          setFileSize(fileToUpload.size);
+          
+          // Update preview if file was compressed
+          if (fileToUpload !== file) {
+            URL.revokeObjectURL(previewUrl);
+            const newPreviewUrl = URL.createObjectURL(fileToUpload);
+            setFilePreview(newPreviewUrl);
+          }
+        } catch (compressionError) {
+          console.warn('Compression failed, using original file:', compressionError);
+          // Continue with original file if compression fails
+        }
+      }
+      
+      // Now upload the file
+      setUploadState("uploading");
+      setFileProgress(0);
+      
+      const fileExt = fileToUpload.name.split('.').pop();
       const fileName = `${user.id}/${Date.now()}.${fileExt}`;
 
       // Get upload URL for tracking progress
@@ -222,7 +272,7 @@ export default function StudioUpload() {
         xhr.open('POST', uploadUrl);
         xhr.setRequestHeader('Authorization', `Bearer ${session?.session?.access_token}`);
         xhr.setRequestHeader('x-upsert', 'true');
-        xhr.send(file);
+        xhr.send(fileToUpload);
       });
 
       // Show processing state briefly
@@ -238,12 +288,19 @@ export default function StudioUpload() {
       setFileUrl(publicUrl);
       setUploadState("complete");
       setFileProgress(100);
-      toast.success("Arquivo enviado com sucesso!");
+      
+      // Show compression savings if applicable
+      if (compressionRatio > 5) {
+        toast.success(`Arquivo enviado! Comprimido ${compressionRatio.toFixed(0)}% (${formatFileSize(originalFileSize)} → ${formatFileSize(fileSize)})`);
+      } else {
+        toast.success("Arquivo enviado com sucesso!");
+      }
     } catch (error: any) {
       toast.error(error.message || "Erro ao enviar arquivo");
       setFilePreview("");
       setFileProgress(0);
       setUploadState("idle");
+      resetCompression();
     } finally {
       setFileUploading(false);
       xhrRef.current = null;
@@ -256,11 +313,17 @@ export default function StudioUpload() {
       xhrRef.current.abort();
       xhrRef.current = null;
     }
+    // Cancel compression if in progress
+    if (isCompressing) {
+      abortCompression();
+    }
     setFileUrl("");
     setFilePreview("");
     setFileProgress(0);
     setUploadState("idle");
     setFileSize(0);
+    setOriginalFileSize(0);
+    resetCompression();
   };
 
   const handleThumbnailUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -543,10 +606,32 @@ export default function StudioUpload() {
                                   playsInline
                                 />
                                 
-                                {/* Overlay during upload/processing */}
-                                {(uploadState === "uploading" || uploadState === "processing") && (
+                                {/* Overlay during compression/upload/processing */}
+                                {(uploadState === "compressing" || uploadState === "uploading" || uploadState === "processing") && (
                                   <div className="absolute inset-0 bg-black/60 backdrop-blur-sm flex flex-col items-center justify-center gap-3 z-10">
-                                    {uploadState === "uploading" ? (
+                                    {uploadState === "compressing" ? (
+                                      <>
+                                        <Zap className="w-10 h-10 text-yellow-400 animate-pulse" />
+                                        <div className="text-white text-2xl font-bold tabular-nums">
+                                          {compressionProgress}%
+                                        </div>
+                                        <Progress 
+                                          value={compressionProgress} 
+                                          variant="gradient" 
+                                          className="w-3/4 h-2"
+                                        />
+                                        <p className="text-white/70 text-sm text-center px-4">
+                                          {compressionMessage || 'Otimizando vídeo...'}
+                                        </p>
+                                        {originalFileSize > 0 && (
+                                          <div className="flex items-center gap-2 text-white/50 text-xs mt-1">
+                                            <span>{formatFileSize(originalFileSize)}</span>
+                                            <ArrowDown className="w-3 h-3" />
+                                            <span className="text-green-400">Comprimindo...</span>
+                                          </div>
+                                        )}
+                                      </>
+                                    ) : uploadState === "uploading" ? (
                                       <>
                                         <div className="text-white text-4xl font-bold tabular-nums">
                                           {fileProgress}%
@@ -559,11 +644,17 @@ export default function StudioUpload() {
                                         <p className="text-white/70 text-sm">
                                           Enviando {formatFileSize(fileSize)}...
                                         </p>
+                                        {compressionRatio > 5 && (
+                                          <Badge variant="secondary" className="bg-green-500/20 text-green-300 border-green-500/30">
+                                            <ArrowDown className="w-3 h-3 mr-1" />
+                                            {compressionRatio.toFixed(0)}% menor
+                                          </Badge>
+                                        )}
                                       </>
                                     ) : (
                                       <>
                                         <Loader2 className="w-10 h-10 text-white animate-spin" />
-                                        <p className="text-white text-sm">Processando...</p>
+                                        <p className="text-white text-sm">Finalizando...</p>
                                       </>
                                     )}
                                   </div>
@@ -572,8 +663,8 @@ export default function StudioUpload() {
                             )}
                           </div>
                           
-                          {/* Remove button - show when not uploading */}
-                          {uploadState !== "uploading" && uploadState !== "processing" && (
+                          {/* Remove button - show when not uploading/compressing */}
+                          {uploadState !== "uploading" && uploadState !== "processing" && uploadState !== "compressing" && (
                             <button
                               type="button"
                               onClick={handleRemoveFile}
