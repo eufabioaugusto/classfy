@@ -4,7 +4,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
-import { Users, Gift, PhoneOff, Loader2, MessageCircle, X } from "lucide-react";
+import { Users, Gift, PhoneOff, Loader2, MessageCircle, X, Video, VideoOff, Mic, MicOff, RefreshCw } from "lucide-react";
 import { useState } from "react";
 import { useMediaDevices } from "@/hooks/useMediaDevices";
 import { useLiveChat } from "@/hooks/useLiveChat";
@@ -180,6 +180,7 @@ export default function LiveBroadcast() {
           onSelectMicrophone={selectMicrophone}
           size="full"
           className="w-full h-full"
+          showControls={false}
         />
       </div>
 
@@ -206,19 +207,19 @@ export default function LiveBroadcast() {
       </div>
 
       {/* Bottom Controls Overlay */}
-      <div className="absolute bottom-0 left-0 right-0 z-10 p-4 bg-gradient-to-t from-black/70 to-transparent">
-        <div className="flex items-center justify-center gap-4">
+      <div className="absolute bottom-0 left-0 right-0 z-10 p-4 pb-6 bg-gradient-to-t from-black/80 to-transparent">
+        <div className="flex items-center justify-center gap-3">
           {/* Chat Toggle Button */}
           <Button
             variant="outline"
-            size="lg"
+            size="default"
             onClick={() => setShowChat(!showChat)}
             className={cn(
-              "gap-2 bg-black/40 border-white/20 hover:bg-white/20 relative",
+              "gap-2 bg-black/50 border-white/20 hover:bg-white/20 text-white relative",
               showChat && "bg-white/20"
             )}
           >
-            <MessageCircle className="w-5 h-5" />
+            <MessageCircle className="w-4 h-4" />
             Chat
             {unreadCount > 0 && !showChat && (
               <span className="absolute -top-1 -right-1 w-5 h-5 bg-accent text-accent-foreground text-xs rounded-full flex items-center justify-center">
@@ -227,14 +228,50 @@ export default function LiveBroadcast() {
             )}
           </Button>
 
+          {/* Camera Controls */}
+          <Button
+            variant="outline"
+            size="icon"
+            onClick={toggleCamera}
+            className={cn(
+              "bg-black/50 border-white/20 hover:bg-white/20 text-white",
+              !isCameraOn && "bg-destructive border-destructive hover:bg-destructive/80"
+            )}
+          >
+            {isCameraOn ? <Video className="w-4 h-4" /> : <VideoOff className="w-4 h-4" />}
+          </Button>
+
+          <Button
+            variant="outline"
+            size="icon"
+            onClick={toggleMic}
+            className={cn(
+              "bg-black/50 border-white/20 hover:bg-white/20 text-white",
+              !isMicOn && "bg-destructive border-destructive hover:bg-destructive/80"
+            )}
+          >
+            {isMicOn ? <Mic className="w-4 h-4" /> : <MicOff className="w-4 h-4" />}
+          </Button>
+
+          {cameras.length > 1 && (
+            <Button
+              variant="outline"
+              size="icon"
+              onClick={flipCamera}
+              className="bg-black/50 border-white/20 hover:bg-white/20 text-white"
+            >
+              <RefreshCw className="w-4 h-4" />
+            </Button>
+          )}
+
           {/* End Live Button */}
           <Button
             variant="destructive"
-            size="lg"
+            size="default"
             onClick={() => setShowEndDialog(true)}
             className="gap-2"
           >
-            <PhoneOff className="w-5 h-5" />
+            <PhoneOff className="w-4 h-4" />
             Encerrar Live
           </Button>
         </div>
