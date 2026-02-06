@@ -1602,9 +1602,9 @@ function StudyContent() {
     );
   }
 
-  // Desktop Layout
+  // Desktop Layout - sidebar-aware responsive container
   return (
-    <div className="flex-1 flex flex-col h-screen">
+    <div className="flex-1 flex flex-col h-screen w-full min-w-0 overflow-hidden">
       <Header />
           
       {/* Study Header */}
@@ -1705,12 +1705,12 @@ function StudyContent() {
         {/* Left Panel - Video Player (when active and not minimized) */}
         {activeContent && !miniPlayerActive && (
           <>
-            {/* Video Panel: 70% width (or 60% if playlist visible) */}
+            {/* Video Panel: flex-based width that adapts to available space */}
             <div 
-              className="overflow-hidden flex-shrink-0"
+              className="overflow-hidden"
               style={{ 
-                width: activePlaylist ? '55%' : '70%',
-                minWidth: '400px',
+                flex: activePlaylist ? '6 1 0%' : '7 1 0%',
+                minWidth: '350px',
               }}
             >
               <ScrollArea className="h-full">
@@ -1933,11 +1933,12 @@ function StudyContent() {
           </>
         )}
 
-        {/* Right Panel - Chat - fills remaining space (30% when video active) */}
+        {/* Right Panel - Chat - flex-based width that adapts to remaining space */}
         <div 
-          className={`flex-1 flex flex-col overflow-hidden ${activeContent && !miniPlayerActive ? 'border-l border-border' : ''}`}
+          className={`flex flex-col overflow-hidden ${activeContent && !miniPlayerActive ? 'border-l border-border' : ''}`}
           style={{ 
-            minWidth: activeContent && !miniPlayerActive ? '280px' : undefined,
+            flex: activeContent && !miniPlayerActive ? '3 1 0%' : '1 1 0%',
+            minWidth: activeContent && !miniPlayerActive ? '260px' : undefined,
           }}
         >
           <div className="flex flex-col h-full overflow-hidden">
@@ -2220,7 +2221,7 @@ function StudyContent() {
 export default function Study() {
   return (
     <SidebarProvider>
-      <div className="flex min-h-screen w-full">
+      <div className="flex h-screen w-full overflow-hidden">
         <AppSidebar />
         <StudyContent />
       </div>
