@@ -17,7 +17,7 @@ interface WatchRelatedProps {
   contentId: string;
   categoryId?: string | null;
   tags: string[] | null;
-  contentType: "aula" | "short" | "podcast" | "curso";
+  contentType: "aula" | "short" | "podcast" | "curso" | "live";
   currentContent?: {
     id: string;
     title: string;
@@ -37,7 +37,7 @@ interface RelatedContent {
   thumbnail_url: string;
   duration_seconds: number;
   views_count: number;
-  content_type: "aula" | "short" | "podcast" | "curso";
+  content_type: "aula" | "short" | "podcast" | "curso" | "live";
   visibility: ContentVisibility | null;
   price: number | null;
   is_free: boolean;

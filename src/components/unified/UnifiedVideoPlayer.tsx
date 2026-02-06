@@ -17,7 +17,7 @@ export interface UnifiedVideoPlayerProps {
     title: string;
     file_url: string;
     thumbnail_url?: string;
-    content_type: "aula" | "short" | "podcast" | "curso";
+    content_type: "aula" | "short" | "podcast" | "curso" | "live";
     duration_seconds?: number;
     content_id?: string | null;
     lesson_id?: string | null;
