@@ -1700,12 +1700,21 @@ function StudyContent() {
         </div>
       </header>
 
-      {/* Main Content Area - Flex Layout (adapts to sidebar) */}
+      {/* Main Content Area - Responsive Layout based on sidebar state */}
       <div className="flex-1 flex min-w-0 overflow-hidden">
         {/* Left Panel - Video Player (when active and not minimized) */}
         {activeContent && !miniPlayerActive && (
           <>
-            <div className={`flex-shrink-0 ${activePlaylist ? 'w-[50%]' : 'w-[55%]'} min-w-[400px] max-w-[900px]`}>
+            {/* Video Panel: 70% when sidebar closed, ~60% when sidebar open (sidebar takes ~16rem/256px) */}
+            <div 
+              className="flex-shrink-0 overflow-hidden"
+              style={{ 
+                width: open ? 'calc(60% - 60px)' : '70%',
+                minWidth: '400px',
+                maxWidth: open ? '700px' : '900px',
+                transition: 'width 0.2s ease-out, max-width 0.2s ease-out'
+              }}
+            >
               <ScrollArea className="h-full">
                 <div className="flex flex-col bg-background">
                   {/* Video Tools Bar - Using unified StudyToolbar - ABOVE player */}
@@ -1856,7 +1865,10 @@ function StudyContent() {
 
             {/* Active Playlist Panel */}
             {activePlaylist && (
-              <div className="flex-shrink-0 w-[240px] min-w-[200px] max-w-[300px] h-full flex flex-col bg-card border-l border-border">
+              <div 
+                className="flex-shrink-0 h-full flex flex-col bg-card border-l border-border"
+                style={{ width: open ? '180px' : '220px', minWidth: '160px', maxWidth: '260px' }}
+              >
                 <div className="p-3 border-b border-border flex-shrink-0">
                   <div className="flex items-center justify-between">
                     <h3 className="font-semibold text-sm">Playlist</h3>
@@ -1919,9 +1931,15 @@ function StudyContent() {
           </>
         )}
 
-        {/* Right Panel - Chat - Takes remaining space */}
-        <div className={`flex-1 min-w-[320px] flex flex-col ${activeContent && !miniPlayerActive ? 'border-l border-border' : ''}`}>
-          <div className="flex flex-col h-full">
+        {/* Right Panel - Chat - Takes remaining space with min-width based on sidebar */}
+        <div 
+          className={`flex-1 flex flex-col overflow-hidden ${activeContent && !miniPlayerActive ? 'border-l border-border' : ''}`}
+          style={{ 
+            minWidth: activeContent && !miniPlayerActive ? (open ? '280px' : '30%') : '100%',
+            transition: 'min-width 0.2s ease-out'
+          }}
+        >
+          <div className="flex flex-col h-full overflow-hidden">
             {/* Chat Messages */}
             <ScrollArea className="flex-1 px-6" ref={scrollRef}>
               <div className="max-w-4xl mx-auto py-6 space-y-6">
