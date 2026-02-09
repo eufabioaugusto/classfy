@@ -12,13 +12,17 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Card } from "@/components/ui/card";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
-import { Upload, Video, Music, Film, BookOpen, Trash2, ImagePlus, Loader2, Zap, ArrowDown, Sparkles, Eye, Lock, Crown, DollarSign, CheckCircle2 } from "lucide-react";
+import { Upload, Video, Music, Film, BookOpen, Trash2, ImagePlus, Loader2, Zap, ArrowDown, Eye, Lock, Crown, DollarSign, CheckCircle2 } from "lucide-react";
 import { Progress } from "@/components/ui/progress";
 import { TagsInput } from "@/components/TagsInput";
 import { useVideoCompression } from "@/hooks/useVideoCompression";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { motion, AnimatePresence } from "framer-motion";
+import { CoverFrameSelector } from "@/components/CoverFrameSelector";
+
+const DRAFT_KEY = "studio-upload-draft";
+const DRAFT_MAX_AGE = 24 * 60 * 60 * 1000; // 24h
 
 type ContentType = "aula" | "short" | "podcast" | "curso";
 type Visibility = "free" | "pro" | "premium" | "paid";
@@ -33,8 +37,8 @@ const contentTypes = [
 
 const visibilityOptions = [
   { id: "free" as const, label: "Gratuito", icon: Eye, description: "Acessível para todos", color: "text-green-500" },
-  { id: "pro" as const, label: "PRO", icon: Sparkles, description: "Assinantes PRO", color: "text-blue-500" },
-  { id: "premium" as const, label: "Premium", icon: Crown, description: "Assinantes Premium", color: "text-yellow-500" },
+  { id: "pro" as const, label: "PRO", icon: Crown, description: "Assinantes PRO", color: "text-yellow-500" },
+  { id: "premium" as const, label: "Premium", icon: Crown, description: "Assinantes Premium", color: "text-red-500" },
   { id: "paid" as const, label: "Pago", icon: DollarSign, description: "Venda avulsa", color: "text-accent" },
 ];
 
@@ -80,6 +84,59 @@ export default function StudioUpload() {
   const [fileSize, setFileSize] = useState<number>(0);
   const [originalFileSize, setOriginalFileSize] = useState<number>(0);
   const xhrRef = useRef<XMLHttpRequest | null>(null);
+  const [manualThumbnail, setManualThumbnail] = useState(false);
+  
+  // Session persistence: restore draft
+  useEffect(() => {
+    if (editId) return; // Don't restore draft in edit mode
+    try {
+      const saved = sessionStorage.getItem(DRAFT_KEY);
+      if (!saved) return;
+      const draft = JSON.parse(saved);
+      if (Date.now() - draft.savedAt > DRAFT_MAX_AGE) {
+        sessionStorage.removeItem(DRAFT_KEY);
+        return;
+      }
+      if (draft.contentType) setContentType(draft.contentType);
+      if (draft.title) setTitle(draft.title);
+      if (draft.description) setDescription(draft.description);
+      if (draft.visibility) setVisibility(draft.visibility);
+      if (draft.price) setPrice(draft.price);
+      if (draft.discount) setDiscount(draft.discount);
+      if (draft.tags) setTags(draft.tags);
+      if (draft.fileUrl) {
+        setFileUrl(draft.fileUrl);
+        setFilePreview(draft.fileUrl);
+        setFileProgress(100);
+        setUploadState("complete");
+      }
+      if (draft.thumbnailUrl) {
+        setThumbnailUrl(draft.thumbnailUrl);
+        setThumbnailPreview(draft.thumbnailUrl);
+        setThumbnailProgress(100);
+        setManualThumbnail(true);
+      }
+      if (draft.duration) setDuration(draft.duration);
+      toast.success("Rascunho restaurado");
+    } catch (e) {
+      console.warn("Failed to restore draft:", e);
+    }
+  }, [editId]);
+
+  // Session persistence: save draft
+  useEffect(() => {
+    if (editId) return;
+    const timer = setTimeout(() => {
+      if (!title && !fileUrl) return; // Nothing to save
+      try {
+        sessionStorage.setItem(DRAFT_KEY, JSON.stringify({
+          contentType, title, description, visibility, price, discount, tags,
+          fileUrl, thumbnailUrl, duration, savedAt: Date.now(),
+        }));
+      } catch (e) { /* quota exceeded, ignore */ }
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [contentType, title, description, visibility, price, discount, tags, fileUrl, thumbnailUrl, duration, editId]);
   
   const {
     isCompressing,
@@ -341,6 +398,7 @@ export default function StudioUpload() {
 
     const previewUrl = URL.createObjectURL(file);
     setThumbnailPreview(previewUrl);
+    setManualThumbnail(true);
 
     setThumbnailUploading(true);
     setThumbnailProgress(0);
@@ -387,6 +445,30 @@ export default function StudioUpload() {
     setThumbnailUrl("");
     setThumbnailPreview("");
     setThumbnailProgress(0);
+    setManualThumbnail(false);
+  };
+
+  const handleCoverFrameSelect = async (file: File, previewUrl: string) => {
+    if (manualThumbnail) return; // Manual thumbnail takes priority
+    
+    setThumbnailPreview(previewUrl);
+    
+    try {
+      const fileName = `thumbnails/${user.id}/${Date.now()}.jpg`;
+      const { error } = await supabase.storage
+        .from('contents')
+        .upload(fileName, file, { contentType: 'image/jpeg', upsert: true });
+
+      if (error) throw error;
+
+      const { data: { publicUrl } } = supabase.storage
+        .from('contents')
+        .getPublicUrl(fileName);
+
+      setThumbnailUrl(publicUrl);
+    } catch (error: any) {
+      console.error("Auto-thumbnail upload error:", error);
+    }
   };
 
   const handleGenerateTags = async () => {
@@ -422,7 +504,7 @@ export default function StudioUpload() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!title || !fileUrl || !thumbnailUrl) {
+    if (!title || !fileUrl) {
       toast.error("Preencha todos os campos obrigatórios");
       return;
     }
@@ -480,6 +562,7 @@ export default function StudioUpload() {
         toast.success("Conteúdo enviado para aprovação!");
       }
       
+      sessionStorage.removeItem(DRAFT_KEY);
       navigate('/studio/contents');
     } catch (error: any) {
       toast.error(error.message || "Erro ao publicar conteúdo");
@@ -753,12 +836,21 @@ export default function StudioUpload() {
                       </div>
                     </div>
 
+                    {/* Cover Frame Selector - shown for video content after upload */}
+                    {filePreview && uploadState === "complete" && contentType !== "podcast" && !manualThumbnail && (
+                      <div className="lg:col-span-2">
+                        <CoverFrameSelector
+                          videoSrc={filePreview}
+                          onFrameSelect={handleCoverFrameSelect}
+                        />
+                      </div>
+                    )}
+
                     {/* Thumbnail Upload */}
                     <div className="space-y-3">
-                      <Label className="text-sm font-medium flex items-center gap-2">
+                       <Label className="text-sm font-medium flex items-center gap-2">
                         <ImagePlus className="w-4 h-4" />
-                        Thumbnail
-                        <span className="text-accent">*</span>
+                        Thumbnail (opcional)
                       </Label>
                       
                       <div className="relative">
@@ -976,7 +1068,7 @@ export default function StudioUpload() {
                 >
                   <Button 
                     type="submit" 
-                    disabled={submitting || !title || !fileUrl || !thumbnailUrl} 
+                    disabled={submitting || !title || !fileUrl} 
                     size="lg"
                     className="w-full h-14 text-base font-semibold"
                   >
