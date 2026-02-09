@@ -20,6 +20,8 @@ import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { motion, AnimatePresence } from "framer-motion";
 import { CoverFrameSelector } from "@/components/CoverFrameSelector";
+import { useIsMobile } from "@/hooks/use-mobile";
+import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from "@/components/ui/drawer";
 
 const DRAFT_KEY = "studio-upload-draft";
 const DRAFT_MAX_AGE = 24 * 60 * 60 * 1000; // 24h
@@ -85,6 +87,8 @@ export default function StudioUpload() {
   const [originalFileSize, setOriginalFileSize] = useState<number>(0);
   const xhrRef = useRef<XMLHttpRequest | null>(null);
   const [manualThumbnail, setManualThumbnail] = useState(false);
+  const [coverDrawerOpen, setCoverDrawerOpen] = useState(false);
+  const isMobile = useIsMobile();
   
   // Session persistence: restore draft
   useEffect(() => {
@@ -151,7 +155,14 @@ export default function StudioUpload() {
     abort: abortCompression,
     reset: resetCompression,
   } = useVideoCompression();
-  
+
+  // Auto-open cover drawer on mobile when video upload completes
+  useEffect(() => {
+    if (isMobile && uploadState === "complete" && contentType !== "podcast" && !manualThumbnail) {
+      setCoverDrawerOpen(true);
+    }
+  }, [uploadState, isMobile, contentType, manualThumbnail]);
+
   useEffect(() => {
     if (editId && user) {
       loadContentForEdit();
@@ -753,13 +764,15 @@ export default function StudioUpload() {
                                   </div>
                                 </div>
                               ) : (
-                                <>
+                               <>
                                   <video
                                     src={filePreview}
                                     className="w-full h-full object-cover"
                                     controls={uploadState === "complete" || uploadState === "idle"}
                                     muted={uploadState !== "complete" && uploadState !== "idle"}
                                     playsInline
+                                    preload="auto"
+                                    poster={thumbnailPreview || undefined}
                                   />
                                   
                                   {/* Upload Overlay */}
@@ -838,12 +851,60 @@ export default function StudioUpload() {
 
                     {/* Cover Frame Selector - shown for video content after upload */}
                     {filePreview && uploadState === "complete" && contentType !== "podcast" && !manualThumbnail && (
-                      <div className="lg:col-span-2">
-                        <CoverFrameSelector
-                          videoSrc={filePreview}
-                          onFrameSelect={handleCoverFrameSelect}
-                        />
-                      </div>
+                      isMobile ? (
+                        <>
+                          <div className="lg:col-span-2">
+                            <Button
+                              type="button"
+                              variant="outline"
+                              className="w-full h-12 gap-2"
+                              onClick={() => setCoverDrawerOpen(true)}
+                            >
+                              <ImagePlus className="w-4 h-4" />
+                              {thumbnailPreview ? "Alterar capa do vídeo" : "Escolher capa do vídeo"}
+                            </Button>
+                            {thumbnailPreview && (
+                              <div className="mt-2 relative aspect-video rounded-xl overflow-hidden">
+                                <img src={thumbnailPreview} alt="Capa" className="w-full h-full object-cover" />
+                                <div className="absolute top-2 left-2 px-2 py-0.5 rounded-md bg-black/60 text-white text-xs flex items-center gap-1">
+                                  <ImagePlus className="w-3 h-3" />
+                                  Capa
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                          <Drawer open={coverDrawerOpen} onOpenChange={setCoverDrawerOpen}>
+                            <DrawerContent className="max-h-[85vh]">
+                              <DrawerHeader>
+                                <DrawerTitle>Escolher capa do vídeo</DrawerTitle>
+                              </DrawerHeader>
+                              <div className="px-4 pb-6 overflow-auto">
+                                <CoverFrameSelector
+                                  videoSrc={filePreview}
+                                  onFrameSelect={(file, url) => {
+                                    handleCoverFrameSelect(file, url);
+                                  }}
+                                  className="border-0"
+                                />
+                                <Button
+                                  type="button"
+                                  className="w-full mt-4"
+                                  onClick={() => setCoverDrawerOpen(false)}
+                                >
+                                  Confirmar capa
+                                </Button>
+                              </div>
+                            </DrawerContent>
+                          </Drawer>
+                        </>
+                      ) : (
+                        <div className="lg:col-span-2">
+                          <CoverFrameSelector
+                            videoSrc={filePreview}
+                            onFrameSelect={handleCoverFrameSelect}
+                          />
+                        </div>
+                      )
                     )}
 
                     {/* Thumbnail Upload */}
