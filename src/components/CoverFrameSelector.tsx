@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { cn } from "@/lib/utils";
-import { Loader2, ImageIcon } from "lucide-react";
+import { Loader2, ImageIcon, AlertCircle } from "lucide-react";
 import { motion } from "framer-motion";
 
 interface CoverFrameSelectorProps {
@@ -10,25 +10,18 @@ interface CoverFrameSelectorProps {
 }
 
 const FRAME_COUNT = 12;
+const FRAME_TIMEOUT = 8000; // 8s max per frame extraction attempt
 
 export function CoverFrameSelector({ videoSrc, onFrameSelect, className }: CoverFrameSelectorProps) {
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const canvasRef = useRef<HTMLCanvasElement>(null);
   const stripRef = useRef<HTMLDivElement>(null);
   const [frames, setFrames] = useState<string[]>([]);
   const [selectedIndex, setSelectedIndex] = useState<number>(-1);
   const [currentPreview, setCurrentPreview] = useState<string>("");
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
   const [videoDuration, setVideoDuration] = useState(0);
   const isDragging = useRef(false);
-
-  const captureFrame = useCallback((video: HTMLVideoElement, canvas: HTMLCanvasElement): string => {
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
-    const ctx = canvas.getContext("2d")!;
-    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-    return canvas.toDataURL("image/jpeg", 0.9);
-  }, []);
+  const abortRef = useRef(false);
 
   const dataURLtoFile = useCallback((dataUrl: string, filename: string): File => {
     const arr = dataUrl.split(",");
@@ -40,96 +33,188 @@ export function CoverFrameSelector({ videoSrc, onFrameSelect, className }: Cover
     return new File([u8arr], filename, { type: mime });
   }, []);
 
-  // Generate frames on load
-  useEffect(() => {
-    if (!videoSrc) return;
+  // iOS Safari-compatible frame extraction
+  const extractFrameAtTime = useCallback((videoUrl: string, time: number, thumbWidth: number): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const video = document.createElement("video");
+      video.preload = "auto";
+      video.muted = true;
+      video.playsInline = true;
+      video.setAttribute("playsinline", "true");
+      video.setAttribute("webkit-playsinline", "true");
+      // Don't set crossOrigin for blob URLs or same-origin URLs
+      if (!videoUrl.startsWith("blob:") && !videoUrl.includes(window.location.hostname)) {
+        video.crossOrigin = "anonymous";
+      }
+      video.src = videoUrl;
 
-    const video = document.createElement("video");
-    video.crossOrigin = "anonymous";
-    video.preload = "auto";
-    video.muted = true;
-    video.playsInline = true;
-    video.src = videoSrc;
-
-    const canvas = document.createElement("canvas");
-    const generatedFrames: string[] = [];
-    let currentFrame = 0;
-
-    video.addEventListener("loadedmetadata", () => {
-      setVideoDuration(video.duration);
-      canvas.width = Math.min(video.videoWidth, 320);
-      canvas.height = Math.round(canvas.width * (video.videoHeight / video.videoWidth));
-
-      const seekToNextFrame = () => {
-        if (currentFrame >= FRAME_COUNT) {
-          setFrames(generatedFrames);
-          setLoading(false);
-
-          // Auto-select frame at 25%
-          const autoIndex = Math.floor(FRAME_COUNT * 0.25);
-          selectFrameAtIndex(autoIndex, video.duration, generatedFrames);
-          video.remove();
-          return;
+      let resolved = false;
+      const timeout = setTimeout(() => {
+        if (!resolved) {
+          resolved = true;
+          cleanup();
+          reject(new Error("Frame extraction timeout"));
         }
-        const time = (video.duration / FRAME_COUNT) * currentFrame + 0.1;
-        video.currentTime = Math.min(time, video.duration - 0.1);
+      }, FRAME_TIMEOUT);
+
+      const cleanup = () => {
+        video.pause();
+        video.removeAttribute("src");
+        video.load();
+        video.remove();
+        clearTimeout(timeout);
       };
 
-      video.addEventListener("seeked", () => {
-        const ctx = canvas.getContext("2d")!;
-        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-        generatedFrames.push(canvas.toDataURL("image/jpeg", 0.6));
-        currentFrame++;
-        seekToNextFrame();
+      const captureCanvas = () => {
+        try {
+          const canvas = document.createElement("canvas");
+          canvas.width = thumbWidth;
+          canvas.height = Math.round(thumbWidth * (video.videoHeight / video.videoWidth));
+          const ctx = canvas.getContext("2d")!;
+          ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+          
+          // Check if the canvas is actually drawn (not blank)
+          const pixel = ctx.getImageData(0, 0, 1, 1).data;
+          const isBlank = pixel[0] === 0 && pixel[1] === 0 && pixel[2] === 0 && pixel[3] === 0;
+          
+          if (isBlank) {
+            reject(new Error("Blank frame"));
+            return;
+          }
+          
+          const dataUrl = canvas.toDataURL("image/jpeg", 0.6);
+          resolved = true;
+          cleanup();
+          resolve(dataUrl);
+        } catch (e) {
+          resolved = true;
+          cleanup();
+          reject(e);
+        }
+      };
+
+      video.addEventListener("loadeddata", () => {
+        video.currentTime = Math.min(time, video.duration - 0.1);
       });
 
-      seekToNextFrame();
-    });
+      video.addEventListener("seeked", () => {
+        if (resolved) return;
+        // Small delay for iOS to render the frame
+        requestAnimationFrame(() => {
+          setTimeout(captureCanvas, 100);
+        });
+      });
 
-    video.addEventListener("error", () => {
-      console.error("Error loading video for frame extraction");
+      video.addEventListener("error", () => {
+        if (!resolved) {
+          resolved = true;
+          cleanup();
+          reject(new Error("Video load error"));
+        }
+      });
+
+      // iOS Safari: try to trigger load
+      video.load();
+    });
+  }, []);
+
+  // Generate frames sequentially (more reliable on iOS)
+  useEffect(() => {
+    if (!videoSrc) return;
+    abortRef.current = false;
+
+    const generateFrames = async () => {
+      // First, get video duration
+      const dur = await new Promise<number>((resolve, reject) => {
+        const v = document.createElement("video");
+        v.preload = "metadata";
+        v.muted = true;
+        v.playsInline = true;
+        v.setAttribute("playsinline", "true");
+        if (!videoSrc.startsWith("blob:") && !videoSrc.includes(window.location.hostname)) {
+          v.crossOrigin = "anonymous";
+        }
+        v.src = videoSrc;
+        
+        const t = setTimeout(() => { v.remove(); reject(new Error("metadata timeout")); }, 10000);
+        v.addEventListener("loadedmetadata", () => {
+          clearTimeout(t);
+          const d = v.duration;
+          v.remove();
+          resolve(d);
+        });
+        v.addEventListener("error", () => {
+          clearTimeout(t);
+          v.remove();
+          reject(new Error("metadata error"));
+        });
+        v.load();
+      });
+
+      setVideoDuration(dur);
+
+      const generatedFrames: string[] = [];
+      const thumbWidth = Math.min(320, window.innerWidth / 2);
+
+      for (let i = 0; i < FRAME_COUNT; i++) {
+        if (abortRef.current) return;
+        const time = (dur / FRAME_COUNT) * i + 0.1;
+        try {
+          const frame = await extractFrameAtTime(videoSrc, time, thumbWidth);
+          generatedFrames.push(frame);
+        } catch (e) {
+          console.warn(`Frame ${i} extraction failed:`, e);
+          // Use a gray placeholder for failed frames
+          const canvas = document.createElement("canvas");
+          canvas.width = thumbWidth;
+          canvas.height = Math.round(thumbWidth * 9 / 16);
+          const ctx = canvas.getContext("2d")!;
+          ctx.fillStyle = "#333";
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
+          generatedFrames.push(canvas.toDataURL("image/jpeg", 0.5));
+        }
+      }
+
+      if (abortRef.current) return;
+
+      if (generatedFrames.length === 0) {
+        setError(true);
+        setLoading(false);
+        return;
+      }
+
+      setFrames(generatedFrames);
+      setLoading(false);
+
+      // Auto-select frame at 25%
+      const autoIndex = Math.floor(FRAME_COUNT * 0.25);
+      selectHighQualityFrame(autoIndex, dur, videoSrc);
+    };
+
+    generateFrames().catch((e) => {
+      console.error("Frame generation failed:", e);
+      setError(true);
       setLoading(false);
     });
 
     return () => {
-      video.pause();
-      video.removeAttribute("src");
-      video.load();
+      abortRef.current = true;
     };
-  }, [videoSrc]);
+  }, [videoSrc, extractFrameAtTime]);
 
-  const selectFrameAtIndex = useCallback((index: number, duration: number, framesArr?: string[]) => {
-    const sourceFrames = framesArr || frames;
-    if (index < 0 || index >= sourceFrames.length) return;
-
+  const selectHighQualityFrame = useCallback(async (index: number, duration: number, src: string) => {
     setSelectedIndex(index);
-    
-    // Generate high-quality frame
-    const video = document.createElement("video");
-    video.crossOrigin = "anonymous";
-    video.muted = true;
-    video.playsInline = true;
-    video.src = videoSrc;
-
     const time = (duration / FRAME_COUNT) * index + 0.1;
 
-    video.addEventListener("loadedmetadata", () => {
-      video.currentTime = Math.min(time, video.duration - 0.1);
-    });
-
-    video.addEventListener("seeked", () => {
-      const canvas = document.createElement("canvas");
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
-      const ctx = canvas.getContext("2d")!;
-      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-      const dataUrl = canvas.toDataURL("image/jpeg", 0.92);
+    try {
+      const dataUrl = await extractFrameAtTime(src, time, 1920);
       setCurrentPreview(dataUrl);
       const file = dataURLtoFile(dataUrl, `cover_${Date.now()}.jpg`);
       onFrameSelect(file, dataUrl);
-      video.remove();
-    }, { once: true });
-  }, [frames, videoSrc, onFrameSelect, dataURLtoFile]);
+    } catch (e) {
+      console.warn("High-quality frame capture failed, using thumbnail:", e);
+    }
+  }, [extractFrameAtTime, dataURLtoFile, onFrameSelect]);
 
   const handleStripInteraction = useCallback((clientX: number) => {
     const strip = stripRef.current;
@@ -139,9 +224,12 @@ export function CoverFrameSelector({ videoSrc, onFrameSelect, className }: Cover
     const ratio = x / rect.width;
     const index = Math.min(Math.floor(ratio * frames.length), frames.length - 1);
     if (index !== selectedIndex) {
-      selectFrameAtIndex(index, videoDuration);
+      setSelectedIndex(index);
+      // Show thumbnail immediately, then fetch HQ
+      setCurrentPreview(frames[index]);
+      selectHighQualityFrame(index, videoDuration, videoSrc);
     }
-  }, [frames, selectedIndex, videoDuration, selectFrameAtIndex]);
+  }, [frames, selectedIndex, videoDuration, videoSrc, selectHighQualityFrame]);
 
   const handlePointerDown = (e: React.PointerEvent) => {
     isDragging.current = true;
@@ -169,7 +257,16 @@ export function CoverFrameSelector({ videoSrc, onFrameSelect, className }: Cover
     );
   }
 
-  if (frames.length === 0) return null;
+  if (error || frames.length === 0) {
+    return (
+      <div className={cn("rounded-xl border border-border bg-card p-4", className)}>
+        <div className="flex items-center gap-3 text-muted-foreground">
+          <AlertCircle className="w-4 h-4" />
+          <span className="text-sm">Não foi possível gerar preview. Faça upload de uma thumbnail manualmente.</span>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <motion.div
