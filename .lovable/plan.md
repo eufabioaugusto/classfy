@@ -1,104 +1,133 @@
 
-# Melhorias no Upload: Thumb Automatica, Seletor de Capa, Persistencia e Icones
+# Video Preparation Lobby -- Editor Fullscreen estilo Instagram/YouTube
 
-## Problemas Identificados
+## Visao Geral
 
-1. **Tela preta no mobile** -- O elemento `<video>` nao gera preview de thumbnail automaticamente no celular; precisa capturar um frame via `<canvas>`.
-2. **Thumbnail obrigatoria** -- Atualmente `thumbnailUrl` e validado como obrigatorio no submit (linha 425 e 979). Deveria ser opcional com fallback automatico.
-3. **Perda de sessao** -- Ao trocar de app e voltar no mobile, o estado do formulario se perde. Precisa de persistencia via `sessionStorage`.
-4. **Icones PRO/Premium** -- PRO deveria ter coroa amarela e Premium coroa vermelha. Atualmente usa `Sparkles` azul para PRO e `Crown` amarela para Premium (invertido).
+Criar uma tela fullscreen de preparacao de video (lobby) que abre automaticamente ao selecionar um arquivo de video no mobile. Essa tela funciona como um editor/previsualizador antes do formulario de upload, similar ao Instagram Reels e YouTube Shorts.
 
----
+## O que sera construido
 
-## Plano de Implementacao
+### 1. Novo Componente: `VideoPreparationLobby`
 
-### 1. Seletor de Capa estilo Instagram (Cover Frame Selector)
+Tela fullscreen (100vh, 100vw) com fundo preto que exibe:
 
-Criar um novo componente `CoverFrameSelector` que:
-- Recebe o `filePreview` (URL do video) como prop
-- Cria um `<video>` oculto e um `<canvas>` para captura de frames
-- Exibe uma barra horizontal com preview de frames ao longo do video (tipo scrubber do Instagram)
-- Ao arrastar na barra, o usuario navega pelo video e ao soltar, o frame atual e capturado como thumbnail
-- Usa `canvas.toDataURL('image/jpeg', 0.9)` para gerar a imagem
-- A imagem gerada e convertida em `File` e enviada ao storage
-- Aparece automaticamente quando um video e carregado e nenhuma thumbnail manual foi enviada
+```text
++----------------------------------+
+| [X]                    [Avancar] |  <- Header: fechar + avancar
+|                                  |
+|                                  |
+|         VIDEO PREVIEW            |  <- Video adaptativo:
+|         (aspect ratio            |     9:16 = fullscreen
+|          preservado)             |     16:9 = centralizado com
+|                                  |     barras pretas
+|                                  |
+|                                  |
+|  [Play/Pause]  00:32 / 01:30    |  <- Controles de playback
+|                                  |
+|  |=====[======]===============|  |  <- Barra de trim com handles
+|                                  |     (shorts: max 90s)
+|                                  |
+|  [Capa]  [Cortar]  [+]  [+]    |  <- Toolbar inferior
+|                                  |     (capa = seletor de frame)
+|                                  |     (outros = placeholder futuro)
++----------------------------------+
+```
 
-**Comportamento:**
-- Quando o video termina upload, gerar automaticamente um frame a 25% do video como thumbnail padrao
-- Exibir o seletor de capa abaixo do preview do video
-- O usuario pode ainda fazer upload manual de thumbnail (sobrepoe a automatica)
+**Comportamento do video:**
+- Videos verticais (9:16): preenchem a tela toda, `object-contain` no container fullscreen
+- Videos horizontais (16:9): centralizados verticalmente com fundo preto acima e abaixo
+- O video fica em loop automatico para facilitar a visualizacao
 
-### 2. Thumbnail Opcional com Fallback Automatico
+**Barra de trim:**
+- Dois handles (inicio e fim) arrastaveis sobre a timeline de frames do video
+- Para `short`: limite maximo de 90 segundos entre os handles
+- Para `aula`/`curso`: sem limite
+- Exibe duracao selecionada em tempo real
+- Visualmente mostra thumbnails do video ao fundo da barra (reutiliza logica do CoverFrameSelector)
 
-- Remover o `*` (asterisco) da label de Thumbnail
-- Remover `!thumbnailUrl` da validacao do submit (linhas 425 e 979)
-- Quando o video faz upload e nao ha thumbnail manual:
-  - Auto-gerar thumbnail de um frame do video (a 25% da duracao)
-  - Upload automatico para storage
-  - Setar `thumbnailUrl` automaticamente
-- O seletor de capa permite ao usuario ajustar qual frame usar
-- Se o usuario fizer upload manual de imagem, esta tem prioridade
+**Toolbar inferior (preparada para o futuro):**
+- Botao "Capa" -- abre o seletor de frame (CoverFrameSelector) em um sheet
+- Botao "Cortar" -- ativa/destaca a barra de trim (ja visivel)
+- Botoes placeholder desabilitados para: Texto, Musica, Efeitos (com icones, mas `opacity-50` e tooltip "Em breve")
 
-### 3. Persistencia de Sessao (sessionStorage)
+**Acao "Avancar":**
+- Fecha o lobby e retorna ao formulario de upload com os dados:
+  - `trimStart` e `trimEnd` (em segundos) -- salvos mas o trim efetivo via FFmpeg e fase futura
+  - Frame de capa selecionado (thumbnail)
+  - Duracao ajustada
 
-- Salvar o estado do formulario em `sessionStorage` a cada mudanca:
-  - `contentType`, `title`, `description`, `visibility`, `price`, `discount`, `tags`, `fileUrl`, `thumbnailUrl`, `duration`
-- Na montagem do componente, verificar se ha dados salvos e restaurar
-- Limpar `sessionStorage` ao publicar com sucesso
-- **Nota:** `filePreview` e `thumbnailPreview` (blob URLs) nao sobrevivem entre sessoes, mas `fileUrl` e `thumbnailUrl` (URLs publicas do storage) sim -- se o upload ja completou, o preview pode ser recriado a partir da URL publica
-- Usar uma chave como `studio-upload-draft` no sessionStorage
+### 2. Integracao no StudioUpload.tsx
 
-### 4. Corrigir Icones PRO/Premium
+- Quando um video e selecionado no mobile, em vez de mostrar o preview inline, abre o `VideoPreparationLobby` em fullscreen
+- O lobby recebe o blob URL do video
+- Ao clicar "Avancar", o lobby fecha e o upload prossegue normalmente com os metadados definidos
+- No desktop, o lobby tambem abre mas como um modal/dialog (nao fullscreen) -- ou pode ser fullscreen tambem para consistencia
 
-Na array `visibilityOptions`:
-- **PRO**: Trocar `Sparkles` por `Crown`, cor amarela (`text-yellow-500`)
-- **Premium**: Manter `Crown`, cor vermelha (`text-red-500`)
-- **Gratuito**: Manter `Eye`, cor verde
-- **Pago**: Manter `DollarSign`, cor accent
+### 3. Ajustes no CoverFrameSelector
 
----
+- Adaptar para funcionar como bottom sheet dentro do lobby (ja existe essa logica)
+- Manter compatibilidade com iOS Safari (logica atual de sequential seeking)
 
 ## Detalhes Tecnicos
 
-### Componente CoverFrameSelector
+### Arquivos
+
+1. **Novo:** `src/components/video-lobby/VideoPreparationLobby.tsx` -- Componente principal do lobby
+2. **Novo:** `src/components/video-lobby/VideoTrimBar.tsx` -- Barra de trim com handles draggable
+3. **Novo:** `src/components/video-lobby/LobbyToolbar.tsx` -- Toolbar inferior com acoes
+4. **Editado:** `src/pages/StudioUpload.tsx` -- Integrar o lobby no fluxo de upload
+5. **Editado:** `src/components/CoverFrameSelector.tsx` -- Adaptar para funcionar dentro do lobby
+
+### VideoPreparationLobby Props
 
 ```text
-+------------------------------------------------------+
-|  Capa do Video                                        |
-|  [Frame atual em preview grande]                      |
-|                                                       |
-|  |---|---|---|---|---|---|---|---|---|---|---|---|---|  |
-|  ^ barra de frames com miniatures do video           |
-|  arrastar para selecionar frame                       |
-+------------------------------------------------------+
-```
-
-- Gerar ~10-15 frames espacados ao longo do video para os thumbnails da barra
-- Usar `requestVideoFrameCallback` ou seek manual + canvas para captura
-- O frame selecionado e convertido em JPEG e feito upload automatico
-
-### sessionStorage Schema
-
-```text
-{
-  contentType: string,
-  title: string,
-  description: string,
-  visibility: string,
-  price: string,
-  discount: string,
-  tags: string[],
-  fileUrl: string,
-  thumbnailUrl: string,
-  duration: number,
-  savedAt: timestamp
+interface VideoPreparationLobbyProps {
+  videoSrc: string;          // blob URL do video
+  contentType: ContentType;  // para saber se aplica limite de 90s
+  onConfirm: (data: {
+    thumbnailFile?: File;
+    thumbnailPreview?: string;
+    trimStart: number;
+    trimEnd: number;
+    duration: number;
+  }) => void;
+  onClose: () => void;
+  open: boolean;
 }
 ```
 
-- Expirar apos 24h (verificar `savedAt` na restauracao)
-- Mostrar toast "Rascunho restaurado" quando recuperar dados
+### Video Aspect Ratio Detection
 
-### Arquivos Modificados
+- Ao carregar o video no lobby, detectar `videoWidth` / `videoHeight`
+- Se ratio < 1 (vertical): container usa `h-full w-auto mx-auto` para preencher verticalmente
+- Se ratio >= 1 (horizontal): container usa `w-full h-auto my-auto` para centralizar
 
-1. **Novo:** `src/components/CoverFrameSelector.tsx` -- Componente do seletor de capa
-2. **Editado:** `src/pages/StudioUpload.tsx` -- Integrar seletor, remover obrigatoriedade da thumb, adicionar persistencia, corrigir icones
+### VideoTrimBar
+
+- Gera thumbnails do video (reusa logica do CoverFrameSelector, ~20 frames)
+- Exibe como barra horizontal com imagens de fundo
+- Dois handles nas pontas, arrastaveis com pointer events (touch-friendly)
+- Area selecionada fica com opacidade normal, areas fora ficam escurecidas
+- Para shorts: se o usuario tentar arrastar alem de 90s, trava
+- O video faz seek em tempo real conforme o usuario arrasta
+
+### Fluxo no Mobile
+
+```text
+1. Usuario seleciona video no input
+2. Blob URL criado -> VideoPreparationLobby abre fullscreen
+3. Usuario ve o video, pode:
+   a. Ajustar trim (inicio/fim)
+   b. Selecionar frame de capa
+   c. (futuro) adicionar texto, musica, etc.
+4. Clica "Avancar"
+5. Lobby fecha, formulario de upload recebe os dados
+6. Upload inicia com o arquivo original (trim sera aplicado server-side futuramente)
+```
+
+### Consideracoes iOS Safari
+
+- Video element com `playsinline`, `webkit-playsinline`, `muted` inicialmente
+- Sem `crossOrigin` para blob URLs
+- Seek sequencial com delay de 100ms para frame extraction
+- Touch events via Pointer Events API para compatibilidade
