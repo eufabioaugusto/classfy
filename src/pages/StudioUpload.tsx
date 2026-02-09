@@ -22,6 +22,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { CoverFrameSelector } from "@/components/CoverFrameSelector";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from "@/components/ui/drawer";
+import { VideoPreparationLobby } from "@/components/video-lobby/VideoPreparationLobby";
 
 const DRAFT_KEY = "studio-upload-draft";
 const DRAFT_MAX_AGE = 24 * 60 * 60 * 1000; // 24h
@@ -88,6 +89,8 @@ export default function StudioUpload() {
   const xhrRef = useRef<XMLHttpRequest | null>(null);
   const [manualThumbnail, setManualThumbnail] = useState(false);
   const [coverDrawerOpen, setCoverDrawerOpen] = useState(false);
+  const [lobbyOpen, setLobbyOpen] = useState(false);
+  const [lobbyVideoSrc, setLobbyVideoSrc] = useState("");
   const isMobile = useIsMobile();
   
   // Session persistence: restore draft
@@ -257,6 +260,13 @@ export default function StudioUpload() {
 
     const previewUrl = URL.createObjectURL(file);
     setFilePreview(previewUrl);
+
+    // Open lobby for video content types
+    if (contentType !== "podcast") {
+      setLobbyVideoSrc(previewUrl);
+      setLobbyOpen(true);
+    }
+
     setFileUploading(true);
     setFileProgress(0);
     setOriginalFileSize(file.size);
@@ -451,6 +461,42 @@ export default function StudioUpload() {
       setThumbnailUploading(false);
     }
   };
+  const handleLobbyConfirm = async (data: {
+    thumbnailFile?: File;
+    thumbnailPreview?: string;
+    trimStart: number;
+    trimEnd: number;
+    duration: number;
+  }) => {
+    setLobbyOpen(false);
+
+    // Apply cover from lobby if provided
+    if (data.thumbnailFile && data.thumbnailPreview) {
+      setThumbnailPreview(data.thumbnailPreview);
+      try {
+        const fileName = `thumbnails/${user.id}/${Date.now()}.jpg`;
+        const { error } = await supabase.storage
+          .from('contents')
+          .upload(fileName, data.thumbnailFile, { contentType: 'image/jpeg', upsert: true });
+        if (!error) {
+          const { data: { publicUrl } } = supabase.storage
+            .from('contents')
+            .getPublicUrl(fileName);
+          setThumbnailUrl(publicUrl);
+        }
+      } catch (err) {
+        console.error("Lobby thumbnail upload error:", err);
+      }
+    }
+
+    // Store trim metadata (actual trim is future server-side)
+    setDuration(Math.floor(data.duration));
+  };
+
+  const handleLobbyClose = () => {
+    setLobbyOpen(false);
+  };
+
 
   const handleRemoveThumbnail = () => {
     setThumbnailUrl("");
@@ -586,6 +632,7 @@ export default function StudioUpload() {
   const selectedVisibility = visibilityOptions.find(v => v.id === visibility);
 
   return (
+    <>
     <SidebarProvider defaultOpen={true}>
       <div className="min-h-screen flex w-full bg-background">
         <AppSidebar />
@@ -1155,5 +1202,15 @@ export default function StudioUpload() {
         </div>
       </div>
     </SidebarProvider>
+
+      {/* Video Preparation Lobby */}
+      <VideoPreparationLobby
+        videoSrc={lobbyVideoSrc}
+        contentType={contentType}
+        onConfirm={handleLobbyConfirm}
+        onClose={handleLobbyClose}
+        open={lobbyOpen}
+      />
+    </>
   );
 }
