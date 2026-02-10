@@ -4,7 +4,6 @@ import { Button } from "@/components/ui/button";
 import { VideoTrimBar } from "./VideoTrimBar";
 import { LobbyToolbar } from "./LobbyToolbar";
 import { CoverFrameSelector } from "@/components/CoverFrameSelector";
-import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { cn } from "@/lib/utils";
 import { motion, AnimatePresence } from "framer-motion";
 
@@ -38,7 +37,7 @@ export function VideoPreparationLobby({
   const [trimStart, setTrimStart] = useState(0);
   const [trimEnd, setTrimEnd] = useState(0);
   const [aspectRatio, setAspectRatio] = useState<number>(16 / 9);
-  const [coverSheetOpen, setCoverSheetOpen] = useState(false);
+  const [coverMode, setCoverMode] = useState(false);
   const [trimActive, setTrimActive] = useState(true);
   const [isMuted, setIsMuted] = useState(true);
   const [thumbnailFile, setThumbnailFile] = useState<File | undefined>();
@@ -118,6 +117,7 @@ export function VideoPreparationLobby({
   const handleCoverSelect = useCallback((file: File, previewUrl: string) => {
     setThumbnailFile(file);
     setThumbnailPreview(previewUrl);
+    setCoverMode(false);
   }, []);
 
   const handleConfirm = useCallback(() => {
@@ -229,34 +229,53 @@ export function VideoPreparationLobby({
           {/* Toolbar */}
           <div className="shrink-0 pb-safe">
             <LobbyToolbar
-              onCoverSelect={() => setCoverSheetOpen(true)}
+              onCoverSelect={() => setCoverMode(true)}
               onTrimToggle={() => setTrimActive(!trimActive)}
               trimActive={trimActive}
             />
           </div>
 
-          {/* Cover selector sheet */}
-          <Sheet open={coverSheetOpen} onOpenChange={setCoverSheetOpen}>
-            <SheetContent side="bottom" className="max-h-[80vh] bg-background rounded-t-2xl p-0 z-[110]">
-              <SheetHeader className="px-4 pt-4 pb-2">
-                <SheetTitle>Escolher capa</SheetTitle>
-              </SheetHeader>
-              <div className="px-4 pb-6 overflow-auto">
-                <CoverFrameSelector
-                  videoSrc={videoSrc}
-                  onFrameSelect={handleCoverSelect}
-                  className="border-0"
-                />
-                <Button
-                  type="button"
-                  className="w-full mt-4"
-                  onClick={() => setCoverSheetOpen(false)}
-                >
-                  Confirmar capa
-                </Button>
-              </div>
-            </SheetContent>
-          </Sheet>
+          {/* Fullscreen cover selector overlay */}
+          <AnimatePresence>
+            {coverMode && (
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.2 }}
+                className="absolute inset-0 z-[110] bg-black flex flex-col"
+              >
+                {/* Cover header */}
+                <div className="flex items-center justify-between px-4 py-3 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => setCoverMode(false)}
+                    className="p-2 -ml-2 text-white/80 hover:text-white rounded-full transition-colors"
+                  >
+                    <X className="w-6 h-6" />
+                  </button>
+                  <span className="text-white font-semibold text-base">Escolher capa</span>
+                  <Button
+                    type="button"
+                    size="sm"
+                    onClick={() => setCoverMode(false)}
+                    className="font-semibold"
+                  >
+                    Confirmar
+                  </Button>
+                </div>
+
+                {/* Cover content - fullscreen */}
+                <div className="flex-1 min-h-0 overflow-auto">
+                  <CoverFrameSelector
+                    videoSrc={videoSrc}
+                    onFrameSelect={handleCoverSelect}
+                    className="border-0 rounded-none bg-transparent"
+                  />
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
         </motion.div>
       )}
     </AnimatePresence>
