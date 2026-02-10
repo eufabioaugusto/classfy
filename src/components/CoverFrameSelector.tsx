@@ -10,6 +10,7 @@ interface CoverFrameSelectorProps {
   duration: number;
   videoAspect: number;
   onFrameSelect: (file: File, previewUrl: string) => void;
+  onGeneratingFrames?: (generating: boolean) => void;
   className?: string;
 }
 
@@ -26,6 +27,7 @@ export function CoverFrameSelector({
   duration,
   videoAspect,
   onFrameSelect,
+  onGeneratingFrames,
   className,
 }: CoverFrameSelectorProps) {
   const stripRef = useRef<HTMLDivElement>(null);
@@ -38,6 +40,7 @@ export function CoverFrameSelector({
   const abortRef = useRef(false);
   const frameCountRef = useRef(getFrameCount());
   const generatingRef = useRef(false);
+  const timeoutRef = useRef<ReturnType<typeof setTimeout>>();
 
   // Generate frames using the lobby's video element — zero createElement("video")
   useEffect(() => {
@@ -49,10 +52,25 @@ export function CoverFrameSelector({
     const savedTime = video.currentTime;
     video.pause();
 
+    onGeneratingFrames?.(true);
+
     const FRAME_COUNT = frameCountRef.current;
     const thumbWidth = Math.min(320, window.innerWidth / 2);
 
+    // 8s total timeout for the whole generation
+    timeoutRef.current = setTimeout(() => {
+      abortRef.current = true;
+      onGeneratingFrames?.(false);
+      if (frames.length === 0) {
+        setError(true);
+        setLoading(false);
+      }
+      generatingRef.current = false;
+    }, 8000);
+
     generateFramesFromRef(video, FRAME_COUNT, thumbWidth, { get aborted() { return abortRef.current; } }).then((generated) => {
+      clearTimeout(timeoutRef.current);
+      onGeneratingFrames?.(false);
       if (abortRef.current) return;
 
       if (generated.length === 0) {
@@ -77,10 +95,10 @@ export function CoverFrameSelector({
       generatingRef.current = false;
     });
 
-    return () => { abortRef.current = true; generatingRef.current = false; };
+    return () => { abortRef.current = true; clearTimeout(timeoutRef.current); generatingRef.current = false; };
   }, [videoReady, videoRef, duration]);
 
-  // HQ capture using the same video element
+  // HQ capture using the same video element — reduced to 1280px
   const captureAndSelect = useCallback(async (index: number) => {
     const video = videoRef.current;
     if (!video) return;
@@ -89,7 +107,7 @@ export function CoverFrameSelector({
     const time = Math.min((duration / FRAME_COUNT) * index + 0.1, duration - 0.1);
 
     try {
-      const hqWidth = 1920;
+      const hqWidth = 1280;
       const hqHeight = Math.round(hqWidth / videoAspect);
       const dataUrl = await seekAndCapture(video, time, hqWidth, hqHeight, 0.85);
       setCurrentPreview(dataUrl);

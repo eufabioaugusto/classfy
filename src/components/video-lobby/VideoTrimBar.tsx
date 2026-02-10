@@ -9,6 +9,7 @@ interface VideoTrimBarProps {
   trimStart: number;
   trimEnd: number;
   onTrimChange: (start: number, end: number) => void;
+  onGeneratingFrames?: (generating: boolean) => void;
   maxDuration?: number;
   className?: string;
 }
@@ -22,6 +23,7 @@ export function VideoTrimBar({
   trimStart,
   trimEnd,
   onTrimChange,
+  onGeneratingFrames,
   maxDuration,
   className,
 }: VideoTrimBarProps) {
@@ -32,33 +34,40 @@ export function VideoTrimBar({
   const dragStartTrim = useRef({ start: 0, end: 0 });
   const generatingRef = useRef(false);
 
-  // Generate thumbnail frames using the lobby's video element
+  // Generate thumbnail frames with 500ms delay — non-blocking
   useEffect(() => {
     if (!videoReady || !videoRef.current || duration <= 0 || generatingRef.current) return;
     generatingRef.current = true;
 
-    const video = videoRef.current;
-    const wasPaused = video.paused;
-    const savedTime = video.currentTime;
-    video.pause();
-
     const abort = { aborted: false };
-    const thumbWidth = 80;
+    const timerId = setTimeout(() => {
+      if (abort.aborted) return;
+      const video = videoRef.current;
+      if (!video) { generatingRef.current = false; return; }
 
-    generateFramesFromRef(video, THUMB_COUNT, thumbWidth, abort).then((generated) => {
-      if (!abort.aborted && generated.length > 0) {
-        setFrames(generated);
-      }
-      // Restore video state
-      if (videoRef.current) {
-        videoRef.current.currentTime = savedTime;
-        if (!wasPaused) videoRef.current.play().catch(() => {});
-      }
-      generatingRef.current = false;
-    });
+      const wasPaused = video.paused;
+      const savedTime = video.currentTime;
+      video.pause();
 
-    return () => { abort.aborted = true; generatingRef.current = false; };
-  }, [videoReady, videoRef, duration]);
+      onGeneratingFrames?.(true);
+
+      const thumbWidth = 80;
+      generateFramesFromRef(video, THUMB_COUNT, thumbWidth, abort).then((generated) => {
+        onGeneratingFrames?.(false);
+        if (!abort.aborted && generated.length > 0) {
+          setFrames(generated);
+        }
+        // Restore video state
+        if (videoRef.current) {
+          videoRef.current.currentTime = savedTime;
+          if (!wasPaused) videoRef.current.play().catch(() => {});
+        }
+        generatingRef.current = false;
+      });
+    }, 500);
+
+    return () => { abort.aborted = true; clearTimeout(timerId); generatingRef.current = false; };
+  }, [videoReady, videoRef, duration, onGeneratingFrames]);
 
   const handlePointerDown = useCallback((e: React.PointerEvent, handle: "start" | "end") => {
     e.preventDefault();
