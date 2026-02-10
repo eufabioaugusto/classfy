@@ -19,7 +19,7 @@ export function seekAndCapture(
     const onSeeked = () => {
       video.removeEventListener("seeked", onSeeked);
       // iOS Safari needs a delay after seeked for the frame to render
-      setTimeout(() => {
+      const doCapture = () => {
         clearTimeout(timeout);
         try {
           const canvas = document.createElement("canvas");
@@ -27,11 +27,26 @@ export function seekAndCapture(
           canvas.height = height;
           const ctx = canvas.getContext("2d")!;
           ctx.drawImage(video, 0, 0, width, height);
-          resolve(canvas.toDataURL("image/jpeg", quality));
+          const dataUrl = canvas.toDataURL("image/jpeg", quality);
+          // Check if we got a blank frame (too small = likely empty)
+          if (dataUrl.length < 1000) {
+            resolve(createGreyPlaceholder(width, height));
+          } else {
+            resolve(dataUrl);
+          }
         } catch (e) {
           resolve(createGreyPlaceholder(width, height));
         }
-      }, 80);
+      };
+      // On iOS, play briefly then pause to force frame decode
+      if (video.paused && video.readyState < 3) {
+        video.play().then(() => {
+          video.pause();
+          setTimeout(doCapture, 80);
+        }).catch(() => setTimeout(doCapture, 80));
+      } else {
+        setTimeout(doCapture, 80);
+      }
     };
 
     video.addEventListener("seeked", onSeeked);

@@ -40,7 +40,8 @@ export function VideoTrimBar({
     generatingRef.current = true;
 
     const abort = { aborted: false };
-    const timerId = setTimeout(() => {
+
+    const startGeneration = () => {
       if (abort.aborted) return;
       const video = videoRef.current;
       if (!video) { generatingRef.current = false; return; }
@@ -64,6 +65,25 @@ export function VideoTrimBar({
         }
         generatingRef.current = false;
       });
+    };
+
+    const timerId = setTimeout(() => {
+      if (abort.aborted) return;
+      const video = videoRef.current;
+      if (!video) { generatingRef.current = false; return; }
+
+      // If video hasn't decoded frames yet, wait or force decode
+      if (video.readyState >= 2) {
+        startGeneration();
+      } else {
+        const onCanPlay = () => {
+          video.removeEventListener("canplay", onCanPlay);
+          if (!abort.aborted) startGeneration();
+        };
+        video.addEventListener("canplay", onCanPlay);
+        // Try play/pause to force iOS decode
+        video.play().then(() => video.pause()).catch(() => {});
+      }
     }, 500);
 
     return () => { abort.aborted = true; clearTimeout(timerId); generatingRef.current = false; };
