@@ -1,96 +1,121 @@
 
-# Fix Cover Selector Bug + Premium Speed UX
+# Refatoracao Total: Zero Video Elements Extras
 
-## Problemas Identificados
+## Problema Raiz
 
-### 1. Capa fecha sozinha (Bug critico)
-O `CoverFrameSelector` auto-seleciona um frame a 25% do video ao terminar de carregar. Isso dispara `onFrameSelect` -> `handleCoverSelect` no lobby -> `setCoverMode(false)`, fechando o overlay automaticamente antes do usuario interagir.
+O console mostra `Frame generation failed: load error`. Tanto o `VideoTrimBar` (20 video elements) quanto o `CoverFrameSelector` (8+1 video elements) criam elementos `<video>` via `document.createElement("video")` para extrair frames. No Safari mobile, isso falha porque o browser limita video elements simultaneos com blob URLs.
 
-### 2. Video demora no celular
-O `<video>` do lobby usa `preload="auto"`, forcando o Safari/iOS a carregar o arquivo inteiro antes de exibir qualquer coisa. Combinado com o metadata extraction (que cria OUTRO elemento `<video>`), o resultado e uma tela preta ate tudo carregar.
+**O lobby ja tem um `<video>` carregado e funcionando** -- mas nenhum componente o reutiliza.
 
-### 3. CoverFrameSelector pesado demais para iOS
-Cada frame extrai criando um novo `<video>` element, carregando o blob inteiro, fazendo seek. x12 frames = 12 video elements sequenciais no iOS Safari. Muito lento.
+## Solucao: Passar o videoRef do lobby para os componentes filhos
 
----
+A abordagem do Instagram: **um unico elemento `<video>`**, reutilizado em tudo. O lobby passa `videoRef` para `VideoTrimBar` e para o cover selector. Eles fazem seek no video do lobby e capturam via canvas -- zero `document.createElement("video")`.
 
-## Solucao
+## Mudancas por Arquivo
 
-### 1. Separar callback de auto-selecao vs selecao manual no CoverFrameSelector
+### 1. `VideoTrimBar.tsx` -- Reescrever para usar videoRef
 
-Modificar o `CoverFrameSelector` para NAO chamar `onFrameSelect` na auto-selecao inicial. Apenas chamar quando o usuario INTERAGIR (arrastar no scrubber). Isso resolve o bug do overlay fechando sozinho.
+**Antes:** Cria 20 video elements separados para extrair frames.
+**Depois:** Recebe `videoRef` como prop. Quando o video esta pronto, faz seek sequencial no video do lobby para capturar os 20 frames da timeline.
 
-**Arquivo:** `src/components/CoverFrameSelector.tsx`
-- Remover a chamada `onFrameSelect` dentro de `selectHighQualityFrame` quando for auto-select (montagem)
-- Manter a chamada apenas quando o usuario interage via `handleStripInteraction`
+```text
+Props novas:
+  videoRef: React.RefObject<HTMLVideoElement>  // video do lobby
+  videoReady: boolean                           // so inicia quando true
 
-### 2. Video do lobby com preload="metadata" + poster frame
+Logica:
+  1. Quando videoReady=true, pausa o video do lobby
+  2. Faz seek sequencial: currentTime = t0 -> seeked -> canvas.drawImage(videoRef) -> t1 -> ...
+  3. Restaura currentTime original ao finalizar
+  4. Remove: extractFrame(), document.createElement("video"), props videoSrc
+```
 
-**Arquivo:** `src/components/video-lobby/VideoPreparationLobby.tsx`
-- Trocar `preload="auto"` por `preload="metadata"` no `<video>` do lobby
-- Reusar o mesmo video element para metadata ao inves de criar um segundo
-- Usar `loadeddata` event para mostrar o video assim que o primeiro frame estiver disponivel
-- Adicionar um estado `videoReady` com loading spinner ate o video estar pronto
-- Nao bloquear a UI enquanto carrega -- o usuario ve a tela preta com spinner por 1-2s no maximo
+### 2. `CoverFrameSelector.tsx` -- Reescrever para usar videoRef
 
-### 3. Otimizar CoverFrameSelector para iOS: single video element
+**Antes:** Cria 8 video elements para thumbnails + 1 para HQ capture.
+**Depois:** Recebe `videoRef` como prop. Usa o video do lobby para seek + canvas capture.
 
-**Arquivo:** `src/components/CoverFrameSelector.tsx`
-- Em vez de criar 12 video elements (um por frame), reusar UM UNICO video element para todos os seeks
-- Seek sequencial: load -> seek(t0) -> capture -> seek(t1) -> capture -> ... -> seek(t11) -> capture
-- Isso reduz drasticamente o tempo no iOS Safari (de ~12 loads para 1 load + 12 seeks)
-- Reduzir frame count de 12 para 8 no mobile para ser ainda mais rapido
+```text
+Props novas:
+  videoRef: React.RefObject<HTMLVideoElement>
+  videoReady: boolean
+  duration: number        // ja calculado pelo lobby
+  videoAspect: number     // ja calculado pelo lobby
 
-### 4. Cover overlay nao fecha no auto-select
+Remove: document.createElement("video") em TODOS os lugares
+Remove: videoSrc prop (nao precisa mais)
 
-**Arquivo:** `src/components/video-lobby/VideoPreparationLobby.tsx`
-- `handleCoverSelect` NAO deve fechar o coverMode automaticamente
-- O usuario fecha manualmente clicando "Confirmar" ou "X"
-- Criar um state local para o frame selecionado no cover mode, so aplicar ao confirmar
+Logica de geracao:
+  1. Quando videoReady=true, salva currentTime e pausa
+  2. Seek sequencial no videoRef -> canvas.drawImage -> dataURL
+  3. Restaura currentTime
 
----
+Logica de HQ capture (captureAndSelect):
+  1. Seek no videoRef -> canvas 1920px -> drawImage -> file
+  2. Sem criar video element nenhum
+```
+
+### 3. `VideoPreparationLobby.tsx` -- Passar videoRef + videoReady para filhos
+
+```text
+Mudancas:
+  - VideoTrimBar recebe: videoRef, videoReady (remove videoSrc)
+  - CoverFrameSelector recebe: videoRef, videoReady, duration, videoAspect (remove videoSrc)
+  - Ao abrir coverMode: pausa o video antes de entrar
+  - Ao confirmar/cancelar cover: permite retomar playback
+```
+
+### 4. `StudioUpload.tsx` -- Nenhuma mudanca
+
+O fluxo de abrir o lobby instantaneamente com blob URL ja esta correto. Nao precisa alterar.
+
+## Fluxo Corrigido no Mobile
+
+```text
+1. Usuario seleciona video
+2. blob URL criado -> lobby abre INSTANTANEAMENTE (tela preta)
+3. <video preload="metadata"> carrega metadados (~0.5-1s)
+4. "loadeddata" dispara -> videoReady=true -> video aparece
+5. VideoTrimBar recebe videoReady=true -> faz seek no MESMO video -> frames aparecem
+6. Usuario clica "Capa" -> coverMode=true -> video pausa
+7. CoverFrameSelector faz seek no MESMO video -> frames aparecem
+8. Tudo funciona com UM UNICO video element
+```
+
+## Por que isso resolve
+
+- **Zero `document.createElement("video")`** = zero "load error" no Safari mobile
+- **Um video, multiplos seeks** = rapido e confiavel
+- O video do lobby ja esta carregado, entao seek e quase instantaneo (~50ms por frame)
+- 20 frames do trim bar: ~1s total vs timeout/falha atual
+- 8 frames da capa: ~0.5s total vs falha atual
 
 ## Detalhes Tecnicos
 
-### CoverFrameSelector - Single Video Element Pattern
+### Funcao utilitaria de seek seguro (compartilhada)
 
 ```text
-Antes (lento no iOS):
-  Frame 0: createElement("video") -> load -> seek -> capture -> remove
-  Frame 1: createElement("video") -> load -> seek -> capture -> remove
-  ...x12 = 12 loads completos
-
-Depois (rapido):
-  1x createElement("video") -> load
-  Frame 0: seek -> waitSeeked -> capture
-  Frame 1: seek -> waitSeeked -> capture
-  ...x8 = 1 load + 8 seeks
+seekAndCapture(video, time, width, height):
+  1. video.currentTime = time
+  2. Espera evento "seeked" com timeout de 3s
+  3. Delay 80ms (iOS Safari)
+  4. canvas.drawImage(video, 0, 0, width, height)
+  5. Retorna dataURL
 ```
 
-### Fluxo do Cover Mode corrigido
+Essa funcao sera usada tanto pelo TrimBar quanto pelo CoverFrameSelector, evitando duplicacao de codigo.
 
-```text
-1. Usuario clica "Capa" na toolbar
-2. coverMode = true, overlay abre
-3. CoverFrameSelector carrega frames (8 frames, single video element)
-4. Auto-select frame 25% VISUALMENTE, mas NAO chama onFrameSelect
-5. Usuario arrasta scrubber para escolher outro frame
-6. Usuario clica "Confirmar"
-7. Ai sim: aplica o frame selecionado (thumbnailFile/thumbnailPreview)
-8. coverMode = false
-```
+### Gestao de estado do video durante captura
 
-### Video Lobby - Loading State
+Para evitar conflito entre playback e captura de frames:
+- Antes de iniciar captura: `video.pause()`, salva `currentTime`
+- Durante captura: seeks sequenciais
+- Apos captura: restaura `currentTime` original
+- O usuario pode dar play novamente normalmente
 
-```text
-1. Lobby abre INSTANTANEAMENTE (tela preta com spinner central)
-2. <video preload="metadata"> comeca a carregar
-3. Evento "loadeddata" -> videoReady = true -> spinner desaparece
-4. Video visivel, usuario pode interagir
-Tempo estimado iOS: 0.5-2s vs 5-10s atual
-```
+### Consideracoes iOS Safari
 
-### Arquivos Modificados
-
-1. `src/components/CoverFrameSelector.tsx` -- Single video element, separar auto-select de callback
-2. `src/components/video-lobby/VideoPreparationLobby.tsx` -- preload metadata, loading state, cover confirm flow
+- `playsinline` e `webkit-playsinline` ja presentes no video do lobby
+- Delay de 80-100ms apos `seeked` para garantir frame renderizado
+- Sem `crossOrigin` para blob URLs (ja correto)
+- Touch events via Pointer Events API (ja implementado)
