@@ -1,121 +1,99 @@
 
-# Refatoracao Total: Zero Video Elements Extras
+# Refatoracao Completa: Video Lobby Premium UX
 
 ## Problema Raiz
 
-O console mostra `Frame generation failed: load error`. Tanto o `VideoTrimBar` (20 video elements) quanto o `CoverFrameSelector` (8+1 video elements) criam elementos `<video>` via `document.createElement("video")` para extrair frames. No Safari mobile, isso falha porque o browser limita video elements simultaneos com blob URLs.
+O video no lobby usa `preload="metadata"` e escuta `loadeddata`. No iOS Safari, `loadeddata` com blob URL frequentemente NAO dispara, resultando em spinner eterno. Alem disso, o `VideoTrimBar` faz seeks VISIVEIS no video (causando "tremor" no desktop) porque usa o mesmo elemento de video que esta na tela.
 
-**O lobby ja tem um `<video>` carregado e funcionando** -- mas nenhum componente o reutiliza.
+## Arquitetura Nova: Zero Tremor, Zero Espera
 
-## Solucao: Passar o videoRef do lobby para os componentes filhos
+### Principio 1: loadedmetadata em vez de loadeddata
 
-A abordagem do Instagram: **um unico elemento `<video>`**, reutilizado em tudo. O lobby passa `videoRef` para `VideoTrimBar` e para o cover selector. Eles fazem seek no video do lobby e capturam via canvas -- zero `document.createElement("video")`.
+`loadedmetadata` dispara MUITO mais rapido que `loadeddata` (nao precisa decodificar frames, so headers). Isso da acesso a `duration`, `videoWidth`, `videoHeight` imediatamente.
+
+### Principio 2: Poster overlay durante extracao de frames
+
+Quando o trim bar precisa extrair frames, o video faz seeks. Para o usuario nao ver "tremor":
+1. Captura UM frame atual via canvas (imagem estatica)
+2. Mostra essa imagem como overlay em cima do video (opacity 1)
+3. Video faz seeks por baixo (invisivel)
+4. Ao terminar, remove overlay e restaura posicao
+
+### Principio 3: Frames sao opcionais, nao bloqueantes
+
+O trim bar funciona IMEDIATAMENTE com placeholders cinza. Os frames sao gerados em background 500ms apos o video ficar pronto, com overlay escondendo os seeks.
 
 ## Mudancas por Arquivo
 
-### 1. `VideoTrimBar.tsx` -- Reescrever para usar videoRef
+### 1. VideoPreparationLobby.tsx
 
-**Antes:** Cria 20 video elements separados para extrair frames.
-**Depois:** Recebe `videoRef` como prop. Quando o video esta pronto, faz seek sequencial no video do lobby para capturar os 20 frames da timeline.
-
-```text
-Props novas:
-  videoRef: React.RefObject<HTMLVideoElement>  // video do lobby
-  videoReady: boolean                           // so inicia quando true
-
-Logica:
-  1. Quando videoReady=true, pausa o video do lobby
-  2. Faz seek sequencial: currentTime = t0 -> seeked -> canvas.drawImage(videoRef) -> t1 -> ...
-  3. Restaura currentTime original ao finalizar
-  4. Remove: extractFrame(), document.createElement("video"), props videoSrc
-```
-
-### 2. `CoverFrameSelector.tsx` -- Reescrever para usar videoRef
-
-**Antes:** Cria 8 video elements para thumbnails + 1 para HQ capture.
-**Depois:** Recebe `videoRef` como prop. Usa o video do lobby para seek + canvas capture.
+- Trocar evento `loadeddata` por `loadedmetadata` (resolve iOS)
+- Adicionar fallback: se `loadedmetadata` nao disparar em 3s, tentar `canplay`
+- Adicionar estado `posterOverlay` (string dataURL) para cobrir video durante extraccao
+- Mostrar poster overlay quando trim bar ou cover selector estao gerando frames
+- Video usa `preload="auto"` novamente (necessario para blob URLs no iOS)
 
 ```text
-Props novas:
-  videoRef: React.RefObject<HTMLVideoElement>
-  videoReady: boolean
-  duration: number        // ja calculado pelo lobby
-  videoAspect: number     // ja calculado pelo lobby
-
-Remove: document.createElement("video") em TODOS os lugares
-Remove: videoSrc prop (nao precisa mais)
-
-Logica de geracao:
-  1. Quando videoReady=true, salva currentTime e pausa
-  2. Seek sequencial no videoRef -> canvas.drawImage -> dataURL
-  3. Restaura currentTime
-
-Logica de HQ capture (captureAndSelect):
-  1. Seek no videoRef -> canvas 1920px -> drawImage -> file
-  2. Sem criar video element nenhum
+Fluxo:
+1. Lobby abre -> <video preload="auto" src={blobURL}>
+2. loadedmetadata dispara (~200ms) -> duration, aspect, videoReady=true
+3. Video aparece, usuario pode interagir
+4. Apos 500ms: trim bar inicia geracao de frames
+5. Antes de seeks: captura poster -> mostra overlay -> video fica invisivel
+6. Seeks acontecem por baixo (0 tremor)
+7. Frames prontos -> remove overlay -> video normal
 ```
 
-### 3. `VideoPreparationLobby.tsx` -- Passar videoRef + videoReady para filhos
+### 2. VideoTrimBar.tsx
+
+- Adicionar callback `onGeneratingFrames(generating: boolean)` para avisar o lobby
+- Atrasar geracao de frames em 500ms apos videoReady (nao bloquear primeira renderizacao)
+- Se a geracao falhar, manter placeholders cinza (funcional sem frames)
+
+### 3. CoverFrameSelector.tsx
+
+- Mesma logica de overlay: lobby mostra poster enquanto cover gera frames
+- Reduzir HQ capture para 1280px em vez de 1920px (mais rapido, qualidade suficiente)
+- Adicionar timeout de 8s na geracao total: se falhar, mostrar erro gracioso
+
+### 4. seekAndCapture.ts
+
+- Adicionar funcao `captureCurrentFrame(video, width, height)` que captura sem seek (para o poster overlay)
+- Reduzir timeout de seek de 5s para 3s
+- Melhorar fallback: se seek falhar, usar placeholder cinza em vez de rejeitar
+
+## Fluxo Visual no Celular
 
 ```text
-Mudancas:
-  - VideoTrimBar recebe: videoRef, videoReady (remove videoSrc)
-  - CoverFrameSelector recebe: videoRef, videoReady, duration, videoAspect (remove videoSrc)
-  - Ao abrir coverMode: pausa o video antes de entrar
-  - Ao confirmar/cancelar cover: permite retomar playback
+T=0ms     Usuario seleciona video
+T=50ms    Lobby abre (tela preta)
+T=200ms   loadedmetadata dispara -> video aparece, play disponivel
+T=700ms   Trim bar inicia geracao de frames
+T=700ms   Poster overlay aparece no video (imagem estatica do frame atual)
+T=700ms   Video faz 20 seeks por baixo (invisivel para usuario)
+T=2500ms  Frames prontos -> overlay some -> video normal com filmstrip
 ```
-
-### 4. `StudioUpload.tsx` -- Nenhuma mudanca
-
-O fluxo de abrir o lobby instantaneamente com blob URL ja esta correto. Nao precisa alterar.
-
-## Fluxo Corrigido no Mobile
 
 ```text
-1. Usuario seleciona video
-2. blob URL criado -> lobby abre INSTANTANEAMENTE (tela preta)
-3. <video preload="metadata"> carrega metadados (~0.5-1s)
-4. "loadeddata" dispara -> videoReady=true -> video aparece
-5. VideoTrimBar recebe videoReady=true -> faz seek no MESMO video -> frames aparecem
-6. Usuario clica "Capa" -> coverMode=true -> video pausa
-7. CoverFrameSelector faz seek no MESMO video -> frames aparecem
-8. Tudo funciona com UM UNICO video element
+Quando usuario clica "Capa":
+T=0ms     coverMode=true, video pausa
+T=100ms   CoverFrameSelector inicia geracao (8 frames)
+T=100ms   Spinner "Gerando preview..." aparece
+T=1500ms  Frames prontos -> scrubber aparece
+T=???     Usuario arrasta e escolhe frame
+T=???     Clica "Confirmar" -> capa aplicada
 ```
 
-## Por que isso resolve
+## Por que isso resolve todos os problemas
 
-- **Zero `document.createElement("video")`** = zero "load error" no Safari mobile
-- **Um video, multiplos seeks** = rapido e confiavel
-- O video do lobby ja esta carregado, entao seek e quase instantaneo (~50ms por frame)
-- 20 frames do trim bar: ~1s total vs timeout/falha atual
-- 8 frames da capa: ~0.5s total vs falha atual
+1. **iOS nao carrega**: `loadedmetadata` + `preload="auto"` resolve. Com fallback de 3s.
+2. **Desktop treme**: Poster overlay cobre o video durante seeks. Zero tremor visivel.
+3. **Capa fecha sozinha**: Ja corrigido no codigo atual (pending state). Mantido.
+4. **Velocidade**: loadedmetadata e 5-10x mais rapido que loadeddata. Frames gerados em background.
 
-## Detalhes Tecnicos
+## Arquivos Modificados
 
-### Funcao utilitaria de seek seguro (compartilhada)
-
-```text
-seekAndCapture(video, time, width, height):
-  1. video.currentTime = time
-  2. Espera evento "seeked" com timeout de 3s
-  3. Delay 80ms (iOS Safari)
-  4. canvas.drawImage(video, 0, 0, width, height)
-  5. Retorna dataURL
-```
-
-Essa funcao sera usada tanto pelo TrimBar quanto pelo CoverFrameSelector, evitando duplicacao de codigo.
-
-### Gestao de estado do video durante captura
-
-Para evitar conflito entre playback e captura de frames:
-- Antes de iniciar captura: `video.pause()`, salva `currentTime`
-- Durante captura: seeks sequenciais
-- Apos captura: restaura `currentTime` original
-- O usuario pode dar play novamente normalmente
-
-### Consideracoes iOS Safari
-
-- `playsinline` e `webkit-playsinline` ja presentes no video do lobby
-- Delay de 80-100ms apos `seeked` para garantir frame renderizado
-- Sem `crossOrigin` para blob URLs (ja correto)
-- Touch events via Pointer Events API (ja implementado)
+1. `src/components/video-lobby/seekAndCapture.ts` -- nova funcao captureCurrentFrame
+2. `src/components/video-lobby/VideoTrimBar.tsx` -- delay de 500ms, callback onGeneratingFrames
+3. `src/components/video-lobby/VideoPreparationLobby.tsx` -- loadedmetadata, poster overlay, preload auto
+4. `src/components/CoverFrameSelector.tsx` -- HQ reduzido para 1280px, timeout de 8s
