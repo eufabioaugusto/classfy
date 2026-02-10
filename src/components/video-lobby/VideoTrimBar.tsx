@@ -1,15 +1,18 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { cn } from "@/lib/utils";
-import { generateFramesFromRef } from "./seekAndCapture";
+import { generateFramesProgressive } from "./seekAndCapture";
 
 interface VideoTrimBarProps {
-  videoRef: React.RefObject<HTMLVideoElement>;
-  videoReady: boolean;
+  /** Hidden capture video ref — never the visible player */
+  captureVideoRef: React.RefObject<HTMLVideoElement>;
+  captureReady: boolean;
   duration: number;
   trimStart: number;
   trimEnd: number;
+  /** Called continuously during drag — only updates state, no seeks */
   onTrimChange: (start: number, end: number) => void;
-  onGeneratingFrames?: (generating: boolean) => void;
+  /** Called on pointerUp — triggers a single seek on the visible video */
+  onTrimCommit: (start: number, end: number) => void;
   maxDuration?: number;
   className?: string;
 }
@@ -17,77 +20,71 @@ interface VideoTrimBarProps {
 const THUMB_COUNT = 20;
 
 export function VideoTrimBar({
-  videoRef,
-  videoReady,
+  captureVideoRef,
+  captureReady,
   duration,
   trimStart,
   trimEnd,
   onTrimChange,
-  onGeneratingFrames,
+  onTrimCommit,
   maxDuration,
   className,
 }: VideoTrimBarProps) {
   const barRef = useRef<HTMLDivElement>(null);
-  const [frames, setFrames] = useState<string[]>([]);
+  // Progressive frames: array grows frame-by-frame
+  const [frames, setFrames] = useState<(string | null)[]>(() => Array(THUMB_COUNT).fill(null));
   const [dragging, setDragging] = useState<"start" | "end" | "window" | null>(null);
   const dragStartX = useRef(0);
   const dragStartTrim = useRef({ start: 0, end: 0 });
   const generatingRef = useRef(false);
 
-  // Generate thumbnail frames with 500ms delay — non-blocking
+  // Generate thumbnail frames progressively on the HIDDEN capture video
   useEffect(() => {
-    if (!videoReady || !videoRef.current || duration <= 0 || generatingRef.current) return;
+    if (!captureReady || !captureVideoRef.current || duration <= 0 || generatingRef.current) return;
     generatingRef.current = true;
 
     const abort = { aborted: false };
+    const video = captureVideoRef.current;
 
     const startGeneration = () => {
       if (abort.aborted) return;
-      const video = videoRef.current;
-      if (!video) { generatingRef.current = false; return; }
-
-      const wasPaused = video.paused;
-      const savedTime = video.currentTime;
-      video.pause();
-
-      onGeneratingFrames?.(true);
-
       const thumbWidth = 80;
-      generateFramesFromRef(video, THUMB_COUNT, thumbWidth, abort).then((generated) => {
-        onGeneratingFrames?.(false);
-        if (!abort.aborted && generated.length > 0) {
-          setFrames(generated);
-        }
-        // Restore video state
-        if (videoRef.current) {
-          videoRef.current.currentTime = savedTime;
-          if (!wasPaused) videoRef.current.play().catch(() => {});
-        }
+
+      generateFramesProgressive(
+        video,
+        THUMB_COUNT,
+        thumbWidth,
+        (index, dataUrl) => {
+          if (abort.aborted) return;
+          setFrames(prev => {
+            const next = [...prev];
+            next[index] = dataUrl;
+            return next;
+          });
+        },
+        abort
+      ).then(() => {
         generatingRef.current = false;
       });
     };
 
-    const timerId = setTimeout(() => {
-      if (abort.aborted) return;
-      const video = videoRef.current;
-      if (!video) { generatingRef.current = false; return; }
+    // Wait for capture video to be ready
+    if (video.readyState >= 2) {
+      startGeneration();
+    } else {
+      const onCanPlay = () => {
+        video.removeEventListener("canplay", onCanPlay);
+        if (!abort.aborted) startGeneration();
+      };
+      video.addEventListener("canplay", onCanPlay);
+      video.play().then(() => video.pause()).catch(() => {});
+    }
 
-      // If video hasn't decoded frames yet, wait or force decode
-      if (video.readyState >= 2) {
-        startGeneration();
-      } else {
-        const onCanPlay = () => {
-          video.removeEventListener("canplay", onCanPlay);
-          if (!abort.aborted) startGeneration();
-        };
-        video.addEventListener("canplay", onCanPlay);
-        // Try play/pause to force iOS decode
-        video.play().then(() => video.pause()).catch(() => {});
-      }
-    }, 500);
-
-    return () => { abort.aborted = true; clearTimeout(timerId); generatingRef.current = false; };
-  }, [videoReady, videoRef, duration, onGeneratingFrames]);
+    return () => {
+      abort.aborted = true;
+      generatingRef.current = false;
+    };
+  }, [captureReady, captureVideoRef, duration]);
 
   const handlePointerDown = useCallback((e: React.PointerEvent, handle: "start" | "end") => {
     e.preventDefault();
@@ -105,6 +102,7 @@ export function VideoTrimBar({
     (e.target as HTMLElement).setPointerCapture(e.pointerId);
   }, [trimStart, trimEnd]);
 
+  // Drag: ONLY update CSS positions — zero seeks, pure math
   const handlePointerMove = useCallback((e: React.PointerEvent) => {
     if (!dragging) return;
     const bar = barRef.current;
@@ -140,9 +138,13 @@ export function VideoTrimBar({
     }
   }, [dragging, trimStart, trimEnd, maxDuration, duration, onTrimChange]);
 
+  // On release: single seek via onTrimCommit
   const handlePointerUp = useCallback(() => {
+    if (dragging) {
+      onTrimCommit(trimStart, trimEnd);
+    }
     setDragging(null);
-  }, []);
+  }, [dragging, trimStart, trimEnd, onTrimCommit]);
 
   const startPct = duration > 0 ? (trimStart / duration) * 100 : 0;
   const endPct = duration > 0 ? (trimEnd / duration) * 100 : 100;
@@ -172,16 +174,23 @@ export function VideoTrimBar({
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
       >
+        {/* Frame strip — progressive fade-in */}
         <div className="absolute inset-0 flex rounded-lg overflow-hidden">
-          {frames.length > 0
-            ? frames.map((f, i) => (
-                <img key={i} src={f} alt="" className="flex-1 h-full object-cover pointer-events-none" draggable={false} />
-              ))
-            : Array.from({ length: THUMB_COUNT }).map((_, i) => (
-                <div key={i} className="flex-1 h-full bg-white/5" />
-              ))}
+          {frames.map((f, i) => (
+            <div key={i} className="flex-1 h-full bg-white/5">
+              {f && (
+                <img
+                  src={f}
+                  alt=""
+                  className="w-full h-full object-cover pointer-events-none animate-in fade-in duration-300"
+                  draggable={false}
+                />
+              )}
+            </div>
+          ))}
         </div>
 
+        {/* Darkened regions outside trim */}
         <div
           className="absolute inset-y-0 left-0 bg-black/70 z-10 pointer-events-none rounded-l-lg"
           style={{ width: `${startPct}%` }}
@@ -191,12 +200,14 @@ export function VideoTrimBar({
           style={{ width: `${100 - endPct}%` }}
         />
 
+        {/* Draggable selection window */}
         <div
           className="absolute inset-y-0 z-20 border-y-2 border-accent cursor-grab active:cursor-grabbing"
           style={{ left: `${startPct}%`, width: `${endPct - startPct}%` }}
           onPointerDown={handleWindowPointerDown}
         />
 
+        {/* Start handle */}
         <div
           className="absolute inset-y-0 z-40 w-6 flex items-center justify-center cursor-ew-resize"
           style={{ left: `calc(${startPct}% - 12px)` }}
@@ -210,6 +221,7 @@ export function VideoTrimBar({
           </div>
         </div>
 
+        {/* End handle */}
         <div
           className="absolute inset-y-0 z-40 w-6 flex items-center justify-center cursor-ew-resize"
           style={{ left: `calc(${endPct}% - 12px)` }}

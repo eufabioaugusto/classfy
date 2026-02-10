@@ -9,16 +9,14 @@ export function seekAndCapture(
   height: number,
   quality = 0.6
 ): Promise<string> {
-  return new Promise((resolve, reject) => {
+  return new Promise((resolve) => {
     const timeout = setTimeout(() => {
       video.removeEventListener("seeked", onSeeked);
-      // Fallback: return grey placeholder instead of rejecting
       resolve(createGreyPlaceholder(width, height));
     }, 3000);
 
     const onSeeked = () => {
       video.removeEventListener("seeked", onSeeked);
-      // iOS Safari needs a delay after seeked for the frame to render
       const doCapture = () => {
         clearTimeout(timeout);
         try {
@@ -28,17 +26,15 @@ export function seekAndCapture(
           const ctx = canvas.getContext("2d")!;
           ctx.drawImage(video, 0, 0, width, height);
           const dataUrl = canvas.toDataURL("image/jpeg", quality);
-          // Check if we got a blank frame (too small = likely empty)
           if (dataUrl.length < 1000) {
             resolve(createGreyPlaceholder(width, height));
           } else {
             resolve(dataUrl);
           }
-        } catch (e) {
+        } catch {
           resolve(createGreyPlaceholder(width, height));
         }
       };
-      // On iOS, play briefly then pause to force frame decode
       if (video.paused && video.readyState < 3) {
         video.play().then(() => {
           video.pause();
@@ -54,29 +50,6 @@ export function seekAndCapture(
   });
 }
 
-/**
- * Capture the current frame of a video WITHOUT seeking.
- * Used to create a poster overlay before background seeks.
- */
-export function captureCurrentFrame(
-  video: HTMLVideoElement,
-  width: number,
-  height: number,
-  quality = 0.7
-): string | null {
-  try {
-    if (video.readyState < 2) return null;
-    const canvas = document.createElement("canvas");
-    canvas.width = width;
-    canvas.height = height;
-    const ctx = canvas.getContext("2d")!;
-    ctx.drawImage(video, 0, 0, width, height);
-    return canvas.toDataURL("image/jpeg", quality);
-  } catch {
-    return null;
-  }
-}
-
 /** Create a grey placeholder data URL */
 function createGreyPlaceholder(width: number, height: number): string {
   const canvas = document.createElement("canvas");
@@ -89,13 +62,15 @@ function createGreyPlaceholder(width: number, height: number): string {
 }
 
 /**
- * Generate multiple frames from a video element via sequential seeks.
- * Returns array of data URLs. Failures produce grey placeholders (never rejects).
+ * Generate frames progressively from a video element via sequential seeks.
+ * Calls `onFrame(index, dataUrl)` as each frame is captured — enables incremental UI updates.
+ * Returns array of all data URLs on completion. Never rejects.
  */
-export async function generateFramesFromRef(
+export async function generateFramesProgressive(
   video: HTMLVideoElement,
   frameCount: number,
   thumbWidth: number,
+  onFrame: (index: number, dataUrl: string) => void,
   abortSignal?: { aborted: boolean }
 ): Promise<string[]> {
   const dur = video.duration;
@@ -112,9 +87,22 @@ export async function generateFramesFromRef(
     const time = (dur / frameCount) * i + 0.1;
     const dataUrl = await seekAndCapture(video, time, thumbWidth, thumbHeight, 0.5);
     frames.push(dataUrl);
+    onFrame(i, dataUrl);
   }
 
   return frames;
+}
+
+/**
+ * @deprecated Use generateFramesProgressive instead for incremental UI updates.
+ */
+export async function generateFramesFromRef(
+  video: HTMLVideoElement,
+  frameCount: number,
+  thumbWidth: number,
+  abortSignal?: { aborted: boolean }
+): Promise<string[]> {
+  return generateFramesProgressive(video, frameCount, thumbWidth, () => {}, abortSignal);
 }
 
 export function dataURLtoFile(dataUrl: string, filename: string): File {

@@ -13,19 +13,19 @@ interface StandaloneCoverSelectorProps {
 
 export function StandaloneCoverSelector({ videoSrc, onFrameSelect, className }: StandaloneCoverSelectorProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
-  const [videoReady, setVideoReady] = useState(false);
+  const [captureReady, setCaptureReady] = useState(false);
   const [duration, setDuration] = useState(0);
   const [videoAspect, setVideoAspect] = useState(16 / 9);
 
   useEffect(() => {
     const v = videoRef.current;
     if (!v || !videoSrc) return;
-    setVideoReady(false);
+    setCaptureReady(false);
 
     const onLoaded = () => {
       setDuration(v.duration);
       setVideoAspect(v.videoWidth && v.videoHeight ? v.videoWidth / v.videoHeight : 16 / 9);
-      setVideoReady(true);
+      setCaptureReady(true);
     };
 
     v.addEventListener("loadeddata", onLoaded);
@@ -45,8 +45,8 @@ export function StandaloneCoverSelector({ videoSrc, onFrameSelect, className }: 
         className="hidden"
       />
       <CoverFrameSelector
-        videoRef={videoRef}
-        videoReady={videoReady}
+        captureVideoRef={videoRef}
+        captureReady={captureReady}
         duration={duration}
         videoAspect={videoAspect}
         onFrameSelect={onFrameSelect}
