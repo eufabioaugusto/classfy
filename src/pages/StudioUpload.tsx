@@ -92,7 +92,7 @@ export default function StudioUpload() {
   const [lobbyOpen, setLobbyOpen] = useState(false);
   const [lobbyVideoSrc, setLobbyVideoSrc] = useState("");
   const isMobile = useIsMobile();
-  
+  const pendingFileRef = useRef<File | null>(null);
   // Session persistence: restore draft
   useEffect(() => {
     if (editId) return; // Don't restore draft in edit mode
@@ -260,53 +260,32 @@ export default function StudioUpload() {
 
     const previewUrl = URL.createObjectURL(file);
     setFilePreview(previewUrl);
+    pendingFileRef.current = file;
+    setOriginalFileSize(file.size);
+    setFileSize(file.size);
 
-    // Open lobby INSTANTLY for video content types — no waiting
     if (contentType !== "podcast") {
+      // Open lobby instantly with local blob URL — upload happens AFTER lobby confirms
       setLobbyVideoSrc(previewUrl);
       setLobbyOpen(true);
-      // Don't block — upload starts in background after lobby opens
+    } else {
+      // Podcast: no lobby, upload immediately
+      startFileUpload(file, previewUrl);
     }
-
-    // Start upload in background (non-blocking)
-    startFileUpload(file, previewUrl);
   };
 
-  const startFileUpload = async (file: File, previewUrl: string) => {
+  const startFileUpload = async (file: File, previewUrl: string, trimStart?: number, trimEnd?: number) => {
     setFileProgress(0);
     setFileUploading(true);
     setOriginalFileSize(file.size);
     setFileSize(file.size);
 
-    if (contentType === "short") {
-      const video = document.createElement("video");
-      video.src = previewUrl;
-      video.onloadedmetadata = () => {
-        if (video.duration > 180) {
-          toast.error("Shorts devem ter no máximo 180 segundos");
-          setFileUploading(false);
-          setUploadState("idle");
-          setFilePreview("");
-          URL.revokeObjectURL(previewUrl);
-          return;
-        }
-        setDuration(Math.floor(video.duration));
-      };
-    }
-
+    // Get duration for podcast (video types get duration from lobby)
     if (contentType === "podcast") {
       const audio = document.createElement("audio");
       audio.src = previewUrl;
       audio.onloadedmetadata = () => {
         setDuration(Math.floor(audio.duration));
-      };
-    }
-
-    if (contentType === "aula" || contentType === "curso") {
-      const video = document.createElement("video");
-      video.src = previewUrl;
-      video.onloadedmetadata = () => {
-        setDuration(Math.floor(video.duration));
       };
     }
 
@@ -321,6 +300,8 @@ export default function StudioUpload() {
             quality: 'balanced',
             maxWidth: 1920,
             maxHeight: 1080,
+            trimStart,
+            trimEnd,
           });
           
           setFileSize(fileToUpload.size);
@@ -479,6 +460,7 @@ export default function StudioUpload() {
     // Apply cover from lobby if provided
     if (data.thumbnailFile && data.thumbnailPreview) {
       setThumbnailPreview(data.thumbnailPreview);
+      setManualThumbnail(true);
       try {
         const fileName = `thumbnails/${user.id}/${Date.now()}.jpg`;
         const { error } = await supabase.storage
@@ -495,12 +477,23 @@ export default function StudioUpload() {
       }
     }
 
-    // Store trim metadata (actual trim is future server-side)
+    // Set the trimmed duration
     setDuration(Math.floor(data.duration));
+
+    // Now start upload with trim — this is where the real processing happens
+    const file = pendingFileRef.current;
+    if (file) {
+      pendingFileRef.current = null;
+      startFileUpload(file, filePreview, data.trimStart, data.trimEnd);
+    }
   };
 
   const handleLobbyClose = () => {
     setLobbyOpen(false);
+    pendingFileRef.current = null;
+    setFilePreview("");
+    setOriginalFileSize(0);
+    setFileSize(0);
   };
 
 

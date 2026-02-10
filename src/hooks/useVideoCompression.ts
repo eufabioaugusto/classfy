@@ -9,6 +9,8 @@ export interface CompressionOptions {
   maxWidth?: number;
   maxHeight?: number;
   targetBitrate?: string;
+  trimStart?: number;
+  trimEnd?: number;
 }
 
 export interface CompressionState {
@@ -162,6 +164,8 @@ export function useVideoCompression() {
       quality = 'balanced',
       maxWidth = 1920,
       maxHeight = 1080,
+      trimStart,
+      trimEnd,
     } = options;
 
     abortRef.current = false;
@@ -175,11 +179,23 @@ export function useVideoCompression() {
       compressionRatio: 0,
     }));
 
+    // Get metadata first (needed for trim check)
+    let metadata: VideoMetadata;
+    try {
+      metadata = await getVideoMetadata(file);
+    } catch {
+      metadata = { width: 1920, height: 1080, duration: 0, bitrate: 0 };
+    }
+
+    // Check if trim is needed
+    const needsTrim = (trimStart !== undefined && trimStart > 0.5) ||
+                      (trimEnd !== undefined && metadata.duration > 0 && trimEnd < metadata.duration - 0.5);
+
     // Check if compression is needed
     const { compress, reason } = await shouldCompress(file);
     
-    if (!compress) {
-      console.log('Skipping compression:', reason);
+    if (!compress && !needsTrim) {
+      console.log('Skipping processing:', reason);
       setState(prev => ({
         ...prev,
         stage: 'complete',
@@ -201,49 +217,56 @@ export function useVideoCompression() {
         isCompressing: true,
         stage: 'compressing',
         progress: 0,
-        message: 'Iniciando compressão...',
+        message: needsTrim ? 'Cortando e processando...' : 'Iniciando compressão...',
       }));
 
       const inputName = 'input' + file.name.substring(file.name.lastIndexOf('.'));
       const outputName = 'output.mp4';
 
-      // Write input file to FFmpeg virtual filesystem
       await ffmpeg.writeFile(inputName, await fetchFile(file));
 
       if (abortRef.current) throw new Error('Compression aborted');
 
-      // Get video metadata for scaling decisions
-      const metadata = await getVideoMetadata(file);
-      
-      // Calculate target resolution
-      let scaleFilter = '';
-      if (metadata.width > maxWidth || metadata.height > maxHeight) {
-        const scale = Math.min(maxWidth / metadata.width, maxHeight / metadata.height);
-        const newWidth = Math.floor(metadata.width * scale / 2) * 2; // Ensure even
-        const newHeight = Math.floor(metadata.height * scale / 2) * 2;
-        scaleFilter = `-vf scale=${newWidth}:${newHeight}`;
+      // Build FFmpeg args
+      const args: string[] = [];
+
+      // Seek before input for fast seeking (when trimming)
+      if (needsTrim && trimStart && trimStart > 0.5) {
+        args.push('-ss', trimStart.toFixed(2));
       }
 
-      const preset = QUALITY_PRESETS[quality];
+      args.push('-i', inputName);
 
-      // Build FFmpeg command
-      const args = [
-        '-i', inputName,
-        '-c:v', 'libx264',
-        '-preset', preset.preset,
-        '-crf', preset.crf.toString(),
-        '-c:a', 'aac',
-        '-b:a', preset.audioBitrate,
-        '-movflags', '+faststart', // Enable fast start for streaming
-        '-y', // Overwrite output
-      ];
-
-      // Add scale filter if needed
-      if (scaleFilter) {
-        args.splice(args.indexOf('-c:v'), 0, '-vf', `scale=${Math.floor(metadata.width * 0.5 / 2) * 2}:-2`);
+      // Trim duration
+      if (needsTrim) {
+        const clipDuration = (trimEnd ?? metadata.duration) - (trimStart ?? 0);
+        args.push('-t', clipDuration.toFixed(2));
       }
 
-      args.push(outputName);
+      if (compress) {
+        // Full re-encoding with compression
+        const preset = QUALITY_PRESETS[quality];
+
+        if (metadata.width > maxWidth || metadata.height > maxHeight) {
+          const scale = Math.min(maxWidth / metadata.width, maxHeight / metadata.height);
+          const newWidth = Math.floor(metadata.width * scale / 2) * 2;
+          const newHeight = Math.floor(metadata.height * scale / 2) * 2;
+          args.push('-vf', `scale=${newWidth}:${newHeight}`);
+        }
+
+        args.push(
+          '-c:v', 'libx264',
+          '-preset', preset.preset,
+          '-crf', preset.crf.toString(),
+          '-c:a', 'aac',
+          '-b:a', preset.audioBitrate,
+        );
+      } else {
+        // Fast copy (trim only, no re-encoding)
+        args.push('-c', 'copy');
+      }
+
+      args.push('-movflags', '+faststart', '-y', outputName);
 
       console.log('FFmpeg command:', args.join(' '));
 
@@ -258,58 +281,54 @@ export function useVideoCompression() {
         message: 'Finalizando...',
       }));
 
-      // Read output file
       const data = await ffmpeg.readFile(outputName);
-      // Create a proper Blob from the FFmpeg output
-      let compressedBlob: Blob;
+      let processedBlob: Blob;
       if (typeof data === 'string') {
-        compressedBlob = new Blob([data], { type: 'video/mp4' });
+        processedBlob = new Blob([data], { type: 'video/mp4' });
       } else {
-        // Create a copy of the data to ensure compatibility
         const copy = new Uint8Array(data.length);
         copy.set(data);
-        compressedBlob = new Blob([copy], { type: 'video/mp4' });
+        processedBlob = new Blob([copy], { type: 'video/mp4' });
       }
-      
-      // Create new file with original name
-      const compressedFile = new File(
-        [compressedBlob],
+
+      const processedFile = new File(
+        [processedBlob],
         file.name.replace(/\.[^/.]+$/, '.mp4'),
         { type: 'video/mp4' }
       );
 
-      // Clean up
       await ffmpeg.deleteFile(inputName);
       await ffmpeg.deleteFile(outputName);
 
-      const ratio = ((file.size - compressedFile.size) / file.size) * 100;
+      const ratio = ((file.size - processedFile.size) / file.size) * 100;
 
       setState(prev => ({
         ...prev,
         isCompressing: false,
         stage: 'complete',
         progress: 100,
-        message: `Comprimido! Redução de ${ratio.toFixed(0)}%`,
-        compressedSize: compressedFile.size,
+        message: needsTrim
+          ? `Cortado${ratio > 5 ? ` e comprimido ${ratio.toFixed(0)}%` : ''}!`
+          : `Comprimido! Redução de ${ratio.toFixed(0)}%`,
+        compressedSize: processedFile.size,
         compressionRatio: ratio,
       }));
 
-      return compressedFile;
+      return processedFile;
     } catch (error: any) {
-      console.error('Compression error:', error);
+      console.error('Processing error:', error);
       
       setState(prev => ({
         ...prev,
         isCompressing: false,
         stage: 'error',
         message: error.message === 'Compression aborted' 
-          ? 'Compressão cancelada' 
-          : 'Erro na compressão. Usando arquivo original.',
+          ? 'Processamento cancelado' 
+          : 'Erro no processamento. Usando arquivo original.',
         compressedSize: file.size,
         compressionRatio: 0,
       }));
 
-      // Return original file on error
       return file;
     }
   }, [loadFFmpeg, shouldCompress, getVideoMetadata]);
