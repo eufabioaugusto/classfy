@@ -20,6 +20,7 @@ export function CoverFrameSelector({ videoSrc, onFrameSelect, className }: Cover
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
   const [videoDuration, setVideoDuration] = useState(0);
+  const [videoAspect, setVideoAspect] = useState(16 / 9);
   const isDragging = useRef(false);
   const abortRef = useRef(false);
 
@@ -153,6 +154,27 @@ export function CoverFrameSelector({ videoSrc, onFrameSelect, className }: Cover
 
       setVideoDuration(dur);
 
+      // Detect video aspect ratio
+      try {
+        const v2 = document.createElement("video");
+        v2.preload = "metadata";
+        v2.muted = true;
+        v2.playsInline = true;
+        if (!videoSrc.startsWith("blob:")) v2.crossOrigin = "anonymous";
+        v2.src = videoSrc;
+        await new Promise<void>((res) => {
+          v2.addEventListener("loadedmetadata", () => {
+            if (v2.videoWidth && v2.videoHeight) {
+              setVideoAspect(v2.videoWidth / v2.videoHeight);
+            }
+            v2.remove();
+            res();
+          });
+          v2.addEventListener("error", () => { v2.remove(); res(); });
+          v2.load();
+        });
+      } catch {}
+
       const generatedFrames: string[] = [];
       const thumbWidth = Math.min(320, window.innerWidth / 2);
 
@@ -276,11 +298,14 @@ export function CoverFrameSelector({ videoSrc, onFrameSelect, className }: Cover
     >
       {/* Current selected frame preview */}
       {currentPreview && (
-        <div className="relative aspect-video bg-black">
+        <div className={cn(
+          "relative bg-black flex items-center justify-center",
+          videoAspect < 1 ? "aspect-[9/16] max-h-[50vh] mx-auto" : "aspect-video"
+        )}>
           <img
             src={currentPreview}
             alt="Capa selecionada"
-            className="w-full h-full object-cover"
+            className="w-full h-full object-contain"
           />
           <div className="absolute top-3 left-3 px-2.5 py-1 rounded-lg bg-black/60 backdrop-blur-sm text-white text-xs font-medium flex items-center gap-1.5">
             <ImageIcon className="w-3 h-3" />

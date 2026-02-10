@@ -261,14 +261,20 @@ export default function StudioUpload() {
     const previewUrl = URL.createObjectURL(file);
     setFilePreview(previewUrl);
 
-    // Open lobby for video content types
+    // Open lobby INSTANTLY for video content types — no waiting
     if (contentType !== "podcast") {
       setLobbyVideoSrc(previewUrl);
       setLobbyOpen(true);
+      // Don't block — upload starts in background after lobby opens
     }
 
-    setFileUploading(true);
+    // Start upload in background (non-blocking)
+    startFileUpload(file, previewUrl);
+  };
+
+  const startFileUpload = async (file: File, previewUrl: string) => {
     setFileProgress(0);
+    setFileUploading(true);
     setOriginalFileSize(file.size);
     setFileSize(file.size);
 
