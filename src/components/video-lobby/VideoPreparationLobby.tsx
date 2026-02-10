@@ -6,6 +6,7 @@ import { LobbyToolbar } from "./LobbyToolbar";
 import { CoverFrameSelector } from "@/components/CoverFrameSelector";
 import { cn } from "@/lib/utils";
 import { motion, AnimatePresence } from "framer-motion";
+import { captureCurrentFrame } from "./seekAndCapture";
 
 type ContentType = "aula" | "short" | "podcast" | "curso";
 
@@ -42,6 +43,9 @@ export function VideoPreparationLobby({
   const [isMuted, setIsMuted] = useState(true);
   const [videoReady, setVideoReady] = useState(false);
 
+  // Poster overlay — shown during background seeks to prevent "trembling"
+  const [posterOverlay, setPosterOverlay] = useState<string | null>(null);
+
   // Final applied thumbnail
   const [thumbnailFile, setThumbnailFile] = useState<File | undefined>();
   const [thumbnailPreview, setThumbnailPreview] = useState<string | undefined>();
@@ -53,16 +57,22 @@ export function VideoPreparationLobby({
   const maxTrimDuration = contentType === "short" ? 90 : undefined;
   const isVertical = aspectRatio < 1;
 
-  // Load metadata from the single video element
+  // Load metadata — uses loadedmetadata (much faster than loadeddata, works on iOS)
   useEffect(() => {
     if (!open || !videoSrc) return;
     setVideoReady(false);
+    setPosterOverlay(null);
 
     const v = videoRef.current;
     if (!v) return;
 
-    const onLoadedData = () => {
+    let resolved = false;
+
+    const handleReady = () => {
+      if (resolved) return;
+      resolved = true;
       const d = v.duration;
+      if (!d || !isFinite(d) || d <= 0) return;
       const ratio = v.videoWidth && v.videoHeight ? v.videoWidth / v.videoHeight : 16 / 9;
       setDuration(d);
       setAspectRatio(ratio);
@@ -71,8 +81,19 @@ export function VideoPreparationLobby({
       setVideoReady(true);
     };
 
-    v.addEventListener("loadeddata", onLoadedData);
-    return () => v.removeEventListener("loadeddata", onLoadedData);
+    v.addEventListener("loadedmetadata", handleReady);
+    v.addEventListener("canplay", handleReady);
+
+    // Fallback: if neither fires within 3s, try forcing
+    const fallbackTimer = setTimeout(() => {
+      if (!resolved && v.readyState >= 1) handleReady();
+    }, 3000);
+
+    return () => {
+      v.removeEventListener("loadedmetadata", handleReady);
+      v.removeEventListener("canplay", handleReady);
+      clearTimeout(fallbackTimer);
+    };
   }, [open, videoSrc, maxTrimDuration]);
 
   // Sync playback with trim range
@@ -90,6 +111,19 @@ export function VideoPreparationLobby({
     v.addEventListener("timeupdate", onTimeUpdate);
     return () => v.removeEventListener("timeupdate", onTimeUpdate);
   }, [trimStart, trimEnd]);
+
+  // Poster overlay management: show static frame while seeks happen in background
+  const handleGeneratingFrames = useCallback((generating: boolean) => {
+    if (generating) {
+      const v = videoRef.current;
+      if (v) {
+        const poster = captureCurrentFrame(v, v.videoWidth || 1280, v.videoHeight || 720);
+        if (poster) setPosterOverlay(poster);
+      }
+    } else {
+      setPosterOverlay(null);
+    }
+  }, []);
 
   const togglePlay = useCallback(() => {
     const v = videoRef.current;
@@ -198,6 +232,20 @@ export function VideoPreparationLobby({
                 <Loader2 className="w-10 h-10 text-white/60 animate-spin" />
               </div>
             )}
+
+            {/* Poster overlay — covers video during background seeks */}
+            {posterOverlay && (
+              <img
+                src={posterOverlay}
+                alt=""
+                className={cn(
+                  "absolute z-30 max-w-full max-h-full pointer-events-none",
+                  isVertical ? "h-full w-auto" : "w-full h-auto"
+                )}
+                style={{ objectFit: "contain" }}
+              />
+            )}
+
             <video
               ref={videoRef}
               src={videoSrc}
@@ -209,11 +257,11 @@ export function VideoPreparationLobby({
               playsInline
               muted={isMuted}
               loop
-              preload="metadata"
+              preload="auto"
               onClick={togglePlay}
               style={{ objectFit: "contain" }}
             />
-            {!isPlaying && videoReady && (
+            {!isPlaying && videoReady && !posterOverlay && (
               <button
                 type="button"
                 onClick={togglePlay}
@@ -245,6 +293,7 @@ export function VideoPreparationLobby({
               trimStart={trimStart}
               trimEnd={trimEnd}
               onTrimChange={handleTrimChange}
+              onGeneratingFrames={handleGeneratingFrames}
               maxDuration={maxTrimDuration}
             />
           </div>
@@ -288,6 +337,7 @@ export function VideoPreparationLobby({
                     duration={duration}
                     videoAspect={aspectRatio}
                     onFrameSelect={handleCoverFrameSelect}
+                    onGeneratingFrames={handleGeneratingFrames}
                     className="border-0 rounded-none bg-transparent flex-1"
                   />
                 </div>

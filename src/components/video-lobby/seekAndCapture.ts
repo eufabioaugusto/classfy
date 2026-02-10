@@ -10,7 +10,11 @@ export function seekAndCapture(
   quality = 0.6
 ): Promise<string> {
   return new Promise((resolve, reject) => {
-    const timeout = setTimeout(() => reject(new Error("seek timeout")), 5000);
+    const timeout = setTimeout(() => {
+      video.removeEventListener("seeked", onSeeked);
+      // Fallback: return grey placeholder instead of rejecting
+      resolve(createGreyPlaceholder(width, height));
+    }, 3000);
 
     const onSeeked = () => {
       video.removeEventListener("seeked", onSeeked);
@@ -25,7 +29,7 @@ export function seekAndCapture(
           ctx.drawImage(video, 0, 0, width, height);
           resolve(canvas.toDataURL("image/jpeg", quality));
         } catch (e) {
-          reject(e);
+          resolve(createGreyPlaceholder(width, height));
         }
       }, 80);
     };
@@ -36,8 +40,42 @@ export function seekAndCapture(
 }
 
 /**
+ * Capture the current frame of a video WITHOUT seeking.
+ * Used to create a poster overlay before background seeks.
+ */
+export function captureCurrentFrame(
+  video: HTMLVideoElement,
+  width: number,
+  height: number,
+  quality = 0.7
+): string | null {
+  try {
+    if (video.readyState < 2) return null;
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext("2d")!;
+    ctx.drawImage(video, 0, 0, width, height);
+    return canvas.toDataURL("image/jpeg", quality);
+  } catch {
+    return null;
+  }
+}
+
+/** Create a grey placeholder data URL */
+function createGreyPlaceholder(width: number, height: number): string {
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext("2d")!;
+  ctx.fillStyle = "#222";
+  ctx.fillRect(0, 0, width, height);
+  return canvas.toDataURL("image/jpeg", 0.5);
+}
+
+/**
  * Generate multiple frames from a video element via sequential seeks.
- * Returns array of data URLs.
+ * Returns array of data URLs. Failures produce grey placeholders (never rejects).
  */
 export async function generateFramesFromRef(
   video: HTMLVideoElement,
@@ -57,19 +95,8 @@ export async function generateFramesFromRef(
   for (let i = 0; i < frameCount; i++) {
     if (abortSignal?.aborted) return frames;
     const time = (dur / frameCount) * i + 0.1;
-    try {
-      const dataUrl = await seekAndCapture(video, time, thumbWidth, thumbHeight, 0.5);
-      frames.push(dataUrl);
-    } catch {
-      // Gray placeholder on failure
-      const canvas = document.createElement("canvas");
-      canvas.width = thumbWidth;
-      canvas.height = thumbHeight;
-      const ctx = canvas.getContext("2d")!;
-      ctx.fillStyle = "#222";
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-      frames.push(canvas.toDataURL("image/jpeg", 0.5));
-    }
+    const dataUrl = await seekAndCapture(video, time, thumbWidth, thumbHeight, 0.5);
+    frames.push(dataUrl);
   }
 
   return frames;
