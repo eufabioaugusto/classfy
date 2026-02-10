@@ -162,9 +162,7 @@ export function VideoTrimBar({
         </span>
         <span className="text-xs text-white/60 font-medium">
           {formatTime(selectedDuration)}
-          {maxDuration && (
-            <span className="text-white/40 ml-1">/ {formatTime(maxDuration)}</span>
-          )}
+          <span className="text-white/40 ml-1">/ {formatTime(duration)}</span>
         </span>
       </div>
 
