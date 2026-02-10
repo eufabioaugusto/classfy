@@ -2,9 +2,13 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import { cn } from "@/lib/utils";
 import { Loader2, ImageIcon, AlertCircle } from "lucide-react";
 import { motion } from "framer-motion";
+import { seekAndCapture, generateFramesFromRef, dataURLtoFile } from "@/components/video-lobby/seekAndCapture";
 
 interface CoverFrameSelectorProps {
-  videoSrc: string;
+  videoRef: React.RefObject<HTMLVideoElement>;
+  videoReady: boolean;
+  duration: number;
+  videoAspect: number;
   onFrameSelect: (file: File, previewUrl: string) => void;
   className?: string;
 }
@@ -16,171 +20,85 @@ function getFrameCount() {
   return window.innerWidth < 768 ? FRAME_COUNT_MOBILE : FRAME_COUNT_DESKTOP;
 }
 
-export function CoverFrameSelector({ videoSrc, onFrameSelect, className }: CoverFrameSelectorProps) {
+export function CoverFrameSelector({
+  videoRef,
+  videoReady,
+  duration,
+  videoAspect,
+  onFrameSelect,
+  className,
+}: CoverFrameSelectorProps) {
   const stripRef = useRef<HTMLDivElement>(null);
   const [frames, setFrames] = useState<string[]>([]);
   const [selectedIndex, setSelectedIndex] = useState<number>(-1);
   const [currentPreview, setCurrentPreview] = useState<string>("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
-  const [videoDuration, setVideoDuration] = useState(0);
-  const [videoAspect, setVideoAspect] = useState(16 / 9);
   const isDragging = useRef(false);
   const abortRef = useRef(false);
   const frameCountRef = useRef(getFrameCount());
+  const generatingRef = useRef(false);
 
-  const dataURLtoFile = useCallback((dataUrl: string, filename: string): File => {
-    const arr = dataUrl.split(",");
-    const mime = arr[0].match(/:(.*?);/)![1];
-    const bstr = atob(arr[1]);
-    let n = bstr.length;
-    const u8arr = new Uint8Array(n);
-    while (n--) u8arr[n] = bstr.charCodeAt(n);
-    return new File([u8arr], filename, { type: mime });
-  }, []);
-
-  // Single video element pattern: 1 load + N seeks
+  // Generate frames using the lobby's video element — zero createElement("video")
   useEffect(() => {
-    if (!videoSrc) return;
+    if (!videoReady || !videoRef.current || duration <= 0 || generatingRef.current) return;
+    generatingRef.current = true;
     abortRef.current = false;
+
+    const video = videoRef.current;
+    const savedTime = video.currentTime;
+    video.pause();
+
     const FRAME_COUNT = frameCountRef.current;
+    const thumbWidth = Math.min(320, window.innerWidth / 2);
 
-    const generateFrames = async () => {
-      const video = document.createElement("video");
-      video.preload = "auto";
-      video.muted = true;
-      video.playsInline = true;
-      video.setAttribute("playsinline", "true");
-      video.setAttribute("webkit-playsinline", "true");
-      if (!videoSrc.startsWith("blob:") && !videoSrc.includes(window.location.hostname)) {
-        video.crossOrigin = "anonymous";
-      }
-      video.src = videoSrc;
-
-      // Wait for loadeddata (video has first frame ready)
-      await new Promise<void>((resolve, reject) => {
-        const t = setTimeout(() => { reject(new Error("load timeout")); }, 15000);
-        video.addEventListener("loadeddata", () => { clearTimeout(t); resolve(); }, { once: true });
-        video.addEventListener("error", () => { clearTimeout(t); reject(new Error("load error")); }, { once: true });
-        video.load();
-      });
-
-      const dur = video.duration;
-      const aspect = video.videoWidth && video.videoHeight ? video.videoWidth / video.videoHeight : 16 / 9;
-      setVideoDuration(dur);
-      setVideoAspect(aspect);
-
-      const thumbWidth = Math.min(320, window.innerWidth / 2);
-      const thumbHeight = Math.round(thumbWidth / aspect);
-      const generatedFrames: string[] = [];
-
-      // Sequential seek on single element
-      for (let i = 0; i < FRAME_COUNT; i++) {
-        if (abortRef.current) { video.remove(); return; }
-        const time = Math.min((dur / FRAME_COUNT) * i + 0.1, dur - 0.1);
-
-        // Seek and wait
-        await new Promise<void>((resolve) => {
-          const onSeeked = () => {
-            video.removeEventListener("seeked", onSeeked);
-            // iOS needs a small delay after seeked
-            setTimeout(resolve, 100);
-          };
-          video.addEventListener("seeked", onSeeked);
-          video.currentTime = time;
-        });
-
-        // Capture
-        try {
-          const canvas = document.createElement("canvas");
-          canvas.width = thumbWidth;
-          canvas.height = thumbHeight;
-          const ctx = canvas.getContext("2d")!;
-          ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-          generatedFrames.push(canvas.toDataURL("image/jpeg", 0.6));
-        } catch {
-          // Gray placeholder on failure
-          const canvas = document.createElement("canvas");
-          canvas.width = thumbWidth;
-          canvas.height = thumbHeight;
-          const ctx = canvas.getContext("2d")!;
-          ctx.fillStyle = "#333";
-          ctx.fillRect(0, 0, canvas.width, canvas.height);
-          generatedFrames.push(canvas.toDataURL("image/jpeg", 0.5));
-        }
-      }
-
-      video.remove();
-
+    generateFramesFromRef(video, FRAME_COUNT, thumbWidth, { get aborted() { return abortRef.current; } }).then((generated) => {
       if (abortRef.current) return;
-      if (generatedFrames.length === 0) {
+
+      if (generated.length === 0) {
         setError(true);
         setLoading(false);
+        generatingRef.current = false;
         return;
       }
 
-      setFrames(generatedFrames);
+      setFrames(generated);
       setLoading(false);
 
-      // Auto-select frame at 25% VISUALLY only — do NOT call onFrameSelect
+      // Auto-select at 25% VISUALLY only — do NOT call onFrameSelect
       const autoIndex = Math.floor(FRAME_COUNT * 0.25);
       setSelectedIndex(autoIndex);
-      setCurrentPreview(generatedFrames[autoIndex]);
-    };
+      setCurrentPreview(generated[autoIndex]);
 
-    generateFrames().catch((e) => {
-      console.error("Frame generation failed:", e);
-      setError(true);
-      setLoading(false);
+      // Restore video position
+      if (videoRef.current) {
+        videoRef.current.currentTime = savedTime;
+      }
+      generatingRef.current = false;
     });
 
-    return () => { abortRef.current = true; };
-  }, [videoSrc]);
+    return () => { abortRef.current = true; generatingRef.current = false; };
+  }, [videoReady, videoRef, duration]);
 
-  // Capture HQ frame and call onFrameSelect (user interaction only)
+  // HQ capture using the same video element
   const captureAndSelect = useCallback(async (index: number) => {
-    const FRAME_COUNT = frameCountRef.current;
-    const time = Math.min((videoDuration / FRAME_COUNT) * index + 0.1, videoDuration - 0.1);
+    const video = videoRef.current;
+    if (!video) return;
 
-    const video = document.createElement("video");
-    video.preload = "auto";
-    video.muted = true;
-    video.playsInline = true;
-    video.setAttribute("playsinline", "true");
-    if (!videoSrc.startsWith("blob:") && !videoSrc.includes(window.location.hostname)) {
-      video.crossOrigin = "anonymous";
-    }
-    video.src = videoSrc;
+    const FRAME_COUNT = frameCountRef.current;
+    const time = Math.min((duration / FRAME_COUNT) * index + 0.1, duration - 0.1);
 
     try {
-      await new Promise<void>((resolve, reject) => {
-        const t = setTimeout(() => reject(new Error("timeout")), 8000);
-        video.addEventListener("loadeddata", () => { clearTimeout(t); resolve(); }, { once: true });
-        video.addEventListener("error", () => { clearTimeout(t); reject(); }, { once: true });
-        video.load();
-      });
-
-      await new Promise<void>((resolve) => {
-        video.addEventListener("seeked", () => setTimeout(resolve, 100), { once: true });
-        video.currentTime = time;
-      });
-
-      const canvas = document.createElement("canvas");
-      canvas.width = 1920;
-      canvas.height = Math.round(1920 / (video.videoWidth / video.videoHeight));
-      const ctx = canvas.getContext("2d")!;
-      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-      const dataUrl = canvas.toDataURL("image/jpeg", 0.85);
-      video.remove();
-
+      const hqWidth = 1920;
+      const hqHeight = Math.round(hqWidth / videoAspect);
+      const dataUrl = await seekAndCapture(video, time, hqWidth, hqHeight, 0.85);
       setCurrentPreview(dataUrl);
       const file = dataURLtoFile(dataUrl, `cover_${Date.now()}.jpg`);
       onFrameSelect(file, dataUrl);
     } catch (e) {
-      video.remove();
       console.warn("HQ frame capture failed:", e);
     }
-  }, [videoDuration, videoSrc, dataURLtoFile, onFrameSelect]);
+  }, [duration, videoAspect, videoRef, onFrameSelect]);
 
   const handleStripInteraction = useCallback((clientX: number) => {
     const strip = stripRef.current;
@@ -239,11 +157,8 @@ export function CoverFrameSelector({ videoSrc, onFrameSelect, className }: Cover
       animate={{ opacity: 1 }}
       className={cn("flex flex-col h-full", className)}
     >
-      {/* Current selected frame preview */}
       {currentPreview && (
-        <div className={cn(
-          "flex-1 relative bg-black flex items-center justify-center min-h-0",
-        )}>
+        <div className="flex-1 relative bg-black flex items-center justify-center min-h-0">
           <img
             src={currentPreview}
             alt="Capa selecionada"
@@ -259,7 +174,6 @@ export function CoverFrameSelector({ videoSrc, onFrameSelect, className }: Cover
         </div>
       )}
 
-      {/* Frame strip scrubber */}
       <div className="p-3 space-y-2 shrink-0">
         <p className="text-xs text-white/60">Arraste para escolher o frame da capa</p>
         <div
@@ -277,12 +191,7 @@ export function CoverFrameSelector({ videoSrc, onFrameSelect, className }: Cover
                 selectedIndex === i && "ring-2 ring-accent ring-inset z-10"
               )}
             >
-              <img
-                src={frame}
-                alt=""
-                className="w-full h-full object-cover pointer-events-none"
-                draggable={false}
-              />
+              <img src={frame} alt="" className="w-full h-full object-cover pointer-events-none" draggable={false} />
             </div>
           ))}
           {selectedIndex >= 0 && (

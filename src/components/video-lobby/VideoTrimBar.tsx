@@ -1,20 +1,23 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { cn } from "@/lib/utils";
+import { generateFramesFromRef } from "./seekAndCapture";
 
 interface VideoTrimBarProps {
-  videoSrc: string;
+  videoRef: React.RefObject<HTMLVideoElement>;
+  videoReady: boolean;
   duration: number;
   trimStart: number;
   trimEnd: number;
   onTrimChange: (start: number, end: number) => void;
-  maxDuration?: number; // e.g. 90 for shorts
+  maxDuration?: number;
   className?: string;
 }
 
 const THUMB_COUNT = 20;
 
 export function VideoTrimBar({
-  videoSrc,
+  videoRef,
+  videoReady,
   duration,
   trimStart,
   trimEnd,
@@ -27,87 +30,35 @@ export function VideoTrimBar({
   const [dragging, setDragging] = useState<"start" | "end" | "window" | null>(null);
   const dragStartX = useRef(0);
   const dragStartTrim = useRef({ start: 0, end: 0 });
+  const generatingRef = useRef(false);
 
-  // Generate thumbnail frames
+  // Generate thumbnail frames using the lobby's video element
   useEffect(() => {
-    if (!videoSrc || duration <= 0) return;
-    let cancelled = false;
+    if (!videoReady || !videoRef.current || duration <= 0 || generatingRef.current) return;
+    generatingRef.current = true;
 
-    const generate = async () => {
-      const thumbWidth = 80;
-      const generated: string[] = [];
+    const video = videoRef.current;
+    const wasPaused = video.paused;
+    const savedTime = video.currentTime;
+    video.pause();
 
-      for (let i = 0; i < THUMB_COUNT; i++) {
-        if (cancelled) return;
-        const time = (duration / THUMB_COUNT) * i + 0.1;
-        try {
-          const frame = await extractFrame(videoSrc, time, thumbWidth);
-          generated.push(frame);
-        } catch {
-          const c = document.createElement("canvas");
-          c.width = thumbWidth;
-          c.height = Math.round(thumbWidth * 9 / 16);
-          const ctx = c.getContext("2d")!;
-          ctx.fillStyle = "#222";
-          ctx.fillRect(0, 0, c.width, c.height);
-          generated.push(c.toDataURL("image/jpeg", 0.5));
-        }
+    const abort = { aborted: false };
+    const thumbWidth = 80;
+
+    generateFramesFromRef(video, THUMB_COUNT, thumbWidth, abort).then((generated) => {
+      if (!abort.aborted && generated.length > 0) {
+        setFrames(generated);
       }
-      if (!cancelled) setFrames(generated);
-    };
-
-    generate();
-    return () => { cancelled = true; };
-  }, [videoSrc, duration]);
-
-  const extractFrame = (url: string, time: number, w: number): Promise<string> => {
-    return new Promise((resolve, reject) => {
-      const v = document.createElement("video");
-      v.preload = "auto";
-      v.muted = true;
-      v.playsInline = true;
-      v.setAttribute("playsinline", "true");
-      v.setAttribute("webkit-playsinline", "true");
-      if (!url.startsWith("blob:")) v.crossOrigin = "anonymous";
-      v.src = url;
-
-      let done = false;
-      const t = setTimeout(() => { if (!done) { done = true; v.remove(); reject(); } }, 5000);
-
-      v.addEventListener("loadeddata", () => {
-        v.currentTime = Math.min(time, v.duration - 0.1);
-      });
-
-      v.addEventListener("seeked", () => {
-        if (done) return;
-        requestAnimationFrame(() => {
-          setTimeout(() => {
-            try {
-              const c = document.createElement("canvas");
-              c.width = w;
-              c.height = Math.round(w * (v.videoHeight / v.videoWidth));
-              c.getContext("2d")!.drawImage(v, 0, 0, c.width, c.height);
-              done = true;
-              clearTimeout(t);
-              v.remove();
-              resolve(c.toDataURL("image/jpeg", 0.4));
-            } catch { done = true; clearTimeout(t); v.remove(); reject(); }
-          }, 100);
-        });
-      });
-
-      v.addEventListener("error", () => { if (!done) { done = true; clearTimeout(t); v.remove(); reject(); } });
-      v.load();
+      // Restore video state
+      if (videoRef.current) {
+        videoRef.current.currentTime = savedTime;
+        if (!wasPaused) videoRef.current.play().catch(() => {});
+      }
+      generatingRef.current = false;
     });
-  };
 
-  const getPositionFromEvent = useCallback((clientX: number) => {
-    const bar = barRef.current;
-    if (!bar || duration <= 0) return null;
-    const rect = bar.getBoundingClientRect();
-    const x = Math.max(0, Math.min(clientX - rect.left, rect.width));
-    return (x / rect.width) * duration;
-  }, [duration]);
+    return () => { abort.aborted = true; generatingRef.current = false; };
+  }, [videoReady, videoRef, duration]);
 
   const handlePointerDown = useCallback((e: React.PointerEvent, handle: "start" | "end") => {
     e.preventDefault();
@@ -116,7 +67,6 @@ export function VideoTrimBar({
     (e.target as HTMLElement).setPointerCapture(e.pointerId);
   }, []);
 
-  // Allow dragging the selected window to slide it along the timeline
   const handleWindowPointerDown = useCallback((e: React.PointerEvent) => {
     e.preventDefault();
     e.stopPropagation();
@@ -142,8 +92,9 @@ export function VideoTrimBar({
       return;
     }
 
-    const pos = getPositionFromEvent(e.clientX);
-    if (pos === null) return;
+    const rect = bar.getBoundingClientRect();
+    const x = Math.max(0, Math.min(e.clientX - rect.left, rect.width));
+    const pos = (x / rect.width) * duration;
 
     if (dragging === "start") {
       let newStart = Math.max(0, Math.min(pos, trimEnd - 1));
@@ -158,7 +109,7 @@ export function VideoTrimBar({
       }
       onTrimChange(trimStart, newEnd);
     }
-  }, [dragging, getPositionFromEvent, trimStart, trimEnd, maxDuration, duration, onTrimChange]);
+  }, [dragging, trimStart, trimEnd, maxDuration, duration, onTrimChange]);
 
   const handlePointerUp = useCallback(() => {
     setDragging(null);
@@ -176,7 +127,6 @@ export function VideoTrimBar({
 
   return (
     <div className={cn("space-y-2", className)}>
-      {/* Duration label */}
       <div className="flex items-center justify-between px-1">
         <span className="text-xs text-white/60">
           {formatTime(trimStart)} - {formatTime(trimEnd)}
@@ -189,31 +139,22 @@ export function VideoTrimBar({
         </span>
       </div>
 
-      {/* Trim bar */}
       <div
         ref={barRef}
         className="relative h-12 rounded-lg overflow-visible touch-none select-none"
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
       >
-        {/* Frame thumbnails */}
         <div className="absolute inset-0 flex rounded-lg overflow-hidden">
           {frames.length > 0
             ? frames.map((f, i) => (
-                <img
-                  key={i}
-                  src={f}
-                  alt=""
-                  className="flex-1 h-full object-cover pointer-events-none"
-                  draggable={false}
-                />
+                <img key={i} src={f} alt="" className="flex-1 h-full object-cover pointer-events-none" draggable={false} />
               ))
             : Array.from({ length: THUMB_COUNT }).map((_, i) => (
                 <div key={i} className="flex-1 h-full bg-white/5" />
               ))}
         </div>
 
-        {/* Dimmed areas outside trim */}
         <div
           className="absolute inset-y-0 left-0 bg-black/70 z-10 pointer-events-none rounded-l-lg"
           style={{ width: `${startPct}%` }}
@@ -223,14 +164,12 @@ export function VideoTrimBar({
           style={{ width: `${100 - endPct}%` }}
         />
 
-        {/* Selected area border + draggable window */}
         <div
           className="absolute inset-y-0 z-20 border-y-2 border-accent cursor-grab active:cursor-grabbing"
           style={{ left: `${startPct}%`, width: `${endPct - startPct}%` }}
           onPointerDown={handleWindowPointerDown}
         />
 
-        {/* Start handle */}
         <div
           className="absolute inset-y-0 z-40 w-6 flex items-center justify-center cursor-ew-resize"
           style={{ left: `calc(${startPct}% - 12px)` }}
@@ -244,7 +183,6 @@ export function VideoTrimBar({
           </div>
         </div>
 
-        {/* End handle */}
         <div
           className="absolute inset-y-0 z-40 w-6 flex items-center justify-center cursor-ew-resize"
           style={{ left: `calc(${endPct}% - 12px)` }}

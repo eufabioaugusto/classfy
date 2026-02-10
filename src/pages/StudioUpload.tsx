@@ -19,7 +19,7 @@ import { useVideoCompression } from "@/hooks/useVideoCompression";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { motion, AnimatePresence } from "framer-motion";
-import { CoverFrameSelector } from "@/components/CoverFrameSelector";
+import { StandaloneCoverSelector } from "@/components/StandaloneCoverSelector";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from "@/components/ui/drawer";
 import { VideoPreparationLobby } from "@/components/video-lobby/VideoPreparationLobby";
@@ -932,7 +932,7 @@ export default function StudioUpload() {
                                 <DrawerTitle>Escolher capa do vídeo</DrawerTitle>
                               </DrawerHeader>
                               <div className="px-4 pb-6 overflow-auto">
-                                <CoverFrameSelector
+                                <StandaloneCoverSelector
                                   videoSrc={filePreview}
                                   onFrameSelect={(file, url) => {
                                     handleCoverFrameSelect(file, url);
@@ -952,7 +952,7 @@ export default function StudioUpload() {
                         </>
                       ) : (
                         <div className="lg:col-span-2">
-                          <CoverFrameSelector
+                          <StandaloneCoverSelector
                             videoSrc={filePreview}
                             onFrameSelect={handleCoverFrameSelect}
                           />
