@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from "react";
-import { X, ChevronRight, Play, Pause } from "lucide-react";
+import { X, ChevronRight, Play, Pause, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { VideoTrimBar } from "./VideoTrimBar";
 import { LobbyToolbar } from "./LobbyToolbar";
@@ -40,39 +40,39 @@ export function VideoPreparationLobby({
   const [coverMode, setCoverMode] = useState(false);
   const [trimActive, setTrimActive] = useState(true);
   const [isMuted, setIsMuted] = useState(true);
+  const [videoReady, setVideoReady] = useState(false);
+
+  // Final applied thumbnail
   const [thumbnailFile, setThumbnailFile] = useState<File | undefined>();
   const [thumbnailPreview, setThumbnailPreview] = useState<string | undefined>();
+
+  // Pending cover selection (not yet confirmed)
+  const [pendingCoverFile, setPendingCoverFile] = useState<File | undefined>();
+  const [pendingCoverPreview, setPendingCoverPreview] = useState<string | undefined>();
 
   const maxTrimDuration = contentType === "short" ? 90 : undefined;
   const isVertical = aspectRatio < 1;
 
-  // Load video metadata
+  // Use the main video element for metadata — no separate element
   useEffect(() => {
     if (!open || !videoSrc) return;
+    setVideoReady(false);
 
-    const v = document.createElement("video");
-    v.preload = "metadata";
-    v.muted = true;
-    v.playsInline = true;
-    v.setAttribute("playsinline", "true");
-    if (!videoSrc.startsWith("blob:")) v.crossOrigin = "anonymous";
-    v.src = videoSrc;
+    const v = videoRef.current;
+    if (!v) return;
 
-    const onMeta = () => {
+    const onLoadedData = () => {
       const d = v.duration;
-      const ratio = v.videoWidth / v.videoHeight;
+      const ratio = v.videoWidth && v.videoHeight ? v.videoWidth / v.videoHeight : 16 / 9;
       setDuration(d);
       setAspectRatio(ratio);
       setTrimStart(0);
       setTrimEnd(maxTrimDuration ? Math.min(d, maxTrimDuration) : d);
-      v.remove();
+      setVideoReady(true);
     };
 
-    v.addEventListener("loadedmetadata", onMeta);
-    v.addEventListener("error", () => v.remove());
-    v.load();
-
-    return () => { v.remove(); };
+    v.addEventListener("loadeddata", onLoadedData);
+    return () => v.removeEventListener("loadeddata", onLoadedData);
   }, [open, videoSrc, maxTrimDuration]);
 
   // Sync playback with trim range
@@ -114,10 +114,29 @@ export function VideoPreparationLobby({
     if (v) v.currentTime = start;
   }, []);
 
-  const handleCoverSelect = useCallback((file: File, previewUrl: string) => {
-    setThumbnailFile(file);
-    setThumbnailPreview(previewUrl);
+  // Cover selection from CoverFrameSelector (stores pending, not applied yet)
+  const handleCoverFrameSelect = useCallback((file: File, previewUrl: string) => {
+    setPendingCoverFile(file);
+    setPendingCoverPreview(previewUrl);
+    // Do NOT close coverMode — user must click "Confirmar"
+  }, []);
+
+  // Confirm cover selection
+  const handleCoverConfirm = useCallback(() => {
+    if (pendingCoverFile && pendingCoverPreview) {
+      setThumbnailFile(pendingCoverFile);
+      setThumbnailPreview(pendingCoverPreview);
+    }
     setCoverMode(false);
+    setPendingCoverFile(undefined);
+    setPendingCoverPreview(undefined);
+  }, [pendingCoverFile, pendingCoverPreview]);
+
+  // Cancel cover selection
+  const handleCoverCancel = useCallback(() => {
+    setCoverMode(false);
+    setPendingCoverFile(undefined);
+    setPendingCoverPreview(undefined);
   }, []);
 
   const handleConfirm = useCallback(() => {
@@ -171,23 +190,31 @@ export function VideoPreparationLobby({
 
           {/* Video Preview */}
           <div className="flex-1 flex items-center justify-center overflow-hidden relative min-h-0">
+            {/* Loading spinner while video loads */}
+            {!videoReady && (
+              <div className="absolute inset-0 flex items-center justify-center z-20">
+                <Loader2 className="w-10 h-10 text-white/60 animate-spin" />
+              </div>
+            )}
+
             <video
               ref={videoRef}
               src={videoSrc}
               className={cn(
-                "max-w-full max-h-full",
-                isVertical ? "h-full w-auto" : "w-full h-auto"
+                "max-w-full max-h-full transition-opacity duration-300",
+                isVertical ? "h-full w-auto" : "w-full h-auto",
+                videoReady ? "opacity-100" : "opacity-0"
               )}
               playsInline
               muted={isMuted}
               loop
-              preload="auto"
+              preload="metadata"
               onClick={togglePlay}
               style={{ objectFit: "contain" }}
             />
 
             {/* Play/pause overlay */}
-            {!isPlaying && (
+            {!isPlaying && videoReady && (
               <button
                 type="button"
                 onClick={togglePlay}
@@ -249,7 +276,7 @@ export function VideoPreparationLobby({
                 <div className="flex items-center justify-between px-4 py-3 shrink-0">
                   <button
                     type="button"
-                    onClick={() => setCoverMode(false)}
+                    onClick={handleCoverCancel}
                     className="p-2 -ml-2 text-white/80 hover:text-white rounded-full transition-colors"
                   >
                     <X className="w-6 h-6" />
@@ -258,7 +285,7 @@ export function VideoPreparationLobby({
                   <Button
                     type="button"
                     size="sm"
-                    onClick={() => setCoverMode(false)}
+                    onClick={handleCoverConfirm}
                     className="font-semibold"
                   >
                     Confirmar
@@ -266,11 +293,11 @@ export function VideoPreparationLobby({
                 </div>
 
                 {/* Cover content - fullscreen */}
-                <div className="flex-1 min-h-0 overflow-auto">
+                <div className="flex-1 min-h-0 flex flex-col">
                   <CoverFrameSelector
                     videoSrc={videoSrc}
-                    onFrameSelect={handleCoverSelect}
-                    className="border-0 rounded-none bg-transparent"
+                    onFrameSelect={handleCoverFrameSelect}
+                    className="border-0 rounded-none bg-transparent flex-1"
                   />
                 </div>
               </motion.div>
