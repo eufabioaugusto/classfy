@@ -6,7 +6,6 @@ import { LobbyToolbar } from "./LobbyToolbar";
 import { CoverFrameSelector } from "@/components/CoverFrameSelector";
 import { cn } from "@/lib/utils";
 import { motion, AnimatePresence } from "framer-motion";
-import { captureCurrentFrame } from "./seekAndCapture";
 
 type ContentType = "aula" | "short" | "podcast" | "curso";
 
@@ -31,7 +30,11 @@ export function VideoPreparationLobby({
   onClose,
   open,
 }: VideoPreparationLobbyProps) {
+  // Visible player — never used for frame capture
   const videoRef = useRef<HTMLVideoElement>(null);
+  // Hidden capture video — used exclusively for frame generation
+  const captureVideoRef = useRef<HTMLVideoElement>(null);
+
   const [isPlaying, setIsPlaying] = useState(false);
   const [duration, setDuration] = useState(0);
   const [currentTime, setCurrentTime] = useState(0);
@@ -42,9 +45,7 @@ export function VideoPreparationLobby({
   const [trimActive, setTrimActive] = useState(true);
   const [isMuted, setIsMuted] = useState(true);
   const [videoReady, setVideoReady] = useState(false);
-
-  // Poster overlay — shown during background seeks to prevent "trembling"
-  const [posterOverlay, setPosterOverlay] = useState<string | null>(null);
+  const [captureReady, setCaptureReady] = useState(false);
 
   // Final applied thumbnail
   const [thumbnailFile, setThumbnailFile] = useState<File | undefined>();
@@ -57,11 +58,11 @@ export function VideoPreparationLobby({
   const maxTrimDuration = contentType === "short" ? 90 : undefined;
   const isVertical = aspectRatio < 1;
 
-  // Load metadata — uses loadedmetadata (much faster than loadeddata, works on iOS)
+  // Load metadata on visible video
   useEffect(() => {
     if (!open || !videoSrc) return;
     setVideoReady(false);
-    setPosterOverlay(null);
+    setCaptureReady(false);
 
     const v = videoRef.current;
     if (!v) return;
@@ -79,7 +80,6 @@ export function VideoPreparationLobby({
       setTrimStart(0);
       setTrimEnd(maxTrimDuration ? Math.min(d, maxTrimDuration) : d);
       setVideoReady(true);
-      // Force first frame render — seek to 0.01 to paint a frame on paused video
       if (v.currentTime === 0) {
         v.currentTime = 0.01;
       }
@@ -88,7 +88,6 @@ export function VideoPreparationLobby({
     v.addEventListener("loadedmetadata", handleReady);
     v.addEventListener("canplay", handleReady);
 
-    // Fallback: if neither fires within 3s, try forcing
     const fallbackTimer = setTimeout(() => {
       if (!resolved && v.readyState >= 1) handleReady();
     }, 3000);
@@ -99,6 +98,26 @@ export function VideoPreparationLobby({
       clearTimeout(fallbackTimer);
     };
   }, [open, videoSrc, maxTrimDuration]);
+
+  // Load hidden capture video independently
+  useEffect(() => {
+    if (!open || !videoSrc) return;
+    const cv = captureVideoRef.current;
+    if (!cv) return;
+
+    const onReady = () => {
+      cv.removeEventListener("canplay", onReady);
+      setCaptureReady(true);
+    };
+
+    cv.addEventListener("canplay", onReady);
+    cv.src = videoSrc;
+    cv.load();
+
+    return () => {
+      cv.removeEventListener("canplay", onReady);
+    };
+  }, [open, videoSrc]);
 
   // Sync playback with trim range
   useEffect(() => {
@@ -116,19 +135,6 @@ export function VideoPreparationLobby({
     return () => v.removeEventListener("timeupdate", onTimeUpdate);
   }, [trimStart, trimEnd]);
 
-  // Poster overlay management: show static frame while seeks happen in background
-  const handleGeneratingFrames = useCallback((generating: boolean) => {
-    if (generating) {
-      const v = videoRef.current;
-      if (v) {
-        const poster = captureCurrentFrame(v, v.videoWidth || 1280, v.videoHeight || 720);
-        if (poster) setPosterOverlay(poster);
-      }
-    } else {
-      setPosterOverlay(null);
-    }
-  }, []);
-
   const togglePlay = useCallback(() => {
     const v = videoRef.current;
     if (!v) return;
@@ -145,18 +151,17 @@ export function VideoPreparationLobby({
     }
   }, [trimStart, trimEnd]);
 
+  // Trim change during drag — only updates state, NO video seeks
   const handleTrimChange = useCallback((start: number, end: number) => {
     setTrimStart(start);
     setTrimEnd(end);
+  }, []);
+
+  // Trim commit on pointerUp — single seek on the visible video
+  const handleTrimCommit = useCallback((start: number, end: number) => {
     const v = videoRef.current;
     if (v) {
       v.currentTime = Math.max(0.01, start);
-      // Force visual update on paused video (mobile Safari)
-      if (v.paused) {
-        v.play().then(() => {
-          requestAnimationFrame(() => v.pause());
-        }).catch(() => {});
-      }
     }
   }, []);
 
@@ -166,7 +171,6 @@ export function VideoPreparationLobby({
     setPendingCoverPreview(previewUrl);
   }, []);
 
-  // Confirm cover selection
   const handleCoverConfirm = useCallback(() => {
     if (pendingCoverFile && pendingCoverPreview) {
       setThumbnailFile(pendingCoverFile);
@@ -177,14 +181,12 @@ export function VideoPreparationLobby({
     setPendingCoverPreview(undefined);
   }, [pendingCoverFile, pendingCoverPreview]);
 
-  // Cancel cover selection
   const handleCoverCancel = useCallback(() => {
     setCoverMode(false);
     setPendingCoverFile(undefined);
     setPendingCoverPreview(undefined);
   }, []);
 
-  // Pause video when entering cover mode
   const handleOpenCoverMode = useCallback(() => {
     const v = videoRef.current;
     if (v && !v.paused) {
@@ -222,6 +224,15 @@ export function VideoPreparationLobby({
           className="fixed inset-0 z-[100] bg-black flex flex-col"
           style={{ touchAction: "none" }}
         >
+          {/* Hidden capture video — never visible, used only for frame extraction */}
+          <video
+            ref={captureVideoRef}
+            muted
+            playsInline
+            preload="auto"
+            style={{ display: "none" }}
+          />
+
           {/* Header */}
           <div className="flex items-center justify-between px-4 py-3 z-10 shrink-0">
             <button
@@ -237,25 +248,12 @@ export function VideoPreparationLobby({
             </Button>
           </div>
 
-          {/* Video Preview */}
+          {/* Video Preview — visible player, never manipulated during captures */}
           <div className="flex-1 flex items-center justify-center overflow-hidden relative min-h-0">
             {!videoReady && (
               <div className="absolute inset-0 flex items-center justify-center z-20">
                 <Loader2 className="w-10 h-10 text-white/60 animate-spin" />
               </div>
-            )}
-
-            {/* Poster overlay — covers video during background seeks */}
-            {posterOverlay && (
-              <img
-                src={posterOverlay}
-                alt=""
-                className={cn(
-                  "absolute z-30 max-w-full max-h-full pointer-events-none",
-                  isVertical ? "h-full w-auto" : "w-full h-auto"
-                )}
-                style={{ objectFit: "contain" }}
-              />
             )}
 
             <video
@@ -273,7 +271,7 @@ export function VideoPreparationLobby({
               onClick={togglePlay}
               style={{ objectFit: "contain" }}
             />
-            {!isPlaying && videoReady && !posterOverlay && (
+            {!isPlaying && videoReady && (
               <button
                 type="button"
                 onClick={togglePlay}
@@ -296,16 +294,16 @@ export function VideoPreparationLobby({
             </span>
           </div>
 
-          {/* Trim bar — uses the same videoRef, zero extra video elements */}
+          {/* Trim bar — uses hidden captureVideoRef for frame generation */}
           <div className="px-4 shrink-0">
             <VideoTrimBar
-              videoRef={videoRef}
-              videoReady={videoReady}
+              captureVideoRef={captureVideoRef}
+              captureReady={captureReady}
               duration={duration}
               trimStart={trimStart}
               trimEnd={trimEnd}
               onTrimChange={handleTrimChange}
-              onGeneratingFrames={handleGeneratingFrames}
+              onTrimCommit={handleTrimCommit}
               maxDuration={maxTrimDuration}
             />
           </div>
@@ -319,7 +317,7 @@ export function VideoPreparationLobby({
             />
           </div>
 
-          {/* Fullscreen cover selector overlay — uses the same videoRef */}
+          {/* Fullscreen cover selector — uses hidden captureVideoRef */}
           <AnimatePresence>
             {coverMode && (
               <motion.div
@@ -344,12 +342,11 @@ export function VideoPreparationLobby({
                 </div>
                 <div className="flex-1 min-h-0 flex flex-col">
                   <CoverFrameSelector
-                    videoRef={videoRef}
-                    videoReady={videoReady}
+                    captureVideoRef={captureVideoRef}
+                    captureReady={captureReady}
                     duration={duration}
                     videoAspect={aspectRatio}
                     onFrameSelect={handleCoverFrameSelect}
-                    onGeneratingFrames={handleGeneratingFrames}
                     className="border-0 rounded-none bg-transparent flex-1"
                   />
                 </div>

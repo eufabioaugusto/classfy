@@ -2,15 +2,15 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import { cn } from "@/lib/utils";
 import { Loader2, ImageIcon, AlertCircle } from "lucide-react";
 import { motion } from "framer-motion";
-import { seekAndCapture, generateFramesFromRef, dataURLtoFile } from "@/components/video-lobby/seekAndCapture";
+import { seekAndCapture, generateFramesProgressive, dataURLtoFile } from "@/components/video-lobby/seekAndCapture";
 
 interface CoverFrameSelectorProps {
-  videoRef: React.RefObject<HTMLVideoElement>;
-  videoReady: boolean;
+  /** Hidden capture video ref — never the visible player */
+  captureVideoRef: React.RefObject<HTMLVideoElement>;
+  captureReady: boolean;
   duration: number;
   videoAspect: number;
   onFrameSelect: (file: File, previewUrl: string) => void;
-  onGeneratingFrames?: (generating: boolean) => void;
   className?: string;
 }
 
@@ -22,84 +22,77 @@ function getFrameCount() {
 }
 
 export function CoverFrameSelector({
-  videoRef,
-  videoReady,
+  captureVideoRef,
+  captureReady,
   duration,
   videoAspect,
   onFrameSelect,
-  onGeneratingFrames,
   className,
 }: CoverFrameSelectorProps) {
   const stripRef = useRef<HTMLDivElement>(null);
-  const [frames, setFrames] = useState<string[]>([]);
+  const frameCountRef = useRef(getFrameCount());
+  const FRAME_COUNT = frameCountRef.current;
+
+  const [frames, setFrames] = useState<(string | null)[]>(() => Array(FRAME_COUNT).fill(null));
   const [selectedIndex, setSelectedIndex] = useState<number>(-1);
   const [currentPreview, setCurrentPreview] = useState<string>("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
   const isDragging = useRef(false);
   const abortRef = useRef(false);
-  const frameCountRef = useRef(getFrameCount());
   const generatingRef = useRef(false);
   const timeoutRef = useRef<ReturnType<typeof setTimeout>>();
 
-  // Generate frames using the lobby's video element — zero createElement("video")
+  // Generate frames progressively on the hidden capture video
   useEffect(() => {
-    if (!videoReady || !videoRef.current || duration <= 0 || generatingRef.current) return;
+    if (!captureReady || !captureVideoRef.current || duration <= 0 || generatingRef.current) return;
     generatingRef.current = true;
     abortRef.current = false;
 
-    const video = videoRef.current;
+    const video = captureVideoRef.current;
 
-    // Wait for video to have decoded frames (readyState >= 2) before capturing
     const startGeneration = () => {
-      const savedTime = video.currentTime;
-      video.pause();
-
-      onGeneratingFrames?.(true);
-
-      const FRAME_COUNT = frameCountRef.current;
       const thumbWidth = Math.min(320, window.innerWidth / 2);
 
-      // 8s total timeout for the whole generation
+      // 8s total timeout
       timeoutRef.current = setTimeout(() => {
         abortRef.current = true;
-        onGeneratingFrames?.(false);
-        if (frames.length === 0) {
-          setError(true);
-          setLoading(false);
-        }
+        setError(true);
+        setLoading(false);
         generatingRef.current = false;
       }, 8000);
 
-      generateFramesFromRef(video, FRAME_COUNT, thumbWidth, { get aborted() { return abortRef.current; } }).then((generated) => {
+      generateFramesProgressive(
+        video,
+        FRAME_COUNT,
+        thumbWidth,
+        (index, dataUrl) => {
+          if (abortRef.current) return;
+          setFrames(prev => {
+            const next = [...prev];
+            next[index] = dataUrl;
+            return next;
+          });
+          // Auto-select at 25% on first meaningful frame
+          if (index === Math.floor(FRAME_COUNT * 0.25)) {
+            setSelectedIndex(index);
+            setCurrentPreview(dataUrl);
+          }
+          // Hide loader once first frame arrives
+          if (index === 0) setLoading(false);
+        },
+        { get aborted() { return abortRef.current; } }
+      ).then((generated) => {
         clearTimeout(timeoutRef.current);
-        onGeneratingFrames?.(false);
         if (abortRef.current) return;
-
         if (generated.length === 0) {
           setError(true);
           setLoading(false);
-          generatingRef.current = false;
-          return;
-        }
-
-        setFrames(generated);
-        setLoading(false);
-
-        // Auto-select at 25% VISUALLY only — do NOT call onFrameSelect
-        const autoIndex = Math.floor(FRAME_COUNT * 0.25);
-        setSelectedIndex(autoIndex);
-        setCurrentPreview(generated[autoIndex]);
-
-        // Restore video position
-        if (videoRef.current) {
-          videoRef.current.currentTime = savedTime;
         }
         generatingRef.current = false;
       });
     };
 
-    // If video hasn't decoded frames yet, wait for canplay
     if (video.readyState >= 2) {
       startGeneration();
     } else {
@@ -108,19 +101,21 @@ export function CoverFrameSelector({
         if (!abortRef.current) startGeneration();
       };
       video.addEventListener("canplay", onCanPlay);
-      // Also try playing briefly to trigger decode on iOS
       video.play().then(() => video.pause()).catch(() => {});
     }
 
-    return () => { abortRef.current = true; clearTimeout(timeoutRef.current); generatingRef.current = false; };
-  }, [videoReady, videoRef, duration]);
+    return () => {
+      abortRef.current = true;
+      clearTimeout(timeoutRef.current);
+      generatingRef.current = false;
+    };
+  }, [captureReady, captureVideoRef, duration, FRAME_COUNT]);
 
-  // HQ capture using the same video element — reduced to 1280px
+  // HQ capture on the hidden capture video
   const captureAndSelect = useCallback(async (index: number) => {
-    const video = videoRef.current;
+    const video = captureVideoRef.current;
     if (!video) return;
 
-    const FRAME_COUNT = frameCountRef.current;
     const time = Math.min((duration / FRAME_COUNT) * index + 0.1, duration - 0.1);
 
     try {
@@ -133,21 +128,23 @@ export function CoverFrameSelector({
     } catch (e) {
       console.warn("HQ frame capture failed:", e);
     }
-  }, [duration, videoAspect, videoRef, onFrameSelect]);
+  }, [duration, videoAspect, captureVideoRef, onFrameSelect, FRAME_COUNT]);
 
   const handleStripInteraction = useCallback((clientX: number) => {
     const strip = stripRef.current;
-    if (!strip || frames.length === 0) return;
+    const validFrames = frames.filter(Boolean);
+    if (!strip || validFrames.length === 0) return;
     const rect = strip.getBoundingClientRect();
     const x = Math.max(0, Math.min(clientX - rect.left, rect.width));
     const ratio = x / rect.width;
-    const index = Math.min(Math.floor(ratio * frames.length), frames.length - 1);
+    const index = Math.min(Math.floor(ratio * FRAME_COUNT), FRAME_COUNT - 1);
     if (index !== selectedIndex) {
       setSelectedIndex(index);
-      setCurrentPreview(frames[index]);
+      const frame = frames[index];
+      if (frame) setCurrentPreview(frame);
       captureAndSelect(index);
     }
-  }, [frames, selectedIndex, captureAndSelect]);
+  }, [frames, selectedIndex, captureAndSelect, FRAME_COUNT]);
 
   const handlePointerDown = (e: React.PointerEvent) => {
     isDragging.current = true;
@@ -164,7 +161,9 @@ export function CoverFrameSelector({
     isDragging.current = false;
   };
 
-  if (loading) {
+  const hasAnyFrame = frames.some(Boolean);
+
+  if (loading && !hasAnyFrame) {
     return (
       <div className={cn("flex-1 flex items-center justify-center", className)}>
         <div className="flex flex-col items-center gap-3 text-muted-foreground">
@@ -175,7 +174,7 @@ export function CoverFrameSelector({
     );
   }
 
-  if (error || frames.length === 0) {
+  if (error && !hasAnyFrame) {
     return (
       <div className={cn("flex-1 flex items-center justify-center", className)}>
         <div className="flex items-center gap-3 text-muted-foreground">
@@ -222,17 +221,24 @@ export function CoverFrameSelector({
             <div
               key={i}
               className={cn(
-                "flex-1 relative border-r border-black/20 last:border-r-0 transition-all duration-100",
+                "flex-1 relative border-r border-black/20 last:border-r-0 bg-white/5",
                 selectedIndex === i && "ring-2 ring-accent ring-inset z-10"
               )}
             >
-              <img src={frame} alt="" className="w-full h-full object-cover pointer-events-none" draggable={false} />
+              {frame && (
+                <img
+                  src={frame}
+                  alt=""
+                  className="w-full h-full object-cover pointer-events-none animate-in fade-in duration-300"
+                  draggable={false}
+                />
+              )}
             </div>
           ))}
           {selectedIndex >= 0 && (
             <div
               className="absolute top-0 bottom-0 w-0.5 bg-accent shadow-[0_0_6px_rgba(var(--accent),0.5)] z-20 pointer-events-none transition-all duration-100"
-              style={{ left: `${((selectedIndex + 0.5) / frames.length) * 100}%` }}
+              style={{ left: `${((selectedIndex + 0.5) / FRAME_COUNT) * 100}%` }}
             />
           )}
         </div>
