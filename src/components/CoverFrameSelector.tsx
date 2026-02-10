@@ -9,8 +9,12 @@ interface CoverFrameSelectorProps {
   className?: string;
 }
 
-const FRAME_COUNT = 12;
-const FRAME_TIMEOUT = 8000; // 8s max per frame extraction attempt
+const FRAME_COUNT_DESKTOP = 12;
+const FRAME_COUNT_MOBILE = 8;
+
+function getFrameCount() {
+  return window.innerWidth < 768 ? FRAME_COUNT_MOBILE : FRAME_COUNT_DESKTOP;
+}
 
 export function CoverFrameSelector({ videoSrc, onFrameSelect, className }: CoverFrameSelectorProps) {
   const stripRef = useRef<HTMLDivElement>(null);
@@ -23,6 +27,7 @@ export function CoverFrameSelector({ videoSrc, onFrameSelect, className }: Cover
   const [videoAspect, setVideoAspect] = useState(16 / 9);
   const isDragging = useRef(false);
   const abortRef = useRef(false);
+  const frameCountRef = useRef(getFrameCount());
 
   const dataURLtoFile = useCallback((dataUrl: string, filename: string): File => {
     const arr = dataUrl.split(",");
@@ -34,162 +39,70 @@ export function CoverFrameSelector({ videoSrc, onFrameSelect, className }: Cover
     return new File([u8arr], filename, { type: mime });
   }, []);
 
-  // iOS Safari-compatible frame extraction
-  const extractFrameAtTime = useCallback((videoUrl: string, time: number, thumbWidth: number): Promise<string> => {
-    return new Promise((resolve, reject) => {
+  // Single video element pattern: 1 load + N seeks
+  useEffect(() => {
+    if (!videoSrc) return;
+    abortRef.current = false;
+    const FRAME_COUNT = frameCountRef.current;
+
+    const generateFrames = async () => {
       const video = document.createElement("video");
       video.preload = "auto";
       video.muted = true;
       video.playsInline = true;
       video.setAttribute("playsinline", "true");
       video.setAttribute("webkit-playsinline", "true");
-      // Don't set crossOrigin for blob URLs or same-origin URLs
-      if (!videoUrl.startsWith("blob:") && !videoUrl.includes(window.location.hostname)) {
+      if (!videoSrc.startsWith("blob:") && !videoSrc.includes(window.location.hostname)) {
         video.crossOrigin = "anonymous";
       }
-      video.src = videoUrl;
+      video.src = videoSrc;
 
-      let resolved = false;
-      const timeout = setTimeout(() => {
-        if (!resolved) {
-          resolved = true;
-          cleanup();
-          reject(new Error("Frame extraction timeout"));
-        }
-      }, FRAME_TIMEOUT);
-
-      const cleanup = () => {
-        video.pause();
-        video.removeAttribute("src");
+      // Wait for loadeddata (video has first frame ready)
+      await new Promise<void>((resolve, reject) => {
+        const t = setTimeout(() => { reject(new Error("load timeout")); }, 15000);
+        video.addEventListener("loadeddata", () => { clearTimeout(t); resolve(); }, { once: true });
+        video.addEventListener("error", () => { clearTimeout(t); reject(new Error("load error")); }, { once: true });
         video.load();
-        video.remove();
-        clearTimeout(timeout);
-      };
+      });
 
-      const captureCanvas = () => {
+      const dur = video.duration;
+      const aspect = video.videoWidth && video.videoHeight ? video.videoWidth / video.videoHeight : 16 / 9;
+      setVideoDuration(dur);
+      setVideoAspect(aspect);
+
+      const thumbWidth = Math.min(320, window.innerWidth / 2);
+      const thumbHeight = Math.round(thumbWidth / aspect);
+      const generatedFrames: string[] = [];
+
+      // Sequential seek on single element
+      for (let i = 0; i < FRAME_COUNT; i++) {
+        if (abortRef.current) { video.remove(); return; }
+        const time = Math.min((dur / FRAME_COUNT) * i + 0.1, dur - 0.1);
+
+        // Seek and wait
+        await new Promise<void>((resolve) => {
+          const onSeeked = () => {
+            video.removeEventListener("seeked", onSeeked);
+            // iOS needs a small delay after seeked
+            setTimeout(resolve, 100);
+          };
+          video.addEventListener("seeked", onSeeked);
+          video.currentTime = time;
+        });
+
+        // Capture
         try {
           const canvas = document.createElement("canvas");
           canvas.width = thumbWidth;
-          canvas.height = Math.round(thumbWidth * (video.videoHeight / video.videoWidth));
+          canvas.height = thumbHeight;
           const ctx = canvas.getContext("2d")!;
           ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-          
-          // Check if the canvas is actually drawn (not blank)
-          const pixel = ctx.getImageData(0, 0, 1, 1).data;
-          const isBlank = pixel[0] === 0 && pixel[1] === 0 && pixel[2] === 0 && pixel[3] === 0;
-          
-          if (isBlank) {
-            reject(new Error("Blank frame"));
-            return;
-          }
-          
-          const dataUrl = canvas.toDataURL("image/jpeg", 0.6);
-          resolved = true;
-          cleanup();
-          resolve(dataUrl);
-        } catch (e) {
-          resolved = true;
-          cleanup();
-          reject(e);
-        }
-      };
-
-      video.addEventListener("loadeddata", () => {
-        video.currentTime = Math.min(time, video.duration - 0.1);
-      });
-
-      video.addEventListener("seeked", () => {
-        if (resolved) return;
-        // Small delay for iOS to render the frame
-        requestAnimationFrame(() => {
-          setTimeout(captureCanvas, 100);
-        });
-      });
-
-      video.addEventListener("error", () => {
-        if (!resolved) {
-          resolved = true;
-          cleanup();
-          reject(new Error("Video load error"));
-        }
-      });
-
-      // iOS Safari: try to trigger load
-      video.load();
-    });
-  }, []);
-
-  // Generate frames sequentially (more reliable on iOS)
-  useEffect(() => {
-    if (!videoSrc) return;
-    abortRef.current = false;
-
-    const generateFrames = async () => {
-      // First, get video duration
-      const dur = await new Promise<number>((resolve, reject) => {
-        const v = document.createElement("video");
-        v.preload = "metadata";
-        v.muted = true;
-        v.playsInline = true;
-        v.setAttribute("playsinline", "true");
-        if (!videoSrc.startsWith("blob:") && !videoSrc.includes(window.location.hostname)) {
-          v.crossOrigin = "anonymous";
-        }
-        v.src = videoSrc;
-        
-        const t = setTimeout(() => { v.remove(); reject(new Error("metadata timeout")); }, 10000);
-        v.addEventListener("loadedmetadata", () => {
-          clearTimeout(t);
-          const d = v.duration;
-          v.remove();
-          resolve(d);
-        });
-        v.addEventListener("error", () => {
-          clearTimeout(t);
-          v.remove();
-          reject(new Error("metadata error"));
-        });
-        v.load();
-      });
-
-      setVideoDuration(dur);
-
-      // Detect video aspect ratio
-      try {
-        const v2 = document.createElement("video");
-        v2.preload = "metadata";
-        v2.muted = true;
-        v2.playsInline = true;
-        if (!videoSrc.startsWith("blob:")) v2.crossOrigin = "anonymous";
-        v2.src = videoSrc;
-        await new Promise<void>((res) => {
-          v2.addEventListener("loadedmetadata", () => {
-            if (v2.videoWidth && v2.videoHeight) {
-              setVideoAspect(v2.videoWidth / v2.videoHeight);
-            }
-            v2.remove();
-            res();
-          });
-          v2.addEventListener("error", () => { v2.remove(); res(); });
-          v2.load();
-        });
-      } catch {}
-
-      const generatedFrames: string[] = [];
-      const thumbWidth = Math.min(320, window.innerWidth / 2);
-
-      for (let i = 0; i < FRAME_COUNT; i++) {
-        if (abortRef.current) return;
-        const time = (dur / FRAME_COUNT) * i + 0.1;
-        try {
-          const frame = await extractFrameAtTime(videoSrc, time, thumbWidth);
-          generatedFrames.push(frame);
-        } catch (e) {
-          console.warn(`Frame ${i} extraction failed:`, e);
-          // Use a gray placeholder for failed frames
+          generatedFrames.push(canvas.toDataURL("image/jpeg", 0.6));
+        } catch {
+          // Gray placeholder on failure
           const canvas = document.createElement("canvas");
           canvas.width = thumbWidth;
-          canvas.height = Math.round(thumbWidth * 9 / 16);
+          canvas.height = thumbHeight;
           const ctx = canvas.getContext("2d")!;
           ctx.fillStyle = "#333";
           ctx.fillRect(0, 0, canvas.width, canvas.height);
@@ -197,8 +110,9 @@ export function CoverFrameSelector({ videoSrc, onFrameSelect, className }: Cover
         }
       }
 
-      if (abortRef.current) return;
+      video.remove();
 
+      if (abortRef.current) return;
       if (generatedFrames.length === 0) {
         setError(true);
         setLoading(false);
@@ -208,9 +122,10 @@ export function CoverFrameSelector({ videoSrc, onFrameSelect, className }: Cover
       setFrames(generatedFrames);
       setLoading(false);
 
-      // Auto-select frame at 25%
+      // Auto-select frame at 25% VISUALLY only — do NOT call onFrameSelect
       const autoIndex = Math.floor(FRAME_COUNT * 0.25);
-      selectHighQualityFrame(autoIndex, dur, videoSrc);
+      setSelectedIndex(autoIndex);
+      setCurrentPreview(generatedFrames[autoIndex]);
     };
 
     generateFrames().catch((e) => {
@@ -219,24 +134,53 @@ export function CoverFrameSelector({ videoSrc, onFrameSelect, className }: Cover
       setLoading(false);
     });
 
-    return () => {
-      abortRef.current = true;
-    };
-  }, [videoSrc, extractFrameAtTime]);
+    return () => { abortRef.current = true; };
+  }, [videoSrc]);
 
-  const selectHighQualityFrame = useCallback(async (index: number, duration: number, src: string) => {
-    setSelectedIndex(index);
-    const time = (duration / FRAME_COUNT) * index + 0.1;
+  // Capture HQ frame and call onFrameSelect (user interaction only)
+  const captureAndSelect = useCallback(async (index: number) => {
+    const FRAME_COUNT = frameCountRef.current;
+    const time = Math.min((videoDuration / FRAME_COUNT) * index + 0.1, videoDuration - 0.1);
+
+    const video = document.createElement("video");
+    video.preload = "auto";
+    video.muted = true;
+    video.playsInline = true;
+    video.setAttribute("playsinline", "true");
+    if (!videoSrc.startsWith("blob:") && !videoSrc.includes(window.location.hostname)) {
+      video.crossOrigin = "anonymous";
+    }
+    video.src = videoSrc;
 
     try {
-      const dataUrl = await extractFrameAtTime(src, time, 1920);
+      await new Promise<void>((resolve, reject) => {
+        const t = setTimeout(() => reject(new Error("timeout")), 8000);
+        video.addEventListener("loadeddata", () => { clearTimeout(t); resolve(); }, { once: true });
+        video.addEventListener("error", () => { clearTimeout(t); reject(); }, { once: true });
+        video.load();
+      });
+
+      await new Promise<void>((resolve) => {
+        video.addEventListener("seeked", () => setTimeout(resolve, 100), { once: true });
+        video.currentTime = time;
+      });
+
+      const canvas = document.createElement("canvas");
+      canvas.width = 1920;
+      canvas.height = Math.round(1920 / (video.videoWidth / video.videoHeight));
+      const ctx = canvas.getContext("2d")!;
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      const dataUrl = canvas.toDataURL("image/jpeg", 0.85);
+      video.remove();
+
       setCurrentPreview(dataUrl);
       const file = dataURLtoFile(dataUrl, `cover_${Date.now()}.jpg`);
       onFrameSelect(file, dataUrl);
     } catch (e) {
-      console.warn("High-quality frame capture failed, using thumbnail:", e);
+      video.remove();
+      console.warn("HQ frame capture failed:", e);
     }
-  }, [extractFrameAtTime, dataURLtoFile, onFrameSelect]);
+  }, [videoDuration, videoSrc, dataURLtoFile, onFrameSelect]);
 
   const handleStripInteraction = useCallback((clientX: number) => {
     const strip = stripRef.current;
@@ -247,11 +191,10 @@ export function CoverFrameSelector({ videoSrc, onFrameSelect, className }: Cover
     const index = Math.min(Math.floor(ratio * frames.length), frames.length - 1);
     if (index !== selectedIndex) {
       setSelectedIndex(index);
-      // Show thumbnail immediately, then fetch HQ
       setCurrentPreview(frames[index]);
-      selectHighQualityFrame(index, videoDuration, videoSrc);
+      captureAndSelect(index);
     }
-  }, [frames, selectedIndex, videoDuration, videoSrc, selectHighQualityFrame]);
+  }, [frames, selectedIndex, captureAndSelect]);
 
   const handlePointerDown = (e: React.PointerEvent) => {
     isDragging.current = true;
@@ -270,9 +213,9 @@ export function CoverFrameSelector({ videoSrc, onFrameSelect, className }: Cover
 
   if (loading) {
     return (
-      <div className={cn("rounded-xl border border-border bg-card p-4", className)}>
-        <div className="flex items-center gap-3 text-muted-foreground">
-          <Loader2 className="w-4 h-4 animate-spin" />
+      <div className={cn("flex-1 flex items-center justify-center", className)}>
+        <div className="flex flex-col items-center gap-3 text-muted-foreground">
+          <Loader2 className="w-6 h-6 animate-spin" />
           <span className="text-sm">Gerando preview de capa...</span>
         </div>
       </div>
@@ -281,10 +224,10 @@ export function CoverFrameSelector({ videoSrc, onFrameSelect, className }: Cover
 
   if (error || frames.length === 0) {
     return (
-      <div className={cn("rounded-xl border border-border bg-card p-4", className)}>
+      <div className={cn("flex-1 flex items-center justify-center", className)}>
         <div className="flex items-center gap-3 text-muted-foreground">
           <AlertCircle className="w-4 h-4" />
-          <span className="text-sm">Não foi possível gerar preview. Faça upload de uma thumbnail manualmente.</span>
+          <span className="text-sm">Não foi possível gerar preview.</span>
         </div>
       </div>
     );
@@ -292,20 +235,22 @@ export function CoverFrameSelector({ videoSrc, onFrameSelect, className }: Cover
 
   return (
     <motion.div
-      initial={{ opacity: 0, y: 10 }}
-      animate={{ opacity: 1, y: 0 }}
-      className={cn("rounded-xl border border-border bg-card overflow-hidden", className)}
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      className={cn("flex flex-col h-full", className)}
     >
       {/* Current selected frame preview */}
       {currentPreview && (
         <div className={cn(
-          "relative bg-black flex items-center justify-center",
-          videoAspect < 1 ? "aspect-[9/16] max-h-[50vh] mx-auto" : "aspect-video"
+          "flex-1 relative bg-black flex items-center justify-center min-h-0",
         )}>
           <img
             src={currentPreview}
             alt="Capa selecionada"
-            className="w-full h-full object-contain"
+            className={cn(
+              "max-w-full max-h-full object-contain",
+              videoAspect < 1 ? "h-full w-auto" : "w-full h-auto"
+            )}
           />
           <div className="absolute top-3 left-3 px-2.5 py-1 rounded-lg bg-black/60 backdrop-blur-sm text-white text-xs font-medium flex items-center gap-1.5">
             <ImageIcon className="w-3 h-3" />
@@ -315,8 +260,8 @@ export function CoverFrameSelector({ videoSrc, onFrameSelect, className }: Cover
       )}
 
       {/* Frame strip scrubber */}
-      <div className="p-3 space-y-2">
-        <p className="text-xs text-muted-foreground">Arraste para escolher o frame da capa</p>
+      <div className="p-3 space-y-2 shrink-0">
+        <p className="text-xs text-white/60">Arraste para escolher o frame da capa</p>
         <div
           ref={stripRef}
           onPointerDown={handlePointerDown}
@@ -340,7 +285,6 @@ export function CoverFrameSelector({ videoSrc, onFrameSelect, className }: Cover
               />
             </div>
           ))}
-          {/* Indicator line */}
           {selectedIndex >= 0 && (
             <div
               className="absolute top-0 bottom-0 w-0.5 bg-accent shadow-[0_0_6px_rgba(var(--accent),0.5)] z-20 pointer-events-none transition-all duration-100"
