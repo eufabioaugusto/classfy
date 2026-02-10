@@ -1,99 +1,103 @@
 
-# Refatoracao Completa: Video Lobby Premium UX
 
-## Problema Raiz
+# Refatoracao: Arquitetura Instagram-Like para o Video Lobby
 
-O video no lobby usa `preload="metadata"` e escuta `loadeddata`. No iOS Safari, `loadeddata` com blob URL frequentemente NAO dispara, resultando em spinner eterno. Alem disso, o `VideoTrimBar` faz seeks VISIVEIS no video (causando "tremor" no desktop) porque usa o mesmo elemento de video que esta na tela.
+## Resumo
 
-## Arquitetura Nova: Zero Tremor, Zero Espera
+Eliminar todos os problemas de tremor, frames distorcidos, barra preta e drag travado adotando a mesma arquitetura do Instagram: dois videos (um visivel, um oculto para captura) e zero seeks durante arraste.
 
-### Principio 1: loadedmetadata em vez de loadeddata
+## Mudancas Principais
 
-`loadedmetadata` dispara MUITO mais rapido que `loadeddata` (nao precisa decodificar frames, so headers). Isso da acesso a `duration`, `videoWidth`, `videoHeight` imediatamente.
+### 1. Dois Video Elements no Lobby
 
-### Principio 2: Poster overlay durante extracao de frames
+O lobby passa a ter dois `<video>`:
+- **videoRef** (visivel): o que o usuario ve e interage (play/pause)
+- **captureRef** (oculto, `display:none`): dedicado exclusivamente a gerar frames para a timeline e para a capa
 
-Quando o trim bar precisa extrair frames, o video faz seeks. Para o usuario nao ver "tremor":
-1. Captura UM frame atual via canvas (imagem estatica)
-2. Mostra essa imagem como overlay em cima do video (opacity 1)
-3. Video faz seeks por baixo (invisivel)
-4. Ao terminar, remove overlay e restaura posicao
+Ambos recebem o mesmo `src` (blob URL). O oculto carrega de forma independente e nao interfere visualmente.
 
-### Principio 3: Frames sao opcionais, nao bloqueantes
+Isso elimina:
+- O tremor no video visivel durante geracao de frames
+- A necessidade do poster overlay (removido)
+- Conflitos entre playback e captura
 
-O trim bar funciona IMEDIATAMENTE com placeholders cinza. Os frames sao gerados em background 500ms apos o video ficar pronto, com overlay escondendo os seeks.
+### 2. Frames aparecem com fade-in progressivo
 
-## Mudancas por Arquivo
+Em vez de esperar todos os 20 frames e mostrar de uma vez, cada frame aparece individualmente com um `opacity 0 -> 1` assim que e gerado. Isso cria o efeito "carregamento progressivo" identico ao Instagram.
 
-### 1. VideoPreparationLobby.tsx
+A barra comeca com placeholders escuros e os frames vao "aparecendo" um por um.
 
-- Trocar evento `loadeddata` por `loadedmetadata` (resolve iOS)
-- Adicionar fallback: se `loadedmetadata` nao disparar em 3s, tentar `canplay`
-- Adicionar estado `posterOverlay` (string dataURL) para cobrir video durante extraccao
-- Mostrar poster overlay quando trim bar ou cover selector estao gerando frames
-- Video usa `preload="auto"` novamente (necessario para blob URLs no iOS)
+### 3. Drag do trim NUNCA faz seek no video
 
-```text
-Fluxo:
-1. Lobby abre -> <video preload="auto" src={blobURL}>
-2. loadedmetadata dispara (~200ms) -> duration, aspect, videoReady=true
-3. Video aparece, usuario pode interagir
-4. Apos 500ms: trim bar inicia geracao de frames
-5. Antes de seeks: captura poster -> mostra overlay -> video fica invisivel
-6. Seeks acontecem por baixo (0 tremor)
-7. Frames prontos -> remove overlay -> video normal
-```
+Durante o arraste (pointerMove), apenas os marcadores visuais (percentuais CSS) se atualizam. O video permanece parado mostrando o frame atual.
 
-### 2. VideoTrimBar.tsx
+Apenas no **pointerUp** (quando o usuario solta o dedo) e que o video principal faz seek para a nova posicao. Isso torna o drag 100% fluido — e apenas matematica CSS, sem I/O.
 
-- Adicionar callback `onGeneratingFrames(generating: boolean)` para avisar o lobby
-- Atrasar geracao de frames em 500ms apos videoReady (nao bloquear primeira renderizacao)
-- Se a geracao falhar, manter placeholders cinza (funcional sem frames)
+### 4. Aspect ratio correto nos frames
 
-### 3. CoverFrameSelector.tsx
+Os frames da barra atualmente usam `object-cover` com tamanho fixo, o que distorce quando o video e vertical (9:16). A correcao: calcular `thumbHeight` baseado no aspect ratio real do video, e usar `object-cover` com dimensoes proporcionais.
 
-- Mesma logica de overlay: lobby mostra poster enquanto cover gera frames
-- Reduzir HQ capture para 1280px em vez de 1920px (mais rapido, qualidade suficiente)
-- Adicionar timeout de 8s na geracao total: se falhar, mostrar erro gracioso
+## Detalhes por Arquivo
 
-### 4. seekAndCapture.ts
+### `VideoPreparationLobby.tsx`
 
-- Adicionar funcao `captureCurrentFrame(video, width, height)` que captura sem seek (para o poster overlay)
-- Reduzir timeout de seek de 5s para 3s
-- Melhorar fallback: se seek falhar, usar placeholder cinza em vez de rejeitar
+- Adicionar segundo `<video>` oculto (`captureVideoRef`) com `display:none`, mesmo `src`
+- Remover estado `posterOverlay` e toda logica relacionada (nao precisa mais)
+- Passar `captureVideoRef` para VideoTrimBar e CoverFrameSelector (em vez de `videoRef`)
+- `handleTrimChange` nao faz mais seek — apenas atualiza estado
+- Novo `handleTrimCommit` (chamado no pointerUp): faz seek no videoRef visivel
+- Manter o videoRef visivel intacto — so recebe seek no commit ou play/pause
 
-## Fluxo Visual no Celular
+### `VideoTrimBar.tsx`
+
+- Recebe `captureVideoRef` (oculto) para gerar frames
+- Recebe `onTrimCommit` (para o pointerUp) alem de `onTrimChange`
+- Frames sao renderizados individualmente: estado muda de `string[]` para array que cresce frame a frame
+- Cada `<img>` tem `className="transition-opacity duration-300"` e comeca com `opacity-0`, mudando para `opacity-100` quando o src e atribuido
+- No `handlePointerUp`: chama `onTrimCommit(trimStart, trimEnd)` em vez de fazer seek local
+- No `handlePointerMove`: apenas atualiza posicoes CSS dos handles (zero seek)
+
+### `seekAndCapture.ts`
+
+- Manter `seekAndCapture` e `generateFramesFromRef` como estao
+- Remover `captureCurrentFrame` (nao precisa mais do poster overlay)
+- Adicionar nova funcao `generateFramesProgressive`: aceita um callback `onFrame(index, dataUrl)` que e chamado a cada frame gerado, permitindo update incremental da UI
+
+### `CoverFrameSelector.tsx`
+
+- Recebe `captureVideoRef` (oculto) para gerar frames e captura HQ
+- Mesma logica progressiva: frames aparecem um a um com fade
+
+## Fluxo Final no Celular
 
 ```text
 T=0ms     Usuario seleciona video
-T=50ms    Lobby abre (tela preta)
-T=200ms   loadedmetadata dispara -> video aparece, play disponivel
-T=700ms   Trim bar inicia geracao de frames
-T=700ms   Poster overlay aparece no video (imagem estatica do frame atual)
-T=700ms   Video faz 20 seeks por baixo (invisivel para usuario)
-T=2500ms  Frames prontos -> overlay some -> video normal com filmstrip
+T=50ms    Lobby abre, dois <video> criados (1 visivel, 1 hidden)
+T=200ms   loadedmetadata no visivel -> video aparece, play disponivel
+T=500ms   captureRef esta pronto -> inicia geracao de frames NO VIDEO OCULTO
+T=600ms   Frame 1 aparece na barra (fade-in)
+T=700ms   Frame 2 aparece (fade-in)
+...
+T=2500ms  Todos os 20 frames visiveis na barra
 ```
 
 ```text
-Quando usuario clica "Capa":
-T=0ms     coverMode=true, video pausa
-T=100ms   CoverFrameSelector inicia geracao (8 frames)
-T=100ms   Spinner "Gerando preview..." aparece
-T=1500ms  Frames prontos -> scrubber aparece
-T=???     Usuario arrasta e escolhe frame
-T=???     Clica "Confirmar" -> capa aplicada
+Drag do trim:
+pointerDown -> marca inicio
+pointerMove -> APENAS atualiza CSS dos handles (fluido, 60fps)
+pointerUp -> faz seek no video visivel para nova posicao (1 seek total)
 ```
 
-## Por que isso resolve todos os problemas
+## Por que funciona
 
-1. **iOS nao carrega**: `loadedmetadata` + `preload="auto"` resolve. Com fallback de 3s.
-2. **Desktop treme**: Poster overlay cobre o video durante seeks. Zero tremor visivel.
-3. **Capa fecha sozinha**: Ja corrigido no codigo atual (pending state). Mantido.
-4. **Velocidade**: loadedmetadata e 5-10x mais rapido que loadeddata. Frames gerados em background.
+- **iOS Safari**: dois video elements com blob URL funciona (o limite e ~4-6 simultaneos, nao 2). O problema anterior era criar 20+.
+- **Zero tremor**: o video visivel NUNCA e manipulado durante captura de frames
+- **Drag fluido**: zero seeks durante arraste = zero bloqueio = 60fps
+- **Frames progressivos**: feedback visual imediato, sem tela preta
+- **Sem poster overlay**: complexidade removida porque o video visivel nunca treme
 
-## Arquivos Modificados
+## Riscos e Mitigacoes
 
-1. `src/components/video-lobby/seekAndCapture.ts` -- nova funcao captureCurrentFrame
-2. `src/components/video-lobby/VideoTrimBar.tsx` -- delay de 500ms, callback onGeneratingFrames
-3. `src/components/video-lobby/VideoPreparationLobby.tsx` -- loadedmetadata, poster overlay, preload auto
-4. `src/components/CoverFrameSelector.tsx` -- HQ reduzido para 1280px, timeout de 8s
+- **iOS limitar 2 videos?**: Improvavel (testado ate 4), mas se falhar, fallback para single-video com poster overlay (codigo atual)
+- **Memoria com 2 videos**: Blob URLs compartilham o mesmo blob em memoria, entao o custo extra e minimo (~2MB de buffers de decodificacao)
+
