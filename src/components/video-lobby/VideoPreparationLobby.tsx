@@ -40,6 +40,7 @@ export function VideoPreparationLobby({
   const [aspectRatio, setAspectRatio] = useState<number>(16 / 9);
   const [coverSheetOpen, setCoverSheetOpen] = useState(false);
   const [trimActive, setTrimActive] = useState(true);
+  const [isMuted, setIsMuted] = useState(true);
   const [thumbnailFile, setThumbnailFile] = useState<File | undefined>();
   const [thumbnailPreview, setThumbnailPreview] = useState<string | undefined>();
 
@@ -98,6 +99,8 @@ export function VideoPreparationLobby({
       if (v.currentTime < trimStart || v.currentTime >= trimEnd) {
         v.currentTime = trimStart;
       }
+      v.muted = false;
+      setIsMuted(false);
       v.play().then(() => setIsPlaying(true)).catch(() => {});
     } else {
       v.pause();
@@ -176,7 +179,7 @@ export function VideoPreparationLobby({
                 isVertical ? "h-full w-auto" : "w-full h-auto"
               )}
               playsInline
-              muted
+              muted={isMuted}
               loop
               preload="auto"
               onClick={togglePlay}
@@ -234,7 +237,7 @@ export function VideoPreparationLobby({
 
           {/* Cover selector sheet */}
           <Sheet open={coverSheetOpen} onOpenChange={setCoverSheetOpen}>
-            <SheetContent side="bottom" className="max-h-[80vh] bg-background rounded-t-2xl p-0">
+            <SheetContent side="bottom" className="max-h-[80vh] bg-background rounded-t-2xl p-0 z-[110]">
               <SheetHeader className="px-4 pt-4 pb-2">
                 <SheetTitle>Escolher capa</SheetTitle>
               </SheetHeader>

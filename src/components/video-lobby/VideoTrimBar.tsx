@@ -24,7 +24,9 @@ export function VideoTrimBar({
 }: VideoTrimBarProps) {
   const barRef = useRef<HTMLDivElement>(null);
   const [frames, setFrames] = useState<string[]>([]);
-  const [dragging, setDragging] = useState<"start" | "end" | null>(null);
+  const [dragging, setDragging] = useState<"start" | "end" | "window" | null>(null);
+  const dragStartX = useRef(0);
+  const dragStartTrim = useRef({ start: 0, end: 0 });
 
   // Generate thumbnail frames
   useEffect(() => {
@@ -42,7 +44,6 @@ export function VideoTrimBar({
           const frame = await extractFrame(videoSrc, time, thumbWidth);
           generated.push(frame);
         } catch {
-          // gray placeholder
           const c = document.createElement("canvas");
           c.width = thumbWidth;
           c.height = Math.round(thumbWidth * 9 / 16);
@@ -115,8 +116,32 @@ export function VideoTrimBar({
     (e.target as HTMLElement).setPointerCapture(e.pointerId);
   }, []);
 
+  // Allow dragging the selected window to slide it along the timeline
+  const handleWindowPointerDown = useCallback((e: React.PointerEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragging("window");
+    dragStartX.current = e.clientX;
+    dragStartTrim.current = { start: trimStart, end: trimEnd };
+    (e.target as HTMLElement).setPointerCapture(e.pointerId);
+  }, [trimStart, trimEnd]);
+
   const handlePointerMove = useCallback((e: React.PointerEvent) => {
     if (!dragging) return;
+    const bar = barRef.current;
+    if (!bar || duration <= 0) return;
+
+    if (dragging === "window") {
+      const rect = bar.getBoundingClientRect();
+      const deltaX = e.clientX - dragStartX.current;
+      const deltaTime = (deltaX / rect.width) * duration;
+      const windowSize = dragStartTrim.current.end - dragStartTrim.current.start;
+      let newStart = dragStartTrim.current.start + deltaTime;
+      newStart = Math.max(0, Math.min(newStart, duration - windowSize));
+      onTrimChange(newStart, newStart + windowSize);
+      return;
+    }
+
     const pos = getPositionFromEvent(e.clientX);
     if (pos === null) return;
 
@@ -167,12 +192,12 @@ export function VideoTrimBar({
       {/* Trim bar */}
       <div
         ref={barRef}
-        className="relative h-12 rounded-lg overflow-hidden touch-none select-none"
+        className="relative h-12 rounded-lg overflow-visible touch-none select-none"
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
       >
         {/* Frame thumbnails */}
-        <div className="absolute inset-0 flex">
+        <div className="absolute inset-0 flex rounded-lg overflow-hidden">
           {frames.length > 0
             ? frames.map((f, i) => (
                 <img
@@ -190,24 +215,25 @@ export function VideoTrimBar({
 
         {/* Dimmed areas outside trim */}
         <div
-          className="absolute inset-y-0 left-0 bg-black/70 z-10 pointer-events-none"
+          className="absolute inset-y-0 left-0 bg-black/70 z-10 pointer-events-none rounded-l-lg"
           style={{ width: `${startPct}%` }}
         />
         <div
-          className="absolute inset-y-0 right-0 bg-black/70 z-10 pointer-events-none"
+          className="absolute inset-y-0 right-0 bg-black/70 z-10 pointer-events-none rounded-r-lg"
           style={{ width: `${100 - endPct}%` }}
         />
 
-        {/* Selected area border */}
+        {/* Selected area border + draggable window */}
         <div
-          className="absolute inset-y-0 z-20 border-y-2 border-accent pointer-events-none"
+          className="absolute inset-y-0 z-20 border-y-2 border-accent cursor-grab active:cursor-grabbing"
           style={{ left: `${startPct}%`, width: `${endPct - startPct}%` }}
+          onPointerDown={handleWindowPointerDown}
         />
 
         {/* Start handle */}
         <div
-          className="absolute inset-y-0 z-30 w-5 flex items-center justify-center cursor-ew-resize"
-          style={{ left: `calc(${startPct}% - 10px)` }}
+          className="absolute inset-y-0 z-40 w-6 flex items-center justify-center cursor-ew-resize"
+          style={{ left: `calc(${startPct}% - 12px)` }}
           onPointerDown={(e) => handlePointerDown(e, "start")}
         >
           <div className={cn(
@@ -220,8 +246,8 @@ export function VideoTrimBar({
 
         {/* End handle */}
         <div
-          className="absolute inset-y-0 z-30 w-5 flex items-center justify-center cursor-ew-resize"
-          style={{ left: `calc(${endPct}% - 10px)` }}
+          className="absolute inset-y-0 z-40 w-6 flex items-center justify-center cursor-ew-resize"
+          style={{ left: `calc(${endPct}% - 12px)` }}
           onPointerDown={(e) => handlePointerDown(e, "end")}
         >
           <div className={cn(
