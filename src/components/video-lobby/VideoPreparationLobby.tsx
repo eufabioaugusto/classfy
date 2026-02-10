@@ -53,7 +53,7 @@ export function VideoPreparationLobby({
   const maxTrimDuration = contentType === "short" ? 90 : undefined;
   const isVertical = aspectRatio < 1;
 
-  // Use the main video element for metadata — no separate element
+  // Load metadata from the single video element
   useEffect(() => {
     if (!open || !videoSrc) return;
     setVideoReady(false);
@@ -114,11 +114,10 @@ export function VideoPreparationLobby({
     if (v) v.currentTime = start;
   }, []);
 
-  // Cover selection from CoverFrameSelector (stores pending, not applied yet)
+  // Cover selection stores pending, not applied yet
   const handleCoverFrameSelect = useCallback((file: File, previewUrl: string) => {
     setPendingCoverFile(file);
     setPendingCoverPreview(previewUrl);
-    // Do NOT close coverMode — user must click "Confirmar"
   }, []);
 
   // Confirm cover selection
@@ -137,6 +136,16 @@ export function VideoPreparationLobby({
     setCoverMode(false);
     setPendingCoverFile(undefined);
     setPendingCoverPreview(undefined);
+  }, []);
+
+  // Pause video when entering cover mode
+  const handleOpenCoverMode = useCallback(() => {
+    const v = videoRef.current;
+    if (v && !v.paused) {
+      v.pause();
+      setIsPlaying(false);
+    }
+    setCoverMode(true);
   }, []);
 
   const handleConfirm = useCallback(() => {
@@ -176,13 +185,7 @@ export function VideoPreparationLobby({
             >
               <X className="w-6 h-6" />
             </button>
-
-            <Button
-              type="button"
-              size="sm"
-              onClick={handleConfirm}
-              className="gap-1 font-semibold"
-            >
+            <Button type="button" size="sm" onClick={handleConfirm} className="gap-1 font-semibold">
               Avançar
               <ChevronRight className="w-4 h-4" />
             </Button>
@@ -190,13 +193,11 @@ export function VideoPreparationLobby({
 
           {/* Video Preview */}
           <div className="flex-1 flex items-center justify-center overflow-hidden relative min-h-0">
-            {/* Loading spinner while video loads */}
             {!videoReady && (
               <div className="absolute inset-0 flex items-center justify-center z-20">
                 <Loader2 className="w-10 h-10 text-white/60 animate-spin" />
               </div>
             )}
-
             <video
               ref={videoRef}
               src={videoSrc}
@@ -212,8 +213,6 @@ export function VideoPreparationLobby({
               onClick={togglePlay}
               style={{ objectFit: "contain" }}
             />
-
-            {/* Play/pause overlay */}
             {!isPlaying && videoReady && (
               <button
                 type="button"
@@ -229,11 +228,7 @@ export function VideoPreparationLobby({
 
           {/* Playback info */}
           <div className="flex items-center justify-center gap-3 px-4 py-2 shrink-0">
-            <button
-              type="button"
-              onClick={togglePlay}
-              className="p-1.5 text-white/80 hover:text-white"
-            >
+            <button type="button" onClick={togglePlay} className="p-1.5 text-white/80 hover:text-white">
               {isPlaying ? <Pause className="w-5 h-5" /> : <Play className="w-5 h-5" />}
             </button>
             <span className="text-xs text-white/60 font-mono tabular-nums">
@@ -241,10 +236,11 @@ export function VideoPreparationLobby({
             </span>
           </div>
 
-          {/* Trim bar */}
+          {/* Trim bar — uses the same videoRef, zero extra video elements */}
           <div className="px-4 shrink-0">
             <VideoTrimBar
-              videoSrc={videoSrc}
+              videoRef={videoRef}
+              videoReady={videoReady}
               duration={duration}
               trimStart={trimStart}
               trimEnd={trimEnd}
@@ -256,13 +252,13 @@ export function VideoPreparationLobby({
           {/* Toolbar */}
           <div className="shrink-0 pb-safe">
             <LobbyToolbar
-              onCoverSelect={() => setCoverMode(true)}
+              onCoverSelect={handleOpenCoverMode}
               onTrimToggle={() => setTrimActive(!trimActive)}
               trimActive={trimActive}
             />
           </div>
 
-          {/* Fullscreen cover selector overlay */}
+          {/* Fullscreen cover selector overlay — uses the same videoRef */}
           <AnimatePresence>
             {coverMode && (
               <motion.div
@@ -272,7 +268,6 @@ export function VideoPreparationLobby({
                 transition={{ duration: 0.2 }}
                 className="absolute inset-0 z-[110] bg-black flex flex-col"
               >
-                {/* Cover header */}
                 <div className="flex items-center justify-between px-4 py-3 shrink-0">
                   <button
                     type="button"
@@ -282,20 +277,16 @@ export function VideoPreparationLobby({
                     <X className="w-6 h-6" />
                   </button>
                   <span className="text-white font-semibold text-base">Escolher capa</span>
-                  <Button
-                    type="button"
-                    size="sm"
-                    onClick={handleCoverConfirm}
-                    className="font-semibold"
-                  >
+                  <Button type="button" size="sm" onClick={handleCoverConfirm} className="font-semibold">
                     Confirmar
                   </Button>
                 </div>
-
-                {/* Cover content - fullscreen */}
                 <div className="flex-1 min-h-0 flex flex-col">
                   <CoverFrameSelector
-                    videoSrc={videoSrc}
+                    videoRef={videoRef}
+                    videoReady={videoReady}
+                    duration={duration}
+                    videoAspect={aspectRatio}
                     onFrameSelect={handleCoverFrameSelect}
                     className="border-0 rounded-none bg-transparent flex-1"
                   />
