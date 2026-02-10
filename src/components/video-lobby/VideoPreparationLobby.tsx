@@ -79,6 +79,10 @@ export function VideoPreparationLobby({
       setTrimStart(0);
       setTrimEnd(maxTrimDuration ? Math.min(d, maxTrimDuration) : d);
       setVideoReady(true);
+      // Force first frame render — seek to 0.01 to paint a frame on paused video
+      if (v.currentTime === 0) {
+        v.currentTime = 0.01;
+      }
     };
 
     v.addEventListener("loadedmetadata", handleReady);
@@ -145,7 +149,15 @@ export function VideoPreparationLobby({
     setTrimStart(start);
     setTrimEnd(end);
     const v = videoRef.current;
-    if (v) v.currentTime = start;
+    if (v) {
+      v.currentTime = Math.max(0.01, start);
+      // Force visual update on paused video (mobile Safari)
+      if (v.paused) {
+        v.play().then(() => {
+          requestAnimationFrame(() => v.pause());
+        }).catch(() => {});
+      }
+    }
   }, []);
 
   // Cover selection stores pending, not applied yet

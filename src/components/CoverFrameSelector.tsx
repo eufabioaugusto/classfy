@@ -49,51 +49,68 @@ export function CoverFrameSelector({
     abortRef.current = false;
 
     const video = videoRef.current;
-    const savedTime = video.currentTime;
-    video.pause();
 
-    onGeneratingFrames?.(true);
+    // Wait for video to have decoded frames (readyState >= 2) before capturing
+    const startGeneration = () => {
+      const savedTime = video.currentTime;
+      video.pause();
 
-    const FRAME_COUNT = frameCountRef.current;
-    const thumbWidth = Math.min(320, window.innerWidth / 2);
+      onGeneratingFrames?.(true);
 
-    // 8s total timeout for the whole generation
-    timeoutRef.current = setTimeout(() => {
-      abortRef.current = true;
-      onGeneratingFrames?.(false);
-      if (frames.length === 0) {
-        setError(true);
-        setLoading(false);
-      }
-      generatingRef.current = false;
-    }, 8000);
+      const FRAME_COUNT = frameCountRef.current;
+      const thumbWidth = Math.min(320, window.innerWidth / 2);
 
-    generateFramesFromRef(video, FRAME_COUNT, thumbWidth, { get aborted() { return abortRef.current; } }).then((generated) => {
-      clearTimeout(timeoutRef.current);
-      onGeneratingFrames?.(false);
-      if (abortRef.current) return;
-
-      if (generated.length === 0) {
-        setError(true);
-        setLoading(false);
+      // 8s total timeout for the whole generation
+      timeoutRef.current = setTimeout(() => {
+        abortRef.current = true;
+        onGeneratingFrames?.(false);
+        if (frames.length === 0) {
+          setError(true);
+          setLoading(false);
+        }
         generatingRef.current = false;
-        return;
-      }
+      }, 8000);
 
-      setFrames(generated);
-      setLoading(false);
+      generateFramesFromRef(video, FRAME_COUNT, thumbWidth, { get aborted() { return abortRef.current; } }).then((generated) => {
+        clearTimeout(timeoutRef.current);
+        onGeneratingFrames?.(false);
+        if (abortRef.current) return;
 
-      // Auto-select at 25% VISUALLY only — do NOT call onFrameSelect
-      const autoIndex = Math.floor(FRAME_COUNT * 0.25);
-      setSelectedIndex(autoIndex);
-      setCurrentPreview(generated[autoIndex]);
+        if (generated.length === 0) {
+          setError(true);
+          setLoading(false);
+          generatingRef.current = false;
+          return;
+        }
 
-      // Restore video position
-      if (videoRef.current) {
-        videoRef.current.currentTime = savedTime;
-      }
-      generatingRef.current = false;
-    });
+        setFrames(generated);
+        setLoading(false);
+
+        // Auto-select at 25% VISUALLY only — do NOT call onFrameSelect
+        const autoIndex = Math.floor(FRAME_COUNT * 0.25);
+        setSelectedIndex(autoIndex);
+        setCurrentPreview(generated[autoIndex]);
+
+        // Restore video position
+        if (videoRef.current) {
+          videoRef.current.currentTime = savedTime;
+        }
+        generatingRef.current = false;
+      });
+    };
+
+    // If video hasn't decoded frames yet, wait for canplay
+    if (video.readyState >= 2) {
+      startGeneration();
+    } else {
+      const onCanPlay = () => {
+        video.removeEventListener("canplay", onCanPlay);
+        if (!abortRef.current) startGeneration();
+      };
+      video.addEventListener("canplay", onCanPlay);
+      // Also try playing briefly to trigger decode on iOS
+      video.play().then(() => video.pause()).catch(() => {});
+    }
 
     return () => { abortRef.current = true; clearTimeout(timeoutRef.current); generatingRef.current = false; };
   }, [videoReady, videoRef, duration]);
