@@ -61,19 +61,27 @@ Deno.serve(async (req) => {
 
     console.log(`Closing economic cycle for: ${targetYearMonth}`);
 
-    // 1. Get or verify the cycle exists
-    const { data: cycle, error: cycleError } = await supabase
+    // 1. Get or create the cycle
+    let { data: cycle, error: cycleError } = await supabase
       .from('economic_cycles')
       .select('*')
       .eq('year_month', targetYearMonth)
-      .single();
+      .maybeSingle();
 
-    if (cycleError || !cycle) {
-      console.log('No cycle found for', targetYearMonth);
-      return new Response(
-        JSON.stringify({ error: 'No cycle found for ' + targetYearMonth }),
-        { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 404 }
-      );
+    if (!cycle) {
+      console.log('No cycle found for', targetYearMonth, '- creating one...');
+      const { data: newCycle, error: createError } = await supabase
+        .from('economic_cycles')
+        .insert({ year_month: targetYearMonth, pool_percentage: 40 })
+        .select()
+        .single();
+      if (createError || !newCycle) {
+        return new Response(
+          JSON.stringify({ error: 'Failed to create cycle: ' + (createError?.message || 'unknown') }),
+          { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 500 }
+        );
+      }
+      cycle = newCycle;
     }
 
     if (cycle.status === 'closed') {
