@@ -300,7 +300,7 @@ Deno.serve(async (req) => {
     // STEP 5: Process user reward (viewer/actor)
     // XP (points) still credited instantly for gamification
     // Performance Points accumulated in economic_cycle_users (NO direct wallet credit)
-    if (config.points_user > 0 || config.value_user > 0) {
+    if (config.points_user > 0) {
       const userPoints = Math.floor(config.points_user * planMultiplier);
       // Performance points with diminishing returns applied
       const performancePoints = config.points_user * planMultiplier * diminishingMultiplier;
@@ -351,7 +351,7 @@ Deno.serve(async (req) => {
     }
 
     // STEP 6: Process creator reward (if applicable)
-    if (creatorId && creatorId !== userId && (config.points_creator > 0 || config.value_creator > 0)) {
+    if (creatorId && creatorId !== userId && config.points_creator > 0) {
       const { data: creatorProfile } = await supabase
         .from('profiles')
         .select('plan')
