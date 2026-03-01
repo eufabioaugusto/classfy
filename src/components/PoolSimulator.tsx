@@ -1,8 +1,7 @@
 import { useState, useMemo } from "react";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Slider } from "@/components/ui/slider";
 import { Badge } from "@/components/ui/badge";
-import { TrendingUp, Calculator, ArrowUp, Zap } from "lucide-react";
+import { Calculator, ArrowUp, Zap } from "lucide-react";
 
 interface PoolSimulatorProps {
   currentPP: number;
@@ -35,92 +34,79 @@ export function PoolSimulator({ currentPP, totalPP, prm, currentEstimate }: Pool
   }, [activityIncrease]);
 
   return (
-    <Card className="bg-gradient-to-br from-primary/5 to-accent/5 border-primary/20">
-      <CardHeader>
-        <div className="flex items-center gap-2">
-          <Calculator className="w-6 h-6 text-primary" />
-          <CardTitle>Simulador de Ganhos</CardTitle>
-        </div>
-        <CardDescription>
-          Veja quanto ganharia se aumentasse sua atividade na plataforma
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-6">
-        {/* Slider */}
-        <div className="space-y-3">
-          <div className="flex justify-between items-center">
-            <span className="text-sm text-muted-foreground">Aumento de atividade</span>
-            <Badge variant="secondary" className="text-lg px-3 py-1 font-bold">
-              +{activityIncrease[0]}%
-            </Badge>
+    <div className="relative rounded-xl border border-accent/20 bg-gradient-to-r from-accent/5 via-transparent to-accent/5 p-[1px]">
+      <div className="rounded-[11px] bg-card p-4 space-y-4">
+        {/* Header */}
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <div className="w-7 h-7 rounded-lg bg-accent/10 flex items-center justify-center">
+              <Calculator className="w-3.5 h-3.5 text-accent" />
+            </div>
+            <span className="text-sm font-semibold">Simulador de Ganhos</span>
           </div>
+          <Badge variant="outline" className="text-xs border-accent/30 text-accent font-medium">
+            +{activityIncrease[0]}%
+          </Badge>
+        </div>
+
+        {/* Slider */}
+        <div className="space-y-1.5">
           <Slider
             value={activityIncrease}
             onValueChange={setActivityIncrease}
             min={0}
             max={200}
             step={5}
-            className="py-2"
+            className="py-1"
           />
-          <div className="flex justify-between text-xs text-muted-foreground">
+          <div className="flex justify-between text-[10px] text-muted-foreground">
             <span>Atual</span>
-            <span>+50%</span>
             <span>+100%</span>
             <span>+200%</span>
           </div>
         </div>
 
-        {/* Results */}
-        <div className="grid grid-cols-2 gap-4">
-          <div className="p-4 rounded-lg bg-background border border-border space-y-1">
-            <p className="text-xs text-muted-foreground">Estimativa Atual</p>
-            <p className="text-xl font-bold">R$ {currentEstimate.toFixed(2)}</p>
-            <p className="text-xs text-muted-foreground">{currentPP.toFixed(0)} PP</p>
+        {/* Compact results */}
+        <div className="grid grid-cols-2 gap-2">
+          <div className="p-2.5 rounded-lg bg-muted/50 space-y-0.5">
+            <p className="text-[10px] text-muted-foreground">Atual</p>
+            <p className="text-sm font-bold">R$ {currentEstimate.toFixed(2)}</p>
           </div>
-          <div className="p-4 rounded-lg bg-primary/10 border border-primary/20 space-y-1">
-            <p className="text-xs text-muted-foreground">Com +{activityIncrease[0]}%</p>
-            <p className="text-xl font-bold text-primary">R$ {simulation.newShare.toFixed(2)}</p>
-            <p className="text-xs text-muted-foreground">{simulation.newPP.toFixed(0)} PP</p>
+          <div className="p-2.5 rounded-lg bg-accent/10 border border-accent/15 space-y-0.5">
+            <p className="text-[10px] text-muted-foreground">Projeção</p>
+            <p className="text-sm font-bold text-accent">R$ {simulation.newShare.toFixed(2)}</p>
           </div>
         </div>
 
-        {/* Difference */}
+        {/* Difference inline */}
         {simulation.difference > 0 && (
-          <div className="p-3 rounded-lg bg-green-500/10 border border-green-500/20 flex items-center gap-3">
-            <ArrowUp className="w-5 h-5 text-green-500 flex-shrink-0" />
-            <div>
-              <p className="text-sm font-semibold text-green-600 dark:text-green-400">
-                +R$ {simulation.difference.toFixed(2)}/mês ({simulation.percentGain.toFixed(0)}% a mais)
-              </p>
-              <p className="text-xs text-muted-foreground">
-                Ganho adicional estimado com mais atividade
-              </p>
-            </div>
+          <div className="flex items-center gap-1.5 text-xs">
+            <ArrowUp className="w-3 h-3 text-green-500" />
+            <span className="font-medium text-green-600 dark:text-green-400">
+              +R$ {simulation.difference.toFixed(2)}/mês
+            </span>
+            <span className="text-muted-foreground">
+              ({simulation.percentGain.toFixed(0)}% a mais)
+            </span>
           </div>
         )}
 
-        {/* Tips */}
+        {/* Tips collapsed */}
         {tips.length > 0 && (
-          <div className="space-y-2">
-            <p className="text-sm font-medium flex items-center gap-1.5">
-              <Zap className="w-4 h-4 text-accent" />
-              Como aumentar sua atividade:
-            </p>
-            <ul className="space-y-1">
-              {tips.map((tip, i) => (
-                <li key={i} className="text-xs text-muted-foreground flex items-start gap-2">
-                  <TrendingUp className="w-3 h-3 mt-0.5 flex-shrink-0 text-primary" />
-                  {tip}
-                </li>
-              ))}
-            </ul>
+          <div className="flex flex-wrap gap-1.5">
+            {tips.map((tip, i) => (
+              <span key={i} className="text-[10px] text-muted-foreground bg-muted/50 rounded-full px-2 py-0.5 inline-flex items-center gap-1">
+                <Zap className="w-2.5 h-2.5 text-accent" />
+                {tip}
+              </span>
+            ))}
           </div>
         )}
 
-        <p className="text-[10px] text-muted-foreground">
-          * Simulação baseada no pool atual. Valores reais dependem da atividade de todos os usuários e da receita mensal.
+        <p className="text-[9px] text-muted-foreground/60">
+          * Estimativa baseada no pool atual
         </p>
-      </CardContent>
-    </Card>
+      </div>
+    </div>
   );
 }
