@@ -1,132 +1,67 @@
+# Plano: Vincular Todos os Valores ao Pool Fixo
+
+## Diagnóstico dos Problemas Encontrados
+
+Existem **4 pontos onde dinheiro (R$) ainda é pago diretamente na wallet**, fora do pool:
+
+1. `**reward_actions_config` com `value_user` / `value_creator**`: Os campos ainda existem e são exibidos no admin como "Valor Usuário" e "Valor Criador" (R$ 0.10, R$ 0.25, etc). Embora o `process-reward` já não credite valor direto (seta `value: 0`), os campos confundem e não têm mais propósito funcional no novo modelo.
+2. `**useCreatorMilestones.ts` → `claimMilestone()**` (linhas 228-244): Quando um creator resgata uma meta (Publicador Bronze, Influenciador Prata, etc), o código **credita `value_reward` direto na wallet** do creator. Isso ignora totalmente o pool.
+3. **Trigger `check_view_milestones()**` no banco: Quando um conteúdo atinge 100/500/1000 views, o trigger **credita `value_creator` direto na wallet** e usa os valores fixos da `reward_actions_config`. Também ignora o pool.
+4. `**reverse-reward` edge function**: Tenta reverter `reward.value` da wallet, mas como `value` agora é sempre 0, a reversão financeira já é inócua. Porém o campo `performance_points` não é revertido do `economic_cycle_users`.
+
+## Plano de Correções
+
+### 1. Limpar tabela `reward_actions_config` no admin
+
+- Remover colunas "Valor Usuário" e "Valor Criador" da tabela visual no admin (são enganosas)
+- Renomear "Pontos Usuário" e "Pontos Criador" para "PP Usuário" e "PP Criador" (Performance Points)
+- No dialog de edição, remover os campos `value_user` e `value_creator`
+- Adicionar nota explicativa: "Os pontos definem o peso de performance. O valor em R$ é calculado proporcionalmente ao pool no fechamento mensal."
+
+### 2. Migrar `claimMilestone()` para o modelo de pool
+
+- Em vez de creditar `value_reward` direto na wallet, acumular Performance Points no `economic_cycle_users`
+- Os `points_reward` da milestone continuam como XP de gamificação (instantâneo)
+- O `value_reward` da milestone é convertido em PP adicional (ou um peso configurável)
+- Atualizar toast e notificação para mostrar "+X PP" em vez de "R$ X"
+
+### 3. Atualizar trigger `check_view_milestones()`
+
+- Remover crédito direto na wallet (`UPDATE wallets SET balance = balance + value_amt`)
+- Em vez disso, inserir PP no `economic_cycle_users` via chamada ao ciclo atual
+- Manter a notificação mas sem mostrar valor em R$
+
+### 4. Atualizar `reverse-reward` para reverter PP
+
+- Além de deletar o `reward_event`, decrementar `performance_points` no `economic_cycle_users`
+- Remover lógica de wallet (já não há valor direto)
+
+### 5. Limpar tabela de milestones no admin
+
+- Remover ou relabear coluna "Valor R$" para "PP Bônus" 
+- Explicar que o valor monetário será proporcional ao pool
+
+### 6. Atualizar `Recompensas.tsx` (dashboard do usuário)
+
+- Na seção de milestones/metas do creator, não mostrar "R$ X.XX" como recompensa fixa
+- Mostrar apenas pontos de performance e a estimativa proporcional ao pool
+
+## Arquivos Afetados
 
 
-# Analise: O que Temos vs O que Precisa Ser Criado para o Pool Fixo
+| Arquivo                                      | Mudança                                                           |
+| -------------------------------------------- | ----------------------------------------------------------------- |
+| `src/pages/AdminRewards.tsx`                 | Remover colunas value_user/value_creator, renomear pontos para PP |
+| `src/hooks/useCreatorMilestones.ts`          | `claimMilestone()`: PP no pool em vez de wallet direta            |
+| `supabase/functions/reverse-reward/index.ts` | Reverter PP no economic_cycle_users                               |
+| `src/pages/Recompensas.tsx`                  | Ajustar exibição de recompensas de milestones                     |
+| `src/components/CreatorMilestoneItem.tsx`    | Mostrar PP em vez de R$                                           |
+| Migration SQL                                | Atualizar trigger `check_view_milestones()` para usar PP          |
+| `src/components/CreatorStatsCard.tsx`        | Garantir que não mostra valores fixos em R$                       |
 
-## O que JA EXISTE
 
-| Componente | Status | Detalhes |
-|---|---|---|
-| `reward_actions_config` | Existe | 19 acoes configuradas com `points_user`, `points_creator`, `value_user`, `value_creator` fixos |
-| `reward_events` | Existe | Registra cada recompensa com pontos e valor |
-| `reward_action_tracking` | Existe | Prevencao de duplicatas |
-| `wallets` | Existe | Saldo, total ganho, total sacado |
-| `wallet_transactions` | Existe | Historico de transacoes |
-| `user_login_streaks` | Existe | Streaks de login |
-| `user_levels` | Existe | Nivel e pontos totais |
-| `profiles.plan` | Existe | free/pro/premium com multiplicadores |
-| `process-reward` edge function | Existe | Paga valor fixo da config direto na wallet |
-| `stripe-webhook` | Existe | Processa assinaturas e compras de conteudo |
-| `purchased_contents` | Existe | Registro de compras |
-| `boosts` | Existe | Receita de boost com budget |
-| `withdraw_requests` | Existe | Saques com taxa |
-| `AdminRewards.tsx` | Existe | Painel admin para editar recompensas |
-| `Recompensas.tsx` | Existe | Dashboard do usuario com pontos, nivel, streak |
-| `CreatorStatsCard` | Existe | Card com XP e ganhos |
+## Resultado
 
-## O que PRECISA SER CRIADO (nao existe nada disso)
+Após essas mudanças, **zero reais serão creditados fora do pool**. Todo valor monetário virá exclusivamente do fechamento mensal do ciclo econômico (`close-economic-cycle`), garantindo que a soma de payouts nunca ultrapasse o PRM.
 
-### Banco de Dados (novas tabelas)
-
-1. **`platform_settings`** -- Config global do admin (pool_percentage, etc)
-2. **`economic_cycles`** -- Ciclo mensal: RBM, PRM, total_points, status (open/closed)
-3. **`economic_cycle_users`** -- Performance points por usuario por ciclo
-4. **`revenue_entries`** -- Registro granular de cada entrada de receita (assinatura, boost, venda, saque taxa)
-
-### Mudancas em Tabelas Existentes
-
-- `reward_actions_config`: Os campos `value_user` e `value_creator` deixam de ser usados para pagamento direto. Mantemos `points_user` e `points_creator` como **peso** (Performance Points weight) em vez de pontos absolutos.
-- `reward_events`: Adicionar campo `cycle_id` (referencia ao ciclo economico) e `performance_points` (pontos de performance, separados do XP)
-- `wallets`: Sem mudanca estrutural, mas o credito passa a ser feito apenas no fechamento mensal
-
-### Edge Functions (novas)
-
-1. **`close-economic-cycle`** -- Funcao mensal (cron) que:
-   - Calcula RBM somando `revenue_entries` do mes
-   - Calcula PRM = RBM * pool_percentage
-   - Soma total de performance points de todos usuarios
-   - Distribui proporcionalmente: `user_share = (user_points / total_points) * PRM`
-   - Credita nas wallets
-   - Marca ciclo como `closed`
-
-2. **`record-revenue`** -- Chamada pelo stripe-webhook para registrar cada receita
-
-### Edge Functions (modificacoes)
-
-- **`process-reward`**: Deixa de creditar valor na wallet em tempo real. Passa a acumular performance points no `economic_cycle_users`. XP continua sendo creditado normalmente para gamificacao.
-- **`stripe-webhook`**: Apos processar pagamento, chama `record-revenue` para registrar na tabela de receitas.
-
-### Frontend (novo)
-
-1. **Admin: Aba "Economia" no AdminRewards** -- pool_percentage, RBM em tempo real, PRM estimado, simulador
-2. **Usuario: Secao "Pool" no Recompensas.tsx** -- Pool estimado, seus performance points, estimativa de ganho, posicao relativa
-
-### Frontend (modificacoes)
-
-- `process-reward` hook: Nao mostra mais toast com "voce ganhou R$X" em tempo real (pois nao ha pagamento instantaneo). Mostra apenas "+X pontos de performance"
-- `CreatorStatsCard`: Separar XP (progressao) de Performance Points (economico)
-- `AdminRewards.tsx`: Adicionar aba de controle economico
-
-## Arquitetura do Fluxo
-
-```text
-RECEITA ENTRA (Stripe webhook)
-  |
-  v
-revenue_entries (registra tipo, valor, mes)
-  |
-  v
-ACAO DO USUARIO (like, watch, etc)
-  |
-  v
-process-reward:
-  - XP -> user_levels (gamificacao, instantaneo)
-  - Performance Points -> economic_cycle_users (acumula no ciclo)
-  - NAO credita valor na wallet
-  |
-  v
-FECHAMENTO MENSAL (cron, dia 1 do mes seguinte)
-  |
-  v
-close-economic-cycle:
-  1. RBM = SUM(revenue_entries do mes)
-  2. PRM = RBM * pool_percentage (ex: 40%)
-  3. total_pp = SUM(economic_cycle_users.performance_points)
-  4. Para cada usuario: share = (user_pp / total_pp) * PRM
-  5. Credita na wallet
-  6. Fecha ciclo
-```
-
-## Fases de Implementacao
-
-**Fase 1: Infraestrutura** (tabelas + settings)
-- Criar `platform_settings`, `economic_cycles`, `economic_cycle_users`, `revenue_entries`
-- RLS policies para todas as tabelas
-- Seed com `pool_percentage = 40`
-
-**Fase 2: Captura de Receita**
-- Modificar `stripe-webhook` para registrar em `revenue_entries`
-- Registrar: assinaturas, compras de conteudo, boosts
-
-**Fase 3: Acumulo de Performance Points**
-- Modificar `process-reward` para acumular PP em vez de pagar direto
-- Manter XP separado para gamificacao
-- Atualizar toasts no frontend
-
-**Fase 4: Painel Admin**
-- Aba "Economia" com pool_percentage, RBM, PRM, simulador
-
-**Fase 5: Fechamento Mensal**
-- Edge function `close-economic-cycle`
-- Cron job para executar no dia 1
-
-**Fase 6: Dashboard do Usuario**
-- Pool estimado, performance points, estimativa de ganho
-
-## Notas Tecnicas
-
-- O XP de gamificacao (niveis, badges) continua funcionando como hoje -- instantaneo, nao muda
-- Apenas o **valor monetario** (R$) passa para o modelo de pool
-- Os pontos na `reward_actions_config` passam a representar **pesos** de performance, nao valor absoluto
-- Antifraude: limites diarios e curva decrescente podem ser implementados como regras na `process-reward`
-- O campo `value_user`/`value_creator` na config pode ser mantido como referencia historica mas nao sera usado no calculo
-
+A expectativa é que toda a logica de valores (as tabelas e itens) gire em torno do que está livre no pool, a ponto de se eu ou a receita alterar o valor do pool, isso tbm altera os itens. eles podem ter o controle manual, mas creio que o melhor seja setar o item por % em cima do pool, ao invez de valor fixo, assim independente do valor liberado no pool, o item tbm está vinculado a isso. Ex: like = 2%. Se tem 100 no pool ou 400, equivale a 2% mesmo assim. E o admin pode/deve editar esse valor manualmente quando quiser
