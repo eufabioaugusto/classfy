@@ -345,7 +345,7 @@ export default function AdminRewards() {
         .from('revenue_entries')
         .insert({
           year_month: yearMonth,
-          revenue_type: 'manual_bonus',
+          revenue_type: 'other',
           amount,
           metadata: { description: bonusDescription || 'Aporte manual no pool' },
         });
