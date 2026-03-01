@@ -60,15 +60,14 @@ export function PoolSimulator({ currentPP, totalPP, prm, currentEstimate }: Pool
       pointsPerAction = actionPoints[selected.actionTypes[0]] ?? 1;
       simulatedPP = Math.round(actionCount * pointsPerAction);
     } else {
-      // "Tudo": actions are split equally across all types, sum all points
-      const actionsPerType = actionCount / selected.actionTypes.length;
+      // "Tudo": user does actionCount of EACH type (full engagement scenario)
       const totalPoints = selected.actionTypes.reduce(
-        (sum, at) => sum + actionsPerType * (actionPoints[at] ?? 1),
+        (sum, at) => sum + actionCount * (actionPoints[at] ?? 1),
         0
       );
       simulatedPP = Math.round(totalPoints);
-      // Show effective average for display
-      pointsPerAction = actionCount > 0 ? totalPoints / actionCount : 0;
+      // Show total pts per "round" of all actions combined
+      pointsPerAction = selected.actionTypes.reduce((sum, at) => sum + (actionPoints[at] ?? 1), 0);
     }
 
     const ESTIMATED_POOL_BASELINE = 5000;
