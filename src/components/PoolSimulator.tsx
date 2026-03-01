@@ -18,18 +18,18 @@ const engagementTypes = [
 ];
 
 export function PoolSimulator({ currentPP, totalPP, prm, currentEstimate }: PoolSimulatorProps) {
-  const [activityIncrease, setActivityIncrease] = useState([30]);
+  const [simulatedPoints, setSimulatedPoints] = useState([Math.max(currentPP, 100)]);
   const [selectedType, setSelectedType] = useState("all");
 
   const simulation = useMemo(() => {
-    const increase = activityIncrease[0];
-    const newPP = currentPP * (1 + increase / 100);
-    const newTotalPP = totalPP - currentPP + newPP;
-    const newShare = newTotalPP > 0 ? (newPP / newTotalPP) * prm : 0;
+    const pts = simulatedPoints[0];
+    // Replace user's current PP with simulated value in the total
+    const newTotalPP = totalPP - currentPP + pts;
+    const newShare = newTotalPP > 0 ? (pts / newTotalPP) * prm : 0;
     const difference = newShare - currentEstimate;
 
     return { newShare, difference };
-  }, [activityIncrease, currentPP, totalPP, prm, currentEstimate]);
+  }, [simulatedPoints, currentPP, totalPP, prm, currentEstimate]);
 
   return (
     <div className="rounded-xl border bg-card p-4 sm:p-5">
@@ -38,7 +38,7 @@ export function PoolSimulator({ currentPP, totalPP, prm, currentEstimate }: Pool
         <div className="space-y-4">
           <div>
             <p className="text-sm font-medium text-foreground mb-1">Simule seus ganhos</p>
-            <p className="text-xs text-muted-foreground">Veja quanto você ganharia engajando mais</p>
+            <p className="text-xs text-muted-foreground">Veja quanto você ganharia com mais pontos no pool</p>
           </div>
 
           {/* Engagement type selector */}
@@ -66,16 +66,20 @@ export function PoolSimulator({ currentPP, totalPP, prm, currentEstimate }: Pool
           {/* Slider */}
           <div className="space-y-2">
             <div className="flex items-center justify-between">
-              <span className="text-xs text-muted-foreground">Aumento de engajamento</span>
-              <span className="text-sm font-bold text-accent">+{activityIncrease[0]}%</span>
+              <span className="text-xs text-muted-foreground">Se você tivesse</span>
+              <span className="text-sm font-bold text-accent">{simulatedPoints[0].toLocaleString('pt-BR')} pontos</span>
             </div>
             <Slider
-              value={activityIncrease}
-              onValueChange={setActivityIncrease}
+              value={simulatedPoints}
+              onValueChange={setSimulatedPoints}
               min={0}
-              max={200}
-              step={5}
+              max={5000}
+              step={50}
             />
+            <div className="flex justify-between text-[10px] text-muted-foreground">
+              <span>0</span>
+              <span>5.000</span>
+            </div>
           </div>
         </div>
 
@@ -91,7 +95,7 @@ export function PoolSimulator({ currentPP, totalPP, prm, currentEstimate }: Pool
               +R$ {simulation.difference.toFixed(2)} a mais
             </span>
           )}
-          {simulation.difference <= 0 && (
+          {simulatedPoints[0] === 0 && (
             <span className="text-xs text-muted-foreground mt-1.5">
               Mova o slider para simular
             </span>
