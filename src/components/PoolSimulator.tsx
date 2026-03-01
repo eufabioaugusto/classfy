@@ -51,17 +51,25 @@ export function PoolSimulator({ currentPP, totalPP, prm, currentEstimate }: Pool
     const actionCount = simulatedActions[0];
     const selected = engagementTypes.find((t) => t.key === selectedType) || engagementTypes[0];
 
-    // Calculate points per action for the selected type
+    // Calculate total simulated points
+    let simulatedPP: number;
     let pointsPerAction: number;
-    if (selected.actionTypes.length === 1) {
-      pointsPerAction = actionPoints[selected.actionTypes[0]] ?? 1;
-    } else {
-      // "Tudo": weighted average across all action types
-      const total = selected.actionTypes.reduce((sum, at) => sum + (actionPoints[at] ?? 1), 0);
-      pointsPerAction = total / selected.actionTypes.length;
-    }
 
-    const simulatedPP = Math.round(actionCount * pointsPerAction);
+    if (selected.actionTypes.length === 1) {
+      // Single type: all actions are of this type
+      pointsPerAction = actionPoints[selected.actionTypes[0]] ?? 1;
+      simulatedPP = Math.round(actionCount * pointsPerAction);
+    } else {
+      // "Tudo": actions are split equally across all types, sum all points
+      const actionsPerType = actionCount / selected.actionTypes.length;
+      const totalPoints = selected.actionTypes.reduce(
+        (sum, at) => sum + actionsPerType * (actionPoints[at] ?? 1),
+        0
+      );
+      simulatedPP = Math.round(totalPoints);
+      // Show effective average for display
+      pointsPerAction = actionCount > 0 ? totalPoints / actionCount : 0;
+    }
 
     const ESTIMATED_POOL_BASELINE = 5000;
     const effectiveTotalPP = totalPP > 0 ? totalPP : ESTIMATED_POOL_BASELINE;
