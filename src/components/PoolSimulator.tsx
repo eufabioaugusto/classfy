@@ -24,64 +24,33 @@ export function PoolSimulator({ currentPP, totalPP, prm, currentEstimate }: Pool
   }, [activityIncrease, currentPP, totalPP, prm, currentEstimate]);
 
   return (
-    <div className="rounded-lg bg-muted/60 border border-border px-4 py-3">
-      {/* Line 1: Label + Slider + Badge */}
-      <div className="flex items-center gap-3">
-        <div className="flex items-center gap-1.5 shrink-0">
-          <Calculator className="w-3.5 h-3.5 text-accent" />
-          <span className="text-xs font-medium whitespace-nowrap">Simulador</span>
-        </div>
-
-        <div className="flex-1 max-w-xs">
-          <Slider
-            value={activityIncrease}
-            onValueChange={setActivityIncrease}
-            min={0}
-            max={200}
-            step={5}
-            className="py-0 [&_[data-radix-slider-track]]:h-1.5 [&_[data-radix-slider-track]]:bg-border [&_[data-radix-slider-range]]:bg-accent [&_[data-radix-slider-thumb]]:h-3.5 [&_[data-radix-slider-thumb]]:w-3.5 [&_[data-radix-slider-thumb]]:border-accent"
-          />
-        </div>
-
-        <span className="text-xs font-bold text-accent shrink-0">
-          +{activityIncrease[0]}%
-        </span>
-
-        <div className="h-4 w-px bg-border shrink-0 hidden sm:block" />
-
-        {/* Results inline */}
-        <div className="hidden sm:flex items-center gap-3 text-xs shrink-0">
-          <div>
-            <span className="text-muted-foreground">Atual: </span>
-            <span className="font-semibold">R$ {currentEstimate.toFixed(2)}</span>
-          </div>
-          <div>
-            <span className="text-muted-foreground">Projeção: </span>
-            <span className="font-semibold text-accent">R$ {simulation.newShare.toFixed(2)}</span>
-          </div>
-          {simulation.difference > 0 && (
-            <span className="inline-flex items-center gap-0.5 font-medium text-green-600 dark:text-green-400">
-              <ArrowUp className="w-3 h-3" />
-              +R$ {simulation.difference.toFixed(2)}
-            </span>
-          )}
-        </div>
+    <div className="rounded-lg bg-foreground px-4 py-2.5 flex items-center gap-3 flex-wrap sm:flex-nowrap">
+      <div className="flex items-center gap-1.5 shrink-0">
+        <Calculator className="w-3.5 h-3.5 text-accent" />
+        <span className="text-xs font-medium text-background whitespace-nowrap">Simulador</span>
       </div>
 
-      {/* Line 2: Mobile results (hidden on desktop) */}
-      <div className="flex sm:hidden items-center gap-3 mt-2 text-xs">
-        <div>
-          <span className="text-muted-foreground">Atual: </span>
-          <span className="font-semibold">R$ {currentEstimate.toFixed(2)}</span>
-        </div>
-        <div>
-          <span className="text-muted-foreground">Projeção: </span>
-          <span className="font-semibold text-accent">R$ {simulation.newShare.toFixed(2)}</span>
-        </div>
+      <div className="flex-1 min-w-[120px] max-w-[200px]">
+        <Slider
+          value={activityIncrease}
+          onValueChange={setActivityIncrease}
+          min={0}
+          max={200}
+          step={5}
+          className="py-0 [&_[data-radix-slider-track]]:h-1 [&_[data-radix-slider-track]]:bg-background/20 [&_[data-radix-slider-range]]:bg-accent [&_[data-radix-slider-thumb]]:h-3 [&_[data-radix-slider-thumb]]:w-3 [&_[data-radix-slider-thumb]]:border-accent"
+        />
+      </div>
+
+      <span className="text-xs font-bold text-accent shrink-0">+{activityIncrease[0]}%</span>
+
+      <div className="h-3 w-px bg-background/20 shrink-0" />
+
+      <div className="flex items-center gap-3 text-xs shrink-0">
+        <span className="text-background/60">Atual: <span className="text-background font-semibold">R$ {currentEstimate.toFixed(2)}</span></span>
+        <span className="text-background/60">Projeção: <span className="text-accent font-semibold">R$ {simulation.newShare.toFixed(2)}</span></span>
         {simulation.difference > 0 && (
-          <span className="inline-flex items-center gap-0.5 font-medium text-green-600 dark:text-green-400">
-            <ArrowUp className="w-3 h-3" />
-            +R$ {simulation.difference.toFixed(2)}
+          <span className="inline-flex items-center gap-0.5 font-medium text-green-400">
+            <ArrowUp className="w-3 h-3" />+R$ {simulation.difference.toFixed(2)}
           </span>
         )}
       </div>
