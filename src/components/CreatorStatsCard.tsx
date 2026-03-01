@@ -22,7 +22,7 @@ interface StatsData {
 
 export const CreatorStatsCard = ({ userId, collapsed }: CreatorStatsCardProps) => {
   const [wallet, setWallet] = useState<WalletData | null>(null);
-  const [stats, setStats] = useState<StatsData>({ totalPoints: 0, level: 1, contentCount: 0 });
+  const [stats, setStats] = useState<StatsData>({ totalPoints: 0, level: 1, contentCount: 0, performancePoints: 0 });
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -38,8 +38,9 @@ export const CreatorStatsCard = ({ userId, collapsed }: CreatorStatsCardProps) =
           setWallet(walletData);
         }
 
-        const { data: rewardEventsData } = await supabase.from("reward_events").select("points").eq("user_id", userId);
+        const { data: rewardEventsData } = await supabase.from("reward_events").select("points, performance_points").eq("user_id", userId);
         const totalPoints = rewardEventsData?.reduce((sum, event) => sum + event.points, 0) || 0;
+        const performancePoints = rewardEventsData?.reduce((sum, event) => sum + (Number(event.performance_points) || 0), 0) || 0;
 
         const { count: contentCount } = await supabase
           .from("contents")
@@ -52,6 +53,7 @@ export const CreatorStatsCard = ({ userId, collapsed }: CreatorStatsCardProps) =
           totalPoints,
           level,
           contentCount: contentCount || 0,
+          performancePoints,
         });
       } catch (error) {
         console.error("Erro ao buscar estatísticas:", error);
