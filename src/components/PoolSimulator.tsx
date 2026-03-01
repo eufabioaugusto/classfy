@@ -1,6 +1,7 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { Slider } from "@/components/ui/slider";
 import { TrendingUp, Heart, Eye, Share2, MessageCircle, Zap } from "lucide-react";
+import { supabase } from "@/integrations/supabase/client";
 
 interface PoolSimulatorProps {
   currentPP: number;
@@ -9,34 +10,68 @@ interface PoolSimulatorProps {
   currentEstimate: number;
 }
 
+// Maps engagement filter keys to action_type values in actions_config
 const engagementTypes = [
-  { key: "all", label: "Tudo", icon: Zap },
-  { key: "likes", label: "Curtidas", icon: Heart },
-  { key: "views", label: "Views", icon: Eye },
-  { key: "shares", label: "Shares", icon: Share2 },
-  { key: "comments", label: "Comentários", icon: MessageCircle },
+  { key: "all", label: "Tudo", icon: Zap, actionTypes: ["VIEW", "LIKE", "COMMENT", "SAVE", "FAVORITE"] },
+  { key: "likes", label: "Curtidas", icon: Heart, actionTypes: ["LIKE"] },
+  { key: "views", label: "Views", icon: Eye, actionTypes: ["VIEW"] },
+  { key: "shares", label: "Shares", icon: Share2, actionTypes: ["SAVE", "FAVORITE"] },
+  { key: "comments", label: "Comentários", icon: MessageCircle, actionTypes: ["COMMENT"] },
 ];
 
-export function PoolSimulator({ currentPP, totalPP, prm, currentEstimate }: PoolSimulatorProps) {
-  const [simulatedPoints, setSimulatedPoints] = useState([Math.max(currentPP, 100)]);
-  const [selectedType, setSelectedType] = useState("all");
+// Default points per action (fallback if DB fetch fails)
+const DEFAULT_ACTION_POINTS: Record<string, number> = {
+  VIEW: 1, LIKE: 2, SAVE: 3, FAVORITE: 5, COMMENT: 10,
+};
 
+export function PoolSimulator({ currentPP, totalPP, prm, currentEstimate }: PoolSimulatorProps) {
+  const [simulatedActions, setSimulatedActions] = useState([50]);
+  const [selectedType, setSelectedType] = useState("all");
+  const [actionPoints, setActionPoints] = useState<Record<string, number>>(DEFAULT_ACTION_POINTS);
+
+  // Fetch real action point values from actions_config
+  useEffect(() => {
+    supabase
+      .from("actions_config")
+      .select("action_type, base_points, active")
+      .eq("active", true)
+      .then(({ data }) => {
+        if (data && data.length > 0) {
+          const map: Record<string, number> = {};
+          data.forEach((row) => {
+            map[row.action_type] = row.base_points;
+          });
+          setActionPoints((prev) => ({ ...prev, ...map }));
+        }
+      });
+  }, []);
+
+  // Convert the number of actions into weighted points based on selected type
   const simulation = useMemo(() => {
-    const pts = simulatedPoints[0];
-    
-    // When totalPP is 0 (no cycle data yet), estimate a realistic pool baseline.
-    // Use a minimum baseline so the simulator doesn't show 100% of the pool.
-    // Estimate: ~10 active creators averaging ~500 PP each = 5000 PP baseline.
+    const actionCount = simulatedActions[0];
+    const selected = engagementTypes.find((t) => t.key === selectedType) || engagementTypes[0];
+
+    // Calculate points per action for the selected type
+    let pointsPerAction: number;
+    if (selected.actionTypes.length === 1) {
+      pointsPerAction = actionPoints[selected.actionTypes[0]] ?? 1;
+    } else {
+      // "Tudo": weighted average across all action types
+      const total = selected.actionTypes.reduce((sum, at) => sum + (actionPoints[at] ?? 1), 0);
+      pointsPerAction = total / selected.actionTypes.length;
+    }
+
+    const simulatedPP = Math.round(actionCount * pointsPerAction);
+
     const ESTIMATED_POOL_BASELINE = 5000;
     const effectiveTotalPP = totalPP > 0 ? totalPP : ESTIMATED_POOL_BASELINE;
-    
-    // Replace user's current PP with simulated value in the total
-    const newTotalPP = effectiveTotalPP - currentPP + pts;
-    const newShare = newTotalPP > 0 ? (pts / newTotalPP) * prm : 0;
+
+    const newTotalPP = effectiveTotalPP - currentPP + simulatedPP;
+    const newShare = newTotalPP > 0 ? (simulatedPP / newTotalPP) * prm : 0;
     const difference = newShare - currentEstimate;
 
-    return { newShare, difference, isEstimated: totalPP === 0 };
-  }, [simulatedPoints, currentPP, totalPP, prm, currentEstimate]);
+    return { newShare, difference, isEstimated: totalPP === 0, simulatedPP, pointsPerAction };
+  }, [simulatedActions, selectedType, actionPoints, currentPP, totalPP, prm, currentEstimate]);
 
   return (
     <div className="rounded-xl border bg-card p-4 sm:p-5">
@@ -73,20 +108,23 @@ export function PoolSimulator({ currentPP, totalPP, prm, currentEstimate }: Pool
           {/* Slider */}
           <div className="space-y-2">
             <div className="flex items-center justify-between">
-              <span className="text-xs text-muted-foreground">Se você tivesse</span>
-              <span className="text-sm font-bold text-accent">{simulatedPoints[0].toLocaleString('pt-BR')} pontos</span>
+              <span className="text-xs text-muted-foreground">Se você fizesse</span>
+              <span className="text-sm font-bold text-accent">{simulatedActions[0]} ações</span>
             </div>
             <Slider
-              value={simulatedPoints}
-              onValueChange={setSimulatedPoints}
+              value={simulatedActions}
+              onValueChange={setSimulatedActions}
               min={0}
-              max={5000}
-              step={50}
+              max={500}
+              step={5}
             />
             <div className="flex justify-between text-[10px] text-muted-foreground">
               <span>0</span>
-              <span>5.000</span>
+              <span>500</span>
             </div>
+            <p className="text-[10px] text-muted-foreground">
+              = {simulation.simulatedPP.toLocaleString('pt-BR')} pontos ({simulation.pointsPerAction.toFixed(0)} pts/ação)
+            </p>
           </div>
         </div>
 
@@ -102,12 +140,12 @@ export function PoolSimulator({ currentPP, totalPP, prm, currentEstimate }: Pool
               +R$ {simulation.difference.toFixed(2)} a mais
             </span>
           )}
-          {simulatedPoints[0] === 0 && (
+          {simulatedActions[0] === 0 && (
             <span className="text-xs text-muted-foreground mt-1.5">
               Mova o slider para simular
             </span>
           )}
-          {simulation.isEstimated && simulatedPoints[0] > 0 && (
+          {simulation.isEstimated && simulatedActions[0] > 0 && (
             <span className="text-xs text-muted-foreground mt-1">
               * Estimativa baseada em projeção do pool
             </span>
