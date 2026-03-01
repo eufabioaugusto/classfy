@@ -1,7 +1,6 @@
 import { useState, useMemo } from "react";
 import { Slider } from "@/components/ui/slider";
-import { Badge } from "@/components/ui/badge";
-import { Calculator, ArrowUp, Zap } from "lucide-react";
+import { Calculator, ArrowUp } from "lucide-react";
 
 interface PoolSimulatorProps {
   currentPP: number;
@@ -24,88 +23,67 @@ export function PoolSimulator({ currentPP, totalPP, prm, currentEstimate }: Pool
     return { newPP, newShare, difference, percentGain };
   }, [activityIncrease, currentPP, totalPP, prm, currentEstimate]);
 
-  const tips = useMemo(() => {
-    const items: string[] = [];
-    if (activityIncrease[0] >= 10) items.push("Assista mais conteúdos até o final");
-    if (activityIncrease[0] >= 25) items.push("Comente e curta conteúdos diariamente");
-    if (activityIncrease[0] >= 50) items.push("Complete seu perfil e mantenha streak de login");
-    if (activityIncrease[0] >= 75) items.push("Publique conteúdos originais");
-    return items;
-  }, [activityIncrease]);
-
   return (
-    <div className="relative rounded-xl border border-accent/20 bg-gradient-to-r from-accent/5 via-transparent to-accent/5 p-[1px]">
-      <div className="rounded-[11px] bg-card p-4 space-y-4">
-        {/* Header */}
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <div className="w-7 h-7 rounded-lg bg-accent/10 flex items-center justify-center">
-              <Calculator className="w-3.5 h-3.5 text-accent" />
-            </div>
-            <span className="text-sm font-semibold">Simulador de Ganhos</span>
-          </div>
-          <Badge variant="outline" className="text-xs border-accent/30 text-accent font-medium">
-            +{activityIncrease[0]}%
-          </Badge>
+    <div className="rounded-lg bg-muted/60 border border-border px-4 py-3">
+      {/* Line 1: Label + Slider + Badge */}
+      <div className="flex items-center gap-3">
+        <div className="flex items-center gap-1.5 shrink-0">
+          <Calculator className="w-3.5 h-3.5 text-accent" />
+          <span className="text-xs font-medium whitespace-nowrap">Simulador</span>
         </div>
 
-        {/* Slider */}
-        <div className="space-y-1.5">
+        <div className="flex-1 max-w-xs">
           <Slider
             value={activityIncrease}
             onValueChange={setActivityIncrease}
             min={0}
             max={200}
             step={5}
-            className="py-1"
+            className="py-0 [&_[data-radix-slider-track]]:h-1.5 [&_[data-radix-slider-track]]:bg-border [&_[data-radix-slider-range]]:bg-accent [&_[data-radix-slider-thumb]]:h-3.5 [&_[data-radix-slider-thumb]]:w-3.5 [&_[data-radix-slider-thumb]]:border-accent"
           />
-          <div className="flex justify-between text-[10px] text-muted-foreground">
-            <span>Atual</span>
-            <span>+100%</span>
-            <span>+200%</span>
-          </div>
         </div>
 
-        {/* Compact results */}
-        <div className="grid grid-cols-2 gap-2">
-          <div className="p-2.5 rounded-lg bg-muted/50 space-y-0.5">
-            <p className="text-[10px] text-muted-foreground">Atual</p>
-            <p className="text-sm font-bold">R$ {currentEstimate.toFixed(2)}</p>
-          </div>
-          <div className="p-2.5 rounded-lg bg-accent/10 border border-accent/15 space-y-0.5">
-            <p className="text-[10px] text-muted-foreground">Projeção</p>
-            <p className="text-sm font-bold text-accent">R$ {simulation.newShare.toFixed(2)}</p>
-          </div>
-        </div>
+        <span className="text-xs font-bold text-accent shrink-0">
+          +{activityIncrease[0]}%
+        </span>
 
-        {/* Difference inline */}
+        <div className="h-4 w-px bg-border shrink-0 hidden sm:block" />
+
+        {/* Results inline */}
+        <div className="hidden sm:flex items-center gap-3 text-xs shrink-0">
+          <div>
+            <span className="text-muted-foreground">Atual: </span>
+            <span className="font-semibold">R$ {currentEstimate.toFixed(2)}</span>
+          </div>
+          <div>
+            <span className="text-muted-foreground">Projeção: </span>
+            <span className="font-semibold text-accent">R$ {simulation.newShare.toFixed(2)}</span>
+          </div>
+          {simulation.difference > 0 && (
+            <span className="inline-flex items-center gap-0.5 font-medium text-green-600 dark:text-green-400">
+              <ArrowUp className="w-3 h-3" />
+              +R$ {simulation.difference.toFixed(2)}
+            </span>
+          )}
+        </div>
+      </div>
+
+      {/* Line 2: Mobile results (hidden on desktop) */}
+      <div className="flex sm:hidden items-center gap-3 mt-2 text-xs">
+        <div>
+          <span className="text-muted-foreground">Atual: </span>
+          <span className="font-semibold">R$ {currentEstimate.toFixed(2)}</span>
+        </div>
+        <div>
+          <span className="text-muted-foreground">Projeção: </span>
+          <span className="font-semibold text-accent">R$ {simulation.newShare.toFixed(2)}</span>
+        </div>
         {simulation.difference > 0 && (
-          <div className="flex items-center gap-1.5 text-xs">
-            <ArrowUp className="w-3 h-3 text-green-500" />
-            <span className="font-medium text-green-600 dark:text-green-400">
-              +R$ {simulation.difference.toFixed(2)}/mês
-            </span>
-            <span className="text-muted-foreground">
-              ({simulation.percentGain.toFixed(0)}% a mais)
-            </span>
-          </div>
+          <span className="inline-flex items-center gap-0.5 font-medium text-green-600 dark:text-green-400">
+            <ArrowUp className="w-3 h-3" />
+            +R$ {simulation.difference.toFixed(2)}
+          </span>
         )}
-
-        {/* Tips collapsed */}
-        {tips.length > 0 && (
-          <div className="flex flex-wrap gap-1.5">
-            {tips.map((tip, i) => (
-              <span key={i} className="text-[10px] text-muted-foreground bg-muted/50 rounded-full px-2 py-0.5 inline-flex items-center gap-1">
-                <Zap className="w-2.5 h-2.5 text-accent" />
-                {tip}
-              </span>
-            ))}
-          </div>
-        )}
-
-        <p className="text-[9px] text-muted-foreground/60">
-          * Estimativa baseada no pool atual
-        </p>
       </div>
     </div>
   );
