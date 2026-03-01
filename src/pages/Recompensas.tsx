@@ -251,6 +251,13 @@ export default function Recompensas() {
           <Header variant="home" title="Minhas Recompensas" />
 
           <main className="container mx-auto px-4 py-8 pb-24 md:pb-8 space-y-6">
+            {/* Pool Simulator - top banner */}
+            <PoolSimulator
+              currentPP={stats.performancePoints}
+              totalPP={stats.totalPP}
+              prm={stats.prm}
+              currentEstimate={stats.estimatedPoolShare}
+            />
             {/* Hero Stats */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
               {/* Level Card */}
@@ -332,13 +339,8 @@ export default function Recompensas() {
               </CardContent>
             </Card>
 
-            {/* Pool Simulator */}
-            <PoolSimulator
-              currentPP={stats.performancePoints}
-              totalPP={stats.totalPP}
-              prm={stats.prm}
-              currentEstimate={stats.estimatedPoolShare}
-            />
+
+
 
             {/* Streak & Badges */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
