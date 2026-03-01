@@ -1,103 +1,132 @@
 
 
-# Refatoracao: Arquitetura Instagram-Like para o Video Lobby
+# Analise: O que Temos vs O que Precisa Ser Criado para o Pool Fixo
 
-## Resumo
+## O que JA EXISTE
 
-Eliminar todos os problemas de tremor, frames distorcidos, barra preta e drag travado adotando a mesma arquitetura do Instagram: dois videos (um visivel, um oculto para captura) e zero seeks durante arraste.
+| Componente | Status | Detalhes |
+|---|---|---|
+| `reward_actions_config` | Existe | 19 acoes configuradas com `points_user`, `points_creator`, `value_user`, `value_creator` fixos |
+| `reward_events` | Existe | Registra cada recompensa com pontos e valor |
+| `reward_action_tracking` | Existe | Prevencao de duplicatas |
+| `wallets` | Existe | Saldo, total ganho, total sacado |
+| `wallet_transactions` | Existe | Historico de transacoes |
+| `user_login_streaks` | Existe | Streaks de login |
+| `user_levels` | Existe | Nivel e pontos totais |
+| `profiles.plan` | Existe | free/pro/premium com multiplicadores |
+| `process-reward` edge function | Existe | Paga valor fixo da config direto na wallet |
+| `stripe-webhook` | Existe | Processa assinaturas e compras de conteudo |
+| `purchased_contents` | Existe | Registro de compras |
+| `boosts` | Existe | Receita de boost com budget |
+| `withdraw_requests` | Existe | Saques com taxa |
+| `AdminRewards.tsx` | Existe | Painel admin para editar recompensas |
+| `Recompensas.tsx` | Existe | Dashboard do usuario com pontos, nivel, streak |
+| `CreatorStatsCard` | Existe | Card com XP e ganhos |
 
-## Mudancas Principais
+## O que PRECISA SER CRIADO (nao existe nada disso)
 
-### 1. Dois Video Elements no Lobby
+### Banco de Dados (novas tabelas)
 
-O lobby passa a ter dois `<video>`:
-- **videoRef** (visivel): o que o usuario ve e interage (play/pause)
-- **captureRef** (oculto, `display:none`): dedicado exclusivamente a gerar frames para a timeline e para a capa
+1. **`platform_settings`** -- Config global do admin (pool_percentage, etc)
+2. **`economic_cycles`** -- Ciclo mensal: RBM, PRM, total_points, status (open/closed)
+3. **`economic_cycle_users`** -- Performance points por usuario por ciclo
+4. **`revenue_entries`** -- Registro granular de cada entrada de receita (assinatura, boost, venda, saque taxa)
 
-Ambos recebem o mesmo `src` (blob URL). O oculto carrega de forma independente e nao interfere visualmente.
+### Mudancas em Tabelas Existentes
 
-Isso elimina:
-- O tremor no video visivel durante geracao de frames
-- A necessidade do poster overlay (removido)
-- Conflitos entre playback e captura
+- `reward_actions_config`: Os campos `value_user` e `value_creator` deixam de ser usados para pagamento direto. Mantemos `points_user` e `points_creator` como **peso** (Performance Points weight) em vez de pontos absolutos.
+- `reward_events`: Adicionar campo `cycle_id` (referencia ao ciclo economico) e `performance_points` (pontos de performance, separados do XP)
+- `wallets`: Sem mudanca estrutural, mas o credito passa a ser feito apenas no fechamento mensal
 
-### 2. Frames aparecem com fade-in progressivo
+### Edge Functions (novas)
 
-Em vez de esperar todos os 20 frames e mostrar de uma vez, cada frame aparece individualmente com um `opacity 0 -> 1` assim que e gerado. Isso cria o efeito "carregamento progressivo" identico ao Instagram.
+1. **`close-economic-cycle`** -- Funcao mensal (cron) que:
+   - Calcula RBM somando `revenue_entries` do mes
+   - Calcula PRM = RBM * pool_percentage
+   - Soma total de performance points de todos usuarios
+   - Distribui proporcionalmente: `user_share = (user_points / total_points) * PRM`
+   - Credita nas wallets
+   - Marca ciclo como `closed`
 
-A barra comeca com placeholders escuros e os frames vao "aparecendo" um por um.
+2. **`record-revenue`** -- Chamada pelo stripe-webhook para registrar cada receita
 
-### 3. Drag do trim NUNCA faz seek no video
+### Edge Functions (modificacoes)
 
-Durante o arraste (pointerMove), apenas os marcadores visuais (percentuais CSS) se atualizam. O video permanece parado mostrando o frame atual.
+- **`process-reward`**: Deixa de creditar valor na wallet em tempo real. Passa a acumular performance points no `economic_cycle_users`. XP continua sendo creditado normalmente para gamificacao.
+- **`stripe-webhook`**: Apos processar pagamento, chama `record-revenue` para registrar na tabela de receitas.
 
-Apenas no **pointerUp** (quando o usuario solta o dedo) e que o video principal faz seek para a nova posicao. Isso torna o drag 100% fluido — e apenas matematica CSS, sem I/O.
+### Frontend (novo)
 
-### 4. Aspect ratio correto nos frames
+1. **Admin: Aba "Economia" no AdminRewards** -- pool_percentage, RBM em tempo real, PRM estimado, simulador
+2. **Usuario: Secao "Pool" no Recompensas.tsx** -- Pool estimado, seus performance points, estimativa de ganho, posicao relativa
 
-Os frames da barra atualmente usam `object-cover` com tamanho fixo, o que distorce quando o video e vertical (9:16). A correcao: calcular `thumbHeight` baseado no aspect ratio real do video, e usar `object-cover` com dimensoes proporcionais.
+### Frontend (modificacoes)
 
-## Detalhes por Arquivo
+- `process-reward` hook: Nao mostra mais toast com "voce ganhou R$X" em tempo real (pois nao ha pagamento instantaneo). Mostra apenas "+X pontos de performance"
+- `CreatorStatsCard`: Separar XP (progressao) de Performance Points (economico)
+- `AdminRewards.tsx`: Adicionar aba de controle economico
 
-### `VideoPreparationLobby.tsx`
-
-- Adicionar segundo `<video>` oculto (`captureVideoRef`) com `display:none`, mesmo `src`
-- Remover estado `posterOverlay` e toda logica relacionada (nao precisa mais)
-- Passar `captureVideoRef` para VideoTrimBar e CoverFrameSelector (em vez de `videoRef`)
-- `handleTrimChange` nao faz mais seek — apenas atualiza estado
-- Novo `handleTrimCommit` (chamado no pointerUp): faz seek no videoRef visivel
-- Manter o videoRef visivel intacto — so recebe seek no commit ou play/pause
-
-### `VideoTrimBar.tsx`
-
-- Recebe `captureVideoRef` (oculto) para gerar frames
-- Recebe `onTrimCommit` (para o pointerUp) alem de `onTrimChange`
-- Frames sao renderizados individualmente: estado muda de `string[]` para array que cresce frame a frame
-- Cada `<img>` tem `className="transition-opacity duration-300"` e comeca com `opacity-0`, mudando para `opacity-100` quando o src e atribuido
-- No `handlePointerUp`: chama `onTrimCommit(trimStart, trimEnd)` em vez de fazer seek local
-- No `handlePointerMove`: apenas atualiza posicoes CSS dos handles (zero seek)
-
-### `seekAndCapture.ts`
-
-- Manter `seekAndCapture` e `generateFramesFromRef` como estao
-- Remover `captureCurrentFrame` (nao precisa mais do poster overlay)
-- Adicionar nova funcao `generateFramesProgressive`: aceita um callback `onFrame(index, dataUrl)` que e chamado a cada frame gerado, permitindo update incremental da UI
-
-### `CoverFrameSelector.tsx`
-
-- Recebe `captureVideoRef` (oculto) para gerar frames e captura HQ
-- Mesma logica progressiva: frames aparecem um a um com fade
-
-## Fluxo Final no Celular
+## Arquitetura do Fluxo
 
 ```text
-T=0ms     Usuario seleciona video
-T=50ms    Lobby abre, dois <video> criados (1 visivel, 1 hidden)
-T=200ms   loadedmetadata no visivel -> video aparece, play disponivel
-T=500ms   captureRef esta pronto -> inicia geracao de frames NO VIDEO OCULTO
-T=600ms   Frame 1 aparece na barra (fade-in)
-T=700ms   Frame 2 aparece (fade-in)
-...
-T=2500ms  Todos os 20 frames visiveis na barra
+RECEITA ENTRA (Stripe webhook)
+  |
+  v
+revenue_entries (registra tipo, valor, mes)
+  |
+  v
+ACAO DO USUARIO (like, watch, etc)
+  |
+  v
+process-reward:
+  - XP -> user_levels (gamificacao, instantaneo)
+  - Performance Points -> economic_cycle_users (acumula no ciclo)
+  - NAO credita valor na wallet
+  |
+  v
+FECHAMENTO MENSAL (cron, dia 1 do mes seguinte)
+  |
+  v
+close-economic-cycle:
+  1. RBM = SUM(revenue_entries do mes)
+  2. PRM = RBM * pool_percentage (ex: 40%)
+  3. total_pp = SUM(economic_cycle_users.performance_points)
+  4. Para cada usuario: share = (user_pp / total_pp) * PRM
+  5. Credita na wallet
+  6. Fecha ciclo
 ```
 
-```text
-Drag do trim:
-pointerDown -> marca inicio
-pointerMove -> APENAS atualiza CSS dos handles (fluido, 60fps)
-pointerUp -> faz seek no video visivel para nova posicao (1 seek total)
-```
+## Fases de Implementacao
 
-## Por que funciona
+**Fase 1: Infraestrutura** (tabelas + settings)
+- Criar `platform_settings`, `economic_cycles`, `economic_cycle_users`, `revenue_entries`
+- RLS policies para todas as tabelas
+- Seed com `pool_percentage = 40`
 
-- **iOS Safari**: dois video elements com blob URL funciona (o limite e ~4-6 simultaneos, nao 2). O problema anterior era criar 20+.
-- **Zero tremor**: o video visivel NUNCA e manipulado durante captura de frames
-- **Drag fluido**: zero seeks durante arraste = zero bloqueio = 60fps
-- **Frames progressivos**: feedback visual imediato, sem tela preta
-- **Sem poster overlay**: complexidade removida porque o video visivel nunca treme
+**Fase 2: Captura de Receita**
+- Modificar `stripe-webhook` para registrar em `revenue_entries`
+- Registrar: assinaturas, compras de conteudo, boosts
 
-## Riscos e Mitigacoes
+**Fase 3: Acumulo de Performance Points**
+- Modificar `process-reward` para acumular PP em vez de pagar direto
+- Manter XP separado para gamificacao
+- Atualizar toasts no frontend
 
-- **iOS limitar 2 videos?**: Improvavel (testado ate 4), mas se falhar, fallback para single-video com poster overlay (codigo atual)
-- **Memoria com 2 videos**: Blob URLs compartilham o mesmo blob em memoria, entao o custo extra e minimo (~2MB de buffers de decodificacao)
+**Fase 4: Painel Admin**
+- Aba "Economia" com pool_percentage, RBM, PRM, simulador
+
+**Fase 5: Fechamento Mensal**
+- Edge function `close-economic-cycle`
+- Cron job para executar no dia 1
+
+**Fase 6: Dashboard do Usuario**
+- Pool estimado, performance points, estimativa de ganho
+
+## Notas Tecnicas
+
+- O XP de gamificacao (niveis, badges) continua funcionando como hoje -- instantaneo, nao muda
+- Apenas o **valor monetario** (R$) passa para o modelo de pool
+- Os pontos na `reward_actions_config` passam a representar **pesos** de performance, nao valor absoluto
+- Antifraude: limites diarios e curva decrescente podem ser implementados como regras na `process-reward`
+- O campo `value_user`/`value_creator` na config pode ser mantido como referencia historica mas nao sera usado no calculo
 
