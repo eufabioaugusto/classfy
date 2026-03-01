@@ -325,7 +325,7 @@ export default function Recompensas() {
                 <Separator className="my-3" />
                 <div className="space-y-1">
                   <div className="flex justify-between text-sm">
-                    <span className="text-muted-foreground">Performance Points</span>
+                    <span className="text-muted-foreground">Pontos</span>
                     <span className="font-semibold">{stats.performancePoints.toLocaleString()}</span>
                   </div>
                   <div className="flex justify-between text-sm">
