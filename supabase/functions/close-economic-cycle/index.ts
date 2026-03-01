@@ -11,10 +11,43 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const supabase = createClient(
-      Deno.env.get('SUPABASE_URL')!,
-      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
-    );
+    const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+    const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+    const supabaseAnonKey = Deno.env.get('SUPABASE_ANON_KEY')!;
+
+    // Allow CRON (no auth) or admin users
+    const authHeader = req.headers.get('Authorization');
+    if (authHeader && !authHeader.includes('anon')) {
+      const authClient = createClient(supabaseUrl, supabaseAnonKey);
+      const { data: { user }, error: authError } = await authClient.auth.getUser(
+        authHeader.replace('Bearer ', '')
+      );
+      if (authError || !user) {
+        return new Response(
+          JSON.stringify({ error: 'Unauthorized' }),
+          { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 401 }
+        );
+      }
+      // Check admin role
+      const adminClient = createClient(supabaseUrl, supabaseServiceKey);
+      const { data: roleData } = await adminClient
+        .from('user_roles')
+        .select('role')
+        .eq('user_id', user.id)
+        .eq('role', 'admin')
+        .maybeSingle();
+      if (!roleData) {
+        return new Response(
+          JSON.stringify({ error: 'Admin access required' }),
+          { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 403 }
+        );
+      }
+      console.log('Manual trigger by admin:', user.id);
+    } else {
+      console.log('CRON trigger (no auth or anon key)');
+    }
+
+    const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
     // Determine which month to close (default: previous month)
     const body = await req.json().catch(() => ({}));
