@@ -23,12 +23,19 @@ export function PoolSimulator({ currentPP, totalPP, prm, currentEstimate }: Pool
 
   const simulation = useMemo(() => {
     const pts = simulatedPoints[0];
+    
+    // When totalPP is 0 (no cycle data yet), estimate a realistic pool baseline.
+    // Use a minimum baseline so the simulator doesn't show 100% of the pool.
+    // Estimate: ~10 active creators averaging ~500 PP each = 5000 PP baseline.
+    const ESTIMATED_POOL_BASELINE = 5000;
+    const effectiveTotalPP = totalPP > 0 ? totalPP : ESTIMATED_POOL_BASELINE;
+    
     // Replace user's current PP with simulated value in the total
-    const newTotalPP = totalPP - currentPP + pts;
+    const newTotalPP = effectiveTotalPP - currentPP + pts;
     const newShare = newTotalPP > 0 ? (pts / newTotalPP) * prm : 0;
     const difference = newShare - currentEstimate;
 
-    return { newShare, difference };
+    return { newShare, difference, isEstimated: totalPP === 0 };
   }, [simulatedPoints, currentPP, totalPP, prm, currentEstimate]);
 
   return (
@@ -98,6 +105,11 @@ export function PoolSimulator({ currentPP, totalPP, prm, currentEstimate }: Pool
           {simulatedPoints[0] === 0 && (
             <span className="text-xs text-muted-foreground mt-1.5">
               Mova o slider para simular
+            </span>
+          )}
+          {simulation.isEstimated && simulatedPoints[0] > 0 && (
+            <span className="text-xs text-muted-foreground mt-1">
+              * Estimativa baseada em projeção do pool
             </span>
           )}
         </div>
