@@ -56,3 +56,9 @@ verify_jwt = true
 
 [functions.process-referral-commission]
 verify_jwt = true
+
+[functions.record-revenue]
+verify_jwt = true
+
+[functions.close-economic-cycle]
+verify_jwt = true

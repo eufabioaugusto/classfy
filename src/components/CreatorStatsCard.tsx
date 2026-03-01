@@ -17,6 +17,7 @@ interface StatsData {
   totalPoints: number;
   level: number;
   contentCount: number;
+  performancePoints: number;
 }
 
 export const CreatorStatsCard = ({ userId, collapsed }: CreatorStatsCardProps) => {

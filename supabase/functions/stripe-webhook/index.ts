@@ -28,7 +28,6 @@ serve(async (req) => {
   try {
     const body = await req.text();
     
-    // Verify webhook signature
     let event: Stripe.Event;
     if (webhookSecret && signature) {
       event = stripe.webhooks.constructEvent(body, signature, webhookSecret);
@@ -38,19 +37,20 @@ serve(async (req) => {
 
     console.log(`Received event: ${event.type}`);
 
-    // Handle different event types
     switch (event.type) {
       case "checkout.session.completed": {
         const session = event.data.object as Stripe.Checkout.Session;
         
         // Handle content purchase
         if (session.mode === "payment" && session.metadata?.content_id) {
+          const pricePaid = parseFloat(session.metadata.price_paid);
+          
           const { error } = await supabaseClient
             .from("purchased_contents")
             .upsert({
               user_id: session.metadata.user_id,
               content_id: session.metadata.content_id,
-              price_paid: parseFloat(session.metadata.price_paid),
+              price_paid: pricePaid,
               discount_applied: parseFloat(session.metadata.discount_applied),
             }, {
               onConflict: "user_id,content_id"
@@ -60,6 +60,20 @@ serve(async (req) => {
             console.error("Error recording purchase:", error);
           } else {
             console.log("Purchase recorded successfully");
+            
+            // Record revenue: platform takes 20% commission on content sales
+            const platformCommission = pricePaid * 0.20;
+            await recordRevenue(supabaseClient, {
+              revenue_type: 'content_purchase',
+              amount: platformCommission,
+              source_id: session.payment_intent as string,
+              user_id: session.metadata.user_id,
+              metadata: { 
+                content_id: session.metadata.content_id,
+                total_price: pricePaid,
+                commission_rate: 0.20,
+              },
+            });
           }
         }
         
@@ -67,7 +81,6 @@ serve(async (req) => {
         if (session.mode === "subscription" && session.metadata?.user_id) {
           const subscription = await stripe.subscriptions.retrieve(session.subscription as string);
           
-          // Get product ID to determine plan type
           const productId = subscription.items.data[0].price.product as string;
           const productToPlan: Record<string, string> = {
             "prod_TTH0TCgKCJn5QS": "pro",
@@ -97,6 +110,17 @@ serve(async (req) => {
             console.error("Error updating subscription:", error);
           } else {
             console.log("Subscription activated successfully");
+            
+            // Record subscription revenue
+            const subscriptionAmount = session.amount_total ? session.amount_total / 100 : 0;
+            const revenueType = planType === 'premium' ? 'subscription_premium' : 'subscription_pro';
+            await recordRevenue(supabaseClient, {
+              revenue_type: revenueType,
+              amount: subscriptionAmount,
+              source_id: session.subscription as string,
+              user_id: session.metadata.user_id,
+              metadata: { plan_type: planType, product_id: productId },
+            });
           }
         }
 
@@ -105,7 +129,6 @@ serve(async (req) => {
         const purchaseAmount = session.amount_total ? session.amount_total / 100 : 0;
         
         if (userId && purchaseAmount > 0) {
-          // Check if user was referred
           const { data: conversion } = await supabaseClient
             .from("referral_conversions")
             .select("*")
@@ -115,7 +138,6 @@ serve(async (req) => {
             .single();
 
           if (conversion) {
-            // Process referral commission
             await supabaseClient.functions.invoke('process-referral-commission', {
               body: {
                 conversion_id: conversion.id,
@@ -135,7 +157,6 @@ serve(async (req) => {
         const subscription = event.data.object as Stripe.Subscription;
         const customerId = subscription.customer as string;
 
-        // Find user by billing_id
         const { data: profile } = await supabaseClient
           .from("profiles")
           .select("id")
@@ -145,7 +166,6 @@ serve(async (req) => {
         if (profile) {
           const isActive = subscription.status === "active";
           
-          // Get product ID to determine plan type
           const productId = subscription.items.data[0]?.price?.product as string;
           const productToPlan: Record<string, string> = {
             "prod_TTH0TCgKCJn5QS": "pro",
@@ -185,7 +205,6 @@ serve(async (req) => {
       case "invoice.payment_succeeded": {
         const invoice = event.data.object as Stripe.Invoice;
         
-        // Only process subscription invoices
         if (invoice.subscription) {
           const subscription = await stripe.subscriptions.retrieve(invoice.subscription as string);
           const customerId = subscription.customer as string;
@@ -210,6 +229,20 @@ serve(async (req) => {
               console.error("Error updating subscription period:", error);
             } else {
               console.log("Subscription renewed successfully");
+              
+              // Record renewal revenue
+              const invoiceAmount = invoice.amount_paid ? invoice.amount_paid / 100 : 0;
+              if (invoiceAmount > 0) {
+                const productId = subscription.items.data[0]?.price?.product as string;
+                const revenueType = productId === "prod_TTH12wU8lOauHD" ? 'subscription_premium' : 'subscription_pro';
+                await recordRevenue(supabaseClient, {
+                  revenue_type: revenueType,
+                  amount: invoiceAmount,
+                  source_id: invoice.id,
+                  user_id: profile.id,
+                  metadata: { renewal: true, invoice_id: invoice.id },
+                });
+              }
             }
           }
         }
@@ -230,7 +263,6 @@ serve(async (req) => {
             .single();
 
           if (profile) {
-            // Create notification about failed payment
             await supabaseClient
               .from("notifications")
               .insert({
@@ -263,3 +295,39 @@ serve(async (req) => {
     });
   }
 });
+
+// Helper to record revenue in revenue_entries table
+async function recordRevenue(
+  supabase: ReturnType<typeof createClient>,
+  params: {
+    revenue_type: string;
+    amount: number;
+    source_id?: string;
+    user_id?: string;
+    metadata?: Record<string, any>;
+  }
+) {
+  try {
+    const now = new Date();
+    const year_month = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    
+    const { error } = await supabase
+      .from('revenue_entries')
+      .insert({
+        year_month,
+        revenue_type: params.revenue_type,
+        amount: params.amount,
+        source_id: params.source_id || null,
+        user_id: params.user_id || null,
+        metadata: params.metadata || {},
+      });
+
+    if (error) {
+      console.error('Error recording revenue:', error);
+    } else {
+      console.log('Revenue recorded:', { type: params.revenue_type, amount: params.amount, year_month });
+    }
+  } catch (err) {
+    console.error('Failed to record revenue:', err);
+  }
+}
