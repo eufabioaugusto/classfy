@@ -135,14 +135,14 @@ export default function Recompensas() {
         const totalLikes = contents.reduce((sum, c) => sum + (c.likes_count || 0), 0);
         const avgEngagement = contents.length > 0 ? (totalLikes / totalViews) * 100 : 0;
 
-        // Determine next milestone
-        let nextMilestone = { target: 100, current: totalViews, reward: "+50 pontos, +R$ 5,00" };
+        // Determine next milestone (PP-based, no fixed R$)
+        let nextMilestone = { target: 100, current: totalViews, reward: "+PP no pool mensal" };
         if (totalViews >= 1000) {
-          nextMilestone = { target: 5000, current: totalViews, reward: "+500 pontos, +R$ 50,00" };
+          nextMilestone = { target: 5000, current: totalViews, reward: "+PP no pool mensal" };
         } else if (totalViews >= 500) {
-          nextMilestone = { target: 1000, current: totalViews, reward: "+200 pontos, +R$ 20,00" };
+          nextMilestone = { target: 1000, current: totalViews, reward: "+PP no pool mensal" };
         } else if (totalViews >= 100) {
-          nextMilestone = { target: 500, current: totalViews, reward: "+100 pontos, +R$ 10,00" };
+          nextMilestone = { target: 500, current: totalViews, reward: "+PP no pool mensal" };
         }
 
         creatorStats = {

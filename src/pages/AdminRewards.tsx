@@ -605,10 +605,8 @@ export default function AdminRewards() {
                     <TableRow>
                       <TableHead>Ação</TableHead>
                       <TableHead>Status</TableHead>
-                      <TableHead className="text-center">Pontos Usuário</TableHead>
-                      <TableHead className="text-center">Pontos Criador</TableHead>
-                      <TableHead className="text-center">Valor Usuário</TableHead>
-                      <TableHead className="text-center">Valor Criador</TableHead>
+                      <TableHead className="text-center">PP Usuário</TableHead>
+                      <TableHead className="text-center">PP Criador</TableHead>
                       <TableHead className="text-center">Uso Total</TableHead>
                       <TableHead className="text-center">Último Uso</TableHead>
                       <TableHead className="text-right">Ações</TableHead>
@@ -635,12 +633,6 @@ export default function AdminRewards() {
                           </TableCell>
                           <TableCell className="text-center">{reward.points_user}</TableCell>
                           <TableCell className="text-center">{reward.points_creator}</TableCell>
-                          <TableCell className="text-center">
-                            R$ {reward.value_user.toFixed(2)}
-                          </TableCell>
-                          <TableCell className="text-center">
-                            R$ {reward.value_creator.toFixed(2)}
-                          </TableCell>
                           <TableCell className="text-center">
                             {stats ? (
                               <div>
@@ -760,8 +752,7 @@ export default function AdminRewards() {
                       <TableHead>Meta</TableHead>
                       <TableHead>Tipo</TableHead>
                       <TableHead className="text-center">Valor Alvo</TableHead>
-                      <TableHead className="text-center">Pontos</TableHead>
-                      <TableHead className="text-center">Valor R$</TableHead>
+                      <TableHead className="text-center">PP Bônus</TableHead>
                       <TableHead className="text-center">Completaram</TableHead>
                       <TableHead className="text-center">Resgataram</TableHead>
                       <TableHead>Status</TableHead>
@@ -800,10 +791,7 @@ export default function AdminRewards() {
                                 : milestone.milestone_value.toLocaleString('pt-BR')}
                           </TableCell>
                           <TableCell className="text-center">
-                            <span className="text-purple-600 font-medium">+{milestone.points_reward}</span>
-                          </TableCell>
-                          <TableCell className="text-center">
-                            <span className="text-green-600 font-medium">R$ {milestone.value_reward.toFixed(2)}</span>
+                            <span className="text-primary font-medium">+{milestone.points_reward} PP</span>
                           </TableCell>
                           <TableCell className="text-center">
                             {stats?.completed_count || 0}
@@ -1043,7 +1031,7 @@ export default function AdminRewards() {
 
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="text-sm font-medium">Pontos Usuário</label>
+                    <label className="text-sm font-medium">PP Usuário (Performance Points)</label>
                     <Input
                       type="number"
                       value={editingReward.points_user}
@@ -1053,7 +1041,7 @@ export default function AdminRewards() {
                     />
                   </div>
                   <div>
-                    <label className="text-sm font-medium">Pontos Criador</label>
+                    <label className="text-sm font-medium">PP Criador (Performance Points)</label>
                     <Input
                       type="number"
                       value={editingReward.points_creator}
@@ -1064,30 +1052,9 @@ export default function AdminRewards() {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="text-sm font-medium">Valor Usuário (R$)</label>
-                    <Input
-                      type="number"
-                      step="0.01"
-                      value={editingReward.value_user}
-                      onChange={(e) =>
-                        setEditingReward({ ...editingReward, value_user: Number(e.target.value) })
-                      }
-                    />
-                  </div>
-                  <div>
-                    <label className="text-sm font-medium">Valor Criador (R$)</label>
-                    <Input
-                      type="number"
-                      step="0.01"
-                      value={editingReward.value_creator}
-                      onChange={(e) =>
-                        setEditingReward({ ...editingReward, value_creator: Number(e.target.value) })
-                      }
-                    />
-                  </div>
-                </div>
+                <p className="text-xs text-muted-foreground bg-muted/50 p-3 rounded-lg">
+                  💡 Os pontos definem o peso de performance. O valor em R$ é calculado proporcionalmente ao pool no fechamento mensal do ciclo econômico.
+                </p>
 
                 <div className="flex items-center gap-2">
                   <Switch
@@ -1159,28 +1126,18 @@ export default function AdminRewards() {
                   />
                 </div>
 
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="text-sm font-medium">Pontos de Recompensa</label>
-                    <Input
-                      type="number"
-                      value={editingMilestone.points_reward}
-                      onChange={(e) =>
-                        setEditingMilestone({ ...editingMilestone, points_reward: Number(e.target.value) })
-                      }
-                    />
-                  </div>
-                  <div>
-                    <label className="text-sm font-medium">Valor de Recompensa (R$)</label>
-                    <Input
-                      type="number"
-                      step="0.01"
-                      value={editingMilestone.value_reward}
-                      onChange={(e) =>
-                        setEditingMilestone({ ...editingMilestone, value_reward: Number(e.target.value) })
-                      }
-                    />
-                  </div>
+                <div>
+                  <label className="text-sm font-medium">Performance Points (PP Bônus)</label>
+                  <Input
+                    type="number"
+                    value={editingMilestone.points_reward}
+                    onChange={(e) =>
+                      setEditingMilestone({ ...editingMilestone, points_reward: Number(e.target.value) })
+                    }
+                  />
+                  <p className="text-xs text-muted-foreground mt-1">
+                    PP acumulados no pool mensal. O valor em R$ será calculado proporcionalmente no fechamento do ciclo.
+                  </p>
                 </div>
 
                 <div className="flex items-center gap-2">

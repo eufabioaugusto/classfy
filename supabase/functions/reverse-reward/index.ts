@@ -11,7 +11,6 @@ interface ReverseRewardPayload {
   contentId: string;
 }
 
-// Mirrors process-reward tracking-key logic for per-content actions
 function buildTrackingKey(actionKey: string, contentId: string) {
   return `${actionKey}_${contentId}`;
 }
@@ -38,7 +37,7 @@ Deno.serve(async (req) => {
     // Get the most recent reward event for this action/content
     const { data: reward, error: rewardErr } = await supabase
       .from("reward_events")
-      .select("id, value, points")
+      .select("id, value, points, performance_points, cycle_id")
       .eq("user_id", userId)
       .eq("content_id", contentId)
       .eq("action_key", actionKey)
@@ -73,41 +72,30 @@ Deno.serve(async (req) => {
       );
     }
 
-    // Update wallet (balance + total_earned)
-    const { data: wallet, error: walletErr } = await supabase
-      .from("wallets")
-      .select("balance, total_earned")
-      .eq("user_id", userId)
-      .single();
+    // Revert Performance Points from economic_cycle_users
+    const ppToRevert = Number(reward.performance_points || 0);
+    if (ppToRevert > 0 && reward.cycle_id) {
+      const { data: cycleUser } = await supabase
+        .from("economic_cycle_users")
+        .select("performance_points")
+        .eq("cycle_id", reward.cycle_id)
+        .eq("user_id", userId)
+        .single();
 
-    if (walletErr) {
-      return new Response(
-        JSON.stringify({ error: "Failed to fetch wallet" }),
-        { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 500 },
-      );
+      if (cycleUser) {
+        const newPP = Math.max(0, Number(cycleUser.performance_points) - ppToRevert);
+        await supabase
+          .from("economic_cycle_users")
+          .update({
+            performance_points: newPP,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("cycle_id", reward.cycle_id)
+          .eq("user_id", userId);
+      }
     }
 
-    const value = Number(reward.value || 0);
-    const newBalance = Math.max(0, Number(wallet.balance || 0) - value);
-    const newTotalEarned = Math.max(0, Number(wallet.total_earned || 0) - value);
-
-    const { error: updErr } = await supabase
-      .from("wallets")
-      .update({
-        balance: newBalance,
-        total_earned: newTotalEarned,
-        updated_at: new Date().toISOString(),
-      })
-      .eq("user_id", userId);
-
-    if (updErr) {
-      return new Response(
-        JSON.stringify({ error: "Failed to update wallet" }),
-        { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 500 },
-      );
-    }
-
-    // Remove tracking record (so re-like can reward again, consistent with reversal)
+    // Remove tracking record (so re-like can reward again)
     const trackingKey = buildTrackingKey(actionKey, contentId);
     await supabase
       .from("reward_action_tracking")
@@ -119,9 +107,8 @@ Deno.serve(async (req) => {
       JSON.stringify({
         success: true,
         reversed: true,
-        value: value,
+        performance_points_reverted: ppToRevert,
         points: Number(reward.points || 0),
-        wallet: { balance: newBalance, total_earned: newTotalEarned },
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } },
     );
