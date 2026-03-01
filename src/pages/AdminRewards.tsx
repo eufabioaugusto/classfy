@@ -110,6 +110,9 @@ export default function AdminRewards() {
   const [totalPP, setTotalPP] = useState(0);
   const [cycleUsersCount, setCycleUsersCount] = useState(0);
   const [savingPool, setSavingPool] = useState(false);
+  const [manualBonus, setManualBonus] = useState("");
+  const [bonusDescription, setBonusDescription] = useState("");
+  const [addingBonus, setAddingBonus] = useState(false);
 
   // Global stats
   const [globalStats, setGlobalStats] = useState({
@@ -324,6 +327,40 @@ export default function AdminRewards() {
       toast.error('Erro ao salvar pool');
     } finally {
       setSavingPool(false);
+    }
+  };
+
+  const handleAddManualBonus = async () => {
+    const amount = parseFloat(manualBonus);
+    if (isNaN(amount) || amount <= 0) {
+      toast.error('Insira um valor válido maior que zero');
+      return;
+    }
+    setAddingBonus(true);
+    try {
+      const now = new Date();
+      const yearMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+
+      const { error } = await supabase
+        .from('revenue_entries')
+        .insert({
+          year_month: yearMonth,
+          revenue_type: 'manual_bonus',
+          amount,
+          metadata: { description: bonusDescription || 'Aporte manual no pool' },
+        });
+
+      if (error) throw error;
+
+      toast.success(`R$ ${amount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })} adicionado ao pool!`);
+      setManualBonus("");
+      setBonusDescription("");
+      fetchEconomyData();
+    } catch (error) {
+      console.error('Error adding manual bonus:', error);
+      toast.error('Erro ao adicionar aporte');
+    } finally {
+      setAddingBonus(false);
     }
   };
 
@@ -905,6 +942,40 @@ export default function AdminRewards() {
                 <Button onClick={handleSavePoolPercentage} disabled={savingPool}>
                   {savingPool ? 'Salvando...' : 'Salvar Configuração'}
                 </Button>
+              </div>
+            </Card>
+
+            {/* Manual Bonus Injection */}
+            <Card className="p-6">
+              <h3 className="text-lg font-semibold mb-2">Aporte Manual no Pool</h3>
+              <p className="text-sm text-muted-foreground mb-4">
+                Adicione um valor extra ao pool do mês atual. Esse valor será somado à receita bruta (RBM) para o cálculo do PRM.
+              </p>
+              <div className="grid gap-4 md:grid-cols-3 items-end">
+                <div>
+                  <label className="text-sm font-medium">Valor (R$)</label>
+                  <Input
+                    type="number"
+                    min={0}
+                    step="0.01"
+                    placeholder="Ex: 50000"
+                    value={manualBonus}
+                    onChange={(e) => setManualBonus(e.target.value)}
+                  />
+                </div>
+                <div>
+                  <label className="text-sm font-medium">Descrição (opcional)</label>
+                  <Input
+                    placeholder="Ex: Ação de marketing março"
+                    value={bonusDescription}
+                    onChange={(e) => setBonusDescription(e.target.value)}
+                  />
+                </div>
+                <div>
+                  <Button onClick={handleAddManualBonus} disabled={addingBonus || !manualBonus}>
+                    {addingBonus ? 'Adicionando...' : 'Adicionar ao Pool'}
+                  </Button>
+                </div>
               </div>
             </Card>
 
