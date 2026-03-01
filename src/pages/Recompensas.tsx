@@ -184,6 +184,7 @@ export default function Recompensas() {
         .eq('year_month', yearMonth);
       
       currentRbm = revenueData?.reduce((sum, e) => sum + parseFloat(String(e.amount)), 0) || 0;
+      prmCalc = currentRbm * (poolPct / 100);
 
       const { data: cycleData } = await supabase
         .from('economic_cycles')
@@ -207,7 +208,6 @@ export default function Recompensas() {
           .eq('cycle_id', cycleData.id);
 
         totalPPCalc = allUsers?.reduce((sum, u) => sum + parseFloat(String(u.performance_points)), 0) || 0;
-        prmCalc = currentRbm * (poolPct / 100);
         estimatedPoolShare = totalPPCalc > 0 ? (performancePoints / totalPPCalc) * prmCalc : 0;
       }
 
