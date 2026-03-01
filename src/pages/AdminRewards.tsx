@@ -103,6 +103,14 @@ export default function AdminRewards() {
   const [isMilestoneDialogOpen, setIsMilestoneDialogOpen] = useState(false);
   const [milestoneSearchTerm, setMilestoneSearchTerm] = useState("");
 
+  // Economy state
+  const [poolPercentage, setPoolPercentage] = useState(40);
+  const [rbm, setRbm] = useState(0);
+  const [prm, setPrm] = useState(0);
+  const [totalPP, setTotalPP] = useState(0);
+  const [cycleUsersCount, setCycleUsersCount] = useState(0);
+  const [savingPool, setSavingPool] = useState(false);
+
   // Global stats
   const [globalStats, setGlobalStats] = useState({
     totalRewards: 0,
@@ -124,6 +132,7 @@ export default function AdminRewards() {
     } else if (role === 'admin') {
       fetchData();
       fetchMilestones();
+      fetchEconomyData();
     }
   }, [role, authLoading, navigate]);
 
@@ -247,6 +256,74 @@ export default function AdminRewards() {
 
     } catch (error) {
       console.error('Error fetching milestones:', error);
+    }
+  };
+
+  const fetchEconomyData = async () => {
+    try {
+      // Get pool percentage from platform_settings
+      const { data: settings } = await supabase
+        .from('platform_settings')
+        .select('value')
+        .eq('key', 'economic')
+        .single();
+
+      if (settings?.value) {
+        const pct = (settings.value as any).pool_percentage;
+        if (pct) setPoolPercentage(pct);
+      }
+
+      // Get current month's revenue
+      const now = new Date();
+      const yearMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+
+      const { data: revenueData } = await supabase
+        .from('revenue_entries')
+        .select('amount')
+        .eq('year_month', yearMonth);
+
+      const currentRbm = revenueData?.reduce((sum, e) => sum + parseFloat(String(e.amount)), 0) || 0;
+      setRbm(currentRbm);
+      setPrm(currentRbm * (poolPercentage / 100));
+
+      // Get current cycle users
+      const { data: cycle } = await supabase
+        .from('economic_cycles')
+        .select('id')
+        .eq('year_month', yearMonth)
+        .maybeSingle();
+
+      if (cycle) {
+        const { data: cycleUsers } = await supabase
+          .from('economic_cycle_users')
+          .select('performance_points')
+          .eq('cycle_id', cycle.id);
+
+        const total = cycleUsers?.reduce((sum, u) => sum + parseFloat(String(u.performance_points)), 0) || 0;
+        setTotalPP(total);
+        setCycleUsersCount(cycleUsers?.length || 0);
+      }
+    } catch (error) {
+      console.error('Error fetching economy data:', error);
+    }
+  };
+
+  const handleSavePoolPercentage = async () => {
+    setSavingPool(true);
+    try {
+      const { error } = await supabase
+        .from('platform_settings')
+        .update({ value: { pool_percentage: poolPercentage } })
+        .eq('key', 'economic');
+
+      if (error) throw error;
+      setPrm(rbm * (poolPercentage / 100));
+      toast.success('Pool atualizado com sucesso!');
+    } catch (error) {
+      console.error('Error saving pool:', error);
+      toast.error('Erro ao salvar pool');
+    } finally {
+      setSavingPool(false);
     }
   };
 
@@ -400,11 +477,15 @@ export default function AdminRewards() {
           <TabsList className="mb-6">
             <TabsTrigger value="rewards" className="gap-2">
               <Coins className="w-4 h-4" />
-              Recompensas Usuários
+              Recompensas
             </TabsTrigger>
             <TabsTrigger value="milestones" className="gap-2">
               <Target className="w-4 h-4" />
-              Metas de Creators
+              Metas Creators
+            </TabsTrigger>
+            <TabsTrigger value="economy" className="gap-2">
+              <DollarSign className="w-4 h-4" />
+              Economia
             </TabsTrigger>
           </TabsList>
 
@@ -721,6 +802,140 @@ export default function AdminRewards() {
                     })}
                   </TableBody>
                 </Table>
+              </div>
+            </Card>
+          </TabsContent>
+
+          {/* Economy Tab */}
+          <TabsContent value="economy" className="space-y-6">
+            <div className="grid gap-4 md:grid-cols-4">
+              <Card className="p-6">
+                <div className="flex items-center gap-3">
+                  <div className="p-3 bg-primary/10 rounded-lg">
+                    <DollarSign className="h-6 w-6 text-primary" />
+                  </div>
+                  <div>
+                    <p className="text-sm text-muted-foreground">RBM (Receita Bruta)</p>
+                    <h3 className="text-2xl font-bold">
+                      R$ {rbm.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                    </h3>
+                    <p className="text-xs text-muted-foreground">Mês atual</p>
+                  </div>
+                </div>
+              </Card>
+
+              <Card className="p-6">
+                <div className="flex items-center gap-3">
+                  <div className="p-3 bg-accent/10 rounded-lg">
+                    <Coins className="h-6 w-6 text-accent" />
+                  </div>
+                  <div>
+                    <p className="text-sm text-muted-foreground">PRM (Pool)</p>
+                    <h3 className="text-2xl font-bold">
+                      R$ {prm.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                    </h3>
+                    <p className="text-xs text-muted-foreground">{poolPercentage}% da receita</p>
+                  </div>
+                </div>
+              </Card>
+
+              <Card className="p-6">
+                <div className="flex items-center gap-3">
+                  <div className="p-3 bg-muted rounded-lg">
+                    <Activity className="h-6 w-6 text-muted-foreground" />
+                  </div>
+                  <div>
+                    <p className="text-sm text-muted-foreground">Performance Points</p>
+                    <h3 className="text-2xl font-bold">{totalPP.toLocaleString('pt-BR')}</h3>
+                    <p className="text-xs text-muted-foreground">Total no ciclo</p>
+                  </div>
+                </div>
+              </Card>
+
+              <Card className="p-6">
+                <div className="flex items-center gap-3">
+                  <div className="p-3 bg-muted rounded-lg">
+                    <Users className="h-6 w-6 text-muted-foreground" />
+                  </div>
+                  <div>
+                    <p className="text-sm text-muted-foreground">Usuários no Pool</p>
+                    <h3 className="text-2xl font-bold">{cycleUsersCount}</h3>
+                    <p className="text-xs text-muted-foreground">Com pontos este mês</p>
+                  </div>
+                </div>
+              </Card>
+            </div>
+
+            {/* Pool Configuration */}
+            <Card className="p-6">
+              <h3 className="text-lg font-semibold mb-4">Configuração do Pool</h3>
+              <div className="grid gap-4 md:grid-cols-3">
+                <div>
+                  <label className="text-sm font-medium">Percentual do Pool (%)</label>
+                  <Input
+                    type="number"
+                    min={1}
+                    max={100}
+                    value={poolPercentage}
+                    onChange={(e) => setPoolPercentage(Number(e.target.value))}
+                  />
+                  <p className="text-xs text-muted-foreground mt-1">
+                    % da receita distribuída como recompensa
+                  </p>
+                </div>
+                <div>
+                  <label className="text-sm font-medium">PRM Estimado</label>
+                  <p className="text-2xl font-bold mt-1">
+                    R$ {(rbm * (poolPercentage / 100)).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                  </p>
+                </div>
+                <div>
+                  <label className="text-sm font-medium">Payout Médio Estimado</label>
+                  <p className="text-2xl font-bold mt-1">
+                    R$ {cycleUsersCount > 0 
+                      ? ((rbm * (poolPercentage / 100)) / cycleUsersCount).toLocaleString('pt-BR', { minimumFractionDigits: 2 }) 
+                      : '0,00'}
+                  </p>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Por usuário (média simples)
+                  </p>
+                </div>
+              </div>
+              <div className="mt-4">
+                <Button onClick={handleSavePoolPercentage} disabled={savingPool}>
+                  {savingPool ? 'Salvando...' : 'Salvar Configuração'}
+                </Button>
+              </div>
+            </Card>
+
+            {/* Simulator */}
+            <Card className="p-6">
+              <h3 className="text-lg font-semibold mb-4">Simulador de Distribuição</h3>
+              <div className="space-y-3 text-sm">
+                <div className="flex justify-between py-2 border-b border-border">
+                  <span className="text-muted-foreground">Receita Bruta Mensal</span>
+                  <span className="font-semibold">R$ {rbm.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
+                </div>
+                <div className="flex justify-between py-2 border-b border-border">
+                  <span className="text-muted-foreground">Pool ({poolPercentage}%)</span>
+                  <span className="font-semibold text-primary">R$ {(rbm * (poolPercentage / 100)).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
+                </div>
+                <div className="flex justify-between py-2 border-b border-border">
+                  <span className="text-muted-foreground">Plataforma ({100 - poolPercentage}%)</span>
+                  <span className="font-semibold">R$ {(rbm * ((100 - poolPercentage) / 100)).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
+                </div>
+                <div className="flex justify-between py-2 border-b border-border">
+                  <span className="text-muted-foreground">Total Performance Points</span>
+                  <span className="font-semibold">{totalPP.toLocaleString('pt-BR')}</span>
+                </div>
+                <div className="flex justify-between py-2">
+                  <span className="text-muted-foreground">Valor por Ponto</span>
+                  <span className="font-semibold">
+                    R$ {totalPP > 0 
+                      ? ((rbm * (poolPercentage / 100)) / totalPP).toLocaleString('pt-BR', { minimumFractionDigits: 4 }) 
+                      : '—'}
+                  </span>
+                </div>
               </div>
             </Card>
           </TabsContent>

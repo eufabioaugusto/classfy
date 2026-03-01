@@ -62,7 +62,6 @@ Deno.serve(async (req) => {
 
     const { actionKey, userId, contentId, metadata = {} }: RewardPayload = await req.json();
 
-    // Validate required fields
     if (!actionKey || !userId) {
       console.error('Missing required fields:', { actionKey, userId });
       return new Response(
@@ -73,9 +72,7 @@ Deno.serve(async (req) => {
 
     console.log('Processing reward request:', { actionKey, userId: userId.slice(0, 8) + '...', hasContent: !!contentId });
 
-    // Resolve whether contentId refers to a content or a course.
-    // IMPORTANT: reward_action_tracking.content_id has a FK to contents, so we must only
-    // write a content_id when it actually exists in public.contents.
+    // Resolve content or course
     let resolvedContentId: string | null = null;
     let resolvedCourseId: string | null = null;
     let resolvedTitle: string | null = null;
@@ -107,10 +104,8 @@ Deno.serve(async (req) => {
       }
     }
 
-    // STEP 1: ATOMIC FRAUD PREVENTION - Insert tracking FIRST with unique constraint check
-    // This prevents race conditions by using database-level uniqueness
+    // STEP 1: ATOMIC FRAUD PREVENTION
     const today = new Date().toISOString().split('T')[0];
-
     let trackingKey: string;
     let trackingMetadata: Record<string, any> = { ...metadata };
 
@@ -120,26 +115,20 @@ Deno.serve(async (req) => {
     }
 
     if (DAILY_ACTIONS.includes(actionKey)) {
-      // For daily actions, include date in the key
       trackingKey = `${actionKey}_${today}`;
       trackingMetadata.tracking_date = today;
     } else if (UNIQUE_PER_CONTENT_ACTIONS.includes(actionKey)) {
-      // For per-content actions, include the id being acted on (content or course)
       trackingKey = contentId ? `${actionKey}_${contentId}` : actionKey;
     } else if (ONE_TIME_ACTIONS.includes(actionKey)) {
-      // For one-time actions, just the action key
       trackingKey = actionKey;
     } else if (UNIQUE_PER_CONTENT_GLOBAL.includes(actionKey)) {
-      // For per-content global actions
       trackingKey = contentId ? `${actionKey}_${contentId}` : actionKey;
     } else {
-      // For other actions (like SUBSCRIBE_CREATOR), use metadata to create unique key
       const creatorIdFromMeta = metadata?.creatorId;
       trackingKey = creatorIdFromMeta ? `${actionKey}_${creatorIdFromMeta}` : actionKey;
     }
 
-    // Try to insert tracking record FIRST - this is the atomic lock
-    // If it fails due to existing record, we skip the reward
+    // Check existing tracking
     const { data: existingTracking, error: trackingCheckError } = await supabase
       .from('reward_action_tracking')
       .select('id, created_at')
@@ -154,7 +143,6 @@ Deno.serve(async (req) => {
       );
     }
 
-    // Check if this specific action was already tracked
     if (existingTracking && existingTracking.length > 0) {
       console.log('Action already tracked, skipping reward:', { actionKey, trackingKey });
       return new Response(
@@ -168,8 +156,7 @@ Deno.serve(async (req) => {
       );
     }
 
-    // Insert tracking record BEFORE processing reward (atomic lock)
-    // NOTE: Only write content_id when it's a real content (FK constraint).
+    // Insert tracking record (atomic lock)
     const { error: insertTrackingError } = await supabase
       .from('reward_action_tracking')
       .insert({
@@ -203,7 +190,6 @@ Deno.serve(async (req) => {
 
     if (configError || !config) {
       console.error('Action config not found or inactive:', actionKey);
-      // Don't delete tracking - the action was still performed, just not rewarded
       return new Response(
         JSON.stringify({ error: 'Action config not found or inactive' }),
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 400 }
@@ -220,15 +206,20 @@ Deno.serve(async (req) => {
     const userPlan = (userProfile?.plan || 'free') as keyof PlanMultipliers;
     const planMultiplier = PLAN_MULTIPLIERS[userPlan] || 1.0;
 
-    // creatorId is already resolved above (from contents or courses, if contentId was provided)
+    // STEP 4: Get or create current economic cycle
+    const { data: cycleIdResult } = await supabase.rpc('get_or_create_current_cycle');
+    const cycleId = cycleIdResult as string | null;
 
     const rewards = [];
     const notifications = [];
 
-    // STEP 4: Process user reward (viewer/actor)
+    // STEP 5: Process user reward (viewer/actor)
+    // XP (points) still credited instantly for gamification
+    // Performance Points accumulated in economic_cycle_users (NO direct wallet credit)
     if (config.points_user > 0 || config.value_user > 0) {
       const userPoints = Math.floor(config.points_user * planMultiplier);
-      const userValue = parseFloat((config.value_user * planMultiplier).toFixed(2));
+      // Performance points = points_user weight (used for pool distribution)
+      const performancePoints = config.points_user * planMultiplier;
 
       const { data: userReward, error: rewardError } = await supabase
         .from('reward_events')
@@ -238,7 +229,9 @@ Deno.serve(async (req) => {
           content_id: resolvedContentId,
           action_key: actionKey,
           points: userPoints,
-          value: userValue,
+          value: 0, // No direct value anymore - pool distributes later
+          performance_points: performancePoints,
+          cycle_id: cycleId,
           metadata: { ...trackingMetadata, tracking_key: trackingKey },
         })
         .select()
@@ -249,26 +242,13 @@ Deno.serve(async (req) => {
       } else if (userReward) {
         rewards.push(userReward);
 
-        // Update wallet
-        const { data: wallet } = await supabase
-          .from('wallets')
-          .select('balance, total_earned')
-          .eq('user_id', userId)
-          .single();
-
-        if (wallet) {
-          await supabase
-            .from('wallets')
-            .update({
-              balance: parseFloat(wallet.balance) + userValue,
-              total_earned: parseFloat(wallet.total_earned) + userValue,
-            })
-            .eq('user_id', userId);
+        // Accumulate performance points in economic_cycle_users
+        if (cycleId) {
+          await upsertCycleUserPoints(supabase, cycleId, userId, performancePoints);
         }
 
-        // Create notification
-        const notificationData = getNotificationText(actionKey, userPoints, userValue);
-
+        // Create notification (no R$ value shown - only points)
+        const notificationData = getNotificationText(actionKey, userPoints);
         const { data: notification } = await supabase
           .from('notifications')
           .insert({
@@ -282,13 +262,11 @@ Deno.serve(async (req) => {
           .select()
           .single();
 
-        if (notification) {
-          notifications.push(notification);
-        }
+        if (notification) notifications.push(notification);
       }
     }
 
-    // STEP 5: Process creator reward (if applicable)
+    // STEP 6: Process creator reward (if applicable)
     if (creatorId && creatorId !== userId && (config.points_creator > 0 || config.value_creator > 0)) {
       const { data: creatorProfile } = await supabase
         .from('profiles')
@@ -300,7 +278,7 @@ Deno.serve(async (req) => {
       const creatorMultiplier = PLAN_MULTIPLIERS[creatorPlan] || 1.0;
 
       const creatorPoints = Math.floor(config.points_creator * creatorMultiplier);
-      const creatorValue = parseFloat((config.value_creator * creatorMultiplier).toFixed(2));
+      const creatorPP = config.points_creator * creatorMultiplier;
 
       const { data: creatorReward, error: creatorRewardError } = await supabase
         .from('reward_events')
@@ -310,7 +288,9 @@ Deno.serve(async (req) => {
           content_id: resolvedContentId,
           action_key: actionKey,
           points: creatorPoints,
-          value: creatorValue,
+          value: 0, // No direct value - pool distributes
+          performance_points: creatorPP,
+          cycle_id: cycleId,
           metadata: { ...trackingMetadata, as_creator: true, tracking_key: trackingKey },
         })
         .select()
@@ -321,27 +301,14 @@ Deno.serve(async (req) => {
       } else if (creatorReward) {
         rewards.push(creatorReward);
 
-        // Update creator wallet
-        const { data: creatorWallet } = await supabase
-          .from('wallets')
-          .select('balance, total_earned')
-          .eq('user_id', creatorId)
-          .single();
-
-        if (creatorWallet) {
-          await supabase
-            .from('wallets')
-            .update({
-              balance: parseFloat(creatorWallet.balance) + creatorValue,
-              total_earned: parseFloat(creatorWallet.total_earned) + creatorValue,
-            })
-            .eq('user_id', creatorId);
+        // Accumulate PP for creator
+        if (cycleId) {
+          await upsertCycleUserPoints(supabase, cycleId, creatorId, creatorPP);
         }
 
         const creatorNotification = getCreatorNotificationText(
           actionKey,
           creatorPoints,
-          creatorValue,
           resolvedTitle || 'seu conteúdo'
         );
 
@@ -358,12 +325,9 @@ Deno.serve(async (req) => {
           .select()
           .single();
 
-        if (notification) {
-          notifications.push(notification);
-        }
+        if (notification) notifications.push(notification);
       }
     }
-
 
     console.log('Rewards processed successfully:', { 
       actionKey, 
@@ -386,76 +350,110 @@ Deno.serve(async (req) => {
   }
 });
 
-function getNotificationText(actionKey: string, points: number, value: number): { title: string; message: string } {
-  const valueStr = value.toFixed(2);
-  
+// Upsert performance points for a user in the current cycle
+async function upsertCycleUserPoints(
+  supabase: ReturnType<typeof createClient>,
+  cycleId: string,
+  userId: string,
+  points: number
+) {
+  try {
+    // Try to find existing record
+    const { data: existing } = await supabase
+      .from('economic_cycle_users')
+      .select('id, performance_points')
+      .eq('cycle_id', cycleId)
+      .eq('user_id', userId)
+      .maybeSingle();
+
+    if (existing) {
+      await supabase
+        .from('economic_cycle_users')
+        .update({
+          performance_points: parseFloat(String(existing.performance_points)) + points,
+        })
+        .eq('id', existing.id);
+    } else {
+      await supabase
+        .from('economic_cycle_users')
+        .insert({
+          cycle_id: cycleId,
+          user_id: userId,
+          performance_points: points,
+        });
+    }
+  } catch (err) {
+    console.error('Error upserting cycle user points:', err);
+  }
+}
+
+// Notification text - NO R$ values (pool distributes monthly)
+function getNotificationText(actionKey: string, points: number): { title: string; message: string } {
   switch (actionKey) {
     case 'DAILY_LOGIN':
       return {
         title: 'Login diário! 🎯',
-        message: `Bem-vindo de volta! Você ganhou ${points} pontos e R$ ${valueStr}!`
+        message: `Bem-vindo de volta! +${points} pontos de performance`
       };
     case 'WATCH_50':
       return {
         title: 'Bom progresso!',
-        message: `Você já assistiu 50% do conteúdo. Ganhou ${points} pontos e R$ ${valueStr}!`
+        message: `Você já assistiu 50% do conteúdo. +${points} pontos de performance`
       };
     case 'WATCH_100':
       return {
         title: 'Conteúdo concluído! 🎉',
-        message: `Parabéns! Você completou o conteúdo e ganhou ${points} pontos e R$ ${valueStr}!`
+        message: `Parabéns! Você completou o conteúdo. +${points} pontos de performance`
       };
     case 'LIKE_CONTENT':
       return {
         title: 'Recompensa por curtir!',
-        message: `Você ganhou ${points} pontos e R$ ${valueStr} por curtir o conteúdo!`
+        message: `+${points} pontos de performance por curtir o conteúdo`
       };
     case 'PROFILE_COMPLETE':
       return {
         title: 'Perfil completo! 🌟',
-        message: `Seu perfil está completo! Você ganhou ${points} pontos e R$ ${valueStr}!`
+        message: `Seu perfil está completo! +${points} pontos de performance`
       };
     case 'SUBSCRIBE_CREATOR':
       return {
         title: 'Novo seguidor!',
-        message: `Você ganhou ${points} pontos e R$ ${valueStr} por seguir um criador!`
+        message: `+${points} pontos de performance por seguir um criador`
       };
     default:
       return {
         title: 'Nova recompensa!',
-        message: `Você ganhou ${points} pontos e R$ ${valueStr}!`
+        message: `+${points} pontos de performance`
       };
   }
 }
 
-function getCreatorNotificationText(actionKey: string, points: number, value: number, contentTitle: string): { title: string; message: string } {
-  const valueStr = value.toFixed(2);
-  
+function getCreatorNotificationText(actionKey: string, points: number, contentTitle: string): { title: string; message: string } {
   switch (actionKey) {
     case 'CONTENT_APPROVED':
       return {
         title: 'Conteúdo aprovado! ✅',
-        message: `Seu conteúdo "${contentTitle}" foi aprovado e você ganhou ${points} pontos e R$ ${valueStr}!`
+        message: `Seu conteúdo "${contentTitle}" foi aprovado! +${points} pontos de performance`
       };
     case 'VIEW_15S':
       return {
         title: 'Nova visualização!',
-        message: `Seu conteúdo "${contentTitle}" recebeu uma nova visualização. +${points} pontos e R$ ${valueStr}`
+        message: `Seu conteúdo "${contentTitle}" recebeu uma nova visualização. +${points} PP`
       };
     case 'WATCH_100':
       return {
         title: 'Conteúdo completado!',
-        message: `Alguém completou "${contentTitle}"! Você ganhou ${points} pontos e R$ ${valueStr}`
+        message: `Alguém completou "${contentTitle}"! +${points} PP`
       };
     case 'LIKE_CONTENT':
       return {
         title: 'Nova curtida! ❤️',
-        message: `Seu conteúdo "${contentTitle}" recebeu uma curtida. +${points} pontos e R$ ${valueStr}`
+        message: `Seu conteúdo "${contentTitle}" recebeu uma curtida. +${points} PP`
       };
     default:
       return {
         title: 'Nova recompensa!',
-        message: `Você ganhou ${points} pontos e R$ ${valueStr} pelo seu conteúdo!`
+        message: `+${points} pontos de performance pelo seu conteúdo`
       };
   }
 }

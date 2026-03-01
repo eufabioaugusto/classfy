@@ -42,6 +42,10 @@ interface UserStats {
   currentStreak: number;
   longestStreak: number;
   badges: any[];
+  performancePoints: number;
+  estimatedPoolShare: number;
+  poolPercentage: number;
+  rbm: number;
   engagementStats: {
     likes: number;
     saves: number;
@@ -150,6 +154,58 @@ export default function Recompensas() {
         };
       }
 
+      // Fetch pool data
+      const now = new Date();
+      const yearMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+      
+      let performancePoints = 0;
+      let estimatedPoolShare = 0;
+      let poolPct = 40;
+      let currentRbm = 0;
+
+      const { data: settingsData } = await supabase
+        .from('platform_settings')
+        .select('value')
+        .eq('key', 'economic')
+        .single();
+      
+      if (settingsData?.value) {
+        poolPct = (settingsData.value as any).pool_percentage || 40;
+      }
+
+      const { data: revenueData } = await supabase
+        .from('revenue_entries')
+        .select('amount')
+        .eq('year_month', yearMonth);
+      
+      currentRbm = revenueData?.reduce((sum, e) => sum + parseFloat(String(e.amount)), 0) || 0;
+
+      const { data: cycleData } = await supabase
+        .from('economic_cycles')
+        .select('id')
+        .eq('year_month', yearMonth)
+        .maybeSingle();
+
+      if (cycleData) {
+        const { data: userCycle } = await supabase
+          .from('economic_cycle_users')
+          .select('performance_points')
+          .eq('cycle_id', cycleData.id)
+          .eq('user_id', user!.id)
+          .maybeSingle();
+
+        performancePoints = userCycle ? parseFloat(String(userCycle.performance_points)) : 0;
+
+        const { data: allUsers } = await supabase
+          .from('economic_cycle_users')
+          .select('performance_points')
+          .eq('cycle_id', cycleData.id);
+
+        const totalPP = allUsers?.reduce((sum, u) => sum + parseFloat(String(u.performance_points)), 0) || 0;
+        const prm = currentRbm * (poolPct / 100);
+        estimatedPoolShare = totalPP > 0 ? (performancePoints / totalPP) * prm : 0;
+      }
+
       setStats({
         level,
         totalPoints,
@@ -160,6 +216,10 @@ export default function Recompensas() {
         currentStreak: streaksRes.data?.current_streak || 0,
         longestStreak: streaksRes.data?.longest_streak || 0,
         badges: badgesRes.data || [],
+        performancePoints,
+        estimatedPoolShare,
+        poolPercentage: poolPct,
+        rbm: currentRbm,
         engagementStats,
         creatorStats
       });
@@ -237,6 +297,33 @@ export default function Recompensas() {
                 </CardContent>
               </Card>
             </div>
+
+            {/* Pool Card */}
+            <Card className="bg-gradient-to-br from-accent/10 to-primary/10 border-accent/20">
+              <CardHeader>
+                <CardDescription className="text-sm">Estimativa do Pool Mensal</CardDescription>
+                <CardTitle className="text-4xl font-bold text-accent flex items-center gap-2">
+                  <TrendingUp className="w-8 h-8" />
+                  R$ {stats.estimatedPoolShare.toFixed(2)}
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <Separator className="my-3" />
+                <div className="space-y-1">
+                  <div className="flex justify-between text-sm">
+                    <span className="text-muted-foreground">Performance Points</span>
+                    <span className="font-semibold">{stats.performancePoints.toLocaleString()}</span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-muted-foreground">Pool ({stats.poolPercentage}% da receita)</span>
+                    <span className="font-semibold">R$ {(stats.rbm * (stats.poolPercentage / 100)).toFixed(2)}</span>
+                  </div>
+                </div>
+                <p className="text-xs text-muted-foreground mt-3">
+                  Distribuição mensal proporcional aos seus pontos de performance
+                </p>
+              </CardContent>
+            </Card>
 
             {/* Streak & Badges */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
