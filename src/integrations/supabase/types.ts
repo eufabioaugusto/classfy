@@ -1120,6 +1120,89 @@ export type Database = {
           },
         ]
       }
+      economic_cycle_users: {
+        Row: {
+          calculated_share: number | null
+          created_at: string
+          cycle_id: string
+          id: string
+          payout_status: string | null
+          performance_points: number
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          calculated_share?: number | null
+          created_at?: string
+          cycle_id: string
+          id?: string
+          payout_status?: string | null
+          performance_points?: number
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          calculated_share?: number | null
+          created_at?: string
+          cycle_id?: string
+          id?: string
+          payout_status?: string | null
+          performance_points?: number
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "economic_cycle_users_cycle_id_fkey"
+            columns: ["cycle_id"]
+            isOneToOne: false
+            referencedRelation: "economic_cycles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      economic_cycles: {
+        Row: {
+          closed_at: string | null
+          created_at: string
+          distributed_amount: number
+          id: string
+          pool_percentage: number
+          prm: number
+          rbm: number
+          status: string
+          total_performance_points: number
+          updated_at: string
+          year_month: string
+        }
+        Insert: {
+          closed_at?: string | null
+          created_at?: string
+          distributed_amount?: number
+          id?: string
+          pool_percentage?: number
+          prm?: number
+          rbm?: number
+          status?: string
+          total_performance_points?: number
+          updated_at?: string
+          year_month: string
+        }
+        Update: {
+          closed_at?: string | null
+          created_at?: string
+          distributed_amount?: number
+          id?: string
+          pool_percentage?: number
+          prm?: number
+          rbm?: number
+          status?: string
+          total_performance_points?: number
+          updated_at?: string
+          year_month?: string
+        }
+        Relationships: []
+      }
       favorites: {
         Row: {
           content_id: string | null
@@ -1691,6 +1774,33 @@ export type Database = {
           },
         ]
       }
+      platform_settings: {
+        Row: {
+          created_at: string
+          description: string | null
+          id: string
+          key: string
+          updated_at: string
+          value: Json
+        }
+        Insert: {
+          created_at?: string
+          description?: string | null
+          id?: string
+          key: string
+          updated_at?: string
+          value?: Json
+        }
+        Update: {
+          created_at?: string
+          description?: string | null
+          id?: string
+          key?: string
+          updated_at?: string
+          value?: Json
+        }
+        Relationships: []
+      }
       profiles: {
         Row: {
           avatar_url: string | null
@@ -1941,6 +2051,39 @@ export type Database = {
         }
         Relationships: []
       }
+      revenue_entries: {
+        Row: {
+          amount: number
+          created_at: string
+          id: string
+          metadata: Json | null
+          revenue_type: string
+          source_id: string | null
+          user_id: string | null
+          year_month: string
+        }
+        Insert: {
+          amount?: number
+          created_at?: string
+          id?: string
+          metadata?: Json | null
+          revenue_type: string
+          source_id?: string | null
+          user_id?: string | null
+          year_month: string
+        }
+        Update: {
+          amount?: number
+          created_at?: string
+          id?: string
+          metadata?: Json | null
+          revenue_type?: string
+          source_id?: string | null
+          user_id?: string | null
+          year_month?: string
+        }
+        Relationships: []
+      }
       reward_action_tracking: {
         Row: {
           action_key: string
@@ -2021,8 +2164,10 @@ export type Database = {
           can_withdraw_at: string | null
           content_id: string | null
           created_at: string
+          cycle_id: string | null
           id: string
           metadata: Json | null
+          performance_points: number | null
           points: number
           related_user_id: string | null
           user_id: string
@@ -2033,8 +2178,10 @@ export type Database = {
           can_withdraw_at?: string | null
           content_id?: string | null
           created_at?: string
+          cycle_id?: string | null
           id?: string
           metadata?: Json | null
+          performance_points?: number | null
           points?: number
           related_user_id?: string | null
           user_id: string
@@ -2045,8 +2192,10 @@ export type Database = {
           can_withdraw_at?: string | null
           content_id?: string | null
           created_at?: string
+          cycle_id?: string | null
           id?: string
           metadata?: Json | null
+          performance_points?: number | null
           points?: number
           related_user_id?: string | null
           user_id?: string
@@ -2058,6 +2207,13 @@ export type Database = {
             columns: ["content_id"]
             isOneToOne: false
             referencedRelation: "contents"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "reward_events_cycle_id_fkey"
+            columns: ["cycle_id"]
+            isOneToOne: false
+            referencedRelation: "economic_cycles"
             referencedColumns: ["id"]
           },
         ]
@@ -2855,6 +3011,7 @@ export type Database = {
         Args: { p_action_key: string }
         Returns: string
       }
+      get_or_create_current_cycle: { Args: never; Returns: string }
       get_public_profile: {
         Args: { profile_id: string }
         Returns: {
