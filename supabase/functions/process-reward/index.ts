@@ -50,6 +50,36 @@ const UNIQUE_PER_CONTENT_GLOBAL = [
   'COMPLETE_COURSE'
 ];
 
+// ──────────────────────────────────────────
+// ANTI-FRAUD: Daily limits per action type
+// ──────────────────────────────────────────
+const DAILY_ACTION_LIMITS: Record<string, number> = {
+  LIKE_CONTENT: 30,
+  SAVE_CONTENT: 20,
+  FAVORITE_CONTENT: 20,
+  COMMENT_CONTENT: 15,
+  VIEW_15S: 50,
+  WATCH_50: 30,
+  WATCH_100: 20,
+  SUBSCRIBE_CREATOR: 10,
+};
+
+// Diminishing returns: after N actions in a day, PP is reduced by a curve
+// Returns a multiplier between 0 and 1
+function getDiminishingMultiplier(dailyCount: number, limit: number): number {
+  if (dailyCount <= 0) return 1.0;
+  // First 50% of limit: full value
+  const halfLimit = Math.floor(limit / 2);
+  if (dailyCount < halfLimit) return 1.0;
+  // 50-80% of limit: 50% value
+  const eightyLimit = Math.floor(limit * 0.8);
+  if (dailyCount < eightyLimit) return 0.5;
+  // 80-100%: 25% value
+  if (dailyCount < limit) return 0.25;
+  // At limit: blocked
+  return 0;
+}
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
@@ -180,6 +210,60 @@ Deno.serve(async (req) => {
 
     console.log('Tracking record created, proceeding with reward:', { trackingKey });
 
+    // ──────────────────────────────────────────
+    // ANTI-FRAUD: Daily limit & diminishing returns check
+    // ──────────────────────────────────────────
+    let diminishingMultiplier = 1.0;
+    const dailyLimit = DAILY_ACTION_LIMITS[actionKey];
+    
+    if (dailyLimit) {
+      // Count how many times this action was used today by this user
+      const todayStart = new Date();
+      todayStart.setUTCHours(0, 0, 0, 0);
+      
+      const { count: dailyCount } = await supabase
+        .from('reward_action_tracking')
+        .select('id', { count: 'exact', head: true })
+        .eq('user_id', userId)
+        .like('action_key', `${actionKey}%`)
+        .gte('created_at', todayStart.toISOString());
+
+      const currentCount = dailyCount || 0;
+      console.log('Daily action count:', { actionKey, currentCount, dailyLimit });
+
+      if (currentCount > dailyLimit) {
+        console.log('ANTI-FRAUD: Daily limit exceeded, blocking reward:', { actionKey, currentCount, dailyLimit });
+        return new Response(
+          JSON.stringify({
+            success: false,
+            message: 'Daily action limit reached',
+            dailyLimitReached: true,
+            limit: dailyLimit,
+          }),
+          { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+
+      diminishingMultiplier = getDiminishingMultiplier(currentCount, dailyLimit);
+      if (diminishingMultiplier < 1) {
+        console.log('Diminishing returns applied:', { multiplier: diminishingMultiplier, currentCount });
+      }
+    }
+
+    // ANTI-FRAUD: Burst detection (>5 actions of same type within 60 seconds)
+    const oneMinAgo = new Date(Date.now() - 60_000).toISOString();
+    const { count: burstCount } = await supabase
+      .from('reward_action_tracking')
+      .select('id', { count: 'exact', head: true })
+      .eq('user_id', userId)
+      .like('action_key', `${actionKey}%`)
+      .gte('created_at', oneMinAgo);
+
+    if ((burstCount || 0) > 5) {
+      console.log('ANTI-FRAUD: Burst behavior detected, reducing reward:', { actionKey, burstCount });
+      diminishingMultiplier = Math.min(diminishingMultiplier, 0.1);
+    }
+
     // STEP 2: Get action config
     const { data: config, error: configError } = await supabase
       .from('reward_actions_config')
@@ -218,8 +302,8 @@ Deno.serve(async (req) => {
     // Performance Points accumulated in economic_cycle_users (NO direct wallet credit)
     if (config.points_user > 0 || config.value_user > 0) {
       const userPoints = Math.floor(config.points_user * planMultiplier);
-      // Performance points = points_user weight (used for pool distribution)
-      const performancePoints = config.points_user * planMultiplier;
+      // Performance points with diminishing returns applied
+      const performancePoints = config.points_user * planMultiplier * diminishingMultiplier;
 
       const { data: userReward, error: rewardError } = await supabase
         .from('reward_events')
@@ -278,7 +362,7 @@ Deno.serve(async (req) => {
       const creatorMultiplier = PLAN_MULTIPLIERS[creatorPlan] || 1.0;
 
       const creatorPoints = Math.floor(config.points_creator * creatorMultiplier);
-      const creatorPP = config.points_creator * creatorMultiplier;
+      const creatorPP = config.points_creator * creatorMultiplier * diminishingMultiplier;
 
       const { data: creatorReward, error: creatorRewardError } = await supabase
         .from('reward_events')

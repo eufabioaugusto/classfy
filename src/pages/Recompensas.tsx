@@ -14,6 +14,7 @@ import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { CreatorAchievementBadge } from "@/components/CreatorAchievementBadge";
 import { useCreatorMilestones } from "@/hooks/useCreatorMilestones";
+import { PoolSimulator } from "@/components/PoolSimulator";
 import { 
   Trophy, 
   Zap, 
@@ -43,6 +44,8 @@ interface UserStats {
   longestStreak: number;
   badges: any[];
   performancePoints: number;
+  totalPP: number;
+  prm: number;
   estimatedPoolShare: number;
   poolPercentage: number;
   rbm: number;
@@ -162,6 +165,8 @@ export default function Recompensas() {
       let estimatedPoolShare = 0;
       let poolPct = 40;
       let currentRbm = 0;
+      let totalPPCalc = 0;
+      let prmCalc = 0;
 
       const { data: settingsData } = await supabase
         .from('platform_settings')
@@ -201,9 +206,9 @@ export default function Recompensas() {
           .select('performance_points')
           .eq('cycle_id', cycleData.id);
 
-        const totalPP = allUsers?.reduce((sum, u) => sum + parseFloat(String(u.performance_points)), 0) || 0;
-        const prm = currentRbm * (poolPct / 100);
-        estimatedPoolShare = totalPP > 0 ? (performancePoints / totalPP) * prm : 0;
+        totalPPCalc = allUsers?.reduce((sum, u) => sum + parseFloat(String(u.performance_points)), 0) || 0;
+        prmCalc = currentRbm * (poolPct / 100);
+        estimatedPoolShare = totalPPCalc > 0 ? (performancePoints / totalPPCalc) * prmCalc : 0;
       }
 
       setStats({
@@ -217,6 +222,8 @@ export default function Recompensas() {
         longestStreak: streaksRes.data?.longest_streak || 0,
         badges: badgesRes.data || [],
         performancePoints,
+        totalPP: totalPPCalc,
+        prm: prmCalc,
         estimatedPoolShare,
         poolPercentage: poolPct,
         rbm: currentRbm,
@@ -324,6 +331,14 @@ export default function Recompensas() {
                 </p>
               </CardContent>
             </Card>
+
+            {/* Pool Simulator */}
+            <PoolSimulator
+              currentPP={stats.performancePoints}
+              totalPP={stats.totalPP}
+              prm={stats.prm}
+              currentEstimate={stats.estimatedPoolShare}
+            />
 
             {/* Streak & Badges */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
