@@ -113,6 +113,7 @@ export default function AdminRewards() {
   const [manualBonus, setManualBonus] = useState("");
   const [bonusDescription, setBonusDescription] = useState("");
   const [addingBonus, setAddingBonus] = useState(false);
+  const [revenueHistory, setRevenueHistory] = useState<any[]>([]);
 
   // Global stats
   const [globalStats, setGlobalStats] = useState({
@@ -282,9 +283,11 @@ export default function AdminRewards() {
 
       const { data: revenueData } = await supabase
         .from('revenue_entries')
-        .select('amount')
-        .eq('year_month', yearMonth);
+        .select('*')
+        .eq('year_month', yearMonth)
+        .order('created_at', { ascending: false });
 
+      setRevenueHistory(revenueData || []);
       const currentRbm = revenueData?.reduce((sum, e) => sum + parseFloat(String(e.amount)), 0) || 0;
       setRbm(currentRbm);
       setPrm(currentRbm * (poolPercentage / 100));
@@ -966,6 +969,43 @@ export default function AdminRewards() {
                 </div>
               </div>
             </Card>
+
+            {/* Revenue History */}
+            {revenueHistory.length > 0 && (
+              <Card className="p-6">
+                <h3 className="text-lg font-semibold mb-4">Histórico de Receitas do Mês</h3>
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Data</TableHead>
+                      <TableHead>Tipo</TableHead>
+                      <TableHead>Descrição</TableHead>
+                      <TableHead className="text-right">Valor</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {revenueHistory.map((entry) => (
+                      <TableRow key={entry.id}>
+                        <TableCell className="text-muted-foreground">
+                          {new Date(entry.created_at).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant="outline" className="capitalize">
+                            {entry.revenue_type === 'other' ? 'Aporte Manual' : entry.revenue_type?.replace(/_/g, ' ')}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-muted-foreground">
+                          {(entry.metadata as any)?.description || '—'}
+                        </TableCell>
+                        <TableCell className="text-right font-semibold">
+                          R$ {parseFloat(entry.amount).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </Card>
+            )}
 
             {/* Simulator */}
             <Card className="p-6">
