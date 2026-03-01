@@ -605,8 +605,8 @@ export default function AdminRewards() {
                     <TableRow>
                       <TableHead>Ação</TableHead>
                       <TableHead>Status</TableHead>
-                      <TableHead className="text-center">PP Usuário</TableHead>
-                      <TableHead className="text-center">PP Criador</TableHead>
+                       <TableHead className="text-center">Pontos Usuário</TableHead>
+                       <TableHead className="text-center">Pontos Criador</TableHead>
                       <TableHead className="text-center">Uso Total</TableHead>
                       <TableHead className="text-center">Último Uso</TableHead>
                       <TableHead className="text-right">Ações</TableHead>
@@ -752,7 +752,7 @@ export default function AdminRewards() {
                       <TableHead>Meta</TableHead>
                       <TableHead>Tipo</TableHead>
                       <TableHead className="text-center">Valor Alvo</TableHead>
-                      <TableHead className="text-center">PP Bônus</TableHead>
+                      <TableHead className="text-center">Pontos Bônus</TableHead>
                       <TableHead className="text-center">Completaram</TableHead>
                       <TableHead className="text-center">Resgataram</TableHead>
                       <TableHead>Status</TableHead>
@@ -1031,7 +1031,7 @@ export default function AdminRewards() {
 
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="text-sm font-medium">PP Usuário (Performance Points)</label>
+                    <label className="text-sm font-medium">Pontos Usuário</label>
                     <Input
                       type="number"
                       value={editingReward.points_user}
@@ -1041,7 +1041,7 @@ export default function AdminRewards() {
                     />
                   </div>
                   <div>
-                    <label className="text-sm font-medium">PP Criador (Performance Points)</label>
+                    <label className="text-sm font-medium">Pontos Criador</label>
                     <Input
                       type="number"
                       value={editingReward.points_creator}
@@ -1127,7 +1127,7 @@ export default function AdminRewards() {
                 </div>
 
                 <div>
-                  <label className="text-sm font-medium">Performance Points (PP Bônus)</label>
+                  <label className="text-sm font-medium">Pontos Bônus</label>
                   <Input
                     type="number"
                     value={editingMilestone.points_reward}

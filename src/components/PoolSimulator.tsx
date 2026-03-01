@@ -26,10 +26,10 @@ export function PoolSimulator({ currentPP, totalPP, prm, currentEstimate }: Pool
 
   const tips = useMemo(() => {
     const items: string[] = [];
-    if (activityIncrease[0] >= 10) items.push("Assista mais conteúdos até o final (+PP por WATCH_100)");
+    if (activityIncrease[0] >= 10) items.push("Assista mais conteúdos até o final");
     if (activityIncrease[0] >= 25) items.push("Comente e curta conteúdos diariamente");
     if (activityIncrease[0] >= 50) items.push("Complete seu perfil e mantenha streak de login");
-    if (activityIncrease[0] >= 75) items.push("Publique conteúdos originais (PP de creator)");
+    if (activityIncrease[0] >= 75) items.push("Publique conteúdos originais");
     return items;
   }, [activityIncrease]);
 
