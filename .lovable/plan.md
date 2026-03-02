@@ -1,101 +1,92 @@
 
 
-# Revisao Geral do Sistema - Segunda Bateria
-
-Apos analise ampla do codebase (rotas, auth, rewards, edge functions, UI), aqui estao os problemas e melhorias encontrados, organizados por severidade.
-
----
+# Revisao Geral - Terceira Bateria
 
 ## CRITICO
 
-### 1. Rota duplicada no App.tsx (linha 122-123)
-A rota `/creators/destaque/:slug` esta declarada **duas vezes identicas**. A segunda e ignorada pelo React Router, mas e lixo de codigo que pode causar confusao.
+### 1. Shorts.tsx nao filtra por `status = 'approved'`
+As queries `fetchInitialShorts` e `fetchMoreShorts` buscam shorts sem filtrar por status. Conteudos pendentes, rejeitados e rascunhos aparecem no feed publico para todos os usuarios.
 
-**Correcao**: Remover a linha 123 duplicada.
+**Correcao**: Adicionar `.eq("status", "approved")` em todas as queries de shorts.
 
-### 2. `upsertCycleUserPoints` NAO incrementa - sobrescreve
-O upsert atual envia `performance_points: points` (o valor novo), nao `performance_points: existente + points`. Quando o Supabase faz o upsert com ON CONFLICT, ele **substitui** o valor em vez de somar. Resultado: o usuario perde todos os PP anteriores do ciclo, ficando apenas com os pontos da ultima acao.
+### 2. Listen.tsx incrementa views com UPDATE direto (bypass de logica)
+A pagina de podcast faz `UPDATE contents SET views_count = views_count + 1` diretamente, ignorando o RPC `increment_content_view` que previne auto-views do creator e views duplicados no mesmo dia. Resultado: creators inflam views dos proprios podcasts e cada reload conta como novo view.
 
-O fallback (linhas 462-485) faz a soma corretamente, mas so e acionado quando o upsert **falha** — nao quando ele "funciona" sobrescrevendo.
+**Correcao**: Substituir o UPDATE direto por `supabase.rpc("increment_content_view", ...)`.
 
-**Correcao**: Criar uma funcao RPC no banco que faz `INSERT ... ON CONFLICT DO UPDATE SET performance_points = performance_points + $1` de forma atomica, ou alterar para sempre usar o fallback (SELECT + UPDATE).
+### 3. Shorts.tsx usa `window.location.href` para redirect de auth
+Na linha 591, `window.location.href = '/auth'` causa reload completo da SPA, destruindo todo o state do React. Deveria usar `<Navigate>` ou `navigate()`.
 
-### 3. `close-economic-cycle` tem race condition no credito de wallet
-O loop de distribuicao faz `SELECT balance` + `UPDATE balance + share` separados para cada usuario. Se duas execucoes do fechamento de ciclo rodarem simultaneamente, podem corromper saldos.
-
-**Correcao**: Usar uma unica query `UPDATE wallets SET balance = balance + $1, total_earned = total_earned + $1 WHERE user_id = $2` sem SELECT previo.
+**Correcao**: Substituir por `return <Navigate to="/auth" replace />`.
 
 ---
 
 ## MEDIO
 
-### 4. `WEEKLY_STREAK` existe na config (50 pts) mas nao e chamada em nenhum lugar
-A acao `WEEKLY_STREAK` existe na tabela `reward_actions_config` mas **nenhum codigo** (nem client nem server) a aciona. Sao 50 pontos configurados que nunca sao distribuidos.
+### 4. Shorts usa `favorites` para likes em vez de `actions`
+Em `Shorts.tsx`, `checkLikeStatus` e `handleLike` usam a tabela `favorites` para registrar likes. Porem, `Watch.tsx` e `ContentActions.tsx` usam a tabela `actions` com `type: 'LIKE'`. Isso gera inconsistencia: um like dado em Shorts nao aparece como like em Watch e vice-versa. O trigger `sync_content_likes_count` tambem so escuta `actions`, nao `favorites`.
 
-**Correcao**: Implementar a logica no `checkDailyLogin` — quando `current_streak >= 7`, disparar `WEEKLY_STREAK`. Ou desativar a acao se nao for desejada.
+**Correcao**: Migrar Shorts para usar `actions` com `type: 'LIKE'`, consistente com o resto do sistema.
 
-### 5. Unlike mostra "R$ X" mas sistema usa PP (sem valor direto)
-No `ContentActions.tsx` (linha 146), o dialog de unlike exibe: `"reduzira R$ {rewardValue.toFixed(2)} dos seus ganhos"`. Porem, desde a mudanca para PP puro, `reward.value` e sempre **0**. O dialog sempre mostraria "R$ 0.00" e nunca apareceria (ja que so abre se `rewardValue > 0`).
+### 5. CreatorProfile nao mostra cursos (so busca `contents`)
+A aba "Cursos" existe no perfil do creator, mas `loadCreatorProfile` so busca da tabela `contents` (que nao tem cursos — cursos ficam na tabela `courses`). A aba "Cursos" sempre aparece vazia.
 
-**Resultado**: O dialog de confirmacao de unlike **nunca abre** — o usuario descurte sem confirmacao.
+**Correcao**: Fazer query adicional em `courses` e combinar os resultados, ou buscar cursos separadamente para a aba.
 
-**Correcao**: Decidir se mantem confirmacao baseada em PP (ex: "Voce perdera X pontos de performance") ou simplesmente remove o dialog.
+### 6. Carteira calcula stats com `value` (sempre 0 no novo sistema PP)
+Em `Carteira.tsx`, os cards "Ultimos 7 dias", "Ultimos 30 dias" e "Este Mes" somam `r.value` dos reward_events. Desde a migracao para Performance Points, `value` e sempre 0. Todos os stats mostram R$ 0.00 permanentemente.
 
-### 6. Admin pages sem proteção consistente
-- `AdminDashboard`: usa `useEffect` com `navigate("/")` se nao admin (flash de conteudo antes do redirect)
-- `AdminContents`, `AdminTranscriptions`: usam `<Navigate>` (correto, sem flash)
-- Outras admin pages: padroes mistos
+**Correcao**: Usar `performance_points` em vez de `value`, ou mostrar PP em vez de R$.
 
-**Correcao**: Padronizar todas as admin pages para usar `if (role !== 'admin') return <Navigate to="/" replace />` no render.
+### 7. Carteira `getActionLabel` nao reconhece as action_keys reais
+O mapeamento de labels usa keys antigas (`view`, `like`, `comment`) que nao existem mais. As keys reais sao `VIEW_15S`, `LIKE_CONTENT`, `WATCH_50`, `DAILY_LOGIN`, etc. O historico de ganhos mostra keys cruas em vez de labels legiveis.
 
-### 7. `SHARE_CONTENT` nao esta em nenhuma lista de unicidade no server
-`SHARE_CONTENT` tem limite diario (15) mas nao esta em `DAILY_ACTIONS`, `UNIQUE_PER_CONTENT_ACTIONS`, nem `ONE_TIME_ACTIONS`. Cai no else generico, gerando tracking key `SHARE_CONTENT` (sem sufixo). Resultado: usuario so ganha reward de share **uma unica vez na vida** para todos os conteudos.
+**Correcao**: Atualizar o mapeamento para as action_keys reais do sistema.
 
-**Correcao**: Adicionar `SHARE_CONTENT` a `UNIQUE_PER_CONTENT_ACTIONS` (para recompensar uma vez por conteudo) ou a `DAILY_ACTIONS` (uma vez por dia).
+### 8. `MobileShortsView` e `DesktopShortsView` usam `window.location.href` para navegacao
+Navegacao para perfil de creator usa `window.location.href` (reload completo) em vez de React Router.
 
-### 8. `SUBSCRIBE_CREATOR` tracking key usa `metadata.creatorId` mas nao esta em nenhuma lista
-Cai no else generico com `trackingKey = SUBSCRIBE_CREATOR_${creatorId}`, o que esta correto para impedir follow duplicado. Porem, o client em `useRewardSystem.ts` classifica `SUBSCRIBE_CREATOR` no else generico tambem, usando `metadata.creatorId` — isso esta **consistente**. Sem problema aqui.
+**Correcao**: Usar `useNavigate()` para navegacao interna.
 
 ---
 
-## BAIXO
+## BAIXO / MELHORIAS
 
-### 9. `WATCH_50` nao recompensa creator (points_creator = 0)
-Na config, `WATCH_50` tem `points_creator: 0`. O creator so ganha PP quando o usuario completa 100% (`WATCH_100: points_creator = 5`). Pode ser intencional, mas vale revisar.
+### 9. Index.tsx busca cursos sem filtro de status
+A query de cursos na home (`courses`) nao filtra por `status = 'approved'`. Cursos em draft ou pendentes podem aparecer.
 
-### 10. `PROFILE_COMPLETE` tem `points_creator: 30` — faz sentido?
-Completar perfil nao envolve nenhum creator, mas a config da 30 pontos ao "creator". Como nao ha `creatorId` nessa acao, os 30 pontos nunca sao distribuidos (o `process-reward` so recompensa creator se `creatorId !== userId && creatorId exists`). O valor e inofensivo mas confuso.
+**Correcao**: Adicionar `.eq("status", "approved")`.
 
-**Correcao**: Setar `points_creator: 0` para `PROFILE_COMPLETE`.
+### 10. ContentCard faz RPC `is_content_boosted` para cada card
+Cada ContentCard renderizado executa uma chamada RPC individual para verificar boost. Em uma pagina com 20+ cards, sao 20+ requests ao banco.
 
-### 11. Comments count nao exibido corretamente
-No `ContentComments.tsx`, o count de comentarios mostrado (`{comments.length}`) so reflete os comentarios carregados **apos abrir** o componente. Antes de abrir, sempre mostra `(0)`.
+**Melhoria**: Fazer batch check no componente pai e passar `isBoosted` como prop, ou usar um hook compartilhado.
+
+### 11. Conta.tsx busca `system_config` que pode nao existir
+Se a tabela `system_config` nao tiver a key `minimum_withdrawal_amount`, o valor default e 10 — mas se a tabela nao existir, a query falha silenciosamente.
 
 ---
 
 ## Plano de Implementacao
 
-### Tarefa 1: Corrigir upsertCycleUserPoints (CRITICO)
-Criar funcao RPC `increment_cycle_user_points(p_cycle_id, p_user_id, p_points)` no banco que faz incremento atomico, e chamar via `supabase.rpc()` no `process-reward`.
+### Tarefa 1: Corrigir Shorts - status filter + actions consistency
+- Adicionar `.eq("status", "approved")` nas queries de shorts
+- Migrar likes de `favorites` para `actions` (consistente com Watch)
+- Substituir `window.location.href` por `<Navigate>` e `useNavigate()`
 
-### Tarefa 2: Corrigir wallet update no close-economic-cycle
-Substituir SELECT + UPDATE por UPDATE direto com `balance = balance + share`.
+### Tarefa 2: Corrigir Listen.tsx - usar RPC para views
+- Substituir o UPDATE direto por `supabase.rpc("increment_content_view")`
 
-### Tarefa 3: Remover rota duplicada
-Remover linha 123 do `App.tsx`.
+### Tarefa 3: Corrigir CreatorProfile - mostrar cursos
+- Adicionar query em `courses` para popular a aba "Cursos"
 
-### Tarefa 4: Implementar WEEKLY_STREAK ou desativar
-Adicionar logica no `checkDailyLogin` ou desativar na config.
+### Tarefa 4: Corrigir Carteira - stats e labels
+- Usar `performance_points` nos calculos de stats
+- Atualizar `getActionLabel` com as action_keys reais
 
-### Tarefa 5: Corrigir dialog de unlike
-Trocar a mensagem de R$ para PP, ou remover o dialog de confirmacao.
+### Tarefa 5: Corrigir Index.tsx - filtrar cursos aprovados
+- Adicionar `.eq("status", "approved")` na query de cursos
 
-### Tarefa 6: Corrigir SHARE_CONTENT unicidade
-Adicionar a `UNIQUE_PER_CONTENT_ACTIONS` no server e no client.
-
-### Tarefa 7: Limpar PROFILE_COMPLETE points_creator
-Setar para 0 via SQL.
-
-### Tarefa 8: Padronizar proteção de admin pages
-Usar `<Navigate>` consistente em todas as paginas admin.
+### Tarefa 6: Corrigir navegacao em Shorts views (Mobile/Desktop)
+- Substituir `window.location.href` por `useNavigate()` em MobileShortsView e DesktopShortsView
 
