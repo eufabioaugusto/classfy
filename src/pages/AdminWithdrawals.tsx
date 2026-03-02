@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useAuth } from "@/contexts/AuthContext";
-import { useNavigate } from "react-router-dom";
+import { Navigate, useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { AdminLayout } from "@/components/AdminLayout";
@@ -56,12 +56,10 @@ export default function AdminWithdrawals() {
   const [updatingConfig, setUpdatingConfig] = useState(false);
 
   useEffect(() => {
-    if (role !== "admin") {
-      navigate("/");
-      return;
+    if (role === "admin") {
+      fetchData();
     }
-    fetchData();
-  }, [role, navigate]);
+  }, [role]);
 
   const fetchData = async () => {
     try {
@@ -269,6 +267,8 @@ export default function AdminWithdrawals() {
         return <Badge>{status}</Badge>;
     }
   };
+
+  if (role !== 'admin') return <Navigate to="/" replace />;
 
   if (loading) {
     return (

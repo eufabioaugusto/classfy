@@ -25,7 +25,7 @@ const PLAN_MULTIPLIERS: PlanMultipliers = {
 };
 
 // Actions that can only be rewarded once per day
-const DAILY_ACTIONS = ['DAILY_LOGIN', 'FIRST_CONTENT_WEEK', 'BINGE_WATCH'];
+const DAILY_ACTIONS = ['DAILY_LOGIN', 'FIRST_CONTENT_WEEK', 'BINGE_WATCH', 'WEEKLY_STREAK'];
 
 // Actions that can only be rewarded once per content per user
 const UNIQUE_PER_CONTENT_ACTIONS = [
@@ -35,7 +35,8 @@ const UNIQUE_PER_CONTENT_ACTIONS = [
   'WATCH_50', 
   'WATCH_100', 
   'COMMENT_CONTENT',
-  'VIEW_15S'
+  'VIEW_15S',
+  'SHARE_CONTENT'
 ];
 
 // Actions that can only be rewarded once ever per user
@@ -435,7 +436,7 @@ Deno.serve(async (req) => {
   }
 });
 
-// Upsert performance points for a user in the current cycle
+// Atomic increment of performance points using RPC
 async function upsertCycleUserPoints(
   supabase: ReturnType<typeof createClient>,
   cycleId: string,
@@ -443,46 +444,14 @@ async function upsertCycleUserPoints(
   points: number
 ) {
   try {
-    // Atomic upsert using ON CONFLICT to avoid race conditions
-    const { error } = await supabase
-      .from('economic_cycle_users')
-      .upsert(
-        {
-          cycle_id: cycleId,
-          user_id: userId,
-          performance_points: points,
-          updated_at: new Date().toISOString(),
-        },
-        { onConflict: 'cycle_id,user_id' }
-      );
+    const { error } = await supabase.rpc('increment_cycle_user_points', {
+      p_cycle_id: cycleId,
+      p_user_id: userId,
+      p_points: points,
+    });
 
     if (error) {
-      // Fallback: if upsert fails due to conflict handling, try raw increment approach
-      console.error('Upsert failed, trying increment fallback:', error);
-      const { data: existing } = await supabase
-        .from('economic_cycle_users')
-        .select('id, performance_points')
-        .eq('cycle_id', cycleId)
-        .eq('user_id', userId)
-        .maybeSingle();
-
-      if (existing) {
-        await supabase
-          .from('economic_cycle_users')
-          .update({
-            performance_points: parseFloat(String(existing.performance_points)) + points,
-            updated_at: new Date().toISOString(),
-          })
-          .eq('id', existing.id);
-      } else {
-        await supabase
-          .from('economic_cycle_users')
-          .insert({
-            cycle_id: cycleId,
-            user_id: userId,
-            performance_points: points,
-          });
-      }
+      console.error('Error calling increment_cycle_user_points RPC:', error);
     }
   } catch (err) {
     console.error('Error upserting cycle user points:', err);
@@ -521,6 +490,11 @@ function getNotificationText(actionKey: string, points: number): { title: string
       return {
         title: 'Novo seguidor!',
         message: `+${points} pontos de performance por seguir um criador`
+      };
+    case 'WEEKLY_STREAK':
+      return {
+        title: 'Sequência semanal! 🔥',
+        message: `Você completou uma sequência de 7 dias! +${points} pontos de performance`
       };
     default:
       return {

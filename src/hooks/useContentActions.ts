@@ -102,13 +102,13 @@ export function useContentActions({ contentId, isCourse = false, hasAccess = tru
     await refreshLikesCount();
   }, [refreshLikesCount]);
 
-  // Get reward value for this like (if any)
-  const getLikeRewardValue = useCallback(async (): Promise<number> => {
+  // Get reward PP for this like (if any)
+  const getLikeRewardPoints = useCallback(async (): Promise<number> => {
     if (!user) return 0;
 
     const { data, error } = await supabase
       .from("reward_events")
-      .select("value, created_at")
+      .select("performance_points, created_at")
       .eq("user_id", user.id)
       .eq("content_id", contentId)
       .eq("action_key", "LIKE_CONTENT")
@@ -117,11 +117,11 @@ export function useContentActions({ contentId, isCourse = false, hasAccess = tru
       .maybeSingle();
 
     if (error) {
-      console.warn("Could not fetch like reward value:", error);
+      console.warn("Could not fetch like reward points:", error);
       return 0;
     }
 
-    return data?.value || 0;
+    return data?.performance_points || 0;
   }, [user, contentId]);
 
   const toggleLike = useCallback(async () => {
@@ -137,11 +137,11 @@ export function useContentActions({ contentId, isCourse = false, hasAccess = tru
     try {
       if (isLiked) {
         // Check if there's a reward to reverse
-        const rewardValue = await getLikeRewardValue();
+        const rewardPoints = await getLikeRewardPoints();
         
-        if (rewardValue > 0) {
+        if (rewardPoints > 0) {
           // Show confirmation pending - will be handled by confirmUnlike
-          setUnlikeConfirmation({ pending: true, rewardValue });
+          setUnlikeConfirmation({ pending: true, rewardValue: rewardPoints });
           return;
         }
         
@@ -181,7 +181,7 @@ export function useContentActions({ contentId, isCourse = false, hasAccess = tru
         variant: "destructive",
       });
     }
-  }, [user, isLiked, contentId, isCourse, triggerLikeBurst, rewardLike, refreshLikesCountEventually, hasAccess, getLikeRewardValue]);
+  }, [user, isLiked, contentId, isCourse, triggerLikeBurst, rewardLike, refreshLikesCountEventually, hasAccess, getLikeRewardPoints]);
 
   const performUnlike = useCallback(async () => {
     if (!user) return;
@@ -213,7 +213,7 @@ export function useContentActions({ contentId, isCourse = false, hasAccess = tru
       
       toast({
         title: "Like removido",
-        description: `R$ ${unlikeConfirmation.rewardValue.toFixed(2)} deduzido dos seus ganhos`,
+        description: `${Math.floor(unlikeConfirmation.rewardValue)} pontos de performance deduzidos`,
       });
     } catch (error) {
       console.error("Error confirming unlike:", error);

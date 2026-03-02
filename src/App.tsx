@@ -120,7 +120,6 @@ function AppContent() {
       <Route path="/live/:id/broadcast" element={<LiveBroadcast />} />
       <Route path="/live/:id" element={<LiveWatch />} />
       <Route path="/creators/destaque/:slug" element={<FeaturedCreatorPage />} />
-      <Route path="/creators/destaque/:slug" element={<FeaturedCreatorPage />} />
       <Route path="/:username" element={<CreatorProfile />} />
       <Route path="*" element={<NotFound />} />
     </>
