@@ -1,96 +1,101 @@
 
 
-# Revisao Completa do Sistema de Monetizacao
+# Revisao Geral do Sistema - Segunda Bateria
 
-## Falhas e Inconsistencias Encontradas
-
-### 1. CRITICO: Boost nao registra receita no pool
-O `stripe-webhook` processa pagamento de boost mas **nao registra revenue_entry** para boosts. O `activate-boost` tambem nao registra. Isso significa que dinheiro de boosts **nao entra no calculo do PRM**, perdendo receita do pool.
-
-**Correcao**: No `stripe-webhook`, ao processar `checkout.session.completed` com `metadata.boost_id`, registrar `revenue_entry` com `revenue_type: 'boost'`.
+Apos analise ampla do codebase (rotas, auth, rewards, edge functions, UI), aqui estao os problemas e melhorias encontrados, organizados por severidade.
 
 ---
 
-### 2. CRITICO: Webhook nao processa pagamento de Boost
-O `stripe-webhook` verifica `metadata.content_id` para compra de conteudo e `mode === 'subscription'` para assinaturas, mas **nao verifica `metadata.boost_id`**. Quando o usuario paga um boost via Stripe Checkout, o webhook ignora completamente — o boost nunca e ativado automaticamente.
+## CRITICO
 
-**Correcao**: Adicionar um case no webhook que detecta `metadata.boost_id` e chama `activate-boost` + registra receita.
+### 1. Rota duplicada no App.tsx (linha 122-123)
+A rota `/creators/destaque/:slug` esta declarada **duas vezes identicas**. A segunda e ignorada pelo React Router, mas e lixo de codigo que pode causar confusao.
 
----
+**Correcao**: Remover a linha 123 duplicada.
 
-### 3. MEDIO: `SHARE_CONTENT` nao esta no anti-fraude
-A acao `SHARE_CONTENT` existe na config (5 pts) e e processada pelo `ShareButton`, mas **nao tem limite diario** em `DAILY_ACTION_LIMITS` no `process-reward`. Um usuario poderia farmear shares ilimitadamente.
+### 2. `upsertCycleUserPoints` NAO incrementa - sobrescreve
+O upsert atual envia `performance_points: points` (o valor novo), nao `performance_points: existente + points`. Quando o Supabase faz o upsert com ON CONFLICT, ele **substitui** o valor em vez de somar. Resultado: o usuario perde todos os PP anteriores do ciclo, ficando apenas com os pontos da ultima acao.
 
-**Correcao**: Adicionar `SHARE_CONTENT: 15` ao `DAILY_ACTION_LIMITS`.
+O fallback (linhas 462-485) faz a soma corretamente, mas so e acionado quando o upsert **falha** — nao quando ele "funciona" sobrescrevendo.
 
----
+**Correcao**: Criar uma funcao RPC no banco que faz `INSERT ... ON CONFLICT DO UPDATE SET performance_points = performance_points + $1` de forma atomica, ou alterar para sempre usar o fallback (SELECT + UPDATE).
 
-### 4. MEDIO: `BINGE_WATCH` nao tem controle de unicidade adequado
-`BINGE_WATCH` nao esta em nenhuma lista de unicidade (`DAILY_ACTIONS`, `UNIQUE_PER_CONTENT_ACTIONS`, `ONE_TIME_ACTIONS`). Cai no else generico, gerando tracking key `BINGE_WATCH` sem sufixo. Na pratica, so recompensa uma vez na vida toda (pois a key e sempre a mesma). Deveria ser diaria.
+### 3. `close-economic-cycle` tem race condition no credito de wallet
+O loop de distribuicao faz `SELECT balance` + `UPDATE balance + share` separados para cada usuario. Se duas execucoes do fechamento de ciclo rodarem simultaneamente, podem corromper saldos.
 
-**Correcao**: Adicionar `BINGE_WATCH` ao array `DAILY_ACTIONS` no `process-reward`.
-
----
-
-### 5. MEDIO: `FIRST_CONTENT_WEEK` esta classificado como DAILY no server mas como daily no client
-No `process-reward` (server), `FIRST_CONTENT_WEEK` esta em `DAILY_ACTIONS`, gerando key `FIRST_CONTENT_WEEK_2026-03-02`. Mas a logica do client em `useRewardSystem` tambem o classifica como daily. Isso esta **correto e consistente**. No entanto, a descricao diz "Primeira aula da semana" — deveria ser semanal, nao diaria. Se a intencao e semanal, a key deveria usar a semana, nao o dia.
-
-**Correcao**: Mudar para tracking semanal ou manter diario e renomear a descricao para "Primeiro conteudo do dia".
+**Correcao**: Usar uma unica query `UPDATE wallets SET balance = balance + $1, total_earned = total_earned + $1 WHERE user_id = $2` sem SELECT previo.
 
 ---
 
-### 6. BAIXO: Simulador - "Views" mapeia para SAVE_CONTENT
-No `PoolSimulator`, o tipo "Views" (`key: "views"`) mapeia para `actionKeys: ["SAVE_CONTENT"]`. Isso e incorreto semanticamente — views deveria mapear para `VIEW_15S` ou `WATCH_50/WATCH_100`.
+## MEDIO
 
-**Correcao**: Mudar para `actionKeys: ["VIEW_15S", "WATCH_50"]` ou remover o filtro "Views" e substituir por "Assistir".
+### 4. `WEEKLY_STREAK` existe na config (50 pts) mas nao e chamada em nenhum lugar
+A acao `WEEKLY_STREAK` existe na tabela `reward_actions_config` mas **nenhum codigo** (nem client nem server) a aciona. Sao 50 pontos configurados que nunca sao distribuidos.
+
+**Correcao**: Implementar a logica no `checkDailyLogin` — quando `current_streak >= 7`, disparar `WEEKLY_STREAK`. Ou desativar a acao se nao for desejada.
+
+### 5. Unlike mostra "R$ X" mas sistema usa PP (sem valor direto)
+No `ContentActions.tsx` (linha 146), o dialog de unlike exibe: `"reduzira R$ {rewardValue.toFixed(2)} dos seus ganhos"`. Porem, desde a mudanca para PP puro, `reward.value` e sempre **0**. O dialog sempre mostraria "R$ 0.00" e nunca apareceria (ja que so abre se `rewardValue > 0`).
+
+**Resultado**: O dialog de confirmacao de unlike **nunca abre** — o usuario descurte sem confirmacao.
+
+**Correcao**: Decidir se mantem confirmacao baseada em PP (ex: "Voce perdera X pontos de performance") ou simplesmente remove o dialog.
+
+### 6. Admin pages sem proteção consistente
+- `AdminDashboard`: usa `useEffect` com `navigate("/")` se nao admin (flash de conteudo antes do redirect)
+- `AdminContents`, `AdminTranscriptions`: usam `<Navigate>` (correto, sem flash)
+- Outras admin pages: padroes mistos
+
+**Correcao**: Padronizar todas as admin pages para usar `if (role !== 'admin') return <Navigate to="/" replace />` no render.
+
+### 7. `SHARE_CONTENT` nao esta em nenhuma lista de unicidade no server
+`SHARE_CONTENT` tem limite diario (15) mas nao esta em `DAILY_ACTIONS`, `UNIQUE_PER_CONTENT_ACTIONS`, nem `ONE_TIME_ACTIONS`. Cai no else generico, gerando tracking key `SHARE_CONTENT` (sem sufixo). Resultado: usuario so ganha reward de share **uma unica vez na vida** para todos os conteudos.
+
+**Correcao**: Adicionar `SHARE_CONTENT` a `UNIQUE_PER_CONTENT_ACTIONS` (para recompensar uma vez por conteudo) ou a `DAILY_ACTIONS` (uma vez por dia).
+
+### 8. `SUBSCRIBE_CREATOR` tracking key usa `metadata.creatorId` mas nao esta em nenhuma lista
+Cai no else generico com `trackingKey = SUBSCRIBE_CREATOR_${creatorId}`, o que esta correto para impedir follow duplicado. Porem, o client em `useRewardSystem.ts` classifica `SUBSCRIBE_CREATOR` no else generico tambem, usando `metadata.creatorId` — isso esta **consistente**. Sem problema aqui.
 
 ---
 
-### 7. BAIXO: `reverse-reward` nao reverte recompensa do creator
-Quando um usuario descurtir conteudo, o `reverse-reward` reverte o reward do usuario, mas **nao reverte o reward do creator** (que tambem ganhou PP pela curtida). O creator mantem PP indevidamente.
+## BAIXO
 
-**Correcao**: Apos reverter reward do usuario, buscar e reverter tambem o reward com `metadata.as_creator: true` para o mesmo `content_id` e `action_key`.
+### 9. `WATCH_50` nao recompensa creator (points_creator = 0)
+Na config, `WATCH_50` tem `points_creator: 0`. O creator so ganha PP quando o usuario completa 100% (`WATCH_100: points_creator = 5`). Pode ser intencional, mas vale revisar.
 
----
+### 10. `PROFILE_COMPLETE` tem `points_creator: 30` — faz sentido?
+Completar perfil nao envolve nenhum creator, mas a config da 30 pontos ao "creator". Como nao ha `creatorId` nessa acao, os 30 pontos nunca sao distribuidos (o `process-reward` so recompensa creator se `creatorId !== userId && creatorId exists`). O valor e inofensivo mas confuso.
 
-### 8. BAIXO: `upsertCycleUserPoints` tem race condition
-A funcao faz SELECT + UPDATE separados sem transacao. Duas chamadas simultaneas podem ler o mesmo valor e perder pontos.
+**Correcao**: Setar `points_creator: 0` para `PROFILE_COMPLETE`.
 
-**Correcao**: Usar `ON CONFLICT ... DO UPDATE SET performance_points = performance_points + $value` diretamente no INSERT (ja existe no trigger `check_view_milestones`, mas nao na edge function).
-
----
-
-### 9. INFO: `reward_events` nao salva `course_id`
-Quando o contentId resolve para um curso (`resolvedCourseId`), o `process-reward` salva `content_id: null` no reward event. O course_id e salvo apenas no metadata. Nao impacta funcionalidade, mas dificulta queries futuras.
+### 11. Comments count nao exibido corretamente
+No `ContentComments.tsx`, o count de comentarios mostrado (`{comments.length}`) so reflete os comentarios carregados **apos abrir** o componente. Antes de abrir, sempre mostra `(0)`.
 
 ---
 
 ## Plano de Implementacao
 
-### Tarefa 1: Corrigir webhook para processar boosts
-Adicionar ao `stripe-webhook/index.ts`:
-- Detectar `metadata.boost_id` no `checkout.session.completed`
-- Chamar `activate-boost` (ou ativar inline)
-- Registrar `revenue_entry` com tipo `boost`
+### Tarefa 1: Corrigir upsertCycleUserPoints (CRITICO)
+Criar funcao RPC `increment_cycle_user_points(p_cycle_id, p_user_id, p_points)` no banco que faz incremento atomico, e chamar via `supabase.rpc()` no `process-reward`.
 
-### Tarefa 2: Corrigir anti-fraude
-No `process-reward/index.ts`:
-- Adicionar `SHARE_CONTENT: 15` ao `DAILY_ACTION_LIMITS`
-- Adicionar `BINGE_WATCH` ao `DAILY_ACTIONS`
+### Tarefa 2: Corrigir wallet update no close-economic-cycle
+Substituir SELECT + UPDATE por UPDATE direto com `balance = balance + share`.
 
-### Tarefa 3: Corrigir simulador
-No `PoolSimulator.tsx`:
-- Mudar "Views" para mapear `VIEW_15S` e `WATCH_50`
-- Renomear label para "Assistir"
+### Tarefa 3: Remover rota duplicada
+Remover linha 123 do `App.tsx`.
 
-### Tarefa 4: Corrigir reverse-reward para creator
-No `reverse-reward/index.ts`:
-- Apos reverter reward do usuario, reverter tambem o do creator
+### Tarefa 4: Implementar WEEKLY_STREAK ou desativar
+Adicionar logica no `checkDailyLogin` ou desativar na config.
 
-### Tarefa 5: Corrigir race condition em upsertCycleUserPoints
-No `process-reward/index.ts`:
-- Usar INSERT ON CONFLICT em vez de SELECT + UPDATE
+### Tarefa 5: Corrigir dialog de unlike
+Trocar a mensagem de R$ para PP, ou remover o dialog de confirmacao.
 
-### Tarefa 6: Decidir sobre FIRST_CONTENT_WEEK
-- Renomear descricao para "Primeiro conteudo do dia" ou mudar tracking para semanal
+### Tarefa 6: Corrigir SHARE_CONTENT unicidade
+Adicionar a `UNIQUE_PER_CONTENT_ACTIONS` no server e no client.
+
+### Tarefa 7: Limpar PROFILE_COMPLETE points_creator
+Setar para 0 via SQL.
+
+### Tarefa 8: Padronizar proteção de admin pages
+Usar `<Navigate>` consistente em todas as paginas admin.
 
