@@ -92,7 +92,7 @@ export default function CreatorProfile() {
       setCreator(profileData);
 
       // Buscar estatísticas
-      const [pointsData, followersData, contentsData] = await Promise.all([
+      const [pointsData, followersData, contentsData, coursesData] = await Promise.all([
         supabase
           .from("reward_events")
           .select("points")
@@ -112,20 +112,39 @@ export default function CreatorProfile() {
           `)
           .eq("creator_id", profileData.id)
           .eq("status", "approved")
-          .order("published_at", { ascending: false })
+          .order("published_at", { ascending: false }),
+        supabase
+          .from("courses")
+          .select(`
+            *,
+            profiles:creator_id (
+              display_name,
+              avatar_url
+            )
+          `)
+          .eq("creator_id", profileData.id)
+          .eq("status", "approved")
+          .order("created_at", { ascending: false })
       ]);
 
       const totalPoints = pointsData.data?.reduce((sum, event) => sum + event.points, 0) || 0;
       const level = Math.floor(totalPoints / 1000) + 1;
 
+      // Merge contents and courses (courses get a virtual content_type for filtering)
+      const coursesAsContents = (coursesData.data || []).map((course: any) => ({
+        ...course,
+        content_type: "curso",
+      }));
+      const allContents = [...(contentsData.data || []), ...coursesAsContents];
+
       setStats({
         totalPoints,
         level,
         followersCount: followersData.count || 0,
-        contentCount: contentsData.data?.length || 0
+        contentCount: allContents.length
       });
 
-      setContents(contentsData.data || []);
+      setContents(allContents);
     } catch (error) {
       console.error("Error loading creator profile:", error);
       toast({

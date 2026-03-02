@@ -1,4 +1,5 @@
 import { useRef, useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import { Heart, MessageCircle, Share2, Bookmark, Volume2, VolumeX, Home, Search, Target, Gift, Send } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
@@ -68,6 +69,7 @@ export function MobileShortsView({
   onAccessBlocked,
 }: MobileShortsViewProps) {
   const { user } = useAuth();
+  const navigateTo = useNavigate();
   const containerRef = useRef<HTMLDivElement>(null);
   const videoRefs = useRef<(HTMLVideoElement | null)[]>([]);
   const [isScrolling, setIsScrolling] = useState(false);
@@ -268,7 +270,7 @@ export function MobileShortsView({
                 {/* Creator avatar */}
                 <div 
                   className="mt-1 cursor-pointer"
-                  onClick={() => window.location.href = `/c/${short.creator.creator_channel_name || short.creator.id}`}
+                  onClick={() => navigateTo(`/c/${short.creator.creator_channel_name || short.creator.id}`)}
                 >
                   <Avatar className="w-10 h-10 border-2 border-white">
                     <AvatarImage src={short.creator.avatar_url || ""} />
@@ -339,8 +341,9 @@ function ShortsBottomNav() {
   const { user } = useAuth();
   const unreadCount = useUnreadMessages();
 
+  const nav = useNavigate();
   const navigate = (path: string) => {
-    window.location.href = path;
+    nav(path);
   };
 
   const openSearch = () => {

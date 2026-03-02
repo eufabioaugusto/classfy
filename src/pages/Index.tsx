@@ -122,6 +122,7 @@ export default function Index() {
         supabase
           .from("courses")
           .select(`*, profiles:creator_id (display_name, avatar_url)`)
+          .eq("status", "approved")
           .order("created_at", { ascending: false })
           .limit(4)
       ]);
