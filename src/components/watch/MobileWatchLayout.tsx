@@ -423,11 +423,11 @@ export function MobileWatchLayout({
         <AlertDialogHeader>
           <AlertDialogTitle>Tem certeza disso?</AlertDialogTitle>
           <AlertDialogDescription>
-            Ao remover o like, você reduzirá{" "}
+            Ao remover o like, você perderá{" "}
             <span className="font-bold text-destructive">
-              R$ {unlikeConfirmation.rewardValue.toFixed(2)}
+              {unlikeConfirmation.rewardValue} Performance Points
             </span>{" "}
-            dos seus ganhos.
+            conquistados.
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>

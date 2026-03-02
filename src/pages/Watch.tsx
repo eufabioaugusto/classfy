@@ -396,12 +396,12 @@ function WatchContent() {
     await refreshLikesCount();
   };
 
-  const getLikeRewardValue = async (): Promise<number> => {
+  const getLikeRewardPoints = async (): Promise<number> => {
     if (!user || !content) return 0;
 
     const { data, error } = await supabase
       .from("reward_events")
-      .select("value, created_at")
+      .select("performance_points, created_at")
       .eq("user_id", user.id)
       .eq("content_id", content.id)
       .eq("action_key", "LIKE_CONTENT")
@@ -410,7 +410,7 @@ function WatchContent() {
       .maybeSingle();
 
     if (error) return 0;
-    return data?.value || 0;
+    return data?.performance_points || 0;
   };
 
   const performUnlike = async () => {
@@ -441,9 +441,7 @@ function WatchContent() {
       await reverseReward(user.id, content.id, "LIKE_CONTENT");
       await performUnlike();
 
-      toast.success(
-        `Like removido. R$ ${unlikeConfirmation.rewardValue.toFixed(2)} deduzido dos seus ganhos.`,
-      );
+      toast.success("Like removido. Performance Points deduzidos.");
     } finally {
       setUnlikeConfirmation({ pending: false, rewardValue: 0 });
     }
@@ -458,15 +456,15 @@ function WatchContent() {
 
     try {
       if (isLiked) {
-        const rewardValue = await getLikeRewardValue();
+        const rewardPoints = await getLikeRewardPoints();
         console.log("[toggleLike] attempting unlike", {
           contentId: content.id,
-          hasReward: rewardValue > 0,
-          rewardValue,
+          hasReward: rewardPoints > 0,
+          rewardPoints,
         });
 
-        if (rewardValue > 0) {
-          setUnlikeConfirmation({ pending: true, rewardValue });
+        if (rewardPoints > 0) {
+          setUnlikeConfirmation({ pending: true, rewardValue: rewardPoints });
           return;
         }
 
@@ -554,27 +552,49 @@ function WatchContent() {
       return;
     }
 
+    // Creator always has access to own content
+    if (content.creator_id === user.id) {
+      setHasAccess(true);
+      return;
+    }
+
     const userPlan = profile.plan || "free";
 
-    // Check if content is paid and user has purchased it
+    // Check if content is paid and user has purchased/enrolled
     if (content.visibility === "paid") {
-      const { data: purchase } = await supabase
-        .from("purchased_contents")
-        .select("id")
-        .eq("user_id", user.id)
-        .eq("content_id", content.id)
-        .maybeSingle();
+      if (isCourse) {
+        // For courses, check enrollment instead of purchased_contents
+        const { data: enrollment } = await supabase
+          .from("course_enrollments")
+          .select("id")
+          .eq("user_id", user.id)
+          .eq("course_id", content.id)
+          .maybeSingle();
 
-      if (purchase) {
-        setIsPurchased(true);
-        setHasAccess(true);
-        return;
+        if (enrollment) {
+          setIsPurchased(true);
+          setHasAccess(true);
+          return;
+        }
       } else {
-        setIsPurchased(false);
-        setHasAccess(false);
-        setAccessBlockedReason("purchase");
-        return;
+        const { data: purchase } = await supabase
+          .from("purchased_contents")
+          .select("id")
+          .eq("user_id", user.id)
+          .eq("content_id", content.id)
+          .maybeSingle();
+
+        if (purchase) {
+          setIsPurchased(true);
+          setHasAccess(true);
+          return;
+        }
       }
+
+      setIsPurchased(false);
+      setHasAccess(false);
+      setAccessBlockedReason("purchase");
+      return;
     }
 
     // Check plan-based access
