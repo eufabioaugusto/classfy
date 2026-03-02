@@ -27,7 +27,7 @@ export function useRewardSystem() {
     let rewardKey: string;
     
     // Match the server-side tracking key logic
-    const dailyActions = ['DAILY_LOGIN', 'FIRST_CONTENT_WEEK'];
+    const dailyActions = ['DAILY_LOGIN', 'FIRST_CONTENT_WEEK', 'BINGE_WATCH'];
     const uniquePerContentActions = ['LIKE_CONTENT', 'SAVE_CONTENT', 'FAVORITE_CONTENT', 'WATCH_50', 'WATCH_100', 'COMMENT_CONTENT', 'VIEW_15S'];
     
     if (dailyActions.includes(actionKey)) {

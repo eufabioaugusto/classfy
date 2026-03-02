@@ -12,9 +12,9 @@ interface PoolSimulatorProps {
 
 // Maps engagement filter keys to action_key values in reward_actions_config
 const engagementTypes = [
-  { key: "all", label: "Tudo", icon: Zap, actionKeys: ["LIKE_CONTENT", "COMMENT_CONTENT", "SAVE_CONTENT", "FAVORITE_CONTENT", "SHARE_CONTENT"] },
+  { key: "all", label: "Tudo", icon: Zap, actionKeys: ["LIKE_CONTENT", "COMMENT_CONTENT", "SAVE_CONTENT", "FAVORITE_CONTENT", "SHARE_CONTENT", "VIEW_15S", "WATCH_50"] },
   { key: "likes", label: "Curtidas", icon: Heart, actionKeys: ["LIKE_CONTENT"] },
-  { key: "views", label: "Views", icon: Eye, actionKeys: ["SAVE_CONTENT"] },
+  { key: "watch", label: "Assistir", icon: Eye, actionKeys: ["VIEW_15S", "WATCH_50"] },
   { key: "shares", label: "Shares", icon: Share2, actionKeys: ["SHARE_CONTENT", "FAVORITE_CONTENT"] },
   { key: "comments", label: "Comentários", icon: MessageCircle, actionKeys: ["COMMENT_CONTENT"] },
 ];

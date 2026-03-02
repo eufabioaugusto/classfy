@@ -41,6 +41,38 @@ serve(async (req) => {
       case "checkout.session.completed": {
         const session = event.data.object as Stripe.Checkout.Session;
         
+        // Handle boost purchase
+        if (session.mode === "payment" && session.metadata?.boost_id) {
+          const boostId = session.metadata.boost_id;
+          const totalBudget = session.amount_total ? session.amount_total / 100 : 0;
+          
+          console.log("[WEBHOOK] Boost payment completed:", { boostId, totalBudget });
+
+          // Activate boost
+          try {
+            await supabaseClient.functions.invoke('activate-boost', {
+              body: {
+                boostId,
+                paymentIntentId: session.payment_intent as string,
+              }
+            });
+            console.log("Boost activated successfully");
+          } catch (activateErr) {
+            console.error("Error activating boost:", activateErr);
+          }
+
+          // Record boost revenue
+          if (totalBudget > 0) {
+            await recordRevenue(supabaseClient, {
+              revenue_type: 'boost',
+              amount: totalBudget,
+              source_id: session.payment_intent as string,
+              user_id: session.metadata.user_id,
+              metadata: { boost_id: boostId, total_budget: totalBudget },
+            });
+          }
+        }
+        
         // Handle content purchase
         if (session.mode === "payment" && session.metadata?.content_id) {
           const pricePaid = parseFloat(session.metadata.price_paid);
