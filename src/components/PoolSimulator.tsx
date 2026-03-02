@@ -69,21 +69,17 @@ export function PoolSimulator({ currentPP, totalPP, prm, currentEstimate }: Pool
       pointsPerAction = actionCount > 0 ? totalPoints / actionCount : 0;
     }
 
-    // Calculate only the EXTRA earnings from simulated actions
+    // Calculate proportional value of simulated PP
+    // Formula: how much these simulated points are worth in the pool
+    // value = (simulatedPP / (totalGlobalPP + simulatedPP)) * PRM
     const ESTIMATED_POOL_BASELINE = 5000;
     const effectiveTotalPP = totalPP > 0 ? totalPP : ESTIMATED_POOL_BASELINE;
 
-    // New total pool with extra simulated PP
-    const newTotalPP = effectiveTotalPP + simulatedPP;
+    // The proportional share these simulated points would earn
+    const poolWithSimulated = effectiveTotalPP + simulatedPP;
+    const simulatedValue = poolWithSimulated > 0 ? (simulatedPP / poolWithSimulated) * prm : 0;
 
-    // What user would earn with current + simulated PP
-    const newUserPP = currentPP + simulatedPP;
-    const newShare = newTotalPP > 0 ? (newUserPP / newTotalPP) * prm : 0;
-
-    // The extra earnings = new share minus current share
-    const extraEarnings = newShare - currentEstimate;
-
-    return { extraEarnings: Math.max(0, extraEarnings), isEstimated: totalPP === 0, simulatedPP, pointsPerAction };
+    return { simulatedValue, isEstimated: totalPP === 0, simulatedPP, pointsPerAction };
   }, [simulatedActions, selectedType, actionPoints, currentPP, totalPP, prm, currentEstimate]);
 
   return (
@@ -143,9 +139,9 @@ export function PoolSimulator({ currentPP, totalPP, prm, currentEstimate }: Pool
 
         {/* Right: result */}
         <div className="flex flex-col items-center justify-center rounded-lg bg-muted/50 p-4 text-center">
-          <span className="text-xs text-muted-foreground mb-1">Ganho extra estimado</span>
+          <span className="text-xs text-muted-foreground mb-1">Esses pontos valeriam</span>
           <span className="text-2xl sm:text-3xl font-bold text-accent">
-            +R$ {simulation.extraEarnings.toFixed(2)}
+            R$ {simulation.simulatedValue.toFixed(2)}
           </span>
           {simulatedActions[0] === 0 && (
             <span className="text-xs text-muted-foreground mt-1.5">
