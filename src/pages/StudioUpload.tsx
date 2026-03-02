@@ -567,6 +567,7 @@ export default function StudioUpload() {
 
     setSubmitting(true);
     try {
+      // "curso" should use the dedicated StudioUploadCurso page, but if somehow submitted here, use "aula"
       const dbContentType = contentType === "curso" ? "aula" : contentType;
       
       const contentData = {

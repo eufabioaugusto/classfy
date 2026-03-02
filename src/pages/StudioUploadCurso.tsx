@@ -349,47 +349,122 @@ export default function StudioUploadCurso() {
       updateLesson(moduleId, lessonId, 'progress', 0);
 
       // Get video duration
-      const video = document.createElement("video");
-      const videoUrl = URL.createObjectURL(file);
-      video.src = videoUrl;
-      video.onloadedmetadata = () => {
-        updateLesson(moduleId, lessonId, 'duration', Math.floor(video.duration));
-        URL.revokeObjectURL(videoUrl);
-      };
+      const videoDurationPromise = new Promise<number>((resolve) => {
+        const video = document.createElement("video");
+        const videoUrl = URL.createObjectURL(file);
+        video.src = videoUrl;
+        video.onloadedmetadata = () => {
+          resolve(Math.floor(video.duration));
+          URL.revokeObjectURL(videoUrl);
+        };
+        video.onerror = () => {
+          URL.revokeObjectURL(videoUrl);
+          resolve(0);
+        };
+      });
 
-      const fileExt = file.name.split('.').pop();
-      const fileName = `${user.id}/${Date.now()}.${fileExt}`;
-      
-      // Simulate progress
-      let currentProgress = 0;
-      const progressInterval = setInterval(() => {
-        currentProgress += 15;
-        if (currentProgress >= 90) {
-          clearInterval(progressInterval);
-          updateLesson(moduleId, lessonId, 'progress', 90);
-        } else {
-          updateLesson(moduleId, lessonId, 'progress', currentProgress);
-        }
-      }, 300);
-
-      const { error, data } = await supabase.storage
-        .from('courses')
-        .upload(fileName, file, {
-          cacheControl: '3600',
-          upsert: false
+      // Compress video if needed (client-side FFmpeg.wasm)
+      let fileToUpload = file;
+      try {
+        const { shouldCompress: checkCompress } = await import('@/hooks/useVideoCompression').then(() => {
+          // We can't use the hook here directly, so do inline check
+          return { shouldCompress: file.size > 50 * 1024 * 1024 };
         });
 
-      clearInterval(progressInterval);
+        if (checkCompress) {
+          updateLesson(moduleId, lessonId, 'progress', 5);
+          // Use FFmpeg for large files - import dynamically
+          const { FFmpeg } = await import('@ffmpeg/ffmpeg');
+          const { fetchFile, toBlobURL } = await import('@ffmpeg/util');
 
-      if (error) throw error;
+          const ffmpeg = new FFmpeg();
+          ffmpeg.on('progress', ({ progress }) => {
+            const percent = Math.min(Math.round(progress * 60), 60); // 0-60% for compression
+            updateLesson(moduleId, lessonId, 'progress', percent);
+          });
+
+          const baseURL = 'https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd';
+          await ffmpeg.load({
+            coreURL: await toBlobURL(`${baseURL}/ffmpeg-core.js`, 'text/javascript'),
+            wasmURL: await toBlobURL(`${baseURL}/ffmpeg-core.wasm`, 'application/wasm'),
+          });
+
+          const inputName = 'input' + file.name.substring(file.name.lastIndexOf('.'));
+          await ffmpeg.writeFile(inputName, await fetchFile(file));
+
+          await ffmpeg.exec([
+            '-i', inputName,
+            '-c:v', 'libx264', '-preset', 'medium', '-crf', '28',
+            '-vf', 'scale=min(1920\\,iw):min(1080\\,ih):force_original_aspect_ratio=decrease',
+            '-c:a', 'aac', '-b:a', '128k',
+            '-movflags', '+faststart', '-y', 'output.mp4'
+          ]);
+
+          const rawData = await ffmpeg.readFile('output.mp4');
+          const uint8 = rawData instanceof Uint8Array ? rawData : new TextEncoder().encode(rawData as string);
+          const copy = new Uint8Array(uint8.length);
+          copy.set(uint8);
+          const blob = new Blob([copy], { type: 'video/mp4' });
+          fileToUpload = new File([blob], file.name.replace(/\.[^/.]+$/, '.mp4'), { type: 'video/mp4' });
+
+          await ffmpeg.deleteFile(inputName);
+          await ffmpeg.deleteFile('output.mp4');
+
+          const ratio = ((file.size - fileToUpload.size) / file.size) * 100;
+          if (ratio > 5) {
+            toast.success(`Vídeo comprimido ${ratio.toFixed(0)}%`);
+          }
+        }
+      } catch (compressionError) {
+        console.warn('Compression failed, using original file:', compressionError);
+        fileToUpload = file;
+      }
+
+      // Upload with real XHR progress
+      const fileExt = fileToUpload.name.split('.').pop();
+      const fileName = `${user.id}/${Date.now()}.${fileExt}`;
+      
+      const { data: session } = await supabase.auth.getSession();
+      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+      const uploadUrl = `${supabaseUrl}/storage/v1/object/courses/${fileName}`;
+
+      await new Promise<void>((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+
+        xhr.upload.addEventListener('progress', (event) => {
+          if (event.lengthComputable) {
+            // Upload progress mapped to 60-95%
+            const uploadPercent = Math.round((event.loaded / event.total) * 35) + 60;
+            updateLesson(moduleId, lessonId, 'progress', Math.min(uploadPercent, 95));
+          }
+        });
+
+        xhr.addEventListener('load', () => {
+          if (xhr.status >= 200 && xhr.status < 300) {
+            resolve();
+          } else {
+            reject(new Error(`Upload failed with status ${xhr.status}`));
+          }
+        });
+
+        xhr.addEventListener('error', () => reject(new Error('Upload failed')));
+        xhr.addEventListener('abort', () => reject(new Error('Upload aborted')));
+
+        xhr.open('POST', uploadUrl);
+        xhr.setRequestHeader('Authorization', `Bearer ${session?.session?.access_token}`);
+        xhr.setRequestHeader('x-upsert', 'true');
+        xhr.send(fileToUpload);
+      });
 
       const { data: { publicUrl } } = supabase.storage
         .from('courses')
         .getPublicUrl(fileName);
 
+      const videoDuration = await videoDurationPromise;
+      updateLesson(moduleId, lessonId, 'duration', videoDuration);
       updateLesson(moduleId, lessonId, 'progress', 100);
       updateLesson(moduleId, lessonId, 'videoUrl', publicUrl);
-      updateLesson(moduleId, lessonId, 'videoFile', file);
+      updateLesson(moduleId, lessonId, 'videoFile', fileToUpload);
       
       toast.success("Vídeo da aula enviado com sucesso!");
     } catch (error: any) {
@@ -631,6 +706,33 @@ export default function StudioUploadCurso() {
     } catch (error: any) {
       console.error("Erro ao criar curso:", error);
       toast.error(error.message || "Erro ao criar curso");
+
+      // Cleanup orphaned course if it was created but modules/lessons failed
+      if (error && modules.length > 0) {
+        try {
+          const { data: orphanCourse } = await supabase
+            .from('courses')
+            .select('id')
+            .eq('creator_id', user.id)
+            .eq('title', title)
+            .eq('status', 'pending')
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .maybeSingle();
+
+          if (orphanCourse) {
+            // Delete cascade: lessons, modules, quizzes, materials reference course_id
+            await supabase.from('course_lessons').delete().eq('course_id', orphanCourse.id);
+            await supabase.from('course_quizzes').delete().eq('course_id', orphanCourse.id);
+            await supabase.from('course_materials').delete().eq('course_id', orphanCourse.id);
+            await supabase.from('course_modules').delete().eq('course_id', orphanCourse.id);
+            await supabase.from('courses').delete().eq('id', orphanCourse.id);
+            console.log('Cleaned up orphaned course:', orphanCourse.id);
+          }
+        } catch (cleanupError) {
+          console.error('Cleanup failed:', cleanupError);
+        }
+      }
     } finally {
       setSubmitting(false);
     }
