@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { Navigate, useNavigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
 import { AdminLayout } from "@/components/AdminLayout";
@@ -131,14 +131,12 @@ export default function AdminRewards() {
   });
 
   useEffect(() => {
-    if (!authLoading && role !== 'admin') {
-      navigate("/");
-    } else if (role === 'admin') {
+    if (role === 'admin') {
       fetchData();
       fetchMilestones();
       fetchEconomyData();
     }
-  }, [role, authLoading, navigate]);
+  }, [role, authLoading]);
 
   const fetchData = async () => {
     try {
@@ -505,6 +503,8 @@ export default function AdminRewards() {
       default: return type;
     }
   };
+
+  if (!authLoading && role !== 'admin') return <Navigate to="/" replace />;
 
   if (authLoading || loading) {
     return <GlobalLoader />;

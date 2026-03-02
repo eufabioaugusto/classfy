@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useAuth } from "@/contexts/AuthContext";
-import { useNavigate } from "react-router-dom";
+import { Navigate, useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { AdminLayout } from "@/components/AdminLayout";
@@ -58,12 +58,10 @@ export default function AdminUsers() {
   const [processing, setProcessing] = useState(false);
 
   useEffect(() => {
-    if (role !== "admin") {
-      navigate("/");
-      return;
+    if (role === "admin") {
+      fetchUsers();
     }
-    fetchUsers();
-  }, [role, navigate]);
+  }, [role]);
 
   const fetchUsers = async () => {
     try {
@@ -191,6 +189,8 @@ export default function AdminUsers() {
   const filteredUsers = users.filter((user) =>
     user.display_name.toLowerCase().includes(searchTerm.toLowerCase())
   );
+
+  if (role !== 'admin') return <Navigate to="/" replace />;
 
   if (loading) {
     return (

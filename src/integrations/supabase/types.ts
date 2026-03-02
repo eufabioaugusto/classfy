@@ -3046,6 +3046,14 @@ export type Database = {
         Args: { p_course_id: string; p_user_id: string }
         Returns: Json
       }
+      increment_cycle_user_points: {
+        Args: { p_cycle_id: string; p_points: number; p_user_id: string }
+        Returns: undefined
+      }
+      increment_wallet_balance: {
+        Args: { p_amount: number; p_user_id: string }
+        Returns: undefined
+      }
       is_content_boosted: { Args: { p_content_id: string }; Returns: boolean }
       is_conversation_participant: {
         Args: { p_conversation_id: string; p_user_id: string }

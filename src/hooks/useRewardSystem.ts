@@ -28,7 +28,7 @@ export function useRewardSystem() {
     
     // Match the server-side tracking key logic
     const dailyActions = ['DAILY_LOGIN', 'FIRST_CONTENT_WEEK', 'BINGE_WATCH'];
-    const uniquePerContentActions = ['LIKE_CONTENT', 'SAVE_CONTENT', 'FAVORITE_CONTENT', 'WATCH_50', 'WATCH_100', 'COMMENT_CONTENT', 'VIEW_15S'];
+    const uniquePerContentActions = ['LIKE_CONTENT', 'SAVE_CONTENT', 'FAVORITE_CONTENT', 'WATCH_50', 'WATCH_100', 'COMMENT_CONTENT', 'VIEW_15S', 'SHARE_CONTENT'];
     
     if (dailyActions.includes(actionKey)) {
       rewardKey = `${actionKey}_${userId}_${today}`;
@@ -170,7 +170,6 @@ export function useRewardSystem() {
 
   const checkDailyLogin = async (userId: string) => {
     // Server-side validation handles duplicate prevention via reward_action_tracking table
-    // No client-side localStorage check needed - server is the source of truth
     const today = new Date().toISOString().split('T')[0];
     
     // Update streak (server will handle if already done today)
@@ -184,21 +183,25 @@ export function useRewardSystem() {
     yesterday.setDate(yesterday.getDate() - 1);
     const yesterdayStr = yesterday.toISOString().split('T')[0];
 
+    let currentStreak = 1;
+
     if (streak) {
       // Only update if not already logged in today
       if (streak.last_login_date !== today) {
         const isConsecutive = streak.last_login_date === yesterdayStr;
-        const newStreak = isConsecutive ? (streak.current_streak || 0) + 1 : 1;
-        const newLongest = Math.max(newStreak, streak.longest_streak || 0);
+        currentStreak = isConsecutive ? (streak.current_streak || 0) + 1 : 1;
+        const newLongest = Math.max(currentStreak, streak.longest_streak || 0);
 
         await supabase
           .from('user_login_streaks')
           .update({
-            current_streak: newStreak,
+            current_streak: currentStreak,
             longest_streak: newLongest,
             last_login_date: today,
           })
           .eq('user_id', userId);
+      } else {
+        currentStreak = streak.current_streak || 1;
       }
     } else {
       await supabase
@@ -217,6 +220,15 @@ export function useRewardSystem() {
       userId,
       metadata: { date: today },
     });
+
+    // Check WEEKLY_STREAK: reward when streak reaches 7 (or multiples)
+    if (currentStreak >= 7 && currentStreak % 7 === 0) {
+      await processReward({
+        actionKey: 'WEEKLY_STREAK',
+        userId,
+        metadata: { streak: currentStreak, date: today },
+      });
+    }
   };
 
   const checkCourseCompletion = async (userId: string, courseId: string) => {

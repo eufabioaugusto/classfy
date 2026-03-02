@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useAuth } from "@/contexts/AuthContext";
-import { useNavigate } from "react-router-dom";
+import { Navigate, useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { useAdminNotifications } from "@/hooks/useAdminNotifications";
@@ -76,13 +76,11 @@ export default function AdminDashboard() {
   useAdminNotifications();
 
   useEffect(() => {
-    if (role !== "admin") {
-      navigate("/");
-      return;
+    if (role === 'admin') {
+      fetchDashboardStats();
+      fetchRecentActivities();
     }
-    fetchDashboardStats();
-    fetchRecentActivities();
-  }, [role, navigate]);
+  }, [role]);
 
   const fetchDashboardStats = async () => {
     try {
@@ -238,6 +236,8 @@ export default function AdminDashboard() {
       </div>
     </Card>
   );
+
+  if (role !== 'admin') return <Navigate to="/" replace />;
 
   if (loading) {
     return (

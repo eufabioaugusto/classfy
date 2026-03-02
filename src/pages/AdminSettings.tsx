@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useAuth } from "@/contexts/AuthContext";
-import { useNavigate } from "react-router-dom";
+import { Navigate, useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { AdminLayout } from "@/components/AdminLayout";
@@ -23,13 +23,11 @@ export default function AdminSettings() {
   const [cycleYearMonth, setCycleYearMonth] = useState("");
 
   useEffect(() => {
-    if (role !== "admin") {
-      navigate("/");
-      return;
+    if (role === "admin") {
+      fetchConfig();
+      fetchLastCycle();
     }
-    fetchConfig();
-    fetchLastCycle();
-  }, [role, navigate]);
+  }, [role]);
 
   const fetchConfig = async () => {
     try {
@@ -148,6 +146,8 @@ export default function AdminSettings() {
       setClosingCycle(false);
     }
   };
+
+  if (role !== 'admin') return <Navigate to="/" replace />;
 
   if (loading) {
     return (

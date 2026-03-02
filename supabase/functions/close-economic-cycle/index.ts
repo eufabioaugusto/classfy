@@ -143,22 +143,11 @@ Deno.serve(async (req) => {
           })
           .eq('id', cycleUser.id);
 
-        // Credit wallet
-        const { data: wallet } = await supabase
-          .from('wallets')
-          .select('balance, total_earned')
-          .eq('user_id', cycleUser.user_id)
-          .single();
-
-        if (wallet) {
-          await supabase
-            .from('wallets')
-            .update({
-              balance: parseFloat(String(wallet.balance)) + roundedShare,
-              total_earned: parseFloat(String(wallet.total_earned)) + roundedShare,
-            })
-            .eq('user_id', cycleUser.user_id);
-        }
+        // Credit wallet atomically (no SELECT needed)
+        await supabase.rpc('increment_wallet_balance', {
+          p_user_id: cycleUser.user_id,
+          p_amount: roundedShare,
+        });
 
         // Record wallet transaction (wallet_transactions uses wallet_id)
         const { data: walletRecord } = await supabase
