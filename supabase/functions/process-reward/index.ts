@@ -25,7 +25,7 @@ const PLAN_MULTIPLIERS: PlanMultipliers = {
 };
 
 // Actions that can only be rewarded once per day
-const DAILY_ACTIONS = ['DAILY_LOGIN', 'FIRST_CONTENT_WEEK'];
+const DAILY_ACTIONS = ['DAILY_LOGIN', 'FIRST_CONTENT_WEEK', 'BINGE_WATCH'];
 
 // Actions that can only be rewarded once per content per user
 const UNIQUE_PER_CONTENT_ACTIONS = [
@@ -62,6 +62,7 @@ const DAILY_ACTION_LIMITS: Record<string, number> = {
   WATCH_50: 30,
   WATCH_100: 20,
   SUBSCRIBE_CREATOR: 10,
+  SHARE_CONTENT: 15,
 };
 
 // Diminishing returns: after N actions in a day, PP is reduced by a curve
@@ -442,29 +443,46 @@ async function upsertCycleUserPoints(
   points: number
 ) {
   try {
-    // Try to find existing record
-    const { data: existing } = await supabase
+    // Atomic upsert using ON CONFLICT to avoid race conditions
+    const { error } = await supabase
       .from('economic_cycle_users')
-      .select('id, performance_points')
-      .eq('cycle_id', cycleId)
-      .eq('user_id', userId)
-      .maybeSingle();
-
-    if (existing) {
-      await supabase
-        .from('economic_cycle_users')
-        .update({
-          performance_points: parseFloat(String(existing.performance_points)) + points,
-        })
-        .eq('id', existing.id);
-    } else {
-      await supabase
-        .from('economic_cycle_users')
-        .insert({
+      .upsert(
+        {
           cycle_id: cycleId,
           user_id: userId,
           performance_points: points,
-        });
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: 'cycle_id,user_id' }
+      );
+
+    if (error) {
+      // Fallback: if upsert fails due to conflict handling, try raw increment approach
+      console.error('Upsert failed, trying increment fallback:', error);
+      const { data: existing } = await supabase
+        .from('economic_cycle_users')
+        .select('id, performance_points')
+        .eq('cycle_id', cycleId)
+        .eq('user_id', userId)
+        .maybeSingle();
+
+      if (existing) {
+        await supabase
+          .from('economic_cycle_users')
+          .update({
+            performance_points: parseFloat(String(existing.performance_points)) + points,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', existing.id);
+      } else {
+        await supabase
+          .from('economic_cycle_users')
+          .insert({
+            cycle_id: cycleId,
+            user_id: userId,
+            performance_points: points,
+          });
+      }
     }
   } catch (err) {
     console.error('Error upserting cycle user points:', err);

@@ -95,6 +95,49 @@ Deno.serve(async (req) => {
       }
     }
 
+    // Revert creator reward (creator also earned PP for this action)
+    let creatorPPReverted = 0;
+    const { data: creatorReward } = await supabase
+      .from("reward_events")
+      .select("id, performance_points, user_id, cycle_id")
+      .eq("content_id", contentId)
+      .eq("action_key", actionKey)
+      .filter("metadata->>as_creator", "eq", "true")
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (creatorReward) {
+      // Delete creator reward event
+      await supabase
+        .from("reward_events")
+        .delete()
+        .eq("id", creatorReward.id);
+
+      const creatorPP = Number(creatorReward.performance_points || 0);
+      if (creatorPP > 0 && creatorReward.cycle_id) {
+        const { data: creatorCycleUser } = await supabase
+          .from("economic_cycle_users")
+          .select("performance_points")
+          .eq("cycle_id", creatorReward.cycle_id)
+          .eq("user_id", creatorReward.user_id)
+          .single();
+
+        if (creatorCycleUser) {
+          const newCreatorPP = Math.max(0, Number(creatorCycleUser.performance_points) - creatorPP);
+          await supabase
+            .from("economic_cycle_users")
+            .update({
+              performance_points: newCreatorPP,
+              updated_at: new Date().toISOString(),
+            })
+            .eq("cycle_id", creatorReward.cycle_id)
+            .eq("user_id", creatorReward.user_id);
+          creatorPPReverted = creatorPP;
+        }
+      }
+    }
+
     // Remove tracking record (so re-like can reward again)
     const trackingKey = buildTrackingKey(actionKey, contentId);
     await supabase
@@ -108,6 +151,7 @@ Deno.serve(async (req) => {
         success: true,
         reversed: true,
         performance_points_reverted: ppToRevert,
+        creator_pp_reverted: creatorPPReverted,
         points: Number(reward.points || 0),
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } },
