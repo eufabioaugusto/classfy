@@ -10,18 +10,18 @@ interface PoolSimulatorProps {
   currentEstimate: number;
 }
 
-// Maps engagement filter keys to action_type values in actions_config
+// Maps engagement filter keys to action_key values in reward_actions_config
 const engagementTypes = [
-  { key: "all", label: "Tudo", icon: Zap, actionTypes: ["VIEW", "LIKE", "COMMENT", "SAVE", "FAVORITE"] },
-  { key: "likes", label: "Curtidas", icon: Heart, actionTypes: ["LIKE"] },
-  { key: "views", label: "Views", icon: Eye, actionTypes: ["VIEW"] },
-  { key: "shares", label: "Shares", icon: Share2, actionTypes: ["SAVE", "FAVORITE"] },
-  { key: "comments", label: "Comentários", icon: MessageCircle, actionTypes: ["COMMENT"] },
+  { key: "all", label: "Tudo", icon: Zap, actionKeys: ["LIKE_CONTENT", "COMMENT_CONTENT", "SAVE_CONTENT", "FAVORITE_CONTENT", "SHARE_CONTENT"] },
+  { key: "likes", label: "Curtidas", icon: Heart, actionKeys: ["LIKE_CONTENT"] },
+  { key: "views", label: "Views", icon: Eye, actionKeys: ["SAVE_CONTENT"] },
+  { key: "shares", label: "Shares", icon: Share2, actionKeys: ["SHARE_CONTENT", "FAVORITE_CONTENT"] },
+  { key: "comments", label: "Comentários", icon: MessageCircle, actionKeys: ["COMMENT_CONTENT"] },
 ];
 
 // Default points per action (fallback if DB fetch fails)
 const DEFAULT_ACTION_POINTS: Record<string, number> = {
-  VIEW: 1, LIKE: 2, SAVE: 3, FAVORITE: 5, COMMENT: 10,
+  LIKE_CONTENT: 2, COMMENT_CONTENT: 5, SAVE_CONTENT: 2, FAVORITE_CONTENT: 3, SHARE_CONTENT: 5,
 };
 
 export function PoolSimulator({ currentPP, totalPP, prm, currentEstimate }: PoolSimulatorProps) {
@@ -29,17 +29,17 @@ export function PoolSimulator({ currentPP, totalPP, prm, currentEstimate }: Pool
   const [selectedType, setSelectedType] = useState("all");
   const [actionPoints, setActionPoints] = useState<Record<string, number>>(DEFAULT_ACTION_POINTS);
 
-  // Fetch real action point values from actions_config
+  // Fetch real action point values from reward_actions_config
   useEffect(() => {
     supabase
-      .from("actions_config")
-      .select("action_type, base_points, active")
+      .from("reward_actions_config")
+      .select("action_key, points_user, active")
       .eq("active", true)
       .then(({ data }) => {
         if (data && data.length > 0) {
           const map: Record<string, number> = {};
           data.forEach((row) => {
-            map[row.action_type] = row.base_points;
+            map[row.action_key] = row.points_user;
           });
           setActionPoints((prev) => ({ ...prev, ...map }));
         }
@@ -55,19 +55,19 @@ export function PoolSimulator({ currentPP, totalPP, prm, currentEstimate }: Pool
     let simulatedPP: number;
     let pointsPerAction: number;
 
-    if (selected.actionTypes.length === 1) {
+    if (selected.actionKeys.length === 1) {
       // Single type: all actions are of this type
-      pointsPerAction = actionPoints[selected.actionTypes[0]] ?? 1;
+      pointsPerAction = actionPoints[selected.actionKeys[0]] ?? 1;
       simulatedPP = Math.round(actionCount * pointsPerAction);
     } else {
       // "Tudo": user does actionCount of EACH type (full engagement scenario)
-      const totalPoints = selected.actionTypes.reduce(
+      const totalPoints = selected.actionKeys.reduce(
         (sum, at) => sum + actionCount * (actionPoints[at] ?? 1),
         0
       );
       simulatedPP = Math.round(totalPoints);
       // Show total pts per "round" of all actions combined
-      pointsPerAction = selected.actionTypes.reduce((sum, at) => sum + (actionPoints[at] ?? 1), 0);
+      pointsPerAction = selected.actionKeys.reduce((sum, at) => sum + (actionPoints[at] ?? 1), 0);
     }
 
     const ESTIMATED_POOL_BASELINE = 5000;
