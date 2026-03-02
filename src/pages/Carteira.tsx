@@ -106,15 +106,15 @@ export default function Carteira() {
 
         const last7DaysSum = rewardsRes.data
           .filter((r: any) => new Date(r.created_at) >= last7Days)
-          .reduce((acc: number, r: any) => acc + Number(r.value), 0);
+          .reduce((acc: number, r: any) => acc + Number(r.performance_points || 0), 0);
 
         const last30DaysSum = rewardsRes.data
           .filter((r: any) => new Date(r.created_at) >= last30Days)
-          .reduce((acc: number, r: any) => acc + Number(r.value), 0);
+          .reduce((acc: number, r: any) => acc + Number(r.performance_points || 0), 0);
 
         const thisMonthSum = rewardsRes.data
           .filter((r: any) => new Date(r.created_at) >= monthStart)
-          .reduce((acc: number, r: any) => acc + Number(r.value), 0);
+          .reduce((acc: number, r: any) => acc + Number(r.performance_points || 0), 0);
 
         setStats({
           last7Days: last7DaysSum,
@@ -237,17 +237,24 @@ export default function Carteira() {
 
   const getActionLabel = (actionKey: string) => {
     const labels: Record<string, string> = {
-      view: "Visualização",
-      like: "Curtida",
-      comment: "Comentário",
-      save: "Salvamento",
-      share: "Compartilhamento",
-      complete_video: "Vídeo Completo",
-      quiz_complete: "Quiz Completo",
-      first_content: "Primeiro Conteúdo",
-      profile_complete: "Perfil Completo",
-      referral_signup: "Indicação",
-      daily_login: "Login Diário",
+      VIEW_15S: "Visualização (15s)",
+      LIKE_CONTENT: "Curtida",
+      COMMENT_CONTENT: "Comentário",
+      SAVE_CONTENT: "Salvamento",
+      SHARE_CONTENT: "Compartilhamento",
+      WATCH_50: "Assistiu 50%",
+      WATCH_100: "Assistiu 100%",
+      DAILY_LOGIN: "Login Diário",
+      FIRST_CONTENT_WEEK: "Primeiro conteúdo da semana",
+      BINGE_WATCH: "Maratona",
+      PROFILE_COMPLETE: "Perfil Completo",
+      REFERRAL_SIGNUP: "Indicação",
+      REFERRAL_PURCHASE: "Compra por indicação",
+      MILESTONE_100_VIEWS: "Marco: 100 views",
+      MILESTONE_500_VIEWS: "Marco: 500 views",
+      MILESTONE_1000_VIEWS: "Marco: 1000 views",
+      STREAK_7: "Sequência de 7 dias",
+      STREAK_30: "Sequência de 30 dias",
     };
     return labels[actionKey] || actionKey;
   };
@@ -382,7 +389,7 @@ export default function Carteira() {
             </CardHeader>
             <CardContent className="p-3 pt-0 sm:p-6 sm:pt-0">
               <div className="text-lg sm:text-2xl font-bold text-blue-600">
-                R$ {stats.thisMonth.toFixed(2)}
+                {Math.floor(stats.thisMonth)} PP
               </div>
               <p className="text-xs text-muted-foreground mt-1 hidden sm:block">
                 Ganhos do mês atual
@@ -399,7 +406,7 @@ export default function Carteira() {
             </CardHeader>
             <CardContent className="p-3 pt-0 sm:p-6 sm:pt-0">
               <div className="text-xl sm:text-3xl font-bold text-primary">
-                R$ {stats.last7Days.toFixed(2)}
+                {Math.floor(stats.last7Days)} PP
               </div>
               <p className="text-xs sm:text-sm text-muted-foreground mt-1 sm:mt-2">
                 Ganhos na última semana
@@ -413,7 +420,7 @@ export default function Carteira() {
             </CardHeader>
             <CardContent className="p-3 pt-0 sm:p-6 sm:pt-0">
               <div className="text-xl sm:text-3xl font-bold text-primary">
-                R$ {stats.last30Days.toFixed(2)}
+                {Math.floor(stats.last30Days)} PP
               </div>
               <p className="text-xs sm:text-sm text-muted-foreground mt-1 sm:mt-2">
                 Ganhos no último mês
@@ -557,7 +564,7 @@ export default function Carteira() {
                         </div>
                         <div className="text-right flex-shrink-0 ml-2">
                           <p className="font-bold text-green-600 text-sm sm:text-base">
-                            + R$ {Number(reward.value).toFixed(2)}
+                            + {Math.floor(Number(reward.performance_points || 0))} PP
                           </p>
                           <p className="text-xs sm:text-sm text-muted-foreground">
                             {reward.points} pts

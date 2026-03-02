@@ -1,4 +1,5 @@
 import { useRef, useState, useCallback } from "react";
+import { useNavigate } from "react-router-dom";
 import {
   Heart,
   MessageCircle,
@@ -83,6 +84,7 @@ export function DesktopShortsView({
   onAccessBlocked,
 }: DesktopShortsViewProps) {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const videoRef = useRef<HTMLVideoElement>(null);
   const [isPlaying, setIsPlaying] = useState(true);
   const [showDMModal, setShowDMModal] = useState(false);
@@ -123,7 +125,7 @@ export function DesktopShortsView({
   };
 
   const navigateToCreator = () => {
-    window.location.href = `/c/${currentShort.creator.creator_channel_name || currentShort.creator.id}`;
+    navigate(`/c/${currentShort.creator.creator_channel_name || currentShort.creator.id}`);
   };
 
   if (!currentShort) return null;

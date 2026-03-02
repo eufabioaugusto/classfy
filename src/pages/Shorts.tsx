@@ -1,4 +1,4 @@
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams, useNavigate, Navigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { useRewardSystem } from "@/hooks/useRewardSystem";
@@ -129,6 +129,7 @@ export default function Shorts() {
           `)
           .eq("id", id)
           .eq("content_type", "short")
+          .eq("status", "approved")
           .maybeSingle();
 
         if (specificError) {
@@ -166,6 +167,7 @@ export default function Shorts() {
           )
         `)
         .eq("content_type", "short")
+        .eq("status", "approved")
         .neq("id", id || "")
         .order("views_count", { ascending: false })
         .limit(remainingSlots > 0 ? remainingSlots : 0);
@@ -216,6 +218,7 @@ export default function Shorts() {
           )
         `)
         .eq("content_type", "short")
+        .eq("status", "approved")
         .neq("id", id || "")
         .order("views_count", { ascending: false })
         .range(shorts.length, shorts.length + PAGE_SIZE - 1);
@@ -311,10 +314,11 @@ export default function Shorts() {
     if (!user) return;
     
     const { data } = await supabase
-      .from("favorites")
+      .from("actions")
       .select("id")
       .eq("user_id", user.id)
       .eq("content_id", contentId)
+      .eq("type", "LIKE")
       .maybeSingle();
     
     setIsLiked(!!data);
@@ -357,17 +361,18 @@ export default function Shorts() {
     try {
       if (isLiked) {
         await supabase
-          .from("favorites")
+          .from("actions")
           .delete()
           .eq("user_id", user.id)
-          .eq("content_id", contentId);
+          .eq("content_id", contentId)
+          .eq("type", "LIKE");
         
         setLocalLikesCount(prev => Math.max(0, prev - 1));
         setIsLiked(false);
       } else {
         await supabase
-          .from("favorites")
-          .insert({ user_id: user.id, content_id: contentId });
+          .from("actions")
+          .insert({ user_id: user.id, content_id: contentId, type: "LIKE" });
         
         setLocalLikesCount(prev => prev + 1);
         setIsLiked(true);
@@ -587,9 +592,7 @@ export default function Shorts() {
   };
 
   if (!user) {
-    // Redirect to auth page if not logged in
-    window.location.href = '/auth';
-    return null;
+    return <Navigate to="/auth" replace />;
   }
 
   if (loading && shorts.length === 0) {

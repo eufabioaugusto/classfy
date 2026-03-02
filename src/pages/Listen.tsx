@@ -87,10 +87,12 @@ export default function Listen() {
       setContent(data);
       checkAccess(data);
 
-      await supabase
-        .from('contents')
-        .update({ views_count: (data.views_count || 0) + 1 })
-        .eq('id', id);
+      if (user) {
+        await supabase.rpc('increment_content_view', {
+          p_user_id: user.id,
+          p_content_id: id,
+        });
+      }
     } catch (error: any) {
       toast.error("Podcast não encontrado");
     } finally {
