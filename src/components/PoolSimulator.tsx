@@ -70,16 +70,16 @@ export function PoolSimulator({ currentPP, totalPP, prm, currentEstimate }: Pool
     }
 
     // Calculate proportional value of simulated PP
-    // Formula: how much these simulated points are worth in the pool
-    // value = (simulatedPP / (totalGlobalPP + simulatedPP)) * PRM
-    const ESTIMATED_POOL_BASELINE = 5000;
-    const effectiveTotalPP = totalPP > 0 ? totalPP : ESTIMATED_POOL_BASELINE;
+    // Use a realistic baseline so early-month simulations aren't inflated
+    // Min baseline ensures results stay grounded even when pool is nearly empty
+    const MIN_POOL_BASELINE = 5000;
+    const effectiveTotalPP = Math.max(totalPP, MIN_POOL_BASELINE);
 
     // The proportional share these simulated points would earn
     const poolWithSimulated = effectiveTotalPP + simulatedPP;
     const simulatedValue = poolWithSimulated > 0 ? (simulatedPP / poolWithSimulated) * prm : 0;
 
-    return { simulatedValue, isEstimated: totalPP === 0, simulatedPP, pointsPerAction };
+    return { simulatedValue, isEstimated: totalPP < MIN_POOL_BASELINE, simulatedPP, pointsPerAction };
   }, [simulatedActions, selectedType, actionPoints, currentPP, totalPP, prm, currentEstimate]);
 
   return (
