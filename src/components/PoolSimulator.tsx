@@ -51,30 +51,33 @@ export function PoolSimulator({ currentPP, totalPP, prm, currentEstimate }: Pool
     const actionCount = simulatedActions[0];
     const selected = engagementTypes.find((t) => t.key === selectedType) || engagementTypes[0];
 
-    // Calculate total simulated points
+    // Calculate simulated points from new actions
     let simulatedPP: number;
     let pointsPerAction: number;
 
     if (selected.actionKeys.length === 1) {
-      // Single type: all actions are of this type
       pointsPerAction = actionPoints[selected.actionKeys[0]] ?? 1;
       simulatedPP = Math.round(actionCount * pointsPerAction);
     } else {
-      // "Tudo": user does actionCount of EACH type (full engagement scenario)
+      // "Tudo": distribute actions equally across all types
+      const actionsPerType = actionCount / selected.actionKeys.length;
       const totalPoints = selected.actionKeys.reduce(
-        (sum, at) => sum + actionCount * (actionPoints[at] ?? 1),
+        (sum, at) => sum + actionsPerType * (actionPoints[at] ?? 1),
         0
       );
       simulatedPP = Math.round(totalPoints);
-      // Show total pts per "round" of all actions combined
-      pointsPerAction = selected.actionKeys.reduce((sum, at) => sum + (actionPoints[at] ?? 1), 0);
+      pointsPerAction = actionCount > 0 ? totalPoints / actionCount : 0;
     }
 
+    // Additive logic: new actions ADD to current PP
+    const newUserPP = currentPP + simulatedPP;
+
+    // Global pool also grows by the extra simulated PP
     const ESTIMATED_POOL_BASELINE = 5000;
     const effectiveTotalPP = totalPP > 0 ? totalPP : ESTIMATED_POOL_BASELINE;
+    const newTotalPP = effectiveTotalPP + simulatedPP;
 
-    const newTotalPP = effectiveTotalPP - currentPP + simulatedPP;
-    const newShare = newTotalPP > 0 ? (simulatedPP / newTotalPP) * prm : 0;
+    const newShare = newTotalPP > 0 ? (newUserPP / newTotalPP) * prm : 0;
     const difference = newShare - currentEstimate;
 
     return { newShare, difference, isEstimated: totalPP === 0, simulatedPP, pointsPerAction };
