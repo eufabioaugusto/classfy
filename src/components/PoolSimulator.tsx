@@ -69,18 +69,21 @@ export function PoolSimulator({ currentPP, totalPP, prm, currentEstimate }: Pool
       pointsPerAction = actionCount > 0 ? totalPoints / actionCount : 0;
     }
 
-    // Additive logic: new actions ADD to current PP
-    const newUserPP = currentPP + simulatedPP;
-
-    // Global pool also grows by the extra simulated PP
+    // Calculate only the EXTRA earnings from simulated actions
     const ESTIMATED_POOL_BASELINE = 5000;
     const effectiveTotalPP = totalPP > 0 ? totalPP : ESTIMATED_POOL_BASELINE;
+
+    // New total pool with extra simulated PP
     const newTotalPP = effectiveTotalPP + simulatedPP;
 
+    // What user would earn with current + simulated PP
+    const newUserPP = currentPP + simulatedPP;
     const newShare = newTotalPP > 0 ? (newUserPP / newTotalPP) * prm : 0;
-    const difference = newShare - currentEstimate;
 
-    return { newShare, difference, isEstimated: totalPP === 0, simulatedPP, pointsPerAction };
+    // The extra earnings = new share minus current share
+    const extraEarnings = newShare - currentEstimate;
+
+    return { extraEarnings: Math.max(0, extraEarnings), isEstimated: totalPP === 0, simulatedPP, pointsPerAction };
   }, [simulatedActions, selectedType, actionPoints, currentPP, totalPP, prm, currentEstimate]);
 
   return (
@@ -140,16 +143,10 @@ export function PoolSimulator({ currentPP, totalPP, prm, currentEstimate }: Pool
 
         {/* Right: result */}
         <div className="flex flex-col items-center justify-center rounded-lg bg-muted/50 p-4 text-center">
-          <span className="text-xs text-muted-foreground mb-1">Você ganharia</span>
+          <span className="text-xs text-muted-foreground mb-1">Ganho extra estimado</span>
           <span className="text-2xl sm:text-3xl font-bold text-accent">
-            R$ {simulation.newShare.toFixed(2)}
+            +R$ {simulation.extraEarnings.toFixed(2)}
           </span>
-          {simulation.difference > 0 && (
-            <span className="inline-flex items-center gap-1 mt-1.5 text-sm font-medium text-green-500">
-              <TrendingUp className="w-3.5 h-3.5" />
-              +R$ {simulation.difference.toFixed(2)} a mais
-            </span>
-          )}
           {simulatedActions[0] === 0 && (
             <span className="text-xs text-muted-foreground mt-1.5">
               Mova o slider para simular
