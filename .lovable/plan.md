@@ -1,92 +1,100 @@
 
 
-# Revisao Geral - Terceira Bateria
+# Revisao Geral - Quarta Bateria
 
 ## CRITICO
 
-### 1. Shorts.tsx nao filtra por `status = 'approved'`
-As queries `fetchInitialShorts` e `fetchMoreShorts` buscam shorts sem filtrar por status. Conteudos pendentes, rejeitados e rascunhos aparecem no feed publico para todos os usuarios.
+### 1. Studio.tsx mostra earnings com multiplicador hardcoded `* 2`
+Na linha 352, o card de Ganhos exibe `(stats.earnings * 2).toFixed(2)` com label "Ganhos (em dobro)". Isso e arbitrario, nao reflete nenhuma regra de negocio real e engana o creator mostrando o dobro do que realmente ganhou.
 
-**Correcao**: Adicionar `.eq("status", "approved")` em todas as queries de shorts.
+**Correcao**: Mostrar `stats.earnings` sem multiplicador, ou mostrar Performance Points se o sistema ja migrou.
 
-### 2. Listen.tsx incrementa views com UPDATE direto (bypass de logica)
-A pagina de podcast faz `UPDATE contents SET views_count = views_count + 1` diretamente, ignorando o RPC `increment_content_view` que previne auto-views do creator e views duplicados no mesmo dia. Resultado: creators inflam views dos proprios podcasts e cada reload conta como novo view.
+### 2. Studio.tsx faz 10+ queries sequenciais no dashboard
+`fetchDashboardData` faz ~10 queries separadas ao banco, sem `Promise.all`. Cada uma espera a anterior terminar. O dashboard do creator e lento desnecessariamente.
 
-**Correcao**: Substituir o UPDATE direto por `supabase.rpc("increment_content_view", ...)`.
+**Correcao**: Agrupar queries independentes em `Promise.all`.
 
-### 3. Shorts.tsx usa `window.location.href` para redirect de auth
-Na linha 591, `window.location.href = '/auth'` causa reload completo da SPA, destruindo todo o state do React. Deveria usar `<Navigate>` ou `navigate()`.
+### 3. Conta.tsx consulta tabela `system_config` que nao existe no schema
+A query em `Conta.tsx` busca `system_config.config_key = 'minimum_withdrawal_amount'`, mas a tabela definida no schema e `platform_settings` com coluna `key`. A query falha silenciosamente e o valor default 10 e sempre usado.
 
-**Correcao**: Substituir por `return <Navigate to="/auth" replace />`.
+**Correcao**: Migrar para `platform_settings` com key correta.
+
+### 4. Conta.tsx nao permite editar display_name nem bio
+Os campos "Nome de Exibicao" e "Email" estao `disabled` sem opcao de edicao. O usuario nao consegue atualizar seu proprio nome de exibicao apos o signup.
+
+**Correcao**: Tornar display_name e bio editaveis com botao de salvar.
 
 ---
 
 ## MEDIO
 
-### 4. Shorts usa `favorites` para likes em vez de `actions`
-Em `Shorts.tsx`, `checkLikeStatus` e `handleLike` usam a tabela `favorites` para registrar likes. Porem, `Watch.tsx` e `ContentActions.tsx` usam a tabela `actions` com `type: 'LIKE'`. Isso gera inconsistencia: um like dado em Shorts nao aparece como like em Watch e vice-versa. O trigger `sync_content_likes_count` tambem so escuta `actions`, nao `favorites`.
+### 5. ContentCard faz RPC `is_content_boosted` para cada card (N+1)
+Cada ContentCard executa `supabase.rpc("is_content_boosted")` individualmente. Em paginas com 20+ cards, sao 20+ requests.
 
-**Correcao**: Migrar Shorts para usar `actions` com `type: 'LIKE'`, consistente com o resto do sistema.
+**Melhoria**: Criar batch check no componente pai ou usar uma query unica.
 
-### 5. CreatorProfile nao mostra cursos (so busca `contents`)
-A aba "Cursos" existe no perfil do creator, mas `loadCreatorProfile` so busca da tabela `contents` (que nao tem cursos — cursos ficam na tabela `courses`). A aba "Cursos" sempre aparece vazia.
+### 6. useRewardSystem `checkCourseCompletion` usa logica errada
+Na linha 236, busca lessons com `eq('category_id', courseId)` — mas lessons estao em `course_lessons` (nao em `contents` com `category_id`). A verificacao de conclusao de curso nunca funciona.
 
-**Correcao**: Fazer query adicional em `courses` e combinar os resultados, ou buscar cursos separadamente para a aba.
+**Correcao**: Buscar de `course_lessons` e checar `course_enrollments.completed_lessons`.
 
-### 6. Carteira calcula stats com `value` (sempre 0 no novo sistema PP)
-Em `Carteira.tsx`, os cards "Ultimos 7 dias", "Ultimos 30 dias" e "Este Mes" somam `r.value` dos reward_events. Desde a migracao para Performance Points, `value` e sempre 0. Todos os stats mostram R$ 0.00 permanentemente.
+### 7. Favoritos e Salvos nao filtram por `status = 'approved'`
+`Favoritos.tsx` e `Salvos.tsx` buscam conteudos via join sem filtrar status. Conteudos rejeitados ou pendentes aparecem se o usuario favoritou/salvou antes da rejeicao.
 
-**Correcao**: Usar `performance_points` em vez de `value`, ou mostrar PP em vez de R$.
+**Correcao**: Adicionar filtro `.eq('contents.status', 'approved')` ou filtrar client-side.
 
-### 7. Carteira `getActionLabel` nao reconhece as action_keys reais
-O mapeamento de labels usa keys antigas (`view`, `like`, `comment`) que nao existem mais. As keys reais sao `VIEW_15S`, `LIKE_CONTENT`, `WATCH_50`, `DAILY_LOGIN`, etc. O historico de ganhos mostra keys cruas em vez de labels legiveis.
+### 8. Studio.tsx nao inclui cursos nas stats do creator
+`totalContents`, `totalViews`, e `recentContents` so buscam de `contents`. Cursos criados pelo creator nao aparecem no dashboard.
 
-**Correcao**: Atualizar o mapeamento para as action_keys reais do sistema.
+**Correcao**: Incluir queries em `courses` e somar os resultados.
 
-### 8. `MobileShortsView` e `DesktopShortsView` usam `window.location.href` para navegacao
-Navegacao para perfil de creator usa `window.location.href` (reload completo) em vez de React Router.
+### 9. Studio `getRewardLabel` tem labels incompletas
+O mapeamento tem apenas 8 labels antigas. Faltam keys reais como `VIEW_15S`, `WATCH_50`, `DAILY_LOGIN`, `SAVE_CONTENT`, `FAVORITE_CONTENT`, etc.
 
-**Correcao**: Usar `useNavigate()` para navegacao interna.
+**Correcao**: Unificar com o mesmo mapeamento completo usado em Carteira.
 
 ---
 
 ## BAIXO / MELHORIAS
 
-### 9. Index.tsx busca cursos sem filtro de status
-A query de cursos na home (`courses`) nao filtra por `status = 'approved'`. Cursos em draft ou pendentes podem aparecer.
+### 10. Auth.tsx nao mostra feedback de confirmacao de email
+Apos signup, o usuario e redirecionado para `/` sem aviso de que precisa confirmar o email. Se auto-confirm estiver desabilitado, o usuario nao consegue logar e nao sabe por que.
 
-**Correcao**: Adicionar `.eq("status", "approved")`.
+**Melhoria**: Mostrar mensagem "Verifique seu email para confirmar a conta" apos signup bem-sucedido.
 
-### 10. ContentCard faz RPC `is_content_boosted` para cada card
-Cada ContentCard renderizado executa uma chamada RPC individual para verificar boost. Em uma pagina com 20+ cards, sao 20+ requests ao banco.
+### 11. Conta.tsx link do perfil usa `/@` mas rota e `/:username`
+Na linha 477, `navigate('/@${profile.creator_channel_name}')` inclui `@` no path. A rota definida em App.tsx e `/:username` — o `@` fica como parte do parametro, o que pode nao funcionar se CreatorProfile nao faz strip do `@`.
 
-**Melhoria**: Fazer batch check no componente pai e passar `isBoosted` como prop, ou usar um hook compartilhado.
+**Correcao**: Verificar se CreatorProfile trata o `@` ou remover o prefixo na navegacao.
 
-### 11. Conta.tsx busca `system_config` que pode nao existir
-Se a tabela `system_config` nao tiver a key `minimum_withdrawal_amount`, o valor default e 10 — mas se a tabela nao existir, a query falha silenciosamente.
+### 12. Watch.tsx tem 1393 linhas — muito grande
+O componente WatchContent e massivo com logica de acesso, rewards, mini player, teatro mode, comments, notes, curriculum, related contents, e action states. Refatorar em hooks menores.
+
+**Melhoria**: Extrair logica em hooks como `useWatchContent`, `useWatchActions`, `useWatchRewards`.
 
 ---
 
 ## Plano de Implementacao
 
-### Tarefa 1: Corrigir Shorts - status filter + actions consistency
-- Adicionar `.eq("status", "approved")` nas queries de shorts
-- Migrar likes de `favorites` para `actions` (consistente com Watch)
-- Substituir `window.location.href` por `<Navigate>` e `useNavigate()`
+### Tarefa 1: Corrigir Studio Dashboard
+- Remover multiplicador `* 2` dos earnings
+- Paralelizar queries com `Promise.all`
+- Incluir cursos nas stats
+- Atualizar `getRewardLabel` com keys completas
 
-### Tarefa 2: Corrigir Listen.tsx - usar RPC para views
-- Substituir o UPDATE direto por `supabase.rpc("increment_content_view")`
+### Tarefa 2: Corrigir Conta.tsx
+- Migrar query de `system_config` para `platform_settings`
+- Tornar display_name e bio editaveis
+- Corrigir link do perfil com `@`
 
-### Tarefa 3: Corrigir CreatorProfile - mostrar cursos
-- Adicionar query em `courses` para popular a aba "Cursos"
+### Tarefa 3: Corrigir Favoritos e Salvos
+- Filtrar por status approved nos joins
 
-### Tarefa 4: Corrigir Carteira - stats e labels
-- Usar `performance_points` nos calculos de stats
-- Atualizar `getActionLabel` com as action_keys reais
+### Tarefa 4: Corrigir useRewardSystem
+- Fix `checkCourseCompletion` para usar `course_lessons`
 
-### Tarefa 5: Corrigir Index.tsx - filtrar cursos aprovados
-- Adicionar `.eq("status", "approved")` na query de cursos
+### Tarefa 5: Auth feedback
+- Mostrar mensagem de confirmacao de email apos signup
 
-### Tarefa 6: Corrigir navegacao em Shorts views (Mobile/Desktop)
-- Substituir `window.location.href` por `useNavigate()` em MobileShortsView e DesktopShortsView
-
+### Tarefa 6: Otimizar ContentCard boost check
+- Batch boost check no componente pai
