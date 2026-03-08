@@ -95,8 +95,8 @@ export default function Auth() {
           });
         } else {
           toast({
-            title: "Conta criada!",
-            description: "Bem-vindo à Classfy! 🎉"
+            title: "Conta criada! 🎉",
+            description: "Enviamos um email de confirmação. Verifique sua caixa de entrada (e spam) para ativar sua conta."
           });
         }
       }

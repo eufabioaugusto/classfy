@@ -232,23 +232,29 @@ export function useRewardSystem() {
   };
 
   const checkCourseCompletion = async (userId: string, courseId: string) => {
-    // Get all lessons from course
+    // Get all lessons from the course
     const { data: courseLessons } = await supabase
-      .from('contents')
+      .from('course_lessons')
       .select('id')
-      .eq('category_id', courseId); // Assuming courses are categories with lessons
+      .eq('course_id', courseId);
 
     if (!courseLessons || courseLessons.length === 0) return;
 
-    // Check if all lessons are completed
-    const { data: completedLessons } = await supabase
-      .from('user_progress')
-      .select('content_id')
+    // Check enrollment and completed lessons
+    const { data: enrollment } = await supabase
+      .from('course_enrollments')
+      .select('completed_lessons')
       .eq('user_id', userId)
-      .eq('completed', true)
-      .in('content_id', courseLessons.map(l => l.id));
+      .eq('course_id', courseId)
+      .maybeSingle();
 
-    if (completedLessons && completedLessons.length === courseLessons.length) {
+    if (!enrollment) return;
+
+    const completedLessonIds = enrollment.completed_lessons || [];
+    const allLessonIds = courseLessons.map(l => l.id);
+    const allCompleted = allLessonIds.every(id => completedLessonIds.includes(id));
+
+    if (allCompleted) {
       await processReward({
         actionKey: 'COMPLETE_COURSE',
         userId,
