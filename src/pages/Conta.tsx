@@ -102,9 +102,11 @@ export default function Conta() {
       setWallet(walletRes.data);
       setProfile(profileRes.data);
 
-      if (configRes.data) {
-        const configValue = configRes.data.config_value as { amount: number };
-        setMinWithdrawalAmount(configValue.amount);
+      if (configRes.data?.value) {
+        const configValue = configRes.data.value as { amount?: number };
+        if (configValue.amount) {
+          setMinWithdrawalAmount(configValue.amount);
+        }
       }
 
       if (withdrawalsRes.data) {
