@@ -144,11 +144,11 @@ export default function RewardsHistory() {
 
     // Recalculate stats for filtered data
     const totalPoints = filtered.reduce((sum, event) => sum + event.points, 0);
-    const totalValue = filtered.reduce((sum, event) => sum + event.value, 0);
+    const totalPP = filtered.reduce((sum, event) => sum + (event.performance_points || 0), 0);
     
     setStats({
       totalPoints,
-      totalValue,
+      totalPP,
       totalEvents: filtered.length,
     });
   }, [actionFilter, startDate, endDate, events]);
