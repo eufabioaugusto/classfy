@@ -514,7 +514,7 @@ export default function RewardsHistory() {
                         +{event.points} pts
                       </span>
                       <span className="text-sm font-semibold text-green-600">
-                        R$ {event.value.toFixed(2)}
+                        {(event.performance_points || 0).toLocaleString()} PP
                       </span>
                     </div>
                     <Eye className="w-4 h-4 text-muted-foreground" />
