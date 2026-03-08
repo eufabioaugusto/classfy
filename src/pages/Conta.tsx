@@ -411,10 +411,61 @@ export default function Conta() {
                         <Label htmlFor="displayName">Nome de Exibição</Label>
                         <Input 
                           id="displayName" 
-                          value={profile?.display_name || ""} 
-                          disabled 
-                          className="bg-muted"
+                          value={isEditingProfile ? editDisplayName : (profile?.display_name || "")} 
+                          onChange={(e) => setEditDisplayName(e.target.value)}
+                          disabled={!isEditingProfile || savingProfile}
+                          className={!isEditingProfile ? "bg-muted" : ""}
+                          maxLength={50}
                         />
+                      </div>
+
+                      <div className="grid gap-2">
+                        <Label htmlFor="bio">Bio</Label>
+                        <Input 
+                          id="bio" 
+                          value={isEditingProfile ? editBio : (profile?.bio || "")} 
+                          onChange={(e) => setEditBio(e.target.value)}
+                          disabled={!isEditingProfile || savingProfile}
+                          className={!isEditingProfile ? "bg-muted" : ""}
+                          placeholder="Conte um pouco sobre você..."
+                          maxLength={200}
+                        />
+                      </div>
+
+                      <div className="flex gap-2">
+                        {!isEditingProfile ? (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => {
+                              setEditDisplayName(profile?.display_name || "");
+                              setEditBio(profile?.bio || "");
+                              setIsEditingProfile(true);
+                            }}
+                          >
+                            Editar Perfil
+                          </Button>
+                        ) : (
+                          <>
+                            <Button
+                              size="sm"
+                              onClick={handleSaveProfile}
+                              disabled={savingProfile || !editDisplayName.trim()}
+                            >
+                              {savingProfile ? (
+                                <><Loader2 className="w-4 h-4 mr-1 animate-spin" />Salvando...</>
+                              ) : "Salvar"}
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => setIsEditingProfile(false)}
+                              disabled={savingProfile}
+                            >
+                              Cancelar
+                            </Button>
+                          </>
+                        )}
                       </div>
                     </div>
                   </div>
