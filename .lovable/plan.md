@@ -1,114 +1,68 @@
 
 
-# Revisao Geral - Quinta Bateria (Navegacao, UX, Design, Upload)
+# Melhorias na Lógica de Pagamento de Pontos de Monetização
 
-## CRITICO
+## Problemas Identificados
 
-### 1. Index.tsx bloqueia conteudo gratuito para usuarios nao-logados
-Em `handleContentClick` (linha 202), se `!user`, redireciona para `/auth`. Isso impede que visitantes acessem conteudo **gratuito**. Uma plataforma de conteudo precisa permitir que visitantes assistam conteudo free para converter em signups.
+1. **Race condition no `reverse-reward`**: O revert de PP usa SELECT + UPDATE separados em vez do RPC atômico `increment_cycle_user_points` (com valor negativo). Isso pode causar inconsistências sob concorrência.
 
-**Correcao**: Permitir navegacao para conteudo gratuito sem login. So redirecionar para `/auth` em conteudo restrito (pro/premium/paid).
+2. **Sem valor mínimo de payout**: O `close-economic-cycle` distribui qualquer valor, mesmo R$ 0.01. Micro-pagamentos geram custo operacional sem benefício real.
 
-### 2. Messages.tsx usa `navigate()` dentro do render (side effect)
-Linha 22: `navigate("/auth")` e chamado diretamente no corpo do componente quando `!user`. Isso causa warnings do React e comportamento imprevisivel.
+3. **Sem limite de participantes no pool**: Se houver milhares de usuários com poucos pontos cada, o valor individual pode ser insignificante. Não há threshold mínimo de PP para participar da distribuição.
 
-**Correcao**: Substituir por `return <Navigate to="/auth" replace />;`
+4. **Query sem paginação no fechamento**: `economic_cycle_users` usa `.select('*')` sem `.range()`. Com muitos usuários, pode exceder o limite de 1000 rows do Supabase, resultando em usuários não pagos silenciosamente.
 
-### 3. StudioUpload.tsx tem 1216 linhas - monolito critico
-O componente e um unico arquivo com upload, compressao, lobby, thumbnail, formulario, preview, e submit. Qualquer mudanca e arriscada e o componente e dificil de manter.
+5. **Processamento sequencial no fechamento**: Cada usuário é processado com 4 queries sequenciais (update cycle_user, increment wallet, select wallet, insert transaction, insert notification). Em escala, isso pode causar timeout na edge function.
 
-**Correcao**: Extrair em hooks (`useUploadForm`, `useFileUpload`, `useThumbnailUpload`) e sub-componentes (`UploadHero`, `UploadFileSection`, `UploadDetailsForm`, `UploadVisibilitySection`).
+6. **Sem auditoria/reconciliação**: Não há log de fechamento que permita verificar se `distributed_amount` bate com a soma real dos `wallet_transactions` criados.
 
-### 4. ContentCard ainda faz RPC `is_content_boosted` individualmente quando `isBoosted` prop nao e passada
-A prop `isBoosted` foi adicionada mas nenhum componente pai (Index, CreatorProfile, Favoritos, etc.) passa essa prop. Cada card continua fazendo a RPC.
-
-**Correcao**: No `Index.tsx` e outros pais, fazer batch fetch de boost status e passar como prop.
+7. **Sem proteção contra fechamento duplo parcial**: Se a function falhar no meio do loop de distribuição, não há rollback -- alguns usuários recebem, outros não, e o ciclo não é marcado como "closed".
 
 ---
 
-## MEDIO
+## Plano de Melhorias
 
-### 5. GlobalSearch nao filtra conteudo por tags
-A busca global so usa `title.ilike` e `description.ilike`. Tags sao ignoradas, o que reduz significativamente a descoberta de conteudo.
+### 1. Corrigir race condition no reverse-reward
+Usar `increment_cycle_user_points` com valor negativo em vez de SELECT + UPDATE manual. Isso garante atomicidade.
 
-**Correcao**: Adicionar busca por tags usando `tags.cs.{searchPattern}` ou full-text search.
+### 2. Adicionar threshold mínimo de payout
+No `close-economic-cycle`, pular usuários cujo `calculated_share` seja menor que R$ 0.10. Os pontos desses usuários seriam transferidos para o ciclo seguinte (carry-over).
 
-### 6. Header `showSearch` e false por default, busca so aparece na Home
-A barra de busca global so e visivel em `Index.tsx` porque so ele passa `showSearch={true}`. Em todas as outras paginas (Favoritos, Historico, Studio, etc.) nao ha forma de buscar conteudo.
+### 3. Paginar a query de cycle_users
+Substituir o `.select('*')` único por um loop paginado (batches de 500) para garantir que todos os usuários sejam processados, não apenas os primeiros 1000.
 
-**Correcao**: Sempre mostrar a busca no Header, ou pelo menos o icone que abre o Sheet de busca em mobile.
+### 4. Adicionar estado intermediário "distributing"
+Antes de iniciar o loop de pagamento, marcar o ciclo como `status: 'distributing'`. Isso evita que um retry do CRON ou trigger manual inicie uma segunda distribuição. Ao final, muda para `closed`.
 
-### 7. Planos.tsx nao mostra plano atual do usuario
-A pagina de planos nao indica qual plano o usuario ja tem. Botoes de "Assinar" aparecem mesmo para quem ja e assinante do plano.
+### 5. Criar RPC de distribuição em batch
+Mover a lógica de crédito (wallet + transaction + notification) para uma database function PostgreSQL que processa um batch de usuários atomicamente dentro de uma transaction. Isso reduz round-trips e garante consistência.
 
-**Correcao**: Buscar `profile.plan` e mostrar badge "Seu plano" no card ativo, desabilitar ou mostrar "Gerenciar" para assinantes.
+### 6. Adicionar log de reconciliação
+Após o loop, fazer uma query de soma em `wallet_transactions` do tipo `pool_distribution` para o `year_month` e comparar com `distributed_amount`. Logar discrepâncias.
 
-### 8. MobileBottomNav esconde em rotas uteis
-`hiddenRoutes` inclui `/studio` e `/admin`, o que faz sentido. Mas tambem esconde em `/c/` (estudo) e `/shorts`, onde o usuario pode querer navegar para outra area.
-
-**Correcao**: Revisar se `/shorts` e `/c/` realmente precisam esconder a nav. Considerar manter a nav com transparencia ou mini-modo.
-
-### 9. AppSidebar nao tem link para Shorts
-Shorts e um formato importante mas nao aparece no menu lateral. O usuario so descobre Shorts pela home.
-
-**Correcao**: Adicionar "Shorts" ao `mainItems` no sidebar.
-
-### 10. ContentSection limita itens sem "Ver mais"
-`getMaxItems()` corta em 5-6 itens e nao ha botao/link para ver mais conteudos daquela categoria.
-
-**Correcao**: Adicionar link "Ver todos" que navega para uma rota filtrada ou expande a secao.
+### 7. Carry-over de pontos não distribuídos
+Para usuários abaixo do threshold mínimo, criar registros no ciclo seguinte com os pontos acumulados, garantindo que não se percam.
 
 ---
 
-## BAIXO / UX
+## Detalhes Técnicos
 
-### 11. Auth.tsx busca 20 videos para background - pesado e desnecessario
-Na pagina de login, faz query de 20 videos aprovados e rotaciona como background. Isso e pesado, consome bandwidth do visitante, e pode mostrar conteudo inapropriado como fundo de login.
+### Migration SQL
+- Adicionar status `'distributing'` ao ciclo (ou usar text field existente)
+- Criar RPC `distribute_cycle_payout(p_cycle_id, p_user_id, p_amount, p_year_month, p_user_pp, p_total_pp)` que faz INSERT em wallet_transactions + notification + UPDATE economic_cycle_users em uma transaction
+- Criar RPC `carryover_cycle_points(p_from_cycle_id, p_to_cycle_id, p_min_payout)` para transferir pontos de usuários abaixo do threshold
 
-**Melhoria**: Usar imagem estatica ou gradient animado. Se quiser video, limitar a 1-2 com lazy loading.
+### Edge Function: close-economic-cycle
+- Adicionar paginação com loop `while` e `.range(offset, offset+499)`
+- Adicionar estado `distributing` antes do loop
+- Usar threshold de R$ 0.10 (configurável via `platform_settings`)
+- Adicionar reconciliação ao final
 
-### 12. Upload nao valida tamanho maximo antes de abrir Lobby
-O Lobby abre imediatamente apos selecionar o arquivo (`handleFileUpload`), sem checar se o arquivo excede o limite (ex: 500MB). O usuario edita trim/cover e so descobre o erro no upload.
+### Edge Function: reverse-reward
+- Substituir linhas 78-96 e 118-136 por chamadas a `increment_cycle_user_points` com valor negativo (`p_points: -ppToRevert`)
 
-**Melhoria**: Validar tamanho e formato antes de abrir o Lobby.
-
-### 13. Design: Cards de curso na Home usam `navigate(/watch/${course.id})` 
-Cursos devem ter uma rota dedicada (ex: `/course/${id}`) com pagina de overview, modules, enrollment. Usar `/watch/` para cursos quebra a experiencia.
-
-**Melhoria**: Criar rota `/course/:id` ou ao menos redirecionar corretamente no Watch.
-
-### 14. Nenhuma pagina tem meta tags / SEO
-SPA sem SSR nao tem meta tags dinamicas. Para uma plataforma de conteudo, isso e critico para compartilhamento em redes sociais e indexacao.
-
-**Melhoria**: Adicionar `react-helmet` com titulo e description por pagina.
-
----
-
-## Plano de Implementacao
-
-### Tarefa 1: Corrigir acesso de visitantes a conteudo gratuito
-- Em `Index.tsx`, permitir navegacao para `/watch/:id` sem login para conteudo `visibility = 'free'`
-- Em `Watch.tsx`, mostrar prompt de login apenas para acoes (like, save, comment), nao para assistir
-
-### Tarefa 2: Corrigir navegacao e UX
-- `Messages.tsx`: trocar `navigate()` no render por `<Navigate />`
-- Adicionar "Shorts" ao `mainItems` do `AppSidebar`
-- Mostrar busca global em todas as paginas (nao so Home)
-- Adicionar "Ver todos" em `ContentSection`
-
-### Tarefa 3: Planos - mostrar plano atual
-- Passar `currentPlan` para `PlanCards` e destacar o plano ativo
-- Mostrar "Gerenciar assinatura" via customer-portal para assinantes
-
-### Tarefa 4: Upload - validacao e refatoracao
-- Validar tamanho/formato do arquivo ANTES de abrir o Lobby
-- Extrair hooks e sub-componentes do `StudioUpload.tsx`
-
-### Tarefa 5: Batch boost check na Home
-- No `Index.tsx`, apos buscar conteudos, fazer uma unica query de boost status
-- Passar `isBoosted` como prop para cada `ContentCard`
-
-### Tarefa 6: Melhorias de discoverability
-- Busca por tags no `GlobalSearch`
-- SEO basico com `document.title` por pagina
+### Arquivos modificados
+- `supabase/functions/close-economic-cycle/index.ts`
+- `supabase/functions/reverse-reward/index.ts`
+- 1 migration SQL (novas RPCs)
 
