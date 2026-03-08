@@ -424,7 +424,7 @@ export default function RewardsHistory() {
                         </TableCell>
                         <TableCell className="text-right">
                           <span className="font-semibold text-green-600">
-                            R$ {event.value.toFixed(2)}
+                            {(event.performance_points || 0).toLocaleString()} PP
                           </span>
                         </TableCell>
                         <TableCell className="text-right">
