@@ -85,9 +85,9 @@ export default function Conta() {
         supabase.from("wallets").select("*").eq("user_id", user?.id).single(),
         supabase.from("profiles").select("*").eq("id", user?.id).single(),
         supabase
-          .from("system_config")
+          .from("platform_settings")
           .select("*")
-          .eq("config_key", "minimum_withdrawal_amount")
+          .eq("key", "minimum_withdrawal_amount")
           .maybeSingle(),
         supabase
           .from("withdraw_requests")
