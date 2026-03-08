@@ -62,6 +62,12 @@ export default function Conta() {
   const [isEditingChannel, setIsEditingChannel] = useState(false);
   const [channelName, setChannelName] = useState("");
   const [savingChannel, setSavingChannel] = useState(false);
+  
+  // Editable profile fields
+  const [isEditingProfile, setIsEditingProfile] = useState(false);
+  const [editDisplayName, setEditDisplayName] = useState("");
+  const [editBio, setEditBio] = useState("");
+  const [savingProfile, setSavingProfile] = useState(false);
 
   useProfileComplete(user?.id, profile);
 
