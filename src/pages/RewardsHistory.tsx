@@ -586,9 +586,9 @@ export default function RewardsHistory() {
                     <p className="text-2xl font-bold text-primary">+{selectedEvent.points}</p>
                   </div>
                   <div>
-                    <p className="text-sm font-medium text-muted-foreground">Valor Ganho</p>
+                    <p className="text-sm font-medium text-muted-foreground">Performance Points</p>
                     <p className="text-2xl font-bold text-green-600">
-                      R$ {selectedEvent.value.toFixed(2)}
+                      {(selectedEvent.performance_points || 0).toLocaleString()} PP
                     </p>
                   </div>
                 </div>
