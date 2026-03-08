@@ -310,9 +310,9 @@ export default function Studio() {
                     </Button>
                   </div>
                   <div>
-                    <p className="text-sm text-muted-foreground mb-1">Ganhos (em dobro)</p>
+                    <p className="text-sm text-muted-foreground mb-1">Total Ganho</p>
                     <p className="text-3xl font-bold text-foreground">
-                      R$ {(stats.earnings * 2).toFixed(2)}
+                      R$ {stats.earnings.toFixed(2)}
                     </p>
                   </div>
                 </Card>
