@@ -41,6 +41,7 @@ interface RewardEvent {
   action_key: string;
   points: number;
   value: number;
+  performance_points: number;
   content_id: string | null;
   created_at: string;
   metadata: any;
@@ -51,7 +52,7 @@ interface RewardEvent {
 
 interface Stats {
   totalPoints: number;
-  totalValue: number;
+  totalPP: number;
   totalEvents: number;
 }
 
