@@ -123,6 +123,7 @@ export default function Historico() {
             discount,
             is_free,
             required_plan,
+            status,
             profiles:creator_id (
               id,
               display_name,
@@ -154,12 +155,15 @@ export default function Historico() {
 
       if (contentViewError) throw contentViewError;
 
-      // Process and combine items
+      // Process and combine items - only show approved content
       const uniqueItems = new Map<string, HistoryItem>();
       
       (contentViewData || []).forEach((view: any) => {
-        // Handle content views
+        // Handle content views - only show approved content
         if (view.contents && view.content_id && !uniqueItems.has(`content-${view.content_id}`)) {
+          // Skip non-approved content (rejected, pending, draft)
+          if (view.contents.status && view.contents.status !== 'approved') return;
+          
           uniqueItems.set(`content-${view.content_id}`, {
             id: view.id,
             content_id: view.content_id,

@@ -41,6 +41,7 @@ interface RewardEvent {
   action_key: string;
   points: number;
   value: number;
+  performance_points: number;
   content_id: string | null;
   created_at: string;
   metadata: any;
@@ -51,7 +52,7 @@ interface RewardEvent {
 
 interface Stats {
   totalPoints: number;
-  totalValue: number;
+  totalPP: number;
   totalEvents: number;
 }
 
@@ -65,7 +66,7 @@ export default function RewardsHistory() {
   const [filteredEvents, setFilteredEvents] = useState<RewardEvent[]>([]);
   const [stats, setStats] = useState<Stats>({
     totalPoints: 0,
-    totalValue: 0,
+    totalPP: 0,
     totalEvents: 0,
   });
   const [actionFilter, setActionFilter] = useState<string>("all");
@@ -105,11 +106,11 @@ export default function RewardsHistory() {
       
       // Calculate stats
       const totalPoints = data?.reduce((sum, event) => sum + event.points, 0) || 0;
-      const totalValue = data?.reduce((sum, event) => sum + event.value, 0) || 0;
+      const totalPP = data?.reduce((sum, event) => sum + (event.performance_points || 0), 0) || 0;
       
       setStats({
         totalPoints,
-        totalValue,
+        totalPP,
         totalEvents: data?.length || 0,
       });
     } catch (error) {
@@ -143,11 +144,11 @@ export default function RewardsHistory() {
 
     // Recalculate stats for filtered data
     const totalPoints = filtered.reduce((sum, event) => sum + event.points, 0);
-    const totalValue = filtered.reduce((sum, event) => sum + event.value, 0);
+    const totalPP = filtered.reduce((sum, event) => sum + (event.performance_points || 0), 0);
     
     setStats({
       totalPoints,
-      totalValue,
+      totalPP,
       totalEvents: filtered.length,
     });
   }, [actionFilter, startDate, endDate, events]);
@@ -160,18 +161,22 @@ export default function RewardsHistory() {
       COMMENT_CONTENT: "Comentar Conteúdo",
       WATCH_50: "Assistir 50%",
       WATCH_100: "Assistir 100%",
+      VIEW_15S: "Visualização 15s",
+      SHARE_CONTENT: "Compartilhar",
       COMPLETE_COURSE: "Completar Curso",
       DAILY_LOGIN: "Login Diário",
-      DAILY_LOGIN_STREAK: "Sequência de Login",
+      WEEKLY_STREAK: "Sequência Semanal",
+      FIRST_CONTENT_WEEK: "1º Conteúdo da Semana",
+      BINGE_WATCH: "Maratona",
       PROFILE_COMPLETE: "Perfil Completo",
       SUBSCRIBE_CREATOR: "Seguir Criador",
+      FOLLOW_CREATOR: "Seguir Criador",
       CONTENT_APPROVED: "Conteúdo Aprovado",
       MILESTONE_100_VIEWS: "Marco: 100 Views",
       MILESTONE_500_VIEWS: "Marco: 500 Views",
       MILESTONE_1000_VIEWS: "Marco: 1.000 Views",
       MILESTONE_5000_VIEWS: "Marco: 5.000 Views",
       MILESTONE_10000_VIEWS: "Marco: 10.000 Views",
-      FOLLOW_CREATOR: "Seguir Criador",
     };
     return labels[actionKey] || actionKey;
   };
@@ -184,9 +189,13 @@ export default function RewardsHistory() {
       COMMENT_CONTENT: "bg-purple-500/10 text-purple-500 border-purple-500/20",
       WATCH_50: "bg-green-500/10 text-green-500 border-green-500/20",
       WATCH_100: "bg-emerald-500/10 text-emerald-500 border-emerald-500/20",
+      VIEW_15S: "bg-teal-500/10 text-teal-500 border-teal-500/20",
+      SHARE_CONTENT: "bg-sky-500/10 text-sky-500 border-sky-500/20",
       COMPLETE_COURSE: "bg-indigo-500/10 text-indigo-500 border-indigo-500/20",
       DAILY_LOGIN: "bg-orange-500/10 text-orange-500 border-orange-500/20",
-      DAILY_LOGIN_STREAK: "bg-amber-500/10 text-amber-500 border-amber-500/20",
+      WEEKLY_STREAK: "bg-amber-500/10 text-amber-500 border-amber-500/20",
+      FIRST_CONTENT_WEEK: "bg-lime-500/10 text-lime-500 border-lime-500/20",
+      BINGE_WATCH: "bg-red-500/10 text-red-500 border-red-500/20",
       PROFILE_COMPLETE: "bg-cyan-500/10 text-cyan-500 border-cyan-500/20",
       SUBSCRIBE_CREATOR: "bg-red-500/10 text-red-500 border-red-500/20",
       FOLLOW_CREATOR: "bg-rose-500/10 text-rose-500 border-rose-500/20",
@@ -201,13 +210,13 @@ export default function RewardsHistory() {
   };
 
   const exportToCSV = () => {
-    const headers = ["Data", "Ação", "Conteúdo", "Pontos", "Valor"];
+    const headers = ["Data", "Ação", "Conteúdo", "Pontos", "PP"];
     const rows = filteredEvents.map(event => [
       format(new Date(event.created_at), "dd/MM/yyyy HH:mm", { locale: ptBR }),
       getActionLabel(event.action_key),
       event.contents?.title || "-",
       event.points.toString(),
-      `R$ ${event.value.toFixed(2)}`
+      (event.performance_points || 0).toString()
     ]);
 
     const csvContent = [
@@ -268,12 +277,12 @@ export default function RewardsHistory() {
 
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Total em R$</CardTitle>
-              <DollarSign className="h-4 w-4 text-muted-foreground" />
+              <CardTitle className="text-sm font-medium">Performance Points</CardTitle>
+              <TrendingUp className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">
-                R$ {stats.totalValue.toFixed(2)}
+                {stats.totalPP.toLocaleString()} PP
               </div>
             </CardContent>
           </Card>
@@ -371,8 +380,8 @@ export default function RewardsHistory() {
                     <TableHead>Data</TableHead>
                     <TableHead>Ação</TableHead>
                     <TableHead>Conteúdo</TableHead>
-                    <TableHead className="text-right">Pontos</TableHead>
-                    <TableHead className="text-right">Valor</TableHead>
+                     <TableHead className="text-right">Pontos</TableHead>
+                    <TableHead className="text-right">PP</TableHead>
                     <TableHead className="text-right">Ações</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -415,7 +424,7 @@ export default function RewardsHistory() {
                         </TableCell>
                         <TableCell className="text-right">
                           <span className="font-semibold text-green-600">
-                            R$ {event.value.toFixed(2)}
+                            {(event.performance_points || 0).toLocaleString()} PP
                           </span>
                         </TableCell>
                         <TableCell className="text-right">
@@ -505,7 +514,7 @@ export default function RewardsHistory() {
                         +{event.points} pts
                       </span>
                       <span className="text-sm font-semibold text-green-600">
-                        R$ {event.value.toFixed(2)}
+                        {(event.performance_points || 0).toLocaleString()} PP
                       </span>
                     </div>
                     <Eye className="w-4 h-4 text-muted-foreground" />
@@ -577,9 +586,9 @@ export default function RewardsHistory() {
                     <p className="text-2xl font-bold text-primary">+{selectedEvent.points}</p>
                   </div>
                   <div>
-                    <p className="text-sm font-medium text-muted-foreground">Valor Ganho</p>
+                    <p className="text-sm font-medium text-muted-foreground">Performance Points</p>
                     <p className="text-2xl font-bold text-green-600">
-                      R$ {selectedEvent.value.toFixed(2)}
+                      {(selectedEvent.performance_points || 0).toLocaleString()} PP
                     </p>
                   </div>
                 </div>

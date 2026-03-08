@@ -126,17 +126,23 @@ export default function Recompensas() {
 
       // If user is creator, fetch creator stats
       if (role === 'creator' || role === 'admin') {
-        const [contentsRes] = await Promise.all([
+        const [contentsRes, coursesRes] = await Promise.all([
           supabase.from("contents")
+            .select("views_count, likes_count")
+            .eq("creator_id", user!.id)
+            .eq("status", "approved"),
+          supabase.from("courses")
             .select("views_count, likes_count")
             .eq("creator_id", user!.id)
             .eq("status", "approved")
         ]);
 
         const contents = contentsRes.data || [];
-        const totalViews = contents.reduce((sum, c) => sum + (c.views_count || 0), 0);
-        const totalLikes = contents.reduce((sum, c) => sum + (c.likes_count || 0), 0);
-        const avgEngagement = contents.length > 0 ? (totalLikes / totalViews) * 100 : 0;
+        const courses = coursesRes.data || [];
+        const allItems = [...contents, ...courses];
+        const totalViews = allItems.reduce((sum, c) => sum + (c.views_count || 0), 0);
+        const totalLikes = allItems.reduce((sum, c) => sum + (c.likes_count || 0), 0);
+        const avgEngagement = allItems.length > 0 && totalViews > 0 ? (totalLikes / totalViews) * 100 : 0;
 
         // Determine next milestone (PP-based, no fixed R$)
         let nextMilestone = { target: 100, current: totalViews, reward: "+PP no pool mensal" };
@@ -149,7 +155,7 @@ export default function Recompensas() {
         }
 
         creatorStats = {
-          totalContents: contents.length,
+          totalContents: allItems.length,
           totalViews,
           totalLikes,
           avgEngagement,
@@ -157,7 +163,7 @@ export default function Recompensas() {
         };
       }
 
-      // Fetch pool data
+      // Fetch pool data in parallel
       const now = new Date();
       const yearMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
       
@@ -168,46 +174,27 @@ export default function Recompensas() {
       let totalPPCalc = 0;
       let prmCalc = 0;
 
-      const { data: settingsData } = await supabase
-        .from('platform_settings')
-        .select('value')
-        .eq('key', 'economic')
-        .single();
-      
-      if (settingsData?.value) {
-        poolPct = (settingsData.value as any).pool_percentage || 40;
+      const [settingsRes, revenueRes, cycleRes] = await Promise.all([
+        supabase.from('platform_settings').select('value').eq('key', 'economic').single(),
+        supabase.from('revenue_entries').select('amount').eq('year_month', yearMonth),
+        supabase.from('economic_cycles').select('id').eq('year_month', yearMonth).maybeSingle(),
+      ]);
+
+      if (settingsRes.data?.value) {
+        poolPct = (settingsRes.data.value as any).pool_percentage || 40;
       }
 
-      const { data: revenueData } = await supabase
-        .from('revenue_entries')
-        .select('amount')
-        .eq('year_month', yearMonth);
-      
-      currentRbm = revenueData?.reduce((sum, e) => sum + parseFloat(String(e.amount)), 0) || 0;
+      currentRbm = revenueRes.data?.reduce((sum, e) => sum + parseFloat(String(e.amount)), 0) || 0;
       prmCalc = currentRbm * (poolPct / 100);
 
-      const { data: cycleData } = await supabase
-        .from('economic_cycles')
-        .select('id')
-        .eq('year_month', yearMonth)
-        .maybeSingle();
+      if (cycleRes.data) {
+        const [userCycleRes, allUsersRes] = await Promise.all([
+          supabase.from('economic_cycle_users').select('performance_points').eq('cycle_id', cycleRes.data.id).eq('user_id', user!.id).maybeSingle(),
+          supabase.from('economic_cycle_users').select('performance_points').eq('cycle_id', cycleRes.data.id),
+        ]);
 
-      if (cycleData) {
-        const { data: userCycle } = await supabase
-          .from('economic_cycle_users')
-          .select('performance_points')
-          .eq('cycle_id', cycleData.id)
-          .eq('user_id', user!.id)
-          .maybeSingle();
-
-        performancePoints = userCycle ? parseFloat(String(userCycle.performance_points)) : 0;
-
-        const { data: allUsers } = await supabase
-          .from('economic_cycle_users')
-          .select('performance_points')
-          .eq('cycle_id', cycleData.id);
-
-        totalPPCalc = allUsers?.reduce((sum, u) => sum + parseFloat(String(u.performance_points)), 0) || 0;
+        performancePoints = userCycleRes.data ? parseFloat(String(userCycleRes.data.performance_points)) : 0;
+        totalPPCalc = allUsersRes.data?.reduce((sum, u) => sum + parseFloat(String(u.performance_points)), 0) || 0;
         estimatedPoolShare = totalPPCalc > 0 ? (performancePoints / totalPPCalc) * prmCalc : 0;
       }
 

@@ -2,12 +2,15 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Badge } from "@/components/ui/badge";
-import { Check, X, Users, User, GraduationCap, Sparkles, Download, PlayCircle, Smartphone } from "lucide-react";
+import { Check, X, Users, User, GraduationCap, Sparkles, Download, PlayCircle, Smartphone, ArrowLeft } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { STRIPE_PRODUCTS } from "@/config/stripe";
+import { Header } from "@/components/Header";
+import { AppSidebar } from "@/components/AppSidebar";
+import { SidebarProvider } from "@/components/ui/sidebar";
 
 export default function Planos() {
   const { user } = useAuth();
@@ -118,7 +121,12 @@ export default function Planos() {
   ];
 
   return (
-    <div className="min-h-screen bg-background">
+    <SidebarProvider>
+      <div className="min-h-screen flex w-full bg-background">
+        <AppSidebar />
+        <div className="flex-1 flex flex-col">
+          <Header variant="home" title="Planos" />
+          <main className="flex-1">
       {/* Hero Section */}
       <section className="relative overflow-hidden bg-gradient-to-br from-primary/20 via-background to-background">
         <div className="container mx-auto px-4 py-20 md:py-32">
@@ -354,6 +362,9 @@ export default function Planos() {
           </Button>
         </div>
       </section>
-    </div>
+          </main>
+        </div>
+      </div>
+    </SidebarProvider>
   );
 }
