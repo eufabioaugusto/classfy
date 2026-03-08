@@ -116,6 +116,11 @@ export default function Conta() {
       if (profileRes.data?.creator_channel_name) {
         setChannelName(profileRes.data.creator_channel_name);
       }
+      // Initialize editable profile fields
+      if (profileRes.data) {
+        setEditDisplayName(profileRes.data.display_name || "");
+        setEditBio(profileRes.data.bio || "");
+      }
     } catch (error: any) {
       toast({
         title: "Erro ao carregar dados",
@@ -124,6 +129,29 @@ export default function Conta() {
       });
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleSaveProfile = async () => {
+    if (!editDisplayName.trim()) {
+      toast({ title: "Nome obrigatório", description: "Digite seu nome de exibição.", variant: "destructive" });
+      return;
+    }
+    setSavingProfile(true);
+    try {
+      const { error } = await supabase
+        .from("profiles")
+        .update({ display_name: editDisplayName.trim(), bio: editBio.trim() || null })
+        .eq("id", user?.id);
+      if (error) throw error;
+      setProfile({ ...profile, display_name: editDisplayName.trim(), bio: editBio.trim() || null });
+      setIsEditingProfile(false);
+      toast({ title: "Perfil atualizado!" });
+      await refreshProfile();
+    } catch (error: any) {
+      toast({ title: "Erro", description: error.message, variant: "destructive" });
+    } finally {
+      setSavingProfile(false);
     }
   };
 
