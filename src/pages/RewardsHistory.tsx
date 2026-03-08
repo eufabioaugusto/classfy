@@ -66,7 +66,7 @@ export default function RewardsHistory() {
   const [filteredEvents, setFilteredEvents] = useState<RewardEvent[]>([]);
   const [stats, setStats] = useState<Stats>({
     totalPoints: 0,
-    totalValue: 0,
+    totalPP: 0,
     totalEvents: 0,
   });
   const [actionFilter, setActionFilter] = useState<string>("all");
