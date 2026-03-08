@@ -42,7 +42,7 @@ export default function Salvos() {
           `
           content_id,
           created_at,
-          contents (
+          contents!inner (
             *,
             profiles:creator_id (
               display_name,
@@ -53,6 +53,7 @@ export default function Salvos() {
         `
         )
         .eq("user_id", user.id)
+        .eq("contents.status", "approved")
         .order("created_at", { ascending: false });
 
       if (savedError) throw savedError;

@@ -42,7 +42,7 @@ export default function Favoritos() {
           `
           content_id,
           created_at,
-          contents (
+          contents!inner (
             *,
             profiles:creator_id (
               display_name,
@@ -53,6 +53,7 @@ export default function Favoritos() {
         `
         )
         .eq("user_id", user.id)
+        .eq("contents.status", "approved")
         .order("created_at", { ascending: false });
 
       if (favError) throw favError;

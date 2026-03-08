@@ -62,6 +62,12 @@ export default function Conta() {
   const [isEditingChannel, setIsEditingChannel] = useState(false);
   const [channelName, setChannelName] = useState("");
   const [savingChannel, setSavingChannel] = useState(false);
+  
+  // Editable profile fields
+  const [isEditingProfile, setIsEditingProfile] = useState(false);
+  const [editDisplayName, setEditDisplayName] = useState("");
+  const [editBio, setEditBio] = useState("");
+  const [savingProfile, setSavingProfile] = useState(false);
 
   useProfileComplete(user?.id, profile);
 
@@ -79,9 +85,9 @@ export default function Conta() {
         supabase.from("wallets").select("*").eq("user_id", user?.id).single(),
         supabase.from("profiles").select("*").eq("id", user?.id).single(),
         supabase
-          .from("system_config")
+          .from("platform_settings")
           .select("*")
-          .eq("config_key", "minimum_withdrawal_amount")
+          .eq("key", "minimum_withdrawal_amount")
           .maybeSingle(),
         supabase
           .from("withdraw_requests")
@@ -96,9 +102,11 @@ export default function Conta() {
       setWallet(walletRes.data);
       setProfile(profileRes.data);
 
-      if (configRes.data) {
-        const configValue = configRes.data.config_value as { amount: number };
-        setMinWithdrawalAmount(configValue.amount);
+      if (configRes.data?.value) {
+        const configValue = configRes.data.value as { amount?: number };
+        if (configValue.amount) {
+          setMinWithdrawalAmount(configValue.amount);
+        }
       }
 
       if (withdrawalsRes.data) {
@@ -108,6 +116,11 @@ export default function Conta() {
       if (profileRes.data?.creator_channel_name) {
         setChannelName(profileRes.data.creator_channel_name);
       }
+      // Initialize editable profile fields
+      if (profileRes.data) {
+        setEditDisplayName(profileRes.data.display_name || "");
+        setEditBio(profileRes.data.bio || "");
+      }
     } catch (error: any) {
       toast({
         title: "Erro ao carregar dados",
@@ -116,6 +129,29 @@ export default function Conta() {
       });
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleSaveProfile = async () => {
+    if (!editDisplayName.trim()) {
+      toast({ title: "Nome obrigatório", description: "Digite seu nome de exibição.", variant: "destructive" });
+      return;
+    }
+    setSavingProfile(true);
+    try {
+      const { error } = await supabase
+        .from("profiles")
+        .update({ display_name: editDisplayName.trim(), bio: editBio.trim() || null })
+        .eq("id", user?.id);
+      if (error) throw error;
+      setProfile({ ...profile, display_name: editDisplayName.trim(), bio: editBio.trim() || null });
+      setIsEditingProfile(false);
+      toast({ title: "Perfil atualizado!" });
+      await refreshProfile();
+    } catch (error: any) {
+      toast({ title: "Erro", description: error.message, variant: "destructive" });
+    } finally {
+      setSavingProfile(false);
     }
   };
 
@@ -375,10 +411,61 @@ export default function Conta() {
                         <Label htmlFor="displayName">Nome de Exibição</Label>
                         <Input 
                           id="displayName" 
-                          value={profile?.display_name || ""} 
-                          disabled 
-                          className="bg-muted"
+                          value={isEditingProfile ? editDisplayName : (profile?.display_name || "")} 
+                          onChange={(e) => setEditDisplayName(e.target.value)}
+                          disabled={!isEditingProfile || savingProfile}
+                          className={!isEditingProfile ? "bg-muted" : ""}
+                          maxLength={50}
                         />
+                      </div>
+
+                      <div className="grid gap-2">
+                        <Label htmlFor="bio">Bio</Label>
+                        <Input 
+                          id="bio" 
+                          value={isEditingProfile ? editBio : (profile?.bio || "")} 
+                          onChange={(e) => setEditBio(e.target.value)}
+                          disabled={!isEditingProfile || savingProfile}
+                          className={!isEditingProfile ? "bg-muted" : ""}
+                          placeholder="Conte um pouco sobre você..."
+                          maxLength={200}
+                        />
+                      </div>
+
+                      <div className="flex gap-2">
+                        {!isEditingProfile ? (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => {
+                              setEditDisplayName(profile?.display_name || "");
+                              setEditBio(profile?.bio || "");
+                              setIsEditingProfile(true);
+                            }}
+                          >
+                            Editar Perfil
+                          </Button>
+                        ) : (
+                          <>
+                            <Button
+                              size="sm"
+                              onClick={handleSaveProfile}
+                              disabled={savingProfile || !editDisplayName.trim()}
+                            >
+                              {savingProfile ? (
+                                <><Loader2 className="w-4 h-4 mr-1 animate-spin" />Salvando...</>
+                              ) : "Salvar"}
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => setIsEditingProfile(false)}
+                              disabled={savingProfile}
+                            >
+                              Cancelar
+                            </Button>
+                          </>
+                        )}
                       </div>
                     </div>
                   </div>
