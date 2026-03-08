@@ -360,6 +360,8 @@ export default function Planos() {
           </Button>
         </div>
       </section>
-    </div>
+        </div>
+      </div>
+    </SidebarProvider>
   );
 }
