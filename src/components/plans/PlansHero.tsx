@@ -1,108 +1,77 @@
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { motion } from "framer-motion";
-import { Sparkles, Crown, Star } from "lucide-react";
-import heroBg from "@/assets/plans-hero-bg.jpg";
+import { PlayCircle, Download, Smartphone, Brain } from "lucide-react";
+
+const quickFeatures = [
+  {
+    icon: PlayCircle,
+    text: "Sem anúncios, para que você assista seus conteúdos favoritos sem interrupção",
+  },
+  {
+    icon: Download,
+    text: "Baixe os vídeos para assistir depois, off-line ou onde estiver",
+  },
+  {
+    icon: Smartphone,
+    text: "Assista vídeos em segundo plano com a tela bloqueada ou usando outros apps",
+  },
+  {
+    icon: Brain,
+    text: "IA que cria quizzes, resumos e planos de estudo personalizados para você",
+  },
+];
 
 export function PlansHero() {
   return (
-    <section className="relative min-h-[85vh] md:min-h-[90vh] flex items-center justify-center overflow-hidden">
-      {/* Background image */}
-      <div className="absolute inset-0">
-        <img
-          src={heroBg}
-          alt=""
-          className="w-full h-full object-cover"
-          loading="eager"
-        />
-        <div className="absolute inset-0 bg-gradient-to-b from-background/60 via-background/40 to-background" />
-        <div className="absolute inset-0 bg-gradient-to-r from-background/80 via-transparent to-background/80" />
-      </div>
+    <section className="pt-12 pb-16 md:pt-20 md:pb-24">
+      <div className="container mx-auto px-4">
+        {/* Hero content - centered, clean */}
+        <div className="text-center max-w-3xl mx-auto mb-16 md:mb-24">
+          <div className="inline-flex items-center gap-2 mb-6">
+            <div className="w-8 h-8 rounded-lg bg-accent flex items-center justify-center">
+              <PlayCircle className="w-5 h-5 text-accent-foreground" />
+            </div>
+            <span className="text-lg font-semibold text-accent">Classfy Premium</span>
+          </div>
 
-      {/* Floating decorative elements */}
-      <motion.div
-        className="absolute top-20 left-[10%] w-2 h-2 rounded-full bg-accent/60"
-        animate={{ y: [0, -20, 0], opacity: [0.4, 1, 0.4] }}
-        transition={{ duration: 3, repeat: Infinity }}
-      />
-      <motion.div
-        className="absolute top-40 right-[15%] w-3 h-3 rounded-full bg-badge-premium/40"
-        animate={{ y: [0, -30, 0], opacity: [0.3, 0.8, 0.3] }}
-        transition={{ duration: 4, repeat: Infinity, delay: 1 }}
-      />
-      <motion.div
-        className="absolute bottom-40 left-[20%] w-1.5 h-1.5 rounded-full bg-badge-pro/50"
-        animate={{ y: [0, -15, 0], opacity: [0.5, 1, 0.5] }}
-        transition={{ duration: 2.5, repeat: Infinity, delay: 0.5 }}
-      />
-
-      {/* Content */}
-      <div className="relative z-10 text-center max-w-4xl mx-auto px-4">
-        <motion.div
-          initial={{ opacity: 0, y: 30 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.8 }}
-          className="space-y-6"
-        >
-          <Badge className="bg-accent/20 text-accent border-accent/30 backdrop-blur-sm px-4 py-1.5 text-sm">
-            <Crown className="w-3.5 h-3.5 mr-1.5" />
-            Classfy Premium
-          </Badge>
-
-          <h1 className="text-4xl sm:text-5xl md:text-7xl font-bold tracking-tight leading-[1.1]">
-            <span className="text-foreground">Todo o Classfy.</span>
+          <h1 className="text-4xl sm:text-5xl md:text-6xl font-bold tracking-tight text-foreground mb-6 leading-[1.1]">
+            Todo o Classfy{"\n"}
             <br />
-            <span className="bg-gradient-to-r from-accent via-badge-premium to-accent bg-clip-text text-transparent">
-              Sem interrupções.
-            </span>
+            sem interrupções
           </h1>
 
-          <p className="text-lg md:text-xl text-muted-foreground max-w-2xl mx-auto leading-relaxed">
-            Conteúdo premium, cursos completos, modo offline e reprodução em segundo plano. 
-            Tudo o que você precisa para aprender mais.
+          <p className="text-lg text-muted-foreground mb-2 max-w-xl mx-auto">
+            Classfy off-line, sem anúncios e em segundo plano
           </p>
 
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.8, delay: 0.3 }}
-            className="flex flex-col sm:flex-row items-center justify-center gap-4 pt-4"
-          >
-            <Button
-              size="lg"
-              className="h-14 px-10 text-base font-semibold bg-accent hover:bg-accent/90 text-accent-foreground rounded-full shadow-lg shadow-accent/25"
-              onClick={() => document.getElementById("plans")?.scrollIntoView({ behavior: "smooth" })}
-            >
-              <Sparkles className="w-5 h-5 mr-2" />
-              Começar agora
-            </Button>
-            <p className="text-sm text-muted-foreground">
-              A partir de <span className="font-semibold text-foreground">R$ 29,90</span>/mês • Cancele quando quiser
-            </p>
-          </motion.div>
+          <p className="text-sm text-muted-foreground mb-8">
+            Planos a partir de R$ 29,90/mês. Cancele a qualquer momento.
+          </p>
 
-          {/* Social proof */}
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ duration: 0.8, delay: 0.6 }}
-            className="flex items-center justify-center gap-1 pt-6"
+          <Button
+            size="lg"
+            className="h-12 px-10 rounded-full text-base font-medium bg-accent hover:bg-accent/90 text-accent-foreground"
+            onClick={() => document.getElementById("plans")?.scrollIntoView({ behavior: "smooth" })}
           >
-            <div className="flex -space-x-2">
-              {[...Array(5)].map((_, i) => (
-                <div
-                  key={i}
-                  className="w-8 h-8 rounded-full bg-gradient-to-br from-accent/40 to-badge-premium/40 border-2 border-background flex items-center justify-center"
-                >
-                  <Star className="w-3 h-3 text-badge-premium" />
+            Ver planos
+          </Button>
+        </div>
+
+        {/* 4-feature grid - like YouTube Premium */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-8 md:gap-12 max-w-4xl mx-auto">
+          {quickFeatures.map((feature, idx) => {
+            const Icon = feature.icon;
+            return (
+              <div key={idx} className="text-center space-y-4">
+                <div className="w-16 h-16 mx-auto rounded-2xl bg-accent/10 flex items-center justify-center">
+                  <Icon className="w-7 h-7 text-accent" />
                 </div>
-              ))}
-            </div>
-            <span className="text-sm text-muted-foreground ml-3">
-              Milhares de assinantes satisfeitos
-            </span>
-          </motion.div>
-        </motion.div>
+                <p className="text-sm text-muted-foreground leading-relaxed">
+                  {feature.text}
+                </p>
+              </div>
+            );
+          })}
+        </div>
       </div>
     </section>
   );
