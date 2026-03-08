@@ -573,10 +573,7 @@ export default function Studio() {
                           </div>
                           <div className="text-right">
                             <p className="text-sm font-semibold text-accent">
-                              +R$ {reward.value.toFixed(2)}
-                            </p>
-                            <p className="text-xs text-muted-foreground">
-                              {reward.points} pts
+                              +{reward.performance_points || reward.points} PP
                             </p>
                           </div>
                         </div>
