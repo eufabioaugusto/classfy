@@ -380,8 +380,8 @@ export default function RewardsHistory() {
                     <TableHead>Data</TableHead>
                     <TableHead>Ação</TableHead>
                     <TableHead>Conteúdo</TableHead>
-                    <TableHead className="text-right">Pontos</TableHead>
-                    <TableHead className="text-right">Valor</TableHead>
+                     <TableHead className="text-right">Pontos</TableHead>
+                    <TableHead className="text-right">PP</TableHead>
                     <TableHead className="text-right">Ações</TableHead>
                   </TableRow>
                 </TableHeader>
