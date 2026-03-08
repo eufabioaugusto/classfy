@@ -1,100 +1,114 @@
 
 
-# Revisao Geral - Quarta Bateria
+# Revisao Geral - Quinta Bateria (Navegacao, UX, Design, Upload)
 
 ## CRITICO
 
-### 1. Studio.tsx mostra earnings com multiplicador hardcoded `* 2`
-Na linha 352, o card de Ganhos exibe `(stats.earnings * 2).toFixed(2)` com label "Ganhos (em dobro)". Isso e arbitrario, nao reflete nenhuma regra de negocio real e engana o creator mostrando o dobro do que realmente ganhou.
+### 1. Index.tsx bloqueia conteudo gratuito para usuarios nao-logados
+Em `handleContentClick` (linha 202), se `!user`, redireciona para `/auth`. Isso impede que visitantes acessem conteudo **gratuito**. Uma plataforma de conteudo precisa permitir que visitantes assistam conteudo free para converter em signups.
 
-**Correcao**: Mostrar `stats.earnings` sem multiplicador, ou mostrar Performance Points se o sistema ja migrou.
+**Correcao**: Permitir navegacao para conteudo gratuito sem login. So redirecionar para `/auth` em conteudo restrito (pro/premium/paid).
 
-### 2. Studio.tsx faz 10+ queries sequenciais no dashboard
-`fetchDashboardData` faz ~10 queries separadas ao banco, sem `Promise.all`. Cada uma espera a anterior terminar. O dashboard do creator e lento desnecessariamente.
+### 2. Messages.tsx usa `navigate()` dentro do render (side effect)
+Linha 22: `navigate("/auth")` e chamado diretamente no corpo do componente quando `!user`. Isso causa warnings do React e comportamento imprevisivel.
 
-**Correcao**: Agrupar queries independentes em `Promise.all`.
+**Correcao**: Substituir por `return <Navigate to="/auth" replace />;`
 
-### 3. Conta.tsx consulta tabela `system_config` que nao existe no schema
-A query em `Conta.tsx` busca `system_config.config_key = 'minimum_withdrawal_amount'`, mas a tabela definida no schema e `platform_settings` com coluna `key`. A query falha silenciosamente e o valor default 10 e sempre usado.
+### 3. StudioUpload.tsx tem 1216 linhas - monolito critico
+O componente e um unico arquivo com upload, compressao, lobby, thumbnail, formulario, preview, e submit. Qualquer mudanca e arriscada e o componente e dificil de manter.
 
-**Correcao**: Migrar para `platform_settings` com key correta.
+**Correcao**: Extrair em hooks (`useUploadForm`, `useFileUpload`, `useThumbnailUpload`) e sub-componentes (`UploadHero`, `UploadFileSection`, `UploadDetailsForm`, `UploadVisibilitySection`).
 
-### 4. Conta.tsx nao permite editar display_name nem bio
-Os campos "Nome de Exibicao" e "Email" estao `disabled` sem opcao de edicao. O usuario nao consegue atualizar seu proprio nome de exibicao apos o signup.
+### 4. ContentCard ainda faz RPC `is_content_boosted` individualmente quando `isBoosted` prop nao e passada
+A prop `isBoosted` foi adicionada mas nenhum componente pai (Index, CreatorProfile, Favoritos, etc.) passa essa prop. Cada card continua fazendo a RPC.
 
-**Correcao**: Tornar display_name e bio editaveis com botao de salvar.
+**Correcao**: No `Index.tsx` e outros pais, fazer batch fetch de boost status e passar como prop.
 
 ---
 
 ## MEDIO
 
-### 5. ContentCard faz RPC `is_content_boosted` para cada card (N+1)
-Cada ContentCard executa `supabase.rpc("is_content_boosted")` individualmente. Em paginas com 20+ cards, sao 20+ requests.
+### 5. GlobalSearch nao filtra conteudo por tags
+A busca global so usa `title.ilike` e `description.ilike`. Tags sao ignoradas, o que reduz significativamente a descoberta de conteudo.
 
-**Melhoria**: Criar batch check no componente pai ou usar uma query unica.
+**Correcao**: Adicionar busca por tags usando `tags.cs.{searchPattern}` ou full-text search.
 
-### 6. useRewardSystem `checkCourseCompletion` usa logica errada
-Na linha 236, busca lessons com `eq('category_id', courseId)` — mas lessons estao em `course_lessons` (nao em `contents` com `category_id`). A verificacao de conclusao de curso nunca funciona.
+### 6. Header `showSearch` e false por default, busca so aparece na Home
+A barra de busca global so e visivel em `Index.tsx` porque so ele passa `showSearch={true}`. Em todas as outras paginas (Favoritos, Historico, Studio, etc.) nao ha forma de buscar conteudo.
 
-**Correcao**: Buscar de `course_lessons` e checar `course_enrollments.completed_lessons`.
+**Correcao**: Sempre mostrar a busca no Header, ou pelo menos o icone que abre o Sheet de busca em mobile.
 
-### 7. Favoritos e Salvos nao filtram por `status = 'approved'`
-`Favoritos.tsx` e `Salvos.tsx` buscam conteudos via join sem filtrar status. Conteudos rejeitados ou pendentes aparecem se o usuario favoritou/salvou antes da rejeicao.
+### 7. Planos.tsx nao mostra plano atual do usuario
+A pagina de planos nao indica qual plano o usuario ja tem. Botoes de "Assinar" aparecem mesmo para quem ja e assinante do plano.
 
-**Correcao**: Adicionar filtro `.eq('contents.status', 'approved')` ou filtrar client-side.
+**Correcao**: Buscar `profile.plan` e mostrar badge "Seu plano" no card ativo, desabilitar ou mostrar "Gerenciar" para assinantes.
 
-### 8. Studio.tsx nao inclui cursos nas stats do creator
-`totalContents`, `totalViews`, e `recentContents` so buscam de `contents`. Cursos criados pelo creator nao aparecem no dashboard.
+### 8. MobileBottomNav esconde em rotas uteis
+`hiddenRoutes` inclui `/studio` e `/admin`, o que faz sentido. Mas tambem esconde em `/c/` (estudo) e `/shorts`, onde o usuario pode querer navegar para outra area.
 
-**Correcao**: Incluir queries em `courses` e somar os resultados.
+**Correcao**: Revisar se `/shorts` e `/c/` realmente precisam esconder a nav. Considerar manter a nav com transparencia ou mini-modo.
 
-### 9. Studio `getRewardLabel` tem labels incompletas
-O mapeamento tem apenas 8 labels antigas. Faltam keys reais como `VIEW_15S`, `WATCH_50`, `DAILY_LOGIN`, `SAVE_CONTENT`, `FAVORITE_CONTENT`, etc.
+### 9. AppSidebar nao tem link para Shorts
+Shorts e um formato importante mas nao aparece no menu lateral. O usuario so descobre Shorts pela home.
 
-**Correcao**: Unificar com o mesmo mapeamento completo usado em Carteira.
+**Correcao**: Adicionar "Shorts" ao `mainItems` no sidebar.
+
+### 10. ContentSection limita itens sem "Ver mais"
+`getMaxItems()` corta em 5-6 itens e nao ha botao/link para ver mais conteudos daquela categoria.
+
+**Correcao**: Adicionar link "Ver todos" que navega para uma rota filtrada ou expande a secao.
 
 ---
 
-## BAIXO / MELHORIAS
+## BAIXO / UX
 
-### 10. Auth.tsx nao mostra feedback de confirmacao de email
-Apos signup, o usuario e redirecionado para `/` sem aviso de que precisa confirmar o email. Se auto-confirm estiver desabilitado, o usuario nao consegue logar e nao sabe por que.
+### 11. Auth.tsx busca 20 videos para background - pesado e desnecessario
+Na pagina de login, faz query de 20 videos aprovados e rotaciona como background. Isso e pesado, consome bandwidth do visitante, e pode mostrar conteudo inapropriado como fundo de login.
 
-**Melhoria**: Mostrar mensagem "Verifique seu email para confirmar a conta" apos signup bem-sucedido.
+**Melhoria**: Usar imagem estatica ou gradient animado. Se quiser video, limitar a 1-2 com lazy loading.
 
-### 11. Conta.tsx link do perfil usa `/@` mas rota e `/:username`
-Na linha 477, `navigate('/@${profile.creator_channel_name}')` inclui `@` no path. A rota definida em App.tsx e `/:username` — o `@` fica como parte do parametro, o que pode nao funcionar se CreatorProfile nao faz strip do `@`.
+### 12. Upload nao valida tamanho maximo antes de abrir Lobby
+O Lobby abre imediatamente apos selecionar o arquivo (`handleFileUpload`), sem checar se o arquivo excede o limite (ex: 500MB). O usuario edita trim/cover e so descobre o erro no upload.
 
-**Correcao**: Verificar se CreatorProfile trata o `@` ou remover o prefixo na navegacao.
+**Melhoria**: Validar tamanho e formato antes de abrir o Lobby.
 
-### 12. Watch.tsx tem 1393 linhas — muito grande
-O componente WatchContent e massivo com logica de acesso, rewards, mini player, teatro mode, comments, notes, curriculum, related contents, e action states. Refatorar em hooks menores.
+### 13. Design: Cards de curso na Home usam `navigate(/watch/${course.id})` 
+Cursos devem ter uma rota dedicada (ex: `/course/${id}`) com pagina de overview, modules, enrollment. Usar `/watch/` para cursos quebra a experiencia.
 
-**Melhoria**: Extrair logica em hooks como `useWatchContent`, `useWatchActions`, `useWatchRewards`.
+**Melhoria**: Criar rota `/course/:id` ou ao menos redirecionar corretamente no Watch.
+
+### 14. Nenhuma pagina tem meta tags / SEO
+SPA sem SSR nao tem meta tags dinamicas. Para uma plataforma de conteudo, isso e critico para compartilhamento em redes sociais e indexacao.
+
+**Melhoria**: Adicionar `react-helmet` com titulo e description por pagina.
 
 ---
 
 ## Plano de Implementacao
 
-### Tarefa 1: Corrigir Studio Dashboard
-- Remover multiplicador `* 2` dos earnings
-- Paralelizar queries com `Promise.all`
-- Incluir cursos nas stats
-- Atualizar `getRewardLabel` com keys completas
+### Tarefa 1: Corrigir acesso de visitantes a conteudo gratuito
+- Em `Index.tsx`, permitir navegacao para `/watch/:id` sem login para conteudo `visibility = 'free'`
+- Em `Watch.tsx`, mostrar prompt de login apenas para acoes (like, save, comment), nao para assistir
 
-### Tarefa 2: Corrigir Conta.tsx
-- Migrar query de `system_config` para `platform_settings`
-- Tornar display_name e bio editaveis
-- Corrigir link do perfil com `@`
+### Tarefa 2: Corrigir navegacao e UX
+- `Messages.tsx`: trocar `navigate()` no render por `<Navigate />`
+- Adicionar "Shorts" ao `mainItems` do `AppSidebar`
+- Mostrar busca global em todas as paginas (nao so Home)
+- Adicionar "Ver todos" em `ContentSection`
 
-### Tarefa 3: Corrigir Favoritos e Salvos
-- Filtrar por status approved nos joins
+### Tarefa 3: Planos - mostrar plano atual
+- Passar `currentPlan` para `PlanCards` e destacar o plano ativo
+- Mostrar "Gerenciar assinatura" via customer-portal para assinantes
 
-### Tarefa 4: Corrigir useRewardSystem
-- Fix `checkCourseCompletion` para usar `course_lessons`
+### Tarefa 4: Upload - validacao e refatoracao
+- Validar tamanho/formato do arquivo ANTES de abrir o Lobby
+- Extrair hooks e sub-componentes do `StudioUpload.tsx`
 
-### Tarefa 5: Auth feedback
-- Mostrar mensagem de confirmacao de email apos signup
+### Tarefa 5: Batch boost check na Home
+- No `Index.tsx`, apos buscar conteudos, fazer uma unica query de boost status
+- Passar `isBoosted` como prop para cada `ContentCard`
 
-### Tarefa 6: Otimizar ContentCard boost check
-- Batch boost check no componente pai
+### Tarefa 6: Melhorias de discoverability
+- Busca por tags no `GlobalSearch`
+- SEO basico com `document.title` por pagina
+
