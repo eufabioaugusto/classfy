@@ -63,129 +63,79 @@ export default function Studio() {
     
     setIsLoading(true);
     try {
-      // Total de conteúdos
-      const { count: contentsCount } = await supabase
-        .from('contents')
-        .select('*', { count: 'exact', head: true })
-        .eq('creator_id', user.id);
-
-      // Conteúdos pendentes
-      const { count: pendingCount } = await supabase
-        .from('contents')
-        .select('*', { count: 'exact', head: true })
-        .eq('creator_id', user.id)
-        .eq('status', 'pending');
-
-      // Total de visualizações
-      const { data: contents } = await supabase
-        .from('contents')
-        .select('views_count, created_at')
-        .eq('creator_id', user.id);
-
-      const totalViews = contents?.reduce((sum, c) => sum + (c.views_count || 0), 0) || 0;
-
-      // Views dos últimos 7 dias
       const sevenDaysAgo = new Date();
       sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-      
-      const { data: recentViews } = await supabase
-        .from('content_views')
-        .select('content_id, contents!inner(creator_id)')
-        .eq('contents.creator_id', user.id)
-        .gte('view_date', sevenDaysAgo.toISOString().split('T')[0]);
-
-      const last7DaysViews = recentViews?.length || 0;
-
-      // Views dos 7 dias anteriores para calcular trend
       const fourteenDaysAgo = new Date();
       fourteenDaysAgo.setDate(fourteenDaysAgo.getDate() - 14);
-      
-      const { data: previousViews } = await supabase
-        .from('content_views')
-        .select('content_id, contents!inner(creator_id)')
-        .eq('contents.creator_id', user.id)
-        .gte('view_date', fourteenDaysAgo.toISOString().split('T')[0])
-        .lt('view_date', sevenDaysAgo.toISOString().split('T')[0]);
 
-      const previous7DaysViews = previousViews?.length || 0;
+      // Parallelize ALL queries
+      const [
+        contentsCountRes,
+        coursesCountRes,
+        pendingCountRes,
+        pendingCoursesCountRes,
+        contentsViewsRes,
+        coursesViewsRes,
+        recentViewsRes,
+        previousViewsRes,
+        followersCountRes,
+        walletRes,
+        commentsCountRes,
+        boostsRes,
+        recentContentsRes,
+        recentCoursesRes,
+        recentCommentsRes,
+        recentRewardsRes,
+      ] = await Promise.all([
+        supabase.from('contents').select('*', { count: 'exact', head: true }).eq('creator_id', user.id),
+        supabase.from('courses').select('*', { count: 'exact', head: true }).eq('creator_id', user.id),
+        supabase.from('contents').select('*', { count: 'exact', head: true }).eq('creator_id', user.id).eq('status', 'pending'),
+        supabase.from('courses').select('*', { count: 'exact', head: true }).eq('creator_id', user.id).eq('status', 'pending'),
+        supabase.from('contents').select('views_count, created_at').eq('creator_id', user.id),
+        supabase.from('courses').select('views_count, created_at').eq('creator_id', user.id),
+        supabase.from('content_views').select('content_id, contents!inner(creator_id)').eq('contents.creator_id', user.id).gte('view_date', sevenDaysAgo.toISOString().split('T')[0]),
+        supabase.from('content_views').select('content_id, contents!inner(creator_id)').eq('contents.creator_id', user.id).gte('view_date', fourteenDaysAgo.toISOString().split('T')[0]).lt('view_date', sevenDaysAgo.toISOString().split('T')[0]),
+        supabase.from('follows').select('*', { count: 'exact', head: true }).eq('following_id', user.id),
+        supabase.from('wallets').select('total_earned, balance').eq('user_id', user.id).single(),
+        supabase.from('comments').select('*, contents!inner(creator_id)', { count: 'exact', head: true }).eq('contents.creator_id', user.id),
+        supabase.from('boosts').select('*, contents(title)', { count: 'exact' }).eq('user_id', user.id).eq('status', 'active').limit(3),
+        supabase.from('contents').select('id, title, status, created_at, views_count, thumbnail_url, content_type').eq('creator_id', user.id).order('created_at', { ascending: false }).limit(5),
+        supabase.from('courses').select('id, title, status, created_at, views_count, thumbnail_url').eq('creator_id', user.id).order('created_at', { ascending: false }).limit(3),
+        supabase.from('comments').select(`id, text, created_at, profiles:user_id (display_name, avatar_url), contents!inner(id, title, creator_id)`).eq('contents.creator_id', user.id).order('created_at', { ascending: false }).limit(5),
+        supabase.from('reward_events').select('id, action_key, points, performance_points, created_at, metadata').eq('user_id', user.id).order('created_at', { ascending: false }).limit(5),
+      ]);
+
+      const totalContentViews = contentsViewsRes.data?.reduce((sum, c) => sum + (c.views_count || 0), 0) || 0;
+      const totalCourseViews = coursesViewsRes.data?.reduce((sum, c) => sum + (c.views_count || 0), 0) || 0;
+      const totalViews = totalContentViews + totalCourseViews;
+
+      const last7DaysViews = recentViewsRes.data?.length || 0;
+      const previous7DaysViews = previousViewsRes.data?.length || 0;
       const viewsTrend = previous7DaysViews > 0 
         ? ((last7DaysViews - previous7DaysViews) / previous7DaysViews) * 100 
         : 0;
 
-      // Total de seguidores
-      const { count: followersCount } = await supabase
-        .from('follows')
-        .select('*', { count: 'exact', head: true })
-        .eq('following_id', user.id);
+      setActiveBoosts(boostsRes.data || []);
 
-      // Total ganhos
-      const { data: wallet } = await supabase
-        .from('wallets')
-        .select('total_earned, balance')
-        .eq('user_id', user.id)
-        .single();
+      // Merge contents + courses for recent list
+      const allRecent = [
+        ...(recentContentsRes.data || []),
+        ...(recentCoursesRes.data || []).map((c: any) => ({ ...c, content_type: 'curso' })),
+      ].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()).slice(0, 5);
 
-      // Total de comentários
-      const { count: commentsCount } = await supabase
-        .from('comments')
-        .select('*, contents!inner(creator_id)', { count: 'exact', head: true })
-        .eq('contents.creator_id', user.id);
-
-      // Boosts ativos
-      const { count: boostsCount, data: boostsData } = await supabase
-        .from('boosts')
-        .select('*, contents(title)', { count: 'exact' })
-        .eq('user_id', user.id)
-        .eq('status', 'active')
-        .limit(3);
-
-      setActiveBoosts(boostsData || []);
-
-      // Conteúdos recentes
-      const { data: recentContentsData } = await supabase
-        .from('contents')
-        .select('id, title, status, created_at, views_count, thumbnail_url')
-        .eq('creator_id', user.id)
-        .order('created_at', { ascending: false })
-        .limit(5);
-
-      setRecentContents(recentContentsData || []);
-
-      // Comentários recentes
-      const { data: recentCommentsData } = await supabase
-        .from('comments')
-        .select(`
-          id,
-          text,
-          created_at,
-          profiles:user_id (display_name, avatar_url),
-          contents!inner(id, title, creator_id)
-        `)
-        .eq('contents.creator_id', user.id)
-        .order('created_at', { ascending: false })
-        .limit(5);
-
-      setRecentComments(recentCommentsData || []);
-
-      // Recompensas recentes
-      const { data: recentRewardsData } = await supabase
-        .from('reward_events')
-        .select('id, action_key, points, value, created_at, metadata')
-        .eq('user_id', user.id)
-        .order('created_at', { ascending: false })
-        .limit(5);
-
-      setRecentRewards(recentRewardsData || []);
+      setRecentContents(allRecent);
+      setRecentComments(recentCommentsRes.data || []);
+      setRecentRewards(recentRewardsRes.data || []);
 
       setStats({
-        totalContents: contentsCount || 0,
+        totalContents: (contentsCountRes.count || 0) + (coursesCountRes.count || 0),
         totalViews,
-        followers: followersCount || 0,
-        earnings: wallet?.total_earned || 0,
+        followers: followersCountRes.count || 0,
+        earnings: walletRes.data?.total_earned || 0,
         points: 0,
-        pendingContents: pendingCount || 0,
-        totalComments: commentsCount || 0,
-        activeBoosts: boostsCount || 0,
+        pendingContents: (pendingCountRes.count || 0) + (pendingCoursesCountRes.count || 0),
+        totalComments: commentsCountRes.count || 0,
+        activeBoosts: boostsRes.count || 0,
         last7DaysViews,
         viewsTrend
       });
