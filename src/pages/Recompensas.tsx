@@ -126,17 +126,23 @@ export default function Recompensas() {
 
       // If user is creator, fetch creator stats
       if (role === 'creator' || role === 'admin') {
-        const [contentsRes] = await Promise.all([
+        const [contentsRes, coursesRes] = await Promise.all([
           supabase.from("contents")
+            .select("views_count, likes_count")
+            .eq("creator_id", user!.id)
+            .eq("status", "approved"),
+          supabase.from("courses")
             .select("views_count, likes_count")
             .eq("creator_id", user!.id)
             .eq("status", "approved")
         ]);
 
         const contents = contentsRes.data || [];
-        const totalViews = contents.reduce((sum, c) => sum + (c.views_count || 0), 0);
-        const totalLikes = contents.reduce((sum, c) => sum + (c.likes_count || 0), 0);
-        const avgEngagement = contents.length > 0 ? (totalLikes / totalViews) * 100 : 0;
+        const courses = coursesRes.data || [];
+        const allItems = [...contents, ...courses];
+        const totalViews = allItems.reduce((sum, c) => sum + (c.views_count || 0), 0);
+        const totalLikes = allItems.reduce((sum, c) => sum + (c.likes_count || 0), 0);
+        const avgEngagement = allItems.length > 0 && totalViews > 0 ? (totalLikes / totalViews) * 100 : 0;
 
         // Determine next milestone (PP-based, no fixed R$)
         let nextMilestone = { target: 100, current: totalViews, reward: "+PP no pool mensal" };
@@ -149,7 +155,7 @@ export default function Recompensas() {
         }
 
         creatorStats = {
-          totalContents: contents.length,
+          totalContents: allItems.length,
           totalViews,
           totalLikes,
           avgEngagement,
