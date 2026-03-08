@@ -277,12 +277,12 @@ export default function RewardsHistory() {
 
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Total em R$</CardTitle>
-              <DollarSign className="h-4 w-4 text-muted-foreground" />
+              <CardTitle className="text-sm font-medium">Performance Points</CardTitle>
+              <TrendingUp className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">
-                R$ {stats.totalValue.toFixed(2)}
+                {stats.totalPP.toLocaleString()} PP
               </div>
             </CardContent>
           </Card>
