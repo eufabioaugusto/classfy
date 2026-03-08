@@ -210,13 +210,13 @@ export default function RewardsHistory() {
   };
 
   const exportToCSV = () => {
-    const headers = ["Data", "Ação", "Conteúdo", "Pontos", "Valor"];
+    const headers = ["Data", "Ação", "Conteúdo", "Pontos", "PP"];
     const rows = filteredEvents.map(event => [
       format(new Date(event.created_at), "dd/MM/yyyy HH:mm", { locale: ptBR }),
       getActionLabel(event.action_key),
       event.contents?.title || "-",
       event.points.toString(),
-      `R$ ${event.value.toFixed(2)}`
+      (event.performance_points || 0).toString()
     ]);
 
     const csvContent = [
