@@ -163,7 +163,7 @@ export default function Recompensas() {
         };
       }
 
-      // Fetch pool data
+      // Fetch pool data in parallel
       const now = new Date();
       const yearMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
       
@@ -174,46 +174,27 @@ export default function Recompensas() {
       let totalPPCalc = 0;
       let prmCalc = 0;
 
-      const { data: settingsData } = await supabase
-        .from('platform_settings')
-        .select('value')
-        .eq('key', 'economic')
-        .single();
-      
-      if (settingsData?.value) {
-        poolPct = (settingsData.value as any).pool_percentage || 40;
+      const [settingsRes, revenueRes, cycleRes] = await Promise.all([
+        supabase.from('platform_settings').select('value').eq('key', 'economic').single(),
+        supabase.from('revenue_entries').select('amount').eq('year_month', yearMonth),
+        supabase.from('economic_cycles').select('id').eq('year_month', yearMonth).maybeSingle(),
+      ]);
+
+      if (settingsRes.data?.value) {
+        poolPct = (settingsRes.data.value as any).pool_percentage || 40;
       }
 
-      const { data: revenueData } = await supabase
-        .from('revenue_entries')
-        .select('amount')
-        .eq('year_month', yearMonth);
-      
-      currentRbm = revenueData?.reduce((sum, e) => sum + parseFloat(String(e.amount)), 0) || 0;
+      currentRbm = revenueRes.data?.reduce((sum, e) => sum + parseFloat(String(e.amount)), 0) || 0;
       prmCalc = currentRbm * (poolPct / 100);
 
-      const { data: cycleData } = await supabase
-        .from('economic_cycles')
-        .select('id')
-        .eq('year_month', yearMonth)
-        .maybeSingle();
+      if (cycleRes.data) {
+        const [userCycleRes, allUsersRes] = await Promise.all([
+          supabase.from('economic_cycle_users').select('performance_points').eq('cycle_id', cycleRes.data.id).eq('user_id', user!.id).maybeSingle(),
+          supabase.from('economic_cycle_users').select('performance_points').eq('cycle_id', cycleRes.data.id),
+        ]);
 
-      if (cycleData) {
-        const { data: userCycle } = await supabase
-          .from('economic_cycle_users')
-          .select('performance_points')
-          .eq('cycle_id', cycleData.id)
-          .eq('user_id', user!.id)
-          .maybeSingle();
-
-        performancePoints = userCycle ? parseFloat(String(userCycle.performance_points)) : 0;
-
-        const { data: allUsers } = await supabase
-          .from('economic_cycle_users')
-          .select('performance_points')
-          .eq('cycle_id', cycleData.id);
-
-        totalPPCalc = allUsers?.reduce((sum, u) => sum + parseFloat(String(u.performance_points)), 0) || 0;
+        performancePoints = userCycleRes.data ? parseFloat(String(userCycleRes.data.performance_points)) : 0;
+        totalPPCalc = allUsersRes.data?.reduce((sum, u) => sum + parseFloat(String(u.performance_points)), 0) || 0;
         estimatedPoolShare = totalPPCalc > 0 ? (performancePoints / totalPPCalc) * prmCalc : 0;
       }
 

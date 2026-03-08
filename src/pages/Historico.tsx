@@ -123,6 +123,7 @@ export default function Historico() {
             discount,
             is_free,
             required_plan,
+            status,
             profiles:creator_id (
               id,
               display_name,

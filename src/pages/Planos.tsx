@@ -126,7 +126,7 @@ export default function Planos() {
         <AppSidebar />
         <div className="flex-1 flex flex-col">
           <Header variant="home" title="Planos" />
-      <section className="relative overflow-hidden bg-gradient-to-br from-primary/20 via-background to-background">
+      {/* Hero Section */}
         <div className="container mx-auto px-4 py-20 md:py-32">
           <div className="text-center max-w-4xl mx-auto space-y-6">
             <Badge className="bg-primary text-primary-foreground mb-4">
