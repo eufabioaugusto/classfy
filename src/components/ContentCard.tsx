@@ -58,6 +58,7 @@ export const ContentCard = ({
   aspectRatio = "default",
   userPlan = "free",
   onUpgradeClick,
+  isBoosted: propIsBoosted,
 }: ContentCardProps) => {
   // Support both formats: direct props or content object
   const id = propId || content?.id;
