@@ -106,11 +106,11 @@ export default function RewardsHistory() {
       
       // Calculate stats
       const totalPoints = data?.reduce((sum, event) => sum + event.points, 0) || 0;
-      const totalValue = data?.reduce((sum, event) => sum + event.value, 0) || 0;
+      const totalPP = data?.reduce((sum, event) => sum + (event.performance_points || 0), 0) || 0;
       
       setStats({
         totalPoints,
-        totalValue,
+        totalPP,
         totalEvents: data?.length || 0,
       });
     } catch (error) {
