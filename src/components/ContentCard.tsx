@@ -32,6 +32,7 @@ interface ContentCardProps {
   aspectRatio?: "default" | "square" | "vertical";
   userPlan?: "free" | "pro" | "premium";
   onUpgradeClick?: (plan: "pro" | "premium") => void;
+  isBoosted?: boolean;
 }
 
 export const ContentCard = ({
