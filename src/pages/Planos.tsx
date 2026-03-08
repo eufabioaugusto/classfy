@@ -362,6 +362,7 @@ export default function Planos() {
           </Button>
         </div>
       </section>
+          </main>
         </div>
       </div>
     </SidebarProvider>
