@@ -83,7 +83,7 @@ export const ContentCard = ({
   const location = useLocation();
   const isRestricted = !isFree || requiredPlan;
   const isPaid = visibility === "paid";
-  const [isBoosted, setIsBoosted] = useState(false);
+  const [isBoosted, setIsBoosted] = useState(propIsBoosted ?? false);
   const [isHovered, setIsHovered] = useState(false);
   const [shouldAutoplay, setShouldAutoplay] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -91,19 +91,19 @@ export const ContentCard = ({
   const isShort = (content?.content_type || contentType) === "short";
   const videoUrl = content?.file_url || content?.video_url;
 
+  // Only fetch boost status if not provided as prop
   useEffect(() => {
+    if (propIsBoosted !== undefined || !id) return;
+
     const checkBoost = async () => {
-      if (!id) return;
-
       const { data, error } = await supabase.rpc("is_content_boosted", { p_content_id: id });
-
       if (!error && data) {
         setIsBoosted(data);
       }
     };
 
     checkBoost();
-  }, [id]);
+  }, [id, propIsBoosted]);
 
   // Random autoplay for mobile shorts
   useEffect(() => {
