@@ -178,12 +178,25 @@ export default function Studio() {
     const labels: Record<string, string> = {
       'CONTENT_UPLOAD': 'Upload de Conteúdo',
       'CONTENT_VIEW': 'Visualização',
+      'VIEW_15S': 'Visualização (+15s)',
+      'WATCH_50': 'Assistiu 50%',
+      'WATCH_100': 'Assistiu 100%',
+      'LIKE_CONTENT': 'Curtiu Conteúdo',
+      'SAVE_CONTENT': 'Salvou Conteúdo',
+      'FAVORITE_CONTENT': 'Favoritou Conteúdo',
+      'COMMENT_CONTENT': 'Comentou',
+      'SHARE_CONTENT': 'Compartilhou',
+      'SUBSCRIBE_CREATOR': 'Seguiu Creator',
+      'DAILY_LOGIN': 'Login Diário',
+      'WEEKLY_STREAK': 'Sequência Semanal',
+      'STREAK_7': 'Sequência de 7 dias',
+      'BINGE_WATCH': 'Maratona',
+      'FIRST_CONTENT_WEEK': 'Primeira Aula da Semana',
+      'COMPLETE_COURSE': 'Curso Completo',
+      'PROFILE_COMPLETE': 'Perfil Completo',
       'MILESTONE_100_VIEWS': '100 Visualizações',
       'MILESTONE_500_VIEWS': '500 Visualizações',
       'MILESTONE_1000_VIEWS': '1.000 Visualizações',
-      'LIKE': 'Like Recebido',
-      'COMMENT': 'Comentário Recebido',
-      'FOLLOW': 'Novo Seguidor'
     };
     return labels[actionKey] || actionKey;
   };
