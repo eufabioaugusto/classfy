@@ -180,7 +180,7 @@ serve(async (req) => {
       .select("*")
       .eq("study_id", studyId)
       .order("created_at", { ascending: true })
-      .limit(20);
+      .limit(50);
 
     const conversationHistory = messages?.map((m: any) => ({
       role: m.role,
