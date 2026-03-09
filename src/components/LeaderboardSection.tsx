@@ -160,6 +160,41 @@ export function LeaderboardSection({ userId }: LeaderboardSectionProps) {
               </div>
             );
           })}
+
+          {/* Show user outside top 10 with separator */}
+          {userOutsideTop && (
+            <>
+              <div className="flex items-center gap-2 py-1">
+                <div className="flex-1 border-t border-dashed border-border" />
+                <span className="text-xs text-muted-foreground">•••</span>
+                <div className="flex-1 border-t border-dashed border-border" />
+              </div>
+              <div className="flex items-center gap-3 p-3 rounded-lg bg-accent/10 border border-accent/20">
+                <div className="flex items-center justify-center w-8">
+                  <span className="w-5 text-center text-sm font-bold text-accent">
+                    {userOutsideTop.rank}
+                  </span>
+                </div>
+                <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center overflow-hidden flex-shrink-0">
+                  {userOutsideTop.avatar_url ? (
+                    <img src={userOutsideTop.avatar_url} alt="" className="w-full h-full object-cover" />
+                  ) : (
+                    <User className="w-4 h-4 text-muted-foreground" />
+                  )}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium truncate text-accent">
+                    {userOutsideTop.display_name}
+                    <span className="text-xs ml-1">(você)</span>
+                  </p>
+                </div>
+                <div className="text-right flex-shrink-0">
+                  <p className="text-sm font-bold">{Math.floor(userOutsideTop.performance_points).toLocaleString()}</p>
+                  <p className="text-xs text-muted-foreground">PP</p>
+                </div>
+              </div>
+            </>
+          )}
         </div>
       </CardContent>
     </Card>
