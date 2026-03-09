@@ -1129,7 +1129,7 @@ function WatchContent() {
                           id: content.creator.id,
                           display_name: content.creator.display_name,
                           avatar_url: content.creator.avatar_url,
-                          channel_name: content.creator.creator_channel_name
+                          channel_name: (content.creator as any)?.creator_channel_name
                         } : null}
                         followersCount={followersCount}
                         hasAccess={hasAccess}
