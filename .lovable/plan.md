@@ -1,100 +1,55 @@
 
 
-# Revisao Geral - Quarta Bateria
+## Plano: Multiplicador de Consistência + Suavização de Curva de Crescimento
 
-## CRITICO
+### Contexto (alinhamento com sua visão)
 
-### 1. Studio.tsx mostra earnings com multiplicador hardcoded `* 2`
-Na linha 352, o card de Ganhos exibe `(stats.earnings * 2).toFixed(2)` com label "Ganhos (em dobro)". Isso e arbitrario, nao reflete nenhuma regra de negocio real e engana o creator mostrando o dobro do que realmente ganhou.
+Entendi seus pontos:
+- **Meritocracia**: quem se dedica mais, ganha mais. Sem cap artificial. Correto.
+- **Valor alto no início**: justo, quem está ativo merece. OK.
+- **Problema real**: a **queda brusca** de ganho conforme a base cresce. Se de um mês pro outro entram 100 usuários, o valor por ponto cai drasticamente e o usuário ativo sente uma perda injusta.
+- **Consistência**: recompensar quem está presente todos os dias vs. quem faz burst de ações em 2 dias.
 
-**Correcao**: Mostrar `stats.earnings` sem multiplicador, ou mostrar Performance Points se o sistema ja migrou.
+### O que precisa ser feito
 
-### 2. Studio.tsx faz 10+ queries sequenciais no dashboard
-`fetchDashboardData` faz ~10 queries separadas ao banco, sem `Promise.all`. Cada uma espera a anterior terminar. O dashboard do creator e lento desnecessariamente.
+**1. Multiplicador de Consistência (processo-reward)**
 
-**Correcao**: Agrupar queries independentes em `Promise.all`.
+Usuários ativos por 20+ dias no mês ganham 1.2x nos seus PP. Ativos 25+ dias ganham 1.3x. Isso diferencia quem é fiel da plataforma vs. quem aparece esporadicamente.
 
-### 3. Conta.tsx consulta tabela `system_config` que nao existe no schema
-A query em `Conta.tsx` busca `system_config.config_key = 'minimum_withdrawal_amount'`, mas a tabela definida no schema e `platform_settings` com coluna `key`. A query falha silenciosamente e o valor default 10 e sempre usado.
+- Na `process-reward`, ao calcular `performancePoints`, verificar quantos dias distintos o usuário já tem ações no ciclo atual (query em `reward_action_tracking` com `COUNT(DISTINCT DATE(created_at))`)
+- Aplicar multiplicador: 1-14 dias = 1.0x, 15-19 dias = 1.1x, 20-24 dias = 1.2x, 25+ dias = 1.3x
+- Registrar o multiplicador no metadata do `reward_event` para auditoria
 
-**Correcao**: Migrar para `platform_settings` com key correta.
+**2. Suavização de transição entre ciclos (close-economic-cycle)**
 
-### 4. Conta.tsx nao permite editar display_name nem bio
-Os campos "Nome de Exibicao" e "Email" estao `disabled` sem opcao de edicao. O usuario nao consegue atualizar seu proprio nome de exibicao apos o signup.
+Para evitar que um usuário que ganhava R$ 50/mês de repente ganhe R$ 5 no mês seguinte porque a base triplicou:
 
-**Correcao**: Tornar display_name e bio editaveis com botao de salvar.
+- No fechamento do ciclo, calcular a variação do valor-por-ponto vs. ciclo anterior
+- Se a queda for > 40%, aplicar um "amortecedor": distribuir um bônus compensatório de até 20% da diferença, usando uma reserva do pool (ex: 5% do PRM fica como buffer de transição)
+- Isso é implementado no `close-economic-cycle`: antes de distribuir, separar 5% como buffer. Se não houver queda brusca, o buffer é distribuído normalmente. Se houver, ele suaviza.
 
----
+**3. Migration: tabela de tracking de dias ativos**
 
-## MEDIO
+Criar uma view ou função que conta dias ativos por usuário por ciclo, para não precisar fazer query pesada a cada reward.
 
-### 5. ContentCard faz RPC `is_content_boosted` para cada card (N+1)
-Cada ContentCard executa `supabase.rpc("is_content_boosted")` individualmente. Em paginas com 20+ cards, sao 20+ requests.
+```sql
+-- Função para contar dias ativos do usuário no ciclo atual
+CREATE FUNCTION get_user_active_days(p_user_id UUID, p_cycle_start DATE)
+RETURNS INTEGER
+```
 
-**Melhoria**: Criar batch check no componente pai ou usar uma query unica.
+### Mudanças por arquivo
 
-### 6. useRewardSystem `checkCourseCompletion` usa logica errada
-Na linha 236, busca lessons com `eq('category_id', courseId)` — mas lessons estao em `course_lessons` (nao em `contents` com `category_id`). A verificacao de conclusao de curso nunca funciona.
+| Arquivo | Mudança |
+|---------|---------|
+| `process-reward/index.ts` | Adicionar lookup de dias ativos + multiplicador de consistência nos PP |
+| `close-economic-cycle/index.ts` | Adicionar lógica de buffer 5% + suavização de queda brusca |
+| Migration SQL | Função `get_user_active_days()` |
+| `PoolSimulator.tsx` | Mostrar multiplicador de consistência na simulação |
 
-**Correcao**: Buscar de `course_lessons` e checar `course_enrollments.completed_lessons`.
+### Resultado esperado
 
-### 7. Favoritos e Salvos nao filtram por `status = 'approved'`
-`Favoritos.tsx` e `Salvos.tsx` buscam conteudos via join sem filtrar status. Conteudos rejeitados ou pendentes aparecem se o usuario favoritou/salvou antes da rejeicao.
+- Usuário fiel (20+ dias/mês) ganha até 30% mais PP que um esporádico com mesma quantidade de ações
+- Crescimento da base não causa choque de receita: buffer de 5% suaviza quedas > 40%
+- Sistema continua 100% meritocrático, sem caps artificiais
 
-**Correcao**: Adicionar filtro `.eq('contents.status', 'approved')` ou filtrar client-side.
-
-### 8. Studio.tsx nao inclui cursos nas stats do creator
-`totalContents`, `totalViews`, e `recentContents` so buscam de `contents`. Cursos criados pelo creator nao aparecem no dashboard.
-
-**Correcao**: Incluir queries em `courses` e somar os resultados.
-
-### 9. Studio `getRewardLabel` tem labels incompletas
-O mapeamento tem apenas 8 labels antigas. Faltam keys reais como `VIEW_15S`, `WATCH_50`, `DAILY_LOGIN`, `SAVE_CONTENT`, `FAVORITE_CONTENT`, etc.
-
-**Correcao**: Unificar com o mesmo mapeamento completo usado em Carteira.
-
----
-
-## BAIXO / MELHORIAS
-
-### 10. Auth.tsx nao mostra feedback de confirmacao de email
-Apos signup, o usuario e redirecionado para `/` sem aviso de que precisa confirmar o email. Se auto-confirm estiver desabilitado, o usuario nao consegue logar e nao sabe por que.
-
-**Melhoria**: Mostrar mensagem "Verifique seu email para confirmar a conta" apos signup bem-sucedido.
-
-### 11. Conta.tsx link do perfil usa `/@` mas rota e `/:username`
-Na linha 477, `navigate('/@${profile.creator_channel_name}')` inclui `@` no path. A rota definida em App.tsx e `/:username` — o `@` fica como parte do parametro, o que pode nao funcionar se CreatorProfile nao faz strip do `@`.
-
-**Correcao**: Verificar se CreatorProfile trata o `@` ou remover o prefixo na navegacao.
-
-### 12. Watch.tsx tem 1393 linhas — muito grande
-O componente WatchContent e massivo com logica de acesso, rewards, mini player, teatro mode, comments, notes, curriculum, related contents, e action states. Refatorar em hooks menores.
-
-**Melhoria**: Extrair logica em hooks como `useWatchContent`, `useWatchActions`, `useWatchRewards`.
-
----
-
-## Plano de Implementacao
-
-### Tarefa 1: Corrigir Studio Dashboard
-- Remover multiplicador `* 2` dos earnings
-- Paralelizar queries com `Promise.all`
-- Incluir cursos nas stats
-- Atualizar `getRewardLabel` com keys completas
-
-### Tarefa 2: Corrigir Conta.tsx
-- Migrar query de `system_config` para `platform_settings`
-- Tornar display_name e bio editaveis
-- Corrigir link do perfil com `@`
-
-### Tarefa 3: Corrigir Favoritos e Salvos
-- Filtrar por status approved nos joins
-
-### Tarefa 4: Corrigir useRewardSystem
-- Fix `checkCourseCompletion` para usar `course_lessons`
-
-### Tarefa 5: Auth feedback
-- Mostrar mensagem de confirmacao de email apos signup
-
-### Tarefa 6: Otimizar ContentCard boost check
-- Batch boost check no componente pai
