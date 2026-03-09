@@ -701,32 +701,77 @@ function WatchContent() {
     currentPlaybackTime.current = currentTime;
 
     const duration = content.duration_seconds || 0;
-    const percent = (currentTime / duration) * 100;
+    
+    // Calculate ACTUAL watch time increment (prevents seeking abuse)
+    // Only count time if the difference is small (normal playback, not seeking)
+    const timeDiff = currentTime - lastTimeUpdate.current;
+    if (timeDiff > 0 && timeDiff < 2) {
+      // Normal playback - increment accumulated time
+      accumulatedWatchTime.current += timeDiff;
+    }
+    lastTimeUpdate.current = currentTime;
+    
+    // Use accumulated watch time for rewards, not current position
+    const actualWatchTime = accumulatedWatchTime.current;
 
-    if (!view15sRecorded && currentTime >= 15) {
+    // VIEW_15S requires 15 seconds of ACTUAL watch time (not seeking)
+    if (!view15sRecorded && actualWatchTime >= 15) {
       await processReward({
         actionKey: "VIEW_15S",
         userId: user.id,
         contentId: content.id,
-        metadata: { watch_time: currentTime },
+        metadata: { watch_time: actualWatchTime },
       });
       setView15sRecorded(true);
     }
 
-    if (!metricsRecorded.start && currentTime > 0) {
+    if (!metricsRecorded.start && actualWatchTime > 0) {
       await recordMetric("start");
       await checkFirstContentWeek();
     }
 
-    if (!metricsRecorded.half && currentTime > duration / 2) {
+    // Half completion requires watching at least half of the duration
+    if (!metricsRecorded.half && actualWatchTime > duration / 2) {
       await recordMetric("half");
     }
 
-    if (!metricsRecorded.complete && currentTime > duration * 0.95) {
+    // Complete requires watching at least 90% of the duration
+    if (!metricsRecorded.complete && actualWatchTime > duration * 0.9) {
       await recordMetric("complete");
       await checkBingeWatch();
     }
   };
+
+  // Handle video end - show autoplay overlay
+  const handleVideoEnd = () => {
+    if (nextContent && !isCourse) {
+      setShowAutoplayOverlay(true);
+    }
+  };
+
+  // Fetch next recommended content for autoplay
+  useEffect(() => {
+    const fetchNextContent = async () => {
+      if (!content || isCourse) return;
+      
+      const { data } = await supabase
+        .from("contents")
+        .select(`
+          id, title, thumbnail_url,
+          profiles:creator_id (display_name)
+        `)
+        .eq("status", "approved")
+        .eq("content_type", content.content_type)
+        .neq("id", content.id)
+        .limit(1);
+      
+      if (data?.[0]) {
+        setNextContent(data[0]);
+      }
+    };
+    
+    fetchNextContent();
+  }, [content?.id, isCourse]);
 
   const handleApprove = async () => {
     if (!content) return;
