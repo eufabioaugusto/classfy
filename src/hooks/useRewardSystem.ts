@@ -79,9 +79,11 @@ export function useRewardSystem() {
       if (data?.rewards && data.rewards.length > 0) {
         const userReward = data.rewards.find((r: any) => r.user_id === userId);
         if (userReward && (userReward.points > 0 || userReward.performance_points > 0)) {
+          const pts = Number(userReward.points);
+          const ptsDisplay = pts % 1 === 0 ? pts.toString() : pts.toFixed(2);
           toast({
             title: "🎉 Recompensa recebida!",
-            description: `+${userReward.points} pontos de performance`,
+            description: `+${ptsDisplay} pontos de performance`,
           });
         }
       }

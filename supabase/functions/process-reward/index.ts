@@ -303,7 +303,7 @@ Deno.serve(async (req) => {
     // XP (points) still credited instantly for gamification
     // Performance Points accumulated in economic_cycle_users (NO direct wallet credit)
     if (config.points_user > 0) {
-      const userPoints = Math.floor(config.points_user * planMultiplier);
+      const userPoints = parseFloat((config.points_user * planMultiplier).toFixed(2));
       // Performance points with diminishing returns applied
       const performancePoints = config.points_user * planMultiplier * diminishingMultiplier;
 
@@ -363,7 +363,7 @@ Deno.serve(async (req) => {
       const creatorPlan = (creatorProfile?.plan || 'free') as keyof PlanMultipliers;
       const creatorMultiplier = PLAN_MULTIPLIERS[creatorPlan] || 1.0;
 
-      const creatorPoints = Math.floor(config.points_creator * creatorMultiplier);
+      const creatorPoints = parseFloat((config.points_creator * creatorMultiplier).toFixed(2));
       const creatorPP = config.points_creator * creatorMultiplier * diminishingMultiplier;
 
       const { data: creatorReward, error: creatorRewardError } = await supabase
@@ -459,77 +459,44 @@ async function upsertCycleUserPoints(
 }
 
 // Notification text - NO R$ values (pool distributes monthly)
+function formatPoints(points: number): string {
+  return points % 1 === 0 ? points.toString() : points.toFixed(2);
+}
+
 function getNotificationText(actionKey: string, points: number): { title: string; message: string } {
+  const p = formatPoints(points);
   switch (actionKey) {
     case 'DAILY_LOGIN':
-      return {
-        title: 'Login diário! 🎯',
-        message: `Bem-vindo de volta! +${points} pontos de performance`
-      };
+      return { title: 'Login diário! 🎯', message: `Bem-vindo de volta! +${p} pontos de performance` };
     case 'WATCH_50':
-      return {
-        title: 'Bom progresso!',
-        message: `Você já assistiu 50% do conteúdo. +${points} pontos de performance`
-      };
+      return { title: 'Bom progresso!', message: `Você já assistiu 50% do conteúdo. +${p} pontos de performance` };
     case 'WATCH_100':
-      return {
-        title: 'Conteúdo concluído! 🎉',
-        message: `Parabéns! Você completou o conteúdo. +${points} pontos de performance`
-      };
+      return { title: 'Conteúdo concluído! 🎉', message: `Parabéns! Você completou o conteúdo. +${p} pontos de performance` };
     case 'LIKE_CONTENT':
-      return {
-        title: 'Recompensa por curtir!',
-        message: `+${points} pontos de performance por curtir o conteúdo`
-      };
+      return { title: 'Recompensa por curtir!', message: `+${p} pontos de performance por curtir o conteúdo` };
     case 'PROFILE_COMPLETE':
-      return {
-        title: 'Perfil completo! 🌟',
-        message: `Seu perfil está completo! +${points} pontos de performance`
-      };
+      return { title: 'Perfil completo! 🌟', message: `Seu perfil está completo! +${p} pontos de performance` };
     case 'SUBSCRIBE_CREATOR':
-      return {
-        title: 'Novo seguidor!',
-        message: `+${points} pontos de performance por seguir um criador`
-      };
+      return { title: 'Novo seguidor!', message: `+${p} pontos de performance por seguir um criador` };
     case 'WEEKLY_STREAK':
-      return {
-        title: 'Sequência semanal! 🔥',
-        message: `Você completou uma sequência de 7 dias! +${points} pontos de performance`
-      };
+      return { title: 'Sequência semanal! 🔥', message: `Você completou uma sequência de 7 dias! +${p} pontos de performance` };
     default:
-      return {
-        title: 'Nova recompensa!',
-        message: `+${points} pontos de performance`
-      };
+      return { title: 'Nova recompensa!', message: `+${p} pontos de performance` };
   }
 }
 
 function getCreatorNotificationText(actionKey: string, points: number, contentTitle: string): { title: string; message: string } {
+  const p = formatPoints(points);
   switch (actionKey) {
     case 'CONTENT_APPROVED':
-      return {
-        title: 'Conteúdo aprovado! ✅',
-        message: `Seu conteúdo "${contentTitle}" foi aprovado! +${points} pontos de performance`
-      };
+      return { title: 'Conteúdo aprovado! ✅', message: `Seu conteúdo "${contentTitle}" foi aprovado! +${p} pontos de performance` };
     case 'VIEW_15S':
-      return {
-        title: 'Nova visualização!',
-        message: `Seu conteúdo "${contentTitle}" recebeu uma nova visualização. +${points} PP`
-      };
+      return { title: 'Nova visualização!', message: `Seu conteúdo "${contentTitle}" recebeu uma nova visualização. +${p} PP` };
     case 'WATCH_100':
-      return {
-        title: 'Conteúdo completado!',
-        message: `Alguém completou "${contentTitle}"! +${points} PP`
-      };
+      return { title: 'Conteúdo completado!', message: `Alguém completou "${contentTitle}"! +${p} PP` };
     case 'LIKE_CONTENT':
-      return {
-        title: 'Nova curtida! ❤️',
-        message: `Seu conteúdo "${contentTitle}" recebeu uma curtida. +${points} PP`
-      };
+      return { title: 'Nova curtida! ❤️', message: `Seu conteúdo "${contentTitle}" recebeu uma curtida. +${p} PP` };
     default:
-      return {
-        title: 'Nova recompensa!',
-        message: `+${points} pontos de performance pelo seu conteúdo`
-      };
+      return { title: 'Nova recompensa!', message: `+${p} pontos de performance pelo seu conteúdo` };
   }
 }

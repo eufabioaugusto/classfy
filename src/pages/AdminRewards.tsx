@@ -634,8 +634,8 @@ export default function AdminRewards() {
                               onCheckedChange={() => handleToggleActive(reward)}
                             />
                           </TableCell>
-                          <TableCell className="text-center">{reward.points_user}</TableCell>
-                          <TableCell className="text-center">{reward.points_creator}</TableCell>
+                          <TableCell className="text-center">{Number(reward.points_user) % 1 === 0 ? reward.points_user : Number(reward.points_user).toFixed(2)}</TableCell>
+                          <TableCell className="text-center">{Number(reward.points_creator) % 1 === 0 ? reward.points_creator : Number(reward.points_creator).toFixed(2)}</TableCell>
                           <TableCell className="text-center">
                             {stats ? (
                               <div>
@@ -1074,9 +1074,11 @@ export default function AdminRewards() {
                     <label className="text-sm font-medium">Pontos Usuário</label>
                     <Input
                       type="number"
+                      step="0.01"
+                      min="0"
                       value={editingReward.points_user}
                       onChange={(e) =>
-                        setEditingReward({ ...editingReward, points_user: Number(e.target.value) })
+                        setEditingReward({ ...editingReward, points_user: parseFloat(e.target.value) || 0 })
                       }
                     />
                   </div>
@@ -1084,9 +1086,11 @@ export default function AdminRewards() {
                     <label className="text-sm font-medium">Pontos Criador</label>
                     <Input
                       type="number"
+                      step="0.01"
+                      min="0"
                       value={editingReward.points_creator}
                       onChange={(e) =>
-                        setEditingReward({ ...editingReward, points_creator: Number(e.target.value) })
+                        setEditingReward({ ...editingReward, points_creator: parseFloat(e.target.value) || 0 })
                       }
                     />
                   </div>
