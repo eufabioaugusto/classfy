@@ -28,6 +28,7 @@ import { CourseCurriculum } from "@/components/CourseCurriculum";
 import { WatchRelated } from "@/components/WatchRelated";
 import { formatDistanceToNow } from "date-fns";
 import { AccessBlockedOverlay } from "@/components/watch/AccessBlockedOverlay";
+import { AutoplayNextOverlay } from "@/components/watch/AutoplayNextOverlay";
 import { ptBR } from "date-fns/locale";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { MobileVideoPlayer } from "@/components/watch/MobileVideoPlayer";
