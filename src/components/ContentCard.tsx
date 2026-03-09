@@ -234,12 +234,12 @@ export const ContentCard = ({
           src={thumbnail}
           alt={title}
           className={`w-full h-full object-cover group-hover:scale-105 transition-transform duration-300 ${
-            hasVideo && (isHovered || shouldAutoplay) ? "opacity-0" : "opacity-100"
+            hasPreviewableVideo && (isHovered || shouldAutoplay) ? "opacity-0" : "opacity-100"
           } transition-opacity duration-300`}
         />
 
-        {/* Video hover preview for all types */}
-        {hasVideo && (
+        {/* Video hover preview (only for accessible content) */}
+        {hasPreviewableVideo && (
           <video
             ref={videoRef}
             src={videoUrl}
