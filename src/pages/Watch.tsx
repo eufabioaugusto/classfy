@@ -231,7 +231,7 @@ function WatchContent() {
             id, content_type, title, description, file_url, thumbnail_url,
             visibility, price, duration_seconds, views_count, likes_count,
             status, creator_id, category_id, tags, created_at,
-            creator:profiles!creator_id(id, display_name, avatar_url)
+            creator:profiles!creator_id(id, display_name, avatar_url, creator_channel_name)
           `)
           .eq("id", id)
           .maybeSingle(),
@@ -242,7 +242,7 @@ function WatchContent() {
             total_duration_seconds, views_count, likes_count, status,
             creator_id, tags, total_lessons, level, what_you_learn,
             requirements, created_at,
-            creator:profiles!creator_id(id, display_name, avatar_url)
+            creator:profiles!creator_id(id, display_name, avatar_url, creator_channel_name)
           `)
           .eq("id", id)
           .maybeSingle()
@@ -1128,7 +1128,8 @@ function WatchContent() {
                         creator={content.creator ? {
                           id: content.creator.id,
                           display_name: content.creator.display_name,
-                          avatar_url: content.creator.avatar_url
+                          avatar_url: content.creator.avatar_url,
+                          channel_name: (content.creator as any)?.creator_channel_name
                         } : null}
                         followersCount={followersCount}
                         hasAccess={hasAccess}

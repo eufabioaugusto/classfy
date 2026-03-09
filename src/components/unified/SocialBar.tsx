@@ -27,6 +27,7 @@ interface CreatorInfo {
   id: string;
   display_name: string;
   avatar_url?: string | null;
+  channel_name?: string | null;
 }
 
 interface SocialBarProps {
@@ -83,7 +84,7 @@ export function SocialBar({
         {showCreator && creator && (
           <div
             className="flex items-center gap-2 sm:gap-3 cursor-pointer"
-            onClick={() => navigate(`/creator/${creator.id}`)}
+            onClick={() => navigate(creator.channel_name ? `/@${creator.channel_name}` : `/@${creator.display_name}`)}
           >
             <Avatar className={cn(compact ? "h-8 w-8" : "h-8 w-8 sm:h-10 sm:w-10")}>
               <AvatarImage src={creator.avatar_url || ""} />
