@@ -124,7 +124,7 @@ export const ContentCard = ({
 
   // Random autoplay for mobile shorts
   useEffect(() => {
-    if (isShort && isMobile && videoUrl) {
+    if (isShort && isMobile && videoUrl && canPreview) {
       const randomDelay = Math.random() * 3000;
       const timer = setTimeout(() => setShouldAutoplay(true), randomDelay);
       return () => clearTimeout(timer);
