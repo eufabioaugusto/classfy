@@ -148,7 +148,7 @@ export function AutoplayNextOverlay({
               >
                 Cancelar
               </Button>
-              <Button onClick={handlePlayNow} className="flex-1">
+              <Button onClick={handlePlayNow} className="flex-1 bg-accent hover:bg-accent/90 text-accent-foreground">
                 <Play className="w-4 h-4 mr-2" />
                 Assistir agora
               </Button>
