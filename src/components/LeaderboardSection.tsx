@@ -40,12 +40,13 @@ export function LeaderboardSection({ userId }: LeaderboardSectionProps) {
         return;
       }
 
+      // Fetch all users to find current user's rank even if outside top 10
       const { data: cycleUsers } = await supabase
         .from('economic_cycle_users')
         .select('user_id, performance_points')
         .eq('cycle_id', cycle.id)
         .order('performance_points', { ascending: false })
-        .limit(20);
+        .limit(100);
 
       if (!cycleUsers || cycleUsers.length === 0) {
         setLoading(false);

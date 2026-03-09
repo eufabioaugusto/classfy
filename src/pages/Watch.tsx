@@ -3,6 +3,8 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { useMiniPlayer } from "@/contexts/MiniPlayerContext";
 import { useRewardSystem } from "@/hooks/useRewardSystem";
+import { useContentMetrics } from "@/hooks/useContentMetrics";
+import { useContentActions } from "@/hooks/useContentActions";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
