@@ -385,11 +385,27 @@ export default function Index() {
                 <CreatorApprovedBanner />
 
                 {exploreLoading ? (
-                  <div className="text-center py-20">
-                    <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-muted/50 border border-border/30">
-                      <div className="w-2 h-2 rounded-full bg-cinematic-accent animate-pulse" />
-                      <p className="text-muted-foreground text-sm font-medium">Carregando conteúdos...</p>
+                  <div className="space-y-12">
+                    {/* Skeleton for Featured Creators */}
+                    <div className="space-y-4">
+                      <div className="h-6 w-48 bg-muted rounded animate-pulse" />
+                      <div className="flex gap-4 overflow-hidden">
+                        {[1, 2, 3].map((i) => (
+                          <div key={i} className="w-72 h-40 bg-muted rounded-xl animate-pulse flex-shrink-0" />
+                        ))}
+                      </div>
                     </div>
+                    {/* Skeleton for Content Sections */}
+                    {[1, 2, 3].map((section) => (
+                      <div key={section} className="space-y-4">
+                        <div className="h-6 w-32 bg-muted rounded animate-pulse" />
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                          {[1, 2, 3, 4].map((i) => (
+                            <ContentCardSkeleton key={i} />
+                          ))}
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 ) : (
                   <>

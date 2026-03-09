@@ -391,18 +391,23 @@ export default function Historico() {
           {!isLoading && filteredItems.length === 0 && (
             <div className="text-center py-20">
               <div className="flex flex-col items-center gap-4">
-                <div className="w-16 h-16 rounded-full bg-muted flex items-center justify-center">
-                  <AlertCircle className="w-8 h-8 text-muted-foreground" />
+                <div className="w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center">
+                  <History className="w-8 h-8 text-primary" />
                 </div>
                 <div>
                   <h3 className="text-xl font-semibold mb-2">
                     {searchQuery ? "Nenhum resultado encontrado" : "Nenhum conteúdo no histórico"}
                   </h3>
-                  <p className="text-muted-foreground">
+                  <p className="text-muted-foreground mb-4">
                     {searchQuery 
                       ? "Tente buscar por outro termo" 
                       : "Os vídeos que você assistir aparecerão aqui"}
                   </p>
+                  {!searchQuery && (
+                    <Button onClick={() => navigate("/?mode=explore")}>
+                      Explorar conteúdos
+                    </Button>
+                  )}
                 </div>
               </div>
             </div>

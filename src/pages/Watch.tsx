@@ -1162,23 +1162,32 @@ function WatchContent() {
                       onTheaterModeToggle={handleTheaterModeToggle}
                     />
                   ) : !isCourse ? (
-                    <UnifiedVideoPlayer
-                      content={{
-                        id: content.id,
-                        title: content.title,
-                        file_url: content.file_url,
-                        thumbnail_url: content.thumbnail_url,
-                        content_type: content.content_type,
-                        duration_seconds: content.duration_seconds,
-                        content_id: content.id,
-                      }}
-                      mode="watch"
-                      onTimeUpdate={handleTimeUpdate}
-                      onNoteCreated={() => setNotesRefreshTrigger((prev) => prev + 1)}
-                      seekToTime={seekToTime}
-                      theaterMode={theaterMode}
-                      onTheaterModeToggle={handleTheaterModeToggle}
-                    />
+                    <div className="relative">
+                      <UnifiedVideoPlayer
+                        content={{
+                          id: content.id,
+                          title: content.title,
+                          file_url: content.file_url,
+                          thumbnail_url: content.thumbnail_url,
+                          content_type: content.content_type,
+                          duration_seconds: content.duration_seconds,
+                          content_id: content.id,
+                        }}
+                        mode="watch"
+                        onTimeUpdate={handleTimeUpdate}
+                        onVideoEnded={handleVideoEnd}
+                        onNoteCreated={() => setNotesRefreshTrigger((prev) => prev + 1)}
+                        seekToTime={seekToTime}
+                        theaterMode={theaterMode}
+                        onTheaterModeToggle={handleTheaterModeToggle}
+                      />
+                      {/* Autoplay Next Overlay */}
+                      <AutoplayNextOverlay
+                        nextContent={nextContent}
+                        show={showAutoplayOverlay}
+                        onCancel={() => setShowAutoplayOverlay(false)}
+                      />
+                    </div>
                   ) : null}
 
                   {/* Title */}
