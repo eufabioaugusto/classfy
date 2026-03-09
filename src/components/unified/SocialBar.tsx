@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { ThumbsUp, Bookmark, Star, BookOpen, Send } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -54,6 +55,7 @@ export function SocialBar({
   compact = false,
 }: SocialBarProps) {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const [showDMModal, setShowDMModal] = useState(false);
   
   const {
@@ -79,13 +81,16 @@ export function SocialBar({
       )}>
         {/* Left - Creator info */}
         {showCreator && creator && (
-          <div className="flex items-center gap-2 sm:gap-3">
+          <div
+            className="flex items-center gap-2 sm:gap-3 cursor-pointer"
+            onClick={() => navigate(`/creator/${creator.id}`)}
+          >
             <Avatar className={cn(compact ? "h-8 w-8" : "h-8 w-8 sm:h-10 sm:w-10")}>
               <AvatarImage src={creator.avatar_url || ""} />
               <AvatarFallback>{creator.display_name?.[0] || "C"}</AvatarFallback>
             </Avatar>
             <div className="mr-1 sm:mr-2">
-              <p className={cn("font-semibold flex items-center gap-1", compact ? "text-xs" : "text-xs sm:text-sm")}>
+              <p className={cn("font-semibold flex items-center gap-1 hover:text-primary transition-colors", compact ? "text-xs" : "text-xs sm:text-sm")}>
                 {creator.display_name || "Criador"}
                 <FeaturedBadge creatorId={creator.id} size="sm" />
               </p>
