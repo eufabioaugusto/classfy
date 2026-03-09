@@ -827,18 +827,14 @@ function WatchContent() {
     return <GlobalLoader />;
   }
 
-  // If auth finished and no user, redirect to auth
-  if (!user) {
-    console.log("🚪 Redirecting to /auth - no user");
-    return <Navigate to="/auth" replace />;
-  }
-
-  // Only show content loader after we know user is authenticated
+  // Show content loader while fetching content
   if (loadingContent) {
     console.log("⏳ Showing loader: content loading");
     return <GlobalLoader />;
   }
-  if (!content)
+
+  // Check if content exists
+  if (!content) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
         <Card className="p-8 text-center">
@@ -848,6 +844,13 @@ function WatchContent() {
         </Card>
       </div>
     );
+  }
+
+  // If no user and content is not free, redirect to auth
+  if (!user && content.visibility !== "free") {
+    console.log("🚪 Redirecting to /auth - restricted content requires login");
+    return <Navigate to="/auth" replace />;
+  }
   // Mobile layout - with swipe-to-minimize overlay
   if (isMobile) {
     const handleMinimize = () => {
