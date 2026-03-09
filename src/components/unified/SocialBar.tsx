@@ -27,6 +27,7 @@ interface CreatorInfo {
   id: string;
   display_name: string;
   avatar_url?: string | null;
+  channel_name?: string | null;
 }
 
 interface SocialBarProps {
