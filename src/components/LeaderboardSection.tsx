@@ -9,6 +9,7 @@ interface LeaderboardEntry {
   performance_points: number;
   display_name: string;
   avatar_url: string | null;
+  rank?: number;
 }
 
 interface LeaderboardSectionProps {
