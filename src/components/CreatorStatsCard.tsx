@@ -111,9 +111,9 @@ export const CreatorStatsCard = ({ userId, collapsed }: CreatorStatsCardProps) =
               style={{ width: `${progressToNextLevel}%` }}
             />
           </div>
-          <div className="flex justify-between text-[10px] text-muted-foreground">
-            <span>{stats.totalPoints.toLocaleString('pt-BR', { maximumFractionDigits: 2 })} XP</span>
-            <span>{(1000 - pointsInCurrentLevel).toLocaleString('pt-BR', { maximumFractionDigits: 2 })} para próximo</span>
+          <div className="flex justify-between items-center text-[10px] text-muted-foreground tabular-nums">
+            <span>{stats.totalPoints.toLocaleString('pt-BR', { maximumFractionDigits: 0 })} XP</span>
+            <span className="whitespace-nowrap">faltam {Math.round(1000 - pointsInCurrentLevel).toLocaleString('pt-BR')}</span>
           </div>
         </div>
       </div>
