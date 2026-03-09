@@ -29,6 +29,7 @@ export const ContentSection = ({
   onPurchaseClick,
 }: ContentSectionProps) => {
   const isMobile = useIsMobile();
+  const [showAll, setShowAll] = useState(false);
 
   const getGridCols = () => {
     if (aspectRatio === "vertical") {
