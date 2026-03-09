@@ -1820,7 +1820,7 @@ function StudyContent() {
                     <SocialBar
                       contentId={activeContent.id}
                       contentTitle={activeContent.title}
-                      creator= ? { ...activeContent.creator, channel_name: (activeContent.creator as any)?.creator_channel_name } : null{activeContent.creator}
+                      creator={activeContent.creator ? {id: activeContent.creator.id, display_name: activeContent.creator.display_name, avatar_url: activeContent.creator.avatar_url, channel_name: (activeContent.creator as any)?.creator_channel_name} : null}
                       followersCount={followersCount}
                       showCreator={true}
                       onAddToStudy={() => {}}
