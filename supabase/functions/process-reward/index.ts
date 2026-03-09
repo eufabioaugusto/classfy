@@ -407,7 +407,7 @@ Deno.serve(async (req) => {
           value: 0, // No direct value - pool distributes
           performance_points: creatorPP,
           cycle_id: cycleId,
-          metadata: { ...trackingMetadata, as_creator: true, tracking_key: trackingKey },
+          metadata: { ...trackingMetadata, as_creator: true, tracking_key: trackingKey, consistency_multiplier: creatorConsistency, active_days: creatorActiveDays },
         })
         .select()
         .single();
