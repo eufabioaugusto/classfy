@@ -102,15 +102,22 @@ export function ContentActions({
         />
 
         {/* Salvar */}
-        <Button
-          variant="secondary"
-          size="sm"
-          onClick={toggleSave}
-          className={`gap-1.5 sm:gap-2 rounded-full px-3 sm:px-4 h-8 sm:h-9 ${isSaved ? 'bg-primary text-primary-foreground hover:bg-primary/90' : ''}`}
-        >
-          <Bookmark className={`h-3.5 w-3.5 sm:h-4 sm:w-4 ${isSaved ? 'fill-current' : ''}`} />
-          <span className="hidden sm:inline text-xs sm:text-sm">Salvar</span>
-        </Button>
+        <motion.div whileTap={{ scale: 0.9 }}>
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={toggleSave}
+            className={`gap-1.5 sm:gap-2 rounded-full px-3 sm:px-4 h-8 sm:h-9 transition-colors ${isSaved ? 'bg-primary text-primary-foreground hover:bg-primary/90' : ''}`}
+          >
+            <motion.div
+              animate={isSaved ? { scale: [1, 1.3, 1] } : {}}
+              transition={{ duration: 0.3, ease: "easeOut" }}
+            >
+              <Bookmark className={`h-3.5 w-3.5 sm:h-4 sm:w-4 ${isSaved ? 'fill-current' : ''}`} />
+            </motion.div>
+            <span className="hidden sm:inline text-xs sm:text-sm">Salvar</span>
+          </Button>
+        </motion.div>
 
         {/* Favoritos */}
         <Button
