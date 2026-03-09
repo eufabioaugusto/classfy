@@ -15,6 +15,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { CreatorAchievementBadge } from "@/components/CreatorAchievementBadge";
 import { useCreatorMilestones } from "@/hooks/useCreatorMilestones";
 import { PoolSimulator } from "@/components/PoolSimulator";
+import { LeaderboardSection } from "@/components/LeaderboardSection";
 import { 
   Trophy, 
   Zap, 
