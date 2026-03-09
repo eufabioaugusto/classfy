@@ -20,6 +20,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { UpgradeModal } from "@/components/UpgradeModal";
 import { PurchaseModal } from "@/components/PurchaseModal";
 import { CreatorApprovedBanner } from "@/components/CreatorApprovedBanner";
+import { ContentCardSkeleton } from "@/components/ContentCardSkeleton";
 
 export default function Index() {
   const { user, loading: authLoading, profile } = useAuth();
