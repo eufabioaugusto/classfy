@@ -245,7 +245,7 @@ export function GlobalSearch({ isExploreMode, onModeChange }: GlobalSearchProps)
               onClick={(e) => {
                 e.preventDefault();
                 e.stopPropagation();
-                onModeChange(true);
+                handleModeChange(true);
               }} 
               title="Modo Explorar"
             >
