@@ -3,6 +3,8 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { useMiniPlayer } from "@/contexts/MiniPlayerContext";
 import { useRewardSystem } from "@/hooks/useRewardSystem";
+import { useContentMetrics } from "@/hooks/useContentMetrics";
+import { useContentActions } from "@/hooks/useContentActions";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -103,14 +105,8 @@ function WatchContent() {
   const [showUpgradeModal, setShowUpgradeModal] = useState(false);
   const [showPurchaseModal, setShowPurchaseModal] = useState(false);
   const [requiredUpgradePlan, setRequiredUpgradePlan] = useState<"pro" | "premium">("pro");
-  const [accessBlockedReason, setAccessBlockedReason] = useState<"plan" | "purchase" | null>(null);
+   const [accessBlockedReason, setAccessBlockedReason] = useState<"plan" | "purchase" | null>(null);
   const [isPurchased, setIsPurchased] = useState(false);
-  const [metricsRecorded, setMetricsRecorded] = useState({
-    start: false,
-    half: false,
-    complete: false,
-  });
-  const [view15sRecorded, setView15sRecorded] = useState(false);
   const [showAddToStudyModal, setShowAddToStudyModal] = useState(false);
   const [notesRefreshTrigger, setNotesRefreshTrigger] = useState(0);
   const [seekToTime, setSeekToTime] = useState<number | null>(null);
@@ -118,11 +114,7 @@ function WatchContent() {
   
   // Track current playback time for mini player
   const currentPlaybackTime = useRef(0);
-  
-  // Track ACTUAL accumulated watch time (not seeking position)
-  const accumulatedWatchTime = useRef(0);
-  const lastTimeUpdate = useRef(0);
-  
+
   // Autoplay next video state
   const [showAutoplayOverlay, setShowAutoplayOverlay] = useState(false);
   const [nextContent, setNextContent] = useState<any>(null);
@@ -160,6 +152,18 @@ function WatchContent() {
   const [unlikeConfirmation, setUnlikeConfirmation] = useState<{ pending: boolean; rewardValue: number }>({
     pending: false,
     rewardValue: 0,
+  });
+
+  // Centralized content metrics hook — replaces inline metric tracking
+  const {
+    handleTimeUpdate: handleMetricsTimeUpdate,
+    registerView,
+    registerCourseView,
+    resetMetrics,
+    metricsRecorded,
+  } = useContentMetrics({
+    contentId: id || "",
+    duration: content?.duration_seconds || 0,
   });
 
   // Store content ref for cleanup
@@ -631,116 +635,15 @@ function WatchContent() {
     }
   };
 
-  const recordMetric = async (event: "start" | "half" | "complete") => {
-    // Views and rewards only count for authenticated users
-    // This prevents fraud/bots and ensures rewards go to real users
-    if (metricsRecorded[event] || !user || !id) return;
-
-    try {
-      await supabase.from("content_metrics").insert({
-        content_id: id,
-        user_id: user.id,
-        event,
-      });
-
-      setMetricsRecorded((prev) => ({ ...prev, [event]: true }));
-    } catch (error) {
-      console.error("Error recording metric:", error);
-    }
-  };
-
-  const checkBingeWatch = async () => {
-    if (!user) return;
-
-    const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
-    const { data: recentCompletions } = await supabase
-      .from("content_metrics")
-      .select("content_id")
-      .eq("user_id", user.id)
-      .eq("event", "complete")
-      .gte("created_at", oneHourAgo)
-      .order("created_at", { ascending: false })
-      .limit(3);
-
-    if (recentCompletions && recentCompletions.length >= 3) {
-      await processReward({
-        actionKey: "BINGE_WATCH",
-        userId: user.id,
-        metadata: { contentCount: recentCompletions.length },
-      });
-    }
-  };
-
-  const checkFirstContentWeek = async () => {
-    if (!user || !content) return;
-
-    const startOfWeek = new Date();
-    startOfWeek.setDate(startOfWeek.getDate() - startOfWeek.getDay());
-    startOfWeek.setHours(0, 0, 0, 0);
-
-    const { data: weeklyViews } = await supabase
-      .from("content_metrics")
-      .select("id")
-      .eq("user_id", user.id)
-      .eq("event", "start")
-      .gte("created_at", startOfWeek.toISOString())
-      .limit(1);
-
-    if (!weeklyViews || weeklyViews.length === 0) {
-      await processReward({
-        actionKey: "FIRST_CONTENT_WEEK",
-        userId: user.id,
-        contentId: content.id,
-      });
-    }
-  };
-
+  // Unified time update handler — delegates to centralized hook
   const handleTimeUpdate = async (currentTime: number) => {
     if (!content || !user) return;
     
     // Store current time for mini player
     currentPlaybackTime.current = currentTime;
 
-    const duration = content.duration_seconds || 0;
-    
-    // Calculate ACTUAL watch time increment (prevents seeking abuse)
-    // Only count time if the difference is small (normal playback, not seeking)
-    const timeDiff = currentTime - lastTimeUpdate.current;
-    if (timeDiff > 0 && timeDiff < 2) {
-      // Normal playback - increment accumulated time
-      accumulatedWatchTime.current += timeDiff;
-    }
-    lastTimeUpdate.current = currentTime;
-    
-    // Use accumulated watch time for rewards, not current position
-    const actualWatchTime = accumulatedWatchTime.current;
-
-    // VIEW_15S requires 15 seconds of ACTUAL watch time (not seeking)
-    if (!view15sRecorded && actualWatchTime >= 15) {
-      await processReward({
-        actionKey: "VIEW_15S",
-        userId: user.id,
-        contentId: content.id,
-        metadata: { watch_time: actualWatchTime },
-      });
-      setView15sRecorded(true);
-    }
-
-    if (!metricsRecorded.start && actualWatchTime > 0) {
-      await recordMetric("start");
-      await checkFirstContentWeek();
-    }
-
-    // Half completion requires watching at least half of the duration
-    if (!metricsRecorded.half && actualWatchTime > duration / 2) {
-      await recordMetric("half");
-    }
-
-    // Complete requires watching at least 90% of the duration
-    if (!metricsRecorded.complete && actualWatchTime > duration * 0.9) {
-      await recordMetric("complete");
-      await checkBingeWatch();
-    }
+    // Delegate all metric tracking to the centralized hook
+    await handleMetricsTimeUpdate(currentTime);
   };
 
   // Handle video end - show autoplay overlay

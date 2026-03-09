@@ -9,6 +9,7 @@ interface LeaderboardEntry {
   performance_points: number;
   display_name: string;
   avatar_url: string | null;
+  rank?: number;
 }
 
 interface LeaderboardSectionProps {
@@ -18,6 +19,7 @@ interface LeaderboardSectionProps {
 export function LeaderboardSection({ userId }: LeaderboardSectionProps) {
   const [leaders, setLeaders] = useState<LeaderboardEntry[]>([]);
   const [userRank, setUserRank] = useState<number | null>(null);
+  const [userOutsideTop, setUserOutsideTop] = useState<LeaderboardEntry | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -40,12 +42,13 @@ export function LeaderboardSection({ userId }: LeaderboardSectionProps) {
         return;
       }
 
+      // Fetch all users to find current user's rank even if outside top 10
       const { data: cycleUsers } = await supabase
         .from('economic_cycle_users')
         .select('user_id, performance_points')
         .eq('cycle_id', cycle.id)
         .order('performance_points', { ascending: false })
-        .limit(20);
+        .limit(100);
 
       if (!cycleUsers || cycleUsers.length === 0) {
         setLoading(false);
@@ -70,9 +73,24 @@ export function LeaderboardSection({ userId }: LeaderboardSectionProps) {
 
       setLeaders(leaderboard);
 
-      // Find user's rank
-      const rank = leaderboard.findIndex(l => l.user_id === userId);
-      setUserRank(rank >= 0 ? rank + 1 : null);
+      // Find user's rank (across all fetched users, not just top 10)
+      const allRanked = cycleUsers.map((u, idx) => ({ ...u, rank: idx + 1 }));
+      const userEntry = allRanked.find(l => l.user_id === userId);
+      setUserRank(userEntry ? userEntry.rank : null);
+
+      // If user is outside top 10, store their entry separately
+      if (userEntry && userEntry.rank > 10) {
+        const profile = profileMap.get(userId);
+        setUserOutsideTop({
+          user_id: userId,
+          performance_points: parseFloat(String(userEntry.performance_points)),
+          display_name: profile?.display_name || 'Você',
+          avatar_url: profile?.avatar_url || null,
+          rank: userEntry.rank,
+        });
+      } else {
+        setUserOutsideTop(null);
+      }
     } catch (error) {
       console.error('Error fetching leaderboard:', error);
     } finally {
@@ -81,9 +99,9 @@ export function LeaderboardSection({ userId }: LeaderboardSectionProps) {
   };
 
   const getRankIcon = (index: number) => {
-    if (index === 0) return <Crown className="w-5 h-5 text-yellow-500" />;
-    if (index === 1) return <Medal className="w-5 h-5 text-gray-400" />;
-    if (index === 2) return <Medal className="w-5 h-5 text-amber-600" />;
+    if (index === 0) return <Crown className="w-5 h-5 text-accent" />;
+    if (index === 1) return <Medal className="w-5 h-5 text-muted-foreground" />;
+    if (index === 2) return <Medal className="w-5 h-5 text-primary" />;
     return <span className="w-5 text-center text-sm font-bold text-muted-foreground">{index + 1}</span>;
   };
 
@@ -142,6 +160,41 @@ export function LeaderboardSection({ userId }: LeaderboardSectionProps) {
               </div>
             );
           })}
+
+          {/* Show user outside top 10 with separator */}
+          {userOutsideTop && (
+            <>
+              <div className="flex items-center gap-2 py-1">
+                <div className="flex-1 border-t border-dashed border-border" />
+                <span className="text-xs text-muted-foreground">•••</span>
+                <div className="flex-1 border-t border-dashed border-border" />
+              </div>
+              <div className="flex items-center gap-3 p-3 rounded-lg bg-accent/10 border border-accent/20">
+                <div className="flex items-center justify-center w-8">
+                  <span className="w-5 text-center text-sm font-bold text-accent">
+                    {userOutsideTop.rank}
+                  </span>
+                </div>
+                <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center overflow-hidden flex-shrink-0">
+                  {userOutsideTop.avatar_url ? (
+                    <img src={userOutsideTop.avatar_url} alt="" className="w-full h-full object-cover" />
+                  ) : (
+                    <User className="w-4 h-4 text-muted-foreground" />
+                  )}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium truncate text-accent">
+                    {userOutsideTop.display_name}
+                    <span className="text-xs ml-1">(você)</span>
+                  </p>
+                </div>
+                <div className="text-right flex-shrink-0">
+                  <p className="text-sm font-bold">{Math.floor(userOutsideTop.performance_points).toLocaleString()}</p>
+                  <p className="text-xs text-muted-foreground">PP</p>
+                </div>
+              </div>
+            </>
+          )}
         </div>
       </CardContent>
     </Card>
