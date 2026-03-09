@@ -126,6 +126,7 @@ function WatchContent() {
   // Autoplay next video state
   const [showAutoplayOverlay, setShowAutoplayOverlay] = useState(false);
   const [nextContent, setNextContent] = useState<any>(null);
+  const [autoplayCancelled, setAutoplayCancelled] = useState(false);
 
   // Theater mode state
   const [theaterMode, setTheaterMode] = useState(false);
