@@ -14,7 +14,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { FollowButton } from "@/components/FollowButton";
 import { ContentCard } from "@/components/ContentCard";
 import { FeaturedBadge } from "@/components/FeaturedBadge";
-import { Trophy, Users, Video, Headphones, Zap, GraduationCap, Share2, MessageCircle } from "lucide-react";
+import { Trophy, Users, Video, Headphones, Zap, GraduationCap, Share2, MessageCircle, Eye } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
 interface CreatorProfile {
@@ -32,6 +32,7 @@ interface CreatorStats {
   level: number;
   followersCount: number;
   contentCount: number;
+  totalViews: number;
 }
 
 export default function CreatorProfile() {
@@ -92,7 +93,7 @@ export default function CreatorProfile() {
       setCreator(profileData);
 
       // Buscar estatísticas
-      const [pointsData, followersData, contentsData, coursesData] = await Promise.all([
+      const [pointsData, followersData, contentsData, coursesData, totalViewsData] = await Promise.all([
         supabase
           .from("reward_events")
           .select("points")
@@ -124,11 +125,18 @@ export default function CreatorProfile() {
           `)
           .eq("creator_id", profileData.id)
           .eq("status", "approved")
-          .order("created_at", { ascending: false })
+          .order("created_at", { ascending: false }),
+        // Fetch total views across all creator contents
+        supabase
+          .from("contents")
+          .select("views_count")
+          .eq("creator_id", profileData.id)
+          .eq("status", "approved")
       ]);
 
       const totalPoints = pointsData.data?.reduce((sum, event) => sum + event.points, 0) || 0;
       const level = Math.floor(totalPoints / 1000) + 1;
+      const totalViews = totalViewsData.data?.reduce((sum, c) => sum + (c.views_count || 0), 0) || 0;
 
       // Merge contents and courses (courses get a virtual content_type for filtering)
       const coursesAsContents = (coursesData.data || []).map((course: any) => ({
@@ -141,7 +149,8 @@ export default function CreatorProfile() {
         totalPoints,
         level,
         followersCount: followersData.count || 0,
-        contentCount: allContents.length
+        contentCount: allContents.length,
+        totalViews
       });
 
       setContents(allContents);
@@ -275,8 +284,15 @@ export default function CreatorProfile() {
                     <div className="flex items-center gap-2">
                       <Users className="w-4 h-4 text-muted-foreground" />
                       <div className="flex items-baseline gap-1">
-                        <span className="font-semibold text-base">{stats?.followersCount || 0}</span>
+                        <span className="font-semibold text-base">{stats?.followersCount?.toLocaleString() || 0}</span>
                         <span className="text-muted-foreground">seguidores</span>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Eye className="w-4 h-4 text-muted-foreground" />
+                      <div className="flex items-baseline gap-1">
+                        <span className="font-semibold text-base">{stats?.totalViews?.toLocaleString() || 0}</span>
+                        <span className="text-muted-foreground">views</span>
                       </div>
                     </div>
                     <div className="flex items-center gap-2">
@@ -284,13 +300,6 @@ export default function CreatorProfile() {
                       <div className="flex items-baseline gap-1">
                         <span className="font-semibold text-base">{stats?.contentCount || 0}</span>
                         <span className="text-muted-foreground">conteúdos</span>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Trophy className="w-4 h-4 text-muted-foreground" />
-                      <div className="flex items-baseline gap-1">
-                        <span className="font-semibold text-base">{stats?.totalPoints || 0}</span>
-                        <span className="text-muted-foreground">pontos</span>
                       </div>
                     </div>
                   </div>
