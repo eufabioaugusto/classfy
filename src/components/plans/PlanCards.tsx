@@ -45,7 +45,7 @@ const plans = [
   },
 ];
 
-export function PlanCards({ onSubscribe }: PlanCardsProps) {
+export function PlanCards({ onSubscribe, currentPlan = "free" }: PlanCardsProps) {
   return (
     <section id="plans" className="py-16 md:py-24 bg-muted/40">
       <div className="container mx-auto px-4">
