@@ -19,6 +19,7 @@ interface LeaderboardSectionProps {
 export function LeaderboardSection({ userId }: LeaderboardSectionProps) {
   const [leaders, setLeaders] = useState<LeaderboardEntry[]>([]);
   const [userRank, setUserRank] = useState<number | null>(null);
+  const [userOutsideTop, setUserOutsideTop] = useState<LeaderboardEntry | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
