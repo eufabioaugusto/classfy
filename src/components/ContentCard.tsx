@@ -215,8 +215,8 @@ export const ContentCard = ({
     <div
       className="group cursor-pointer flex flex-col"
       onClick={handleClick}
-      onMouseEnter={() => isShort && !isMobile && setIsHovered(true)}
-      onMouseLeave={() => isShort && !isMobile && setIsHovered(false)}
+      onMouseEnter={() => !isMobile && setIsHovered(true)}
+      onMouseLeave={() => !isMobile && setIsHovered(false)}
     >
       {/* Thumbnail with dynamic aspect ratio - 12px radius like YouTube */}
       <div
