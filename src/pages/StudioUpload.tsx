@@ -326,7 +326,10 @@ export default function StudioUpload() {
       const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
       const uploadUrl = `${supabaseUrl}/storage/v1/object/contents/${fileName}`;
 
-      await new Promise<void>((resolve, reject) => {
+      const maxRetries = 3;
+      let attempt = 0;
+
+      const attemptUpload = () => new Promise<void>((resolve, reject) => {
         const xhr = new XMLHttpRequest();
         xhrRef.current = xhr;
 
@@ -353,6 +356,20 @@ export default function StudioUpload() {
         xhr.setRequestHeader('x-upsert', 'true');
         xhr.send(fileToUpload);
       });
+
+      while (attempt < maxRetries) {
+        try {
+          await attemptUpload();
+          break;
+        } catch (err: any) {
+          attempt++;
+          if (err.message === 'Upload aborted' || attempt >= maxRetries) throw err;
+          const delay = Math.min(1000 * Math.pow(2, attempt - 1), 8000);
+          toast.info(`Tentativa ${attempt + 1}/${maxRetries}... Reenviando em ${delay / 1000}s`);
+          setFileProgress(0);
+          await new Promise(r => setTimeout(r, delay));
+        }
+      }
 
       setUploadState("processing");
       
