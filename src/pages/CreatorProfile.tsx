@@ -32,6 +32,7 @@ interface CreatorStats {
   level: number;
   followersCount: number;
   contentCount: number;
+  totalViews: number;
 }
 
 export default function CreatorProfile() {
