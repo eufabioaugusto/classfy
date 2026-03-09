@@ -1074,9 +1074,11 @@ export default function AdminRewards() {
                     <label className="text-sm font-medium">Pontos Usuário</label>
                     <Input
                       type="number"
+                      step="0.01"
+                      min="0"
                       value={editingReward.points_user}
                       onChange={(e) =>
-                        setEditingReward({ ...editingReward, points_user: Number(e.target.value) })
+                        setEditingReward({ ...editingReward, points_user: parseFloat(e.target.value) || 0 })
                       }
                     />
                   </div>
