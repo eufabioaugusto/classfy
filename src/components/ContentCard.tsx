@@ -259,6 +259,16 @@ export const ContentCard = ({
           </div>
         )}
 
+        {/* NEW badge - Top Left (below boost if both present) */}
+        {isNew && !isBoosted && (
+          <div className="absolute top-2 left-2">
+            <Badge className="bg-accent/95 backdrop-blur-md text-accent-foreground font-bold text-[10px] px-2 py-0.5 shadow-md flex items-center gap-1">
+              <Sparkles className="w-3 h-3" />
+              NOVO
+            </Badge>
+          </div>
+        )}
+
         {/* Tier badge - Top Right */}
         {visibility === "premium" && !isPurchased && (
           <div className="absolute top-2 right-2">
