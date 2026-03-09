@@ -40,6 +40,19 @@ export default function Index() {
   };
 
   // URL is the source of truth. Only set a default when the param is missing.
+  // Handle navigation state from other pages
+  useEffect(() => {
+    const state = location.state as { exploreMode?: boolean } | null;
+    if (state?.exploreMode !== undefined) {
+      const targetMode = state.exploreMode;
+      setIsExploreMode(targetMode);
+      localStorage.setItem("exploreMode", JSON.stringify(targetMode));
+      setSearchParams({ mode: targetMode ? "explore" : "focus" }, { replace: true });
+      // Clear the state after processing
+      window.history.replaceState({}, document.title);
+    }
+  }, [location.state, setSearchParams]);
+
   useEffect(() => {
     if (modeFromUrl === "explore") {
       setIsExploreMode(true);

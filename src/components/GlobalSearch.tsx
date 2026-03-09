@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
 import { Search, X, Play, Podcast, Zap, GraduationCap, Target, Compass, Loader2 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -28,6 +28,17 @@ interface GlobalSearchProps {
 
 export function GlobalSearch({ isExploreMode, onModeChange }: GlobalSearchProps) {
   const navigate = useNavigate();
+  const location = useLocation();
+  
+  const handleModeChange = (isExplore: boolean) => {
+    setMobileSheetOpen(false); // Always close mobile sheet
+    if (location.pathname === "/") {
+      onModeChange(isExplore);
+    } else {
+      // Navigate to home with mode state
+      navigate("/", { state: { exploreMode: isExplore } });
+    }
+  };
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<SearchResult[]>([]);
   const [isOpen, setIsOpen] = useState(false);
@@ -175,10 +186,10 @@ export function GlobalSearch({ isExploreMode, onModeChange }: GlobalSearchProps)
         {/* No trigger button here - handled by MobileBottomNav */}
         <SheetContent side="top" className="h-auto max-h-[85vh] p-0 bg-background z-[9999999999]">
           <div className="flex items-center justify-center gap-4 py-3 border-b border-border/30">
-            <Button variant="ghost" size="sm" className={cn("gap-2 rounded-full px-4", !isExploreMode ? "bg-accent/20 text-accent" : "text-muted-foreground")} onClick={() => { onModeChange(false); setMobileSheetOpen(false); }}>
+            <Button variant="ghost" size="sm" className={cn("gap-2 rounded-full px-4", !isExploreMode ? "bg-accent/20 text-accent" : "text-muted-foreground")} onClick={() => handleModeChange(false)}>
               <Target className="w-4 h-4" />Estudo
             </Button>
-            <Button variant="ghost" size="sm" className={cn("gap-2 rounded-full px-4", isExploreMode ? "bg-accent/20 text-accent" : "text-muted-foreground")} onClick={() => { onModeChange(true); setMobileSheetOpen(false); }}>
+            <Button variant="ghost" size="sm" className={cn("gap-2 rounded-full px-4", isExploreMode ? "bg-accent/20 text-accent" : "text-muted-foreground")} onClick={() => handleModeChange(true)}>
               <Compass className="w-4 h-4" />Explorar
             </Button>
           </div>
@@ -216,7 +227,7 @@ export function GlobalSearch({ isExploreMode, onModeChange }: GlobalSearchProps)
               onClick={(e) => {
                 e.preventDefault();
                 e.stopPropagation();
-                onModeChange(false);
+                handleModeChange(false);
               }} 
               title="Modo Foco"
             >
@@ -235,7 +246,7 @@ export function GlobalSearch({ isExploreMode, onModeChange }: GlobalSearchProps)
               onClick={(e) => {
                 e.preventDefault();
                 e.stopPropagation();
-                onModeChange(true);
+                handleModeChange(true);
               }} 
               title="Modo Explorar"
             >
