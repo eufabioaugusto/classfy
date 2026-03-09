@@ -5,6 +5,9 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+const BATCH_SIZE = 500;
+const DEFAULT_MIN_PAYOUT = 0.10; // R$ 0.10 minimum to avoid micro-payments
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
@@ -28,7 +31,6 @@ Deno.serve(async (req) => {
           { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 401 }
         );
       }
-      // Check admin role
       const adminClient = createClient(supabaseUrl, supabaseServiceKey);
       const { data: roleData } = await adminClient
         .from('user_roles')
@@ -62,7 +64,7 @@ Deno.serve(async (req) => {
     console.log(`Closing economic cycle for: ${targetYearMonth}`);
 
     // 1. Get or create the cycle
-    let { data: cycle, error: cycleError } = await supabase
+    let { data: cycle } = await supabase
       .from('economic_cycles')
       .select('*')
       .eq('year_month', targetYearMonth)
@@ -85,103 +87,137 @@ Deno.serve(async (req) => {
     }
 
     if (cycle.status === 'closed') {
-      console.log('Cycle already closed:', targetYearMonth);
       return new Response(
         JSON.stringify({ error: 'Cycle already closed', cycle }),
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 400 }
       );
     }
 
-    // 2. Calculate RBM from revenue_entries
-    const { data: revenueData } = await supabase
-      .from('revenue_entries')
-      .select('amount')
-      .eq('year_month', targetYearMonth);
+    // 2. Guard against double-run: mark as 'distributing' before starting
+    if (cycle.status === 'distributing') {
+      console.log('Cycle already distributing — another process is running, aborting.');
+      return new Response(
+        JSON.stringify({ error: 'Cycle is already being distributed. Try again later.' }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 409 }
+      );
+    }
 
-    const rbm = revenueData?.reduce((sum, entry) => sum + parseFloat(String(entry.amount)), 0) || 0;
+    await supabase
+      .from('economic_cycles')
+      .update({ status: 'distributing' })
+      .eq('id', cycle.id);
 
-    // 3. Get pool_percentage from platform_settings
-    const { data: settings } = await supabase
-      .from('platform_settings')
-      .select('value')
-      .eq('key', 'economic')
-      .single();
+    // 3. Fetch RBM and pool_percentage in parallel
+    const [revenueResult, settingsResult] = await Promise.all([
+      supabase.from('revenue_entries').select('amount').eq('year_month', targetYearMonth),
+      supabase.from('platform_settings').select('value').eq('key', 'economic').single(),
+    ]);
 
-    const poolPercentage = settings?.value?.pool_percentage || cycle.pool_percentage || 40;
-
-    // 4. Calculate PRM
+    const rbm = revenueResult.data?.reduce((sum, entry) => sum + parseFloat(String(entry.amount)), 0) || 0;
+    const poolPercentage = settingsResult.data?.value?.pool_percentage || cycle.pool_percentage || 40;
+    const minPayout: number = settingsResult.data?.value?.min_payout || DEFAULT_MIN_PAYOUT;
     const prm = rbm * (poolPercentage / 100);
 
-    // 5. Get all users with performance points in this cycle
-    const { data: cycleUsers } = await supabase
-      .from('economic_cycle_users')
-      .select('*')
-      .eq('cycle_id', cycle.id)
-      .gt('performance_points', 0);
+    // 4. Count total PP across ALL users (paginated)
+    let totalPP = 0;
+    let offset = 0;
+    let allCycleUsers: any[] = [];
 
-    const totalPP = cycleUsers?.reduce((sum, u) => sum + parseFloat(String(u.performance_points)), 0) || 0;
+    while (true) {
+      const { data: batch, error: batchErr } = await supabase
+        .from('economic_cycle_users')
+        .select('*')
+        .eq('cycle_id', cycle.id)
+        .gt('performance_points', 0)
+        .range(offset, offset + BATCH_SIZE - 1);
 
-    console.log(`RBM: ${rbm}, Pool%: ${poolPercentage}, PRM: ${prm}, Total PP: ${totalPP}, Users: ${cycleUsers?.length || 0}`);
+      if (batchErr) {
+        console.error('Error fetching cycle users batch:', batchErr);
+        break;
+      }
+      if (!batch || batch.length === 0) break;
+
+      allCycleUsers = allCycleUsers.concat(batch);
+      totalPP += batch.reduce((sum, u) => sum + parseFloat(String(u.performance_points)), 0);
+
+      if (batch.length < BATCH_SIZE) break;
+      offset += BATCH_SIZE;
+    }
+
+    console.log(`RBM: ${rbm}, Pool%: ${poolPercentage}, PRM: ${prm}, Total PP: ${totalPP}, Users: ${allCycleUsers.length}, Min payout: ${minPayout}`);
 
     let distributedAmount = 0;
+    let usersPaid = 0;
+    let usersCarriedOver = 0;
+    const errors: string[] = [];
 
-    if (totalPP > 0 && prm > 0 && cycleUsers && cycleUsers.length > 0) {
-      // 6. Calculate each user's share and credit wallet
-      for (const cycleUser of cycleUsers) {
+    if (totalPP > 0 && prm > 0 && allCycleUsers.length > 0) {
+      // Determine next cycle for carry-over
+      const cycleDate = new Date(`${targetYearMonth}-01`);
+      cycleDate.setMonth(cycleDate.getMonth() + 1);
+      const nextYearMonth = `${cycleDate.getFullYear()}-${String(cycleDate.getMonth() + 1).padStart(2, '0')}`;
+
+      // Get or create next cycle ID for carry-over
+      let nextCycleId: string | null = null;
+
+      for (const cycleUser of allCycleUsers) {
         const userPP = parseFloat(String(cycleUser.performance_points));
         const userShare = (userPP / totalPP) * prm;
         const roundedShare = parseFloat(userShare.toFixed(2));
 
-        if (roundedShare <= 0) continue;
+        // Skip users below minimum payout — carry their points forward
+        if (roundedShare < minPayout) {
+          if (nextCycleId === null) {
+            // Lazy-create next cycle
+            const { data: nextCycle } = await supabase
+              .from('economic_cycles')
+              .select('id')
+              .eq('year_month', nextYearMonth)
+              .maybeSingle();
 
-        // Update calculated_share
-        await supabase
-          .from('economic_cycle_users')
-          .update({
-            calculated_share: roundedShare,
-            payout_status: 'paid',
-          })
-          .eq('id', cycleUser.id);
+            if (nextCycle) {
+              nextCycleId = nextCycle.id;
+            } else {
+              const { data: newNextCycle } = await supabase
+                .from('economic_cycles')
+                .insert({ year_month: nextYearMonth, pool_percentage: poolPercentage })
+                .select('id')
+                .single();
+              nextCycleId = newNextCycle?.id ?? null;
+            }
+          }
 
-        // Credit wallet atomically (no SELECT needed)
-        await supabase.rpc('increment_wallet_balance', {
-          p_user_id: cycleUser.user_id,
-          p_amount: roundedShare,
-        });
-
-        // Record wallet transaction (wallet_transactions uses wallet_id)
-        const { data: walletRecord } = await supabase
-          .from('wallets')
-          .select('id')
-          .eq('user_id', cycleUser.user_id)
-          .single();
-
-        if (walletRecord) {
-          await supabase
-            .from('wallet_transactions')
-            .insert({
-              wallet_id: walletRecord.id,
-              type: 'pool_distribution',
-              amount: roundedShare,
-              description: `Distribuição do pool - ${targetYearMonth}`,
-            });
+          if (nextCycleId) {
+            await supabase.rpc('carryover_cycle_points', {
+              p_from_cycle_id: cycle.id,
+              p_to_cycle_id: nextCycleId,
+              p_min_payout: minPayout,
+            }).then(() => { usersCarriedOver++; });
+          }
+          continue;
         }
 
-        // Notify user
-        await supabase
-          .from('notifications')
-          .insert({
-            user_id: cycleUser.user_id,
-            type: 'reward',
-            title: '💰 Recompensa Mensal!',
-            message: `Você recebeu R$ ${roundedShare.toFixed(2)} referente ao pool de recompensas de ${targetYearMonth}. Seus ${userPP.toFixed(0)} pontos de performance representaram ${((userPP / totalPP) * 100).toFixed(1)}% do pool.`,
-          });
+        // Distribute atomically via RPC
+        const { error: distErr } = await supabase.rpc('distribute_cycle_payout', {
+          p_cycle_id: cycle.id,
+          p_user_id: cycleUser.user_id,
+          p_amount: roundedShare,
+          p_year_month: targetYearMonth,
+          p_user_pp: userPP,
+          p_total_pp: totalPP,
+        });
 
-        distributedAmount += roundedShare;
+        if (distErr) {
+          console.error(`Failed to distribute to user ${cycleUser.user_id}:`, distErr.message);
+          errors.push(`${cycleUser.user_id}: ${distErr.message}`);
+        } else {
+          distributedAmount += roundedShare;
+          usersPaid++;
+        }
       }
     }
 
-    // 7. Close the cycle
+    // 5. Close the cycle
     await supabase
       .from('economic_cycles')
       .update({
@@ -195,6 +231,22 @@ Deno.serve(async (req) => {
       })
       .eq('id', cycle.id);
 
+    // 6. Reconciliation: verify distributed_amount matches actual wallet_transactions
+    const { data: txSumData } = await supabase
+      .from('wallet_transactions')
+      .select('amount')
+      .eq('type', 'pool_distribution')
+      .ilike('description', `%${targetYearMonth}%`);
+
+    const actualDistributed = txSumData?.reduce((sum, tx) => sum + parseFloat(String(tx.amount)), 0) || 0;
+    const discrepancy = Math.abs(actualDistributed - distributedAmount);
+
+    if (discrepancy > 0.01) {
+      console.warn(`⚠️ RECONCILIATION DISCREPANCY: Expected ${distributedAmount}, actual tx sum ${actualDistributed}, diff ${discrepancy}`);
+    } else {
+      console.log(`✅ Reconciliation OK: distributed ${distributedAmount}, tx sum ${actualDistributed}`);
+    }
+
     const result = {
       success: true,
       year_month: targetYearMonth,
@@ -202,8 +254,16 @@ Deno.serve(async (req) => {
       pool_percentage: poolPercentage,
       prm,
       total_performance_points: totalPP,
-      users_paid: cycleUsers?.length || 0,
+      users_paid: usersPaid,
+      users_carried_over: usersCarriedOver,
       distributed_amount: distributedAmount,
+      reconciliation: {
+        expected: distributedAmount,
+        actual_tx_sum: actualDistributed,
+        discrepancy,
+        ok: discrepancy <= 0.01,
+      },
+      errors: errors.length > 0 ? errors : undefined,
     };
 
     console.log('Cycle closed successfully:', result);

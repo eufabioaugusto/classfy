@@ -59,92 +59,80 @@ Deno.serve(async (req) => {
       );
     }
 
-    // Delete reward event
-    const { error: delErr } = await supabase
-      .from("reward_events")
-      .delete()
-      .eq("id", reward.id);
+    // Fetch creator reward before deleting anything (parallel)
+    const [delResult, creatorRewardResult] = await Promise.all([
+      // Delete user reward event
+      supabase
+        .from("reward_events")
+        .delete()
+        .eq("id", reward.id),
 
-    if (delErr) {
+      // Find creator reward event
+      supabase
+        .from("reward_events")
+        .select("id, performance_points, user_id, cycle_id")
+        .eq("content_id", contentId)
+        .eq("action_key", actionKey)
+        .filter("metadata->>as_creator", "eq", "true")
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle(),
+    ]);
+
+    if (delResult.error) {
       return new Response(
         JSON.stringify({ error: "Failed to delete reward" }),
         { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 500 },
       );
     }
 
-    // Revert Performance Points from economic_cycle_users
+    // Revert user PP atomically using increment_cycle_user_points with negative value
     const ppToRevert = Number(reward.performance_points || 0);
-    if (ppToRevert > 0 && reward.cycle_id) {
-      const { data: cycleUser } = await supabase
-        .from("economic_cycle_users")
-        .select("performance_points")
-        .eq("cycle_id", reward.cycle_id)
-        .eq("user_id", userId)
-        .single();
+    const userPPPromise = (ppToRevert > 0 && reward.cycle_id)
+      ? supabase.rpc("increment_cycle_user_points", {
+          p_cycle_id: reward.cycle_id,
+          p_user_id: userId,
+          p_points: -ppToRevert,
+        })
+      : Promise.resolve({ error: null });
 
-      if (cycleUser) {
-        const newPP = Math.max(0, Number(cycleUser.performance_points) - ppToRevert);
-        await supabase
-          .from("economic_cycle_users")
-          .update({
-            performance_points: newPP,
-            updated_at: new Date().toISOString(),
-          })
-          .eq("cycle_id", reward.cycle_id)
-          .eq("user_id", userId);
-      }
-    }
-
-    // Revert creator reward (creator also earned PP for this action)
+    const creatorReward = creatorRewardResult.data;
+    let creatorDeletePromise = Promise.resolve({ error: null });
+    let creatorPPPromise = Promise.resolve({ error: null });
     let creatorPPReverted = 0;
-    const { data: creatorReward } = await supabase
-      .from("reward_events")
-      .select("id, performance_points, user_id, cycle_id")
-      .eq("content_id", contentId)
-      .eq("action_key", actionKey)
-      .filter("metadata->>as_creator", "eq", "true")
-      .order("created_at", { ascending: false })
-      .limit(1)
-      .maybeSingle();
 
     if (creatorReward) {
+      const creatorPP = Number(creatorReward.performance_points || 0);
+      creatorPPReverted = creatorPP;
+
       // Delete creator reward event
-      await supabase
+      creatorDeletePromise = supabase
         .from("reward_events")
         .delete()
         .eq("id", creatorReward.id);
 
-      const creatorPP = Number(creatorReward.performance_points || 0);
+      // Revert creator PP atomically
       if (creatorPP > 0 && creatorReward.cycle_id) {
-        const { data: creatorCycleUser } = await supabase
-          .from("economic_cycle_users")
-          .select("performance_points")
-          .eq("cycle_id", creatorReward.cycle_id)
-          .eq("user_id", creatorReward.user_id)
-          .single();
-
-        if (creatorCycleUser) {
-          const newCreatorPP = Math.max(0, Number(creatorCycleUser.performance_points) - creatorPP);
-          await supabase
-            .from("economic_cycle_users")
-            .update({
-              performance_points: newCreatorPP,
-              updated_at: new Date().toISOString(),
-            })
-            .eq("cycle_id", creatorReward.cycle_id)
-            .eq("user_id", creatorReward.user_id);
-          creatorPPReverted = creatorPP;
-        }
+        creatorPPPromise = supabase.rpc("increment_cycle_user_points", {
+          p_cycle_id: creatorReward.cycle_id,
+          p_user_id: creatorReward.user_id,
+          p_points: -creatorPP,
+        });
       }
     }
 
-    // Remove tracking record (so re-like can reward again)
+    // Remove tracking record + run all async reversals in parallel
     const trackingKey = buildTrackingKey(actionKey, contentId);
-    await supabase
-      .from("reward_action_tracking")
-      .delete()
-      .eq("user_id", userId)
-      .eq("action_key", trackingKey);
+    await Promise.all([
+      userPPPromise,
+      creatorDeletePromise,
+      creatorPPPromise,
+      supabase
+        .from("reward_action_tracking")
+        .delete()
+        .eq("user_id", userId)
+        .eq("action_key", trackingKey),
+    ]);
 
     return new Response(
       JSON.stringify({
