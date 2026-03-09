@@ -91,6 +91,16 @@ export const ContentCard = ({
   const isShort = (content?.content_type || contentType) === "short";
   const videoUrl = content?.file_url || content?.video_url;
   const hasVideo = !!videoUrl;
+
+  // Only allow hover preview for content the user can access (free or matching plan/purchased)
+  const canPreview = useMemo(() => {
+    if (visibility === "free") return true;
+    if (visibility === "paid") return isPurchased;
+    if (visibility === "pro") return ["pro", "premium"].includes(userPlan);
+    if (visibility === "premium") return userPlan === "premium";
+    return true;
+  }, [visibility, isPurchased, userPlan]);
+  const hasPreviewableVideo = hasVideo && canPreview;
   const publishedAt = content?.published_at || content?.created_at;
 
   // Check if content is new (published within last 48 hours)
@@ -114,16 +124,16 @@ export const ContentCard = ({
 
   // Random autoplay for mobile shorts
   useEffect(() => {
-    if (isShort && isMobile && videoUrl) {
+    if (isShort && isMobile && videoUrl && canPreview) {
       const randomDelay = Math.random() * 3000;
       const timer = setTimeout(() => setShouldAutoplay(true), randomDelay);
       return () => clearTimeout(timer);
     }
   }, [isShort, isMobile, videoUrl]);
 
-  // Handle hover autoplay for desktop (ALL video content types)
+  // Handle hover autoplay for desktop (only if user has access)
   useEffect(() => {
-    if (!hasVideo || isMobile) return;
+    if (!hasPreviewableVideo || isMobile) return;
     if (isHovered && videoRef.current) {
       videoRef.current.currentTime = 0;
       const playPromise = videoRef.current.play();
@@ -132,7 +142,7 @@ export const ContentCard = ({
       videoRef.current.pause();
       videoRef.current.currentTime = 0;
     }
-  }, [isHovered, hasVideo, isMobile]);
+  }, [isHovered, hasPreviewableVideo, isMobile]);
 
   // Handle mobile autoplay (shorts only)
   useEffect(() => {
@@ -224,12 +234,12 @@ export const ContentCard = ({
           src={thumbnail}
           alt={title}
           className={`w-full h-full object-cover group-hover:scale-105 transition-transform duration-300 ${
-            hasVideo && (isHovered || shouldAutoplay) ? "opacity-0" : "opacity-100"
+            hasPreviewableVideo && (isHovered || shouldAutoplay) ? "opacity-0" : "opacity-100"
           } transition-opacity duration-300`}
         />
 
-        {/* Video hover preview for all types */}
-        {hasVideo && (
+        {/* Video hover preview (only for accessible content) */}
+        {hasPreviewableVideo && (
           <video
             ref={videoRef}
             src={videoUrl}
