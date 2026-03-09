@@ -28,8 +28,15 @@ export function useContentMetrics({ contentId, duration }: UseContentMetricsProp
   const lastProgressUpdateRef = useRef(0);
   const lastWatchTimeUpdateRef = useRef(0);
 
+  // --- Anti-seek tracking ---
+  // Tracks the REAL accumulated seconds the user has watched (not seeked position)
+  const accumulatedWatchTimeRef = useRef(0);
+  // The previous timeupdate value, used to detect seeks
+  const previousTimeRef = useRef(0);
+  // Max allowed jump between two timeupdate events before it's considered a seek (seconds)
+  const MAX_NATURAL_JUMP = 3;
+
   const recordMetric = useCallback(async (event: "start" | "half" | "complete") => {
-    // Views and rewards only count for authenticated users to prevent fraud
     if (metricsRecorded[event] || !user || !contentId) return;
 
     try {
@@ -91,7 +98,7 @@ export function useContentMetrics({ contentId, duration }: UseContentMetricsProp
     }
   }, [user, contentId, processReward]);
 
-  const updateWatchTime = useCallback(async (currentTime: number) => {
+  const updateWatchTime = useCallback(async (watchedSeconds: number) => {
     if (!user || !contentId) return;
     
     const today = new Date().toISOString().split('T')[0];
@@ -99,7 +106,7 @@ export function useContentMetrics({ contentId, duration }: UseContentMetricsProp
       await supabase
         .from('content_views')
         .update({ 
-          total_watch_time_seconds: Math.floor(currentTime),
+          total_watch_time_seconds: Math.floor(watchedSeconds),
           last_viewed_at: new Date().toISOString()
         })
         .eq('content_id', contentId)
@@ -114,47 +121,63 @@ export function useContentMetrics({ contentId, duration }: UseContentMetricsProp
     if (!contentId || !user || duration === 0) return;
 
     currentTimeRef.current = currentTime;
-    const percent = (currentTime / duration) * 100;
 
-    // 15 second view reward
-    if (!metricsRecorded.view15s && currentTime >= 15) {
-      await processReward({
-        actionKey: "VIEW_15S",
-        userId: user.id,
-        contentId: contentId,
-        metadata: { watch_time: currentTime },
-      });
-      setMetricsRecorded((prev) => ({ ...prev, view15s: true }));
+    // --- Calculate delta and detect seeks ---
+    const delta = currentTime - previousTimeRef.current;
+    previousTimeRef.current = currentTime;
+
+    // Only accumulate if delta is a natural playback increment (> 0 and within threshold)
+    // This excludes: seeks forward (large jumps), seeks backward (negative delta), paused (delta ~0)
+    if (delta > 0 && delta <= MAX_NATURAL_JUMP) {
+      accumulatedWatchTimeRef.current += delta;
     }
 
-    // Start metric
-    if (!metricsRecorded.start && currentTime > 0) {
+    const realWatchTime = accumulatedWatchTimeRef.current;
+    
+    // Use REAL watch time for percentage calculations on rewards
+    // (the user must actually watch, not just seek)
+    const realPercent = duration > 0 ? (realWatchTime / duration) * 100 : 0;
+
+    // Start metric: triggers on first real playback (any small delta counts)
+    if (!metricsRecorded.start && realWatchTime > 0.5) {
       await recordMetric("start");
       await checkFirstContentWeek();
     }
 
-    // Half metric
-    if (!metricsRecorded.half && currentTime > duration / 2) {
+    // 15 second view reward - based on REAL accumulated watch time
+    if (!metricsRecorded.view15s && realWatchTime >= 15) {
+      await processReward({
+        actionKey: "VIEW_15S",
+        userId: user.id,
+        contentId: contentId,
+        metadata: { watch_time: realWatchTime },
+      });
+      setMetricsRecorded((prev) => ({ ...prev, view15s: true }));
+    }
+
+    // Half metric - user must have actually watched >= 50% of the content
+    if (!metricsRecorded.half && realPercent >= 50) {
       await recordMetric("half");
     }
 
-    // Complete metric (95%)
-    if (!metricsRecorded.complete && currentTime > duration * 0.95) {
+    // Complete metric - user must have actually watched >= 90% of the content
+    if (!metricsRecorded.complete && realPercent >= 90) {
       await recordMetric("complete");
       await checkBingeWatch();
     }
 
-    // Track progress every 5 seconds (throttled)
-    const floorTime = Math.floor(currentTime);
-    if (floorTime >= lastProgressUpdateRef.current + 5 && currentTime > 0) {
-      lastProgressUpdateRef.current = floorTime;
-      await trackProgress(user.id, contentId, percent, currentTime);
+    // Track progress every 5 seconds of REAL watch time (throttled)
+    const floorRealTime = Math.floor(realWatchTime);
+    if (floorRealTime >= lastProgressUpdateRef.current + 5 && realWatchTime > 0.5) {
+      lastProgressUpdateRef.current = floorRealTime;
+      // Pass realPercent so progress/rewards are based on actual watching
+      await trackProgress(user.id, contentId, realPercent, realWatchTime);
     }
 
-    // Update watch time every 10 seconds (throttled)
-    if (floorTime >= lastWatchTimeUpdateRef.current + 10 && currentTime >= 10) {
-      lastWatchTimeUpdateRef.current = floorTime;
-      await updateWatchTime(currentTime);
+    // Update watch time every 10 seconds of REAL watch time (throttled)
+    if (floorRealTime >= lastWatchTimeUpdateRef.current + 10 && realWatchTime >= 10) {
+      lastWatchTimeUpdateRef.current = floorRealTime;
+      await updateWatchTime(realWatchTime);
     }
   }, [contentId, user, duration, metricsRecorded, recordMetric, processReward, trackProgress, checkFirstContentWeek, checkBingeWatch, updateWatchTime]);
 
@@ -193,6 +216,8 @@ export function useContentMetrics({ contentId, duration }: UseContentMetricsProp
     });
     lastProgressUpdateRef.current = 0;
     lastWatchTimeUpdateRef.current = 0;
+    accumulatedWatchTimeRef.current = 0;
+    previousTimeRef.current = 0;
   }, []);
 
   return {
