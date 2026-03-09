@@ -131,9 +131,9 @@ export function AutoplayNextOverlay({
                 <p className="text-white font-medium text-sm line-clamp-2">
                   {nextContent.title}
                 </p>
-                {nextContent.profiles?.display_name && (
+                {(nextContent.profiles?.display_name || nextContent.creator?.display_name) && (
                   <p className="text-white/60 text-xs mt-1">
-                    {nextContent.profiles.display_name}
+                    {nextContent.profiles?.display_name || nextContent.creator?.display_name}
                   </p>
                 )}
               </div>
