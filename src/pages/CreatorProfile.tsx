@@ -284,8 +284,15 @@ export default function CreatorProfile() {
                     <div className="flex items-center gap-2">
                       <Users className="w-4 h-4 text-muted-foreground" />
                       <div className="flex items-baseline gap-1">
-                        <span className="font-semibold text-base">{stats?.followersCount || 0}</span>
+                        <span className="font-semibold text-base">{stats?.followersCount?.toLocaleString() || 0}</span>
                         <span className="text-muted-foreground">seguidores</span>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Eye className="w-4 h-4 text-muted-foreground" />
+                      <div className="flex items-baseline gap-1">
+                        <span className="font-semibold text-base">{stats?.totalViews?.toLocaleString() || 0}</span>
+                        <span className="text-muted-foreground">views</span>
                       </div>
                     </div>
                     <div className="flex items-center gap-2">
@@ -293,13 +300,6 @@ export default function CreatorProfile() {
                       <div className="flex items-baseline gap-1">
                         <span className="font-semibold text-base">{stats?.contentCount || 0}</span>
                         <span className="text-muted-foreground">conteúdos</span>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Trophy className="w-4 h-4 text-muted-foreground" />
-                      <div className="flex items-baseline gap-1">
-                        <span className="font-semibold text-base">{stats?.totalPoints || 0}</span>
-                        <span className="text-muted-foreground">pontos</span>
                       </div>
                     </div>
                   </div>

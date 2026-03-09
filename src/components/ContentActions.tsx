@@ -120,15 +120,22 @@ export function ContentActions({
         </motion.div>
 
         {/* Favoritos */}
-        <Button
-          variant="secondary"
-          size="sm"
-          onClick={toggleFavorite}
-          className={`gap-1.5 sm:gap-2 rounded-full px-3 sm:px-4 h-8 sm:h-9 ${isFavorited ? 'bg-yellow-500/20 text-yellow-500' : ''}`}
-        >
-          <Star className={`h-3.5 w-3.5 sm:h-4 sm:w-4 ${isFavorited ? 'fill-current' : ''}`} />
-          <span className="hidden sm:inline text-xs sm:text-sm">Favoritos</span>
-        </Button>
+        <motion.div whileTap={{ scale: 0.9 }}>
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={toggleFavorite}
+            className={`gap-1.5 sm:gap-2 rounded-full px-3 sm:px-4 h-8 sm:h-9 transition-colors ${isFavorited ? 'bg-yellow-500/20 text-yellow-500' : ''}`}
+          >
+            <motion.div
+              animate={isFavorited ? { scale: [1, 1.4, 1], rotate: [0, -15, 15, 0] } : {}}
+              transition={{ duration: 0.4, ease: "easeOut" }}
+            >
+              <Star className={`h-3.5 w-3.5 sm:h-4 sm:w-4 ${isFavorited ? 'fill-current' : ''}`} />
+            </motion.div>
+            <span className="hidden sm:inline text-xs sm:text-sm">Favoritos</span>
+          </Button>
+        </motion.div>
 
         {/* Adicionar ao Estudo */}
         {onAddToStudy && (
