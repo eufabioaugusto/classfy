@@ -71,9 +71,24 @@ export function LeaderboardSection({ userId }: LeaderboardSectionProps) {
 
       setLeaders(leaderboard);
 
-      // Find user's rank
-      const rank = leaderboard.findIndex(l => l.user_id === userId);
-      setUserRank(rank >= 0 ? rank + 1 : null);
+      // Find user's rank (across all fetched users, not just top 10)
+      const allRanked = cycleUsers.map((u, idx) => ({ ...u, rank: idx + 1 }));
+      const userEntry = allRanked.find(l => l.user_id === userId);
+      setUserRank(userEntry ? userEntry.rank : null);
+
+      // If user is outside top 10, store their entry separately
+      if (userEntry && userEntry.rank > 10) {
+        const profile = profileMap.get(userId);
+        setUserOutsideTop({
+          user_id: userId,
+          performance_points: parseFloat(String(userEntry.performance_points)),
+          display_name: profile?.display_name || 'Você',
+          avatar_url: profile?.avatar_url || null,
+          rank: userEntry.rank,
+        });
+      } else {
+        setUserOutsideTop(null);
+      }
     } catch (error) {
       console.error('Error fetching leaderboard:', error);
     } finally {
