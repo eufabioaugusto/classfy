@@ -67,7 +67,7 @@ export const CreatorStatsCard = ({ userId, collapsed }: CreatorStatsCardProps) =
     }
   }, [userId]);
 
-  const pointsInCurrentLevel = stats.totalPoints % 1000;
+  const pointsInCurrentLevel = Math.round((stats.totalPoints % 1000) * 100) / 100;
   const progressToNextLevel = (pointsInCurrentLevel / 1000) * 100;
 
   if (loading) {
@@ -112,8 +112,8 @@ export const CreatorStatsCard = ({ userId, collapsed }: CreatorStatsCardProps) =
             />
           </div>
           <div className="flex justify-between text-[10px] text-muted-foreground">
-            <span>{stats.totalPoints.toLocaleString()} XP</span>
-            <span>{1000 - pointsInCurrentLevel} para próximo</span>
+            <span>{stats.totalPoints.toLocaleString('pt-BR', { maximumFractionDigits: 2 })} XP</span>
+            <span>{(1000 - pointsInCurrentLevel).toLocaleString('pt-BR', { maximumFractionDigits: 2 })} para próximo</span>
           </div>
         </div>
       </div>
