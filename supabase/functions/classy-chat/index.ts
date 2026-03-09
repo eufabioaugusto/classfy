@@ -315,7 +315,7 @@ RESPONDA APENAS: "ON_TOPIC" ou "OFF_TOPIC"`;
     if ((!isAskingAboutCurrentContent || isFirstMessage) && !playlistSummary) {
       const searchQuery = isFirstMessage ? study.title.toLowerCase() : message.toLowerCase();
       
-      console.log(`\n========== CLASSY SEARCH: "${searchQuery}" ==========`);
+      // Use Postgres full-text search for scalable content discovery
 
       // Use Postgres full-text search for scalable content discovery
       console.log(`\n========== CLASSY SEARCH (FTS): "${searchQuery}" ==========`);
@@ -425,6 +425,7 @@ Inclua APENAS >= 50%.`;
 
       console.log(`🎯 RESULTADO FINAL: ${relatedContents.length} conteúdos encontrados`);
       console.log('========================================\n');
+    }
 
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     if (!LOVABLE_API_KEY) {
