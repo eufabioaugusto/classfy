@@ -55,8 +55,9 @@ export const ContentSection = ({
     return 6; // 2 rows x 3 cols = 6 items
   };
 
-  // Limit items based on aspect ratio
-  const displayContents = contents.slice(0, getMaxItems());
+  const maxItems = getMaxItems();
+  const hasMore = contents.length > maxItems;
+  const displayContents = showAll ? contents : contents.slice(0, maxItems);
 
   if (loading) {
     return (
