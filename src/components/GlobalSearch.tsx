@@ -28,6 +28,16 @@ interface GlobalSearchProps {
 
 export function GlobalSearch({ isExploreMode, onModeChange }: GlobalSearchProps) {
   const navigate = useNavigate();
+  const location = window.location.pathname;
+  
+  const handleModeChange = (isExplore: boolean) => {
+    if (location === "/" || location === "") {
+      onModeChange(isExplore);
+    } else {
+      // Navigate to home with mode state
+      navigate("/", { state: { exploreMode: isExplore } });
+    }
+  };
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<SearchResult[]>([]);
   const [isOpen, setIsOpen] = useState(false);
