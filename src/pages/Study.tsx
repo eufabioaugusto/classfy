@@ -2064,22 +2064,29 @@ function StudyContent() {
               </div>
             </ScrollArea>
 
-            {/* Input */}
-            <div className="border-t border-border bg-card px-6 py-4 flex-shrink-0">
+            {/* Input - Modern ChatGPT Style */}
+            <div className="border-t border-border/50 bg-gradient-to-b from-card/50 to-background/50 backdrop-blur-xl px-4 sm:px-6 py-6 flex-shrink-0">
               <div className="max-w-4xl mx-auto">
                 {isChatLocked && (
-                  <div className="pb-4">
-                    <div className="w-full rounded-xl border border-destructive/30 bg-destructive/10 px-4 py-3">
-                      <div className="flex items-start gap-3">
-                        <AlertCircle className="w-5 h-5 text-destructive mt-0.5" />
-                        <p className="text-sm text-destructive">
-                          {limitReached?.type === 'deviations'
-                            ? `Novo tema detectado${limitReached?.suggestedTopic ? `: "${limitReached.suggestedTopic}"` : ''}. Faça upgrade para continuar explorando sem limites.`
-                            : 'Você atingiu o limite de mensagens do seu plano. Faça upgrade para continuar.'}
-                        </p>
+                  <div className="pb-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+                    <div className="w-full rounded-2xl border border-destructive/20 bg-gradient-to-br from-destructive/5 to-destructive/10 p-5 shadow-lg">
+                      <div className="flex items-start gap-4">
+                        <div className="p-2 rounded-xl bg-destructive/10">
+                          <AlertCircle className="w-5 h-5 text-destructive" />
+                        </div>
+                        <div className="flex-1 space-y-1">
+                          <p className="text-sm font-medium text-destructive/90">
+                            {limitReached?.type === 'deviations' ? 'Novo Tema Detectado' : 'Limite Atingido'}
+                          </p>
+                          <p className="text-sm text-destructive/70 leading-relaxed">
+                            {limitReached?.type === 'deviations'
+                              ? `${limitReached?.suggestedTopic ? `"${limitReached.suggestedTopic}" - ` : ''}Faça upgrade para explorar temas ilimitados.`
+                              : 'Atualize seu plano para continuar conversando.'}
+                          </p>
+                        </div>
                       </div>
                     </div>
-                    <div className="mt-3">
+                    <div className="mt-4">
                       <UpgradePromptCard
                         userName={profile?.display_name}
                         currentPlan={currentPlan}
@@ -2095,22 +2102,68 @@ function StudyContent() {
                     e.preventDefault();
                     handleSend();
                   }}
-                  className="flex gap-2"
+                  className="relative"
                 >
-                  <Input
-                    value={input}
-                    onChange={(e) => setInput(e.target.value)}
-                    placeholder={isChatLocked ? "Limite atingido — faça upgrade para continuar" : "Digite sua mensagem..."}
-                    disabled={sending || isChatLocked}
-                    className="flex-1"
-                  />
-                  <Button type="submit" disabled={sending || isChatLocked || !input.trim()}>
-                    {sending ? (
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                    ) : (
-                      <Send className="w-4 h-4" />
-                    )}
-                  </Button>
+                  {/* Modern Input Container */}
+                  <div className={cn(
+                    "relative flex items-end gap-2 rounded-3xl transition-all duration-300",
+                    "bg-card border-2 shadow-lg hover:shadow-xl",
+                    isChatLocked 
+                      ? "border-border/30 opacity-60" 
+                      : "border-border/50 hover:border-border focus-within:border-primary/30 focus-within:shadow-2xl focus-within:shadow-primary/5"
+                  )}>
+                    {/* Text Input */}
+                    <div className="flex-1 min-h-[56px] flex items-center px-5 py-3">
+                      <textarea
+                        value={input}
+                        onChange={(e) => setInput(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' && !e.shiftKey) {
+                            e.preventDefault();
+                            handleSend();
+                          }
+                        }}
+                        placeholder={isChatLocked ? "🔒 Limite atingido — faça upgrade para continuar" : "Pergunte algo à Classy..."}
+                        disabled={sending || isChatLocked}
+                        rows={1}
+                        className={cn(
+                          "w-full bg-transparent resize-none outline-none",
+                          "text-sm sm:text-base leading-relaxed",
+                          "placeholder:text-muted-foreground/60",
+                          "disabled:cursor-not-allowed"
+                        )}
+                        style={{ maxHeight: '120px' }}
+                      />
+                    </div>
+
+                    {/* Send Button */}
+                    <div className="pr-2 pb-2">
+                      <Button 
+                        type="submit" 
+                        disabled={sending || isChatLocked || !input.trim()}
+                        size="icon"
+                        className={cn(
+                          "h-10 w-10 rounded-2xl transition-all duration-300 shadow-md",
+                          "disabled:opacity-40 disabled:cursor-not-allowed",
+                          !input.trim() && !sending && !isChatLocked && "opacity-50 hover:opacity-70",
+                          input.trim() && !sending && !isChatLocked && "bg-primary hover:bg-primary/90 hover:scale-105 active:scale-95 shadow-lg shadow-primary/20"
+                        )}
+                      >
+                        {sending ? (
+                          <Loader2 className="w-5 h-5 animate-spin" />
+                        ) : (
+                          <Send className="w-5 h-5" />
+                        )}
+                      </Button>
+                    </div>
+                  </div>
+
+                  {/* Character hint for long messages */}
+                  {input.length > 200 && (
+                    <p className="text-xs text-muted-foreground/60 mt-2 ml-5 animate-in fade-in duration-300">
+                      {input.length} caracteres • Shift+Enter para nova linha
+                    </p>
+                  )}
                 </form>
               </div>
             </div>
