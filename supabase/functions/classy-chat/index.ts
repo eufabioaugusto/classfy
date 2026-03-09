@@ -806,14 +806,19 @@ INSTRUÇÕES OBRIGATÓRIAS:
           Authorization: `Bearer ${LOVABLE_API_KEY}`,
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({
-          model: "google/gemini-2.5-flash",
-          messages: [
-            { role: "system", content: systemPrompt },
-            ...conversationHistory,
-            { role: "user", content: message },
-          ],
-        }),
+          body: JSON.stringify({
+            // Using latest Gemini 3 Flash Preview for superior reasoning
+            model: "google/gemini-3-flash-preview",
+            messages: [
+              { role: "system", content: systemPrompt },
+              ...conversationHistory,
+              { role: "user", content: message },
+            ],
+            // Enhanced parameters for better educational responses
+            temperature: 0.7, // Balance between creativity and consistency
+            top_p: 0.9, // Nucleus sampling for coherent responses
+            max_tokens: 2048, // Allow longer, more comprehensive explanations
+          }),
       }
     );
 
