@@ -143,6 +143,7 @@ export const ContentCard = ({
     } else if (videoRef.current) {
       videoRef.current.pause();
       videoRef.current.currentTime = 0;
+      setVideoReady(false);
     }
   }, [isHovered, hasPreviewableVideo, isMobile]);
 
