@@ -303,7 +303,7 @@ Deno.serve(async (req) => {
     // XP (points) still credited instantly for gamification
     // Performance Points accumulated in economic_cycle_users (NO direct wallet credit)
     if (config.points_user > 0) {
-      const userPoints = Math.floor(config.points_user * planMultiplier);
+      const userPoints = parseFloat((config.points_user * planMultiplier).toFixed(2));
       // Performance points with diminishing returns applied
       const performancePoints = config.points_user * planMultiplier * diminishingMultiplier;
 
