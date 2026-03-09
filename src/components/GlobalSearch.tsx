@@ -226,7 +226,7 @@ export function GlobalSearch({ isExploreMode, onModeChange }: GlobalSearchProps)
               onClick={(e) => {
                 e.preventDefault();
                 e.stopPropagation();
-                onModeChange(false);
+                handleModeChange(false);
               }} 
               title="Modo Foco"
             >
