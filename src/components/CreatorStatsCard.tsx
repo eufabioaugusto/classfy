@@ -125,31 +125,25 @@ export const CreatorStatsCard = ({ userId, collapsed }: CreatorStatsCardProps) =
       {/* Stats List */}
       <div className="divide-y divide-border/50 border-t border-border/50">
         {/* Earnings */}
-        <div className="px-4 py-3 flex items-center justify-between">
+        <div className="px-4 py-2.5 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Wallet className="h-3.5 w-3.5 text-muted-foreground" />
-            <span className="text-xs font-medium text-muted-foreground">Ganhos</span>
+            <span className="text-xs text-muted-foreground">Saldo</span>
           </div>
-          <div className="text-right tabular-nums">
-            <span className="text-sm font-semibold text-foreground">
-              R$ {(wallet?.total_earned || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-            </span>
-            <p className="text-[10px] text-muted-foreground">
-              Saldo: R$ {(wallet?.balance || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-            </p>
-          </div>
+          <span className="text-sm font-semibold text-foreground tabular-nums">
+            R$ {(wallet?.balance || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+          </span>
         </div>
 
         {/* Contents */}
-        <div className="px-4 py-3 flex items-center justify-between">
+        <div className="px-4 py-2.5 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Play className="h-3.5 w-3.5 text-muted-foreground" />
-            <span className="text-xs font-medium text-muted-foreground">Conteúdos</span>
+            <span className="text-xs text-muted-foreground">Conteúdos</span>
           </div>
-          <div className="text-right">
-            <span className="text-sm font-semibold text-foreground tabular-nums">{stats.contentCount}</span>
-            <p className="text-[10px] text-muted-foreground">publicados</p>
-          </div>
+          <span className="text-sm font-semibold text-foreground tabular-nums">
+            {stats.contentCount}
+          </span>
         </div>
       </div>
     </Card>
