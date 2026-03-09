@@ -317,186 +317,71 @@ RESPONDA APENAS: "ON_TOPIC" ou "OFF_TOPIC"`;
       
       console.log(`\n========== CLASSY SEARCH: "${searchQuery}" ==========`);
 
-      // Fetch all approved contents with transcriptions
-      const { data: contents } = await supabaseServiceClient
-        .from("contents")
-        .select(`
-          id, title, description, content_type, thumbnail_url, 
-          visibility, required_plan, is_free, duration_minutes, tags,
-          transcriptions (text)
-        `)
-        .eq("status", "approved")
-        .in("content_type", ["aula", "short", "podcast"])
-        .limit(100);
-
-      // Fetch approved courses
-      const { data: courses } = await supabaseServiceClient
-        .from("courses")
-        .select(`
-          id, title, description, thumbnail_url, 
-          visibility, tags, total_lessons, total_duration_seconds
-        `)
-        .eq("status", "approved")
-        .limit(50);
-
-      // Combine contents and courses for searching
-      const allItems = [
-        ...(contents || []).map((c: any) => ({ ...c, itemType: 'content' })),
-        ...(courses || []).map((c: any) => ({ ...c, itemType: 'course', content_type: 'curso' }))
-      ];
-
-      if (allItems.length > 0) {
-        const availableItems = allItems.filter((item: any) => 
-          !activeContentId || item.id !== activeContentId
-        );
-
-        console.log(`Total de itens disponíveis: ${availableItems.length} (${contents?.length || 0} conteúdos + ${courses?.length || 0} cursos)`);
-
-        // ===== PHASE 1: DIRECT KEYWORD MATCHING (No AI, No Cost) =====
-        console.log('\n🔍 PHASE 1: Análise de relevância aprimorada...');
-
-        const normalizeText = (text: string) => text
-          .toLowerCase()
-          .normalize("NFD")
-          .replace(/[\u0300-\u036f]/g, "");
-
-        const queryNorm = normalizeText(searchQuery);
-        const stopwords = ['o', 'a', 'de', 'da', 'do', 'em', 'no', 'na', 'por', 'para', 'com', 'quero', 'quer', 'aprender', 'sobre', 'como', 'que', 'um', 'uma', 'os', 'as', 'e', 'ou', 'mas', 'se', 'qual', 'quais', 'isso', 'esse', 'essa', 'este', 'esta', 'aqui', 'ali', 'la', 'muito', 'bem', 'mais', 'menos', 'agora', 'hoje', 'me', 'meu', 'minha', 'seu', 'sua', 'voce', 'eu', 'nos'];
-        
-        // Extract meaningful keywords (min 3 chars, not stopwords)
-        const keywords = queryNorm
-          .split(/\s+/)
-          .map((w: string) => w.replace(/[!?,;.]/g, ""))
-          .filter((w: string) => w.length >= 3 && !stopwords.includes(w));
-
-        console.log(`Keywords extraídas: [${keywords.join(', ')}]`);
-
-        // Calculate relevance score (0-100%)
-        const calculateRelevance = (item: any): { score: number; matches: string[] } => {
-          const titleNorm = normalizeText(item.title);
-          const descNorm = normalizeText(item.description || "");
-          const tagsNorm = (item.tags || []).map((t: string) => normalizeText(t));
-          const transcriptionNorm = item.transcriptions?.[0]?.text 
-            ? normalizeText(item.transcriptions[0].text.substring(0, 2000)) 
-            : "";
-
-          let baseScore = 0;
-          const matches: string[] = [];
-          
-          // 1. EXACT PHRASE MATCH (highest priority) - up to 50 points
-          if (titleNorm.includes(queryNorm) && queryNorm.length > 5) {
-            baseScore += 50;
-            matches.push('exact_phrase_title');
-          } else if (descNorm.includes(queryNorm) && queryNorm.length > 5) {
-            baseScore += 35;
-            matches.push('exact_phrase_desc');
-          }
-
-          // 2. KEYWORD MATCHING - remaining 50 points distributed across keywords
-          if (keywords.length > 0) {
-            const pointsPerKeyword = 50 / keywords.length;
-            
-            keywords.forEach((keyword: string) => {
-              let keywordMatched = false;
-              
-              // Title match (full points for keyword)
-              if (titleNorm.includes(keyword)) {
-                baseScore += pointsPerKeyword;
-                matches.push(`title:${keyword}`);
-                keywordMatched = true;
-              }
-              // Description match (70% of points)
-              else if (descNorm.includes(keyword)) {
-                baseScore += pointsPerKeyword * 0.7;
-                matches.push(`desc:${keyword}`);
-                keywordMatched = true;
-              }
-              // Tag match (full points)
-              else if (tagsNorm.some((tag: string) => tag.includes(keyword) || keyword.includes(tag))) {
-                baseScore += pointsPerKeyword;
-                matches.push(`tag:${keyword}`);
-                keywordMatched = true;
-              }
-              // Transcription match (40% of points - less reliable)
-              else if (transcriptionNorm && transcriptionNorm.includes(keyword)) {
-                baseScore += pointsPerKeyword * 0.4;
-                matches.push(`transcription:${keyword}`);
-                keywordMatched = true;
-              }
-            });
-          }
-
-          // Ensure score is between 0 and 100
-          const finalScore = Math.min(100, Math.round(baseScore));
-          
-          return { score: finalScore, matches };
-        };
-
-        // Calculate relevance for all items
-        const scoredItems = availableItems.map((item: any) => {
-          const { score, matches } = calculateRelevance(item);
-          return { ...item, relevanceScore: score, matches };
+      // Use Postgres full-text search for scalable content discovery
+      console.log(`\n========== CLASSY SEARCH (FTS): "${searchQuery}" ==========`);
+      
+      const { data: ftsResults, error: ftsError } = await supabaseServiceClient
+        .rpc("search_platform_content", {
+          p_query: searchQuery,
+          p_limit: 10,
+          p_exclude_id: activeContentId || null,
         });
 
-        // Log top matches for debugging
-        const topMatches = scoredItems
-          .filter((c: any) => c.relevanceScore > 0)
-          .sort((a: any, b: any) => b.relevanceScore - a.relevanceScore)
-          .slice(0, 10);
-        
-        console.log(`\n📊 Top 10 matches antes do filtro:`);
-        topMatches.forEach((c: any) => {
-          console.log(`  ${c.relevanceScore}% - "${c.title}" | ${c.matches.join(', ')}`);
+      if (ftsError) {
+        console.error('FTS search error:', ftsError);
+      }
+
+      if (ftsResults && ftsResults.length > 0) {
+        relatedContents = ftsResults.map((r: any) => ({
+          id: r.item_id,
+          itemType: r.item_type,
+          title: r.title,
+          description: r.description,
+          content_type: r.content_type,
+          thumbnail_url: r.thumbnail_url,
+          visibility: r.visibility,
+          tags: r.tags,
+          total_lessons: r.total_lessons,
+          total_duration_seconds: r.total_duration_seconds,
+          relevanceScore: Math.round(r.rank * 100),
+        }));
+        console.log(`✅ FTS encontrou ${relatedContents.length} resultados`);
+        relatedContents.forEach((c: any) => {
+          console.log(`  ${c.relevanceScore}% - "${c.title}" [${c.item_type}]`);
         });
+      } else {
+        console.log('⚠️ FTS sem resultados, tentando busca semântica com IA...');
+        
+        // Fallback: fetch top contents for AI semantic analysis
+        const { data: fallbackContents } = await supabaseServiceClient
+          .from("contents")
+          .select("id, title, description, content_type, thumbnail_url, visibility, tags")
+          .eq("status", "approved")
+          .in("content_type", ["aula", "short", "podcast"])
+          .limit(20);
 
-        // Filter only items with >= 50% relevance
-        const MIN_RELEVANCE = 50;
-        const directMatches = scoredItems
-          .filter((c: any) => c.relevanceScore >= MIN_RELEVANCE)
-          .sort((a: any, b: any) => b.relevanceScore - a.relevanceScore);
+        const { data: fallbackCourses } = await supabaseServiceClient
+          .from("courses")
+          .select("id, title, description, thumbnail_url, visibility, tags, total_lessons, total_duration_seconds")
+          .eq("status", "approved")
+          .limit(10);
 
-        console.log(`\n✅ PHASE 1: ${directMatches.length} matches com relevância >= ${MIN_RELEVANCE}%`);
+        const fallbackItems = [
+          ...(fallbackContents || []).map((c: any) => ({ ...c, itemType: 'content' })),
+          ...(fallbackCourses || []).map((c: any) => ({ ...c, itemType: 'course', content_type: 'curso' })),
+        ].filter((item: any) => !activeContentId || item.id !== activeContentId);
 
-        // If we have enough direct matches, use them
-        if (directMatches.length >= 2) {
-          relatedContents = directMatches.slice(0, 10);
-          console.log(`✓ Usando ${relatedContents.length} matches diretos`);
-        } else {
-          // ===== PHASE 2: AI SEMANTIC ANALYSIS (Only if needed) =====
-          console.log(`\n🤖 PHASE 2: Poucos matches (${directMatches.length}). Ativando análise semântica com IA...`);
-
+        if (fallbackItems.length > 0) {
           const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
-          
-          // Get top 15 candidates (even with low scores) for AI analysis
-          const topCandidates = scoredItems
-            .sort((a: any, b: any) => b.relevanceScore - a.relevanceScore)
-            .slice(0, 15);
-
-          console.log(`Analisando ${topCandidates.length} candidatos com IA...`);
-
           const semanticPrompt = `Você é um analisador de relevância para conteúdos educacionais.
 
 TEMA BUSCADO: "${searchQuery}"
 
-CONTEÚDOS A ANALISAR:
-${topCandidates.map((c: any, i: number) => `
-${i + 1}. "${c.title}" [${c.itemType === 'course' ? 'CURSO' : c.content_type?.toUpperCase() || 'CONTEÚDO'}]
-   Descrição: ${(c.description || 'Sem descrição').substring(0, 150)}
-   Tags: ${(c.tags || []).join(', ') || 'Sem tags'}
-`).join('')}
+CONTEÚDOS:
+${fallbackItems.slice(0, 15).map((c: any, i: number) => `${i + 1}. "${c.title}" [${c.itemType === 'course' ? 'CURSO' : c.content_type?.toUpperCase()}] - ${(c.description || '').substring(0, 100)}`).join('\n')}
 
-TAREFA: Para cada conteúdo, avalie sua RELEVÂNCIA REAL para o tema buscado.
-
-CRITÉRIOS:
-- 100% = Totalmente sobre o tema (ex: busca "marketing digital" → "Curso de Marketing Digital")
-- 75% = Muito relacionado (ex: busca "marketing digital" → "SEO para E-commerce")  
-- 50% = Relacionado mas não central (ex: busca "marketing digital" → "Criação de Conteúdo")
-- 0% = Não relacionado (ex: busca "marketing digital" → "Meditação", "Mindfulness")
-
-RESPONDA APENAS no formato JSON:
-{"results": [{"index": 1, "relevance": 85}, {"index": 3, "relevance": 70}]}
-
-Inclua APENAS os itens com relevância >= 50%.`;
+Avalie relevância (0-100%). RESPONDA APENAS JSON: {"results": [{"index": 1, "relevance": 85}]}
+Inclua APENAS >= 50%.`;
 
           try {
             const aiResponse = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
@@ -506,77 +391,40 @@ Inclua APENAS os itens com relevância >= 50%.`;
                 "Content-Type": "application/json",
               },
               body: JSON.stringify({
-                model: "google/gemini-2.5-flash",
+                model: "google/gemini-2.5-flash-lite",
                 messages: [{ role: "user", content: semanticPrompt }],
                 temperature: 0.1,
               }),
             });
 
-            if (!aiResponse.ok) {
-              console.error('❌ IA falhou:', await aiResponse.text());
-              relatedContents = directMatches.slice(0, 10);
-            } else {
+            if (aiResponse.ok) {
               const aiData = await aiResponse.json();
               const aiResult = aiData.choices[0]?.message?.content?.trim() || "";
-              console.log(`IA respondeu: ${aiResult}`);
-
-              try {
-                // Parse JSON response
-                const jsonMatch = aiResult.match(/\{[\s\S]*\}/);
-                if (jsonMatch) {
-                  const parsed = JSON.parse(jsonMatch[0]);
-                  const results = parsed.results || [];
-                  
-                  const semanticMatches = results
-                    .filter((r: any) => r.relevance >= 50)
-                    .map((r: any) => {
-                      const idx = r.index - 1;
-                      if (idx >= 0 && idx < topCandidates.length) {
-                        return {
-                          ...topCandidates[idx],
-                          relevanceScore: r.relevance,
-                          semanticMatch: true,
-                        };
-                      }
-                      return null;
-                    })
-                    .filter((x: any) => x !== null);
-
-                  console.log(`✅ IA encontrou ${semanticMatches.length} matches semânticos`);
-
-                  // Combine direct + semantic, remove duplicates, sort by score
-                  const combined = [...directMatches, ...semanticMatches];
-                  const unique = Array.from(new Map(combined.map((c: any) => [c.id, c])).values());
-                  
-                  relatedContents = unique
-                    .sort((a: any, b: any) => b.relevanceScore - a.relevanceScore)
-                    .slice(0, 10);
-                } else {
-                  console.log('Resposta IA não é JSON válido, usando matches diretos');
-                  relatedContents = directMatches.slice(0, 10);
-                }
-              } catch (parseError) {
-                console.error('Erro ao parsear resposta IA:', parseError);
-                relatedContents = directMatches.slice(0, 10);
+              const jsonMatch = aiResult.match(/\{[\s\S]*\}/);
+              if (jsonMatch) {
+                const parsed = JSON.parse(jsonMatch[0]);
+                relatedContents = (parsed.results || [])
+                  .filter((r: any) => r.relevance >= 50)
+                  .map((r: any) => {
+                    const idx = r.index - 1;
+                    if (idx >= 0 && idx < fallbackItems.length) {
+                      return { ...fallbackItems[idx], relevanceScore: r.relevance };
+                    }
+                    return null;
+                  })
+                  .filter(Boolean)
+                  .slice(0, 10);
+                console.log(`✅ IA fallback: ${relatedContents.length} matches`);
               }
             }
-          } catch (aiError) {
-            console.error('❌ Erro na IA:', aiError);
-            relatedContents = directMatches.slice(0, 10);
+          } catch (aiErr) {
+            console.error('AI fallback error:', aiErr);
           }
         }
-
-        console.log(`\n🎯 RESULTADO FINAL: ${relatedContents.length} conteúdos com relevância >= 50%`);
-        if (relatedContents.length > 0) {
-          console.log('Selecionados:', relatedContents.map((c: any) => ({
-            title: c.title,
-            relevance: `${c.relevanceScore}%`,
-            semantic: c.semanticMatch || false
-          })));
-        }
-        console.log('========================================\n');
       }
-    }
+
+      console.log(`🎯 RESULTADO FINAL: ${relatedContents.length} conteúdos encontrados`);
+      console.log('========================================\n');
 
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     if (!LOVABLE_API_KEY) {

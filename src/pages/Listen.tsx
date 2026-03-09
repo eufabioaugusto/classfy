@@ -5,8 +5,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
-import { Eye, AlertCircle } from "lucide-react";
-import { useRewardSystem } from "@/hooks/useRewardSystem";
+import { Eye } from "lucide-react";
 import { ContentActions } from "@/components/ContentActions";
 import { ContentComments } from "@/components/ContentComments";
 import { FollowButton } from "@/components/FollowButton";
@@ -14,6 +13,7 @@ import { FeaturedBadge } from "@/components/FeaturedBadge";
 import { GlobalLoader } from "@/components/GlobalLoader";
 import { UpgradeModal } from "@/components/UpgradeModal";
 import { PurchaseModal } from "@/components/PurchaseModal";
+import { useContentMetrics } from "@/hooks/useContentMetrics";
 
 interface Content {
   id: string;
@@ -43,15 +43,16 @@ export default function Listen() {
   const [showUpgradeModal, setShowUpgradeModal] = useState(false);
   const [showPurchaseModal, setShowPurchaseModal] = useState(false);
   const [requiredUpgradePlan, setRequiredUpgradePlan] = useState<"pro" | "premium">("pro");
-  const [isPurchased, setIsPurchased] = useState(false);
   const audioRef = useRef<HTMLAudioElement>(null);
-  const [metricsRecorded, setMetricsRecorded] = useState({
-    start: false,
-    half: false,
-    complete: false
+
+  const {
+    handleTimeUpdate: handleMetricsTimeUpdate,
+    registerView,
+    resetMetrics,
+  } = useContentMetrics({
+    contentId: id || "",
+    duration: content?.duration_seconds || 0,
   });
-  const [view15sRecorded, setView15sRecorded] = useState(false);
-  const { processReward, trackProgress } = useRewardSystem();
 
   useEffect(() => {
     if (id && user) {
@@ -64,17 +65,8 @@ export default function Listen() {
       const { data, error } = await supabase
         .from('contents')
         .select(`
-          id,
-          content_type,
-          title,
-          description,
-          file_url,
-          thumbnail_url,
-          visibility,
-          price,
-          duration_seconds,
-          views_count,
-          likes_count,
+          id, content_type, title, description, file_url, thumbnail_url,
+          visibility, price, duration_seconds, views_count, likes_count,
           creator:profiles!creator_id(id, display_name, avatar_url)
         `)
         .eq('id', id)
@@ -86,13 +78,8 @@ export default function Listen() {
 
       setContent(data);
       checkAccess(data);
-
-      if (user) {
-        await supabase.rpc('increment_content_view', {
-          p_user_id: user.id,
-          p_content_id: id,
-        });
-      }
+      resetMetrics();
+      await registerView();
     } catch (error: any) {
       toast.error("Podcast não encontrado");
     } finally {
@@ -102,10 +89,8 @@ export default function Listen() {
 
   const checkAccess = async (content: Content) => {
     if (!profile || !user) return;
-    
     const userPlan = profile.plan || 'free';
-    
-    // Check if content is paid and user has purchased it
+
     if (content.visibility === 'paid') {
       const { data: purchase } = await supabase
         .from('purchased_contents')
@@ -113,27 +98,22 @@ export default function Listen() {
         .eq('user_id', user.id)
         .eq('content_id', content.id)
         .maybeSingle();
-      
+
       if (purchase) {
-        setIsPurchased(true);
         setHasAccess(true);
-        return;
       } else {
-        setIsPurchased(false);
         setHasAccess(false);
         setShowPurchaseModal(true);
-        return;
       }
+      return;
     }
-    
-    // Check plan-based access
+
     if (content.visibility === 'free') {
       setHasAccess(true);
     } else if (content.visibility === 'pro') {
       if (['pro', 'premium'].includes(userPlan)) {
         setHasAccess(true);
       } else {
-        setHasAccess(false);
         setRequiredUpgradePlan('pro');
         setShowUpgradeModal(true);
       }
@@ -141,102 +121,19 @@ export default function Listen() {
       if (userPlan === 'premium') {
         setHasAccess(true);
       } else {
-        setHasAccess(false);
         setRequiredUpgradePlan('premium');
         setShowUpgradeModal(true);
       }
-    } else {
-      setHasAccess(false);
     }
   };
 
-  const recordMetric = async (event: 'start' | 'half' | 'complete') => {
-    if (metricsRecorded[event] || !user || !id) return;
-    try {
-      await supabase.from('content_metrics').insert({ content_id: id, user_id: user.id, event });
-      setMetricsRecorded(prev => ({ ...prev, [event]: true }));
-    } catch (error) {
-      console.error('Error recording metric:', error);
-    }
+  const handleAudioTimeUpdate = () => {
+    if (!audioRef.current || !content) return;
+    handleMetricsTimeUpdate(audioRef.current.currentTime);
   };
 
-  const checkBingeWatch = async () => {
-    if (!user) return;
-    
-    const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
-    const { data: recentCompletions } = await supabase
-      .from('content_metrics')
-      .select('content_id')
-      .eq('user_id', user.id)
-      .eq('event', 'complete')
-      .gte('created_at', oneHourAgo)
-      .order('created_at', { ascending: false })
-      .limit(3);
-
-    if (recentCompletions && recentCompletions.length >= 3) {
-      await processReward({
-        actionKey: 'BINGE_WATCH',
-        userId: user.id,
-        metadata: { contentCount: recentCompletions.length },
-      });
-    }
-  };
-
-  const checkFirstContentWeek = async () => {
-    if (!user) return;
-    
-    const startOfWeek = new Date();
-    startOfWeek.setDate(startOfWeek.getDate() - startOfWeek.getDay());
-    startOfWeek.setHours(0, 0, 0, 0);
-    
-    const { data: weeklyViews } = await supabase
-      .from('content_metrics')
-      .select('id')
-      .eq('user_id', user.id)
-      .eq('event', 'start')
-      .gte('created_at', startOfWeek.toISOString())
-      .limit(1);
-
-    if (!weeklyViews || weeklyViews.length === 0) {
-      await processReward({
-        actionKey: 'FIRST_CONTENT_WEEK',
-        userId: user.id,
-        contentId: content.id,
-      });
-    }
-  };
-
-  const handleTimeUpdate = async () => {
-    if (!audioRef.current || !content || !user) return;
-    const currentTime = audioRef.current.currentTime;
-    const duration = content.duration_seconds;
-    const percent = (currentTime / duration) * 100;
-
-    if (!view15sRecorded && currentTime >= 15) {
-      await processReward({ actionKey: 'VIEW_15S', userId: user.id, contentId: content.id, metadata: { watch_time: currentTime } });
-      setView15sRecorded(true);
-    }
-
-    if (!metricsRecorded.start && currentTime > 0) {
-      await recordMetric('start');
-      await checkFirstContentWeek();
-    }
-    if (!metricsRecorded.half && currentTime > duration / 2) await recordMetric('half');
-    if (!metricsRecorded.complete && currentTime > duration * 0.95) {
-      await recordMetric('complete');
-      await checkBingeWatch();
-    }
-
-    await trackProgress(user.id, content.id, percent, currentTime);
-  };
-
-  // First check auth loading
   if (loading) return <GlobalLoader />;
-  
-  // If auth finished and no user, redirect
   if (!user) return <Navigate to="/auth" replace />;
-  
-  // Only show content loader after user is authenticated
   if (loadingContent) return <GlobalLoader />;
   if (!content) return <div className="p-8">Podcast não encontrado</div>;
 
@@ -247,7 +144,6 @@ export default function Listen() {
         onOpenChange={setShowUpgradeModal}
         requiredPlan={requiredUpgradePlan}
       />
-      
       <PurchaseModal
         open={showPurchaseModal}
         onOpenChange={setShowPurchaseModal}
@@ -271,7 +167,7 @@ export default function Listen() {
             <img src={content.thumbnail_url} alt={content.title} className="w-full h-full object-cover" />
           </div>
           <div className="p-6">
-            <audio ref={audioRef} className="w-full" controls onTimeUpdate={handleTimeUpdate} src={content.file_url} />
+            <audio ref={audioRef} className="w-full" controls onTimeUpdate={handleAudioTimeUpdate} src={content.file_url} />
           </div>
         </Card>
 

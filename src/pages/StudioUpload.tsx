@@ -565,6 +565,12 @@ export default function StudioUpload() {
       return;
     }
 
+    // Enforce Shorts duration limit (3 minutes = 180 seconds)
+    if (contentType === "short" && duration > 180) {
+      toast.error("Shorts devem ter no máximo 3 minutos. Corte o vídeo no lobby de preparação.");
+      return;
+    }
+
     setSubmitting(true);
     try {
       // "curso" should use the dedicated StudioUploadCurso page, but if somehow submitted here, use "aula"

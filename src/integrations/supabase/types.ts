@@ -3090,6 +3090,23 @@ export type Database = {
         Args: { p_approved: boolean; p_conversation_id: string }
         Returns: undefined
       }
+      search_platform_content: {
+        Args: { p_exclude_id?: string; p_limit?: number; p_query: string }
+        Returns: {
+          content_type: string
+          description: string
+          item_id: string
+          item_type: string
+          rank: number
+          tags: string[]
+          thumbnail_url: string
+          title: string
+          total_duration_seconds: number
+          total_lessons: number
+          transcription_snippet: string
+          visibility: string
+        }[]
+      }
     }
     Enums: {
       action_type:
