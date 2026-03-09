@@ -91,65 +91,63 @@ export const CreatorStatsCard = ({ userId, collapsed }: CreatorStatsCardProps) =
     );
   }
 
+  const nextLevel = stats.level + 1;
+  const remaining = Math.round(1000 - pointsInCurrentLevel);
+
   return (
     <Card className="border-border/50 bg-card overflow-hidden">
-      {/* Level Section */}
-      <div className="p-4 border-b border-border/50">
-        <div className="flex items-center justify-between mb-3">
-          <div className="flex items-center gap-2">
+      {/* Level + Progress */}
+      <div className="p-4 pb-3">
+        <div className="flex items-center gap-2 mb-1">
+          <div className="flex items-center justify-center h-8 w-8 rounded-lg bg-primary/10">
             <Zap className="h-4 w-4 text-primary" />
-            <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Nível</span>
           </div>
-          <span className="text-2xl font-bold text-foreground">{stats.level}</span>
-        </div>
-        
-        {/* Progress Bar */}
-        <div className="space-y-1.5">
-          <div className="h-1.5 bg-muted rounded-full overflow-hidden">
-            <div 
-              className="h-full bg-primary rounded-full transition-all duration-300"
-              style={{ width: `${progressToNextLevel}%` }}
-            />
-          </div>
-          <div className="flex justify-between items-center text-[10px] text-muted-foreground tabular-nums">
-            <span>{stats.totalPoints.toLocaleString('pt-BR', { maximumFractionDigits: 0 })} XP</span>
-            <span className="whitespace-nowrap">faltam {Math.round(1000 - pointsInCurrentLevel).toLocaleString('pt-BR')}</span>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-baseline justify-between">
+              <span className="text-sm font-semibold text-foreground">Nível {stats.level}</span>
+              <span className="text-[10px] text-muted-foreground tabular-nums">
+                {stats.totalPoints.toLocaleString('pt-BR', { maximumFractionDigits: 0 })} XP
+              </span>
+            </div>
+            <div className="mt-1.5 h-1.5 bg-muted rounded-full overflow-hidden">
+              <div 
+                className="h-full bg-primary rounded-full transition-all duration-500"
+                style={{ width: `${progressToNextLevel}%` }}
+              />
+            </div>
+            <p className="text-[10px] text-muted-foreground mt-1 tabular-nums">
+              {remaining.toLocaleString('pt-BR')} XP para nível {nextLevel}
+            </p>
           </div>
         </div>
       </div>
 
-      {/* Stats List */}
-      <div className="divide-y divide-border/50">
+      {/* Stats Grid */}
+      <div className="grid grid-cols-2 border-t border-border/50">
         {/* Earnings */}
-        <div className="px-4 py-3 flex items-center justify-between gap-4">
-          <div className="flex items-center gap-1.5 flex-shrink-0">
+        <div className="p-3 border-r border-border/50">
+          <div className="flex items-center gap-1.5 mb-1">
             <Wallet className="h-3 w-3 text-muted-foreground" />
             <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">Ganhos</span>
           </div>
-          <div className="text-right flex-shrink-0">
-            <div className="text-sm font-semibold text-foreground whitespace-nowrap">
-              R$ {(wallet?.total_earned || 0).toFixed(2)}
-            </div>
-            <div className="text-[10px] text-muted-foreground whitespace-nowrap">
-              Saldo: R$ {(wallet?.balance || 0).toFixed(2)}
-            </div>
-          </div>
+          <p className="text-sm font-semibold text-foreground tabular-nums">
+            R$ {(wallet?.total_earned || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+          </p>
+          <p className="text-[10px] text-muted-foreground tabular-nums">
+            Saldo: R$ {(wallet?.balance || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+          </p>
         </div>
 
         {/* Contents */}
-        <div className="px-4 py-3 flex items-center justify-between gap-4">
-          <div className="flex items-center gap-1.5 flex-shrink-0">
+        <div className="p-3">
+          <div className="flex items-center gap-1.5 mb-1">
             <Play className="h-3 w-3 text-muted-foreground" />
             <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">Conteúdos</span>
           </div>
-          <div className="text-right flex-shrink-0">
-            <div className="text-sm font-semibold text-foreground">
-              {stats.contentCount}
-            </div>
-            <div className="text-[10px] text-muted-foreground">
-              publicados
-            </div>
-          </div>
+          <p className="text-sm font-semibold text-foreground tabular-nums">
+            {stats.contentCount}
+          </p>
+          <p className="text-[10px] text-muted-foreground">publicados</p>
         </div>
       </div>
     </Card>
