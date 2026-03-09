@@ -131,9 +131,9 @@ export const ContentCard = ({
     }
   }, [isShort, isMobile, videoUrl]);
 
-  // Handle hover autoplay for desktop (ALL video content types)
+  // Handle hover autoplay for desktop (only if user has access)
   useEffect(() => {
-    if (!hasVideo || isMobile) return;
+    if (!hasPreviewableVideo || isMobile) return;
     if (isHovered && videoRef.current) {
       videoRef.current.currentTime = 0;
       const playPromise = videoRef.current.play();
@@ -142,7 +142,7 @@ export const ContentCard = ({
       videoRef.current.pause();
       videoRef.current.currentTime = 0;
     }
-  }, [isHovered, hasVideo, isMobile]);
+  }, [isHovered, hasPreviewableVideo, isMobile]);
 
   // Handle mobile autoplay (shorts only)
   useEffect(() => {
