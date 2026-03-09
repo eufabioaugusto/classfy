@@ -65,9 +65,9 @@ export default function Carteira() {
       const [walletRes, configRes, withdrawalsRes, rewardsRes] = await Promise.all([
         supabase.from("wallets").select("*").eq("user_id", user?.id).single(),
         supabase
-          .from("system_config")
-          .select("*")
-          .eq("config_key", "minimum_withdrawal_amount")
+          .from("platform_settings")
+          .select("value")
+          .eq("key", "economic")
           .maybeSingle(),
         supabase
           .from("withdraw_requests")
