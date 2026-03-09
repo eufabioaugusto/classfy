@@ -754,10 +754,6 @@ function WatchContent() {
     const fetchNextContent = async () => {
       if (!content || isCourse) return;
       
-      // Only fetch for video content types
-      const validTypes = ["aula", "podcast", "short", "live"];
-      if (!validTypes.includes(content.content_type)) return;
-      
       const { data } = await supabase
         .from("contents")
         .select(`
@@ -765,7 +761,6 @@ function WatchContent() {
           profiles:creator_id (display_name)
         `)
         .eq("status", "approved")
-        .in("content_type", validTypes)
         .neq("id", content.id)
         .limit(1);
       
