@@ -100,9 +100,9 @@ export function StudyToolbar({ activePanel, onPanelChange, compact = false, disa
     );
   }
 
-  // Desktop: Grid of feature cards
+  // Desktop: Compact horizontal bar
   return (
-    <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 p-1">
+    <div className="flex items-center gap-2 p-1">
       {tools.map((tool) => {
         const isActive = activePanel === tool.id;
         const Icon = tool.icon;
@@ -113,52 +113,29 @@ export function StudyToolbar({ activePanel, onPanelChange, compact = false, disa
             onClick={() => handleToggle(tool.id)}
             disabled={disabled}
             className={cn(
-              "group relative p-4 rounded-2xl transition-all duration-300",
-              "border backdrop-blur-sm overflow-hidden",
-              "hover:shadow-lg hover:scale-[1.02] active:scale-[0.98]",
+              "group relative flex items-center gap-2 px-4 py-2 rounded-xl transition-all duration-200",
+              "border backdrop-blur-sm",
+              "hover:scale-[1.02] active:scale-[0.98]",
               isActive 
-                ? `bg-gradient-to-br ${tool.activeGradient} border-border shadow-xl`
+                ? `bg-gradient-to-br ${tool.activeGradient} border-border shadow-md`
                 : "bg-card/50 border-border/50 hover:bg-card hover:border-border"
             )}
           >
-            {/* Glow effect on hover */}
-            <div className={cn(
-              "absolute inset-0 bg-gradient-to-br opacity-0 group-hover:opacity-100 transition-opacity duration-300",
-              tool.gradient
+            <Icon className={cn(
+              "w-4 h-4 transition-colors flex-shrink-0",
+              isActive ? tool.iconColor : "text-muted-foreground group-hover:text-foreground"
             )} />
             
-            <div className="relative flex flex-col items-start gap-2">
-              <div className={cn(
-                "p-2.5 rounded-xl transition-all duration-200",
-                isActive 
-                  ? "bg-background/50 shadow-sm" 
-                  : "bg-background/30 group-hover:bg-background/50"
-              )}>
-                <Icon className={cn(
-                  "w-5 h-5 transition-colors",
-                  isActive ? tool.iconColor : "text-muted-foreground group-hover:text-foreground"
-                )} />
-              </div>
-              
-              <div className="flex items-center gap-1.5 w-full">
-                <h3 className={cn(
-                  "text-sm font-semibold transition-colors",
-                  isActive ? "text-foreground" : "text-foreground/90"
-                )}>
-                  {tool.label}
-                </h3>
-                {isActive && (
-                  <Sparkles className="w-3.5 h-3.5 text-primary animate-pulse flex-shrink-0" />
-                )}
-              </div>
-              
-              <p className={cn(
-                "text-xs leading-relaxed transition-colors",
-                isActive ? "text-muted-foreground" : "text-muted-foreground/70"
-              )}>
-                {tool.description}
-              </p>
-            </div>
+            <span className={cn(
+              "text-sm font-medium whitespace-nowrap",
+              isActive ? "text-foreground" : "text-foreground/90"
+            )}>
+              {tool.label}
+            </span>
+            
+            {isActive && (
+              <Sparkles className="w-3 h-3 text-primary animate-pulse flex-shrink-0" />
+            )}
           </button>
         );
       })}
