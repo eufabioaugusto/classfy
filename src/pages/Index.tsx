@@ -40,6 +40,16 @@ export default function Index() {
   };
 
   // URL is the source of truth. Only set a default when the param is missing.
+  // Handle navigation state from other pages
+  useEffect(() => {
+    const state = location.state as { exploreMode?: boolean } | null;
+    if (state?.exploreMode !== undefined) {
+      setMode(state.exploreMode);
+      // Clear the state
+      navigate(location.pathname, { replace: true, state: {} });
+    }
+  }, [location.state]);
+
   useEffect(() => {
     if (modeFromUrl === "explore") {
       setIsExploreMode(true);
