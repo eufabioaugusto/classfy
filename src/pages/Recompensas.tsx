@@ -106,12 +106,23 @@ export default function Recompensas() {
         supabase.from("reward_events").select("action_key").eq("user_id", user!.id)
       ]);
 
-      // Calculate level and points
+      // Calculate level and points with progressive curve
+      // Level N requires: 500 * N total cumulative points from previous levels
+      // Level 1: 0, Level 2: 500, Level 3: 1500, Level 4: 3000, Level 5: 5000...
+      // Formula: cumulative points for level N = 500 * N*(N-1)/2
       const totalPoints = rewardEventsRes.data?.reduce((sum, e) => sum + e.points, 0) || 0;
-      const level = Math.floor(totalPoints / 1000) + 1;
-      const pointsInCurrentLevel = totalPoints % 1000;
-      const pointsToNextLevel = 1000 - pointsInCurrentLevel;
-      const progressPercent = (pointsInCurrentLevel / 1000) * 100;
+      
+      const getPointsForLevel = (n: number) => 500 * n * (n - 1) / 2;
+      let level = 1;
+      while (getPointsForLevel(level + 1) <= totalPoints) {
+        level++;
+      }
+      const pointsAtCurrentLevel = getPointsForLevel(level);
+      const pointsAtNextLevel = getPointsForLevel(level + 1);
+      const pointsNeededForNext = pointsAtNextLevel - pointsAtCurrentLevel;
+      const pointsInCurrentLevel = totalPoints - pointsAtCurrentLevel;
+      const pointsToNextLevel = pointsNeededForNext - pointsInCurrentLevel;
+      const progressPercent = (pointsInCurrentLevel / pointsNeededForNext) * 100;
 
       // Calculate engagement stats
       const actions = engagementRes.data || [];
