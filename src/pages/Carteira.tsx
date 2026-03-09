@@ -65,9 +65,9 @@ export default function Carteira() {
       const [walletRes, configRes, withdrawalsRes, rewardsRes] = await Promise.all([
         supabase.from("wallets").select("*").eq("user_id", user?.id).single(),
         supabase
-          .from("system_config")
-          .select("*")
-          .eq("config_key", "minimum_withdrawal_amount")
+          .from("platform_settings")
+          .select("value")
+          .eq("key", "economic")
           .maybeSingle(),
         supabase
           .from("withdraw_requests")
@@ -86,9 +86,11 @@ export default function Carteira() {
 
       setWallet(walletRes.data);
 
-      if (configRes.data) {
-        const configValue = configRes.data.config_value as { amount: number };
-        setMinWithdrawalAmount(configValue.amount);
+      if (configRes.data?.value) {
+        const economicSettings = configRes.data.value as Record<string, any>;
+        if (economicSettings.minimum_withdrawal_amount) {
+          setMinWithdrawalAmount(economicSettings.minimum_withdrawal_amount);
+        }
       }
 
       if (withdrawalsRes.data) {
