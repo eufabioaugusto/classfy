@@ -89,8 +89,9 @@ export const ContentCard = ({
   const videoRef = useRef<HTMLVideoElement>(null);
   const isMobile = useIsMobile();
   const isShort = (content?.content_type || contentType) === "short";
+  const isPodcast = (content?.content_type || contentType) === "podcast";
   const videoUrl = content?.file_url || content?.video_url;
-  const hasVideo = !!videoUrl;
+  const hasVideo = !!videoUrl && !isPodcast;
 
   // Only allow hover preview for content the user can access (free or matching plan/purchased)
   const canPreview = useMemo(() => {
