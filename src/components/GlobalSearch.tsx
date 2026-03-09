@@ -128,22 +128,41 @@ export function GlobalSearch({ isExploreMode, onModeChange }: GlobalSearchProps)
   };
 
   const ResultItem = ({ result }: { result: SearchResult }) => (
-    <button onClick={() => handleResultClick(result)} className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-muted/50 transition-colors text-left">
-      <div className="relative flex-shrink-0 w-16 h-10 rounded-md overflow-hidden bg-muted">
+    <button 
+      onClick={() => handleResultClick(result)} 
+      className="w-full flex items-center gap-3 px-4 py-3 hover:bg-muted/70 active:bg-muted transition-all text-left group"
+    >
+      <div className="relative flex-shrink-0 w-20 h-12 rounded-xl overflow-hidden bg-muted shadow-sm group-hover:shadow-md transition-shadow">
         {result.thumbnail_url ? (
-          <img src={result.thumbnail_url} alt={result.title} className="w-full h-full object-cover" />
+          <img src={result.thumbnail_url} alt={result.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
         ) : (
-          <div className="w-full h-full flex items-center justify-center bg-secondary">
-            {result.type === "course" ? <GraduationCap className="w-5 h-5 text-muted-foreground" /> : getContentIcon(result.content_type)}
+          <div className="w-full h-full flex items-center justify-center bg-secondary/50">
+            {result.type === "course" 
+              ? <GraduationCap className="w-6 h-6 text-muted-foreground/60" /> 
+              : getContentIcon(result.content_type)
+            }
+          </div>
+        )}
+        {/* Content Type Badge */}
+        {result.content_type && (
+          <div className="absolute bottom-1 right-1 p-0.5 bg-black/60 backdrop-blur-sm rounded text-white">
+            {getContentIcon(result.content_type)}
           </div>
         )}
       </div>
+      
       <div className="flex-1 min-w-0">
-        <h4 className="text-sm font-medium text-foreground truncate">{result.title}</h4>
-        <div className="flex items-center gap-2 text-xs text-muted-foreground">
-          {result.creator && <span className="truncate">{result.creator.display_name}</span>}
-          <span>•</span>
-          <span>{formatViews(result.views_count)} views</span>
+        <h4 className="text-sm font-semibold text-foreground truncate group-hover:text-primary transition-colors">
+          {result.title}
+        </h4>
+        <div className="flex items-center gap-2 text-xs text-muted-foreground mt-0.5">
+          {result.creator && (
+            <>
+              <span className="truncate font-medium">{result.creator.display_name}</span>
+              <span className="text-border">•</span>
+            </>
+          )}
+          <span className="font-medium">{formatViews(result.views_count)} views</span>
         </div>
       </div>
     </button>
