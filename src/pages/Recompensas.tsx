@@ -580,6 +580,9 @@ export default function Recompensas() {
               </>
             )}
 
+            {/* Leaderboard */}
+            <LeaderboardSection userId={user!.id} />
+
             {/* Link to Detailed History */}
             <Card className="mt-6">
               <CardContent className="p-4 sm:p-6">
