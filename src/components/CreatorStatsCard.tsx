@@ -122,32 +122,34 @@ export const CreatorStatsCard = ({ userId, collapsed }: CreatorStatsCardProps) =
         </div>
       </div>
 
-      {/* Stats Grid */}
-      <div className="grid grid-cols-2 border-t border-border/50">
+      {/* Stats List */}
+      <div className="divide-y divide-border/50 border-t border-border/50">
         {/* Earnings */}
-        <div className="p-3 border-r border-border/50">
-          <div className="flex items-center gap-1.5 mb-1">
-            <Wallet className="h-3 w-3 text-muted-foreground" />
-            <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">Ganhos</span>
+        <div className="px-4 py-3 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Wallet className="h-3.5 w-3.5 text-muted-foreground" />
+            <span className="text-xs font-medium text-muted-foreground">Ganhos</span>
           </div>
-          <p className="text-sm font-semibold text-foreground tabular-nums">
-            R$ {(wallet?.total_earned || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-          </p>
-          <p className="text-[10px] text-muted-foreground tabular-nums">
-            Saldo: R$ {(wallet?.balance || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-          </p>
+          <div className="text-right tabular-nums">
+            <span className="text-sm font-semibold text-foreground">
+              R$ {(wallet?.total_earned || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+            </span>
+            <p className="text-[10px] text-muted-foreground">
+              Saldo: R$ {(wallet?.balance || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+            </p>
+          </div>
         </div>
 
         {/* Contents */}
-        <div className="p-3">
-          <div className="flex items-center gap-1.5 mb-1">
-            <Play className="h-3 w-3 text-muted-foreground" />
-            <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">Conteúdos</span>
+        <div className="px-4 py-3 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Play className="h-3.5 w-3.5 text-muted-foreground" />
+            <span className="text-xs font-medium text-muted-foreground">Conteúdos</span>
           </div>
-          <p className="text-sm font-semibold text-foreground tabular-nums">
-            {stats.contentCount}
-          </p>
-          <p className="text-[10px] text-muted-foreground">publicados</p>
+          <div className="text-right">
+            <span className="text-sm font-semibold text-foreground tabular-nums">{stats.contentCount}</span>
+            <p className="text-[10px] text-muted-foreground">publicados</p>
+          </div>
         </div>
       </div>
     </Card>
