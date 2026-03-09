@@ -217,7 +217,7 @@ export function SocialBar({
           <AlertDialogHeader>
             <AlertDialogTitle>Tem certeza disso?</AlertDialogTitle>
             <AlertDialogDescription>
-              Ao remover o like, você reduzirá <span className="font-bold text-destructive">R$ {unlikeConfirmation.rewardValue.toFixed(2)}</span> dos seus ganhos.
+              Ao remover o like, você perderá <span className="font-bold text-destructive">{unlikeConfirmation.rewardValue} pontos</span> de performance.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
