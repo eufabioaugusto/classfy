@@ -425,6 +425,7 @@ Inclua APENAS >= 50%.`;
 
       console.log(`🎯 RESULTADO FINAL: ${relatedContents.length} conteúdos encontrados`);
       console.log('========================================\n');
+    }
 
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     if (!LOVABLE_API_KEY) {
