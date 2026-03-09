@@ -1181,7 +1181,7 @@ function WatchContent() {
                       <AutoplayNextOverlay
                         nextContent={nextContent}
                         show={showAutoplayOverlay}
-                        onCancel={() => setShowAutoplayOverlay(false)}
+                        onCancel={() => { setShowAutoplayOverlay(false); setAutoplayCancelled(true); }}
                       />
                     </div>
                   ) : null}

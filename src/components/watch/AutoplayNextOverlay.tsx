@@ -12,6 +12,9 @@ interface AutoplayNextOverlayProps {
     profiles?: {
       display_name?: string;
     };
+    creator?: {
+      display_name?: string;
+    };
   } | null;
   show: boolean;
   onCancel: () => void;
