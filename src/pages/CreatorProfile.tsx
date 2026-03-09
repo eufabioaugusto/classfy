@@ -14,7 +14,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { FollowButton } from "@/components/FollowButton";
 import { ContentCard } from "@/components/ContentCard";
 import { FeaturedBadge } from "@/components/FeaturedBadge";
-import { Trophy, Users, Video, Headphones, Zap, GraduationCap, Share2, MessageCircle } from "lucide-react";
+import { Trophy, Users, Video, Headphones, Zap, GraduationCap, Share2, MessageCircle, Eye } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
 interface CreatorProfile {
