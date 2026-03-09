@@ -1,9 +1,9 @@
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Play, Clock, BookOpen, Lock, Crown, ShoppingCart, Zap } from "lucide-react";
+import { Play, Clock, BookOpen, Lock, Crown, ShoppingCart, Zap, Sparkles } from "lucide-react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { Button } from "@/components/ui/button";
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { CreatorLink } from "@/components/CreatorLink";
 import { FeaturedBadge } from "@/components/FeaturedBadge";
@@ -90,60 +90,56 @@ export const ContentCard = ({
   const isMobile = useIsMobile();
   const isShort = (content?.content_type || contentType) === "short";
   const videoUrl = content?.file_url || content?.video_url;
+  const hasVideo = !!videoUrl;
+  const publishedAt = content?.published_at || content?.created_at;
+
+  // Check if content is new (published within last 48 hours)
+  const isNew = useMemo(() => {
+    if (!publishedAt) return false;
+    const publishDate = new Date(publishedAt);
+    const now = new Date();
+    const diffHours = (now.getTime() - publishDate.getTime()) / (1000 * 60 * 60);
+    return diffHours <= 48;
+  }, [publishedAt]);
 
   // Only fetch boost status if not provided as prop
   useEffect(() => {
     if (propIsBoosted !== undefined || !id) return;
-
     const checkBoost = async () => {
       const { data, error } = await supabase.rpc("is_content_boosted", { p_content_id: id });
-      if (!error && data) {
-        setIsBoosted(data);
-      }
+      if (!error && data) setIsBoosted(data);
     };
-
     checkBoost();
   }, [id, propIsBoosted]);
 
   // Random autoplay for mobile shorts
   useEffect(() => {
     if (isShort && isMobile && videoUrl) {
-      const randomDelay = Math.random() * 3000; // Random delay up to 3 seconds
-      const timer = setTimeout(() => {
-        setShouldAutoplay(true);
-      }, randomDelay);
+      const randomDelay = Math.random() * 3000;
+      const timer = setTimeout(() => setShouldAutoplay(true), randomDelay);
       return () => clearTimeout(timer);
     }
   }, [isShort, isMobile, videoUrl]);
 
-  // Handle hover autoplay for desktop
+  // Handle hover autoplay for desktop (ALL video content types)
   useEffect(() => {
-    if (!isShort || !videoUrl || isMobile) return;
-
+    if (!hasVideo || isMobile) return;
     if (isHovered && videoRef.current) {
+      videoRef.current.currentTime = 0;
       const playPromise = videoRef.current.play();
-      if (playPromise !== undefined) {
-        playPromise.catch(() => {
-          // Ignore autoplay errors
-        });
-      }
+      if (playPromise !== undefined) playPromise.catch(() => {});
     } else if (videoRef.current) {
       videoRef.current.pause();
       videoRef.current.currentTime = 0;
     }
-  }, [isHovered, isShort, videoUrl, isMobile]);
+  }, [isHovered, hasVideo, isMobile]);
 
-  // Handle mobile autoplay
+  // Handle mobile autoplay (shorts only)
   useEffect(() => {
     if (!isShort || !videoUrl || !isMobile || !shouldAutoplay) return;
-
     if (videoRef.current) {
       const playPromise = videoRef.current.play();
-      if (playPromise !== undefined) {
-        playPromise.catch(() => {
-          // Ignore autoplay errors
-        });
-      }
+      if (playPromise !== undefined) playPromise.catch(() => {});
     }
   }, [shouldAutoplay, isShort, videoUrl, isMobile]);
 
@@ -215,8 +211,8 @@ export const ContentCard = ({
     <div
       className="group cursor-pointer flex flex-col"
       onClick={handleClick}
-      onMouseEnter={() => isShort && !isMobile && setIsHovered(true)}
-      onMouseLeave={() => isShort && !isMobile && setIsHovered(false)}
+      onMouseEnter={() => !isMobile && setIsHovered(true)}
+      onMouseLeave={() => !isMobile && setIsHovered(false)}
     >
       {/* Thumbnail with dynamic aspect ratio - 12px radius like YouTube */}
       <div
@@ -228,12 +224,12 @@ export const ContentCard = ({
           src={thumbnail}
           alt={title}
           className={`w-full h-full object-cover group-hover:scale-105 transition-transform duration-300 ${
-            isShort && (isHovered || shouldAutoplay) ? "opacity-0" : "opacity-100"
+            hasVideo && (isHovered || shouldAutoplay) ? "opacity-0" : "opacity-100"
           } transition-opacity duration-300`}
         />
 
-        {/* Video autoplay for shorts */}
-        {isShort && videoUrl && (
+        {/* Video hover preview for all types */}
+        {hasVideo && (
           <video
             ref={videoRef}
             src={videoUrl}
@@ -255,6 +251,16 @@ export const ContentCard = ({
             <Badge className="bg-primary/95 backdrop-blur-md text-primary-foreground font-semibold text-[10px] px-2 py-0.5 shadow-md flex items-center gap-1">
               <Zap className="w-3 h-3" />
               Anúncio
+            </Badge>
+          </div>
+        )}
+
+        {/* NEW badge - Top Left (below boost if both present) */}
+        {isNew && !isBoosted && (
+          <div className="absolute top-2 left-2">
+            <Badge className="bg-accent/95 backdrop-blur-md text-accent-foreground font-bold text-[10px] px-2 py-0.5 shadow-md flex items-center gap-1">
+              <Sparkles className="w-3 h-3" />
+              NOVO
             </Badge>
           </div>
         )}
