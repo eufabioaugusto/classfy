@@ -296,6 +296,12 @@ Deno.serve(async (req) => {
       rbm,
       pool_percentage: poolPercentage,
       prm,
+      effective_prm: effectivePRM,
+      buffer: {
+        reserved: bufferAmount,
+        used_for_smoothing: bufferUsed,
+        redistributed: bufferAmount - bufferUsed,
+      },
       total_performance_points: totalPP,
       users_paid: usersPaid,
       users_carried_over: usersCarriedOver,
