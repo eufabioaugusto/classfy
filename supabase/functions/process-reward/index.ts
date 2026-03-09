@@ -363,7 +363,7 @@ Deno.serve(async (req) => {
       const creatorPlan = (creatorProfile?.plan || 'free') as keyof PlanMultipliers;
       const creatorMultiplier = PLAN_MULTIPLIERS[creatorPlan] || 1.0;
 
-      const creatorPoints = Math.floor(config.points_creator * creatorMultiplier);
+      const creatorPoints = parseFloat((config.points_creator * creatorMultiplier).toFixed(2));
       const creatorPP = config.points_creator * creatorMultiplier * diminishingMultiplier;
 
       const { data: creatorReward, error: creatorRewardError } = await supabase
