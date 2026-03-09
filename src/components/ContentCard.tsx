@@ -159,7 +159,8 @@ export const ContentCard = ({
   };
 
   const checkAccess = () => {
-    // Free content is accessible to everyone (even without login)
+    // Allow visitors to view free content without login (for conversion)
+    // Views/rewards will only count after they sign up
     if (visibility === "free") {
       return true;
     }
