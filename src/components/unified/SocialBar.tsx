@@ -55,6 +55,7 @@ export function SocialBar({
   compact = false,
 }: SocialBarProps) {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const [showDMModal, setShowDMModal] = useState(false);
   
   const {
