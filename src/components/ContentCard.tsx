@@ -1,9 +1,9 @@
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Play, Clock, BookOpen, Lock, Crown, ShoppingCart, Zap } from "lucide-react";
+import { Play, Clock, BookOpen, Lock, Crown, ShoppingCart, Zap, Sparkles } from "lucide-react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { Button } from "@/components/ui/button";
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { CreatorLink } from "@/components/CreatorLink";
 import { FeaturedBadge } from "@/components/FeaturedBadge";
