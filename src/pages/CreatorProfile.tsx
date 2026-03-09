@@ -92,7 +92,7 @@ export default function CreatorProfile() {
       setCreator(profileData);
 
       // Buscar estatísticas
-      const [pointsData, followersData, contentsData, coursesData] = await Promise.all([
+      const [pointsData, followersData, contentsData, coursesData, totalViewsData] = await Promise.all([
         supabase
           .from("reward_events")
           .select("points")
@@ -124,7 +124,13 @@ export default function CreatorProfile() {
           `)
           .eq("creator_id", profileData.id)
           .eq("status", "approved")
-          .order("created_at", { ascending: false })
+          .order("created_at", { ascending: false }),
+        // Fetch total views across all creator contents
+        supabase
+          .from("contents")
+          .select("views_count")
+          .eq("creator_id", profileData.id)
+          .eq("status", "approved")
       ]);
 
       const totalPoints = pointsData.data?.reduce((sum, event) => sum + event.points, 0) || 0;
