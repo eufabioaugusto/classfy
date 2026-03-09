@@ -459,6 +459,10 @@ async function upsertCycleUserPoints(
 }
 
 // Notification text - NO R$ values (pool distributes monthly)
+function formatPoints(points: number): string {
+  return points % 1 === 0 ? points.toString() : points.toFixed(2);
+}
+
 function getNotificationText(actionKey: string, points: number): { title: string; message: string } {
   switch (actionKey) {
     case 'DAILY_LOGIN':
