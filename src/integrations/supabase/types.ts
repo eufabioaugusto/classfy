@@ -2997,6 +2997,14 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      carryover_cycle_points: {
+        Args: {
+          p_from_cycle_id: string
+          p_min_payout: number
+          p_to_cycle_id: string
+        }
+        Returns: number
+      }
       check_can_message: { Args: { target_user_id: string }; Returns: string }
       count_active_studies: { Args: { p_user_id: string }; Returns: number }
       create_or_get_conversation: {
@@ -3005,6 +3013,17 @@ export type Database = {
       }
       delete_conversation_for_user: {
         Args: { p_conversation_id: string; p_user_id: string }
+        Returns: undefined
+      }
+      distribute_cycle_payout: {
+        Args: {
+          p_amount: number
+          p_cycle_id: string
+          p_total_pp: number
+          p_user_id: string
+          p_user_pp: number
+          p_year_month: string
+        }
         Returns: undefined
       }
       get_daily_tracking_key: {
