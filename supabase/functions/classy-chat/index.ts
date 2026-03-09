@@ -315,7 +315,7 @@ RESPONDA APENAS: "ON_TOPIC" ou "OFF_TOPIC"`;
     if ((!isAskingAboutCurrentContent || isFirstMessage) && !playlistSummary) {
       const searchQuery = isFirstMessage ? study.title.toLowerCase() : message.toLowerCase();
       
-      console.log(`\n========== CLASSY SEARCH: "${searchQuery}" ==========`);
+      // Use Postgres full-text search for scalable content discovery
 
       // Use Postgres full-text search for scalable content discovery
       console.log(`\n========== CLASSY SEARCH (FTS): "${searchQuery}" ==========`);
