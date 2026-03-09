@@ -385,7 +385,16 @@ Deno.serve(async (req) => {
       const creatorMultiplier = PLAN_MULTIPLIERS[creatorPlan] || 1.0;
 
       const creatorPoints = parseFloat((config.points_creator * creatorMultiplier).toFixed(2));
-      const creatorPP = config.points_creator * creatorMultiplier * diminishingMultiplier;
+      // Creator gets their own consistency multiplier based on their active days
+      const { data: creatorActiveDays } = await supabase.rpc('get_user_active_days', {
+        p_user_id: creatorId,
+        p_cycle_start: cycleStartDate,
+      });
+      const creatorConsistency = (creatorActiveDays as number || 0) >= 25 ? 1.3
+        : (creatorActiveDays as number || 0) >= 20 ? 1.2
+        : (creatorActiveDays as number || 0) >= 15 ? 1.1
+        : 1.0;
+      const creatorPP = config.points_creator * creatorMultiplier * diminishingMultiplier * creatorConsistency;
 
       const { data: creatorReward, error: creatorRewardError } = await supabase
         .from('reward_events')
