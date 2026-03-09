@@ -197,22 +197,27 @@ export function GlobalSearch({ isExploreMode, onModeChange }: GlobalSearchProps)
       {/* Desktop */}
       <div ref={containerRef} className="relative flex-1 max-w-xl mx-4 hidden sm:block">
         <div className={cn(
-          "flex items-center gap-2 rounded-full border-2 backdrop-blur-sm transition-all duration-300",
+          "flex items-center gap-2 rounded-full border backdrop-blur-sm transition-all duration-200",
           isFocused 
-            ? "border-primary/30 bg-card shadow-lg shadow-primary/5" 
+            ? "border-border/60 bg-card shadow-md" 
             : "border-border/30 bg-secondary/50 hover:border-border/50 hover:bg-card/50"
         )}>
           <div className="flex items-center gap-1 pl-3 pr-2 border-r border-border/20">
             <Button 
               variant="ghost" 
               size="sm" 
+              type="button"
               className={cn(
                 "h-7 w-7 p-0 rounded-full transition-all duration-200",
                 !isExploreMode 
-                  ? "bg-primary/15 text-primary hover:bg-primary/20 shadow-sm" 
+                  ? "bg-accent text-accent-foreground shadow-sm" 
                   : "text-muted-foreground hover:text-foreground hover:bg-muted"
               )} 
-              onClick={() => onModeChange(false)} 
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                onModeChange(false);
+              }} 
               title="Modo Foco"
             >
               <Target className="w-3.5 h-3.5" />
@@ -220,13 +225,18 @@ export function GlobalSearch({ isExploreMode, onModeChange }: GlobalSearchProps)
             <Button 
               variant="ghost" 
               size="sm" 
+              type="button"
               className={cn(
                 "h-7 w-7 p-0 rounded-full transition-all duration-200",
                 isExploreMode 
-                  ? "bg-primary/15 text-primary hover:bg-primary/20 shadow-sm" 
+                  ? "bg-accent text-accent-foreground shadow-sm" 
                   : "text-muted-foreground hover:text-foreground hover:bg-muted"
               )} 
-              onClick={() => onModeChange(true)} 
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                onModeChange(true);
+              }} 
               title="Modo Explorar"
             >
               <Compass className="w-3.5 h-3.5" />
@@ -236,7 +246,7 @@ export function GlobalSearch({ isExploreMode, onModeChange }: GlobalSearchProps)
           <div className="flex items-center gap-2 flex-1 py-1.5">
             <Search className={cn(
               "w-4 h-4 ml-1 transition-colors",
-              isFocused ? "text-primary" : "text-muted-foreground"
+              isFocused ? "text-foreground" : "text-muted-foreground"
             )} />
             <Input 
               ref={inputRef} 
@@ -248,7 +258,11 @@ export function GlobalSearch({ isExploreMode, onModeChange }: GlobalSearchProps)
                 setIsFocused(true); 
                 if (query.length >= 2) setIsOpen(true); 
               }} 
-              className="border-0 bg-transparent focus-visible:ring-0 placeholder:text-muted-foreground/50 text-sm h-8 px-0 focus:placeholder:text-muted-foreground/30 transition-all" 
+              onBlur={() => {
+                // Delay to allow click on results
+                setTimeout(() => setIsFocused(false), 150);
+              }}
+              className="border-0 bg-transparent focus-visible:ring-0 focus-visible:ring-offset-0 placeholder:text-muted-foreground/50 text-sm h-8 px-0 focus:placeholder:text-muted-foreground/30 transition-all" 
             />
           </div>
           
@@ -259,6 +273,7 @@ export function GlobalSearch({ isExploreMode, onModeChange }: GlobalSearchProps)
               <Button 
                 variant="ghost" 
                 size="sm" 
+                type="button"
                 className="h-7 w-7 p-0 rounded-full hover:bg-muted transition-all" 
                 onClick={clearSearch}
               >
