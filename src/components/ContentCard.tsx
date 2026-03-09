@@ -236,9 +236,11 @@ export const ContentCard = ({
         <img
           src={thumbnail}
           alt={title}
-          className={`w-full h-full object-cover group-hover:scale-105 transition-transform duration-300 ${
-            hasPreviewableVideo && (isHovered || shouldAutoplay) ? "opacity-0" : "opacity-100"
-          } transition-opacity duration-300`}
+          className={`w-full h-full object-cover transition-all duration-500 ease-out ${
+            hasPreviewableVideo && videoReady && (isHovered || shouldAutoplay) 
+              ? "opacity-0 scale-105" 
+              : "opacity-100 scale-100 group-hover:scale-105"
+          }`}
         />
 
         {/* Video hover preview (only for accessible content) */}
@@ -246,12 +248,14 @@ export const ContentCard = ({
           <video
             ref={videoRef}
             src={videoUrl}
-            className={`absolute inset-0 w-full h-full object-cover ${
-              isHovered || shouldAutoplay ? "opacity-100" : "opacity-0"
-            } transition-opacity duration-300`}
+            className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-500 ease-out ${
+              videoReady && (isHovered || shouldAutoplay) ? "opacity-100" : "opacity-0"
+            }`}
             muted
             loop
             playsInline
+            preload="none"
+            onCanPlay={() => setVideoReady(true)}
           />
         )}
 
