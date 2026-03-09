@@ -91,6 +91,16 @@ export const ContentCard = ({
   const isShort = (content?.content_type || contentType) === "short";
   const videoUrl = content?.file_url || content?.video_url;
   const hasVideo = !!videoUrl;
+
+  // Only allow hover preview for content the user can access (free or matching plan/purchased)
+  const canPreview = useMemo(() => {
+    if (visibility === "free") return true;
+    if (visibility === "paid") return isPurchased;
+    if (visibility === "pro") return ["pro", "premium"].includes(userPlan);
+    if (visibility === "premium") return userPlan === "premium";
+    return true;
+  }, [visibility, isPurchased, userPlan]);
+  const hasPreviewableVideo = hasVideo && canPreview;
   const publishedAt = content?.published_at || content?.created_at;
 
   // Check if content is new (published within last 48 hours)
