@@ -69,9 +69,9 @@ export function GlobalSearch({ isExploreMode, onModeChange }: GlobalSearchProps)
       const searchPattern = `%${escapeRegex(searchQuery)}%`;
       const { data: contentsData } = await supabase
         .from("contents")
-        .select(`id, title, description, thumbnail_url, content_type, views_count, profiles:creator_id (display_name, avatar_url)`)
+        .select(`id, title, description, thumbnail_url, content_type, views_count, tags, profiles:creator_id (display_name, avatar_url)`)
         .eq("status", "approved")
-        .or(`title.ilike.${searchPattern},description.ilike.${searchPattern}`)
+        .or(`title.ilike.${searchPattern},description.ilike.${searchPattern},tags.cs.{"${escapeRegex(searchQuery)}"}`)
         .order("views_count", { ascending: false })
         .limit(5);
 

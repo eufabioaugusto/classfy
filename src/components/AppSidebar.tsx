@@ -59,6 +59,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 
 const mainItems = [
   { title: "Início", url: "/", icon: Home },
+  { title: "Shorts", url: "/shorts", icon: Zap },
   { title: "Histórico", url: "/historico", icon: Clock },
   { title: "Favoritos", url: "/favoritos", icon: Star },
   { title: "Salvos", url: "/salvos", icon: Bookmark },

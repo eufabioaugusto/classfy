@@ -87,9 +87,22 @@ export const ContentSection = ({
   return (
     <section className="space-y-3 sm:space-y-4">
       {title && (
-        <div className="flex items-center gap-2">
-          {icon}
-          <h3 className="text-lg sm:text-xl font-bold text-foreground">{title}</h3>
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            {icon}
+            <h3 className="text-lg sm:text-xl font-bold text-foreground">{title}</h3>
+          </div>
+          {hasMore && !showAll && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setShowAll(true)}
+              className="text-muted-foreground hover:text-foreground gap-1"
+            >
+              Ver todos
+              <ChevronRight className="w-4 h-4" />
+            </Button>
+          )}
         </div>
       )}
       <div className={`grid ${getGridCols()} gap-3 sm:gap-4`}>

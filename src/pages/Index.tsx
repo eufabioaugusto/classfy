@@ -199,9 +199,8 @@ export default function Index() {
   };
 
   const handleContentClick = (content: any) => {
-    // Check if user is logged in before allowing navigation
-    if (!user) {
-      // Redirect to auth page if not logged in
+    const isFreeContent = content.visibility === "free" || (!content.visibility);
+    if (!user && !isFreeContent) {
       navigate("/auth");
       return;
     }
