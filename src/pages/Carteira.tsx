@@ -86,9 +86,11 @@ export default function Carteira() {
 
       setWallet(walletRes.data);
 
-      if (configRes.data) {
-        const configValue = configRes.data.config_value as { amount: number };
-        setMinWithdrawalAmount(configValue.amount);
+      if (configRes.data?.value) {
+        const economicSettings = configRes.data.value as Record<string, any>;
+        if (economicSettings.minimum_withdrawal_amount) {
+          setMinWithdrawalAmount(economicSettings.minimum_withdrawal_amount);
+        }
       }
 
       if (withdrawalsRes.data) {
