@@ -128,22 +128,41 @@ export function GlobalSearch({ isExploreMode, onModeChange }: GlobalSearchProps)
   };
 
   const ResultItem = ({ result }: { result: SearchResult }) => (
-    <button onClick={() => handleResultClick(result)} className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-muted/50 transition-colors text-left">
-      <div className="relative flex-shrink-0 w-16 h-10 rounded-md overflow-hidden bg-muted">
+    <button 
+      onClick={() => handleResultClick(result)} 
+      className="w-full flex items-center gap-3 px-4 py-3 hover:bg-muted/70 active:bg-muted transition-all text-left group"
+    >
+      <div className="relative flex-shrink-0 w-20 h-12 rounded-xl overflow-hidden bg-muted shadow-sm group-hover:shadow-md transition-shadow">
         {result.thumbnail_url ? (
-          <img src={result.thumbnail_url} alt={result.title} className="w-full h-full object-cover" />
+          <img src={result.thumbnail_url} alt={result.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
         ) : (
-          <div className="w-full h-full flex items-center justify-center bg-secondary">
-            {result.type === "course" ? <GraduationCap className="w-5 h-5 text-muted-foreground" /> : getContentIcon(result.content_type)}
+          <div className="w-full h-full flex items-center justify-center bg-secondary/50">
+            {result.type === "course" 
+              ? <GraduationCap className="w-6 h-6 text-muted-foreground/60" /> 
+              : getContentIcon(result.content_type)
+            }
+          </div>
+        )}
+        {/* Content Type Badge */}
+        {result.content_type && (
+          <div className="absolute bottom-1 right-1 p-0.5 bg-black/60 backdrop-blur-sm rounded text-white">
+            {getContentIcon(result.content_type)}
           </div>
         )}
       </div>
+      
       <div className="flex-1 min-w-0">
-        <h4 className="text-sm font-medium text-foreground truncate">{result.title}</h4>
-        <div className="flex items-center gap-2 text-xs text-muted-foreground">
-          {result.creator && <span className="truncate">{result.creator.display_name}</span>}
-          <span>•</span>
-          <span>{formatViews(result.views_count)} views</span>
+        <h4 className="text-sm font-semibold text-foreground truncate group-hover:text-primary transition-colors">
+          {result.title}
+        </h4>
+        <div className="flex items-center gap-2 text-xs text-muted-foreground mt-0.5">
+          {result.creator && (
+            <>
+              <span className="truncate font-medium">{result.creator.display_name}</span>
+              <span className="text-border">•</span>
+            </>
+          )}
+          <span className="font-medium">{formatViews(result.views_count)} views</span>
         </div>
       </div>
     </button>
@@ -177,22 +196,90 @@ export function GlobalSearch({ isExploreMode, onModeChange }: GlobalSearchProps)
 
       {/* Desktop */}
       <div ref={containerRef} className="relative flex-1 max-w-xl mx-4 hidden sm:block">
-        <div className={cn("flex items-center gap-2 rounded-full border bg-secondary/50 backdrop-blur-sm transition-all", isFocused ? "border-accent/50 ring-2 ring-accent/20" : "border-border/30 hover:border-border/50")}>
-          <div className="flex items-center gap-1 pl-3 pr-1 border-r border-border/30">
-            <Button variant="ghost" size="sm" className={cn("h-7 w-7 p-0 rounded-full", !isExploreMode ? "bg-accent/20 text-accent" : "text-muted-foreground hover:text-foreground")} onClick={() => onModeChange(false)} title="Foco"><Target className="w-3.5 h-3.5" /></Button>
-            <Button variant="ghost" size="sm" className={cn("h-7 w-7 p-0 rounded-full", isExploreMode ? "bg-accent/20 text-accent" : "text-muted-foreground hover:text-foreground")} onClick={() => onModeChange(true)} title="Explorar"><Compass className="w-3.5 h-3.5" /></Button>
+        <div className={cn(
+          "flex items-center gap-2 rounded-full border-2 backdrop-blur-sm transition-all duration-300",
+          isFocused 
+            ? "border-primary/30 bg-card shadow-lg shadow-primary/5" 
+            : "border-border/30 bg-secondary/50 hover:border-border/50 hover:bg-card/50"
+        )}>
+          <div className="flex items-center gap-1 pl-3 pr-2 border-r border-border/20">
+            <Button 
+              variant="ghost" 
+              size="sm" 
+              className={cn(
+                "h-7 w-7 p-0 rounded-full transition-all duration-200",
+                !isExploreMode 
+                  ? "bg-primary/15 text-primary hover:bg-primary/20 shadow-sm" 
+                  : "text-muted-foreground hover:text-foreground hover:bg-muted"
+              )} 
+              onClick={() => onModeChange(false)} 
+              title="Modo Foco"
+            >
+              <Target className="w-3.5 h-3.5" />
+            </Button>
+            <Button 
+              variant="ghost" 
+              size="sm" 
+              className={cn(
+                "h-7 w-7 p-0 rounded-full transition-all duration-200",
+                isExploreMode 
+                  ? "bg-primary/15 text-primary hover:bg-primary/20 shadow-sm" 
+                  : "text-muted-foreground hover:text-foreground hover:bg-muted"
+              )} 
+              onClick={() => onModeChange(true)} 
+              title="Modo Explorar"
+            >
+              <Compass className="w-3.5 h-3.5" />
+            </Button>
           </div>
-          <Search className="w-4 h-4 text-muted-foreground ml-1" />
-          <Input ref={inputRef} type="text" placeholder="Buscar conteúdos, cursos, criadores..." value={query} onChange={handleInputChange} onFocus={() => { setIsFocused(true); if (query.length >= 2) setIsOpen(true); }} className="border-0 bg-transparent focus-visible:ring-0 placeholder:text-muted-foreground/60 text-sm h-9 px-0" />
-          {isLoading ? <Loader2 className="w-4 h-4 animate-spin mr-3" /> : query && <Button variant="ghost" size="sm" className="h-6 w-6 p-0 mr-2 rounded-full" onClick={clearSearch}><X className="w-3.5 h-3.5" /></Button>}
+          
+          <div className="flex items-center gap-2 flex-1 py-1.5">
+            <Search className={cn(
+              "w-4 h-4 ml-1 transition-colors",
+              isFocused ? "text-primary" : "text-muted-foreground"
+            )} />
+            <Input 
+              ref={inputRef} 
+              type="text" 
+              placeholder="Buscar conteúdos, cursos, criadores..." 
+              value={query} 
+              onChange={handleInputChange} 
+              onFocus={() => { 
+                setIsFocused(true); 
+                if (query.length >= 2) setIsOpen(true); 
+              }} 
+              className="border-0 bg-transparent focus-visible:ring-0 placeholder:text-muted-foreground/50 text-sm h-8 px-0 focus:placeholder:text-muted-foreground/30 transition-all" 
+            />
+          </div>
+          
+          <div className="pr-2">
+            {isLoading ? (
+              <Loader2 className="w-4 h-4 animate-spin text-primary" />
+            ) : query && (
+              <Button 
+                variant="ghost" 
+                size="sm" 
+                className="h-7 w-7 p-0 rounded-full hover:bg-muted transition-all" 
+                onClick={clearSearch}
+              >
+                <X className="w-3.5 h-3.5" />
+              </Button>
+            )}
+          </div>
         </div>
+        
         {isOpen && results.length > 0 && (
-          <div className="absolute top-full left-0 right-0 mt-2 py-2 bg-popover border border-border rounded-xl shadow-xl z-50 animate-in fade-in-0 slide-in-from-top-2">
-            <div className="max-h-[400px] overflow-y-auto">{results.map(r => <ResultItem key={`${r.type}-${r.id}`} result={r} />)}</div>
+          <div className="absolute top-full left-0 right-0 mt-3 py-2 bg-popover/95 backdrop-blur-xl border-2 border-border/50 rounded-2xl shadow-2xl z-50 animate-in fade-in-0 slide-in-from-top-2 duration-300">
+            <div className="max-h-[420px] overflow-y-auto scrollbar-thin">
+              {results.map(r => <ResultItem key={`${r.type}-${r.id}`} result={r} />)}
+            </div>
           </div>
         )}
+        
         {isOpen && query.length >= 2 && results.length === 0 && !isLoading && (
-          <div className="absolute top-full left-0 right-0 mt-2 py-6 bg-popover border border-border rounded-xl shadow-xl z-50 text-center text-sm text-muted-foreground">Nenhum resultado para "{query}"</div>
+          <div className="absolute top-full left-0 right-0 mt-3 py-8 bg-popover/95 backdrop-blur-xl border-2 border-border/50 rounded-2xl shadow-2xl z-50 text-center animate-in fade-in-0 slide-in-from-top-2 duration-300">
+            <p className="text-sm text-muted-foreground">Nenhum resultado para <span className="font-medium text-foreground">"{query}"</span></p>
+          </div>
         )}
       </div>
     </>
