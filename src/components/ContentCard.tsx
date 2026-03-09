@@ -90,60 +90,56 @@ export const ContentCard = ({
   const isMobile = useIsMobile();
   const isShort = (content?.content_type || contentType) === "short";
   const videoUrl = content?.file_url || content?.video_url;
+  const hasVideo = !!videoUrl;
+  const publishedAt = content?.published_at || content?.created_at;
+
+  // Check if content is new (published within last 48 hours)
+  const isNew = useMemo(() => {
+    if (!publishedAt) return false;
+    const publishDate = new Date(publishedAt);
+    const now = new Date();
+    const diffHours = (now.getTime() - publishDate.getTime()) / (1000 * 60 * 60);
+    return diffHours <= 48;
+  }, [publishedAt]);
 
   // Only fetch boost status if not provided as prop
   useEffect(() => {
     if (propIsBoosted !== undefined || !id) return;
-
     const checkBoost = async () => {
       const { data, error } = await supabase.rpc("is_content_boosted", { p_content_id: id });
-      if (!error && data) {
-        setIsBoosted(data);
-      }
+      if (!error && data) setIsBoosted(data);
     };
-
     checkBoost();
   }, [id, propIsBoosted]);
 
   // Random autoplay for mobile shorts
   useEffect(() => {
     if (isShort && isMobile && videoUrl) {
-      const randomDelay = Math.random() * 3000; // Random delay up to 3 seconds
-      const timer = setTimeout(() => {
-        setShouldAutoplay(true);
-      }, randomDelay);
+      const randomDelay = Math.random() * 3000;
+      const timer = setTimeout(() => setShouldAutoplay(true), randomDelay);
       return () => clearTimeout(timer);
     }
   }, [isShort, isMobile, videoUrl]);
 
-  // Handle hover autoplay for desktop
+  // Handle hover autoplay for desktop (ALL video content types)
   useEffect(() => {
-    if (!isShort || !videoUrl || isMobile) return;
-
+    if (!hasVideo || isMobile) return;
     if (isHovered && videoRef.current) {
+      videoRef.current.currentTime = 0;
       const playPromise = videoRef.current.play();
-      if (playPromise !== undefined) {
-        playPromise.catch(() => {
-          // Ignore autoplay errors
-        });
-      }
+      if (playPromise !== undefined) playPromise.catch(() => {});
     } else if (videoRef.current) {
       videoRef.current.pause();
       videoRef.current.currentTime = 0;
     }
-  }, [isHovered, isShort, videoUrl, isMobile]);
+  }, [isHovered, hasVideo, isMobile]);
 
-  // Handle mobile autoplay
+  // Handle mobile autoplay (shorts only)
   useEffect(() => {
     if (!isShort || !videoUrl || !isMobile || !shouldAutoplay) return;
-
     if (videoRef.current) {
       const playPromise = videoRef.current.play();
-      if (playPromise !== undefined) {
-        playPromise.catch(() => {
-          // Ignore autoplay errors
-        });
-      }
+      if (playPromise !== undefined) playPromise.catch(() => {});
     }
   }, [shouldAutoplay, isShort, videoUrl, isMobile]);
 
