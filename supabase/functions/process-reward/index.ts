@@ -339,7 +339,7 @@ Deno.serve(async (req) => {
           value: 0, // No direct value anymore - pool distributes later
           performance_points: performancePoints,
           cycle_id: cycleId,
-          metadata: { ...trackingMetadata, tracking_key: trackingKey },
+          metadata: { ...trackingMetadata, tracking_key: trackingKey, consistency_multiplier: consistencyMultiplier, active_days: userActiveDays },
         })
         .select()
         .single();
