@@ -634,8 +634,8 @@ export default function AdminRewards() {
                               onCheckedChange={() => handleToggleActive(reward)}
                             />
                           </TableCell>
-                          <TableCell className="text-center">{reward.points_user}</TableCell>
-                          <TableCell className="text-center">{reward.points_creator}</TableCell>
+                          <TableCell className="text-center">{Number(reward.points_user) % 1 === 0 ? reward.points_user : Number(reward.points_user).toFixed(2)}</TableCell>
+                          <TableCell className="text-center">{Number(reward.points_creator) % 1 === 0 ? reward.points_creator : Number(reward.points_creator).toFixed(2)}</TableCell>
                           <TableCell className="text-center">
                             {stats ? (
                               <div>
