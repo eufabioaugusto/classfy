@@ -5,6 +5,7 @@ import { motion } from "framer-motion";
 
 interface PlanCardsProps {
   onSubscribe: (plan: "pro" | "premium") => void;
+  currentPlan?: "free" | "pro" | "premium";
 }
 
 const plans = [
