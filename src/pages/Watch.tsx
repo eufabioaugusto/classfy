@@ -745,33 +745,28 @@ function WatchContent() {
 
   // Handle video end - show autoplay overlay
   const handleVideoEnd = () => {
-    if (nextContent && !isCourse) {
+    if (nextContent && !isCourse && !autoplayCancelled) {
       setShowAutoplayOverlay(true);
     }
   };
 
-  // Fetch next recommended content for autoplay
+  // Pick next content from related list once it's available
   useEffect(() => {
-    const fetchNextContent = async () => {
-      if (!content || isCourse) return;
-      
-      const { data } = await supabase
-        .from("contents")
-        .select(`
-          id, title, thumbnail_url,
-          profiles:creator_id (display_name)
-        `)
-        .eq("status", "approved")
-        .neq("id", content.id)
-        .limit(1);
-      
-      if (data?.[0]) {
-        setNextContent(data[0]);
-      }
-    };
-    
-    fetchNextContent();
+    if (!content || isCourse) return;
+    // Reset autoplay state when content changes
+    setShowAutoplayOverlay(false);
+    setAutoplayCancelled(false);
+    setNextContent(null);
   }, [content?.id, isCourse]);
+
+  // Update nextContent whenever relatedContents changes
+  useEffect(() => {
+    if (relatedContents.length > 0) {
+      setNextContent(relatedContents[0]);
+    } else {
+      setNextContent(null);
+    }
+  }, [relatedContents]);
 
   const handleApprove = async () => {
     if (!content) return;
