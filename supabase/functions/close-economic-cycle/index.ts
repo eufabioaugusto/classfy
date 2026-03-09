@@ -7,6 +7,8 @@ const corsHeaders = {
 
 const BATCH_SIZE = 500;
 const DEFAULT_MIN_PAYOUT = 0.10; // R$ 0.10 minimum to avoid micro-payments
+const BUFFER_PERCENTAGE = 5; // 5% of PRM reserved as transition buffer
+const SHARP_DROP_THRESHOLD = 0.40; // 40% drop in value-per-point triggers buffer usage
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
