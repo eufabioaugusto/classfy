@@ -691,7 +691,7 @@ function StudyContent() {
       
       const { data, error } = await supabase
         .from("contents")
-        .select("id, title, file_url, content_type, duration_seconds, visibility, price, creator_id, views_count, created_at, tags, thumbnail_url, description, category_id, creator:profiles!creator_id(id, display_name, avatar_url)")
+        .select("id, title, file_url, content_type, duration_seconds, visibility, price, creator_id, views_count, created_at, tags, thumbnail_url, description, category_id, creator:profiles!creator_id(id, display_name, avatar_url, creator_channel_name)")
         .eq("id", contentId)
         .single();
 
