@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect } from "react";
 import { Slider } from "@/components/ui/slider";
-import { TrendingUp, Heart, Eye, Share2, MessageCircle, Zap } from "lucide-react";
+import { TrendingUp, Heart, Eye, Share2, MessageCircle, Zap, Calendar } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 
 interface PoolSimulatorProps {
@@ -24,9 +24,17 @@ const DEFAULT_ACTION_POINTS: Record<string, number> = {
   LIKE_CONTENT: 2, COMMENT_CONTENT: 5, SAVE_CONTENT: 2, FAVORITE_CONTENT: 3, SHARE_CONTENT: 5,
 };
 
+const CONSISTENCY_TIERS = [
+  { minDays: 25, multiplier: 1.3, label: "25+ dias", color: "text-green-500" },
+  { minDays: 20, multiplier: 1.2, label: "20-24 dias", color: "text-blue-500" },
+  { minDays: 15, multiplier: 1.1, label: "15-19 dias", color: "text-yellow-500" },
+  { minDays: 0, multiplier: 1.0, label: "< 15 dias", color: "text-muted-foreground" },
+];
+
 export function PoolSimulator({ currentPP, totalPP, prm, currentEstimate }: PoolSimulatorProps) {
   const [simulatedActions, setSimulatedActions] = useState([50]);
   const [selectedType, setSelectedType] = useState("all");
+  const [selectedConsistency, setSelectedConsistency] = useState(0); // index into CONSISTENCY_TIERS
   const [actionPoints, setActionPoints] = useState<Record<string, number>>(DEFAULT_ACTION_POINTS);
 
   // Fetch real action point values from reward_actions_config
@@ -50,6 +58,7 @@ export function PoolSimulator({ currentPP, totalPP, prm, currentEstimate }: Pool
   const simulation = useMemo(() => {
     const actionCount = simulatedActions[0];
     const selected = engagementTypes.find((t) => t.key === selectedType) || engagementTypes[0];
+    const consistencyTier = CONSISTENCY_TIERS[selectedConsistency];
 
     // Calculate simulated points from new actions
     let simulatedPP: number;
@@ -57,7 +66,7 @@ export function PoolSimulator({ currentPP, totalPP, prm, currentEstimate }: Pool
 
     if (selected.actionKeys.length === 1) {
       pointsPerAction = actionPoints[selected.actionKeys[0]] ?? 1;
-      simulatedPP = Math.round(actionCount * pointsPerAction);
+      simulatedPP = Math.round(actionCount * pointsPerAction * consistencyTier.multiplier);
     } else {
       // "Tudo": distribute actions equally across all types
       const actionsPerType = actionCount / selected.actionKeys.length;
@@ -65,22 +74,24 @@ export function PoolSimulator({ currentPP, totalPP, prm, currentEstimate }: Pool
         (sum, at) => sum + actionsPerType * (actionPoints[at] ?? 1),
         0
       );
-      simulatedPP = Math.round(totalPoints);
-      pointsPerAction = actionCount > 0 ? totalPoints / actionCount : 0;
+      simulatedPP = Math.round(totalPoints * consistencyTier.multiplier);
+      pointsPerAction = actionCount > 0 ? (totalPoints * consistencyTier.multiplier) / actionCount : 0;
     }
 
     // Calculate proportional value of simulated PP
-    // Use a realistic baseline so early-month simulations aren't inflated
-    // Min baseline ensures results stay grounded even when pool is nearly empty
     const MIN_POOL_BASELINE = 5000;
     const effectiveTotalPP = Math.max(totalPP, MIN_POOL_BASELINE);
 
-    // The proportional share these simulated points would earn
     const poolWithSimulated = effectiveTotalPP + simulatedPP;
     const simulatedValue = poolWithSimulated > 0 ? (simulatedPP / poolWithSimulated) * prm : 0;
 
-    return { simulatedValue, isEstimated: totalPP < MIN_POOL_BASELINE, simulatedPP, pointsPerAction };
-  }, [simulatedActions, selectedType, actionPoints, currentPP, totalPP, prm, currentEstimate]);
+    // Also calculate without consistency for comparison
+    const basePP = consistencyTier.multiplier > 1 ? Math.round(simulatedPP / consistencyTier.multiplier) : simulatedPP;
+    const baseValue = poolWithSimulated > 0 ? (basePP / (effectiveTotalPP + basePP)) * prm : 0;
+    const consistencyBonus = simulatedValue - baseValue;
+
+    return { simulatedValue, isEstimated: totalPP < MIN_POOL_BASELINE, simulatedPP, pointsPerAction, consistencyBonus };
+  }, [simulatedActions, selectedType, selectedConsistency, actionPoints, currentPP, totalPP, prm, currentEstimate]);
 
   return (
     <div className="rounded-xl border bg-card p-4 sm:p-5">
@@ -114,6 +125,30 @@ export function PoolSimulator({ currentPP, totalPP, prm, currentEstimate }: Pool
             })}
           </div>
 
+          {/* Consistency tier selector */}
+          <div>
+            <p className="text-xs text-muted-foreground mb-1.5 flex items-center gap-1">
+              <Calendar className="w-3 h-3" />
+              Dias ativos no mês (multiplicador de consistência)
+            </p>
+            <div className="flex flex-wrap gap-1.5">
+              {CONSISTENCY_TIERS.map((tier, idx) => (
+                <button
+                  key={tier.minDays}
+                  onClick={() => setSelectedConsistency(idx)}
+                  className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium transition-colors ${
+                    selectedConsistency === idx
+                      ? "bg-accent text-accent-foreground"
+                      : "bg-muted text-muted-foreground hover:bg-muted/80"
+                  }`}
+                >
+                  {tier.label}
+                  {tier.multiplier > 1 && <span className={tier.color}>×{tier.multiplier}</span>}
+                </button>
+              ))}
+            </div>
+          </div>
+
           {/* Slider */}
           <div className="space-y-2">
             <div className="flex items-center justify-between">
@@ -143,6 +178,11 @@ export function PoolSimulator({ currentPP, totalPP, prm, currentEstimate }: Pool
           <span className="text-2xl sm:text-3xl font-bold text-accent">
             R$ {simulation.simulatedValue.toFixed(2)}
           </span>
+          {simulation.consistencyBonus > 0.01 && simulatedActions[0] > 0 && (
+            <span className="text-xs text-green-500 mt-1">
+              +R$ {simulation.consistencyBonus.toFixed(2)} por consistência (×{CONSISTENCY_TIERS[selectedConsistency].multiplier})
+            </span>
+          )}
           {simulatedActions[0] === 0 && (
             <span className="text-xs text-muted-foreground mt-1.5">
               Mova o slider para simular

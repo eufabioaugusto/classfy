@@ -296,6 +296,27 @@ Deno.serve(async (req) => {
     const { data: cycleIdResult } = await supabase.rpc('get_or_create_current_cycle');
     const cycleId = cycleIdResult as string | null;
 
+    // STEP 4.5: Get consistency multiplier based on active days this cycle
+    const cycleStart = new Date();
+    cycleStart.setUTCDate(1);
+    cycleStart.setUTCHours(0, 0, 0, 0);
+    const cycleStartDate = cycleStart.toISOString().split('T')[0];
+
+    const { data: activeDays } = await supabase.rpc('get_user_active_days', {
+      p_user_id: userId,
+      p_cycle_start: cycleStartDate,
+    });
+
+    const userActiveDays = (activeDays as number) || 0;
+    const consistencyMultiplier = userActiveDays >= 25 ? 1.3
+      : userActiveDays >= 20 ? 1.2
+      : userActiveDays >= 15 ? 1.1
+      : 1.0;
+
+    if (consistencyMultiplier > 1.0) {
+      console.log('Consistency multiplier applied:', { userActiveDays, consistencyMultiplier });
+    }
+
     const rewards = [];
     const notifications = [];
 
@@ -304,8 +325,8 @@ Deno.serve(async (req) => {
     // Performance Points accumulated in economic_cycle_users (NO direct wallet credit)
     if (config.points_user > 0) {
       const userPoints = parseFloat((config.points_user * planMultiplier).toFixed(2));
-      // Performance points with diminishing returns applied
-      const performancePoints = config.points_user * planMultiplier * diminishingMultiplier;
+      // Performance points with diminishing returns AND consistency multiplier applied
+      const performancePoints = config.points_user * planMultiplier * diminishingMultiplier * consistencyMultiplier;
 
       const { data: userReward, error: rewardError } = await supabase
         .from('reward_events')
@@ -318,7 +339,7 @@ Deno.serve(async (req) => {
           value: 0, // No direct value anymore - pool distributes later
           performance_points: performancePoints,
           cycle_id: cycleId,
-          metadata: { ...trackingMetadata, tracking_key: trackingKey },
+          metadata: { ...trackingMetadata, tracking_key: trackingKey, consistency_multiplier: consistencyMultiplier, active_days: userActiveDays },
         })
         .select()
         .single();
@@ -364,7 +385,16 @@ Deno.serve(async (req) => {
       const creatorMultiplier = PLAN_MULTIPLIERS[creatorPlan] || 1.0;
 
       const creatorPoints = parseFloat((config.points_creator * creatorMultiplier).toFixed(2));
-      const creatorPP = config.points_creator * creatorMultiplier * diminishingMultiplier;
+      // Creator gets their own consistency multiplier based on their active days
+      const { data: creatorActiveDays } = await supabase.rpc('get_user_active_days', {
+        p_user_id: creatorId,
+        p_cycle_start: cycleStartDate,
+      });
+      const creatorConsistency = (creatorActiveDays as number || 0) >= 25 ? 1.3
+        : (creatorActiveDays as number || 0) >= 20 ? 1.2
+        : (creatorActiveDays as number || 0) >= 15 ? 1.1
+        : 1.0;
+      const creatorPP = config.points_creator * creatorMultiplier * diminishingMultiplier * creatorConsistency;
 
       const { data: creatorReward, error: creatorRewardError } = await supabase
         .from('reward_events')
@@ -377,7 +407,7 @@ Deno.serve(async (req) => {
           value: 0, // No direct value - pool distributes
           performance_points: creatorPP,
           cycle_id: cycleId,
-          metadata: { ...trackingMetadata, as_creator: true, tracking_key: trackingKey },
+          metadata: { ...trackingMetadata, as_creator: true, tracking_key: trackingKey, consistency_multiplier: creatorConsistency, active_days: creatorActiveDays },
         })
         .select()
         .single();

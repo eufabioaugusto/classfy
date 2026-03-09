@@ -1,55 +1,26 @@
 
 
-## Plano: Multiplicador de Consistência + Suavização de Curva de Crescimento
+# Multiplicador de Consistência + Suavização de Curva — IMPLEMENTADO ✅
 
-### Contexto (alinhamento com sua visão)
+## O que foi feito
 
-Entendi seus pontos:
-- **Meritocracia**: quem se dedica mais, ganha mais. Sem cap artificial. Correto.
-- **Valor alto no início**: justo, quem está ativo merece. OK.
-- **Problema real**: a **queda brusca** de ganho conforme a base cresce. Se de um mês pro outro entram 100 usuários, o valor por ponto cai drasticamente e o usuário ativo sente uma perda injusta.
-- **Consistência**: recompensar quem está presente todos os dias vs. quem faz burst de ações em 2 dias.
+### 1. Função SQL `get_user_active_days` + `get_consistency_multiplier`
+- Conta dias distintos com ações no ciclo atual
+- Retorna multiplicador: 1.0x (<15d), 1.1x (15-19d), 1.2x (20-24d), 1.3x (25+d)
 
-### O que precisa ser feito
+### 2. `process-reward/index.ts` — Multiplicador de Consistência
+- Busca dias ativos do usuário no ciclo via RPC
+- Aplica multiplicador nos Performance Points (PP) de usuário E creator
+- Registra `consistency_multiplier` e `active_days` no metadata para auditoria
 
-**1. Multiplicador de Consistência (processo-reward)**
+### 3. `close-economic-cycle/index.ts` — Buffer de Suavização
+- 5% do PRM reservado como buffer de transição
+- Compara valor-por-ponto com ciclo anterior
+- Se queda > 40%, usa buffer para compensar até 20% da diferença
+- Se não há queda brusca, buffer é redistribuído normalmente
+- Resultado inclui detalhes do buffer usado
 
-Usuários ativos por 20+ dias no mês ganham 1.2x nos seus PP. Ativos 25+ dias ganham 1.3x. Isso diferencia quem é fiel da plataforma vs. quem aparece esporadicamente.
-
-- Na `process-reward`, ao calcular `performancePoints`, verificar quantos dias distintos o usuário já tem ações no ciclo atual (query em `reward_action_tracking` com `COUNT(DISTINCT DATE(created_at))`)
-- Aplicar multiplicador: 1-14 dias = 1.0x, 15-19 dias = 1.1x, 20-24 dias = 1.2x, 25+ dias = 1.3x
-- Registrar o multiplicador no metadata do `reward_event` para auditoria
-
-**2. Suavização de transição entre ciclos (close-economic-cycle)**
-
-Para evitar que um usuário que ganhava R$ 50/mês de repente ganhe R$ 5 no mês seguinte porque a base triplicou:
-
-- No fechamento do ciclo, calcular a variação do valor-por-ponto vs. ciclo anterior
-- Se a queda for > 40%, aplicar um "amortecedor": distribuir um bônus compensatório de até 20% da diferença, usando uma reserva do pool (ex: 5% do PRM fica como buffer de transição)
-- Isso é implementado no `close-economic-cycle`: antes de distribuir, separar 5% como buffer. Se não houver queda brusca, o buffer é distribuído normalmente. Se houver, ele suaviza.
-
-**3. Migration: tabela de tracking de dias ativos**
-
-Criar uma view ou função que conta dias ativos por usuário por ciclo, para não precisar fazer query pesada a cada reward.
-
-```sql
--- Função para contar dias ativos do usuário no ciclo atual
-CREATE FUNCTION get_user_active_days(p_user_id UUID, p_cycle_start DATE)
-RETURNS INTEGER
-```
-
-### Mudanças por arquivo
-
-| Arquivo | Mudança |
-|---------|---------|
-| `process-reward/index.ts` | Adicionar lookup de dias ativos + multiplicador de consistência nos PP |
-| `close-economic-cycle/index.ts` | Adicionar lógica de buffer 5% + suavização de queda brusca |
-| Migration SQL | Função `get_user_active_days()` |
-| `PoolSimulator.tsx` | Mostrar multiplicador de consistência na simulação |
-
-### Resultado esperado
-
-- Usuário fiel (20+ dias/mês) ganha até 30% mais PP que um esporádico com mesma quantidade de ações
-- Crescimento da base não causa choque de receita: buffer de 5% suaviza quedas > 40%
-- Sistema continua 100% meritocrático, sem caps artificiais
-
+### 4. `PoolSimulator.tsx` — Simulação com Consistência
+- Seletor de tier de consistência (< 15 dias, 15-19, 20-24, 25+)
+- Mostra bônus de consistência separado no resultado
+- Calcula PP com multiplicador aplicado

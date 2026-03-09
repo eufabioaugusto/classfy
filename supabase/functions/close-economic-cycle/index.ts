@@ -7,6 +7,8 @@ const corsHeaders = {
 
 const BATCH_SIZE = 500;
 const DEFAULT_MIN_PAYOUT = 0.10; // R$ 0.10 minimum to avoid micro-payments
+const BUFFER_PERCENTAGE = 5; // 5% of PRM reserved as transition buffer
+const SHARP_DROP_THRESHOLD = 0.40; // 40% drop in value-per-point triggers buffer usage
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
@@ -146,23 +148,64 @@ Deno.serve(async (req) => {
 
     console.log(`RBM: ${rbm}, Pool%: ${poolPercentage}, PRM: ${prm}, Total PP: ${totalPP}, Users: ${allCycleUsers.length}, Min payout: ${minPayout}`);
 
+    // 4.5. Buffer & smoothing: separate 5% of PRM as transition buffer
+    const bufferAmount = prm * (BUFFER_PERCENTAGE / 100);
+    let effectivePRM = prm - bufferAmount;
+    let bufferUsed = 0;
+
+    // Check previous cycle for value-per-point comparison
+    const cycleDate = new Date(`${targetYearMonth}-01`);
+    const prevCycleDate = new Date(cycleDate.getFullYear(), cycleDate.getMonth() - 1, 1);
+    const prevYearMonth = `${prevCycleDate.getFullYear()}-${String(prevCycleDate.getMonth() + 1).padStart(2, '0')}`;
+
+    const { data: prevCycle } = await supabase
+      .from('economic_cycles')
+      .select('prm, total_performance_points')
+      .eq('year_month', prevYearMonth)
+      .eq('status', 'closed')
+      .maybeSingle();
+
+    if (prevCycle && prevCycle.total_performance_points > 0 && totalPP > 0) {
+      const prevValuePerPoint = prevCycle.prm / prevCycle.total_performance_points;
+      const currentValuePerPoint = effectivePRM / totalPP;
+      const dropRatio = 1 - (currentValuePerPoint / prevValuePerPoint);
+
+      console.log(`Value-per-point: prev=${prevValuePerPoint.toFixed(4)}, current=${currentValuePerPoint.toFixed(4)}, drop=${(dropRatio * 100).toFixed(1)}%`);
+
+      if (dropRatio > SHARP_DROP_THRESHOLD) {
+        // Use buffer to compensate up to 20% of the difference
+        const deficit = (prevValuePerPoint - currentValuePerPoint) * totalPP;
+        const maxCompensation = deficit * 0.20;
+        bufferUsed = Math.min(bufferAmount, maxCompensation);
+        effectivePRM += bufferUsed;
+        console.log(`⚡ Sharp drop detected (${(dropRatio * 100).toFixed(1)}%), using buffer: R$ ${bufferUsed.toFixed(2)} of R$ ${bufferAmount.toFixed(2)}`);
+      } else {
+        // No sharp drop: redistribute buffer normally
+        effectivePRM += bufferAmount;
+        console.log('No sharp drop, buffer redistributed normally');
+      }
+    } else {
+      // No previous cycle to compare: redistribute buffer normally
+      effectivePRM += bufferAmount;
+      console.log('No previous cycle for comparison, buffer redistributed normally');
+    }
+
     let distributedAmount = 0;
     let usersPaid = 0;
     let usersCarriedOver = 0;
     const errors: string[] = [];
 
-    if (totalPP > 0 && prm > 0 && allCycleUsers.length > 0) {
+    if (totalPP > 0 && effectivePRM > 0 && allCycleUsers.length > 0) {
       // Determine next cycle for carry-over
-      const cycleDate = new Date(`${targetYearMonth}-01`);
-      cycleDate.setMonth(cycleDate.getMonth() + 1);
-      const nextYearMonth = `${cycleDate.getFullYear()}-${String(cycleDate.getMonth() + 1).padStart(2, '0')}`;
+      const nextCycleDate = new Date(cycleDate.getFullYear(), cycleDate.getMonth() + 1, 1);
+      const nextYearMonth = `${nextCycleDate.getFullYear()}-${String(nextCycleDate.getMonth() + 1).padStart(2, '0')}`;
 
       // Get or create next cycle ID for carry-over
       let nextCycleId: string | null = null;
 
       for (const cycleUser of allCycleUsers) {
         const userPP = parseFloat(String(cycleUser.performance_points));
-        const userShare = (userPP / totalPP) * prm;
+        const userShare = (userPP / totalPP) * effectivePRM;
         const roundedShare = parseFloat(userShare.toFixed(2));
 
         // Skip users below minimum payout — carry their points forward
@@ -253,6 +296,12 @@ Deno.serve(async (req) => {
       rbm,
       pool_percentage: poolPercentage,
       prm,
+      effective_prm: effectivePRM,
+      buffer: {
+        reserved: bufferAmount,
+        used_for_smoothing: bufferUsed,
+        redistributed: bufferAmount - bufferUsed,
+      },
       total_performance_points: totalPP,
       users_paid: usersPaid,
       users_carried_over: usersCarriedOver,

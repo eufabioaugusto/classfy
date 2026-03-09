@@ -3026,6 +3026,10 @@ export type Database = {
         }
         Returns: undefined
       }
+      get_consistency_multiplier: {
+        Args: { p_active_days: number }
+        Returns: number
+      }
       get_daily_tracking_key: {
         Args: { p_action_key: string }
         Returns: string
@@ -3049,6 +3053,10 @@ export type Database = {
       get_study_limits: {
         Args: { p_plan: Database["public"]["Enums"]["plan_type"] }
         Returns: Json
+      }
+      get_user_active_days: {
+        Args: { p_cycle_start: string; p_user_id: string }
+        Returns: number
       }
       has_role: {
         Args: {
