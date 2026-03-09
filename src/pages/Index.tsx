@@ -44,11 +44,14 @@ export default function Index() {
   useEffect(() => {
     const state = location.state as { exploreMode?: boolean } | null;
     if (state?.exploreMode !== undefined) {
-      setMode(state.exploreMode);
-      // Clear the state
-      navigate(location.pathname, { replace: true, state: {} });
+      const targetMode = state.exploreMode;
+      setIsExploreMode(targetMode);
+      localStorage.setItem("exploreMode", JSON.stringify(targetMode));
+      setSearchParams({ mode: targetMode ? "explore" : "focus" }, { replace: true });
+      // Clear the state after processing
+      window.history.replaceState({}, document.title);
     }
-  }, [location.state]);
+  }, [location.state, setSearchParams]);
 
   useEffect(() => {
     if (modeFromUrl === "explore") {
