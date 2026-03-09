@@ -117,6 +117,14 @@ function WatchContent() {
   
   // Track current playback time for mini player
   const currentPlaybackTime = useRef(0);
+  
+  // Track ACTUAL accumulated watch time (not seeking position)
+  const accumulatedWatchTime = useRef(0);
+  const lastTimeUpdate = useRef(0);
+  
+  // Autoplay next video state
+  const [showAutoplayOverlay, setShowAutoplayOverlay] = useState(false);
+  const [nextContent, setNextContent] = useState<any>(null);
 
   // Theater mode state
   const [theaterMode, setTheaterMode] = useState(false);
