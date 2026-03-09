@@ -1,6 +1,9 @@
 import { ContentCard } from "@/components/ContentCard";
 import { Card } from "@/components/ui/card";
 import { useIsMobile } from "@/hooks/use-mobile";
+import { Button } from "@/components/ui/button";
+import { ChevronRight } from "lucide-react";
+import { useState } from "react";
 
 interface ContentSectionProps {
   title: string;
