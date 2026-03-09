@@ -144,7 +144,7 @@ export function AutoplayNextOverlay({
               <Button
                 variant="outline"
                 onClick={onCancel}
-                className="flex-1 border-white/30 text-white hover:bg-white/10"
+                className="flex-1 border-white/30 text-foreground bg-white hover:bg-white/90"
               >
                 Cancelar
               </Button>
