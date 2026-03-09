@@ -622,6 +622,8 @@ function WatchContent() {
   };
 
   const recordMetric = async (event: "start" | "half" | "complete") => {
+    // Views and rewards only count for authenticated users
+    // This prevents fraud/bots and ensures rewards go to real users
     if (metricsRecorded[event] || !user || !id) return;
 
     try {

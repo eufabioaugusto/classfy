@@ -159,15 +159,24 @@ export const ContentCard = ({
   };
 
   const checkAccess = () => {
+    // Allow visitors to view free content without login (for conversion)
+    // Views/rewards will only count after they sign up
+    if (visibility === "free") {
+      return true;
+    }
+
+    // For restricted content, user must be logged in
+    if (!userPlan || userPlan === "free") {
+      return false;
+    }
+
     // Check if content is paid and user has purchased it
     if (visibility === "paid") {
       return isPurchased;
     }
 
     // Check plan-based access
-    if (visibility === "free") {
-      return true;
-    } else if (visibility === "pro") {
+    if (visibility === "pro") {
       return ["pro", "premium"].includes(userPlan);
     } else if (visibility === "premium") {
       return userPlan === "premium";

@@ -29,6 +29,7 @@ export function useContentMetrics({ contentId, duration }: UseContentMetricsProp
   const lastWatchTimeUpdateRef = useRef(0);
 
   const recordMetric = useCallback(async (event: "start" | "half" | "complete") => {
+    // Views and rewards only count for authenticated users to prevent fraud
     if (metricsRecorded[event] || !user || !contentId) return;
 
     try {
