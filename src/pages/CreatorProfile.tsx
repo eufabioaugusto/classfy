@@ -136,6 +136,7 @@ export default function CreatorProfile() {
 
       const totalPoints = pointsData.data?.reduce((sum, event) => sum + event.points, 0) || 0;
       const level = Math.floor(totalPoints / 1000) + 1;
+      const totalViews = totalViewsData.data?.reduce((sum, c) => sum + (c.views_count || 0), 0) || 0;
 
       // Merge contents and courses (courses get a virtual content_type for filtering)
       const coursesAsContents = (coursesData.data || []).map((course: any) => ({
@@ -148,7 +149,8 @@ export default function CreatorProfile() {
         totalPoints,
         level,
         followersCount: followersData.count || 0,
-        contentCount: allContents.length
+        contentCount: allContents.length,
+        totalViews
       });
 
       setContents(allContents);
