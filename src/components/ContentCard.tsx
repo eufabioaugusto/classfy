@@ -86,6 +86,7 @@ export const ContentCard = ({
   const [isBoosted, setIsBoosted] = useState(propIsBoosted ?? false);
   const [isHovered, setIsHovered] = useState(false);
   const [shouldAutoplay, setShouldAutoplay] = useState(false);
+  const [videoReady, setVideoReady] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
   const isMobile = useIsMobile();
   const isShort = (content?.content_type || contentType) === "short";
