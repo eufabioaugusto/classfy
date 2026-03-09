@@ -105,30 +105,12 @@ function WatchContent() {
   const [showUpgradeModal, setShowUpgradeModal] = useState(false);
   const [showPurchaseModal, setShowPurchaseModal] = useState(false);
   const [requiredUpgradePlan, setRequiredUpgradePlan] = useState<"pro" | "premium">("pro");
-  const [accessBlockedReason, setAccessBlockedReason] = useState<"plan" | "purchase" | null>(null);
+   const [accessBlockedReason, setAccessBlockedReason] = useState<"plan" | "purchase" | null>(null);
   const [isPurchased, setIsPurchased] = useState(false);
-   const [showAddToStudyModal, setShowAddToStudyModal] = useState(false);
+  const [showAddToStudyModal, setShowAddToStudyModal] = useState(false);
   const [notesRefreshTrigger, setNotesRefreshTrigger] = useState(0);
   const [seekToTime, setSeekToTime] = useState<number | null>(null);
-  const { processReward } = useRewardSystem();
-  
-  // Centralized content metrics hook
-  const {
-    handleTimeUpdate,
-    registerView,
-    registerCourseView,
-    resetMetrics,
-  } = useContentMetrics({
-    contentId: id || "",
-    duration: content?.duration_seconds || 0,
-  });
-
-  // Centralized content actions hook  
-  const contentActions = useContentActions({
-    contentId: id || "",
-    isCourse,
-    hasAccess,
-  });
+  const { processReward, handleLike, handleSave, handleFavorite, reverseReward } = useRewardSystem();
   
   // Track current playback time for mini player
   const currentPlaybackTime = useRef(0);
@@ -148,6 +130,7 @@ function WatchContent() {
   const [transcriptionLoading, setTranscriptionLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   // Course-specific state
+  const [isCourse, setIsCourse] = useState(false);
   const [courseModules, setCourseModules] = useState<any[]>([]);
   const [currentLesson, setCurrentLesson] = useState<any>(null);
 
@@ -160,6 +143,28 @@ function WatchContent() {
   const [showMobileNotes, setShowMobileNotes] = useState(false);
   const [showMobileCurriculum, setShowMobileCurriculum] = useState(false);
   const [relatedContents, setRelatedContents] = useState<any[]>([]);
+
+  // Action states for mobile
+  const [isLiked, setIsLiked] = useState(false);
+  const [isSaved, setIsSaved] = useState(false);
+  const [isFavorited, setIsFavorited] = useState(false);
+  const [likesCount, setLikesCount] = useState(0);
+  const [unlikeConfirmation, setUnlikeConfirmation] = useState<{ pending: boolean; rewardValue: number }>({
+    pending: false,
+    rewardValue: 0,
+  });
+
+  // Centralized content metrics hook — replaces inline metric tracking
+  const {
+    handleTimeUpdate: handleMetricsTimeUpdate,
+    registerView,
+    registerCourseView,
+    resetMetrics,
+    metricsRecorded,
+  } = useContentMetrics({
+    contentId: id || "",
+    duration: content?.duration_seconds || 0,
+  });
 
   // Store content ref for cleanup
   const contentRef = useRef<Content | null>(null);
