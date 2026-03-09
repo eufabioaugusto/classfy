@@ -242,7 +242,7 @@ function WatchContent() {
             total_duration_seconds, views_count, likes_count, status,
             creator_id, tags, total_lessons, level, what_you_learn,
             requirements, created_at,
-            creator:profiles!creator_id(id, display_name, avatar_url)
+            creator:profiles!creator_id(id, display_name, avatar_url, creator_channel_name)
           `)
           .eq("id", id)
           .maybeSingle()
