@@ -186,10 +186,10 @@ export function GlobalSearch({ isExploreMode, onModeChange }: GlobalSearchProps)
         {/* No trigger button here - handled by MobileBottomNav */}
         <SheetContent side="top" className="h-auto max-h-[85vh] p-0 bg-background z-[9999999999]">
           <div className="flex items-center justify-center gap-4 py-3 border-b border-border/30">
-            <Button variant="ghost" size="sm" className={cn("gap-2 rounded-full px-4", !isExploreMode ? "bg-accent/20 text-accent" : "text-muted-foreground")} onClick={() => { handleModeChange(false); setMobileSheetOpen(false); }}>
+            <Button variant="ghost" size="sm" className={cn("gap-2 rounded-full px-4", !isExploreMode ? "bg-accent/20 text-accent" : "text-muted-foreground")} onClick={() => handleModeChange(false)}>
               <Target className="w-4 h-4" />Estudo
             </Button>
-            <Button variant="ghost" size="sm" className={cn("gap-2 rounded-full px-4", isExploreMode ? "bg-accent/20 text-accent" : "text-muted-foreground")} onClick={() => { handleModeChange(true); setMobileSheetOpen(false); }}>
+            <Button variant="ghost" size="sm" className={cn("gap-2 rounded-full px-4", isExploreMode ? "bg-accent/20 text-accent" : "text-muted-foreground")} onClick={() => handleModeChange(true)}>
               <Compass className="w-4 h-4" />Explorar
             </Button>
           </div>
