@@ -67,7 +67,7 @@ export const CreatorStatsCard = ({ userId, collapsed }: CreatorStatsCardProps) =
     }
   }, [userId]);
 
-  const pointsInCurrentLevel = stats.totalPoints % 1000;
+  const pointsInCurrentLevel = Math.round((stats.totalPoints % 1000) * 100) / 100;
   const progressToNextLevel = (pointsInCurrentLevel / 1000) * 100;
 
   if (loading) {
