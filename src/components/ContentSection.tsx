@@ -1,6 +1,9 @@
 import { ContentCard } from "@/components/ContentCard";
 import { Card } from "@/components/ui/card";
 import { useIsMobile } from "@/hooks/use-mobile";
+import { Button } from "@/components/ui/button";
+import { ChevronRight } from "lucide-react";
+import { useState } from "react";
 
 interface ContentSectionProps {
   title: string;
@@ -26,6 +29,7 @@ export const ContentSection = ({
   onPurchaseClick,
 }: ContentSectionProps) => {
   const isMobile = useIsMobile();
+  const [showAll, setShowAll] = useState(false);
 
   const getGridCols = () => {
     if (aspectRatio === "vertical") {
@@ -52,8 +56,9 @@ export const ContentSection = ({
     return 6; // 2 rows x 3 cols = 6 items
   };
 
-  // Limit items based on aspect ratio
-  const displayContents = contents.slice(0, getMaxItems());
+  const maxItems = getMaxItems();
+  const hasMore = contents.length > maxItems;
+  const displayContents = showAll ? contents : contents.slice(0, maxItems);
 
   if (loading) {
     return (
@@ -83,9 +88,22 @@ export const ContentSection = ({
   return (
     <section className="space-y-3 sm:space-y-4">
       {title && (
-        <div className="flex items-center gap-2">
-          {icon}
-          <h3 className="text-lg sm:text-xl font-bold text-foreground">{title}</h3>
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            {icon}
+            <h3 className="text-lg sm:text-xl font-bold text-foreground">{title}</h3>
+          </div>
+          {hasMore && !showAll && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setShowAll(true)}
+              className="text-muted-foreground hover:text-foreground gap-1"
+            >
+              Ver todos
+              <ChevronRight className="w-4 h-4" />
+            </Button>
+          )}
         </div>
       )}
       <div className={`grid ${getGridCols()} gap-3 sm:gap-4`}>

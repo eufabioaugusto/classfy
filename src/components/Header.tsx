@@ -54,8 +54,8 @@ export function Header({ variant = "home", title, showSearch = false, isExploreM
           {title && <h1 className="text-lg sm:text-2xl font-bold text-foreground truncate max-w-[150px] sm:max-w-none hidden sm:block">{title}</h1>}
         </div>
 
-        {/* Global Search - Only on home variant */}
-        {showSearch && variant === "home" && (
+        {/* Global Search - Always on home variant */}
+        {variant === "home" && (
           <GlobalSearch 
             isExploreMode={isExploreMode} 
             onModeChange={onModeChange || (() => {})} 

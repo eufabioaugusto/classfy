@@ -13,12 +13,26 @@ import { PlansFAQ } from "@/components/plans/PlansFAQ";
 import { PlansCTA } from "@/components/plans/PlansCTA";
 
 export default function Planos() {
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
   const navigate = useNavigate();
+  const currentPlan = (profile?.plan || "free") as "free" | "pro" | "premium";
 
   const handleSubscribe = async (planType: "pro" | "premium") => {
     if (!user) {
       navigate("/auth");
+      return;
+    }
+
+    // If user already has this plan, open customer portal to manage
+    if (currentPlan === planType) {
+      try {
+        const { data, error } = await supabase.functions.invoke("customer-portal", {});
+        if (error) throw error;
+        if (data?.url) window.open(data.url, "_blank");
+      } catch (error) {
+        console.error("Error opening portal:", error);
+        toast.error("Erro ao abrir gerenciamento da assinatura");
+      }
       return;
     }
 
@@ -43,7 +57,7 @@ export default function Planos() {
           <Header variant="home" title="Planos" />
           <main className="flex-1">
             <PlansHero />
-            <PlanCards onSubscribe={handleSubscribe} />
+            <PlanCards onSubscribe={handleSubscribe} currentPlan={currentPlan} />
             <PlansFeatures />
             <PlansComparison onSubscribe={handleSubscribe} />
             <PlansFAQ />

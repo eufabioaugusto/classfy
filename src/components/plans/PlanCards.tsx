@@ -5,6 +5,7 @@ import { motion } from "framer-motion";
 
 interface PlanCardsProps {
   onSubscribe: (plan: "pro" | "premium") => void;
+  currentPlan?: "free" | "pro" | "premium";
 }
 
 const plans = [
@@ -44,7 +45,7 @@ const plans = [
   },
 ];
 
-export function PlanCards({ onSubscribe }: PlanCardsProps) {
+export function PlanCards({ onSubscribe, currentPlan = "free" }: PlanCardsProps) {
   return (
     <section id="plans" className="py-16 md:py-24 bg-muted/40">
       <div className="container mx-auto px-4">
@@ -65,6 +66,7 @@ export function PlanCards({ onSubscribe }: PlanCardsProps) {
         <div className="grid md:grid-cols-2 gap-6 max-w-4xl mx-auto">
           {plans.map((plan, index) => {
             const Icon = plan.icon;
+            const isCurrentPlan = currentPlan === plan.id;
             return (
               <motion.div
                 key={plan.id}
@@ -73,12 +75,19 @@ export function PlanCards({ onSubscribe }: PlanCardsProps) {
                 viewport={{ once: true }}
                 transition={{ delay: index * 0.1 }}
                 className={`relative rounded-2xl border bg-card p-8 ${
-                  plan.highlighted
+                  isCurrentPlan
+                    ? "border-primary ring-2 ring-primary/20 shadow-md"
+                    : plan.highlighted
                     ? "border-accent shadow-sm"
                     : "border-border"
                 }`}
               >
-                {plan.badge && (
+                {isCurrentPlan && (
+                  <Badge className="absolute -top-3 right-6 bg-primary text-primary-foreground text-xs px-3">
+                    Seu plano
+                  </Badge>
+                )}
+                {plan.badge && !isCurrentPlan && (
                   <Badge className="absolute -top-3 left-6 bg-accent text-accent-foreground text-xs px-3">
                     {plan.badge}
                   </Badge>
@@ -107,14 +116,16 @@ export function PlanCards({ onSubscribe }: PlanCardsProps) {
 
                 <Button
                   className={`w-full rounded-full h-11 font-medium ${
-                    plan.highlighted
+                    isCurrentPlan
+                      ? ""
+                      : plan.highlighted
                       ? "bg-accent hover:bg-accent/90 text-accent-foreground"
                       : ""
                   }`}
-                  variant={plan.highlighted ? "default" : "outline"}
+                  variant={isCurrentPlan ? "outline" : plan.highlighted ? "default" : "outline"}
                   onClick={() => onSubscribe(plan.id)}
                 >
-                  Assinar {plan.title}
+                  {isCurrentPlan ? "Gerenciar Assinatura" : `Assinar ${plan.title}`}
                 </Button>
               </motion.div>
             );
