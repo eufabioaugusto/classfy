@@ -290,7 +290,7 @@ export function useRewardSystem() {
     userId: string,
     contentId: string,
     currentPercent: number,
-    duration: number
+    watchedSeconds: number
   ) => {
     try {
       // Create unique key for this progress update
@@ -312,20 +312,26 @@ export function useRewardSystem() {
           .eq('content_id', contentId)
           .single();
 
+        // Clamp percent to 100
+        const clampedPercent = Math.min(Math.floor(currentPercent), 100);
+
         const progressData = {
           user_id: userId,
           content_id: contentId,
-          progress_percent: Math.floor(currentPercent),
-          last_position_seconds: Math.floor(duration),
-          completed: currentPercent >= 95,
-          completed_at: currentPercent >= 95 ? new Date().toISOString() : null,
+          progress_percent: clampedPercent,
+          last_position_seconds: Math.floor(watchedSeconds),
+          completed: clampedPercent >= 90,
+          completed_at: clampedPercent >= 90 ? new Date().toISOString() : null,
         };
 
         if (existingProgress) {
-          await supabase
-            .from('user_progress')
-            .update(progressData)
-            .eq('id', existingProgress.id);
+          // Only update if new progress is higher (prevent regression on re-watch)
+          if (clampedPercent > (existingProgress.progress_percent || 0)) {
+            await supabase
+              .from('user_progress')
+              .update(progressData)
+              .eq('id', existingProgress.id);
+          }
         } else {
           await supabase.from('user_progress').insert(progressData);
         }
@@ -340,7 +346,7 @@ export function useRewardSystem() {
           });
         }
 
-        if (currentPercent >= 95 && (!existingProgress || existingProgress.progress_percent < 95)) {
+        if (currentPercent >= 90 && (!existingProgress || existingProgress.progress_percent < 90)) {
           await processReward({
             actionKey: 'WATCH_100',
             userId,
@@ -349,7 +355,6 @@ export function useRewardSystem() {
           });
         }
       } finally {
-        // Remove from processing after a short delay
         setTimeout(() => {
           processingRewards.current.delete(progressKey);
         }, 1000);
