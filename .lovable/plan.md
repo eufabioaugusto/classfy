@@ -1,100 +1,67 @@
 
 
-# Revisao Geral - Quarta Bateria
+## Plano: Converter pontos de INTEGER para NUMERIC (decimal)
 
-## CRITICO
+### Problema
+As colunas `points_user` e `points_creator` na tabela `reward_actions_config` são do tipo **INTEGER**, impedindo valores decimais como 0.3. Além disso, a coluna `points` em `reward_events` também é INTEGER. Isso força valores mínimos de 1 ponto por ação, o que com poucos usuários resulta em valores R$ por ação muito altos.
 
-### 1. Studio.tsx mostra earnings com multiplicador hardcoded `* 2`
-Na linha 352, o card de Ganhos exibe `(stats.earnings * 2).toFixed(2)` com label "Ganhos (em dobro)". Isso e arbitrario, nao reflete nenhuma regra de negocio real e engana o creator mostrando o dobro do que realmente ganhou.
+**Os valores já foram atualizados** no banco (LIKE=1, COMMENT=1, etc.) pela migration anterior. O que falta é permitir decimais para granularidade maior.
 
-**Correcao**: Mostrar `stats.earnings` sem multiplicador, ou mostrar Performance Points se o sistema ja migrou.
+### Mudanças necessárias
 
-### 2. Studio.tsx faz 10+ queries sequenciais no dashboard
-`fetchDashboardData` faz ~10 queries separadas ao banco, sem `Promise.all`. Cada uma espera a anterior terminar. O dashboard do creator e lento desnecessariamente.
+**1. Migration: Alterar colunas de INTEGER para NUMERIC**
+- `reward_actions_config.points_user`: INTEGER → NUMERIC(10,2)
+- `reward_actions_config.points_creator`: INTEGER → NUMERIC(10,2)
+- `reward_events.points`: INTEGER → NUMERIC(10,2)
 
-**Correcao**: Agrupar queries independentes em `Promise.all`.
+**2. Migration: Atualizar valores para decimais**
+Nova tabela de valores proposta:
 
-### 3. Conta.tsx consulta tabela `system_config` que nao existe no schema
-A query em `Conta.tsx` busca `system_config.config_key = 'minimum_withdrawal_amount'`, mas a tabela definida no schema e `platform_settings` com coluna `key`. A query falha silenciosamente e o valor default 10 e sempre usado.
+| Ação | User | Creator |
+|------|------|---------|
+| VIEW_15S | 0.10 | 0.15 |
+| LIKE_CONTENT | 0.30 | 0.50 |
+| SAVE_CONTENT | 0.20 | 0.30 |
+| FAVORITE_CONTENT | 0.20 | 0.30 |
+| COMMENT_CONTENT | 0.80 | 0.50 |
+| SHARE_CONTENT | 0.80 | 1.50 |
+| WATCH_50 | 1.50 | 0.50 |
+| WATCH_100 | 3.00 | 1.00 |
+| SUBSCRIBE_CREATOR | 0.50 | 2.00 |
+| DAILY_LOGIN | 0.50 | 0 |
+| BINGE_WATCH | 3.00 | 0 |
+| FIRST_CONTENT_WEEK | 1.50 | 0 |
+| WEEKLY_STREAK | 5.00 | 0 |
+| PROFILE_COMPLETE | 2.00 | 0 |
+| CONTENT_APPROVED | 0 | 10.00 |
+| FIRST_UPLOAD | 0 | 20.00 |
+| COMPLETE_COURSE | 10.00 | 5.00 |
+| MILESTONE_100_VIEWS | 0 | 15.00 |
+| MILESTONE_500_VIEWS | 0 | 30.00 |
+| MILESTONE_1000_VIEWS | 0 | 50.00 |
 
-**Correcao**: Migrar para `platform_settings` com key correta.
+**3. Edge Function `process-reward`**
+- Remover `Math.floor()` dos cálculos de `userPoints` e `creatorPoints` (linhas 306, 366) para preservar decimais.
 
-### 4. Conta.tsx nao permite editar display_name nem bio
-Os campos "Nome de Exibicao" e "Email" estao `disabled` sem opcao de edicao. O usuario nao consegue atualizar seu proprio nome de exibicao apos o signup.
+**4. Edge Function `reverse-reward`**
+- Verificar que não trunca valores decimais (já usa NUMERIC para `performance_points`, apenas `points` precisa atenção).
 
-**Correcao**: Tornar display_name e bio editaveis com botao de salvar.
+**5. Frontend - `AdminRewards.tsx`**
+- Atualizar exibição das colunas "Pontos Usuário" e "Pontos Criador" para mostrar decimais (usar `.toFixed(2)` ou formatação inteligente).
+- No dialog de edição, permitir input de decimais (step="0.01").
 
----
+**6. Frontend - `PoolSimulator.tsx`**
+- Já usa valores do banco, vai funcionar automaticamente com decimais.
 
-## MEDIO
+**7. Frontend - `useRewardSystem.ts` / toast de recompensa**
+- Atualizar o toast para exibir pontos com decimais quando necessário.
 
-### 5. ContentCard faz RPC `is_content_boosted` para cada card (N+1)
-Cada ContentCard executa `supabase.rpc("is_content_boosted")` individualmente. Em paginas com 20+ cards, sao 20+ requests.
+**8. DB Function `check_view_milestones`**
+- Remover `FLOOR()` dos cálculos de `points_amt` (linha que faz `FLOOR(reward_config.points_creator * plan_mult)`) para preservar decimais.
 
-**Melhoria**: Criar batch check no componente pai ou usar uma query unica.
+### Resultado
+- Com 1 usuário: recebe 100% do pool (ex: R$ 160)
+- Com 1000 usuários: cada um recebe sua proporção do pool
+- Valores por ação ficam muito menores (0.10 vs 1), tornando o simulador e os totais mais realistas
+- A lógica proporcional não muda - apenas a granularidade dos pesos
 
-### 6. useRewardSystem `checkCourseCompletion` usa logica errada
-Na linha 236, busca lessons com `eq('category_id', courseId)` — mas lessons estao em `course_lessons` (nao em `contents` com `category_id`). A verificacao de conclusao de curso nunca funciona.
-
-**Correcao**: Buscar de `course_lessons` e checar `course_enrollments.completed_lessons`.
-
-### 7. Favoritos e Salvos nao filtram por `status = 'approved'`
-`Favoritos.tsx` e `Salvos.tsx` buscam conteudos via join sem filtrar status. Conteudos rejeitados ou pendentes aparecem se o usuario favoritou/salvou antes da rejeicao.
-
-**Correcao**: Adicionar filtro `.eq('contents.status', 'approved')` ou filtrar client-side.
-
-### 8. Studio.tsx nao inclui cursos nas stats do creator
-`totalContents`, `totalViews`, e `recentContents` so buscam de `contents`. Cursos criados pelo creator nao aparecem no dashboard.
-
-**Correcao**: Incluir queries em `courses` e somar os resultados.
-
-### 9. Studio `getRewardLabel` tem labels incompletas
-O mapeamento tem apenas 8 labels antigas. Faltam keys reais como `VIEW_15S`, `WATCH_50`, `DAILY_LOGIN`, `SAVE_CONTENT`, `FAVORITE_CONTENT`, etc.
-
-**Correcao**: Unificar com o mesmo mapeamento completo usado em Carteira.
-
----
-
-## BAIXO / MELHORIAS
-
-### 10. Auth.tsx nao mostra feedback de confirmacao de email
-Apos signup, o usuario e redirecionado para `/` sem aviso de que precisa confirmar o email. Se auto-confirm estiver desabilitado, o usuario nao consegue logar e nao sabe por que.
-
-**Melhoria**: Mostrar mensagem "Verifique seu email para confirmar a conta" apos signup bem-sucedido.
-
-### 11. Conta.tsx link do perfil usa `/@` mas rota e `/:username`
-Na linha 477, `navigate('/@${profile.creator_channel_name}')` inclui `@` no path. A rota definida em App.tsx e `/:username` — o `@` fica como parte do parametro, o que pode nao funcionar se CreatorProfile nao faz strip do `@`.
-
-**Correcao**: Verificar se CreatorProfile trata o `@` ou remover o prefixo na navegacao.
-
-### 12. Watch.tsx tem 1393 linhas — muito grande
-O componente WatchContent e massivo com logica de acesso, rewards, mini player, teatro mode, comments, notes, curriculum, related contents, e action states. Refatorar em hooks menores.
-
-**Melhoria**: Extrair logica em hooks como `useWatchContent`, `useWatchActions`, `useWatchRewards`.
-
----
-
-## Plano de Implementacao
-
-### Tarefa 1: Corrigir Studio Dashboard
-- Remover multiplicador `* 2` dos earnings
-- Paralelizar queries com `Promise.all`
-- Incluir cursos nas stats
-- Atualizar `getRewardLabel` com keys completas
-
-### Tarefa 2: Corrigir Conta.tsx
-- Migrar query de `system_config` para `platform_settings`
-- Tornar display_name e bio editaveis
-- Corrigir link do perfil com `@`
-
-### Tarefa 3: Corrigir Favoritos e Salvos
-- Filtrar por status approved nos joins
-
-### Tarefa 4: Corrigir useRewardSystem
-- Fix `checkCourseCompletion` para usar `course_lessons`
-
-### Tarefa 5: Auth feedback
-- Mostrar mensagem de confirmacao de email apos signup
-
-### Tarefa 6: Otimizar ContentCard boost check
-- Batch boost check no componente pai
