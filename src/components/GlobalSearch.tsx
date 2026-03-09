@@ -31,6 +31,7 @@ export function GlobalSearch({ isExploreMode, onModeChange }: GlobalSearchProps)
   const location = useLocation();
   
   const handleModeChange = (isExplore: boolean) => {
+    setMobileSheetOpen(false); // Always close mobile sheet
     if (location.pathname === "/") {
       onModeChange(isExplore);
     } else {
