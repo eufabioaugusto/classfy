@@ -144,7 +144,7 @@ export default function Shorts() {
       const remainingSlots = PAGE_SIZE - shortsData.length;
 
       // Fetch other shorts ordered by relevance (views_count desc)
-      const { data, error } = await supabase
+      let query = supabase
         .from("contents")
         .select(`
           id,
@@ -168,9 +168,12 @@ export default function Shorts() {
         `)
         .eq("content_type", "short")
         .eq("status", "approved")
-        .neq("id", id || "")
         .order("views_count", { ascending: false })
         .limit(remainingSlots > 0 ? remainingSlots : 0);
+
+      if (id) query = query.neq("id", id);
+
+      const { data, error } = await query;
 
       if (error) throw error;
 
@@ -195,7 +198,7 @@ export default function Shorts() {
   const fetchMoreShorts = async () => {
     try {
       setIsLoadingMore(true);
-      const { data, error } = await supabase
+      let moreQuery = supabase
         .from("contents")
         .select(`
           id,
@@ -219,9 +222,12 @@ export default function Shorts() {
         `)
         .eq("content_type", "short")
         .eq("status", "approved")
-        .neq("id", id || "")
         .order("views_count", { ascending: false })
         .range(shorts.length, shorts.length + PAGE_SIZE - 1);
+
+      if (id) moreQuery = moreQuery.neq("id", id);
+
+      const { data, error } = await moreQuery;
 
       if (error) throw error;
 
