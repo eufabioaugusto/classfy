@@ -121,11 +121,19 @@ export default function AdminProspects() {
 
   const fetchProspects = async () => {
     setLoading(true);
-    const { data, error } = await supabase
-      .from("prospects")
-      .select("*")
-      .order("score", { ascending: false });
-    if (!error) setProspects((data as Prospect[]) || []);
+    try {
+      const { data, error } = await (supabase as any)
+        .from("prospects")
+        .select("*")
+        .order("score", { ascending: false, nullsFirst: false });
+      if (error) {
+        console.error("Erro prospects:", error);
+      } else {
+        setProspects((data as Prospect[]) || []);
+      }
+    } catch (e) {
+      console.error("Erro inesperado:", e);
+    }
     setLoading(false);
   };
 
@@ -168,7 +176,7 @@ export default function AdminProspects() {
 
   const handleMarkDmQueued = async (prospect: Prospect) => {
     setSending(prospect.id);
-    const { error } = await supabase
+    const { error } = await (supabase as any)
       .from("prospects")
       .update({ status: "dm_queued", outreach_channel: "instagram" })
       .eq("id", prospect.id);
