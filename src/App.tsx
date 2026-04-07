@@ -31,6 +31,7 @@ const AdminTranscriptions = lazy(() => import("./pages/AdminTranscriptions"));
 const AdminFeaturedCreators = lazy(() => import("./pages/AdminFeaturedCreators"));
 const AdminWithdrawals = lazy(() => import("./pages/AdminWithdrawals"));
 const AdminSettings = lazy(() => import("./pages/AdminSettings"));
+const AdminProspects = lazy(() => import("./pages/AdminProspects"));
 const AdminUsers = lazy(() => import("./pages/AdminUsers"));
 const AdminDashboard = lazy(() => import("./pages/AdminDashboard"));
 const RewardsHistory = lazy(() => import("./pages/RewardsHistory"));
@@ -105,6 +106,7 @@ function AppContent() {
       <Route path="/admin/withdrawals" element={<AdminWithdrawals />} />
       <Route path="/admin/users" element={<AdminUsers />} />
       <Route path="/admin/settings" element={<AdminSettings />} />
+      <Route path="/admin/prospects" element={<AdminProspects />} />
       <Route path="/rewards-history" element={<RewardsHistory />} />
       <Route path="/recompensas" element={<Recompensas />} />
       <Route path="/carteira" element={<Carteira />} />

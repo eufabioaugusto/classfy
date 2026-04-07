@@ -85,6 +85,7 @@ const adminItems = [
   { title: "Recompensas", url: "/admin/rewards", icon: Trophy, countKey: null },
   { title: "Saques", url: "/admin/withdrawals", icon: DollarSign, countKey: "withdrawals" as const },
   { title: "Gerenciar Usuários", url: "/admin/users", icon: Users, countKey: null },
+  { title: "Prospecção", url: "/admin/prospects", icon: TrendingUp, countKey: null },
   { title: "Configurações", url: "/admin/settings", icon: Settings, countKey: null },
 ];
 
