@@ -45,15 +45,18 @@ function template(subject: string, preheader: string, bodyHtml: string): string 
           <tr>
             <td align="center" style="padding-bottom:24px;">
               <a href="${APP_URL}" style="text-decoration:none;">
-                <span style="font-size:26px;font-weight:700;color:#09090b;letter-spacing:-0.5px;">Classfy</span>
+                <span style="font-size:26px;font-weight:700;color:#09090b;letter-spacing:-0.5px;">Classfy</span><span style="font-size:26px;font-weight:700;color:#dc2626;">.</span>
               </a>
             </td>
           </tr>
 
           <!-- Card -->
           <tr>
-            <td style="background:#ffffff;border-radius:12px;padding:40px 40px 32px;box-shadow:0 1px 3px rgba(0,0,0,0.08);">
-              ${bodyHtml}
+            <td style="background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,0.08);">
+              <div style="height:4px;background:linear-gradient(90deg,#dc2626,#ef4444);"></div>
+              <div style="padding:40px 40px 32px;">
+                ${bodyHtml}
+              </div>
             </td>
           </tr>
 

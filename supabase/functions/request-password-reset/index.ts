@@ -63,10 +63,12 @@ serve(async (req) => {
       <table width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;">
         <tr><td align="center" style="padding-bottom:24px;">
           <a href="${APP_URL}" style="text-decoration:none;">
-            <span style="font-size:26px;font-weight:700;color:#09090b;letter-spacing:-0.5px;">Classfy</span>
+            <span style="font-size:26px;font-weight:700;color:#09090b;letter-spacing:-0.5px;">Classfy</span><span style="font-size:26px;font-weight:700;color:#dc2626;">.</span>
           </a>
         </td></tr>
-        <tr><td style="background:#ffffff;border-radius:12px;padding:40px 40px 32px;box-shadow:0 1px 3px rgba(0,0,0,0.08);">
+        <tr><td style="background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,0.08);">
+          <div style="height:4px;background:linear-gradient(90deg,#dc2626,#ef4444);"></div>
+          <div style="padding:40px 40px 32px;">
           <h1 style="margin:0 0 8px;font-size:22px;font-weight:700;color:#09090b;">Redefinir senha</h1>
           <p style="margin:0 0 4px;font-size:15px;color:#52525b;line-height:1.6;">
             Recebemos uma solicitação para redefinir a senha da conta associada a <strong>${email}</strong>.
@@ -85,6 +87,7 @@ serve(async (req) => {
             Ou copie e cole no navegador:<br/>
             <a href="${recoveryUrl}" style="color:#2563eb;">${recoveryUrl}</a>
           </p>
+          </div>
         </td></tr>
         <tr><td align="center" style="padding-top:24px;">
           <p style="margin:0;font-size:12px;color:#71717a;line-height:1.6;">
