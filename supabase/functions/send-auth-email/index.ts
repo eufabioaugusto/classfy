@@ -2,27 +2,8 @@ import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 
 const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY")!;
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
-const HOOK_SECRET = Deno.env.get("SEND_EMAIL_HOOK_SECRET");
 const FROM_EMAIL = "Classfy <noreply@classfy.com.br>";
 const APP_URL = "https://app.classfy.com.br";
-
-async function verifySignature(secret: string, body: string, signature: string): Promise<boolean> {
-  try {
-    // secret format: "v1,whsec_<base64>"
-    const base64Secret = secret.replace(/^v1,whsec_/, "");
-    const keyBytes = Uint8Array.from(atob(base64Secret), c => c.charCodeAt(0));
-    const key = await crypto.subtle.importKey(
-      "raw", keyBytes, { name: "HMAC", hash: "SHA-256" }, false, ["verify"]
-    );
-    // signature format: "v1=<hex>"
-    const hexSig = signature.replace(/^v1=/, "");
-    const sigBytes = new Uint8Array(hexSig.match(/.{2}/g)!.map(b => parseInt(b, 16)));
-    const bodyBytes = new TextEncoder().encode(body);
-    return await crypto.subtle.verify("HMAC", key, sigBytes, bodyBytes);
-  } catch {
-    return false;
-  }
-}
 
 interface HookPayload {
   user: {
@@ -202,15 +183,6 @@ function getEmailContent(payload: HookPayload): { subject: string; html: string 
 serve(async (req) => {
   try {
     const body = await req.text();
-
-    if (HOOK_SECRET) {
-      const signature = req.headers.get("x-supabase-signature") ?? "";
-      const valid = await verifySignature(HOOK_SECRET, body, signature);
-      if (!valid) {
-        return new Response(JSON.stringify({ error: "Invalid signature" }), { status: 401 });
-      }
-    }
-
     const payload: HookPayload = JSON.parse(body);
     const content = getEmailContent(payload);
 
