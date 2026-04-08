@@ -16,7 +16,7 @@ export function emailCard(subject: string, preheader: string, body: string): str
           </a>
         </td></tr>
         <tr><td style="background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,0.08);">
-          <div style="height:4px;background:linear-gradient(90deg,#dc2626,#ef4444);"></div>
+          <table width="100%" cellpadding="0" cellspacing="0"><tr><td height="4" bgcolor="#dc2626" style="background-color:#dc2626;font-size:0;line-height:0;">&nbsp;</td></tr></table>
           <div style="padding:40px 40px 32px;">${body}</div>
         </td></tr>
         <tr><td align="center" style="padding-top:24px;">

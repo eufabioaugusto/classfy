@@ -67,7 +67,7 @@ serve(async (req) => {
           </a>
         </td></tr>
         <tr><td style="background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,0.08);">
-          <div style="height:4px;background:linear-gradient(90deg,#dc2626,#ef4444);"></div>
+          <table width="100%" cellpadding="0" cellspacing="0"><tr><td height="4" bgcolor="#dc2626" style="background-color:#dc2626;font-size:0;line-height:0;">&nbsp;</td></tr></table>
           <div style="padding:40px 40px 32px;">
           <h1 style="margin:0 0 8px;font-size:22px;font-weight:700;color:#09090b;">Redefinir senha</h1>
           <p style="margin:0 0 4px;font-size:15px;color:#52525b;line-height:1.6;">
