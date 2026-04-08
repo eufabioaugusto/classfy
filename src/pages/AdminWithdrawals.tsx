@@ -176,6 +176,15 @@ export default function AdminWithdrawals() {
         message: `Seu saque de R$ ${selectedRequest.amount.toFixed(2)} foi aprovado e processado. Valor deduzido do saldo.`,
       });
 
+      // Send email
+      supabase.functions.invoke("send-transactional-email", {
+        body: {
+          type: "withdrawal_approved",
+          user_id: selectedRequest.user_id,
+          data: { amount: selectedRequest.amount, pix_key: selectedRequest.pix_key, admin_notes: adminNotes }
+        }
+      }).catch(console.error);
+
       toast({
         title: "Saque aprovado!",
         description: `Pagamento de R$ ${selectedRequest.amount.toFixed(2)} processado. Carteira atualizada.`,
@@ -220,6 +229,15 @@ export default function AdminWithdrawals() {
         title: "Saque Recusado",
         message: `Seu saque de R$ ${selectedRequest.amount.toFixed(2)} foi recusado. ${adminNotes ? `Motivo: ${adminNotes}` : ""}`,
       });
+
+      // Send email
+      supabase.functions.invoke("send-transactional-email", {
+        body: {
+          type: "withdrawal_rejected",
+          user_id: selectedRequest.user_id,
+          data: { amount: selectedRequest.amount, admin_notes: adminNotes }
+        }
+      }).catch(console.error);
 
       toast({
         title: "Saque recusado",

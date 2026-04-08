@@ -124,6 +124,11 @@ export default function AdminCreators() {
         console.error('Error creating notification:', notificationError);
       }
 
+      // Send email
+      supabase.functions.invoke('send-transactional-email', {
+        body: { type: 'creator_approved', user_id: request.user_id, data: { channel_name: request.channel_name } }
+      }).catch(console.error);
+
       await fetchRequests();
     } catch (error: any) {
       setError(error.message);

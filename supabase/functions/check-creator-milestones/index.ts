@@ -1,5 +1,8 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { emailCard, ctaButton, rewardBox, redBadge, sendEmail, APP_URL } from "../_shared/email-template.ts";
+
+const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY")!;
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -204,6 +207,31 @@ async function createNotification(supabase: any, creatorId: string, milestone: C
         message: `Parabéns! Você completou a meta "${milestone.title}". Resgate sua recompensa de ${milestone.points_reward} pontos e R$ ${milestone.value_reward.toFixed(2)}!`,
         is_read: false
       });
+
+    // Send email
+    try {
+      const { data: creatorAuth } = await supabase.auth.admin.getUserById(creatorId);
+      const { data: creatorProfile } = await supabase.from("profiles").select("display_name").eq("id", creatorId).single();
+      if (creatorAuth?.user?.email) {
+        const name = creatorProfile?.display_name || creatorAuth.user.email.split("@")[0];
+        const subject = `Meta alcançada: ${milestone.title} — Classfy`;
+        const html = emailCard(subject, `Você desbloqueou "${milestone.title}" e ganhou recompensas!`, `
+          <p style="margin:0 0 12px;">${redBadge("Conquista desbloqueada")}</p>
+          <h1 style="margin:8px 0;font-size:22px;font-weight:700;color:#09090b;">Meta alcançada! 🎯</h1>
+          <p style="margin:0 0 4px;font-size:15px;color:#52525b;line-height:1.6;">
+            Parabéns, <strong>${name}</strong>! Você completou a meta <strong>"${milestone.title}"</strong>.
+          </p>
+          ${rewardBox(milestone.points_reward, milestone.value_reward)}
+          <p style="margin:0 0 16px;font-size:14px;color:#52525b;line-height:1.6;">
+            Resgate sua recompensa na plataforma e continue crescendo!
+          </p>
+          ${ctaButton("Ver minhas metas", `${APP_URL}/studio/goals`)}
+        `);
+        await sendEmail(RESEND_API_KEY, creatorAuth.user.email, subject, html);
+      }
+    } catch (emailErr) {
+      console.error("Error sending milestone email:", emailErr);
+    }
   } catch (error) {
     console.error("Error creating notification:", error);
   }
