@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -6,11 +6,12 @@ import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { motion, AnimatePresence } from "framer-motion";
 import { supabase } from "@/integrations/supabase/client";
-import { 
-  Loader2, 
-  Play, 
-  GraduationCap, 
-  TrendingUp, 
+import TurnstileWidget from "@/components/TurnstileWidget";
+import {
+  Loader2,
+  Play,
+  GraduationCap,
+  TrendingUp,
   Wallet,
   Eye,
   EyeOff,
@@ -20,8 +21,11 @@ import {
   CheckCircle2
 } from "lucide-react";
 
+const TURNSTILE_SITE_KEY = import.meta.env.VITE_TURNSTILE_SITE_KEY as string;
+
 export default function Auth() {
   const [isLogin, setIsLogin] = useState(true);
+  const [isForgotPassword, setIsForgotPassword] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [displayName, setDisplayName] = useState("");
@@ -29,8 +33,39 @@ export default function Auth() {
   const [loading, setLoading] = useState(false);
   const [backgroundVideos, setBackgroundVideos] = useState<string[]>([]);
   const [currentVideoIndex, setCurrentVideoIndex] = useState(0);
+  const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
+  const [turnstileResetKey, setTurnstileResetKey] = useState(0);
   const { signIn, signUp } = useAuth();
   const { toast } = useToast();
+
+  const resetTurnstile = useCallback(() => {
+    setTurnstileToken(null);
+    setTurnstileResetKey(k => k + 1);
+  }, []);
+
+  const handleForgotPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!email) {
+      toast({ title: "Informe seu email", variant: "destructive" });
+      return;
+    }
+    setLoading(true);
+    try {
+      const { error } = await supabase.auth.resetPasswordForEmail(email, {
+        redirectTo: `${window.location.origin}/reset-password`,
+      });
+      if (error) throw error;
+      toast({
+        title: "Email enviado!",
+        description: "Verifique sua caixa de entrada (e spam) para redefinir sua senha.",
+      });
+      setIsForgotPassword(false);
+    } catch (error: any) {
+      toast({ title: "Erro", description: error.message, variant: "destructive" });
+    } finally {
+      setLoading(false);
+    }
+  };
 
   // Fetch random video from database (WeTransfer style - one random per page load)
   useEffect(() => {
@@ -65,8 +100,34 @@ export default function Auth() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    if (!turnstileToken) {
+      toast({
+        title: "Verificação necessária",
+        description: "Complete a verificação de segurança antes de continuar.",
+        variant: "destructive"
+      });
+      return;
+    }
+
     setLoading(true);
     try {
+      // Verify Turnstile token server-side
+      const { data: verifyData, error: verifyError } = await supabase.functions.invoke(
+        "verify-turnstile",
+        { body: { token: turnstileToken } }
+      );
+
+      if (verifyError || !verifyData?.success) {
+        toast({
+          title: "Verificação de segurança falhou",
+          description: "Por favor, tente novamente.",
+          variant: "destructive"
+        });
+        resetTurnstile();
+        return;
+      }
+
       if (isLogin) {
         const { error } = await signIn(email, password);
         if (error) {
@@ -75,6 +136,7 @@ export default function Auth() {
             description: error.message,
             variant: "destructive"
           });
+          resetTurnstile();
         }
       } else {
         if (!displayName.trim()) {
@@ -83,6 +145,7 @@ export default function Auth() {
             description: "Por favor, insira seu nome completo.",
             variant: "destructive"
           });
+          resetTurnstile();
           setLoading(false);
           return;
         }
@@ -93,6 +156,7 @@ export default function Auth() {
             description: error.message,
             variant: "destructive"
           });
+          resetTurnstile();
         } else {
           toast({
             title: "Conta criada! 🎉",
@@ -106,6 +170,7 @@ export default function Auth() {
         description: error.message,
         variant: "destructive"
       });
+      resetTurnstile();
     } finally {
       setLoading(false);
     }
@@ -273,7 +338,7 @@ export default function Auth() {
       </div>
 
       {/* Right Side - Form Area */}
-      <div className="w-full lg:w-1/2 flex items-center justify-center p-6 sm:p-12">
+      <div className="w-full lg:w-1/2 relative flex items-center justify-center p-6 sm:p-12">
         <motion.div 
           className="w-full max-w-md space-y-8"
           initial={{ opacity: 0, y: 20 }}
@@ -297,11 +362,70 @@ export default function Auth() {
             </p>
           </div>
 
+          {/* Forgot Password Form */}
+          <AnimatePresence>
+            {isForgotPassword && (
+              <motion.div
+                key="forgot"
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: 10 }}
+                transition={{ duration: 0.25 }}
+                className="absolute inset-0 flex items-center justify-center p-6 sm:p-12 bg-background z-10"
+              >
+                <div className="w-full max-w-md space-y-6">
+                  <div>
+                    <h2 className="text-2xl font-bold text-foreground">Redefinir senha</h2>
+                    <p className="mt-2 text-muted-foreground text-sm">
+                      Informe seu email e enviaremos um link para criar uma nova senha.
+                    </p>
+                  </div>
+                  <form onSubmit={handleForgotPassword} className="space-y-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="forgot-email" className="text-sm font-medium">Email</Label>
+                      <div className="relative">
+                        <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                        <Input
+                          id="forgot-email"
+                          type="email"
+                          placeholder="seu@email.com"
+                          value={email}
+                          onChange={(e) => setEmail(e.target.value)}
+                          required
+                          disabled={loading}
+                          className="pl-10 h-12 bg-muted/50 border-border/50 focus:bg-background"
+                        />
+                      </div>
+                    </div>
+                    <Button
+                      type="submit"
+                      className="w-full h-12 text-base font-semibold bg-primary hover:bg-primary/90"
+                      disabled={loading}
+                    >
+                      {loading ? (
+                        <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Enviando...</>
+                      ) : (
+                        "Enviar link de redefinição"
+                      )}
+                    </Button>
+                    <button
+                      type="button"
+                      onClick={() => setIsForgotPassword(false)}
+                      className="w-full text-sm text-muted-foreground hover:text-foreground transition-colors"
+                    >
+                      Voltar ao login
+                    </button>
+                  </form>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
           {/* Tabs */}
           <div className="flex p-1 bg-muted rounded-lg">
             <button
               type="button"
-              onClick={() => setIsLogin(true)}
+              onClick={() => { setIsLogin(true); resetTurnstile(); }}
               className={`flex-1 py-2.5 text-sm font-medium rounded-md transition-all ${
                 isLogin 
                   ? "bg-background text-foreground shadow-sm" 
@@ -312,7 +436,7 @@ export default function Auth() {
             </button>
             <button
               type="button"
-              onClick={() => setIsLogin(false)}
+              onClick={() => { setIsLogin(false); resetTurnstile(); }}
               className={`flex-1 py-2.5 text-sm font-medium rounded-md transition-all ${
                 !isLogin 
                   ? "bg-background text-foreground shadow-sm" 
@@ -409,6 +533,7 @@ export default function Auth() {
                 <div className="flex justify-end">
                   <button
                     type="button"
+                    onClick={() => setIsForgotPassword(true)}
                     className="text-sm text-primary hover:underline"
                   >
                     Esqueceu a senha?
@@ -416,10 +541,19 @@ export default function Auth() {
                 </div>
               )}
 
+              {TURNSTILE_SITE_KEY && (
+                <TurnstileWidget
+                  siteKey={TURNSTILE_SITE_KEY}
+                  onVerify={setTurnstileToken}
+                  onExpire={resetTurnstile}
+                  resetKey={turnstileResetKey}
+                />
+              )}
+
               <Button
                 type="submit"
                 className="w-full h-12 text-base font-semibold bg-primary hover:bg-primary/90 transition-all"
-                disabled={loading}
+                disabled={loading || (!!TURNSTILE_SITE_KEY && !turnstileToken)}
               >
                 {loading ? (
                   <>

@@ -53,6 +53,7 @@ const LiveBroadcast = lazy(() => import("./pages/LiveBroadcast"));
 const LiveWatch = lazy(() => import("./pages/LiveWatch"));
 
 const CreatorProfile = lazy(() => import("./pages/CreatorProfile"));
+const ResetPassword = lazy(() => import("./pages/ResetPassword"));
 const NotFound = lazy(() => import("./pages/NotFound"));
 
 const queryClient = new QueryClient();
@@ -86,6 +87,7 @@ function AppContent() {
     <>
       <Route path="/" element={<Index />} />
       <Route path="/auth" element={<Auth />} />
+      <Route path="/reset-password" element={<ResetPassword />} />
       <Route path="/conta" element={<Conta />} />
       <Route path="/historico" element={<Historico />} />
       <Route path="/favoritos" element={<Favoritos />} />

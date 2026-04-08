@@ -1,4 +1,4 @@
-project_id = "vhmurjknxaacjmvfkjbw"
+project_id = "jeqezibfollsvdknfebj"
 
 [functions.manage-subscription]
 verify_jwt = true
@@ -40,7 +40,7 @@ verify_jwt = true
 verify_jwt = true
 
 [functions.verify-subscription]
-verify_jwt = true
+verify_jwt = false
 
 [functions.stripe-webhook]
 verify_jwt = false
@@ -61,4 +61,7 @@ verify_jwt = true
 verify_jwt = true
 
 [functions.close-economic-cycle]
+verify_jwt = false
+
+[functions.verify-turnstile]
 verify_jwt = false
