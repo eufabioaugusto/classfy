@@ -1,3 +1,4 @@
+// v4
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
@@ -66,9 +67,8 @@ serve(async (req) => {
             <span style="font-size:26px;font-weight:700;color:#09090b;letter-spacing:-0.5px;">Classfy</span><span style="font-size:26px;font-weight:700;color:#dc2626;">.</span>
           </a>
         </td></tr>
-        <tr><td style="background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,0.08);">
-          <table width="100%" cellpadding="0" cellspacing="0"><tr><td height="4" bgcolor="#dc2626" style="background-color:#dc2626;font-size:0;line-height:0;">&nbsp;</td></tr></table>
-          <div style="padding:40px 40px 32px;">
+        <tr><td style="background:#ffffff;border-radius:12px;padding:40px 40px 32px;border-top:4px solid #dc2626;">
+          <div>
           <h1 style="margin:0 0 8px;font-size:22px;font-weight:700;color:#09090b;">Redefinir senha</h1>
           <p style="margin:0 0 4px;font-size:15px;color:#52525b;line-height:1.6;">
             Recebemos uma solicitação para redefinir a senha da conta associada a <strong>${email}</strong>.

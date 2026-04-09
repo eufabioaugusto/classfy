@@ -52,9 +52,8 @@ function template(subject: string, preheader: string, bodyHtml: string): string 
 
           <!-- Card -->
           <tr>
-            <td style="background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,0.08);">
-              <table width="100%" cellpadding="0" cellspacing="0"><tr><td height="4" bgcolor="#dc2626" style="background-color:#dc2626;font-size:0;line-height:0;">&nbsp;</td></tr></table>
-              <div style="padding:40px 40px 32px;">
+            <td style="background:#ffffff;border-radius:12px;padding:40px 40px 32px;border-top:4px solid #dc2626;">
+              <div>
                 ${bodyHtml}
               </div>
             </td>
