@@ -73,18 +73,12 @@ export const UpgradeModal = ({ open, onOpenChange, requiredPlan = "pro" }: Upgra
       >
         <ScrollArea className="h-full">
 
-          {/* ── Hero Header — works in both themes ── */}
-          <div className="relative overflow-hidden border-b border-border bg-gradient-to-b from-red-50 to-background dark:from-red-950/30 dark:to-background px-8 py-12 text-center">
-            {/* Subtle dot grid */}
-            <div
-              className="absolute inset-0 opacity-[0.06] dark:opacity-[0.05]"
-              style={{
-                backgroundImage: `radial-gradient(circle at 1px 1px, currentColor 1px, transparent 0)`,
-                backgroundSize: "28px 28px",
-              }}
-            />
+          {/* ── Hero Header — theme-safe ── */}
+          <div className="relative overflow-hidden border-b border-border bg-card px-8 py-12 text-center">
             {/* Top red accent bar */}
             <div className="absolute top-0 left-0 right-0 h-1 bg-red-600" />
+            {/* Subtle red tint overlay — works in both light and dark */}
+            <div className="absolute inset-0 bg-red-600/[0.04] pointer-events-none" />
 
             <div className="relative z-10 space-y-4 max-w-2xl mx-auto">
               <div className="flex items-center justify-center gap-2">
