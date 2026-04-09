@@ -126,8 +126,8 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
             setTimeout(() => {
               fetchUserProfile(session.user.id);
               
-              // Only check daily login on actual sign in, not token refresh
-              if (event === 'SIGNED_IN') {
+              // Only check daily login on actual sign in, not token refresh or password recovery
+              if (event === 'SIGNED_IN' && window.location.pathname !== '/reset-password') {
                 handleDailyLogin(session.user.id);
               }
               
@@ -149,11 +149,14 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       
       if (session?.user) {
         fetchUserProfile(session.user.id).finally(() => setLoading(false));
-        
-        // Only check daily login once on initial page load
-        if (!hasProcessedSession.current) {
+
+        // Only check daily login once on initial page load, and never on the reset-password page
+        // (opening a recovery link creates a session but is not a real login)
+        if (!hasProcessedSession.current && window.location.pathname !== '/reset-password') {
           hasProcessedSession.current = true;
           handleDailyLogin(session.user.id);
+        } else {
+          hasProcessedSession.current = true;
         }
         
         verifySubscription();

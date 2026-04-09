@@ -137,7 +137,9 @@ Deno.serve(async (req) => {
     }
 
     // STEP 1: ATOMIC FRAUD PREVENTION
-    const today = new Date().toISOString().split('T')[0];
+    // Use Brazil timezone (UTC-3) so the day boundary matches the user's local calendar
+    const brazilDate = new Date(Date.now() - 3 * 60 * 60 * 1000);
+    const today = brazilDate.toISOString().split('T')[0];
     let trackingKey: string;
     let trackingMetadata: Record<string, any> = { ...metadata };
 
@@ -219,8 +221,8 @@ Deno.serve(async (req) => {
     const dailyLimit = DAILY_ACTION_LIMITS[actionKey];
     
     if (dailyLimit) {
-      // Count how many times this action was used today by this user
-      const todayStart = new Date();
+      // Count how many times this action was used today by this user (Brazil UTC-3 day boundary)
+      const todayStart = new Date(Date.now() - 3 * 60 * 60 * 1000);
       todayStart.setUTCHours(0, 0, 0, 0);
       
       const { count: dailyCount } = await supabase
