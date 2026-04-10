@@ -33,6 +33,7 @@ import {
   ExternalLink,
   Copy,
   MessageCircle,
+  Play,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { GlobalLoader } from "@/components/GlobalLoader";
@@ -110,6 +111,7 @@ export default function AdminProspects() {
   const [prospects, setProspects] = useState<Prospect[]>([]);
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState<string | null>(null);
+  const [prospecting, setProspecting] = useState(false);
   const [search, setSearch] = useState("");
   const [filterStatus, setFilterStatus] = useState("all");
   const [filterTier, setFilterTier] = useState("all");
@@ -193,6 +195,25 @@ export default function AdminProspects() {
     const msg = getDmTemplate(prospect);
     navigator.clipboard.writeText(msg);
     toast({ title: "Mensagem copiada", description: "Cole no Instagram DM" });
+  };
+
+  const handleRunProspector = async () => {
+    setProspecting(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("run-prospector", {
+        body: { keywordsCount: 3, maxPerKeyword: 6 },
+      });
+      if (error) throw error;
+      toast({
+        title: `+${data.added} prospects adicionados`,
+        description: `${data.withEmail} e-mails · ${data.withIG} Instagram · ${data.filtered} filtrados`,
+      });
+      await fetchProspects();
+    } catch (e: any) {
+      toast({ title: "Erro ao prospectar", description: e.message, variant: "destructive" });
+    } finally {
+      setProspecting(false);
+    }
   };
 
   const handleMarkDmSent = async (prospect: Prospect) => {
@@ -295,8 +316,19 @@ export default function AdminProspects() {
               <SelectItem value="instagram">Instagram</SelectItem>
             </SelectContent>
           </Select>
-          <Button variant="outline" size="icon" onClick={fetchProspects}>
-            <RefreshCw className="w-4 h-4" />
+          <Button variant="outline" size="icon" onClick={fetchProspects} disabled={prospecting}>
+            <RefreshCw className={`w-4 h-4 ${prospecting ? "animate-spin" : ""}`} />
+          </Button>
+          <Button
+            onClick={handleRunProspector}
+            disabled={prospecting}
+            className="gap-2"
+          >
+            {prospecting ? (
+              <><RefreshCw className="w-4 h-4 animate-spin" /> Prospectando...</>
+            ) : (
+              <><Play className="w-4 h-4" /> Rodar Prospector</>
+            )}
           </Button>
           {selectedIds.size > 0 && (
             <Button onClick={handleBulkSend} className="gap-2">
