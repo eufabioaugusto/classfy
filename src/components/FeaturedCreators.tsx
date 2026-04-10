@@ -35,36 +35,26 @@ export const FeaturedCreators = ({ creators }: FeaturedCreatorsProps) => {
 
   if (creators.length === 0) return null;
 
-  const isCarousel = creators.length > 6;
-
   return (
     <section className="space-y-3 sm:space-y-4">
       <div className="flex items-center justify-between">
         <h2 className="text-lg sm:text-2xl font-bold text-foreground">Creators em Destaque</h2>
       </div>
 
-      {isCarousel ? (
-        <Carousel className="w-full">
-          <CarouselContent className="-ml-2 sm:-ml-4">
-            {creators.map((creator) => (
-              <CarouselItem
-                key={creator.id}
-                className="pl-2 sm:pl-4 basis-1/2 sm:basis-1/2 md:basis-1/3 lg:basis-1/4 xl:basis-1/5"
-              >
-                <CreatorCard creator={creator} onClick={() => handleClick(creator)} />
-              </CarouselItem>
-            ))}
-          </CarouselContent>
-          <CarouselPrevious className="-left-2 sm:-left-4 hidden sm:flex" />
-          <CarouselNext className="-right-2 sm:-right-4 hidden sm:flex" />
-        </Carousel>
-      ) : (
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-2 sm:gap-4">
+      <Carousel className="w-full">
+        <CarouselContent className="-ml-2 sm:-ml-4">
           {creators.map((creator) => (
-            <CreatorCard key={creator.id} creator={creator} onClick={() => handleClick(creator)} />
+            <CarouselItem
+              key={creator.id}
+              className="pl-2 sm:pl-4 basis-1/2 sm:basis-1/3 md:basis-1/4 lg:basis-1/5 xl:basis-1/6"
+            >
+              <CreatorCard creator={creator} onClick={() => handleClick(creator)} />
+            </CarouselItem>
           ))}
-        </div>
-      )}
+        </CarouselContent>
+        <CarouselPrevious className="-left-2 sm:-left-4 hidden sm:flex" />
+        <CarouselNext className="-right-2 sm:-right-4 hidden sm:flex" />
+      </Carousel>
     </section>
   );
 };
