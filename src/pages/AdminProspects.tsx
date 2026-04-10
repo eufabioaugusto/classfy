@@ -26,12 +26,13 @@ import {
   Send,
   Eye,
   Search,
-  Users,
   CheckCircle,
   Clock,
   XCircle,
   RefreshCw,
   ExternalLink,
+  Copy,
+  MessageCircle,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { GlobalLoader } from "@/components/GlobalLoader";
@@ -40,9 +41,10 @@ interface Prospect {
   id: string;
   channel_name: string;
   channel_url: string | null;
-  youtube_channel_id: string | null;
-  subscribers: number | null;
-  avg_views: number | null;
+  channel_id: string | null;
+  subscriber_count: number | null;
+  video_count: number | null;
+  view_count: number | null;
   niche: string | null;
   size_tier: string | null;
   score: number | null;
@@ -75,11 +77,11 @@ function getEmailTemplate(prospect: Prospect): string {
   const niche = prospect.niche && prospect.niche !== "geral" ? ` de ${prospect.niche}` : "";
 
   const templates: Record<string, string> = {
-    micro: `Oi, tudo bem?\n\nVi o canal ${name} e queria falar sobre algo que estamos construindo.\n\nA Classfy é uma plataforma de conhecimento onde criadores ganham de verdade — 40% de toda a receita da plataforma é distribuída mensalmente entre quem publica conteúdo.\n\nVocê estaria chegando no momento certo. Quem entra agora como Creator Fundador ajuda a moldar as regras e garante condições que não estarão disponíveis depois do lançamento público.\n\nSe quiser saber mais, acesse classfy.com.br ou responda esse e-mail.\n\nAbs,\nFabio — Classfy`,
-    pequeno: `Oi,\n\nVi o ${name} e queria fazer uma pergunta direta: quanto você ganhou com seu conteúdo no último mês?\n\nA maioria dos criadores${niche} ganha muito menos do que merece. A Classfy funciona diferente: 40% da receita total vai diretamente para os criadores, por fórmula pública.\n\nEstamos convidando Creators Fundadores — pessoas que entram antes de todo mundo.\n\nAcesse classfy.com.br ou responda aqui.\n\nAbs,\nFabio — Classfy`,
-    medio: `Oi,\n\nAcompanhei o ${name}${niche} e você claramente sabe criar conteúdo de qualidade.\n\nEstamos lançando a Classfy — 40% da receita total vai para criadores, por fórmula pública. Você pode calcular sua participação antes de receber. Nenhuma plataforma faz isso.\n\nTemos vagas de Creator Fundador abertas. Vale 10 minutos? classfy.com.br\n\nAbs,\nFabio — Classfy`,
-    grande: `Oi,\n\nVocê já passou pela frustração de ver seu CPM cair sem explicação? Estamos construindo a Classfy exatamente por isso.\n\n40% da receita total vai para criadores todo mês — fórmula pública, sem corte surpresa. Vi o ${name} e acredito que você seria um dos criadores que mais se beneficia desse modelo.\n\nEstamos convidando um grupo seleto como Creators Fundadores.\n\nclassfy.com.br\n\nAbs,\nFabio — Classfy`,
-    bigplayer: `Oi,\n\nDireto ao ponto: estou lançando a Classfy, plataforma de conhecimento com modelo econômico diferente.\n\n40% da receita total vai para criadores e alunos todo mês, por fórmula pública. Se a plataforma cresce, você cresce matematicamente junto.\n\nVi o ${name} e acredito que faz sentido conversar.\n\nclassfy.com.br\n\nAbs,\nFabio — Classfy`,
+    micro: `Encontramos o canal ${name} e gostaríamos de apresentar uma oportunidade.\n\nEstamos lançando a Classfy, uma plataforma de conhecimento com um modelo econômico diferente: 40% de toda a receita da plataforma é distribuída mensalmente entre os criadores, por fórmula pública e auditável.\n\nO ${name} tem um enorme potencial para fazer parte do nosso time de Embaixadores Fundadores — criadores que entram antes do lançamento público e ajudam a moldar as regras da plataforma.\n\nPara saber mais, acesse classfy.com.br ou responda este e-mail.\n\nAtenciosamente,\nEquipe Classfy\n\nEstamos à disposição para esclarecer qualquer dúvida sobre nossa proposta de parceria.`,
+    pequeno: `Acompanhamos o ${name} e temos uma pergunta direta: quanto você recebeu pelo seu conteúdo no último mês?\n\nA maioria dos criadores${niche} ganha muito menos do que merece. CPM arbitrário, comissões altas, algoritmo opaco — e nenhuma previsibilidade.\n\nA Classfy funciona diferente: 40% de toda a receita da plataforma vai diretamente para os criadores, todo mês, por fórmula pública. Você sabe exatamente quanto vai receber antes de receber.\n\nO ${name} tem grande potencial para fazer parte do nosso time de Embaixadores Fundadores — criadores que entram agora e ajudam a construir a plataforma conosco.\n\nPara entender melhor, acesse classfy.com.br ou responda este e-mail.\n\nAtenciosamente,\nEquipe Classfy\n\nEstamos à disposição para esclarecer qualquer dúvida sobre nossa proposta de parceria.`,
+    medio: `Acompanhamos o ${name} e reconhecemos a qualidade do conteúdo${niche}. Por isso, gostaríamos de fazer um convite.\n\nEstamos lançando a Classfy — uma plataforma onde 40% da receita total vai para criadores, por fórmula pública. Você calcula sua participação estimada antes de receber. Nenhuma outra plataforma oferece essa transparência.\n\nO ${name} tem o perfil que buscamos para nosso time de Embaixadores Fundadores: criadores que entram antes do lançamento público, com condições exclusivas e voz ativa nas decisões da plataforma.\n\nPara conhecer a proposta completa, acesse classfy.com.br ou responda este e-mail.\n\nAtenciosamente,\nEquipe Classfy\n\nEstamos à disposição para esclarecer qualquer dúvida sobre nossa proposta de parceria.`,
+    grande: `CPM caindo sem explicação. Algoritmo distribuindo menos. Receita imprevisível. Esses são os problemas que levaram à criação da Classfy.\n\nNosso modelo é simples e transparente: 40% da receita total da plataforma é distribuída todo mês entre os criadores ativos, por fórmula pública. Você acessa a fórmula, calcula sua participação estimada e recebe exatamente isso. Sem ajustes nos bastidores.\n\nO ${name} tem o perfil exato que buscamos para nosso time de Embaixadores Fundadores — criadores que entram antes do lançamento público e crescem junto com a plataforma.\n\nPara conhecer a proposta, acesse classfy.com.br ou responda este e-mail.\n\nAtenciosamente,\nEquipe Classfy\n\nEstamos à disposição para esclarecer qualquer dúvida sobre nossa proposta de parceria.`,
+    bigplayer: `O ${name} tem um papel importante no que estamos construindo.\n\nEstamos lançando a Classfy, uma plataforma de conhecimento com modelo econômico diferente: 40% de toda a receita vai para criadores todo mês, por fórmula pública. Sem cortes surpresa, sem ajustes nos bastidores. Se a plataforma cresce, os criadores crescem matematicamente junto.\n\nGostaríamos de convidar o ${name} para ser um dos nossos Embaixadores Fundadores — um grupo seleto de criadores que entram antes do lançamento público, com condições exclusivas e participação ativa na construção da plataforma.\n\nSe houver interesse, acesse classfy.com.br ou responda este e-mail.\n\nAtenciosamente,\nEquipe Classfy\n\nEstamos à disposição para esclarecer qualquer dúvida sobre nossa proposta de parceria.`,
   };
 
   return templates[tier] || templates.pequeno;
@@ -91,11 +93,11 @@ function getDmTemplate(prospect: Prospect): string {
   const niche = prospect.niche && prospect.niche !== "geral" ? ` de ${prospect.niche}` : "";
 
   const templates: Record<string, string> = {
-    micro: `Oi! Vi o canal ${name} e queria falar sobre algo que estamos construindo. A Classfy é uma plataforma onde criadores ganham de verdade — 40% da receita distribuída por fórmula pública. Posso te mandar mais detalhes? 🙏`,
-    pequeno: `Oi! Acompanhei o ${name}${niche} e queria fazer uma pergunta: quanto você ganhou com seu conteúdo no último mês? A Classfy distribui 40% da receita diretamente pra criadores. Vale uma conversa rápida? 👇`,
-    medio: `Oi! Vi o ${name} e você cria conteúdo de qualidade${niche}. Estou lançando a Classfy — 40% da receita vai pra criadores por fórmula pública. Temos vagas de Creator Fundador. Quer saber mais? 🚀`,
-    grande: `Oi! Você cria conteúdo incrível no ${name}. Direto ao ponto: estou lançando a Classfy. 40% da receita total vai pra criadores todo mês — fórmula pública, sem corte surpresa. Posso te mandar os detalhes? 👊`,
-    bigplayer: `Oi! Admiro muito o trabalho do ${name}. Estou lançando a Classfy — 40% da receita da plataforma vai direto pra criadores por fórmula pública. Tem interesse em conversar sobre uma parceria como Creator Fundador?`,
+    micro: `Olá! Acompanhamos o canal ${name} e acreditamos que vocês têm um enorme potencial para fazer parte do nosso time de Embaixadores Fundadores.\n\nEstamos lançando a Classfy — plataforma onde 40% da receita é distribuída entre criadores por fórmula pública. Quem entra agora participa das decisões iniciais.\n\nGostaria de receber mais detalhes?`,
+    pequeno: `Olá! Acompanhamos o ${name}${niche} e temos uma pergunta: você sabe exatamente quanto vai receber pelo seu conteúdo no próximo mês?\n\nA Classfy torna isso previsível — 40% da receita distribuída por fórmula pública, sem surpresas. O ${name} tem perfil para ser um dos nossos Embaixadores Fundadores.\n\nPosso enviar mais detalhes?`,
+    medio: `Olá! Reconhecemos a qualidade do conteúdo${niche} do ${name} e gostaríamos de fazer um convite.\n\nEstamos lançando a Classfy — 40% da receita vai para criadores por fórmula pública. Você calcula sua participação antes de receber.\n\nAcreditamos que o ${name} tem grande potencial para ser um dos nossos Embaixadores Fundadores. Há interesse em saber mais?`,
+    grande: `Olá! O ${name} tem o perfil exato que buscamos para nosso time de Embaixadores Fundadores.\n\nEstamos lançando a Classfy — 40% da receita total vai para criadores todo mês, por fórmula pública e transparente. Sem cortes surpresa, sem algoritmo opaco.\n\nPosso enviar mais detalhes sobre a proposta de parceria?`,
+    bigplayer: `Olá! O ${name} tem um papel importante no que estamos construindo na Classfy.\n\nDistribuímos 40% da receita para criadores todo mês, por fórmula pública — crescemos juntos, matematicamente. Gostaríamos de convidar vocês para uma parceria como Embaixador Fundador.\n\nHá interesse em conhecer a proposta?`,
   };
 
   return templates[tier] || templates.pequeno;
@@ -182,6 +184,30 @@ export default function AdminProspects() {
       .eq("id", prospect.id);
     if (!error) {
       toast({ title: "Adicionado à fila de DM", description: `@${prospect.instagram_handle}` });
+      await fetchProspects();
+    }
+    setSending(null);
+  };
+
+  const handleCopyDm = (prospect: Prospect) => {
+    const msg = getDmTemplate(prospect);
+    navigator.clipboard.writeText(msg);
+    toast({ title: "Mensagem copiada", description: "Cole no Instagram DM" });
+  };
+
+  const handleMarkDmSent = async (prospect: Prospect) => {
+    setSending(prospect.id);
+    const { error } = await (supabase as any)
+      .from("prospects")
+      .update({
+        status: "dm_sent",
+        outreach_channel: "instagram",
+        contacted_at: new Date().toISOString(),
+        template_used: `instagram_${prospect.size_tier}`,
+      })
+      .eq("id", prospect.id);
+    if (!error) {
+      toast({ title: "Marcado como enviado", description: `@${prospect.instagram_handle}` });
       await fetchProspects();
     }
     setSending(null);
@@ -336,7 +362,7 @@ export default function AdminProspects() {
                             <div>
                               <div className="font-medium leading-tight">{p.channel_name}</div>
                               <div className="text-xs text-muted-foreground">
-                                {p.subscribers ? `${(p.subscribers / 1000).toFixed(p.subscribers >= 1000 ? 1 : 0)}${p.subscribers >= 1000 ? "k" : ""} subs` : "—"}
+                                {p.subscriber_count ? `${p.subscriber_count >= 1000 ? (p.subscriber_count / 1000).toFixed(1) + "k" : p.subscriber_count} subs` : "—"}
                                 {p.niche && p.niche !== "geral" ? ` · ${p.niche}` : ""}
                               </div>
                             </div>
@@ -384,7 +410,7 @@ export default function AdminProspects() {
                           )}
                         </td>
                         <td className="px-4 py-3">
-                          <div className="flex items-center justify-end gap-1">
+                          <div className="flex items-center justify-end gap-1 flex-wrap">
                             {/* Preview */}
                             {(p.status === "pending" || p.status === "dm_queued") && (
                               <Button
@@ -409,27 +435,42 @@ export default function AdminProspects() {
                                 ) : (
                                   <Send className="w-3 h-3" />
                                 )}
-                                Enviar
+                                Enviar e-mail
                               </Button>
                             )}
-                            {/* Marcar para DM */}
-                            {p.status === "pending" && !p.contact_email && p.instagram_handle && (
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                className="h-7 gap-1 text-xs"
-                                onClick={() => handleMarkDmQueued(p)}
-                                disabled={sending === p.id}
-                              >
-                                <Instagram className="w-3 h-3" />
-                                Fila DM
-                              </Button>
-                            )}
-                            {/* DM na fila */}
-                            {p.status === "dm_queued" && (
-                              <Badge variant="outline" className="text-xs text-blue-400 border-blue-500/30">
-                                Aguarda script
-                              </Badge>
+                            {/* DM manual: copiar + abrir + marcar enviado */}
+                            {p.instagram_handle && (p.status === "pending" || p.status === "dm_queued" || p.status === "no_email") && (
+                              <>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  className="h-7 gap-1 text-xs"
+                                  onClick={() => handleCopyDm(p)}
+                                >
+                                  <Copy className="w-3 h-3" />
+                                  Copiar DM
+                                </Button>
+                                <a
+                                  href={`https://ig.me/m/${p.instagram_handle}`}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                >
+                                  <Button size="sm" variant="outline" className="h-7 gap-1 text-xs text-pink-400 border-pink-500/30 hover:border-pink-400">
+                                    <MessageCircle className="w-3 h-3" />
+                                    Abrir DM
+                                  </Button>
+                                </a>
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  className="h-7 gap-1 text-xs text-muted-foreground"
+                                  onClick={() => handleMarkDmSent(p)}
+                                  disabled={sending === p.id}
+                                >
+                                  {sending === p.id ? <RefreshCw className="w-3 h-3 animate-spin" /> : <CheckCircle className="w-3 h-3" />}
+                                  Enviado
+                                </Button>
+                              </>
                             )}
                           </div>
                         </td>
@@ -479,8 +520,28 @@ export default function AdminProspects() {
               <div className="bg-muted/20 rounded-lg p-4 text-sm whitespace-pre-wrap leading-relaxed border">
                 {previewTemplate}
               </div>
-              <div className="flex gap-2 justify-end">
+              <div className="flex gap-2 justify-end flex-wrap">
                 <Button variant="outline" onClick={() => setPreviewProspect(null)}>Fechar</Button>
+                {previewProspect.instagram_handle && (
+                  <>
+                    <Button
+                      variant="outline"
+                      className="gap-2"
+                      onClick={() => handleCopyDm(previewProspect)}
+                    >
+                      <Copy className="w-4 h-4" /> Copiar DM
+                    </Button>
+                    <a
+                      href={`https://ig.me/m/${previewProspect.instagram_handle}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      <Button variant="outline" className="gap-2 text-pink-400 border-pink-500/30">
+                        <MessageCircle className="w-4 h-4" /> Abrir DM
+                      </Button>
+                    </a>
+                  </>
+                )}
                 {previewProspect.status === "pending" && previewProspect.contact_email && (
                   <Button
                     onClick={async () => {
@@ -490,7 +551,7 @@ export default function AdminProspects() {
                     disabled={sending === previewProspect.id}
                     className="gap-2"
                   >
-                    <Send className="w-4 h-4" /> Confirmar envio
+                    <Send className="w-4 h-4" /> Confirmar e-mail
                   </Button>
                 )}
               </div>
