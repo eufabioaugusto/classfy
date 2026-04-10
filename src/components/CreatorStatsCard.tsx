@@ -47,7 +47,9 @@ export const CreatorStatsCard = ({ userId, collapsed }: CreatorStatsCardProps) =
           .select("*", { count: "exact", head: true })
           .eq("creator_id", userId);
 
-        const level = Math.floor(totalPoints / 1000) + 1;
+        const getPointsForLevel = (n: number) => 500 * n * (n - 1) / 2;
+        let level = 1;
+        while (getPointsForLevel(level + 1) <= totalPoints) level++;
 
         setStats({
           totalPoints,
@@ -67,8 +69,11 @@ export const CreatorStatsCard = ({ userId, collapsed }: CreatorStatsCardProps) =
     }
   }, [userId]);
 
-  const pointsInCurrentLevel = Math.round((stats.totalPoints % 1000) * 100) / 100;
-  const progressToNextLevel = (pointsInCurrentLevel / 1000) * 100;
+  const getPointsForLevel = (n: number) => 500 * n * (n - 1) / 2;
+  const pointsAtCurrentLevel = getPointsForLevel(stats.level);
+  const pointsNeededForNext = getPointsForLevel(stats.level + 1) - pointsAtCurrentLevel;
+  const pointsInCurrentLevel = stats.totalPoints - pointsAtCurrentLevel;
+  const progressToNextLevel = (pointsInCurrentLevel / pointsNeededForNext) * 100;
 
   if (loading) {
     return (
@@ -92,7 +97,7 @@ export const CreatorStatsCard = ({ userId, collapsed }: CreatorStatsCardProps) =
   }
 
   const nextLevel = stats.level + 1;
-  const remaining = Math.round(1000 - pointsInCurrentLevel);
+  const remaining = Math.ceil(pointsNeededForNext - pointsInCurrentLevel);
 
   return (
     <Card className="border-border/50 bg-card overflow-hidden">
@@ -106,7 +111,7 @@ export const CreatorStatsCard = ({ userId, collapsed }: CreatorStatsCardProps) =
             <div className="flex items-baseline justify-between">
               <span className="text-sm font-semibold text-foreground">Nível {stats.level}</span>
               <span className="text-[10px] text-muted-foreground tabular-nums">
-                {stats.totalPoints.toLocaleString('pt-BR', { maximumFractionDigits: 0 })} XP
+                {stats.totalPoints.toLocaleString('pt-BR', { maximumFractionDigits: 0 })} pts
               </span>
             </div>
             <div className="mt-1.5 h-1.5 bg-muted rounded-full overflow-hidden">
@@ -116,7 +121,7 @@ export const CreatorStatsCard = ({ userId, collapsed }: CreatorStatsCardProps) =
               />
             </div>
             <p className="text-[10px] text-muted-foreground mt-1 tabular-nums">
-              {remaining.toLocaleString('pt-BR')} XP para nível {nextLevel}
+              {remaining.toLocaleString('pt-BR')} pts para nível {nextLevel}
             </p>
           </div>
         </div>

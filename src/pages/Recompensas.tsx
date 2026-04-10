@@ -324,7 +324,7 @@ export default function Recompensas() {
                 <Separator className="my-3" />
                 <div className="space-y-1">
                   <div className="flex justify-between text-sm">
-                    <span className="text-muted-foreground">Pontos</span>
+                    <span className="text-muted-foreground">PP deste ciclo</span>
                     <span className="font-semibold">{stats.performancePoints.toLocaleString()}</span>
                   </div>
                   <div className="flex justify-between text-sm">
@@ -333,7 +333,7 @@ export default function Recompensas() {
                   </div>
                 </div>
                 <p className="text-xs text-muted-foreground mt-3">
-                  Distribuição mensal proporcional aos seus pontos de performance
+                  PP reiniciam todo mês — distribuição proporcional ao pool de recompensas
                 </p>
               </CardContent>
             </Card>

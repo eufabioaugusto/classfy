@@ -285,12 +285,12 @@ export function useCreatorMilestones(creatorId?: string) {
           user_id: creatorId,
           type: 'reward',
           title: '🎉 Meta alcançada!',
-          message: `Você resgatou "${milestone.title}" e ganhou ${milestone.points_reward} XP e +${ppAmount} Performance Points!`
+          message: `Você resgatou "${milestone.title}" e ganhou +${milestone.points_reward} pontos de nível e +${ppAmount} PP no pool mensal!`
         });
 
       toast({
         title: '🎉 Meta alcançada!',
-        description: `+${milestone.points_reward} XP e +${ppAmount} Performance Points acumulados no pool mensal`,
+        description: `+${milestone.points_reward} pontos de nível · +${ppAmount} PP acumulados no pool mensal`,
       });
 
       // Refresh milestones
