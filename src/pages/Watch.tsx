@@ -1022,15 +1022,6 @@ function WatchContent() {
             <div className="w-full">
               <div className={`flex gap-4 sm:gap-6 p-3 sm:p-6 ${theaterMode ? 'flex-col' : 'flex-col lg:flex-row'}`}>
                 <div className={`min-w-0 space-y-3 sm:space-y-4 ${theaterMode ? 'w-full' : 'flex-1'}`}>
-                  {/* Study Toolbar */}
-                  <div className="flex items-center gap-2 bg-card/50 backdrop-blur-sm border border-border rounded-lg p-2">
-                    <StudyToolbar
-                      activePanel={activeStudyPanel}
-                      onPanelChange={setActiveStudyPanel}
-                      disabled={!hasAccess}
-                    />
-                  </div>
-
                   {/* Access Blocked Overlay - shown when user doesn't have access */}
                   {!hasAccess && accessBlockedReason ? (
                     <AccessBlockedOverlay
@@ -1059,6 +1050,13 @@ function WatchContent() {
                       seekToTime={seekToTime}
                       theaterMode={theaterMode}
                       onTheaterModeToggle={handleTheaterModeToggle}
+                      toolbarSlot={
+                        <StudyToolbar
+                          activePanel={activeStudyPanel}
+                          onPanelChange={setActiveStudyPanel}
+                          disabled={!hasAccess}
+                        />
+                      }
                     />
                   ) : !isCourse ? (
                     <div className="relative">
@@ -1079,6 +1077,13 @@ function WatchContent() {
                         seekToTime={seekToTime}
                         theaterMode={theaterMode}
                         onTheaterModeToggle={handleTheaterModeToggle}
+                        toolbarSlot={
+                          <StudyToolbar
+                            activePanel={activeStudyPanel}
+                            onPanelChange={setActiveStudyPanel}
+                            disabled={!hasAccess}
+                          />
+                        }
                       />
                       {/* Autoplay Next Overlay */}
                       <AutoplayNextOverlay

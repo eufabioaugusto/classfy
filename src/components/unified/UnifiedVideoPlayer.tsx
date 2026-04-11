@@ -48,6 +48,8 @@ export interface UnifiedVideoPlayerProps {
   onTheaterModeToggle?: () => void;
   showNoteButton?: boolean;
   className?: string;
+  /** Slot para toolbar de ferramentas (aparece como overlay no topo no hover) */
+  toolbarSlot?: React.ReactNode;
 }
 
 export function UnifiedVideoPlayer({
@@ -62,6 +64,7 @@ export function UnifiedVideoPlayer({
   onTheaterModeToggle,
   showNoteButton = true,
   className,
+  toolbarSlot,
 }: UnifiedVideoPlayerProps) {
   const { user } = useAuth();
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -487,6 +490,7 @@ export function UnifiedVideoPlayer({
         className={cn(
           "relative overflow-hidden bg-black rounded-xl",
           compact && "rounded-none",
+          theaterMode && "max-h-[calc(100vh-7rem)]",
           className
         )}
         onMouseMove={resetControlsTimeout}
@@ -495,7 +499,11 @@ export function UnifiedVideoPlayer({
         {isVideo ? (
           <video
             ref={videoRef}
-            className={cn("w-full", compact ? "h-full object-contain" : "aspect-video")}
+            className={cn(
+              "w-full",
+              compact ? "h-full object-contain" : "aspect-video",
+              theaterMode && "max-h-[calc(100vh-7rem)] object-contain"
+            )}
             src={content.file_url}
             poster={content.thumbnail_url}
             onClick={togglePlay}
@@ -520,6 +528,20 @@ export function UnifiedVideoPlayer({
             </div>
             <audio ref={audioRef} src={content.file_url} />
           </>
+        )}
+
+        {/* Toolbar overlay — topo, aparece com os controles */}
+        {toolbarSlot && (
+          <div
+            className={cn(
+              "absolute top-0 left-0 right-0 z-20 transition-opacity duration-300",
+              showControls ? "opacity-100" : "opacity-0 pointer-events-none"
+            )}
+          >
+            <div className="bg-gradient-to-b from-black/80 to-transparent px-3 pt-3 pb-6">
+              {toolbarSlot}
+            </div>
+          </div>
         )}
 
         {/* Buffering spinner */}

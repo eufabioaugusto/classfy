@@ -100,9 +100,9 @@ export function StudyToolbar({ activePanel, onPanelChange, compact = false, disa
     );
   }
 
-  // Desktop: Compact horizontal bar
+  // Desktop: Compact horizontal bar (rendered inside player overlay — dark bg)
   return (
-    <div className="flex items-center gap-2 p-1">
+    <div className="flex items-center gap-1.5 flex-wrap">
       {tools.map((tool) => {
         const isActive = activePanel === tool.id;
         const Icon = tool.icon;
@@ -113,28 +113,26 @@ export function StudyToolbar({ activePanel, onPanelChange, compact = false, disa
             onClick={() => handleToggle(tool.id)}
             disabled={disabled}
             className={cn(
-              "group relative flex items-center gap-2 px-4 py-2 rounded-xl transition-all duration-200",
-              "border backdrop-blur-sm",
+              "group flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition-all duration-200",
               "hover:scale-[1.02] active:scale-[0.98]",
-              isActive 
-                ? `bg-gradient-to-br ${tool.activeGradient} border-border shadow-md`
-                : "bg-card/50 border-border/50 hover:bg-card hover:border-border"
+              isActive
+                ? "bg-white/20 backdrop-blur-sm shadow-md"
+                : "bg-white/10 backdrop-blur-sm hover:bg-white/20",
+              disabled && "opacity-40 cursor-not-allowed"
             )}
           >
             <Icon className={cn(
-              "w-4 h-4 transition-colors flex-shrink-0",
-              isActive ? tool.iconColor : "text-muted-foreground group-hover:text-foreground"
+              "w-3.5 h-3.5 flex-shrink-0 transition-colors",
+              isActive ? tool.iconColor : "text-white/70 group-hover:text-white"
             )} />
-            
             <span className={cn(
-              "text-sm font-medium whitespace-nowrap",
-              isActive ? "text-foreground" : "text-foreground/90"
+              "text-xs font-medium whitespace-nowrap",
+              isActive ? "text-white" : "text-white/80 group-hover:text-white"
             )}>
               {tool.label}
             </span>
-            
             {isActive && (
-              <Sparkles className="w-3 h-3 text-primary animate-pulse flex-shrink-0" />
+              <Sparkles className="w-2.5 h-2.5 text-white/80 animate-pulse flex-shrink-0" />
             )}
           </button>
         );
