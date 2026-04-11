@@ -442,6 +442,13 @@ export default function AdminDashboard() {
           />
 
           <QuickAccessCard
+            title="Waitlist LP"
+            description="Candidaturas de Embaixadores Fundadores"
+            icon={Crown}
+            href="/admin/waitlist"
+          />
+
+          <QuickAccessCard
             title="Configurações"
             description="Configurar parâmetros do sistema"
             icon={Settings}
