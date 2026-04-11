@@ -125,6 +125,11 @@ export default {
             transform: "translateY(100%) scale(0.95)",
           },
         },
+        "ping-once": {
+          "0%": { transform: "scale(0.8)", opacity: "1" },
+          "60%": { transform: "scale(1.2)", opacity: "0.8" },
+          "100%": { transform: "scale(1.5)", opacity: "0" },
+        },
       },
       animation: {
         "accordion-down": "accordion-down 0.2s ease-out",
@@ -133,6 +138,7 @@ export default {
         "scale-in": "scale-in 0.2s ease-out",
         "toast-in": "toast-in 0.35s cubic-bezier(0.16, 1, 0.3, 1)",
         "toast-out": "toast-out 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards",
+        "ping-once": "ping-once 0.5s ease-out forwards",
       },
     },
   },
