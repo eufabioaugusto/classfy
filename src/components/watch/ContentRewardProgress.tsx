@@ -34,38 +34,45 @@ interface Props {
   liveStates?: LiveStates;
 }
 
-// Particle burst rendered per dot
-function DotBurst({ isActive }: { isActive: boolean }) {
-  const particles = useRef(
-    Array.from({ length: 7 }, (_, i) => ({
-      id: i,
-      angle: (360 / 7) * i + Math.random() * 25 - 12,
-      distance: 14 + Math.random() * 10,
-      size: 3 + Math.random() * 2,
-      delay: Math.random() * 0.08,
-    }))
-  ).current;
+const BURST_PARTICLES = Array.from({ length: 8 }, (_, i) => ({
+  id: i,
+  angle: (360 / 8) * i + (Math.random() * 20 - 10),
+  distance: 20 + Math.random() * 12,
+  size: 4 + Math.random() * 3,
+  delay: Math.random() * 0.08,
+}));
 
+function DotBurst({ isActive }: { isActive: boolean }) {
   return (
     <AnimatePresence>
       {isActive && (
-        <div className="absolute inset-0 pointer-events-none flex items-center justify-center overflow-visible">
-          {particles.map((p) => {
+        <div
+          className="absolute pointer-events-none z-20"
+          style={{ inset: 0, overflow: "visible", top: 0, left: 0, right: 0, bottom: 0 }}
+        >
+          {BURST_PARTICLES.map((p) => {
             const rad = (p.angle * Math.PI) / 180;
             return (
               <motion.div
                 key={p.id}
-                className="absolute rounded-full bg-primary"
-                style={{ width: p.size, height: p.size }}
+                className="absolute rounded-full bg-red-500"
+                style={{
+                  width: p.size,
+                  height: p.size,
+                  top: "50%",
+                  left: "50%",
+                  marginTop: -p.size / 2,
+                  marginLeft: -p.size / 2,
+                }}
                 initial={{ scale: 0, x: 0, y: 0, opacity: 1 }}
                 animate={{
-                  scale: [0, 1.3, 0.7],
+                  scale: [0, 1.4, 0.6],
                   x: Math.cos(rad) * p.distance,
                   y: Math.sin(rad) * p.distance,
                   opacity: [1, 1, 0],
                 }}
                 exit={{ opacity: 0 }}
-                transition={{ duration: 0.45, delay: p.delay, ease: "easeOut" }}
+                transition={{ duration: 0.5, delay: p.delay, ease: "easeOut" }}
               />
             );
           })}
@@ -207,16 +214,16 @@ export function ContentRewardProgress({ contentId, refreshTrigger, liveStates }:
   const allDone = availablePP === 0;
 
   return (
-    <div className="flex items-center gap-3 px-3 py-2 rounded-lg bg-card/60 border border-border/40 backdrop-blur-sm">
+    <div className="flex items-center gap-3 px-3 py-2 rounded-lg bg-card/60 border border-border/40 backdrop-blur-sm" style={{ overflow: "visible" }}>
       {/* PP earned */}
       <div className="flex items-center gap-1.5 shrink-0">
-        <Zap className={cn("w-3.5 h-3.5", earnedPP > 0 ? "text-amber-400" : "text-muted-foreground")} />
+        <Zap className={cn("w-3.5 h-3.5", earnedPP > 0 ? "text-red-500" : "text-muted-foreground")} />
         <motion.span
           key={earnedPP}
-          initial={{ scale: earnedPP > 0 ? 1.3 : 1, color: earnedPP > 0 ? "rgb(251 191 36)" : undefined }}
+          initial={{ scale: earnedPP > 0 ? 1.35 : 1 }}
           animate={{ scale: 1 }}
           transition={{ duration: 0.3, ease: "easeOut" }}
-          className={cn("text-sm font-semibold tabular-nums", earnedPP > 0 ? "text-amber-400" : "text-muted-foreground")}
+          className={cn("text-sm font-semibold tabular-nums", earnedPP > 0 ? "text-red-500" : "text-muted-foreground")}
         >
           +{earnedPP} PP
         </motion.span>
@@ -225,14 +232,15 @@ export function ContentRewardProgress({ contentId, refreshTrigger, liveStates }:
       <div className="w-px h-4 bg-border/60 shrink-0" />
 
       {/* Action dots */}
-      <div className="flex items-center gap-2 flex-1">
+      <div className="flex items-center gap-2 flex-1" style={{ overflow: "visible" }}>
         {actions.map((action) => {
           const Icon = action.icon;
           const isBursting = burstKeys.has(action.key);
           return (
             <div
               key={action.key}
-              className="group relative flex items-center justify-center"
+              className="group relative"
+              style={{ overflow: "visible" }}
               title={`${action.label}${action.points > 0 ? ` · +${action.points} PP` : ""}`}
             >
               <DotBurst isActive={isBursting} />
@@ -242,7 +250,7 @@ export function ContentRewardProgress({ contentId, refreshTrigger, liveStates }:
                 className={cn(
                   "w-6 h-6 rounded-full flex items-center justify-center transition-colors duration-300",
                   action.earned
-                    ? "bg-primary/15 text-primary"
+                    ? "bg-red-500/15 text-red-500"
                     : "bg-muted/50 text-muted-foreground/40"
                 )}
               >
@@ -255,7 +263,7 @@ export function ContentRewardProgress({ contentId, refreshTrigger, liveStates }:
                   {action.label}
                 </span>
                 {action.points > 0 && (
-                  <span className={cn("ml-1.5 font-medium", action.earned ? "text-amber-400" : "text-muted-foreground")}>
+                  <span className={cn("ml-1.5 font-medium", action.earned ? "text-red-500" : "text-muted-foreground")}>
                     +{action.points} PP
                   </span>
                 )}
