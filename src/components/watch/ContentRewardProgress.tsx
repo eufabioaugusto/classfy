@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, useCallback } from "react";
 import { Eye, Heart, Bookmark, MessageCircle, CheckCircle2, PlayCircle, Zap } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { supabase } from "@/integrations/supabase/client";
@@ -22,6 +22,8 @@ const TRACKED_ACTIONS = [
   { key: "COMMENT_CONTENT",label: "Comentou",      icon: MessageCircle },
 ];
 
+const WATCH_KEYS = new Set(["VIEW_15S", "WATCH_50", "WATCH_100", "COMMENT_CONTENT"]);
+
 interface LiveStates {
   isLiked: boolean;
   isSaved: boolean;
@@ -34,12 +36,13 @@ interface Props {
   liveStates?: LiveStates;
 }
 
-const BURST_PARTICLES = Array.from({ length: 8 }, (_, i) => ({
+// Stable particle config (no re-randomize on re-render)
+const PARTICLES = Array.from({ length: 8 }, (_, i) => ({
   id: i,
-  angle: (360 / 8) * i + (Math.random() * 20 - 10),
-  distance: 20 + Math.random() * 12,
-  size: 4 + Math.random() * 3,
-  delay: Math.random() * 0.08,
+  angle: (360 / 8) * i + (i % 2 === 0 ? 8 : -8),
+  distance: 20 + (i % 3) * 6,
+  size: 4 + (i % 2) * 2,
+  delay: i * 0.02,
 }));
 
 function DotBurst({ isActive }: { isActive: boolean }) {
@@ -48,9 +51,9 @@ function DotBurst({ isActive }: { isActive: boolean }) {
       {isActive && (
         <div
           className="absolute pointer-events-none z-20"
-          style={{ inset: 0, overflow: "visible", top: 0, left: 0, right: 0, bottom: 0 }}
+          style={{ inset: 0, overflow: "visible" }}
         >
-          {BURST_PARTICLES.map((p) => {
+          {PARTICLES.map((p) => {
             const rad = (p.angle * Math.PI) / 180;
             return (
               <motion.div
@@ -66,10 +69,10 @@ function DotBurst({ isActive }: { isActive: boolean }) {
                 }}
                 initial={{ scale: 0, x: 0, y: 0, opacity: 1 }}
                 animate={{
-                  scale: [0, 1.4, 0.6],
+                  scale: [0, 1.4, 0.5],
                   x: Math.cos(rad) * p.distance,
                   y: Math.sin(rad) * p.distance,
-                  opacity: [1, 1, 0],
+                  opacity: [1, 0.9, 0],
                 }}
                 exit={{ opacity: 0 }}
                 transition={{ duration: 0.5, delay: p.delay, ease: "easeOut" }}
@@ -87,59 +90,62 @@ export function ContentRewardProgress({ contentId, refreshTrigger, liveStates }:
   const [actions, setActions] = useState<ActionState[]>([]);
   const [earnedPP, setEarnedPP] = useState(0);
   const [initialLoading, setInitialLoading] = useState(true);
-
-  // Per-dot burst state
   const [burstKeys, setBurstKeys] = useState<Set<string>>(new Set());
-  const prevEarnedRef = useRef<Record<string, boolean>>({});
 
-  // Trigger burst when dot transitions false → true
-  useEffect(() => {
-    if (actions.length === 0) return;
-    const triggered: string[] = [];
-    actions.forEach(a => {
-      const was = prevEarnedRef.current[a.key] ?? false;
-      if (!was && a.earned) triggered.push(a.key);
-      prevEarnedRef.current[a.key] = a.earned;
-    });
+  // Keep a ref to current actions for use inside async load
+  const actionsRef = useRef<ActionState[]>([]);
+  actionsRef.current = actions;
 
-    if (triggered.length === 0) return;
-
+  const triggerBurst = useCallback((keys: string[]) => {
+    if (keys.length === 0) return;
     setBurstKeys(prev => {
       const next = new Set(prev);
-      triggered.forEach(k => next.add(k));
+      keys.forEach(k => next.add(k));
       return next;
     });
-
-    const t = setTimeout(() => {
+    setTimeout(() => {
       setBurstKeys(prev => {
         const next = new Set(prev);
-        triggered.forEach(k => next.delete(k));
+        keys.forEach(k => next.delete(k));
         return next;
       });
-    }, 600);
+    }, 650);
+  }, []);
 
-    return () => clearTimeout(t);
-  }, [actions]);
-
-  // Initial load + PP refresh on trigger (delay para banco commitar)
+  // Initial load
   useEffect(() => {
     if (!user || !contentId) return;
-    if (refreshTrigger === undefined || refreshTrigger === 0) {
-      load(true);
-    } else {
-      const t = setTimeout(() => load(false), 400);
-      return () => clearTimeout(t);
-    }
-  }, [user, contentId, refreshTrigger]);
+    load(true);
+  }, [user, contentId]);
 
-  // Live dot state update — sem DB, instantâneo
+  // Refresh after action (with delay for DB commit) — only burst watch milestones
   useEffect(() => {
-    if (!liveStates || actions.length === 0) return;
-    setActions(prev => prev.map(a => {
+    if (!refreshTrigger || refreshTrigger === 0) return;
+    if (!user || !contentId) return;
+    const t = setTimeout(() => load(false), 400);
+    return () => clearTimeout(t);
+  }, [refreshTrigger]);
+
+  // Live dot update for LIKE/SAVE — detect gain and burst instantly
+  useEffect(() => {
+    if (!liveStates || actionsRef.current.length === 0) return;
+
+    const prev = actionsRef.current;
+    const toTrigger: string[] = [];
+
+    const wasLiked = prev.find(a => a.key === "LIKE_CONTENT")?.earned ?? false;
+    const wasSaved = prev.find(a => a.key === "SAVE_CONTENT")?.earned ?? false;
+
+    if (!wasLiked && liveStates.isLiked) toTrigger.push("LIKE_CONTENT");
+    if (!wasSaved && liveStates.isSaved) toTrigger.push("SAVE_CONTENT");
+
+    setActions(current => current.map(a => {
       if (a.key === "LIKE_CONTENT") return { ...a, earned: liveStates.isLiked };
       if (a.key === "SAVE_CONTENT") return { ...a, earned: liveStates.isSaved };
       return a;
     }));
+
+    triggerBurst(toTrigger);
   }, [liveStates?.isLiked, liveStates?.isSaved]);
 
   async function load(isInitial: boolean) {
@@ -183,7 +189,6 @@ export function ContentRewardProgress({ contentId, refreshTrigger, liveStates }:
         COMMENT_CONTENT: (commentResult.data?.length ?? 0) > 0,
       };
 
-      // PP: sum only active actions
       const activeEvents = (eventsResult.data || []).filter(e => {
         if (e.action_key === "LIKE_CONTENT") return earnedMap.LIKE_CONTENT;
         if (e.action_key === "SAVE_CONTENT") return earnedMap.SAVE_CONTENT;
@@ -196,6 +201,16 @@ export function ContentRewardProgress({ contentId, refreshTrigger, liveStates }:
         earned: earnedMap[a.key] ?? false,
         points: configMap[a.key] ?? 0,
       }));
+
+      // On refresh (not initial load): burst only newly-earned watch/comment milestones
+      if (!isInitial) {
+        const prev = actionsRef.current;
+        const newlyEarned = built
+          .filter(a => WATCH_KEYS.has(a.key))
+          .filter(a => a.earned && !(prev.find(x => x.key === a.key)?.earned ?? false))
+          .map(a => a.key);
+        triggerBurst(newlyEarned);
+      }
 
       setActions(built);
       setEarnedPP(Math.round(totalPP * 10) / 10);
@@ -214,7 +229,10 @@ export function ContentRewardProgress({ contentId, refreshTrigger, liveStates }:
   const allDone = availablePP === 0;
 
   return (
-    <div className="flex items-center gap-3 px-3 py-2 rounded-lg bg-card/60 border border-border/40 backdrop-blur-sm" style={{ overflow: "visible" }}>
+    <div
+      className="flex items-center gap-3 px-3 py-2 rounded-lg bg-card/60 border border-border/40 backdrop-blur-sm"
+      style={{ overflow: "visible" }}
+    >
       {/* PP earned */}
       <div className="flex items-center gap-1.5 shrink-0">
         <Zap className={cn("w-3.5 h-3.5", earnedPP > 0 ? "text-red-500" : "text-muted-foreground")} />
@@ -245,7 +263,7 @@ export function ContentRewardProgress({ contentId, refreshTrigger, liveStates }:
             >
               <DotBurst isActive={isBursting} />
               <motion.div
-                animate={isBursting ? { scale: [1, 1.35, 1] } : {}}
+                animate={isBursting ? { scale: [1, 1.4, 1] } : {}}
                 transition={{ duration: 0.3, ease: "easeOut" }}
                 className={cn(
                   "w-6 h-6 rounded-full flex items-center justify-center transition-colors duration-300",
