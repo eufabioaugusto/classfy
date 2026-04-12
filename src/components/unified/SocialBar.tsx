@@ -41,6 +41,7 @@ interface SocialBarProps {
   onAddToStudy?: () => void;
   showCreator?: boolean;
   compact?: boolean;
+  onAction?: () => void;
 }
 
 export function SocialBar({
@@ -54,6 +55,7 @@ export function SocialBar({
   onAddToStudy,
   showCreator = true,
   compact = false,
+  onAction,
 }: SocialBarProps) {
   const { user } = useAuth();
   const navigate = useNavigate();
@@ -114,7 +116,7 @@ export function SocialBar({
             <Button
               variant="secondary"
               size="sm"
-              onClick={toggleLike}
+              onClick={() => { toggleLike(); onAction?.(); }}
               className={cn(
                 "gap-1.5 sm:gap-2 rounded-full h-8 sm:h-9",
                 compact ? "px-2.5" : "px-3 sm:px-4"
@@ -162,7 +164,7 @@ export function SocialBar({
           <Button
             variant="secondary"
             size="sm"
-            onClick={toggleSave}
+            onClick={() => { toggleSave(); onAction?.(); }}
             className={cn(
               "gap-1.5 sm:gap-2 rounded-full h-8 sm:h-9",
               compact ? "px-2.5" : "px-3 sm:px-4",
@@ -180,7 +182,7 @@ export function SocialBar({
           <Button
             variant="secondary"
             size="sm"
-            onClick={toggleFavorite}
+            onClick={() => { toggleFavorite(); onAction?.(); }}
             className={cn(
               "gap-1.5 sm:gap-2 rounded-full h-8 sm:h-9",
               compact ? "px-2.5" : "px-3 sm:px-4",

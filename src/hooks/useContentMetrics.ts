@@ -13,9 +13,10 @@ interface MetricsState {
 interface UseContentMetricsProps {
   contentId: string;
   duration: number;
+  onMilestone?: () => void;
 }
 
-export function useContentMetrics({ contentId, duration }: UseContentMetricsProps) {
+export function useContentMetrics({ contentId, duration, onMilestone }: UseContentMetricsProps) {
   const { user } = useAuth();
   const { processReward, trackProgress } = useRewardSystem();
   const [metricsRecorded, setMetricsRecorded] = useState<MetricsState>({
@@ -153,17 +154,20 @@ export function useContentMetrics({ contentId, duration }: UseContentMetricsProp
         metadata: { watch_time: realWatchTime },
       });
       setMetricsRecorded((prev) => ({ ...prev, view15s: true }));
+      onMilestone?.();
     }
 
     // Half metric - user must have actually watched >= 50% of the content
     if (!metricsRecorded.half && realPercent >= 50) {
       await recordMetric("half");
+      onMilestone?.();
     }
 
     // Complete metric - user must have actually watched >= 90% of the content
     if (!metricsRecorded.complete && realPercent >= 90) {
       await recordMetric("complete");
       await checkBingeWatch();
+      onMilestone?.();
     }
 
     // Track progress every 5 seconds of REAL watch time (throttled)

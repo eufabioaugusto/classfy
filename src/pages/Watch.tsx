@@ -110,6 +110,8 @@ function WatchContent() {
   const [isPurchased, setIsPurchased] = useState(false);
   const [showAddToStudyModal, setShowAddToStudyModal] = useState(false);
   const [notesRefreshTrigger, setNotesRefreshTrigger] = useState(0);
+  const [rewardRefreshTrigger, setRewardRefreshTrigger] = useState(0);
+  const triggerRewardRefresh = () => setRewardRefreshTrigger((n) => n + 1);
   const [seekToTime, setSeekToTime] = useState<number | null>(null);
   const { processReward, handleLike, handleSave, handleFavorite, reverseReward } = useRewardSystem();
   
@@ -1048,6 +1050,7 @@ function WatchContent() {
                       mode="watch"
                       onTimeUpdate={handleTimeUpdate}
                       onNoteCreated={() => setNotesRefreshTrigger((prev) => prev + 1)}
+                      onMilestone={triggerRewardRefresh}
                       seekToTime={seekToTime}
                       theaterMode={theaterMode}
                       onTheaterModeToggle={handleTheaterModeToggle}
@@ -1075,6 +1078,7 @@ function WatchContent() {
                         onTimeUpdate={handleTimeUpdate}
                         onVideoEnded={handleVideoEnd}
                         onNoteCreated={() => setNotesRefreshTrigger((prev) => prev + 1)}
+                        onMilestone={triggerRewardRefresh}
                         seekToTime={seekToTime}
                         theaterMode={theaterMode}
                         onTheaterModeToggle={handleTheaterModeToggle}
@@ -1097,7 +1101,7 @@ function WatchContent() {
 
                   {/* Reward progress bar */}
                   {hasAccess && user && !isCourse && (
-                    <ContentRewardProgress contentId={content.id} />
+                    <ContentRewardProgress contentId={content.id} refreshTrigger={rewardRefreshTrigger} />
                   )}
 
                   {/* Title */}
@@ -1146,6 +1150,7 @@ function WatchContent() {
                         hasAccess={hasAccess}
                         onAddToStudy={() => setShowAddToStudyModal(true)}
                         showCreator={true}
+                        onAction={triggerRewardRefresh}
                       />
                     </div>
                   )}

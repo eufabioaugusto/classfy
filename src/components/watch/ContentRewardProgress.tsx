@@ -23,9 +23,10 @@ const TRACKED_ACTIONS = [
 
 interface Props {
   contentId: string;
+  refreshTrigger?: number;
 }
 
-export function ContentRewardProgress({ contentId }: Props) {
+export function ContentRewardProgress({ contentId, refreshTrigger }: Props) {
   const { user } = useAuth();
   const [actions, setActions] = useState<ActionState[]>([]);
   const [earnedPP, setEarnedPP] = useState(0);
@@ -34,7 +35,7 @@ export function ContentRewardProgress({ contentId }: Props) {
   useEffect(() => {
     if (!user || !contentId) return;
     load();
-  }, [user, contentId]);
+  }, [user, contentId, refreshTrigger]);
 
   async function load() {
     setLoading(true);

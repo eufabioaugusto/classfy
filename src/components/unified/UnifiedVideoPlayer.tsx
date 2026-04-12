@@ -50,6 +50,8 @@ export interface UnifiedVideoPlayerProps {
   className?: string;
   /** Slot para toolbar de ferramentas (aparece como overlay no topo no hover) */
   toolbarSlot?: React.ReactNode;
+  /** Callback disparado quando um milestone de progresso é atingido (15s, 50%, 90%) */
+  onMilestone?: () => void;
 }
 
 export function UnifiedVideoPlayer({
@@ -65,6 +67,7 @@ export function UnifiedVideoPlayer({
   showNoteButton = true,
   className,
   toolbarSlot,
+  onMilestone,
 }: UnifiedVideoPlayerProps) {
   const { user } = useAuth();
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -100,6 +103,7 @@ export function UnifiedVideoPlayer({
   const { handleTimeUpdate: trackMetrics } = useContentMetrics({
     contentId: content.content_id ?? content.id,
     duration: content.duration_seconds || duration,
+    onMilestone,
   });
 
   const mediaRef = content.content_type === "podcast" ? audioRef : videoRef;
