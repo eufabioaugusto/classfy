@@ -94,6 +94,8 @@ export function UnifiedVideoPlayer({
   const [clickAnimation, setClickAnimation] = useState<"play" | "pause" | null>(null);
   const [hoverTime, setHoverTime] = useState<number | null>(null);
   const [hoverX, setHoverX] = useState(0);
+  const [isDragging, setIsDragging] = useState(false);
+  const [dragPct, setDragPct] = useState(0);
 
   const controlsTimeoutRef = useRef<NodeJS.Timeout>();
   const volumeTimeoutRef = useRef<NodeJS.Timeout>();
@@ -382,6 +384,41 @@ export function UnifiedVideoPlayer({
     }
   }, []);
 
+  const getProgressPct = useCallback((clientX: number) => {
+    if (!progressRef.current || duration === 0) return 0;
+    const rect = progressRef.current.getBoundingClientRect();
+    return Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+  }, [duration]);
+
+  // Drag handlers
+  useEffect(() => {
+    if (!isDragging) return;
+    const onMove = (e: MouseEvent) => {
+      const pct = getProgressPct(e.clientX);
+      setDragPct(pct);
+      const media = mediaRef.current;
+      if (media && duration > 0) {
+        media.currentTime = pct * duration;
+        setCurrentTime(pct * duration);
+      }
+    };
+    const onUp = (e: MouseEvent) => {
+      const pct = getProgressPct(e.clientX);
+      const media = mediaRef.current;
+      if (media && duration > 0) {
+        media.currentTime = pct * duration;
+        setCurrentTime(pct * duration);
+      }
+      setIsDragging(false);
+    };
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
+    return () => {
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+    };
+  }, [isDragging, duration, getProgressPct]);
+
   const handleSeek = (e: React.ChangeEvent<HTMLInputElement>) => {
     const media = mediaRef.current;
     if (!media) return;
@@ -484,7 +521,8 @@ export function UnifiedVideoPlayer({
     return `${m}:${s.toString().padStart(2, "0")}`;
   };
 
-  const playedPct = duration > 0 ? (currentTime / duration) * 100 : 0;
+  const displayPct = isDragging ? dragPct * 100 : (duration > 0 ? (currentTime / duration) * 100 : 0);
+  const playedPct = displayPct;
   const bufferedPct = duration > 0 ? (buffered / duration) * 100 : 0;
 
   return (
@@ -585,6 +623,12 @@ export function UnifiedVideoPlayer({
               onMouseMove={handleProgressHover}
               onMouseLeave={handleProgressLeave}
               onClick={handleProgressClick}
+              onMouseDown={(e) => {
+                e.preventDefault();
+                const pct = getProgressPct(e.clientX);
+                setDragPct(pct);
+                setIsDragging(true);
+              }}
             >
               {/* Track */}
               <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 h-1 group-hover:h-1.5 transition-all duration-150 bg-white/20 rounded-full overflow-hidden">
@@ -595,14 +639,17 @@ export function UnifiedVideoPlayer({
                 />
                 {/* Played */}
                 <div
-                  className="absolute inset-y-0 left-0 bg-primary rounded-full"
+                  className="absolute inset-y-0 left-0 bg-red-500 rounded-full"
                   style={{ width: `${playedPct}%` }}
                 />
               </div>
 
               {/* Thumb */}
               <div
-                className="absolute top-1/2 -translate-y-1/2 w-3 h-3 bg-white rounded-full shadow-lg opacity-0 group-hover:opacity-100 transition-opacity duration-150 pointer-events-none"
+                className={cn(
+                  "absolute top-1/2 -translate-y-1/2 w-3 h-3 bg-red-500 rounded-full shadow-lg transition-opacity duration-150 pointer-events-none",
+                  isDragging ? "opacity-100 scale-125" : "opacity-0 group-hover:opacity-100"
+                )}
                 style={{ left: `calc(${playedPct}% - 6px)` }}
               />
 
@@ -702,9 +749,9 @@ export function UnifiedVideoPlayer({
                       step="0.05"
                       value={isMuted ? 0 : volume}
                       onChange={(e) => changeVolume(parseFloat(e.target.value))}
-                      className="w-full h-1 appearance-none cursor-pointer rounded-full"
+                      className="w-full h-1 appearance-none cursor-pointer rounded-full [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-red-500 [&::-webkit-slider-thumb]:border-0 [&::-webkit-slider-thumb]:cursor-pointer [&::-moz-range-thumb]:w-3 [&::-moz-range-thumb]:h-3 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-red-500 [&::-moz-range-thumb]:border-0"
                       style={{
-                        background: `linear-gradient(to right, white 0%, white ${(isMuted ? 0 : volume) * 100}%, rgba(255,255,255,0.3) ${(isMuted ? 0 : volume) * 100}%, rgba(255,255,255,0.3) 100%)`
+                        background: `linear-gradient(to right, rgb(239 68 68) 0%, rgb(239 68 68) ${(isMuted ? 0 : volume) * 100}%, rgba(255,255,255,0.3) ${(isMuted ? 0 : volume) * 100}%, rgba(255,255,255,0.3) 100%)`
                       }}
                     />
                   </div>

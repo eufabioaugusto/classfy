@@ -113,13 +113,13 @@ export const CreatorStatsCard = ({ userId, collapsed }: CreatorStatsCardProps) =
         </div>
 
         {/* Saldo */}
-        <div className="px-3 py-2">
+        <div className="px-3 py-2 min-w-0">
           <div className="flex items-center gap-1.5 mb-0.5">
             <Wallet className="h-3 w-3 text-muted-foreground" />
             <span className="text-[10px] text-muted-foreground uppercase tracking-wide font-medium">Saldo</span>
           </div>
-          <span className="text-sm font-bold text-foreground tabular-nums">
-            R$ {stats.balance.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+          <span className="text-sm font-bold text-foreground tabular-nums whitespace-nowrap">
+            R$&nbsp;{stats.balance.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
           </span>
         </div>
       </div>

@@ -297,7 +297,7 @@ export function ContentRewardProgress({ contentId, refreshTrigger, liveStates }:
         <>
           <div className="w-px h-4 bg-border/60 shrink-0" />
           <span className="text-xs text-muted-foreground shrink-0">
-            até +{availablePP} PP
+            Ganhe até +{availablePP} PP
           </span>
         </>
       )}
