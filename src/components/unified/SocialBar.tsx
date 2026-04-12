@@ -225,7 +225,7 @@ export function SocialBar({
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel onClick={cancelUnlike}>Cancelar</AlertDialogCancel>
-            <AlertDialogAction onClick={confirmUnlike} className="bg-destructive hover:bg-destructive/90">
+            <AlertDialogAction onClick={() => { confirmUnlike(); onAction?.(); }} className="bg-destructive hover:bg-destructive/90">
               Remover like
             </AlertDialogAction>
           </AlertDialogFooter>
