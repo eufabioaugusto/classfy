@@ -222,9 +222,9 @@ export function ContentRewardProgress({ contentId, refreshTrigger, liveStates }:
   if (initialLoading) return null;
   if (actions.length === 0) return null;
 
-  const availablePP = actions
-    .filter(a => !a.earned && a.points > 0)
-    .reduce((sum, a) => sum + a.points, 0);
+  const availablePP = Math.round(
+    actions.filter(a => !a.earned && a.points > 0).reduce((sum, a) => sum + a.points, 0) * 10
+  ) / 10;
 
   const allDone = availablePP === 0;
 

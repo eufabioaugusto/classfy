@@ -184,11 +184,11 @@ function DesktopMiniPlayer() {
         {/* Progress Bar */}
         <div className="absolute bottom-0 left-0 right-0 h-1 bg-white/30">
           <div
-            className="h-full bg-primary transition-all"
+            className="h-full bg-red-500 transition-all"
             style={{ width: `${progressPercent}%` }}
           />
           <div
-            className="absolute top-1/2 -translate-y-1/2 w-3 h-3 bg-primary rounded-full"
+            className="absolute top-1/2 -translate-y-1/2 w-3 h-3 bg-red-500 rounded-full"
             style={{ left: `${progressPercent}%`, transform: `translateX(-50%) translateY(-50%)` }}
           />
         </div>
