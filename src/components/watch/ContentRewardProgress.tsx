@@ -40,39 +40,68 @@ export function ContentRewardProgress({ contentId, refreshTrigger }: Props) {
   async function load() {
     setLoading(true);
     try {
-      // Fetch PP config and earned events in parallel
-      const [configResult, eventsResult, trackingResult] = await Promise.all([
+      const uid = user!.id;
+
+      // Fetch config + current real state of each reversible action in parallel
+      const [configResult, eventsResult, likeResult, saveResult, favoriteResult, commentResult, trackingResult] = await Promise.all([
         supabase
           .from("reward_actions_config")
           .select("action_key, points_user")
           .in("action_key", TRACKED_ACTIONS.map(a => a.key))
           .eq("active", true),
+        // PP total earned (reward_events never deleted even on unlike — reflects historical PP)
         supabase
           .from("reward_events")
           .select("action_key, points")
-          .eq("user_id", user!.id)
+          .eq("user_id", uid)
           .eq("content_id", contentId),
+        // Reversible: current like state
+        supabase.from("actions").select("id").eq("user_id", uid).eq("content_id", contentId).eq("type", "LIKE").maybeSingle(),
+        // Reversible: current save state
+        supabase.from("saved_contents").select("id").eq("user_id", uid).eq("content_id", contentId).maybeSingle(),
+        // Reversible: current favorite state
+        supabase.from("favorites").select("id").eq("user_id", uid).eq("content_id", contentId).maybeSingle(),
+        // Comment: check if user has commented
+        supabase.from("comments").select("id").eq("user_id", uid).eq("content_id", contentId).limit(1),
+        // Permanent: VIEW_15S, WATCH_50, WATCH_100 via tracking
         supabase
           .from("reward_action_tracking")
           .select("action_key")
-          .eq("user_id", user!.id)
+          .eq("user_id", uid)
           .like("action_key", `%${contentId}%`),
       ]);
 
       const configMap: Record<string, number> = {};
       (configResult.data || []).forEach(r => { configMap[r.action_key] = r.points_user; });
 
-      // Earned actions from tracking table (key format: ACTION_KEY_contentId)
-      const earnedKeys = new Set(
+      // Permanent actions (watching can't be "undone")
+      const permanentKeys = new Set(
         (trackingResult.data || []).map(r => r.action_key.split(`_${contentId}`)[0])
       );
 
-      // Sum PP from events
-      const totalPP = (eventsResult.data || []).reduce((sum, e) => sum + (e.points || 0), 0);
+      // Real-time state for reversible actions
+      const earnedMap: Record<string, boolean> = {
+        VIEW_15S:        permanentKeys.has("VIEW_15S"),
+        WATCH_50:        permanentKeys.has("WATCH_50"),
+        WATCH_100:       permanentKeys.has("WATCH_100"),
+        LIKE_CONTENT:    !!likeResult.data,
+        SAVE_CONTENT:    !!saveResult.data,
+        COMMENT_CONTENT: (commentResult.data?.length ?? 0) > 0,
+      };
+
+      // PP: sum only from currently active actions (removes PP if action reversed)
+      const activeActions = (eventsResult.data || []).filter(e => {
+        const key = e.action_key;
+        // For reversible actions, only count if still active
+        if (key === "LIKE_CONTENT") return earnedMap.LIKE_CONTENT;
+        if (key === "SAVE_CONTENT") return earnedMap.SAVE_CONTENT;
+        return true; // permanent actions always count
+      });
+      const totalPP = activeActions.reduce((sum, e) => sum + (e.points || 0), 0);
 
       const built: ActionState[] = TRACKED_ACTIONS.map(a => ({
         ...a,
-        earned: earnedKeys.has(a.key),
+        earned: earnedMap[a.key] ?? false,
         points: configMap[a.key] ?? 0,
       }));
 
