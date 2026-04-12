@@ -39,6 +39,7 @@ import { MobileCommentsSheet } from "@/components/watch/MobileCommentsSheet";
 import { MobileNotesSheet } from "@/components/watch/MobileNotesSheet";
 import { MobileWatchOverlay } from "@/components/watch/MobileWatchOverlay";
 import { MobileCurriculumSheet } from "@/components/watch/MobileCurriculumSheet";
+import { ContentRewardProgress } from "@/components/watch/ContentRewardProgress";
 import { StudyQuiz } from "@/components/StudyQuiz";
 import { StudyNotes } from "@/components/StudyNotes";
 import {
@@ -1093,6 +1094,11 @@ function WatchContent() {
                       />
                     </div>
                   ) : null}
+
+                  {/* Reward progress bar */}
+                  {hasAccess && user && !isCourse && (
+                    <ContentRewardProgress contentId={content.id} />
+                  )}
 
                   {/* Title */}
                   <div className="flex items-start sm:items-center gap-2 sm:gap-3 mb-2 flex-wrap">
