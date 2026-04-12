@@ -1,5 +1,6 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { Eye, Heart, Bookmark, MessageCircle, CheckCircle2, PlayCircle, Zap } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { cn } from "@/lib/utils";
@@ -33,19 +34,93 @@ interface Props {
   liveStates?: LiveStates;
 }
 
+// Particle burst rendered per dot
+function DotBurst({ isActive }: { isActive: boolean }) {
+  const particles = useRef(
+    Array.from({ length: 7 }, (_, i) => ({
+      id: i,
+      angle: (360 / 7) * i + Math.random() * 25 - 12,
+      distance: 14 + Math.random() * 10,
+      size: 3 + Math.random() * 2,
+      delay: Math.random() * 0.08,
+    }))
+  ).current;
+
+  return (
+    <AnimatePresence>
+      {isActive && (
+        <div className="absolute inset-0 pointer-events-none flex items-center justify-center overflow-visible">
+          {particles.map((p) => {
+            const rad = (p.angle * Math.PI) / 180;
+            return (
+              <motion.div
+                key={p.id}
+                className="absolute rounded-full bg-primary"
+                style={{ width: p.size, height: p.size }}
+                initial={{ scale: 0, x: 0, y: 0, opacity: 1 }}
+                animate={{
+                  scale: [0, 1.3, 0.7],
+                  x: Math.cos(rad) * p.distance,
+                  y: Math.sin(rad) * p.distance,
+                  opacity: [1, 1, 0],
+                }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.45, delay: p.delay, ease: "easeOut" }}
+              />
+            );
+          })}
+        </div>
+      )}
+    </AnimatePresence>
+  );
+}
+
 export function ContentRewardProgress({ contentId, refreshTrigger, liveStates }: Props) {
   const { user } = useAuth();
   const [actions, setActions] = useState<ActionState[]>([]);
   const [earnedPP, setEarnedPP] = useState(0);
-  const [loading, setLoading] = useState(true);
+  const [initialLoading, setInitialLoading] = useState(true);
+
+  // Per-dot burst state
+  const [burstKeys, setBurstKeys] = useState<Set<string>>(new Set());
+  const prevEarnedRef = useRef<Record<string, boolean>>({});
+
+  // Trigger burst when dot transitions false → true
+  useEffect(() => {
+    if (actions.length === 0) return;
+    const triggered: string[] = [];
+    actions.forEach(a => {
+      const was = prevEarnedRef.current[a.key] ?? false;
+      if (!was && a.earned) triggered.push(a.key);
+      prevEarnedRef.current[a.key] = a.earned;
+    });
+
+    if (triggered.length === 0) return;
+
+    setBurstKeys(prev => {
+      const next = new Set(prev);
+      triggered.forEach(k => next.add(k));
+      return next;
+    });
+
+    const t = setTimeout(() => {
+      setBurstKeys(prev => {
+        const next = new Set(prev);
+        triggered.forEach(k => next.delete(k));
+        return next;
+      });
+    }, 600);
+
+    return () => clearTimeout(t);
+  }, [actions]);
 
   // Initial load + PP refresh on trigger (delay para banco commitar)
   useEffect(() => {
     if (!user || !contentId) return;
     if (refreshTrigger === undefined || refreshTrigger === 0) {
-      load();
+      load(true);
     } else {
-      const t = setTimeout(load, 400);
+      const t = setTimeout(() => load(false), 400);
       return () => clearTimeout(t);
     }
   }, [user, contentId, refreshTrigger]);
@@ -54,39 +129,30 @@ export function ContentRewardProgress({ contentId, refreshTrigger, liveStates }:
   useEffect(() => {
     if (!liveStates || actions.length === 0) return;
     setActions(prev => prev.map(a => {
-      if (a.key === "LIKE_CONTENT")    return { ...a, earned: liveStates.isLiked };
-      if (a.key === "SAVE_CONTENT")    return { ...a, earned: liveStates.isSaved };
+      if (a.key === "LIKE_CONTENT") return { ...a, earned: liveStates.isLiked };
+      if (a.key === "SAVE_CONTENT") return { ...a, earned: liveStates.isSaved };
       return a;
     }));
   }, [liveStates?.isLiked, liveStates?.isSaved]);
 
-  async function load() {
-    setLoading(true);
+  async function load(isInitial: boolean) {
     try {
       const uid = user!.id;
 
-      // Fetch config + current real state of each reversible action in parallel
-      const [configResult, eventsResult, likeResult, saveResult, favoriteResult, commentResult, trackingResult] = await Promise.all([
+      const [configResult, eventsResult, likeResult, saveResult, commentResult, trackingResult] = await Promise.all([
         supabase
           .from("reward_actions_config")
           .select("action_key, points_user")
           .in("action_key", TRACKED_ACTIONS.map(a => a.key))
           .eq("active", true),
-        // PP total earned (reward_events never deleted even on unlike — reflects historical PP)
         supabase
           .from("reward_events")
           .select("action_key, points")
           .eq("user_id", uid)
           .eq("content_id", contentId),
-        // Reversible: current like state
         supabase.from("actions").select("id").eq("user_id", uid).eq("content_id", contentId).eq("type", "LIKE").maybeSingle(),
-        // Reversible: current save state
         supabase.from("saved_contents").select("id").eq("user_id", uid).eq("content_id", contentId).maybeSingle(),
-        // Reversible: current favorite state
-        supabase.from("favorites").select("id").eq("user_id", uid).eq("content_id", contentId).maybeSingle(),
-        // Comment: check if user has commented
         supabase.from("comments").select("id").eq("user_id", uid).eq("content_id", contentId).limit(1),
-        // Permanent: VIEW_15S, WATCH_50, WATCH_100 via tracking
         supabase
           .from("reward_action_tracking")
           .select("action_key")
@@ -97,12 +163,10 @@ export function ContentRewardProgress({ contentId, refreshTrigger, liveStates }:
       const configMap: Record<string, number> = {};
       (configResult.data || []).forEach(r => { configMap[r.action_key] = r.points_user; });
 
-      // Permanent actions (watching can't be "undone")
       const permanentKeys = new Set(
         (trackingResult.data || []).map(r => r.action_key.split(`_${contentId}`)[0])
       );
 
-      // Real-time state for reversible actions
       const earnedMap: Record<string, boolean> = {
         VIEW_15S:        permanentKeys.has("VIEW_15S"),
         WATCH_50:        permanentKeys.has("WATCH_50"),
@@ -112,15 +176,13 @@ export function ContentRewardProgress({ contentId, refreshTrigger, liveStates }:
         COMMENT_CONTENT: (commentResult.data?.length ?? 0) > 0,
       };
 
-      // PP: sum only from currently active actions (removes PP if action reversed)
-      const activeActions = (eventsResult.data || []).filter(e => {
-        const key = e.action_key;
-        // For reversible actions, only count if still active
-        if (key === "LIKE_CONTENT") return earnedMap.LIKE_CONTENT;
-        if (key === "SAVE_CONTENT") return earnedMap.SAVE_CONTENT;
-        return true; // permanent actions always count
+      // PP: sum only active actions
+      const activeEvents = (eventsResult.data || []).filter(e => {
+        if (e.action_key === "LIKE_CONTENT") return earnedMap.LIKE_CONTENT;
+        if (e.action_key === "SAVE_CONTENT") return earnedMap.SAVE_CONTENT;
+        return true;
       });
-      const totalPP = activeActions.reduce((sum, e) => sum + (e.points || 0), 0);
+      const totalPP = activeEvents.reduce((sum, e) => sum + (e.points || 0), 0);
 
       const built: ActionState[] = TRACKED_ACTIONS.map(a => ({
         ...a,
@@ -131,11 +193,12 @@ export function ContentRewardProgress({ contentId, refreshTrigger, liveStates }:
       setActions(built);
       setEarnedPP(Math.round(totalPP * 10) / 10);
     } finally {
-      setLoading(false);
+      if (isInitial) setInitialLoading(false);
     }
   }
 
-  if (loading || actions.length === 0) return null;
+  if (initialLoading) return null;
+  if (actions.length === 0) return null;
 
   const availablePP = actions
     .filter(a => !a.earned && a.points > 0)
@@ -148,9 +211,15 @@ export function ContentRewardProgress({ contentId, refreshTrigger, liveStates }:
       {/* PP earned */}
       <div className="flex items-center gap-1.5 shrink-0">
         <Zap className={cn("w-3.5 h-3.5", earnedPP > 0 ? "text-amber-400" : "text-muted-foreground")} />
-        <span className={cn("text-sm font-semibold tabular-nums", earnedPP > 0 ? "text-amber-400" : "text-muted-foreground")}>
+        <motion.span
+          key={earnedPP}
+          initial={{ scale: earnedPP > 0 ? 1.3 : 1, color: earnedPP > 0 ? "rgb(251 191 36)" : undefined }}
+          animate={{ scale: 1 }}
+          transition={{ duration: 0.3, ease: "easeOut" }}
+          className={cn("text-sm font-semibold tabular-nums", earnedPP > 0 ? "text-amber-400" : "text-muted-foreground")}
+        >
           +{earnedPP} PP
-        </span>
+        </motion.span>
       </div>
 
       <div className="w-px h-4 bg-border/60 shrink-0" />
@@ -159,20 +228,26 @@ export function ContentRewardProgress({ contentId, refreshTrigger, liveStates }:
       <div className="flex items-center gap-2 flex-1">
         {actions.map((action) => {
           const Icon = action.icon;
+          const isBursting = burstKeys.has(action.key);
           return (
             <div
               key={action.key}
               className="group relative flex items-center justify-center"
               title={`${action.label}${action.points > 0 ? ` · +${action.points} PP` : ""}`}
             >
-              <div className={cn(
-                "w-6 h-6 rounded-full flex items-center justify-center transition-all duration-300",
-                action.earned
-                  ? "bg-primary/15 text-primary"
-                  : "bg-muted/50 text-muted-foreground/40"
-              )}>
+              <DotBurst isActive={isBursting} />
+              <motion.div
+                animate={isBursting ? { scale: [1, 1.35, 1] } : {}}
+                transition={{ duration: 0.3, ease: "easeOut" }}
+                className={cn(
+                  "w-6 h-6 rounded-full flex items-center justify-center transition-colors duration-300",
+                  action.earned
+                    ? "bg-primary/15 text-primary"
+                    : "bg-muted/50 text-muted-foreground/40"
+                )}
+              >
                 <Icon className="w-3 h-3" />
-              </div>
+              </motion.div>
 
               {/* Tooltip */}
               <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 bg-popover border border-border rounded-md text-xs whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity duration-150 pointer-events-none z-50 shadow-md">
@@ -181,10 +256,9 @@ export function ContentRewardProgress({ contentId, refreshTrigger, liveStates }:
                 </span>
                 {action.points > 0 && (
                   <span className={cn("ml-1.5 font-medium", action.earned ? "text-amber-400" : "text-muted-foreground")}>
-                    {action.earned ? `+${action.points} PP` : `+${action.points} PP`}
+                    +{action.points} PP
                   </span>
                 )}
-                {/* Arrow */}
                 <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-border" />
               </div>
             </div>
