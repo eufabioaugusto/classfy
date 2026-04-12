@@ -341,9 +341,21 @@ export function UnifiedVideoPlayer({
       setIsPlaying(false);
       triggerClickAnim("pause");
     } else {
-      media.play();
-      setIsPlaying(true);
-      triggerClickAnim("play");
+      const playPromise = media.play();
+      if (playPromise !== undefined) {
+        playPromise
+          .then(() => {
+            setIsPlaying(true);
+            triggerClickAnim("play");
+          })
+          .catch(() => {
+            // Browser blocked autoplay or media not ready — stay paused
+            setIsPlaying(false);
+          });
+      } else {
+        setIsPlaying(true);
+        triggerClickAnim("play");
+      }
     }
   }, [isPlaying]);
 

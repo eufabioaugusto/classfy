@@ -841,6 +841,7 @@ function WatchContent() {
             />
           ) : (
             <MobileVideoPlayer
+              key={isCourse && currentLesson ? currentLesson.id : content.id}
               src={isCourse && currentLesson ? currentLesson.video_url : content.file_url}
               poster={content.thumbnail_url}
               title={isCourse && currentLesson ? currentLesson.title : content.title}
@@ -1038,6 +1039,7 @@ function WatchContent() {
                     />
                   ) : isCourse && currentLesson ? (
                     <UnifiedVideoPlayer
+                      key={currentLesson.id}
                       content={{
                         id: currentLesson.id,
                         title: currentLesson.title,
@@ -1066,6 +1068,7 @@ function WatchContent() {
                   ) : !isCourse ? (
                     <div className="relative">
                       <UnifiedVideoPlayer
+                        key={content.id}
                         content={{
                           id: content.id,
                           title: content.title,
