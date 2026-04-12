@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { ThumbsUp, Bookmark, Star, BookOpen, Send } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -42,6 +42,7 @@ interface SocialBarProps {
   showCreator?: boolean;
   compact?: boolean;
   onAction?: () => void;
+  onStateChange?: (states: { isLiked: boolean; isSaved: boolean; isFavorited: boolean }) => void;
 }
 
 export function SocialBar({
@@ -56,11 +57,12 @@ export function SocialBar({
   showCreator = true,
   compact = false,
   onAction,
+  onStateChange,
 }: SocialBarProps) {
   const { user } = useAuth();
   const navigate = useNavigate();
   const [showDMModal, setShowDMModal] = useState(false);
-  
+
   const {
     isLiked,
     isSaved,
@@ -75,6 +77,11 @@ export function SocialBar({
     cancelUnlike,
     formatCount,
   } = useContentActions({ contentId, isCourse, hasAccess });
+
+  // Emite estado ao vivo para o pai sempre que mudar
+  useEffect(() => {
+    onStateChange?.({ isLiked, isSaved, isFavorited });
+  }, [isLiked, isSaved, isFavorited]);
 
   return (
     <>

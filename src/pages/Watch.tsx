@@ -112,6 +112,7 @@ function WatchContent() {
   const [notesRefreshTrigger, setNotesRefreshTrigger] = useState(0);
   const [rewardRefreshTrigger, setRewardRefreshTrigger] = useState(0);
   const triggerRewardRefresh = () => setRewardRefreshTrigger((n) => n + 1);
+  const [liveActionStates, setLiveActionStates] = useState({ isLiked: false, isSaved: false, isFavorited: false });
   const [seekToTime, setSeekToTime] = useState<number | null>(null);
   const { processReward, handleLike, handleSave, handleFavorite, reverseReward } = useRewardSystem();
   
@@ -1101,7 +1102,7 @@ function WatchContent() {
 
                   {/* Reward progress bar */}
                   {hasAccess && user && !isCourse && (
-                    <ContentRewardProgress contentId={content.id} refreshTrigger={rewardRefreshTrigger} />
+                    <ContentRewardProgress contentId={content.id} refreshTrigger={rewardRefreshTrigger} liveStates={liveActionStates} />
                   )}
 
                   {/* Title */}
@@ -1151,6 +1152,7 @@ function WatchContent() {
                         onAddToStudy={() => setShowAddToStudyModal(true)}
                         showCreator={true}
                         onAction={triggerRewardRefresh}
+                        onStateChange={setLiveActionStates}
                       />
                     </div>
                   )}

@@ -21,21 +21,44 @@ const TRACKED_ACTIONS = [
   { key: "COMMENT_CONTENT",label: "Comentou",      icon: MessageCircle },
 ];
 
+interface LiveStates {
+  isLiked: boolean;
+  isSaved: boolean;
+  isFavorited: boolean;
+}
+
 interface Props {
   contentId: string;
   refreshTrigger?: number;
+  liveStates?: LiveStates;
 }
 
-export function ContentRewardProgress({ contentId, refreshTrigger }: Props) {
+export function ContentRewardProgress({ contentId, refreshTrigger, liveStates }: Props) {
   const { user } = useAuth();
   const [actions, setActions] = useState<ActionState[]>([]);
   const [earnedPP, setEarnedPP] = useState(0);
   const [loading, setLoading] = useState(true);
 
+  // Initial load + PP refresh on trigger (delay para banco commitar)
   useEffect(() => {
     if (!user || !contentId) return;
-    load();
+    if (refreshTrigger === undefined || refreshTrigger === 0) {
+      load();
+    } else {
+      const t = setTimeout(load, 400);
+      return () => clearTimeout(t);
+    }
   }, [user, contentId, refreshTrigger]);
+
+  // Live dot state update — sem DB, instantâneo
+  useEffect(() => {
+    if (!liveStates || actions.length === 0) return;
+    setActions(prev => prev.map(a => {
+      if (a.key === "LIKE_CONTENT")    return { ...a, earned: liveStates.isLiked };
+      if (a.key === "SAVE_CONTENT")    return { ...a, earned: liveStates.isSaved };
+      return a;
+    }));
+  }, [liveStates?.isLiked, liveStates?.isSaved]);
 
   async function load() {
     setLoading(true);
