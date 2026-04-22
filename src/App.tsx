@@ -33,6 +33,7 @@ const AdminWithdrawals = lazy(() => import("./pages/AdminWithdrawals"));
 const AdminSettings = lazy(() => import("./pages/AdminSettings"));
 const AdminProspects = lazy(() => import("./pages/AdminProspects"));
 const AdminWaitlist = lazy(() => import("./pages/AdminWaitlist"));
+const AdminCuration = lazy(() => import("./pages/AdminCuration"));
 const AdminUsers = lazy(() => import("./pages/AdminUsers"));
 const AdminDashboard = lazy(() => import("./pages/AdminDashboard"));
 const RewardsHistory = lazy(() => import("./pages/RewardsHistory"));
@@ -111,6 +112,7 @@ function AppContent() {
       <Route path="/admin/settings" element={<AdminSettings />} />
       <Route path="/admin/prospects" element={<AdminProspects />} />
       <Route path="/admin/waitlist" element={<AdminWaitlist />} />
+      <Route path="/admin/curadoria" element={<AdminCuration />} />
       <Route path="/rewards-history" element={<RewardsHistory />} />
       <Route path="/recompensas" element={<Recompensas />} />
       <Route path="/carteira" element={<Carteira />} />

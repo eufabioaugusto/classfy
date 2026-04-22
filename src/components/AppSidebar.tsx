@@ -39,6 +39,7 @@ import {
   Zap,
   Crown,
   Circle,
+  Layers,
 } from "lucide-react";
 import {
   Sidebar,
@@ -86,6 +87,7 @@ const adminItems = [
   { title: "Saques", url: "/admin/withdrawals", icon: DollarSign, countKey: "withdrawals" as const },
   { title: "Gerenciar Usuários", url: "/admin/users", icon: Users, countKey: null },
   { title: "Prospecção", url: "/admin/prospects", icon: TrendingUp, countKey: null },
+  { title: "Curadoria", url: "/admin/curadoria", icon: Layers, countKey: null },
   { title: "Configurações", url: "/admin/settings", icon: Settings, countKey: null },
 ];
 

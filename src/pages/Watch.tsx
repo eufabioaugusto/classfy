@@ -67,6 +67,10 @@ interface Content {
   category_id?: string | null;
   tags: string[] | null;
   created_at?: string;
+  is_curated?: boolean;
+  attribution_text?: string | null;
+  license_type?: string | null;
+  source_url?: string | null;
   creator?: {
     id: string;
     display_name: string;
@@ -235,6 +239,7 @@ function WatchContent() {
             id, content_type, title, description, file_url, thumbnail_url,
             visibility, price, duration_seconds, views_count, likes_count,
             status, creator_id, category_id, tags, created_at,
+            is_curated, attribution_text, license_type, source_url,
             creator:profiles!creator_id(id, display_name, avatar_url, creator_channel_name)
           `)
           .eq("id", id)
@@ -1106,6 +1111,30 @@ function WatchContent() {
                   {/* Reward progress bar */}
                   {hasAccess && user && !isCourse && (
                     <ContentRewardProgress contentId={content.id} refreshTrigger={rewardRefreshTrigger} liveStates={liveActionStates} />
+                  )}
+
+                  {/* Attribution banner for curated content */}
+                  {content.is_curated && content.attribution_text && (
+                    <div className="flex items-center gap-2 px-3 py-2 mt-1 rounded-lg bg-muted/50 text-xs text-muted-foreground">
+                      <span className="font-medium text-foreground/70 shrink-0">Curadoria Classfy</span>
+                      <span className="text-muted-foreground/60">·</span>
+                      <span>{content.attribution_text}</span>
+                      {content.license_type && (
+                        <span className="ml-auto shrink-0 font-mono text-[10px] bg-muted px-1.5 py-0.5 rounded">
+                          {content.license_type}
+                        </span>
+                      )}
+                      {content.source_url && (
+                        <a
+                          href={content.source_url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="shrink-0 underline underline-offset-2 hover:text-foreground transition-colors"
+                        >
+                          fonte
+                        </a>
+                      )}
+                    </div>
                   )}
 
                   {/* Title */}
