@@ -273,6 +273,7 @@ export default function AdminCuration() {
                 <SelectItem value="CC0">CC0 — Domínio Público</SelectItem>
                 <SelectItem value="CC-BY">CC-BY — Atribuição</SelectItem>
                 <SelectItem value="CC-BY-SA">CC-BY-SA — Atribuição + CompartilhaIgual</SelectItem>
+                <SelectItem value="CC-BY-NC-SA">CC-BY-NC-SA — Não Comercial + CompartilhaIgual</SelectItem>
               </SelectContent>
             </Select>
           </div>
