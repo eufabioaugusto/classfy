@@ -28,8 +28,8 @@ import {
 } from "@/components/ui/dialog";
 import { GlobalLoader } from "@/components/GlobalLoader";
 import { toast } from "sonner";
-import { 
-  Pencil, 
+import {
+  Pencil,
   Search,
   TrendingUp,
   Activity,
@@ -41,7 +41,12 @@ import {
   Users,
   Wallet,
   Eye,
-  Heart
+  Heart,
+  ShieldCheck,
+  AlertTriangle,
+  XCircle,
+  RefreshCw,
+  CheckCircle2,
 } from "lucide-react";
 
 interface RewardConfig {
@@ -85,6 +90,48 @@ interface MilestoneStats {
   claimed_count: number;
 }
 
+interface ReconciliationRun {
+  id: string;
+  run_at: string;
+  period: string | null;
+  wallets_ok: number;
+  wallets_drift: number;
+  total_drift: number;
+  cycles_ok: number;
+  cycles_drift: number;
+  status: 'ok' | 'warning' | 'error';
+  details: {
+    wallet_issues?: Array<{
+      user_id: string;
+      wallet_id: string;
+      balance_stored: number;
+      balance_ledger: number;
+      drift: number;
+    }>;
+    cycle_issues?: Array<{
+      cycle_id: string;
+      year_month: string;
+      distributed_stored: number;
+      distributed_from_txs: number;
+      drift: number;
+    }>;
+  };
+}
+
+interface WalletLedgerEntry {
+  user_id: string;
+  wallet_id: string;
+  balance_stored: number;
+  balance_from_ledger: number;
+  drift: number;
+  tx_count: number;
+  credit_count: number;
+  debit_count: number;
+  total_credited: number;
+  total_debited: number;
+  last_tx_at: string | null;
+}
+
 export default function AdminRewards() {
   const { role, loading: authLoading } = useAuth();
   const navigate = useNavigate();
@@ -115,6 +162,11 @@ export default function AdminRewards() {
   const [addingBonus, setAddingBonus] = useState(false);
   const [revenueHistory, setRevenueHistory] = useState<any[]>([]);
 
+  // Audit state
+  const [reconciliationRuns, setReconciliationRuns] = useState<ReconciliationRun[]>([]);
+  const [walletLedger, setWalletLedger] = useState<WalletLedgerEntry[]>([]);
+  const [runningReconciliation, setRunningReconciliation] = useState(false);
+
   // Global stats
   const [globalStats, setGlobalStats] = useState({
     totalRewards: 0,
@@ -135,6 +187,7 @@ export default function AdminRewards() {
       fetchData();
       fetchMilestones();
       fetchEconomyData();
+      fetchAuditData();
     }
   }, [role, authLoading]);
 
@@ -309,6 +362,40 @@ export default function AdminRewards() {
       }
     } catch (error) {
       console.error('Error fetching economy data:', error);
+    }
+  };
+
+  const fetchAuditData = async () => {
+    try {
+      const [runsRes, ledgerRes] = await Promise.all([
+        supabase
+          .from('reconciliation_runs')
+          .select('*')
+          .order('run_at', { ascending: false })
+          .limit(10),
+        supabase
+          .from('v_wallet_ledger')
+          .select('*')
+          .order('drift', { ascending: false }),
+      ]);
+      setReconciliationRuns((runsRes.data as ReconciliationRun[]) || []);
+      setWalletLedger((ledgerRes.data as WalletLedgerEntry[]) || []);
+    } catch (error) {
+      console.error('Error fetching audit data:', error);
+    }
+  };
+
+  const handleRunReconciliation = async () => {
+    setRunningReconciliation(true);
+    try {
+      const { data, error } = await supabase.rpc('run_reconciliation');
+      if (error) throw error;
+      toast.success(`Reconciliação concluída: ${data.status === 'ok' ? '✅ OK' : data.status === 'warning' ? '⚠️ Warning' : '🔴 Erro'}`);
+      await fetchAuditData();
+    } catch (error: any) {
+      toast.error('Erro ao executar reconciliação: ' + error.message);
+    } finally {
+      setRunningReconciliation(false);
     }
   };
 
@@ -526,6 +613,16 @@ export default function AdminRewards() {
             <TabsTrigger value="economy" className="gap-2">
               <DollarSign className="w-4 h-4" />
               Economia
+            </TabsTrigger>
+            <TabsTrigger value="auditoria" className="gap-2">
+              <ShieldCheck className="w-4 h-4" />
+              Auditoria
+              {reconciliationRuns[0]?.status === 'error' && (
+                <span className="ml-1 w-2 h-2 rounded-full bg-red-500 inline-block" />
+              )}
+              {reconciliationRuns[0]?.status === 'warning' && (
+                <span className="ml-1 w-2 h-2 rounded-full bg-yellow-500 inline-block" />
+              )}
             </TabsTrigger>
           </TabsList>
 
@@ -1037,6 +1134,220 @@ export default function AdminRewards() {
                 </div>
               </div>
             </Card>
+          </TabsContent>
+
+          {/* ── AUDITORIA ──────────────────────────────────────── */}
+          <TabsContent value="auditoria" className="space-y-6">
+
+            {/* Status da última reconciliação */}
+            {(() => {
+              const last = reconciliationRuns[0];
+              const statusConfig = {
+                ok:      { icon: CheckCircle2, color: 'text-green-600',  bg: 'bg-green-50 border-green-200',  label: 'Sistema Íntegro' },
+                warning: { icon: AlertTriangle, color: 'text-yellow-600', bg: 'bg-yellow-50 border-yellow-200', label: 'Atenção' },
+                error:   { icon: XCircle,       color: 'text-red-600',    bg: 'bg-red-50 border-red-200',       label: 'Divergência Detectada' },
+              };
+              const cfg = last ? statusConfig[last.status] : null;
+              const Icon = cfg?.icon ?? ShieldCheck;
+              return (
+                <Card className={`p-6 border-2 ${cfg ? cfg.bg : 'bg-muted/30'}`}>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-4">
+                      <div className={`p-3 rounded-full ${cfg ? cfg.bg : 'bg-muted'}`}>
+                        <Icon className={`h-8 w-8 ${cfg ? cfg.color : 'text-muted-foreground'}`} />
+                      </div>
+                      <div>
+                        <h3 className={`text-xl font-bold ${cfg ? cfg.color : 'text-muted-foreground'}`}>
+                          {cfg ? cfg.label : 'Nenhuma reconciliação executada'}
+                        </h3>
+                        {last && (
+                          <p className="text-sm text-muted-foreground mt-0.5">
+                            Última verificação: {new Date(last.run_at).toLocaleString('pt-BR')}
+                            {' · '}{last.wallets_ok + last.wallets_drift} wallets verificadas
+                            {' · '}{last.cycles_ok + last.cycles_drift} ciclos verificados
+                          </p>
+                        )}
+                        {last?.wallets_drift > 0 && (
+                          <p className="text-sm text-red-600 font-medium mt-1">
+                            {last.wallets_drift} wallet(s) com drift · Total: R$ {Number(last.total_drift).toFixed(2)}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                    <Button
+                      onClick={handleRunReconciliation}
+                      disabled={runningReconciliation}
+                      variant="outline"
+                      className="gap-2"
+                    >
+                      <RefreshCw className={`h-4 w-4 ${runningReconciliation ? 'animate-spin' : ''}`} />
+                      {runningReconciliation ? 'Verificando...' : 'Rodar Agora'}
+                    </Button>
+                  </div>
+
+                  {/* Issues detalhadas se houver */}
+                  {last?.details?.wallet_issues && last.details.wallet_issues.length > 0 && (
+                    <div className="mt-4 p-4 rounded-lg bg-red-100 border border-red-200">
+                      <p className="text-sm font-semibold text-red-700 mb-2">Wallets com divergência:</p>
+                      {last.details.wallet_issues.map((issue, i) => (
+                        <div key={i} className="text-xs text-red-600 font-mono">
+                          user {issue.user_id.slice(0, 8)}… · stored: R${Number(issue.balance_stored).toFixed(2)} · ledger: R${Number(issue.balance_ledger).toFixed(2)} · drift: R${Number(issue.drift).toFixed(2)}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {last?.details?.cycle_issues && last.details.cycle_issues.length > 0 && (
+                    <div className="mt-4 p-4 rounded-lg bg-yellow-100 border border-yellow-200">
+                      <p className="text-sm font-semibold text-yellow-700 mb-2">Ciclos com divergência:</p>
+                      {last.details.cycle_issues.map((issue, i) => (
+                        <div key={i} className="text-xs text-yellow-700 font-mono">
+                          {issue.year_month} · distribuído: R${Number(issue.distributed_stored).toFixed(2)} · txs: R${Number(issue.distributed_from_txs).toFixed(2)} · drift: R${Number(issue.drift).toFixed(2)}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </Card>
+              );
+            })()}
+
+            {/* Ledger — estado de todas as wallets */}
+            <Card className="p-6">
+              <div className="flex items-center justify-between mb-4">
+                <div>
+                  <h3 className="text-lg font-semibold">Ledger — Integridade de Saldos</h3>
+                  <p className="text-sm text-muted-foreground">
+                    Drift = balance armazenado − soma das transações. Deve ser sempre R$0,00.
+                  </p>
+                </div>
+              </div>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Usuário</TableHead>
+                    <TableHead className="text-right">Saldo Armazenado</TableHead>
+                    <TableHead className="text-right">Saldo pelo Ledger</TableHead>
+                    <TableHead className="text-right">Drift</TableHead>
+                    <TableHead className="text-right">Txs</TableHead>
+                    <TableHead className="text-right">Última Tx</TableHead>
+                    <TableHead>Status</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {walletLedger.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={7} className="text-center text-muted-foreground py-8">
+                        Nenhuma wallet encontrada
+                      </TableCell>
+                    </TableRow>
+                  ) : (
+                    walletLedger.map((entry) => {
+                      const hasDrift = Math.abs(Number(entry.drift)) > 0.01;
+                      return (
+                        <TableRow key={entry.wallet_id} className={hasDrift ? 'bg-red-50' : ''}>
+                          <TableCell className="font-mono text-xs text-muted-foreground">
+                            {entry.user_id.slice(0, 8)}…
+                          </TableCell>
+                          <TableCell className="text-right font-semibold">
+                            R$ {Number(entry.balance_stored).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            R$ {Number(entry.balance_from_ledger).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                          </TableCell>
+                          <TableCell className={`text-right font-semibold ${hasDrift ? 'text-red-600' : 'text-green-600'}`}>
+                            {hasDrift ? `R$ ${Number(entry.drift).toFixed(4)}` : '—'}
+                          </TableCell>
+                          <TableCell className="text-right text-muted-foreground text-sm">
+                            {entry.tx_count}
+                          </TableCell>
+                          <TableCell className="text-right text-muted-foreground text-sm">
+                            {entry.last_tx_at
+                              ? new Date(entry.last_tx_at).toLocaleDateString('pt-BR')
+                              : '—'}
+                          </TableCell>
+                          <TableCell>
+                            {hasDrift ? (
+                              <Badge variant="destructive" className="gap-1">
+                                <XCircle className="w-3 h-3" /> Divergente
+                              </Badge>
+                            ) : (
+                              <Badge variant="outline" className="gap-1 text-green-700 border-green-300">
+                                <CheckCircle2 className="w-3 h-3" /> OK
+                              </Badge>
+                            )}
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })
+                  )}
+                </TableBody>
+              </Table>
+            </Card>
+
+            {/* Histórico de execuções */}
+            <Card className="p-6">
+              <h3 className="text-lg font-semibold mb-4">Histórico de Reconciliações</h3>
+              {reconciliationRuns.length === 0 ? (
+                <p className="text-sm text-muted-foreground text-center py-6">
+                  Nenhuma execução ainda. Clique em "Rodar Agora" para começar.
+                </p>
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Data / Hora</TableHead>
+                      <TableHead>Período</TableHead>
+                      <TableHead className="text-right">Wallets OK</TableHead>
+                      <TableHead className="text-right">Wallets c/ drift</TableHead>
+                      <TableHead className="text-right">Ciclos OK</TableHead>
+                      <TableHead className="text-right">Drift Total</TableHead>
+                      <TableHead>Status</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {reconciliationRuns.map((run) => (
+                      <TableRow key={run.id}>
+                        <TableCell className="text-sm">
+                          {new Date(run.run_at).toLocaleString('pt-BR')}
+                        </TableCell>
+                        <TableCell className="text-muted-foreground text-sm">
+                          {run.period ?? 'Completo'}
+                        </TableCell>
+                        <TableCell className="text-right text-green-700">
+                          {run.wallets_ok}
+                        </TableCell>
+                        <TableCell className={`text-right font-semibold ${run.wallets_drift > 0 ? 'text-red-600' : 'text-muted-foreground'}`}>
+                          {run.wallets_drift}
+                        </TableCell>
+                        <TableCell className="text-right text-green-700">
+                          {run.cycles_ok}
+                        </TableCell>
+                        <TableCell className={`text-right font-mono text-sm ${Number(run.total_drift) > 0 ? 'text-red-600' : 'text-muted-foreground'}`}>
+                          {Number(run.total_drift) > 0 ? `R$ ${Number(run.total_drift).toFixed(4)}` : '—'}
+                        </TableCell>
+                        <TableCell>
+                          {run.status === 'ok' && (
+                            <Badge variant="outline" className="text-green-700 border-green-300 gap-1">
+                              <CheckCircle2 className="w-3 h-3" /> OK
+                            </Badge>
+                          )}
+                          {run.status === 'warning' && (
+                            <Badge variant="outline" className="text-yellow-700 border-yellow-400 gap-1">
+                              <AlertTriangle className="w-3 h-3" /> Warning
+                            </Badge>
+                          )}
+                          {run.status === 'error' && (
+                            <Badge variant="destructive" className="gap-1">
+                              <XCircle className="w-3 h-3" /> Erro
+                            </Badge>
+                          )}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              )}
+            </Card>
+
           </TabsContent>
         </Tabs>
 
