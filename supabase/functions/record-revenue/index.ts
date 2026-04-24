@@ -28,6 +28,23 @@ Deno.serve(async (req) => {
     const now = new Date();
     const year_month = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
 
+    // Idempotência: se source_id já existe, retorna o registro existente sem inserir de novo
+    if (source_id) {
+      const { data: existing } = await supabase
+        .from('revenue_entries')
+        .select()
+        .eq('source_id', source_id)
+        .maybeSingle();
+
+      if (existing) {
+        console.log('Revenue already recorded for source_id:', source_id);
+        return new Response(
+          JSON.stringify({ success: true, data: existing, idempotent: true }),
+          { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+    }
+
     const { data, error } = await supabase
       .from('revenue_entries')
       .insert({
@@ -42,6 +59,14 @@ Deno.serve(async (req) => {
       .single();
 
     if (error) {
+      // unique_violation = race entre dois requests com mesmo source_id → idempotente
+      if ((error as any).code === '23505') {
+        console.log('Duplicate revenue entry blocked by UNIQUE constraint for source_id:', source_id);
+        return new Response(
+          JSON.stringify({ success: true, idempotent: true }),
+          { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
       console.error('Error recording revenue:', error);
       return new Response(
         JSON.stringify({ error: error.message }),
@@ -49,7 +74,7 @@ Deno.serve(async (req) => {
       );
     }
 
-    console.log('Revenue recorded:', { revenue_type, amount, year_month });
+    console.log('Revenue recorded:', { revenue_type, amount, year_month, source_id });
 
     return new Response(
       JSON.stringify({ success: true, data }),

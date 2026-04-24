@@ -236,7 +236,13 @@ Deno.serve(async (req) => {
       console.log('Daily action count:', { actionKey, currentCount, dailyLimit });
 
       if (currentCount > dailyLimit) {
-        console.log('ANTI-FRAUD: Daily limit exceeded, blocking reward:', { actionKey, currentCount, dailyLimit });
+        console.log('ANTI-FRAUD: Daily limit exceeded, rolling back tracking and blocking reward:', { actionKey, currentCount, dailyLimit });
+        // Rollback do tracking inserido — ação não deve ficar "consumida" sem recompensa
+        await supabase
+          .from('reward_action_tracking')
+          .delete()
+          .eq('user_id', userId)
+          .eq('action_key', trackingKey);
         return new Response(
           JSON.stringify({
             success: false,

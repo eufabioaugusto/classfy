@@ -225,68 +225,17 @@ export function useCreatorMilestones(creatorId?: string) {
           });
       }
 
-      // Get or create current economic cycle
-      const { data: cycleId } = await supabase.rpc('get_or_create_current_cycle');
+      // Acumular PP e registrar reward via edge function (service_role server-side)
+      const { error: rewardError } = await supabase.functions.invoke('claim-creator-milestone', {
+        body: {
+          milestoneId: milestone.id,
+          creatorId,
+        },
+      });
 
-      // PP amount = points_reward (used as performance weight)
-      const ppAmount = milestone.points_reward;
-
-      // Accumulate PP in economic_cycle_users (NO wallet credit)
-      if (cycleId) {
-        const { data: existingCycleUser } = await supabase
-          .from('economic_cycle_users')
-          .select('performance_points')
-          .eq('cycle_id', cycleId)
-          .eq('user_id', creatorId)
-          .maybeSingle();
-
-        if (existingCycleUser) {
-          await supabase
-            .from('economic_cycle_users')
-            .update({
-              performance_points: parseFloat(String(existingCycleUser.performance_points)) + ppAmount,
-              updated_at: new Date().toISOString()
-            })
-            .eq('cycle_id', cycleId)
-            .eq('user_id', creatorId);
-        } else {
-          await supabase
-            .from('economic_cycle_users')
-            .insert({
-              cycle_id: cycleId,
-              user_id: creatorId,
-              performance_points: ppAmount
-            });
-        }
+      if (rewardError) {
+        console.error('Erro ao processar recompensa de milestone:', rewardError);
       }
-
-      // Insert reward event (value = 0, PP tracked)
-      await supabase
-        .from('reward_events')
-        .insert({
-          user_id: creatorId,
-          action_key: 'CREATOR_MILESTONE_CLAIM',
-          points: milestone.points_reward,
-          value: 0,
-          performance_points: ppAmount,
-          cycle_id: cycleId,
-          metadata: {
-            milestoneId: milestone.id,
-            milestoneTitle: milestone.title,
-            milestoneType: milestone.milestone_type,
-            milestoneValue: milestone.milestone_value
-          }
-        });
-
-      // Create notification (PP instead of R$)
-      await supabase
-        .from('notifications')
-        .insert({
-          user_id: creatorId,
-          type: 'reward',
-          title: '🎉 Meta alcançada!',
-          message: `Você resgatou "${milestone.title}" e ganhou +${milestone.points_reward} pontos de nível e +${ppAmount} PP no pool mensal!`
-        });
 
       toast({
         title: '🎉 Meta alcançada!',

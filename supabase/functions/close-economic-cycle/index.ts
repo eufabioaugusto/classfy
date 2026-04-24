@@ -20,9 +20,10 @@ Deno.serve(async (req) => {
     const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     const supabaseAnonKey = Deno.env.get('SUPABASE_ANON_KEY')!;
 
-    // Allow CRON (no auth) or admin users
+    // Auth: exige JWT de admin válido OU Authorization ausente (CRON interno via service_role)
+    // Rejeita qualquer token que não seja de admin — anon key não passa mais
     const authHeader = req.headers.get('Authorization');
-    if (authHeader && !authHeader.includes('anon')) {
+    if (authHeader) {
       const authClient = createClient(supabaseUrl, supabaseAnonKey);
       const { data: { user }, error: authError } = await authClient.auth.getUser(
         authHeader.replace('Bearer ', '')
@@ -48,7 +49,7 @@ Deno.serve(async (req) => {
       }
       console.log('Manual trigger by admin:', user.id);
     } else {
-      console.log('CRON trigger (no auth or anon key)');
+      console.log('CRON trigger (no Authorization header)');
     }
 
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
@@ -88,26 +89,32 @@ Deno.serve(async (req) => {
       cycle = newCycle;
     }
 
-    if (cycle.status === 'closed') {
+    // 2. Status transition atômico: open → distributing
+    //    UPDATE WHERE status='open' retorna 0 rows se outro processo já pegou o lock → aborta
+    const { data: lockedCycle, error: lockError } = await supabase
+      .from('economic_cycles')
+      .update({ status: 'distributing' })
+      .eq('id', cycle.id)
+      .eq('status', 'open')      // só avança se ainda 'open' — previne duplo run
+      .select()
+      .maybeSingle();
+
+    if (lockError) {
       return new Response(
-        JSON.stringify({ error: 'Cycle already closed', cycle }),
-        { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 400 }
+        JSON.stringify({ error: 'Failed to lock cycle: ' + lockError.message }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 500 }
       );
     }
 
-    // 2. Guard against double-run: mark as 'distributing' before starting
-    if (cycle.status === 'distributing') {
-      console.log('Cycle already distributing — another process is running, aborting.');
+    if (!lockedCycle) {
+      // Outro processo chegou primeiro (distributing ou closed)
       return new Response(
-        JSON.stringify({ error: 'Cycle is already being distributed. Try again later.' }),
+        JSON.stringify({ error: `Cycle is already in status '${cycle.status}'. Aborting to prevent double-run.` }),
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 409 }
       );
     }
 
-    await supabase
-      .from('economic_cycles')
-      .update({ status: 'distributing' })
-      .eq('id', cycle.id);
+    console.log(`Cycle ${cycle.id} locked for distribution.`);
 
     // 3. Fetch RBM and pool_percentage in parallel
     const [revenueResult, settingsResult] = await Promise.all([
@@ -131,6 +138,7 @@ Deno.serve(async (req) => {
         .select('*')
         .eq('cycle_id', cycle.id)
         .gt('performance_points', 0)
+        .order('user_id')          // ORDER BY estável garante paginação sem duplicatas
         .range(offset, offset + BATCH_SIZE - 1);
 
       if (batchErr) {
@@ -274,12 +282,12 @@ Deno.serve(async (req) => {
       })
       .eq('id', cycle.id);
 
-    // 6. Reconciliation: verify distributed_amount matches actual wallet_transactions
+    // 6. Reconciliation: via cycle_id FK (não mais frágil ILIKE)
     const { data: txSumData } = await supabase
       .from('wallet_transactions')
       .select('amount')
       .eq('type', 'pool_distribution')
-      .ilike('description', `%${targetYearMonth}%`);
+      .eq('cycle_id', cycle.id);
 
     const actualDistributed = txSumData?.reduce((sum, tx) => sum + parseFloat(String(tx.amount)), 0) || 0;
     const discrepancy = Math.abs(actualDistributed - distributedAmount);

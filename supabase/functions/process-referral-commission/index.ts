@@ -113,8 +113,9 @@ serve(async (req) => {
     const safeCommissionRate = Math.min(commissionRate, 0.5);
     const commissionAmount = amount * safeCommissionRate;
 
-    // Create commission record
-    const { error: commissionError } = await supabaseClient
+    // Insert commission — UNIQUE(conversion_id) garante idempotência se webhook repetir
+    let commissionId: string | null = null;
+    const { data: commissionData, error: commissionError } = await supabaseClient
       .from("referral_commissions")
       .insert({
         referrer_id: conversion.referrer_id,
@@ -127,9 +128,12 @@ serve(async (req) => {
         status: "paid",
         stripe_charge_id,
         paid_at: new Date().toISOString(),
-      });
+      })
+      .select("id")
+      .single();
 
     if (commissionError) throw commissionError;
+    commissionId = commissionData.id;
 
     // Update conversion
     await supabaseClient
@@ -140,22 +144,21 @@ serve(async (req) => {
       })
       .eq("id", conversion_id);
 
-    // Update referrer wallet
-    const { data: wallet } = await supabaseClient
-      .from("wallets")
-      .select("balance, total_earned")
-      .eq("user_id", conversion.referrer_id)
-      .single();
+    // Crédito atômico via RPC — sem read-modify-write
+    const idempotencyKey = `commission_${commissionId}`;
+    const { error: walletError } = await supabaseClient.rpc("increment_wallet", {
+      p_user_id:         conversion.referrer_id,
+      p_amount:          commissionAmount,
+      p_tx_type:         "commission",
+      p_description:     `Comissão de indicação - conversão ${conversion_id.substring(0, 8)}`,
+      p_idempotency_key: idempotencyKey,
+      p_commission_id:   commissionId,
+      p_stripe_event_id: stripe_charge_id || null,
+    });
 
-    await supabaseClient
-      .from("wallets")
-      .update({
-        balance: (wallet?.balance || 0) + commissionAmount,
-        total_earned: (wallet?.total_earned || 0) + commissionAmount,
-      })
-      .eq("user_id", conversion.referrer_id);
+    if (walletError) throw walletError;
 
-    // Send notification
+    // Notificação
     const { data: profile } = await supabaseClient
       .from("profiles")
       .select("display_name")

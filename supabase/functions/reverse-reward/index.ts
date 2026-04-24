@@ -86,53 +86,55 @@ Deno.serve(async (req) => {
       );
     }
 
-    // Revert user PP atomically using increment_cycle_user_points with negative value
+    // Reverter PP do user, cleanup do creator e tracking em paralelo
+    // Erros são coletados — se algum falhar, logamos mas não revertemos o que já foi feito
+    // (a alternativa seria uma RPC transacional, deixada para refatoração futura)
     const ppToRevert = Number(reward.performance_points || 0);
-    const userPPPromise = (ppToRevert > 0 && reward.cycle_id)
-      ? supabase.rpc("increment_cycle_user_points", {
-          p_cycle_id: reward.cycle_id,
-          p_user_id: userId,
-          p_points: -ppToRevert,
-        })
-      : Promise.resolve({ error: null });
-
     const creatorReward = creatorRewardResult.data;
-    let creatorDeletePromise = Promise.resolve({ error: null });
-    let creatorPPPromise = Promise.resolve({ error: null });
+    const trackingKey = buildTrackingKey(actionKey, contentId);
     let creatorPPReverted = 0;
 
-    if (creatorReward) {
-      const creatorPP = Number(creatorReward.performance_points || 0);
-      creatorPPReverted = creatorPP;
+    const ops: Promise<{ error: any }>[] = [
+      // Reverter PP do user
+      ppToRevert > 0 && reward.cycle_id
+        ? supabase.rpc("increment_cycle_user_points", {
+            p_cycle_id: reward.cycle_id,
+            p_user_id: userId,
+            p_points: -ppToRevert,
+          })
+        : Promise.resolve({ error: null }),
 
-      // Delete creator reward event
-      creatorDeletePromise = supabase
-        .from("reward_events")
-        .delete()
-        .eq("id", creatorReward.id);
-
-      // Revert creator PP atomically
-      if (creatorPP > 0 && creatorReward.cycle_id) {
-        creatorPPPromise = supabase.rpc("increment_cycle_user_points", {
-          p_cycle_id: creatorReward.cycle_id,
-          p_user_id: creatorReward.user_id,
-          p_points: -creatorPP,
-        });
-      }
-    }
-
-    // Remove tracking record + run all async reversals in parallel
-    const trackingKey = buildTrackingKey(actionKey, contentId);
-    await Promise.all([
-      userPPPromise,
-      creatorDeletePromise,
-      creatorPPPromise,
+      // Remover tracking para liberar a ação
       supabase
         .from("reward_action_tracking")
         .delete()
         .eq("user_id", userId)
         .eq("action_key", trackingKey),
-    ]);
+    ];
+
+    if (creatorReward) {
+      const creatorPP = Number(creatorReward.performance_points || 0);
+      creatorPPReverted = creatorPP;
+
+      ops.push(
+        // Deletar reward event do creator
+        supabase.from("reward_events").delete().eq("id", creatorReward.id),
+        // Reverter PP do creator
+        creatorPP > 0 && creatorReward.cycle_id
+          ? supabase.rpc("increment_cycle_user_points", {
+              p_cycle_id: creatorReward.cycle_id,
+              p_user_id: creatorReward.user_id,
+              p_points: -creatorPP,
+            })
+          : Promise.resolve({ error: null })
+      );
+    }
+
+    const results = await Promise.all(ops);
+    const failures = results.filter((r) => r.error).map((r) => r.error?.message);
+    if (failures.length > 0) {
+      console.error("Partial reversal failure — manual reconciliation may be needed:", failures);
+    }
 
     return new Response(
       JSON.stringify({

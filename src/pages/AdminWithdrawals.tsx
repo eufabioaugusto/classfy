@@ -127,56 +127,18 @@ export default function AdminWithdrawals() {
     setProcessing(true);
 
     try {
-      // Get current wallet data
-      const { data: walletData, error: walletFetchError } = await supabase
-        .from("wallets")
-        .select("balance, total_withdrawn")
-        .eq("user_id", selectedRequest.user_id)
-        .single();
-
-      if (walletFetchError || !walletData) {
-        throw new Error("Erro ao buscar carteira do usuário");
-      }
-
-      // Check if user has enough balance
-      if (walletData.balance < selectedRequest.amount) {
-        throw new Error("Saldo insuficiente na carteira do usuário");
-      }
-
-      // Update wallet - subtract the amount from balance and add to total_withdrawn
-      const { error: walletError } = await supabase
-        .from("wallets")
-        .update({
-          balance: walletData.balance - selectedRequest.amount,
-          total_withdrawn: walletData.total_withdrawn + selectedRequest.amount,
-          updated_at: new Date().toISOString(),
-        })
-        .eq("user_id", selectedRequest.user_id);
-
-      if (walletError) throw walletError;
-
-      // Update withdrawal request
-      const { error: updateError } = await supabase
-        .from("withdraw_requests")
-        .update({
-          status: "approved",
-          approved_by: user?.id,
-          approved_at: new Date().toISOString(),
-          admin_notes: adminNotes,
-        })
-        .eq("id", selectedRequest.id);
-
-      if (updateError) throw updateError;
-
-      // Create notification
-      await supabase.from("notifications").insert({
-        user_id: selectedRequest.user_id,
-        type: "withdraw",
-        title: "Saque Aprovado!",
-        message: `Seu saque de R$ ${selectedRequest.amount.toFixed(2)} foi aprovado e processado. Valor deduzido do saldo.`,
+      const { data, error } = await supabase.rpc("approve_withdrawal", {
+        p_request_id:  selectedRequest.id,
+        p_admin_id:    user?.id,
+        p_admin_notes: adminNotes || null,
       });
 
-      // Send email
+      if (error) {
+        const hint = (error as any)?.hint || error.message;
+        throw new Error(hint);
+      }
+
+      // Dispara e-mail em background (não bloqueia)
       supabase.functions.invoke("send-transactional-email", {
         body: {
           type: "withdrawal_approved",

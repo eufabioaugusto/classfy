@@ -35,7 +35,22 @@ serve(async (req) => {
       event = JSON.parse(body);
     }
 
-    console.log(`Received event: ${event.type}`);
+    console.log(`Received event: ${event.type} (${event.id})`);
+
+    // Dedupe: se esse event_id já foi processado, retorna 200 imediatamente
+    const { error: dedupError } = await supabaseClient
+      .from('stripe_events_processed')
+      .insert({ event_id: event.id, event_type: event.type });
+
+    if (dedupError) {
+      // unique_violation (23505) = evento já processado
+      if (dedupError.code === '23505') {
+        console.log(`Event ${event.id} already processed, skipping.`);
+        return new Response(JSON.stringify({ received: true, skipped: true }),
+          { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      }
+      console.error('Error recording stripe event:', dedupError);
+    }
 
     switch (event.type) {
       case "checkout.session.completed": {
@@ -328,7 +343,7 @@ serve(async (req) => {
   }
 });
 
-// Helper to record revenue in revenue_entries table
+// Helper to record revenue in revenue_entries table (idempotente por source_id)
 async function recordRevenue(
   supabase: ReturnType<typeof createClient>,
   params: {
@@ -342,7 +357,7 @@ async function recordRevenue(
   try {
     const now = new Date();
     const year_month = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-    
+
     const { error } = await supabase
       .from('revenue_entries')
       .insert({
@@ -355,6 +370,11 @@ async function recordRevenue(
       });
 
     if (error) {
+      // unique_violation = source_id já registrado (retry do webhook) — ignorar silenciosamente
+      if ((error as any).code === '23505') {
+        console.log('Revenue already recorded for source_id:', params.source_id, '— skipping.');
+        return;
+      }
       console.error('Error recording revenue:', error);
     } else {
       console.log('Revenue recorded:', { type: params.revenue_type, amount: params.amount, year_month });
