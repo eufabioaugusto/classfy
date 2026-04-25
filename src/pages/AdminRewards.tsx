@@ -167,6 +167,12 @@ export default function AdminRewards() {
   const [walletLedger, setWalletLedger] = useState<WalletLedgerEntry[]>([]);
   const [runningReconciliation, setRunningReconciliation] = useState(false);
 
+  // Qualification state
+  const [qualificationUsers, setQualificationUsers] = useState<any[]>([]);
+  const [planConfig, setPlanConfig] = useState<any>(null);
+  const [checkpoints, setCheckpoints] = useState<any>(null);
+  const [savingQualConfig, setSavingQualConfig] = useState(false);
+
   // Global stats
   const [globalStats, setGlobalStats] = useState({
     totalRewards: 0,
@@ -188,6 +194,7 @@ export default function AdminRewards() {
       fetchMilestones();
       fetchEconomyData();
       fetchAuditData();
+      fetchQualificationData();
     }
   }, [role, authLoading]);
 
@@ -362,6 +369,48 @@ export default function AdminRewards() {
       }
     } catch (error) {
       console.error('Error fetching economy data:', error);
+    }
+  };
+
+  const fetchQualificationData = async () => {
+    try {
+      const now = new Date();
+      const yearMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+      const [settingsRes, cycleRes] = await Promise.all([
+        supabase.from('platform_settings').select('value').eq('key', 'economic').single(),
+        supabase.from('economic_cycles').select('id').eq('year_month', yearMonth).maybeSingle(),
+      ]);
+      const settings = settingsRes.data?.value as any;
+      setPlanConfig(settings?.plan_config || null);
+      setCheckpoints(settings?.checkpoints || null);
+
+      if (cycleRes.data?.id) {
+        const { data: qualUsers } = await supabase
+          .from('economic_cycle_users')
+          .select('user_id, performance_points, qualified_for_pool, qualification_points, qualification_details, qualification_evaluated_at')
+          .eq('cycle_id', cycleRes.data.id)
+          .order('qualification_points', { ascending: false });
+        setQualificationUsers(qualUsers || []);
+      }
+    } catch (error) {
+      console.error('Error fetching qualification data:', error);
+    }
+  };
+
+  const handleSaveQualConfig = async (newPlanConfig: any, newCheckpoints: any) => {
+    setSavingQualConfig(true);
+    try {
+      const { data: current } = await supabase.from('platform_settings').select('value').eq('key', 'economic').single();
+      const updated = { ...(current?.value as any), plan_config: newPlanConfig, checkpoints: newCheckpoints };
+      const { error } = await supabase.from('platform_settings').update({ value: updated }).eq('key', 'economic');
+      if (error) throw error;
+      setPlanConfig(newPlanConfig);
+      setCheckpoints(newCheckpoints);
+      toast.success('Configurações de qualificação salvas!');
+    } catch (error: any) {
+      toast.error('Erro ao salvar: ' + error.message);
+    } finally {
+      setSavingQualConfig(false);
     }
   };
 
@@ -613,6 +662,10 @@ export default function AdminRewards() {
             <TabsTrigger value="economy" className="gap-2">
               <DollarSign className="w-4 h-4" />
               Economia
+            </TabsTrigger>
+            <TabsTrigger value="qualificacao" className="gap-2">
+              <Target className="w-4 h-4" />
+              Qualificação
             </TabsTrigger>
             <TabsTrigger value="auditoria" className="gap-2">
               <ShieldCheck className="w-4 h-4" />
@@ -1134,6 +1187,225 @@ export default function AdminRewards() {
                 </div>
               </div>
             </Card>
+          </TabsContent>
+
+          {/* ── QUALIFICAÇÃO ────────────────────────────────────── */}
+          <TabsContent value="qualificacao" className="space-y-6">
+
+            {/* Config por plano */}
+            {planConfig && (
+              <Card className="p-6">
+                <div className="flex items-center justify-between mb-4">
+                  <div>
+                    <h3 className="text-lg font-semibold">Configuração por Plano</h3>
+                    <p className="text-sm text-muted-foreground">Multiplier de PP, dias de maturação e pontos mínimos para qualificação</p>
+                  </div>
+                  <Button size="sm" disabled={savingQualConfig} onClick={() => handleSaveQualConfig(planConfig, checkpoints)}>
+                    {savingQualConfig ? 'Salvando...' : 'Salvar'}
+                  </Button>
+                </div>
+                <div className="grid gap-4 md:grid-cols-3">
+                  {(['free', 'pro', 'premium'] as const).map((plan) => {
+                    const cfg = planConfig[plan] || {};
+                    const colors = { free: 'border-gray-200', pro: 'border-blue-200 bg-blue-50/30', premium: 'border-yellow-200 bg-yellow-50/30' };
+                    return (
+                      <div key={plan} className={`p-4 border-2 rounded-lg ${colors[plan]} space-y-3`}>
+                        <h4 className="font-semibold capitalize text-base">{plan}</h4>
+                        <div>
+                          <label className="text-xs text-muted-foreground">Multiplier de PP</label>
+                          <Input type="number" step="0.1" min="0" max="10"
+                            defaultValue={cfg.multiplier ?? 1}
+                            onChange={(e) => { planConfig[plan].multiplier = parseFloat(e.target.value); setPlanConfig({...planConfig}); }}
+                            className="mt-1 h-8 text-sm" />
+                        </div>
+                        <div>
+                          <label className="text-xs text-muted-foreground">Dias de maturação</label>
+                          <Input type="number" min="0" max="365"
+                            defaultValue={cfg.maturation_days ?? 30}
+                            onChange={(e) => { planConfig[plan].maturation_days = parseInt(e.target.value); setPlanConfig({...planConfig}); }}
+                            className="mt-1 h-8 text-sm" />
+                        </div>
+                        <div>
+                          <label className="text-xs text-muted-foreground">Mín. QP para qualificar</label>
+                          <Input type="number" min="0" max="200"
+                            defaultValue={cfg.qualification_threshold ?? 60}
+                            onChange={(e) => { planConfig[plan].qualification_threshold = parseInt(e.target.value); setPlanConfig({...planConfig}); }}
+                            className="mt-1 h-8 text-sm" />
+                        </div>
+                        <div className="text-xs text-muted-foreground pt-1 border-t">
+                          {plan === 'free' && 'Ganha pouco, matura devagar, precisa se esforçar'}
+                          {plan === 'pro' && 'Ganha normal, matura médio, qualificação acessível'}
+                          {plan === 'premium' && 'Ganha mais, matura rápido, qualifica automaticamente'}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </Card>
+            )}
+
+            {/* Config de checkpoints */}
+            {checkpoints && (
+              <Card className="p-6">
+                <h3 className="text-lg font-semibold mb-1">Checkpoints de Qualificação</h3>
+                <p className="text-sm text-muted-foreground mb-4">
+                  Pontos de qualificação (QP) concedidos por ação. Premium qualifica com apenas subscription_paid.
+                </p>
+                <div className="grid gap-3 md:grid-cols-2">
+                  {[
+                    { key: 'referral_signup',   label: 'Indicação cadastrada',      tip: 'QP por cada novo indicado que se cadastrar' },
+                    { key: 'referral_upgrade',  label: 'Indicação convertida',       tip: 'QP por cada indicado que fez upgrade pago' },
+                    { key: 'share_content',     label: 'Compartilhou conteúdo',      tip: 'QP por share (com máximo mensal)' },
+                    { key: 'subscription_paid', label: 'Plano pago ativo',           tip: 'QP fixo para quem tem Pro ou Premium' },
+                    { key: 'boost_purchased',   label: 'Comprou boost no mês',       tip: 'QP fixo por ter comprado boost' },
+                    { key: 'content_purchased', label: 'Comprou conteúdo pago',      tip: 'QP fixo por ter comprado conteúdo' },
+                    { key: 'active_days',       label: 'Dias ativos (≥ min)',         tip: 'QP fixo ao atingir mínimo de dias ativos' },
+                    { key: 'content_completed', label: 'Conteúdos completados (≥ min)',tip: 'QP fixo ao atingir mínimo de WATCH_100' },
+                    { key: 'engagement',        label: 'Engajamento (≥ min)',         tip: 'QP fixo ao atingir mínimo de likes/saves/comments' },
+                  ].map(({ key, label, tip }) => {
+                    const cp = checkpoints[key] || {};
+                    return (
+                      <div key={key} className="p-3 bg-muted/30 rounded-lg space-y-2">
+                        <div className="flex items-start justify-between">
+                          <div>
+                            <p className="text-sm font-medium">{label}</p>
+                            <p className="text-xs text-muted-foreground">{tip}</p>
+                          </div>
+                        </div>
+                        <div className="flex gap-2 flex-wrap">
+                          {cp.qp !== undefined && (
+                            <div className="flex-1 min-w-[80px]">
+                              <label className="text-xs text-muted-foreground">QP</label>
+                              <Input type="number" min="0" defaultValue={cp.qp}
+                                onChange={(e) => { checkpoints[key].qp = parseInt(e.target.value); setCheckpoints({...checkpoints}); }}
+                                className="h-7 text-xs mt-0.5" />
+                            </div>
+                          )}
+                          {cp.qp_per_action !== undefined && (
+                            <div className="flex-1 min-w-[80px]">
+                              <label className="text-xs text-muted-foreground">QP/ação</label>
+                              <Input type="number" min="0" defaultValue={cp.qp_per_action}
+                                onChange={(e) => { checkpoints[key].qp_per_action = parseInt(e.target.value); setCheckpoints({...checkpoints}); }}
+                                className="h-7 text-xs mt-0.5" />
+                            </div>
+                          )}
+                          {cp.max_qp !== undefined && (
+                            <div className="flex-1 min-w-[80px]">
+                              <label className="text-xs text-muted-foreground">Máx QP</label>
+                              <Input type="number" min="0" defaultValue={cp.max_qp}
+                                onChange={(e) => { checkpoints[key].max_qp = parseInt(e.target.value); setCheckpoints({...checkpoints}); }}
+                                className="h-7 text-xs mt-0.5" />
+                            </div>
+                          )}
+                          {cp.required_days !== undefined && (
+                            <div className="flex-1 min-w-[80px]">
+                              <label className="text-xs text-muted-foreground">Dias mín.</label>
+                              <Input type="number" min="1" max="31" defaultValue={cp.required_days}
+                                onChange={(e) => { checkpoints[key].required_days = parseInt(e.target.value); setCheckpoints({...checkpoints}); }}
+                                className="h-7 text-xs mt-0.5" />
+                            </div>
+                          )}
+                          {cp.required_count !== undefined && (
+                            <div className="flex-1 min-w-[80px]">
+                              <label className="text-xs text-muted-foreground">Qtd mín.</label>
+                              <Input type="number" min="1" defaultValue={cp.required_count}
+                                onChange={(e) => { checkpoints[key].required_count = parseInt(e.target.value); setCheckpoints({...checkpoints}); }}
+                                className="h-7 text-xs mt-0.5" />
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+                <div className="mt-4 flex justify-end">
+                  <Button disabled={savingQualConfig} onClick={() => handleSaveQualConfig(planConfig, checkpoints)}>
+                    {savingQualConfig ? 'Salvando...' : 'Salvar Checkpoints'}
+                  </Button>
+                </div>
+              </Card>
+            )}
+
+            {/* Status de qualificação do ciclo atual */}
+            <Card className="p-6">
+              <div className="flex items-center justify-between mb-4">
+                <div>
+                  <h3 className="text-lg font-semibold">Status do Ciclo Atual</h3>
+                  <p className="text-sm text-muted-foreground">
+                    {qualificationUsers.filter(u => u.qualified_for_pool).length} qualificados ·{' '}
+                    {qualificationUsers.filter(u => !u.qualified_for_pool).length} não qualificados ·{' '}
+                    {qualificationUsers.length} total
+                  </p>
+                </div>
+              </div>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Usuário</TableHead>
+                    <TableHead className="text-right">PP Acumulados</TableHead>
+                    <TableHead className="text-right">QP</TableHead>
+                    <TableHead>Top checkpoints</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead className="text-right">Avaliado</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {qualificationUsers.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={6} className="text-center text-muted-foreground py-8">
+                        Nenhum usuário no ciclo atual ainda
+                      </TableCell>
+                    </TableRow>
+                  ) : (
+                    qualificationUsers.map((u) => {
+                      const details = u.qualification_details || {};
+                      const threshold = details.threshold || 60;
+                      const topCheckpoints = Object.entries(details)
+                        .filter(([k, v]: [string, any]) => v?.qp > 0 && k !== 'threshold' && k !== 'plan')
+                        .sort(([, a]: any, [, b]: any) => b.qp - a.qp)
+                        .slice(0, 3)
+                        .map(([k, v]: any) => `${k.replace(/_/g, ' ')} +${v.qp}`);
+                      return (
+                        <TableRow key={u.user_id}>
+                          <TableCell className="font-mono text-xs text-muted-foreground">
+                            {u.user_id.slice(0, 8)}…
+                          </TableCell>
+                          <TableCell className="text-right font-semibold">
+                            {Number(u.performance_points).toFixed(2)}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            <span className={`font-semibold ${Number(u.qualification_points) >= threshold ? 'text-green-600' : 'text-muted-foreground'}`}>
+                              {Number(u.qualification_points).toFixed(0)}
+                              <span className="text-xs text-muted-foreground font-normal">/{threshold}</span>
+                            </span>
+                          </TableCell>
+                          <TableCell className="text-xs text-muted-foreground">
+                            {topCheckpoints.join(' · ') || '—'}
+                          </TableCell>
+                          <TableCell>
+                            {u.qualified_for_pool ? (
+                              <Badge variant="outline" className="text-green-700 border-green-300 gap-1">
+                                <CheckCircle2 className="w-3 h-3" /> Qualificado
+                              </Badge>
+                            ) : (
+                              <Badge variant="outline" className="text-muted-foreground gap-1">
+                                <XCircle className="w-3 h-3" /> Não qualificado
+                              </Badge>
+                            )}
+                          </TableCell>
+                          <TableCell className="text-right text-xs text-muted-foreground">
+                            {u.qualification_evaluated_at
+                              ? new Date(u.qualification_evaluated_at).toLocaleDateString('pt-BR')
+                              : '—'}
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })
+                  )}
+                </TableBody>
+              </Table>
+            </Card>
+
           </TabsContent>
 
           {/* ── AUDITORIA ──────────────────────────────────────── */}

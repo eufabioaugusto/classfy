@@ -201,43 +201,57 @@ Deno.serve(async (req) => {
     let distributedAmount = 0;
     let usersPaid = 0;
     let usersCarriedOver = 0;
+    let usersDisqualified = 0;
     const errors: string[] = [];
 
     if (totalPP > 0 && effectivePRM > 0 && allCycleUsers.length > 0) {
+      // 4.6: Avaliar qualificação de todos os usuários do ciclo antes de distribuir
+      console.log(`Evaluating pool qualification for ${allCycleUsers.length} users...`);
+      const { error: qualErr } = await supabase.rpc('batch_evaluate_qualifications', {
+        p_cycle_id: cycle.id,
+      });
+      if (qualErr) {
+        console.error('Error evaluating qualifications:', qualErr.message);
+      }
+
+      // Re-buscar após qualificação para ter o campo qualified_for_pool atualizado
+      const { data: qualifiedUsers } = await supabase
+        .from('economic_cycle_users')
+        .select('*')
+        .eq('cycle_id', cycle.id)
+        .gt('performance_points', 0);
+
+      const qualifiedList = qualifiedUsers || [];
+      const qualifiedPP = qualifiedList
+        .filter((u: any) => u.qualified_for_pool)
+        .reduce((sum: number, u: any) => sum + parseFloat(String(u.performance_points)), 0);
+
+      usersDisqualified = qualifiedList.filter((u: any) => !u.qualified_for_pool).length;
+      console.log(`Qualified: ${qualifiedList.filter((u: any) => u.qualified_for_pool).length}, Disqualified: ${usersDisqualified}, Qualified PP: ${qualifiedPP}`);
+
       // Determine next cycle for carry-over
       const nextCycleDate = new Date(cycleDate.getFullYear(), cycleDate.getMonth() + 1, 1);
       const nextYearMonth = `${nextCycleDate.getFullYear()}-${String(nextCycleDate.getMonth() + 1).padStart(2, '0')}`;
-
-      // Get or create next cycle ID for carry-over
       let nextCycleId: string | null = null;
 
-      for (const cycleUser of allCycleUsers) {
+      for (const cycleUser of qualifiedList) {
         const userPP = parseFloat(String(cycleUser.performance_points));
-        const userShare = (userPP / totalPP) * effectivePRM;
-        const roundedShare = parseFloat(userShare.toFixed(2));
 
-        // Skip users below minimum payout — carry their points forward
-        if (roundedShare < minPayout) {
+        // Usuário não qualificado: carry-over de PP (não perde pontos, mas não recebe pool)
+        if (!cycleUser.qualified_for_pool) {
           if (nextCycleId === null) {
-            // Lazy-create next cycle
             const { data: nextCycle } = await supabase
-              .from('economic_cycles')
-              .select('id')
-              .eq('year_month', nextYearMonth)
-              .maybeSingle();
-
+              .from('economic_cycles').select('id').eq('year_month', nextYearMonth).maybeSingle();
             if (nextCycle) {
               nextCycleId = nextCycle.id;
             } else {
               const { data: newNextCycle } = await supabase
                 .from('economic_cycles')
                 .insert({ year_month: nextYearMonth, pool_percentage: poolPercentage })
-                .select('id')
-                .single();
+                .select('id').single();
               nextCycleId = newNextCycle?.id ?? null;
             }
           }
-
           if (nextCycleId) {
             await supabase.rpc('carryover_cycle_points', {
               p_from_cycle_id: cycle.id,
@@ -248,14 +262,42 @@ Deno.serve(async (req) => {
           continue;
         }
 
-        // Distribute atomically via RPC
+        // Calcular share usando somente PP qualificados como base
+        const userShare = qualifiedPP > 0 ? (userPP / qualifiedPP) * effectivePRM : 0;
+        const roundedShare = parseFloat(userShare.toFixed(2));
+
+        // Abaixo do mínimo: carry-over mesmo qualificado (aguarda acumular mais)
+        if (roundedShare < minPayout) {
+          if (nextCycleId === null) {
+            const { data: nextCycle } = await supabase
+              .from('economic_cycles').select('id').eq('year_month', nextYearMonth).maybeSingle();
+            if (nextCycle) { nextCycleId = nextCycle.id; }
+            else {
+              const { data: newNextCycle } = await supabase
+                .from('economic_cycles')
+                .insert({ year_month: nextYearMonth, pool_percentage: poolPercentage })
+                .select('id').single();
+              nextCycleId = newNextCycle?.id ?? null;
+            }
+          }
+          if (nextCycleId) {
+            await supabase.rpc('carryover_cycle_points', {
+              p_from_cycle_id: cycle.id,
+              p_to_cycle_id: nextCycleId,
+              p_min_payout: minPayout,
+            }).then(() => { usersCarriedOver++; });
+          }
+          continue;
+        }
+
+        // Distribuir (agora com maturação — vai para wallet_pending)
         const { error: distErr } = await supabase.rpc('distribute_cycle_payout', {
           p_cycle_id: cycle.id,
           p_user_id: cycleUser.user_id,
           p_amount: roundedShare,
           p_year_month: targetYearMonth,
           p_user_pp: userPP,
-          p_total_pp: totalPP,
+          p_total_pp: qualifiedPP,
         });
 
         if (distErr) {
@@ -312,6 +354,7 @@ Deno.serve(async (req) => {
       },
       total_performance_points: totalPP,
       users_paid: usersPaid,
+      users_disqualified: usersDisqualified,
       users_carried_over: usersCarriedOver,
       distributed_amount: distributedAmount,
       reconciliation: {

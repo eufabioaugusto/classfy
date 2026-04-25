@@ -338,7 +338,7 @@ export default function Carteira() {
         </Card>
 
         {/* Overview Cards */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-6">
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-3 sm:gap-6">
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 p-3 sm:p-6 sm:pb-2">
               <CardTitle className="text-xs sm:text-sm font-medium">Saldo Disponível</CardTitle>
@@ -350,6 +350,21 @@ export default function Carteira() {
               </div>
               <p className="text-xs text-muted-foreground mt-1 hidden sm:block">
                 Disponível para saque
+              </p>
+            </CardContent>
+          </Card>
+
+          <Card className="border-yellow-500/30 bg-yellow-500/5">
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 p-3 sm:p-6 sm:pb-2">
+              <CardTitle className="text-xs sm:text-sm font-medium text-yellow-600">Em Maturação</CardTitle>
+              <span className="text-yellow-500 text-lg hidden sm:block">⏳</span>
+            </CardHeader>
+            <CardContent className="p-3 pt-0 sm:p-6 sm:pt-0">
+              <div className="text-lg sm:text-2xl font-bold text-yellow-600">
+                R$ {Number(wallet?.pending_balance || 0).toFixed(2)}
+              </div>
+              <p className="text-xs text-muted-foreground mt-1 hidden sm:block">
+                Bloqueado, sendo liberado
               </p>
             </CardContent>
           </Card>

@@ -18,10 +18,11 @@ interface PlanMultipliers {
   premium: number;
 }
 
-const PLAN_MULTIPLIERS: PlanMultipliers = {
-  free: 1.0,
-  pro: 1.1,
-  premium: 1.25,
+// Defaults usados se platform_settings não carregar
+const DEFAULT_PLAN_MULTIPLIERS: PlanMultipliers = {
+  free: 0.1,
+  pro: 1.0,
+  premium: 1.5,
 };
 
 // Actions that can only be rewarded once per day
@@ -290,15 +291,16 @@ Deno.serve(async (req) => {
       );
     }
 
-    // STEP 3: Get user profile and plan
-    const { data: userProfile } = await supabase
-      .from('profiles')
-      .select('plan')
-      .eq('id', userId)
-      .single();
+    // STEP 3: Get user profile, plan e multipliers configuráveis do banco
+    const [profileRes, settingsRes] = await Promise.all([
+      supabase.from('profiles').select('plan').eq('id', userId).single(),
+      supabase.from('platform_settings').select('value').eq('key', 'economic').single(),
+    ]);
 
-    const userPlan = (userProfile?.plan || 'free') as keyof PlanMultipliers;
-    const planMultiplier = PLAN_MULTIPLIERS[userPlan] || 1.0;
+    const userPlan = (profileRes.data?.plan || 'free') as keyof PlanMultipliers;
+    const economicSettings = settingsRes.data?.value as any;
+    const planConfig = economicSettings?.plan_config?.[userPlan];
+    const planMultiplier = planConfig?.multiplier ?? DEFAULT_PLAN_MULTIPLIERS[userPlan] ?? 1.0;
 
     // STEP 4: Get or create current economic cycle
     const { data: cycleIdResult } = await supabase.rpc('get_or_create_current_cycle');
@@ -390,7 +392,8 @@ Deno.serve(async (req) => {
         .single();
 
       const creatorPlan = (creatorProfile?.plan || 'free') as keyof PlanMultipliers;
-      const creatorMultiplier = PLAN_MULTIPLIERS[creatorPlan] || 1.0;
+      const creatorPlanConfig = economicSettings?.plan_config?.[creatorPlan];
+      const creatorMultiplier = creatorPlanConfig?.multiplier ?? DEFAULT_PLAN_MULTIPLIERS[creatorPlan] ?? 1.0;
 
       const creatorPoints = parseFloat((config.points_creator * creatorMultiplier).toFixed(2));
       // Creator gets their own consistency multiplier based on their active days
