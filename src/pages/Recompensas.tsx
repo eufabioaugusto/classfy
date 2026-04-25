@@ -413,139 +413,95 @@ export default function Recompensas() {
               </Card>
             </div>
 
-            {/* Engagement Stats */}
-            <Card>
-              <CardHeader>
-                <div className="flex items-center gap-2">
-                  <Zap className="w-6 h-6 text-primary" />
-                  <CardTitle>Estatísticas de Engajamento</CardTitle>
-                </div>
-                <CardDescription>Suas atividades na plataforma</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
-                  <div className="space-y-2">
-                    <div className="flex items-center gap-2 text-pink-500">
-                      <Heart className="w-5 h-5" />
-                      <span className="text-sm font-medium">Curtidas</span>
-                    </div>
-                    <p className="text-3xl font-bold">{stats.engagementStats.likes}</p>
+            {/* Engagement + Creator Stats — 2 colunas para creators */}
+            <div className={`grid grid-cols-1 gap-6${isCreator && stats.creatorStats ? ' md:grid-cols-2' : ''}`}>
+              <Card>
+                <CardHeader className="pb-3">
+                  <div className="flex items-center gap-2">
+                    <Zap className="w-4 h-4 text-primary" />
+                    <CardTitle className="text-sm font-semibold">Engajamento</CardTitle>
                   </div>
-                  <div className="space-y-2">
-                    <div className="flex items-center gap-2 text-blue-500">
-                      <Bookmark className="w-5 h-5" />
-                      <span className="text-sm font-medium">Salvos</span>
-                    </div>
-                    <p className="text-3xl font-bold">{stats.engagementStats.saves}</p>
-                  </div>
-                  <div className="space-y-2">
-                    <div className="flex items-center gap-2 text-purple-500">
-                      <MessageSquare className="w-5 h-5" />
-                      <span className="text-sm font-medium">Comentários</span>
-                    </div>
-                    <p className="text-3xl font-bold">{stats.engagementStats.comments}</p>
-                  </div>
-                  <div className="space-y-2">
-                    <div className="flex items-center gap-2 text-green-500">
-                      <Target className="w-5 h-5" />
-                      <span className="text-sm font-medium">Completados</span>
-                    </div>
-                    <p className="text-3xl font-bold">{stats.engagementStats.completedContents}</p>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Creator Stats */}
-            {isCreator && stats.creatorStats && (
-              <>
-                <div className="pt-6">
-                  <div className="flex items-center gap-2 mb-6">
-                    <Star className="w-6 h-6 text-accent" />
-                    <h2 className="text-2xl font-bold">Estatísticas de Creator</h2>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-                  <Card>
-                    <CardHeader className="pb-3">
-                      <div className="flex items-center gap-2 text-muted-foreground">
-                        <Video className="w-4 h-4" />
-                        <CardDescription>Conteúdos</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="grid grid-cols-2 gap-2">
+                    {[
+                      { Icon: Heart, label: 'Curtidas', value: stats.engagementStats.likes, color: 'text-pink-500' },
+                      { Icon: Bookmark, label: 'Salvos', value: stats.engagementStats.saves, color: 'text-blue-500' },
+                      { Icon: MessageSquare, label: 'Comentários', value: stats.engagementStats.comments, color: 'text-purple-500' },
+                      { Icon: Target, label: 'Completados', value: stats.engagementStats.completedContents, color: 'text-green-500' },
+                    ].map(({ Icon, label, value, color }) => (
+                      <div key={label} className="flex items-center gap-3 p-2.5 rounded-lg bg-muted/40">
+                        <Icon className={`w-4 h-4 shrink-0 ${color}`} />
+                        <div>
+                          <p className="text-xs text-muted-foreground leading-none">{label}</p>
+                          <p className="text-xl font-bold mt-0.5">{value}</p>
+                        </div>
                       </div>
-                    </CardHeader>
-                    <CardContent>
-                      <p className="text-3xl font-bold">{stats.creatorStats.totalContents}</p>
-                    </CardContent>
-                  </Card>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
 
-                  <Card>
-                    <CardHeader className="pb-3">
-                      <div className="flex items-center gap-2 text-muted-foreground">
-                        <Eye className="w-4 h-4" />
-                        <CardDescription>Visualizações</CardDescription>
-                      </div>
-                    </CardHeader>
-                    <CardContent>
-                      <p className="text-3xl font-bold">{stats.creatorStats.totalViews.toLocaleString()}</p>
-                    </CardContent>
-                  </Card>
-
-                  <Card>
-                    <CardHeader className="pb-3">
-                      <div className="flex items-center gap-2 text-muted-foreground">
-                        <Heart className="w-4 h-4" />
-                        <CardDescription>Curtidas</CardDescription>
-                      </div>
-                    </CardHeader>
-                    <CardContent>
-                      <p className="text-3xl font-bold">{stats.creatorStats.totalLikes.toLocaleString()}</p>
-                    </CardContent>
-                  </Card>
-
-                  <Card>
-                    <CardHeader className="pb-3">
-                      <div className="flex items-center gap-2 text-muted-foreground">
-                        <BarChart3 className="w-4 h-4" />
-                        <CardDescription>Engajamento</CardDescription>
-                      </div>
-                    </CardHeader>
-                    <CardContent>
-                      <p className="text-3xl font-bold">{stats.creatorStats.avgEngagement.toFixed(1)}%</p>
-                    </CardContent>
-                  </Card>
-                </div>
-
-                {/* Next Milestone */}
+              {isCreator && stats.creatorStats && (
                 <Card>
-                  <CardHeader>
+                  <CardHeader className="pb-3">
                     <div className="flex items-center gap-2">
-                      <TrendingUp className="w-6 h-6 text-accent" />
-                      <CardTitle>Próximo Milestone</CardTitle>
+                      <Star className="w-4 h-4 text-accent" />
+                      <CardTitle className="text-sm font-semibold">Creator</CardTitle>
                     </div>
-                    <CardDescription>Continue criando para alcançar a próxima recompensa</CardDescription>
                   </CardHeader>
-                  <CardContent className="space-y-4">
-                    <div className="flex justify-between items-end gap-2">
-                      <div className="min-w-0">
-                        <p className="text-xs sm:text-sm text-muted-foreground">Meta</p>
-                        <p className="text-lg sm:text-2xl font-bold">{stats.creatorStats.nextMilestone.target.toLocaleString()} views</p>
-                      </div>
-                      <Badge variant="secondary" className="text-xs sm:text-lg px-2 sm:px-4 py-1 sm:py-2 flex-shrink-0">
-                        {stats.creatorStats.nextMilestone.reward}
-                      </Badge>
+                  <CardContent>
+                    <div className="grid grid-cols-2 gap-2">
+                      {[
+                        { Icon: Video, label: 'Conteúdos', value: stats.creatorStats.totalContents, color: 'text-muted-foreground' },
+                        { Icon: Eye, label: 'Visualizações', value: stats.creatorStats.totalViews.toLocaleString(), color: 'text-muted-foreground' },
+                        { Icon: Heart, label: 'Curtidas', value: stats.creatorStats.totalLikes.toLocaleString(), color: 'text-pink-500' },
+                        { Icon: BarChart3, label: 'Engajamento', value: `${stats.creatorStats.avgEngagement.toFixed(1)}%`, color: 'text-muted-foreground' },
+                      ].map(({ Icon, label, value, color }) => (
+                        <div key={label} className="flex items-center gap-3 p-2.5 rounded-lg bg-muted/40">
+                          <Icon className={`w-4 h-4 shrink-0 ${color}`} />
+                          <div>
+                            <p className="text-xs text-muted-foreground leading-none">{label}</p>
+                            <p className="text-xl font-bold mt-0.5">{value}</p>
+                          </div>
+                        </div>
+                      ))}
                     </div>
-                    <Progress 
-                      value={(stats.creatorStats.nextMilestone.current / stats.creatorStats.nextMilestone.target) * 100} 
-                      className="h-3"
-                      indicatorClassName="bg-gradient-to-r from-accent to-primary"
-                    />
-                    <p className="text-sm text-muted-foreground">
-                      Faltam <strong>{(stats.creatorStats.nextMilestone.target - stats.creatorStats.nextMilestone.current).toLocaleString()} views</strong> para alcançar este milestone
-                    </p>
                   </CardContent>
                 </Card>
-              </>
+              )}
+            </div>
+
+            {/* Next Milestone — apenas creators */}
+            {isCreator && stats.creatorStats && (
+              <Card>
+                <CardHeader>
+                  <div className="flex items-center gap-2">
+                    <TrendingUp className="w-6 h-6 text-accent" />
+                    <CardTitle>Próximo Milestone</CardTitle>
+                  </div>
+                  <CardDescription>Continue criando para alcançar a próxima recompensa</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="flex justify-between items-end gap-2">
+                    <div className="min-w-0">
+                      <p className="text-xs sm:text-sm text-muted-foreground">Meta</p>
+                      <p className="text-lg sm:text-2xl font-bold">{stats.creatorStats.nextMilestone.target.toLocaleString()} views</p>
+                    </div>
+                    <Badge variant="secondary" className="text-xs sm:text-lg px-2 sm:px-4 py-1 sm:py-2 flex-shrink-0">
+                      {stats.creatorStats.nextMilestone.reward}
+                    </Badge>
+                  </div>
+                  <Progress
+                    value={(stats.creatorStats.nextMilestone.current / stats.creatorStats.nextMilestone.target) * 100}
+                    className="h-3"
+                    indicatorClassName="bg-gradient-to-r from-accent to-primary"
+                  />
+                  <p className="text-sm text-muted-foreground">
+                    Faltam <strong>{(stats.creatorStats.nextMilestone.target - stats.creatorStats.nextMilestone.current).toLocaleString()} views</strong> para alcançar este milestone
+                  </p>
+                </CardContent>
+              </Card>
             )}
 
             {/* Leaderboard */}

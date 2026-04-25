@@ -6,7 +6,12 @@ import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
-import { CheckCircle2, XCircle, RefreshCw, Lock, TrendingUp } from "lucide-react";
+import {
+  CheckCircle2, XCircle, RefreshCw, Lock, TrendingUp, PartyPopper,
+  UserPlus, Share2, Star, Zap, ShoppingCart, Calendar, PlayCircle,
+  Heart, ArrowUpCircle,
+  type LucideIcon,
+} from "lucide-react";
 
 interface CheckpointDetail {
   count?: number;
@@ -29,16 +34,16 @@ interface QualDetails {
   engagement?: CheckpointDetail;
 }
 
-const CHECKPOINT_META: Record<string, { label: string; icon: string; tip: string }> = {
-  referral_upgrade:  { label: 'Indicação convertida',    icon: '💸', tip: 'Indicado fez upgrade pago' },
-  referral_signup:   { label: 'Indicação cadastrada',    icon: '👥', tip: 'Novo usuário pelo seu link' },
-  share_content:     { label: 'Compartilhou conteúdo',   icon: '📤', tip: 'Shares de conteúdo no mês' },
-  subscription_paid: { label: 'Plano pago ativo',        icon: '⭐', tip: 'Pro ou Premium ativo' },
-  boost_purchased:   { label: 'Boost comprado',          icon: '🚀', tip: 'Boost adquirido no mês' },
-  content_purchased: { label: 'Conteúdo comprado',       icon: '🛒', tip: 'Compra de conteúdo pago' },
-  active_days:       { label: 'Dias ativos',             icon: '📅', tip: 'Mínimo de dias no mês' },
-  content_completed: { label: 'Conteúdos completados',   icon: '✅', tip: 'Assistidos até o fim' },
-  engagement:        { label: 'Engajamento',             icon: '❤️', tip: 'Likes, saves e comentários' },
+const CHECKPOINT_META: Record<string, { label: string; Icon: LucideIcon; tip: string }> = {
+  referral_upgrade:  { label: 'Indicação convertida',  Icon: ArrowUpCircle, tip: 'Indicado fez upgrade pago' },
+  referral_signup:   { label: 'Indicação cadastrada',  Icon: UserPlus,      tip: 'Novo usuário pelo seu link' },
+  share_content:     { label: 'Compartilhou conteúdo', Icon: Share2,        tip: 'Shares de conteúdo no mês' },
+  subscription_paid: { label: 'Plano pago ativo',      Icon: Star,          tip: 'Pro ou Premium ativo' },
+  boost_purchased:   { label: 'Boost comprado',        Icon: Zap,           tip: 'Boost adquirido no mês' },
+  content_purchased: { label: 'Conteúdo comprado',     Icon: ShoppingCart,  tip: 'Compra de conteúdo pago' },
+  active_days:       { label: 'Dias ativos',           Icon: Calendar,      tip: 'Mínimo de dias no mês' },
+  content_completed: { label: 'Conteúdos completados', Icon: PlayCircle,    tip: 'Assistidos até o fim' },
+  engagement:        { label: 'Engajamento',           Icon: Heart,         tip: 'Likes, saves e comentários' },
 };
 
 interface QualificacaoCardProps {
@@ -170,12 +175,8 @@ export function QualificacaoCard({ estimatedPoolShare, performancePoints, poolTo
                   {performancePoints !== undefined && (
                     <span>{performancePoints.toLocaleString()} PP neste ciclo</span>
                   )}
-                  {performancePoints !== undefined && poolTotal !== undefined && (
-                    <span>·</span>
-                  )}
-                  {poolTotal !== undefined && (
-                    <span>Pool: R$ {poolTotal.toFixed(2)}</span>
-                  )}
+                  {performancePoints !== undefined && poolTotal !== undefined && <span>·</span>}
+                  {poolTotal !== undefined && <span>Pool: R$ {poolTotal.toFixed(2)}</span>}
                 </div>
               </>
             ) : (
@@ -217,15 +218,20 @@ export function QualificacaoCard({ estimatedPoolShare, performancePoints, poolTo
             </span>
           </div>
           <Progress value={progressPct} className="h-2" />
-          <p className="text-xs text-muted-foreground mt-1.5">
-            {qualified
-              ? 'Parabéns! Você participa do pool deste ciclo.'
-              : `Faltam ${Math.max(0, threshold - qp).toFixed(0)} QP para qualificar.`}
-          </p>
+          {qualified ? (
+            <p className="text-xs text-green-600 dark:text-green-400 mt-1.5 flex items-center gap-1.5">
+              <PartyPopper className="w-3.5 h-3.5 shrink-0" />
+              Você está no pool deste ciclo!
+            </p>
+          ) : (
+            <p className="text-xs text-muted-foreground mt-1.5">
+              Faltam {Math.max(0, threshold - qp).toFixed(0)} QP para qualificar.
+            </p>
+          )}
         </div>
 
         {/* Plano + maturação */}
-        <div className="flex items-center gap-3 text-xs text-muted-foreground bg-muted/40 rounded-lg p-3">
+        <div className="flex items-center gap-3 text-xs text-muted-foreground bg-muted/40 rounded-lg px-3 py-2">
           <span>Plano: <strong className="capitalize text-foreground">{plan}</strong></span>
           {maturationDays !== null && (
             <>
@@ -235,46 +241,44 @@ export function QualificacaoCard({ estimatedPoolShare, performancePoints, poolTo
           )}
         </div>
 
-        {/* Checkpoints */}
+        {/* Checkpoints — 2 colunas */}
         {details && (
-          <div className="space-y-2">
-            {Object.entries(CHECKPOINT_META).map(([key, meta]) => {
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+            {Object.entries(CHECKPOINT_META).map(([key, { label, Icon, tip }]) => {
               const cp = (details as any)[key] as CheckpointDetail | undefined;
               if (!cp) return null;
-              const earned = cp.qp > 0;
-              const isActive = cp.active === true;
-              const completed = earned || isActive;
+              const completed = cp.qp > 0 || cp.active === true;
 
               return (
                 <div
                   key={key}
-                  className={`flex items-center justify-between p-2.5 rounded-lg border ${
+                  className={`flex items-center justify-between p-2 rounded-lg border ${
                     completed
                       ? 'border-green-500/30 bg-green-500/10'
                       : 'border-border bg-background'
                   }`}
                 >
-                  <div className="flex items-center gap-2">
-                    <span className="text-base">{meta.icon}</span>
-                    <div>
-                      <p className="text-sm font-medium leading-none">{meta.label}</p>
-                      <p className="text-xs text-muted-foreground mt-0.5">
-                        {cp.count !== undefined
-                          ? `${cp.count}${cp.required ? ` / ${cp.required} mín` : ''}`
-                          : meta.tip}
-                      </p>
+                  <div className="flex items-center gap-2 min-w-0">
+                    <Icon className={`w-3.5 h-3.5 shrink-0 ${completed ? 'text-green-600 dark:text-green-400' : 'text-muted-foreground'}`} />
+                    <div className="min-w-0">
+                      <p className="text-xs font-medium leading-none truncate">{label}</p>
+                      {cp.count !== undefined && (
+                        <p className="text-xs text-muted-foreground mt-0.5">
+                          {cp.count}{cp.required ? ` / ${cp.required}` : ''}
+                        </p>
+                      )}
                     </div>
                   </div>
-                  <div className="flex items-center gap-2 shrink-0">
+                  <div className="flex items-center gap-1 shrink-0 ml-2">
                     {completed ? (
                       <>
-                        <span className="text-xs font-semibold text-green-600 dark:text-green-400">+{cp.qp} QP</span>
-                        <CheckCircle2 className="w-4 h-4 text-green-600 dark:text-green-400" />
+                        <span className="text-xs font-semibold text-green-600 dark:text-green-400">+{cp.qp}</span>
+                        <CheckCircle2 className="w-3.5 h-3.5 text-green-600 dark:text-green-400" />
                       </>
                     ) : (
                       <>
-                        <span className="text-xs text-muted-foreground">+? QP</span>
-                        <XCircle className="w-4 h-4 text-muted-foreground" />
+                        <span className="text-xs text-muted-foreground">+?</span>
+                        <XCircle className="w-3.5 h-3.5 text-muted-foreground" />
                       </>
                     )}
                   </div>
