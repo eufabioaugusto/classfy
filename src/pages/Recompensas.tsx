@@ -16,20 +16,19 @@ import { CreatorAchievementBadge } from "@/components/CreatorAchievementBadge";
 import { useCreatorMilestones } from "@/hooks/useCreatorMilestones";
 import { LeaderboardSection } from "@/components/LeaderboardSection";
 import { QualificacaoCard } from "@/components/QualificacaoCard";
-import { 
-  Trophy, 
-  Zap, 
-  Flame, 
-  Target, 
-  TrendingUp, 
+import {
+  Trophy,
+  Zap,
+  Flame,
+  Target,
   DollarSign,
   Award,
   Star,
   Heart,
   Bookmark,
   MessageSquare,
+  TrendingUp,
   Eye,
-  Users,
   Video,
   BarChart3
 } from "lucide-react";
@@ -250,9 +249,15 @@ export default function Recompensas() {
           <Header variant="home" title="Minhas Recompensas" />
 
           <main className="container mx-auto px-4 py-8 pb-24 md:pb-8 space-y-6">
-            {/* Hero Stats */}
+            {/* Pool Hero — qualification + estimated earnings */}
+            <QualificacaoCard
+              estimatedPoolShare={stats.estimatedPoolShare}
+              performancePoints={stats.performancePoints}
+              poolTotal={stats.prm}
+            />
+
+            {/* Level + Balance */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              {/* Level Card */}
               <Card className="col-span-1 md:col-span-2">
                 <CardHeader>
                   <div className="flex items-center justify-between">
@@ -283,7 +288,6 @@ export default function Recompensas() {
                 </CardContent>
               </Card>
 
-              {/* Balance Card */}
               <Card className="bg-gradient-to-br from-green-500/10 to-emerald-500/10 border-green-500/20">
                 <CardHeader>
                   <CardDescription className="text-sm">Saldo Disponível</CardDescription>
@@ -303,36 +307,6 @@ export default function Recompensas() {
                 </CardContent>
               </Card>
             </div>
-
-            {/* Pool Card */}
-            <Card>
-              <CardHeader>
-                <CardDescription className="text-sm">Estimativa do Pool Mensal</CardDescription>
-                <CardTitle className="text-4xl font-bold text-accent flex items-center gap-2">
-                  <TrendingUp className="w-8 h-8" />
-                  R$ {stats.estimatedPoolShare.toFixed(2)}
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <Separator className="my-3" />
-                <div className="space-y-1">
-                  <div className="flex justify-between text-sm">
-                    <span className="text-muted-foreground">PP deste ciclo</span>
-                    <span className="font-semibold">{stats.performancePoints.toLocaleString()}</span>
-                  </div>
-                  <div className="flex justify-between text-sm">
-                    <span className="text-muted-foreground">Pool ({stats.poolPercentage}% da receita)</span>
-                    <span className="font-semibold">R$ {(stats.rbm * (stats.poolPercentage / 100)).toFixed(2)}</span>
-                  </div>
-                </div>
-                <p className="text-xs text-muted-foreground mt-3">
-                  PP reiniciam todo mês — distribuição proporcional ao pool de recompensas
-                </p>
-              </CardContent>
-            </Card>
-
-
-
 
             {/* Streak & Badges */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -577,13 +551,7 @@ export default function Recompensas() {
             {/* Leaderboard */}
             <LeaderboardSection userId={user!.id} />
 
-            {/* Link to Detailed History */}
-            {/* Qualificação para o Pool */}
-            <div className="mt-6">
-              <QualificacaoCard />
-            </div>
-
-            <Card className="mt-6">
+            <Card>
               <CardContent className="p-4 sm:p-6">
                 <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                   <div>

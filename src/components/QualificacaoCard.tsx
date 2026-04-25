@@ -1,11 +1,12 @@
 import { useState, useEffect } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { CheckCircle2, XCircle, RefreshCw, Lock, Trophy } from "lucide-react";
+import { Separator } from "@/components/ui/separator";
+import { CheckCircle2, XCircle, RefreshCw, Lock, TrendingUp } from "lucide-react";
 
 interface CheckpointDetail {
   count?: number;
@@ -40,7 +41,13 @@ const CHECKPOINT_META: Record<string, { label: string; icon: string; tip: string
   engagement:        { label: 'Engajamento',             icon: '❤️', tip: 'Likes, saves e comentários' },
 };
 
-export function QualificacaoCard() {
+interface QualificacaoCardProps {
+  estimatedPoolShare?: number;
+  performancePoints?: number;
+  poolTotal?: number;
+}
+
+export function QualificacaoCard({ estimatedPoolShare, performancePoints, poolTotal }: QualificacaoCardProps = {}) {
   const { user } = useAuth();
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -50,6 +57,8 @@ export function QualificacaoCard() {
   const [plan, setPlan] = useState('free');
   const [details, setDetails] = useState<QualDetails | null>(null);
   const [maturationDays, setMaturationDays] = useState<number | null>(null);
+
+  const isHeroMode = estimatedPoolShare !== undefined;
 
   useEffect(() => {
     if (user) loadQualification(false);
@@ -61,7 +70,6 @@ export function QualificacaoCard() {
     else setLoading(true);
 
     try {
-      // Ciclo atual
       const now = new Date();
       const yearMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
       const { data: cycle } = await supabase
@@ -70,7 +78,6 @@ export function QualificacaoCard() {
         .eq('year_month', yearMonth)
         .maybeSingle();
 
-      // Configurações de plano
       const { data: settings } = await supabase
         .from('platform_settings')
         .select('value')
@@ -78,7 +85,6 @@ export function QualificacaoCard() {
         .single();
       const planConfig = (settings?.value as any)?.plan_config;
 
-      // Buscar perfil para saber o plano
       const { data: profile } = await supabase
         .from('profiles')
         .select('plan')
@@ -94,7 +100,6 @@ export function QualificacaoCard() {
         return;
       }
 
-      // Se refresh forçado, chamar RPC de avaliação
       if (forceRefresh) {
         await supabase.rpc('evaluate_pool_qualification', {
           p_user_id: user.id,
@@ -102,7 +107,6 @@ export function QualificacaoCard() {
         });
       }
 
-      // Ler resultado de economic_cycle_users
       const { data: ecu } = await supabase
         .from('economic_cycle_users')
         .select('qualified_for_pool, qualification_points, qualification_details')
@@ -117,7 +121,6 @@ export function QualificacaoCard() {
         setDetails(d);
         setThreshold(d?.threshold ?? 60);
       } else if (forceRefresh) {
-        // Usuário sem entrada no ciclo ainda — tentar avaliar via RPC
         const { data: res } = await supabase.rpc('evaluate_pool_qualification', {
           p_user_id: user.id,
           p_cycle_id: cycle.id,
@@ -152,16 +155,37 @@ export function QualificacaoCard() {
   }
 
   return (
-    <Card>
-      <CardHeader className="pb-3">
-        <div className="flex items-center justify-between">
-          <CardTitle className="flex items-center gap-2 text-base">
-            <Trophy className="w-4 h-4 text-primary" />
-            Qualificação para o Pool
-          </CardTitle>
-          <div className="flex items-center gap-2">
+    <Card className={isHeroMode && qualified ? 'border-green-500/30 bg-gradient-to-br from-green-500/5 to-emerald-500/5' : ''}>
+      <CardHeader className="pb-4">
+        <div className="flex items-start justify-between gap-4">
+          <div className="flex-1 min-w-0">
+            {isHeroMode ? (
+              <>
+                <p className="text-sm text-muted-foreground mb-2">Estimativa do Pool Mensal</p>
+                <div className="text-4xl font-bold text-accent flex items-center gap-2">
+                  <TrendingUp className="w-8 h-8 shrink-0" />
+                  R$ {estimatedPoolShare!.toFixed(2)}
+                </div>
+                <div className="flex flex-wrap gap-x-3 gap-y-1 mt-2 text-sm text-muted-foreground">
+                  {performancePoints !== undefined && (
+                    <span>{performancePoints.toLocaleString()} PP neste ciclo</span>
+                  )}
+                  {performancePoints !== undefined && poolTotal !== undefined && (
+                    <span>·</span>
+                  )}
+                  {poolTotal !== undefined && (
+                    <span>Pool: R$ {poolTotal.toFixed(2)}</span>
+                  )}
+                </div>
+              </>
+            ) : (
+              <p className="font-semibold text-base">Qualificação para o Pool</p>
+            )}
+          </div>
+
+          <div className="flex items-center gap-2 shrink-0">
             {qualified ? (
-              <Badge className="gap-1 bg-green-600">
+              <Badge className="gap-1 bg-green-600 hover:bg-green-600">
                 <CheckCircle2 className="w-3 h-3" /> Qualificado
               </Badge>
             ) : (
@@ -181,6 +205,8 @@ export function QualificacaoCard() {
       </CardHeader>
 
       <CardContent className="space-y-4">
+        {isHeroMode && <Separator className="-mt-1 mb-1" />}
+
         {/* QP Progress */}
         <div>
           <div className="flex justify-between text-sm mb-1.5">
@@ -191,7 +217,7 @@ export function QualificacaoCard() {
             </span>
           </div>
           <Progress value={progressPct} className="h-2" />
-          <p className="text-xs text-muted-foreground mt-1">
+          <p className="text-xs text-muted-foreground mt-1.5">
             {qualified
               ? 'Parabéns! Você participa do pool deste ciclo.'
               : `Faltam ${Math.max(0, threshold - qp).toFixed(0)} QP para qualificar.`}
@@ -216,7 +242,6 @@ export function QualificacaoCard() {
               const cp = (details as any)[key] as CheckpointDetail | undefined;
               if (!cp) return null;
               const earned = cp.qp > 0;
-              const hasCount = cp.count !== undefined;
               const isActive = cp.active === true;
               const completed = earned || isActive;
 
@@ -224,7 +249,9 @@ export function QualificacaoCard() {
                 <div
                   key={key}
                   className={`flex items-center justify-between p-2.5 rounded-lg border ${
-                    completed ? 'border-green-200 bg-green-50/50' : 'border-border bg-background'
+                    completed
+                      ? 'border-green-500/30 bg-green-500/10'
+                      : 'border-border bg-background'
                   }`}
                 >
                   <div className="flex items-center gap-2">
@@ -232,7 +259,7 @@ export function QualificacaoCard() {
                     <div>
                       <p className="text-sm font-medium leading-none">{meta.label}</p>
                       <p className="text-xs text-muted-foreground mt-0.5">
-                        {hasCount && cp.count !== undefined
+                        {cp.count !== undefined
                           ? `${cp.count}${cp.required ? ` / ${cp.required} mín` : ''}`
                           : meta.tip}
                       </p>
@@ -241,12 +268,12 @@ export function QualificacaoCard() {
                   <div className="flex items-center gap-2 shrink-0">
                     {completed ? (
                       <>
-                        <span className="text-xs font-semibold text-green-700">+{cp.qp} QP</span>
-                        <CheckCircle2 className="w-4 h-4 text-green-600" />
+                        <span className="text-xs font-semibold text-green-600 dark:text-green-400">+{cp.qp} QP</span>
+                        <CheckCircle2 className="w-4 h-4 text-green-600 dark:text-green-400" />
                       </>
                     ) : (
                       <>
-                        <span className="text-xs text-muted-foreground">+{/* max qp from config shown would require passing it */}? QP</span>
+                        <span className="text-xs text-muted-foreground">+? QP</span>
                         <XCircle className="w-4 h-4 text-muted-foreground" />
                       </>
                     )}
