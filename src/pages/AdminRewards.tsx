@@ -195,6 +195,28 @@ export default function AdminRewards() {
       fetchEconomyData();
       fetchAuditData();
       fetchQualificationData();
+
+      // Realtime: alerta quando nova reconciliação detectar divergência
+      const channel = supabase
+        .channel('reconciliation-alerts')
+        .on('postgres_changes', {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'reconciliation_runs',
+          filter: 'status=neq.ok',
+        }, (payload) => {
+          const run = payload.new as any;
+          if (run.status !== 'ok') {
+            toast.error(
+              `Reconciliação detectou divergência (${run.status}): R$ ${Number(run.total_drift).toFixed(2)} em ${run.wallets_drift} wallet(s)`,
+              { duration: 10000 }
+            );
+            fetchAuditData();
+          }
+        })
+        .subscribe();
+
+      return () => { supabase.removeChannel(channel); };
     }
   }, [role, authLoading]);
 

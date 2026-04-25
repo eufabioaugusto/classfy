@@ -27,6 +27,7 @@ const StudioContents = lazy(() => import("./pages/StudioContents"));
 const AdminCreators = lazy(() => import("./pages/AdminCreators"));
 const AdminContents = lazy(() => import("./pages/AdminContents"));
 const AdminRewards = lazy(() => import("./pages/AdminRewards"));
+const AdminMarketingMaterials = lazy(() => import("./pages/AdminMarketingMaterials"));
 const AdminTranscriptions = lazy(() => import("./pages/AdminTranscriptions"));
 const AdminFeaturedCreators = lazy(() => import("./pages/AdminFeaturedCreators"));
 const AdminWithdrawals = lazy(() => import("./pages/AdminWithdrawals"));
@@ -105,6 +106,7 @@ function AppContent() {
       <Route path="/admin/creators" element={<AdminCreators />} />
       <Route path="/admin/contents" element={<AdminContents />} />
       <Route path="/admin/rewards" element={<AdminRewards />} />
+      <Route path="/admin/marketing" element={<AdminMarketingMaterials />} />
       <Route path="/admin/transcriptions" element={<AdminTranscriptions />} />
       <Route path="/admin/featured-creators" element={<AdminFeaturedCreators />} />
       <Route path="/admin/withdrawals" element={<AdminWithdrawals />} />

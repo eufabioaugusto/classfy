@@ -88,6 +88,7 @@ const adminItems = [
   { title: "Gerenciar Usuários", url: "/admin/users", icon: Users, countKey: null },
   { title: "Prospecção", url: "/admin/prospects", icon: TrendingUp, countKey: null },
   { title: "Curadoria", url: "/admin/curadoria", icon: Layers, countKey: null },
+  { title: "Materiais Afiliados", url: "/admin/marketing", icon: Megaphone, countKey: null },
   { title: "Configurações", url: "/admin/settings", icon: Settings, countKey: null },
 ];
 

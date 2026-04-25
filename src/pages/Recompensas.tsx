@@ -15,6 +15,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { CreatorAchievementBadge } from "@/components/CreatorAchievementBadge";
 import { useCreatorMilestones } from "@/hooks/useCreatorMilestones";
 import { LeaderboardSection } from "@/components/LeaderboardSection";
+import { QualificacaoCard } from "@/components/QualificacaoCard";
 import { 
   Trophy, 
   Zap, 
@@ -577,6 +578,11 @@ export default function Recompensas() {
             <LeaderboardSection userId={user!.id} />
 
             {/* Link to Detailed History */}
+            {/* Qualificação para o Pool */}
+            <div className="mt-6">
+              <QualificacaoCard />
+            </div>
+
             <Card className="mt-6">
               <CardContent className="p-4 sm:p-6">
                 <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
