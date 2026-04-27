@@ -406,7 +406,7 @@ export default function Carteira() {
             </CardHeader>
             <CardContent className="p-3 pt-0 sm:p-6 sm:pt-0">
               <div className="text-lg sm:text-2xl font-bold text-blue-600">
-                {Math.floor(stats.thisMonth)} PP
+                {Math.floor(stats.thisMonth)} pts de pool
               </div>
               <p className="text-xs text-muted-foreground mt-1 hidden sm:block">
                 Ganhos do mês atual
@@ -423,7 +423,7 @@ export default function Carteira() {
             </CardHeader>
             <CardContent className="p-3 pt-0 sm:p-6 sm:pt-0">
               <div className="text-xl sm:text-3xl font-bold text-primary">
-                {Math.floor(stats.last7Days)} PP
+                {Math.floor(stats.last7Days)} pts de pool
               </div>
               <p className="text-xs sm:text-sm text-muted-foreground mt-1 sm:mt-2">
                 Ganhos na última semana
@@ -437,7 +437,7 @@ export default function Carteira() {
             </CardHeader>
             <CardContent className="p-3 pt-0 sm:p-6 sm:pt-0">
               <div className="text-xl sm:text-3xl font-bold text-primary">
-                {Math.floor(stats.last30Days)} PP
+                {Math.floor(stats.last30Days)} pts de pool
               </div>
               <p className="text-xs sm:text-sm text-muted-foreground mt-1 sm:mt-2">
                 Ganhos no último mês
@@ -581,10 +581,10 @@ export default function Carteira() {
                         </div>
                         <div className="text-right flex-shrink-0 ml-2">
                           <p className="font-bold text-green-600 text-sm sm:text-base">
-                            + {Math.floor(Number(reward.performance_points || 0))} PP
+                            + {Math.floor(Number(reward.performance_points || 0))} pts de pool
                           </p>
                           <p className="text-xs sm:text-sm text-muted-foreground">
-                            {reward.points} pts
+                            {reward.points} XP
                           </p>
                         </div>
                       </div>

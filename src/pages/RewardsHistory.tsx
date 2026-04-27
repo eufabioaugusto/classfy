@@ -210,7 +210,7 @@ export default function RewardsHistory() {
   };
 
   const exportToCSV = () => {
-    const headers = ["Data", "Ação", "Conteúdo", "Pontos", "PP"];
+    const headers = ["Data", "Ação", "Conteúdo", "XP", "Pts de pool"];
     const rows = filteredEvents.map(event => [
       format(new Date(event.created_at), "dd/MM/yyyy HH:mm", { locale: ptBR }),
       getActionLabel(event.action_key),
@@ -277,12 +277,12 @@ export default function RewardsHistory() {
 
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Performance Points</CardTitle>
+              <CardTitle className="text-sm font-medium">Pontos de pool</CardTitle>
               <TrendingUp className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">
-                {stats.totalPP.toLocaleString()} PP
+                {stats.totalPP.toLocaleString()} pts de pool
               </div>
             </CardContent>
           </Card>
@@ -381,7 +381,7 @@ export default function RewardsHistory() {
                     <TableHead>Ação</TableHead>
                     <TableHead>Conteúdo</TableHead>
                      <TableHead className="text-right">Pontos</TableHead>
-                    <TableHead className="text-right">PP</TableHead>
+                    <TableHead className="text-right">Pool</TableHead>
                     <TableHead className="text-right">Ações</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -424,7 +424,7 @@ export default function RewardsHistory() {
                         </TableCell>
                         <TableCell className="text-right">
                           <span className="font-semibold text-green-600">
-                            {(event.performance_points || 0).toLocaleString()} PP
+                            {(event.performance_points || 0).toLocaleString()} pts
                           </span>
                         </TableCell>
                         <TableCell className="text-right">
@@ -514,7 +514,7 @@ export default function RewardsHistory() {
                         +{event.points} pts
                       </span>
                       <span className="text-sm font-semibold text-green-600">
-                        {(event.performance_points || 0).toLocaleString()} PP
+                        {(event.performance_points || 0).toLocaleString()} pts
                       </span>
                     </div>
                     <Eye className="w-4 h-4 text-muted-foreground" />
@@ -588,7 +588,7 @@ export default function RewardsHistory() {
                   <div>
                     <p className="text-sm font-medium text-muted-foreground">Performance Points</p>
                     <p className="text-2xl font-bold text-green-600">
-                      {(selectedEvent.performance_points || 0).toLocaleString()} PP
+                      {(selectedEvent.performance_points || 0).toLocaleString()} pts
                     </p>
                   </div>
                 </div>

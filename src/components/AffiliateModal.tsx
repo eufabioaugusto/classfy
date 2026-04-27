@@ -147,12 +147,12 @@ export function AffiliateModal({ open, onOpenChange }: AffiliateModalProps) {
                 <div className="space-y-1">
                   <div className="text-2xl">👥</div>
                   <p className="font-medium">Pessoa se cadastra</p>
-                  <p className="text-xs text-muted-foreground">+25 QP para você</p>
+                  <p className="text-xs text-muted-foreground">acesso ao pool este mês</p>
                 </div>
                 <div className="space-y-1">
                   <div className="text-2xl">💰</div>
                   <p className="font-medium">Ela compra</p>
-                  <p className="text-xs text-muted-foreground">10% de comissão +50 QP</p>
+                  <p className="text-xs text-muted-foreground">10% de comissão + acesso ao pool</p>
                 </div>
               </div>
             </Card>
@@ -208,7 +208,7 @@ export function AffiliateModal({ open, onOpenChange }: AffiliateModalProps) {
 
             <p className="text-xs text-muted-foreground text-center">
               Comissões creditadas automaticamente após a primeira compra do indicado.
-              QP contam para sua qualificação no pool mensal.
+              Indicações ajudam você a participar da distribuição do pool mensal.
             </p>
           </TabsContent>
 

@@ -172,7 +172,7 @@ export function CreatorMilestoneItem({
             <div className="flex items-center gap-3">
               <div className="flex items-center gap-1.5 text-sm">
                 <span className="text-muted-foreground">Pontos:</span>
-                <span className="font-semibold text-accent">+{milestone.points_reward} PP</span>
+                <span className="font-semibold text-accent">+{milestone.points_reward} XP</span>
               </div>
             </div>
 

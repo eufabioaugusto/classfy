@@ -573,7 +573,7 @@ export default function Studio() {
                           </div>
                           <div className="text-right">
                             <p className="text-sm font-semibold text-accent">
-                              +{reward.performance_points || reward.points} PP
+                              +{reward.performance_points || reward.points} pts
                             </p>
                           </div>
                         </div>

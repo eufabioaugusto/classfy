@@ -155,7 +155,7 @@ export function LeaderboardSection({ userId }: LeaderboardSectionProps) {
                 </div>
                 <div className="text-right flex-shrink-0">
                   <p className="text-sm font-bold">{Math.floor(entry.performance_points).toLocaleString()}</p>
-                  <p className="text-xs text-muted-foreground">PP</p>
+                  <p className="text-xs text-muted-foreground">pts</p>
                 </div>
               </div>
             );
@@ -190,7 +190,7 @@ export function LeaderboardSection({ userId }: LeaderboardSectionProps) {
                 </div>
                 <div className="text-right flex-shrink-0">
                   <p className="text-sm font-bold">{Math.floor(userOutsideTop.performance_points).toLocaleString()}</p>
-                  <p className="text-xs text-muted-foreground">PP</p>
+                  <p className="text-xs text-muted-foreground">pts</p>
                 </div>
               </div>
             </>

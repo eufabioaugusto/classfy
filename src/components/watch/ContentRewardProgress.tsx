@@ -243,7 +243,7 @@ export function ContentRewardProgress({ contentId, refreshTrigger, liveStates }:
           transition={{ duration: 0.3, ease: "easeOut" }}
           className={cn("text-sm font-semibold tabular-nums", earnedPP > 0 ? "text-red-500" : "text-muted-foreground")}
         >
-          +{earnedPP} PP
+          +{earnedPP} pts
         </motion.span>
       </div>
 
@@ -259,7 +259,7 @@ export function ContentRewardProgress({ contentId, refreshTrigger, liveStates }:
               key={action.key}
               className="group relative"
               style={{ overflow: "visible" }}
-              title={`${action.label}${action.points > 0 ? ` · +${action.points} PP` : ""}`}
+              title={`${action.label}${action.points > 0 ? ` · +${action.points} pts` : ""}`}
             >
               <DotBurst isActive={isBursting} />
               <motion.div
@@ -282,7 +282,7 @@ export function ContentRewardProgress({ contentId, refreshTrigger, liveStates }:
                 </span>
                 {action.points > 0 && (
                   <span className={cn("ml-1.5 font-medium", action.earned ? "text-red-500" : "text-muted-foreground")}>
-                    +{action.points} PP
+                    +{action.points} pts
                   </span>
                 )}
                 <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-border" />
@@ -297,7 +297,7 @@ export function ContentRewardProgress({ contentId, refreshTrigger, liveStates }:
         <>
           <div className="w-px h-4 bg-border/60 shrink-0" />
           <span className="text-xs text-muted-foreground shrink-0">
-            Ganhe até +{availablePP} PP
+            Ganhe até +{availablePP} pts
           </span>
         </>
       )}
