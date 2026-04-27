@@ -254,6 +254,7 @@ export default function Recompensas() {
               estimatedPoolShare={stats.estimatedPoolShare}
               performancePoints={stats.performancePoints}
               poolTotal={stats.prm}
+              totalPP={stats.totalPP}
             />
 
             {/* Level + Balance */}
@@ -269,15 +270,15 @@ export default function Recompensas() {
                       </CardTitle>
                     </div>
                     <div className="text-right">
-                      <p className="text-xs text-muted-foreground">Pontos Totais</p>
+                      <p className="text-xs text-muted-foreground">XP acumulado</p>
                       <p className="text-2xl font-bold text-primary">{stats.totalPoints.toLocaleString()}</p>
                     </div>
                   </div>
                 </CardHeader>
                 <CardContent className="space-y-2">
                   <div className="flex justify-between text-xs">
-                    <span className="text-muted-foreground">Progresso para Nível {stats.level + 1}</span>
-                    <span className="font-medium">{stats.pointsToNextLevel.toLocaleString('pt-BR')} pts restantes</span>
+                    <span className="text-muted-foreground">Para o Nível {stats.level + 1}</span>
+                    <span className="font-medium">faltam {stats.pointsToNextLevel.toLocaleString('pt-BR')} XP</span>
                   </div>
                   <Progress value={stats.progressPercent} className="h-2" indicatorClassName="bg-gradient-to-r from-primary to-accent" />
                 </CardContent>
