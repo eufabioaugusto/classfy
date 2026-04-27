@@ -295,11 +295,18 @@ export function QualificacaoCard({
               let pct = completed ? 100 : 0;
 
               if (cp.count !== undefined && cp.required !== undefined) {
+                // Critério com contagem e meta definida
                 leftLabel = `${cp.count.toLocaleString()} ${label.toLowerCase()}`;
                 rightLabel = cp.required.toLocaleString();
                 pct = Math.min(100, (cp.count / cp.required) * 100);
-              } else if (cp.count !== undefined && cp.count > 0) {
+              } else if (cp.count !== undefined) {
+                // Critério com contagem mas sem meta explícita — mínimo 1
                 leftLabel = `${cp.count.toLocaleString()} ${label.toLowerCase()}`;
+                rightLabel = '1';
+                pct = completed ? 100 : 0;
+              } else if (cp.active !== undefined) {
+                // Critério binário (ativo/inativo)
+                rightLabel = 'Ativo';
               }
 
               return (
