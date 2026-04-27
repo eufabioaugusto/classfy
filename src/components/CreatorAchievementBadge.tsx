@@ -20,7 +20,7 @@ export function CreatorAchievementBadge({ milestone, size = 'md' }: CreatorAchie
   
   const sizeClasses = {
     sm: 'w-16 h-18',
-    md: 'w-24 h-28',
+    md: 'w-24 h-38',
     lg: 'w-32 h-36'
   };
 
