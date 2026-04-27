@@ -319,7 +319,7 @@ export function QualificacaoCard({
                   </div>
                 </div>
               );
-            ) : null}
+            }) : null}
           </div>
       </CardContent>
     </Card>
