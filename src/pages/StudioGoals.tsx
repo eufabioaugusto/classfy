@@ -28,77 +28,11 @@ import { cn } from '@/lib/utils';
 
 function ProgressIllustration() {
   return (
-    <svg width="110" height="106" viewBox="0 0 220 212" fill="none" xmlns="http://www.w3.org/2000/svg" className="shrink-0">
-      <defs>
-        <radialGradient id="pg-blob" cx="50%" cy="50%" r="50%">
-          <stop offset="0%" stopColor="#FFBCC8"/>
-          <stop offset="55%" stopColor="#FFD6DF"/>
-          <stop offset="100%" stopColor="#FFF0F3" stopOpacity="0"/>
-        </radialGradient>
-        <linearGradient id="pg-star" x1="110" y1="32" x2="110" y2="166" gradientUnits="userSpaceOnUse">
-          <stop stopColor="#FF3D55"/>
-          <stop offset="1" stopColor="#C41030"/>
-        </linearGradient>
-      </defs>
-
-      {/* Organic blob */}
-      <path d="M30,102 C16,70 36,20 76,13 C96,8 118,16 142,12 C167,7 190,30 200,58
-               C210,84 205,110 197,134 C188,162 170,182 145,193
-               C120,204 92,205 68,193 C42,179 20,155 16,128 C13,110 20,108 30,102 Z"
-            fill="url(#pg-blob)"/>
-
-      {/* Drip at bottom */}
-      <ellipse cx="110" cy="200" rx="11" ry="9" fill="#FFCCD6" fillOpacity="0.55"/>
-
-      {/* Star body */}
-      <path d="M110,32 L127,85 L181,86 L138,114 L153,166 L110,138 L67,166 L82,114 L39,86 L93,85 Z"
-            fill="url(#pg-star)" stroke="#1C0007" strokeWidth="3.5" strokeLinejoin="round"/>
-
-      {/* Left eye — dot */}
-      <circle cx="96" cy="107" r="4.5" fill="#1C0007"/>
-
-      {/* Right eye — wink ">" */}
-      <path d="M117,102 L125,108 L117,114" stroke="#1C0007" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" fill="none"/>
-
-      {/* Open mouth smile */}
-      <path d="M97,122 Q110,136 123,122" stroke="#1C0007" strokeWidth="3" strokeLinecap="round" fill="none"/>
-      {/* Mouth fill (subtle) */}
-      <path d="M97,122 Q110,136 123,122 Z" fill="#1C0007" fillOpacity="0.1"/>
-
-      {/* Top-left looping squiggle */}
-      <path d="M56,56 C43,38 18,36 13,50 C8,66 24,76 37,66
-               C50,56 43,37 30,40 C22,43 19,52 24,58"
-            stroke="#1C0007" strokeWidth="2.5" strokeLinecap="round" fill="none"/>
-
-      {/* Top-right: exclamation mark */}
-      <line x1="163" y1="28" x2="163" y2="41" stroke="#1C0007" strokeWidth="2.5" strokeLinecap="round"/>
-      <circle cx="163" cy="47" r="2" fill="#1C0007"/>
-      {/* Top-right: small stroke + dot */}
-      <line x1="173" y1="26" x2="175" y2="34" stroke="#1C0007" strokeWidth="2" strokeLinecap="round"/>
-      <circle cx="176" cy="38" r="1.5" fill="#1C0007" fillOpacity="0.7"/>
-      {/* Top-right: curved arc */}
-      <path d="M178,47 Q187,40 192,49" stroke="#1C0007" strokeWidth="2" strokeLinecap="round" fill="none"/>
-      {/* Top-right: small confetti rect */}
-      <rect x="154" y="20" width="9" height="6" rx="2" fill="#C41030" opacity="0.85" transform="rotate(14,158,23)"/>
-
-      {/* Left: outlined star */}
-      <path d="M24,142 L27,151 L36.5,151 L29.5,157 L32.5,166 L24,161 L15.5,166 L18.5,157 L11.5,151 L21,151 Z"
-            stroke="#1C0007" strokeWidth="2" strokeLinejoin="round" fill="white"/>
-
-      {/* Bottom-right: spiral squiggle */}
-      <path d="M168,163 C179,150 194,154 191,169 C188,184 171,189 163,177
-               C157,167 164,157 175,162 C183,167 179,180 168,181"
-            stroke="#1C0007" strokeWidth="2.5" strokeLinecap="round" fill="none"/>
-
-      {/* Bottom: small arc */}
-      <path d="M80,192 Q92,200 104,195" stroke="#1C0007" strokeWidth="2" strokeLinecap="round" fill="none"/>
-
-      {/* Small confetti bottom-left */}
-      <rect x="50" y="177" width="8" height="5" rx="1.5" fill="#FF3D55" opacity="0.7" transform="rotate(-22,54,180)"/>
-
-      {/* Dot top-left corner */}
-      <circle cx="42" cy="26" r="2.5" fill="#1C0007" fillOpacity="0.35"/>
-    </svg>
+    <img
+      src="/progress_illustration.png"
+      alt=""
+      className="w-24 h-24 shrink-0 object-contain"
+    />
   );
 }
 
