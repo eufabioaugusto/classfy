@@ -465,37 +465,54 @@ export default function Recompensas() {
               )}
             </div>
 
-            {/* Next Milestone — apenas creators */}
-            {isCreator && stats.creatorStats && (
-              <Card>
-                <CardHeader>
-                  <div className="flex items-center gap-2">
-                    <TrendingUp className="w-6 h-6 text-accent" />
-                    <CardTitle>Próximo Milestone</CardTitle>
-                  </div>
-                  <CardDescription>Continue criando para alcançar a próxima recompensa</CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="flex justify-between items-end gap-2">
-                    <div className="min-w-0">
-                      <p className="text-xs sm:text-sm text-muted-foreground">Meta</p>
-                      <p className="text-lg sm:text-2xl font-bold">{stats.creatorStats.nextMilestone.target.toLocaleString()} views</p>
+            {/* Next Milestone — dados reais do hook useCreatorMilestones */}
+            {isCreator && (() => {
+              const next = milestones
+                .filter(m => !m.isClaimed)
+                .sort((a, b) => b.percentComplete - a.percentComplete)[0];
+              if (!next) return null;
+
+              const typeLabel: Record<string, string> = {
+                contents: 'conteúdos', followers: 'seguidores',
+                views: 'views', earnings: 'R$', engagement: '%',
+              };
+              const unit = typeLabel[next.milestone_type] ?? '';
+              const remaining = Math.max(0, next.milestone_value - next.currentValue);
+              const rewardParts = [
+                next.points_reward > 0 ? `+${next.points_reward} pts` : '',
+                next.value_reward > 0 ? `+R$ ${next.value_reward.toFixed(2)}` : '',
+              ].filter(Boolean).join(' · ') || '+recompensa';
+
+              return (
+                <Card>
+                  <CardHeader>
+                    <div className="flex items-center gap-2">
+                      <TrendingUp className="w-5 h-5 text-accent" />
+                      <CardTitle>Próximo Milestone</CardTitle>
                     </div>
-                    <Badge variant="secondary" className="text-xs sm:text-lg px-2 sm:px-4 py-1 sm:py-2 flex-shrink-0">
-                      {stats.creatorStats.nextMilestone.reward}
-                    </Badge>
-                  </div>
-                  <Progress
-                    value={(stats.creatorStats.nextMilestone.current / stats.creatorStats.nextMilestone.target) * 100}
-                    className="h-3"
-                    indicatorClassName="bg-gradient-to-r from-accent to-primary"
-                  />
-                  <p className="text-sm text-muted-foreground">
-                    Faltam <strong>{(stats.creatorStats.nextMilestone.target - stats.creatorStats.nextMilestone.current).toLocaleString()} views</strong> para alcançar este milestone
-                  </p>
-                </CardContent>
-              </Card>
-            )}
+                    <CardDescription>{next.title}</CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    <div className="flex justify-between items-end gap-2">
+                      <div className="min-w-0">
+                        <p className="text-xs text-muted-foreground">Meta</p>
+                        <p className="text-xl font-bold">{next.milestone_value.toLocaleString()} {unit}</p>
+                      </div>
+                      <Badge variant="secondary" className="flex-shrink-0">{rewardParts}</Badge>
+                    </div>
+                    <Progress
+                      value={next.percentComplete}
+                      className="h-2"
+                      indicatorClassName="bg-gradient-to-r from-accent to-primary"
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      {next.currentValue.toLocaleString()} / {next.milestone_value.toLocaleString()} {unit}
+                      {remaining > 0 && <span> · Faltam <strong>{remaining.toLocaleString()}</strong></span>}
+                    </p>
+                  </CardContent>
+                </Card>
+              );
+            })()}
 
             {/* Leaderboard */}
             <LeaderboardSection userId={user!.id} />
