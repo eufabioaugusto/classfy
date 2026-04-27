@@ -142,7 +142,7 @@ Deno.serve(async (req) => {
     const brazilDate = new Date(Date.now() - 3 * 60 * 60 * 1000);
     const today = brazilDate.toISOString().split('T')[0];
     let trackingKey: string;
-    let trackingMetadata: Record<string, any> = { ...metadata };
+    const trackingMetadata: Record<string, any> = { ...metadata };
 
     if (resolvedCourseId) {
       trackingMetadata.course_id = resolvedCourseId;
