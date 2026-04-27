@@ -6,10 +6,11 @@ import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
+import { useNavigate } from "react-router-dom";
 import {
   CheckCircle2, XCircle, RefreshCw, TrendingUp, PartyPopper,
   UserPlus, Share2, Star, Zap, ShoppingCart, Calendar, PlayCircle,
-  Heart, ArrowUpCircle, ChevronDown,
+  Heart, ArrowUpCircle, ChevronDown, Lock,
   type LucideIcon,
 } from "lucide-react";
 
@@ -60,6 +61,7 @@ export function QualificacaoCard({
   totalPP,
 }: QualificacaoCardProps = {}) {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [qualified, setQualified] = useState(false);
@@ -68,6 +70,7 @@ export function QualificacaoCard({
   const [plan, setPlan] = useState('free');
   const [details, setDetails] = useState<QualDetails | null>(null);
   const [maturationDays, setMaturationDays] = useState<number | null>(null);
+  const [accountAgeDays, setAccountAgeDays] = useState<number>(0);
   const [collapsed, setCollapsed] = useState(true);
 
   const isHeroMode = estimatedPoolShare !== undefined;
@@ -75,6 +78,7 @@ export function QualificacaoCard({
     ? (performancePoints / totalPP) * 100
     : 0;
   const progressPct = threshold > 0 ? Math.min(100, (qp / threshold) * 100) : 0;
+  const isBlockedByMaturation = maturationDays !== null && accountAgeDays < maturationDays;
 
   useEffect(() => {
     if (user) loadQualification(false);
@@ -103,12 +107,16 @@ export function QualificacaoCard({
 
       const { data: profile } = await supabase
         .from('profiles')
-        .select('plan')
+        .select('plan, created_at')
         .eq('id', user.id)
         .single();
       const userPlan = profile?.plan || 'free';
       setPlan(userPlan);
       setMaturationDays(planConfig?.[userPlan]?.maturation_days ?? null);
+      if (profile?.created_at) {
+        const age = Math.floor((Date.now() - new Date(profile.created_at).getTime()) / 86400000);
+        setAccountAgeDays(age);
+      }
 
       if (!cycle) { setLoading(false); setRefreshing(false); return; }
 
@@ -227,10 +235,13 @@ export function QualificacaoCard({
               <Badge
                 variant="outline"
                 className="gap-1 text-muted-foreground hover:border-foreground/40 cursor-pointer select-none"
-                onClick={() => loadQualification(true)}
+                onClick={() => setCollapsed(c => !c)}
               >
-                Como participar
-                <RefreshCw className={`w-3 h-3 ml-0.5 ${refreshing ? 'animate-spin' : ''}`} />
+                {isBlockedByMaturation ? (
+                  <><Lock className="w-3 h-3" /> Bloqueado</>
+                ) : (
+                  'Como participar'
+                )}
               </Badge>
             )}
             <Button
@@ -247,103 +258,130 @@ export function QualificacaoCard({
         <CardContent className="space-y-4">
           {isHeroMode && <Separator className="-mt-1 mb-1" />}
 
-          {/* Acesso ao pool — progress */}
-          <div>
-            <div className="flex justify-between text-xs mb-1.5 text-muted-foreground">
-              <span>Acesso ao pool</span>
-              <span>{Math.round(progressPct)}% concluído</span>
-            </div>
-            <Progress value={progressPct} className="h-2" />
-            {qualified ? (
-              <p className="text-xs text-green-600 dark:text-green-400 mt-1.5 flex items-center gap-1.5">
-                <PartyPopper className="w-3.5 h-3.5 shrink-0" />
-                Você está dentro — sua parte será calculada ao fechar o ciclo.
-              </p>
-            ) : (
-              <p className="text-xs text-muted-foreground mt-1.5">
-                {incomplete.length > 0
-                  ? `${incomplete.length} ${incomplete.length === 1 ? 'critério pendente' : 'critérios pendentes'} para desbloquear`
-                  : 'Atualize para verificar sua qualificação.'}
-              </p>
-            )}
-          </div>
-
-          {/* Plano */}
-          <div className="flex items-center gap-3 text-xs text-muted-foreground bg-muted/40 rounded-lg px-3 py-2">
-            <span>Plano: <strong className="capitalize text-foreground">{plan}</strong></span>
-            {maturationDays !== null && (
-              <>
-                <span>·</span>
-                <span>Mínimo de <strong className="text-foreground">{maturationDays} dias</strong> de assinatura</span>
-              </>
-            )}
-          </div>
-
-          {/* Checkpoints */}
-          {details ? (
-            <div className="space-y-3">
-              {/* Pendentes */}
-              {incomplete.length > 0 && (
-                <div className="space-y-1.5">
-                  {!qualified && (
-                    <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-                      O que falta
-                    </p>
-                  )}
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
-                    {incomplete.map(({ key, meta: { label, Icon }, cp }) => (
-                      <div key={key} className="flex items-center justify-between p-2 rounded-lg border border-border bg-background">
-                        <div className="flex items-center gap-2 min-w-0">
-                          <Icon className="w-3.5 h-3.5 shrink-0 text-muted-foreground" />
-                          <div className="min-w-0">
-                            <p className="text-xs font-medium leading-none truncate">{label}</p>
-                            {cp.count !== undefined && (
-                              <p className="text-xs text-muted-foreground mt-0.5">
-                                {cp.count}{cp.required ? ` / ${cp.required}` : ''}
-                              </p>
-                            )}
-                          </div>
-                        </div>
-                        <XCircle className="w-3.5 h-3.5 text-muted-foreground shrink-0 ml-2" />
-                      </div>
-                    ))}
-                  </div>
+          {/* === ESTADO: BLOQUEADO POR MATURAÇÃO === */}
+          {isBlockedByMaturation ? (
+            <div className="space-y-4">
+              {/* Countdown de dias */}
+              <div>
+                <div className="flex justify-between text-xs mb-1.5">
+                  <span className="text-muted-foreground">Tempo de conta</span>
+                  <span className="font-semibold tabular-nums">
+                    {accountAgeDays} / {maturationDays} dias
+                  </span>
                 </div>
-              )}
+                <Progress value={(accountAgeDays / maturationDays!) * 100} className="h-2" />
+                <p className="text-xs text-muted-foreground mt-1.5">
+                  Faltam <strong>{maturationDays! - accountAgeDays} dias</strong> para liberar o acesso ao pool no plano {plan}.
+                </p>
+              </div>
 
-              {/* Concluídos */}
-              {complete.length > 0 && (
-                <div className="space-y-1.5">
-                  {incomplete.length > 0 && (
-                    <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-                      Concluído
-                    </p>
-                  )}
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
-                    {complete.map(({ key, meta: { label, Icon }, cp }) => (
-                      <div key={key} className="flex items-center justify-between p-2 rounded-lg border border-green-500/30 bg-green-500/10">
-                        <div className="flex items-center gap-2 min-w-0">
-                          <Icon className="w-3.5 h-3.5 shrink-0 text-green-600 dark:text-green-400" />
-                          <div className="min-w-0">
-                            <p className="text-xs font-medium leading-none truncate">{label}</p>
-                            {cp.count !== undefined && (
-                              <p className="text-xs text-muted-foreground mt-0.5">
-                                {cp.count}{cp.required ? ` / ${cp.required}` : ''}
-                              </p>
-                            )}
-                          </div>
-                        </div>
-                        <CheckCircle2 className="w-3.5 h-3.5 text-green-600 dark:text-green-400 shrink-0 ml-2" />
-                      </div>
-                    ))}
-                  </div>
+              {/* CTA upgrade */}
+              <button
+                onClick={() => navigate('/planos')}
+                className="w-full flex items-center justify-between px-4 py-3 rounded-lg border border-accent/30 bg-accent/5 hover:bg-accent/10 transition-colors text-left"
+              >
+                <div>
+                  <p className="text-sm font-semibold text-accent">Libere agora com o plano Pro ou Premium</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">Período de carência reduzido — acesse o pool muito antes</p>
                 </div>
-              )}
+                <ChevronDown className="w-4 h-4 text-accent -rotate-90 shrink-0 ml-3" />
+              </button>
             </div>
           ) : (
-            <p className="text-sm text-center text-muted-foreground py-4">
-              Clique em "Como participar" para verificar seus critérios.
-            </p>
+            <>
+              {/* === ESTADO NORMAL: CRITÉRIOS === */}
+              <div>
+                <div className="flex justify-between text-xs mb-1.5 text-muted-foreground">
+                  <span>Acesso ao pool</span>
+                  <span>{Math.round(progressPct)}% concluído</span>
+                </div>
+                <Progress value={progressPct} className="h-2" />
+                {qualified ? (
+                  <p className="text-xs text-green-600 dark:text-green-400 mt-1.5 flex items-center gap-1.5">
+                    <PartyPopper className="w-3.5 h-3.5 shrink-0" />
+                    Você está dentro — sua parte será calculada ao fechar o ciclo.
+                  </p>
+                ) : (
+                  <p className="text-xs text-muted-foreground mt-1.5">
+                    {incomplete.length > 0
+                      ? `${incomplete.length} ${incomplete.length === 1 ? 'critério pendente' : 'critérios pendentes'} para desbloquear`
+                      : 'Atualiza para verificar sua qualificação.'}
+                  </p>
+                )}
+              </div>
+
+              {/* Plano */}
+              <div className="flex items-center gap-3 text-xs text-muted-foreground bg-muted/40 rounded-lg px-3 py-2">
+                <span>Plano: <strong className="capitalize text-foreground">{plan}</strong></span>
+                {maturationDays !== null && (
+                  <>
+                    <span>·</span>
+                    <span>Mínimo de <strong className="text-foreground">{maturationDays} dias</strong> de conta</span>
+                  </>
+                )}
+              </div>
+
+              {/* Checkpoints */}
+              {details ? (
+                <div className="space-y-3">
+                  {incomplete.length > 0 && (
+                    <div className="space-y-1.5">
+                      {!qualified && (
+                        <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">O que falta</p>
+                      )}
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                        {incomplete.map(({ key, meta: { label, Icon }, cp }) => (
+                          <div key={key} className="flex items-center justify-between p-2 rounded-lg border border-border bg-background">
+                            <div className="flex items-center gap-2 min-w-0">
+                              <Icon className="w-3.5 h-3.5 shrink-0 text-muted-foreground" />
+                              <div className="min-w-0">
+                                <p className="text-xs font-medium leading-none truncate">{label}</p>
+                                {cp.count !== undefined && (
+                                  <p className="text-xs text-muted-foreground mt-0.5">
+                                    {cp.count}{cp.required ? ` / ${cp.required}` : ''}
+                                  </p>
+                                )}
+                              </div>
+                            </div>
+                            <XCircle className="w-3.5 h-3.5 text-muted-foreground shrink-0 ml-2" />
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {complete.length > 0 && (
+                    <div className="space-y-1.5">
+                      {incomplete.length > 0 && (
+                        <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Concluído</p>
+                      )}
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                        {complete.map(({ key, meta: { label, Icon }, cp }) => (
+                          <div key={key} className="flex items-center justify-between p-2 rounded-lg border border-green-500/30 bg-green-500/10">
+                            <div className="flex items-center gap-2 min-w-0">
+                              <Icon className="w-3.5 h-3.5 shrink-0 text-green-600 dark:text-green-400" />
+                              <div className="min-w-0">
+                                <p className="text-xs font-medium leading-none truncate">{label}</p>
+                                {cp.count !== undefined && (
+                                  <p className="text-xs text-muted-foreground mt-0.5">
+                                    {cp.count}{cp.required ? ` / ${cp.required}` : ''}
+                                  </p>
+                                )}
+                              </div>
+                            </div>
+                            <CheckCircle2 className="w-3.5 h-3.5 text-green-600 dark:text-green-400 shrink-0 ml-2" />
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <p className="text-sm text-center text-muted-foreground py-4">
+                  Expanda para verificar seus critérios.
+                </p>
+              )}
+            </>
           )}
         </CardContent>
       )}
