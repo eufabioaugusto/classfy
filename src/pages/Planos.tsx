@@ -38,7 +38,7 @@ export default function Planos() {
 
     try {
       const { data, error } = await supabase.functions.invoke("create-subscription-checkout", {
-        body: { planType },
+        body: { plan: planType },
       });
 
       if (error) throw error;
