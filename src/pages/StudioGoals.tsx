@@ -12,21 +12,60 @@ import { CreatorMilestoneItem } from '@/components/CreatorMilestoneItem';
 import { CreatorAchievementBadge } from '@/components/CreatorAchievementBadge';
 import { useCreatorMilestones } from '@/hooks/useCreatorMilestones';
 import { useIsMobile } from '@/hooks/use-mobile';
-import { 
-  Trophy, 
-  Video, 
-  Users, 
-  Wallet, 
-  Eye, 
+import {
+  Trophy,
+  Video,
+  Users,
+  Wallet,
+  Eye,
   Heart,
-  TrendingUp,
   Target,
-  Medal,
   ArrowLeft,
   Award
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
+
+function ProgressIllustration() {
+  return (
+    <svg width="72" height="72" viewBox="0 0 80 80" fill="none" xmlns="http://www.w3.org/2000/svg" className="shrink-0">
+      <defs>
+        <linearGradient id="pg-bg" x1="0" y1="0" x2="80" y2="80" gradientUnits="userSpaceOnUse">
+          <stop stopColor="hsl(347,77%,50%)" stopOpacity="0.18"/>
+          <stop offset="1" stopColor="hsl(347,77%,60%)" stopOpacity="0.05"/>
+        </linearGradient>
+        <linearGradient id="pg-fig" x1="57" y1="18" x2="57" y2="58" gradientUnits="userSpaceOnUse">
+          <stop stopColor="hsl(347,77%,58%)"/>
+          <stop offset="1" stopColor="hsl(347,77%,42%)"/>
+        </linearGradient>
+      </defs>
+      {/* Background */}
+      <rect width="80" height="80" rx="18" fill="url(#pg-bg)"/>
+      {/* Stairs */}
+      <rect x="6" y="60" width="10" height="14" rx="2" fill="hsl(347,77%,50%)" fillOpacity="0.15"/>
+      <rect x="19" y="50" width="10" height="24" rx="2" fill="hsl(347,77%,50%)" fillOpacity="0.2"/>
+      <rect x="32" y="40" width="10" height="34" rx="2" fill="hsl(347,77%,50%)" fillOpacity="0.22"/>
+      {/* Head */}
+      <circle cx="57" cy="24" r="6" fill="url(#pg-fig)"/>
+      {/* Body */}
+      <rect x="52" y="30" width="10" height="11" rx="4" fill="url(#pg-fig)"/>
+      {/* Left arm raised */}
+      <path d="M53 32L44 23" stroke="hsl(347,77%,50%)" strokeWidth="3.5" strokeLinecap="round"/>
+      {/* Right arm raised */}
+      <path d="M62 32L71 23" stroke="hsl(347,77%,50%)" strokeWidth="3.5" strokeLinecap="round"/>
+      {/* Legs */}
+      <path d="M55 41L53 53" stroke="hsl(347,77%,46%)" strokeWidth="3" strokeLinecap="round"/>
+      <path d="M59 41L61 53" stroke="hsl(347,77%,46%)" strokeWidth="3" strokeLinecap="round"/>
+      {/* Star */}
+      <path d="M57 6L58.8 11.8H64.8L60 15.3L61.8 21.1L57 17.7L52.2 21.1L54 15.3L49.2 11.8H55.2L57 6Z" fill="hsl(45,93%,47%)"/>
+      {/* Sparkles */}
+      <circle cx="20" cy="28" r="2.5" fill="hsl(45,93%,47%)" fillOpacity="0.7"/>
+      <circle cx="13" cy="44" r="1.5" fill="hsl(347,77%,50%)" fillOpacity="0.45"/>
+      <circle cx="74" cy="44" r="1.5" fill="hsl(45,93%,47%)" fillOpacity="0.6"/>
+      <circle cx="70" cy="32" r="2" fill="hsl(347,77%,50%)" fillOpacity="0.3"/>
+    </svg>
+  );
+}
 
 export default function StudioGoals() {
   const { user, loading: authLoading } = useAuth();
@@ -162,32 +201,30 @@ export default function StudioGoals() {
 
             {/* Progress Overview */}
             <Card className="bg-gradient-to-r from-primary/10 via-primary/5 to-background border-primary/20">
-              <CardContent className="p-6">
-                <div className="flex flex-col md:flex-row md:items-center gap-6">
+              <CardContent className="p-5">
+                <div className="flex flex-col md:flex-row md:items-center gap-5">
                   <div className="flex items-center gap-4 flex-1">
-                    <div className="w-20 h-20 rounded-2xl bg-primary/20 flex items-center justify-center shrink-0">
-                      <Medal className="w-10 h-10 text-primary" />
-                    </div>
+                    <ProgressIllustration />
                     <div className="flex-1">
-                      <h3 className="text-xl font-bold mb-1">Seu Progresso Geral</h3>
-                      <p className="text-muted-foreground text-sm mb-3">
+                      <h3 className="text-base font-bold mb-0.5">Seu Progresso Geral</h3>
+                      <p className="text-muted-foreground text-xs mb-2.5">
                         Continue alcançando metas para desbloquear mais recompensas!
                       </p>
-                      <Progress value={overallProgress} className="h-3" />
+                      <Progress value={overallProgress} className="h-2" />
                     </div>
                   </div>
-                  
+
                   <div className="flex flex-wrap gap-4 md:gap-6">
                     <div className="text-center">
-                      <p className="text-3xl font-bold text-primary">{totals.claimed}</p>
+                      <p className="text-2xl font-bold text-primary">{totals.claimed}</p>
                       <p className="text-xs text-muted-foreground">Resgatadas</p>
                     </div>
                     <div className="text-center">
-                      <p className="text-3xl font-bold text-orange-500">{totals.pendingClaims}</p>
+                      <p className="text-2xl font-bold text-orange-500">{totals.pendingClaims}</p>
                       <p className="text-xs text-muted-foreground">Para Resgatar</p>
                     </div>
                     <div className="text-center">
-                      <p className="text-3xl font-bold">{totals.total - totals.completed}</p>
+                      <p className="text-2xl font-bold">{totals.total - totals.completed}</p>
                       <p className="text-xs text-muted-foreground">Restantes</p>
                     </div>
                   </div>
@@ -196,7 +233,7 @@ export default function StudioGoals() {
             </Card>
 
             {/* Achievement Badges Section */}
-            <Card>
+            <Card className="overflow-hidden">
               <CardHeader className="pb-3">
                 <CardTitle className="flex items-center gap-2 text-lg">
                   <Award className="w-5 h-5 text-primary" />
