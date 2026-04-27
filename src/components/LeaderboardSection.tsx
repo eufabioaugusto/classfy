@@ -109,7 +109,7 @@ export function LeaderboardSection({ userId }: LeaderboardSectionProps) {
   if (leaders.length === 0) return null;
 
   return (
-    <Card>
+    <Card className="h-full flex flex-col">
       <CardHeader>
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
@@ -124,7 +124,7 @@ export function LeaderboardSection({ userId }: LeaderboardSectionProps) {
         </div>
         <CardDescription>Top performers por Performance Points este mês</CardDescription>
       </CardHeader>
-      <CardContent>
+      <CardContent className="flex-1">
         <div className="space-y-2">
           {leaders.slice(0, 10).map((entry, index) => {
             const isCurrentUser = entry.user_id === userId;

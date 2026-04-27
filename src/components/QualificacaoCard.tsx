@@ -10,7 +10,7 @@ import { useNavigate } from "react-router-dom";
 import {
   CheckCircle2, RefreshCw, TrendingUp, PartyPopper,
   UserPlus, Share2, Star, Zap, ShoppingCart, Calendar, PlayCircle,
-  Heart, ArrowUpCircle, ChevronDown, Lock,
+  Heart, ArrowUpCircle, Lock,
   type LucideIcon,
 } from "lucide-react";
 
@@ -71,8 +71,6 @@ export function QualificacaoCard({
   const [details, setDetails] = useState<QualDetails | null>(null);
   const [maturationDays, setMaturationDays] = useState<number | null>(null);
   const [accountAgeDays, setAccountAgeDays] = useState<number>(0);
-  const [collapsed, setCollapsed] = useState(true);
-
   const isHeroMode = estimatedPoolShare !== undefined;
   const ppPercent = totalPP && totalPP > 0 && performancePoints
     ? (performancePoints / totalPP) * 100
@@ -208,7 +206,7 @@ export function QualificacaoCard({
             )}
           </div>
 
-          {/* Right: badge + collapse */}
+          {/* Right: badge */}
           <div className="flex items-center gap-2 shrink-0">
             {qualified ? (
               <Badge
@@ -222,8 +220,7 @@ export function QualificacaoCard({
             ) : (
               <Badge
                 variant="outline"
-                className="gap-1 text-muted-foreground hover:border-foreground/40 cursor-pointer select-none"
-                onClick={() => setCollapsed(c => !c)}
+                className="gap-1 text-muted-foreground"
               >
                 {isBlockedByMaturation ? (
                   <><Lock className="w-3 h-3" /> Bloqueado</>
@@ -232,18 +229,11 @@ export function QualificacaoCard({
                 )}
               </Badge>
             )}
-            <Button
-              size="icon" variant="ghost" className="h-7 w-7"
-              onClick={() => setCollapsed(c => !c)}
-            >
-              <ChevronDown className={`w-3.5 h-3.5 transition-transform duration-200 ${collapsed ? '' : 'rotate-180'}`} />
-            </Button>
           </div>
         </div>
       </CardHeader>
 
-      {!collapsed && (
-        <CardContent className="space-y-5">
+      <CardContent className="space-y-5">
           {isHeroMode && <Separator className="-mt-2 mb-1" />}
 
           {/* Status summary line */}
@@ -329,14 +319,9 @@ export function QualificacaoCard({
                   </div>
                 </div>
               );
-            }) : (
-              <p className="text-sm text-center text-muted-foreground py-3">
-                Expanda para verificar seus critérios.
-              </p>
-            )}
+            ) : null}
           </div>
-        </CardContent>
-      )}
+      </CardContent>
     </Card>
   );
 }
