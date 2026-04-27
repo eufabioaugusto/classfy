@@ -27,7 +27,6 @@ import {
   Heart,
   Bookmark,
   MessageSquare,
-  TrendingUp,
   Eye,
   Video,
   BarChart3
@@ -249,63 +248,16 @@ export default function Recompensas() {
           <Header variant="home" title="Minhas Recompensas" />
 
           <main className="container mx-auto px-4 py-5 pb-24 md:pb-6 space-y-4">
-            {/* Pool Hero + Próximo Milestone — 2 colunas para creators */}
-            {(() => {
-              const nextMilestone = isCreator
-                ? milestones.filter(m => !m.isClaimed).sort((a, b) => b.percentComplete - a.percentComplete)[0]
-                : null;
-              const typeLabel: Record<string, string> = {
-                contents: 'conteúdos', followers: 'seguidores',
-                views: 'views', earnings: 'R$', engagement: '%',
-              };
-              return (
-                <div className={`grid grid-cols-1 gap-4${nextMilestone ? ' md:grid-cols-2 items-start' : ''}`}>
-                  <QualificacaoCard
-                    estimatedPoolShare={stats.estimatedPoolShare}
-                    performancePoints={stats.performancePoints}
-                    poolTotal={stats.prm}
-                    totalPP={stats.totalPP}
-                  />
-                  {nextMilestone && (() => {
-                    const unit = typeLabel[nextMilestone.milestone_type] ?? '';
-                    const remaining = Math.max(0, nextMilestone.milestone_value - nextMilestone.currentValue);
-                    const rewardParts = [
-                      nextMilestone.points_reward > 0 ? `+${nextMilestone.points_reward} XP` : '',
-                      nextMilestone.value_reward > 0 ? `+R$ ${nextMilestone.value_reward.toFixed(2)}` : '',
-                    ].filter(Boolean).join(' · ') || '+recompensa';
-                    return (
-                      <Card>
-                        <CardHeader>
-                          <div className="flex items-center gap-2">
-                            <TrendingUp className="w-5 h-5 text-accent" />
-                            <CardTitle>Próximo Milestone</CardTitle>
-                          </div>
-                          <CardDescription>{nextMilestone.title}</CardDescription>
-                        </CardHeader>
-                        <CardContent className="space-y-3">
-                          <div className="flex justify-between items-end gap-2">
-                            <div className="min-w-0">
-                              <p className="text-xs text-muted-foreground">Meta</p>
-                              <p className="text-xl font-bold">{nextMilestone.milestone_value.toLocaleString()} {unit}</p>
-                            </div>
-                            <Badge variant="secondary" className="flex-shrink-0">{rewardParts}</Badge>
-                          </div>
-                          <Progress
-                            value={nextMilestone.percentComplete}
-                            className="h-2"
-                            indicatorClassName="bg-gradient-to-r from-accent to-primary"
-                          />
-                          <p className="text-xs text-muted-foreground">
-                            {nextMilestone.currentValue.toLocaleString()} / {nextMilestone.milestone_value.toLocaleString()} {unit}
-                            {remaining > 0 && <span> · Faltam <strong>{remaining.toLocaleString()}</strong></span>}
-                          </p>
-                        </CardContent>
-                      </Card>
-                    );
-                  })()}
-                </div>
-              );
-            })()}
+            {/* Pool Hero + Ranking — 2 colunas */}
+            <div className="grid grid-cols-1 md:grid-cols-2 items-start gap-4">
+              <QualificacaoCard
+                estimatedPoolShare={stats.estimatedPoolShare}
+                performancePoints={stats.performancePoints}
+                poolTotal={stats.prm}
+                totalPP={stats.totalPP}
+              />
+              <LeaderboardSection userId={user!.id} />
+            </div>
 
             {/* Level + Balance */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -516,9 +468,6 @@ export default function Recompensas() {
               )}
             </div>
 
-
-            {/* Leaderboard */}
-            <LeaderboardSection userId={user!.id} />
 
             <Card>
               <CardContent className="p-4 sm:p-6">
