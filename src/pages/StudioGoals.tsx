@@ -28,41 +28,64 @@ import { cn } from '@/lib/utils';
 
 function ProgressIllustration() {
   return (
-    <svg width="72" height="72" viewBox="0 0 80 80" fill="none" xmlns="http://www.w3.org/2000/svg" className="shrink-0">
+    <svg width="100" height="100" viewBox="0 0 120 120" fill="none" xmlns="http://www.w3.org/2000/svg" className="shrink-0">
       <defs>
-        <linearGradient id="pg-bg" x1="0" y1="0" x2="80" y2="80" gradientUnits="userSpaceOnUse">
-          <stop stopColor="hsl(347,77%,50%)" stopOpacity="0.18"/>
-          <stop offset="1" stopColor="hsl(347,77%,60%)" stopOpacity="0.05"/>
-        </linearGradient>
-        <linearGradient id="pg-fig" x1="57" y1="18" x2="57" y2="58" gradientUnits="userSpaceOnUse">
-          <stop stopColor="hsl(347,77%,58%)"/>
-          <stop offset="1" stopColor="hsl(347,77%,42%)"/>
+        <linearGradient id="sf" x1="60" y1="18" x2="60" y2="96" gradientUnits="userSpaceOnUse">
+          <stop stopColor="#F0546C"/>
+          <stop offset="1" stopColor="#B01C38"/>
         </linearGradient>
       </defs>
-      {/* Background */}
-      <rect width="80" height="80" rx="18" fill="url(#pg-bg)"/>
-      {/* Stairs */}
-      <rect x="6" y="60" width="10" height="14" rx="2" fill="hsl(347,77%,50%)" fillOpacity="0.15"/>
-      <rect x="19" y="50" width="10" height="24" rx="2" fill="hsl(347,77%,50%)" fillOpacity="0.2"/>
-      <rect x="32" y="40" width="10" height="34" rx="2" fill="hsl(347,77%,50%)" fillOpacity="0.22"/>
-      {/* Head */}
-      <circle cx="57" cy="24" r="6" fill="url(#pg-fig)"/>
-      {/* Body */}
-      <rect x="52" y="30" width="10" height="11" rx="4" fill="url(#pg-fig)"/>
-      {/* Left arm raised */}
-      <path d="M53 32L44 23" stroke="hsl(347,77%,50%)" strokeWidth="3.5" strokeLinecap="round"/>
-      {/* Right arm raised */}
-      <path d="M62 32L71 23" stroke="hsl(347,77%,50%)" strokeWidth="3.5" strokeLinecap="round"/>
-      {/* Legs */}
-      <path d="M55 41L53 53" stroke="hsl(347,77%,46%)" strokeWidth="3" strokeLinecap="round"/>
-      <path d="M59 41L61 53" stroke="hsl(347,77%,46%)" strokeWidth="3" strokeLinecap="round"/>
-      {/* Star */}
-      <path d="M57 6L58.8 11.8H64.8L60 15.3L61.8 21.1L57 17.7L52.2 21.1L54 15.3L49.2 11.8H55.2L57 6Z" fill="hsl(45,93%,47%)"/>
-      {/* Sparkles */}
-      <circle cx="20" cy="28" r="2.5" fill="hsl(45,93%,47%)" fillOpacity="0.7"/>
-      <circle cx="13" cy="44" r="1.5" fill="hsl(347,77%,50%)" fillOpacity="0.45"/>
-      <circle cx="74" cy="44" r="1.5" fill="hsl(45,93%,47%)" fillOpacity="0.6"/>
-      <circle cx="70" cy="32" r="2" fill="hsl(347,77%,50%)" fillOpacity="0.3"/>
+
+      {/* Soft halo behind star */}
+      <ellipse cx="61" cy="62" rx="44" ry="40" fill="#E8395A" fillOpacity="0.12"/>
+
+      {/* Star body */}
+      <path
+        d="M60,18 L70,46 L100,46 L78,64 L86,93 L60,76 L34,93 L42,64 L20,46 L50,46 Z"
+        fill="url(#sf)"
+        stroke="#7C1428"
+        strokeWidth="2.5"
+        strokeLinejoin="round"
+      />
+
+      {/* Highlight on top-left of star */}
+      <path d="M44,30 Q54,20 65,29 Q60,38 54,36 Q48,38 44,30 Z" fill="white" fillOpacity="0.16"/>
+
+      {/* Left eye */}
+      <ellipse cx="49" cy="55" rx="4" ry="4.5" fill="#1E0509"/>
+      <circle cx="47.5" cy="53" r="1.6" fill="white"/>
+
+      {/* Right eye */}
+      <ellipse cx="71" cy="55" rx="4" ry="4.5" fill="#1E0509"/>
+      <circle cx="69.5" cy="53" r="1.6" fill="white"/>
+
+      {/* Smile */}
+      <path d="M49 65 Q60 76 71 65" stroke="#1E0509" strokeWidth="2.5" strokeLinecap="round" fill="none"/>
+
+      {/* Cheek blush */}
+      <ellipse cx="41" cy="65" rx="6" ry="3.5" fill="#FFB3C0" fillOpacity="0.55"/>
+      <ellipse cx="79" cy="65" rx="6" ry="3.5" fill="#FFB3C0" fillOpacity="0.55"/>
+
+      {/* Gold 4-point star — top right */}
+      <path d="M97 17 L99 23 L105 25 L99 27 L97 33 L95 27 L89 25 L95 23 Z" fill="#FFD700"/>
+
+      {/* Gold 4-point star — bottom left */}
+      <path d="M14 72 L15.5 76.5 L20 78 L15.5 79.5 L14 84 L12.5 79.5 L8 78 L12.5 76.5 Z" fill="#FFD700" fillOpacity="0.9"/>
+
+      {/* Small accent star — bottom right */}
+      <path d="M105 82 L106.2 85.5 L110 87 L106.2 88.5 L105 92 L103.8 88.5 L100 87 L103.8 85.5 Z" fill="#F0546C" fillOpacity="0.8"/>
+
+      {/* Dots */}
+      <circle cx="108" cy="47" r="3" fill="#FFD700" fillOpacity="0.9"/>
+      <circle cx="10" cy="38" r="2.5" fill="#FFD700" fillOpacity="0.75"/>
+      <circle cx="15" cy="94" r="2" fill="#F0546C" fillOpacity="0.65"/>
+      <circle cx="105" cy="97" r="2" fill="#FFD700" fillOpacity="0.7"/>
+
+      {/* Squiggly right */}
+      <path d="M111 61 C114 57 117 64 114 68" stroke="#F0546C" strokeWidth="2" strokeLinecap="round" fill="none" fillOpacity="0.6"/>
+
+      {/* Squiggly left */}
+      <path d="M5 55 C2 51 5 45 8 49" stroke="#FFD700" strokeWidth="1.8" strokeLinecap="round" fill="none" fillOpacity="0.75"/>
     </svg>
   );
 }
@@ -233,14 +256,14 @@ export default function StudioGoals() {
             </Card>
 
             {/* Achievement Badges Section */}
-            <Card className="overflow-hidden">
+            <Card>
               <CardHeader className="pb-3">
                 <CardTitle className="flex items-center gap-2 text-lg">
                   <Award className="w-5 h-5 text-primary" />
                   Suas Conquistas
                 </CardTitle>
               </CardHeader>
-              <CardContent>
+              <CardContent className="px-5 pb-5">
                 <Tabs defaultValue="unlocked">
                   <TabsList className="w-full grid grid-cols-2 mb-4">
                     <TabsTrigger value="unlocked" className="gap-1.5">
@@ -259,7 +282,7 @@ export default function StudioGoals() {
 
                   <TabsContent value="unlocked" className="mt-0">
                     {milestones.filter(m => m.isClaimed).length > 0 ? (
-                      <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-8 gap-4">
+                      <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-8 gap-5 pt-2">
                         {milestones.filter(m => m.isClaimed).map((milestone) => (
                           <CreatorAchievementBadge
                             key={milestone.id}
@@ -278,7 +301,7 @@ export default function StudioGoals() {
                   </TabsContent>
 
                   <TabsContent value="locked" className="mt-0">
-                    <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-8 gap-4">
+                    <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-8 gap-5 pt-2">
                       {milestones.filter(m => !m.isClaimed).map((milestone) => (
                         <CreatorAchievementBadge
                           key={milestone.id}
