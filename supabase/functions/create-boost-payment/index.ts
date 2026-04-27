@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import Stripe from "https://esm.sh/stripe@18.5.0";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.57.2";
+import { getOrCreateStripeCustomer, getRequestOrigin } from "../_shared/stripe-subscription.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -19,7 +20,9 @@ serve(async (req) => {
   );
 
   try {
-    const authHeader = req.headers.get("Authorization")!;
+    const authHeader = req.headers.get("Authorization");
+    if (!authHeader) throw new Error("User not authenticated");
+
     const token = authHeader.replace("Bearer ", "");
     const { data } = await supabaseClient.auth.getUser(token);
     const user = data.user;
@@ -33,6 +36,18 @@ serve(async (req) => {
     // Validate data
     if (!objective || !dailyBudget || !durationDays) {
       throw new Error("Missing required fields");
+    }
+
+    const normalizedDailyBudget = Number(dailyBudget);
+    const normalizedDurationDays = Number(durationDays);
+
+    if (
+      !Number.isFinite(normalizedDailyBudget) ||
+      !Number.isFinite(normalizedDurationDays) ||
+      normalizedDailyBudget <= 0 ||
+      normalizedDurationDays <= 0
+    ) {
+      throw new Error("Invalid boost budget");
     }
 
     // Validate content/course exists if objective is content
@@ -60,19 +75,18 @@ serve(async (req) => {
       }
     }
 
-    const totalAmount = dailyBudget * durationDays;
+    const totalAmount = normalizedDailyBudget * normalizedDurationDays;
 
     // Initialize Stripe
     const stripe = new Stripe(Deno.env.get("STRIPE_SECRET_KEY") || "", {
       apiVersion: "2025-08-27.basil",
     });
 
-    // Check if customer exists
-    const customers = await stripe.customers.list({ email: user.email, limit: 1 });
-    let customerId;
-    if (customers.data.length > 0) {
-      customerId = customers.data[0].id;
-    }
+    const origin = getRequestOrigin(req);
+    const customerId = await getOrCreateStripeCustomer(stripe, supabaseClient, {
+      id: user.id,
+      email: user.email,
+    });
 
     let boost;
     
@@ -89,13 +103,13 @@ serve(async (req) => {
       boost = existingBoost;
     } else {
       // Criar novo boost - determinar se é content ou course
-      const boostInsertData: any = {
+      const boostInsertData: Record<string, unknown> = {
         user_id: user.id,
         objective,
         audience_type: audienceType,
         audience_filters: audienceFilters || {},
-        daily_budget: dailyBudget,
-        duration_days: durationDays,
+        daily_budget: normalizedDailyBudget,
+        duration_days: normalizedDurationDays,
         status: 'pending_payment'
       };
 
@@ -126,7 +140,6 @@ serve(async (req) => {
     const itemName = itemType === 'curso' ? 'Curso' : 'Conteúdo';
     const session = await stripe.checkout.sessions.create({
       customer: customerId,
-      customer_email: customerId ? undefined : user.email,
       payment_method_types: ["card"],
       line_items: [
         {
@@ -134,7 +147,7 @@ serve(async (req) => {
             currency: "brl",
             product_data: {
               name: objective === 'profile' ? 'Impulsionar Perfil' : `Impulsionar ${itemName}`,
-              description: `${durationDays} dias de anúncio - R$ ${dailyBudget}/dia`,
+              description: `${normalizedDurationDays} dias de anúncio - R$ ${normalizedDailyBudget}/dia`,
             },
             unit_amount: Math.round(totalAmount * 100), // Convert to centavos
           },
@@ -142,8 +155,8 @@ serve(async (req) => {
         },
       ],
       mode: "payment",
-      success_url: `${req.headers.get("origin")}/boost-success?boost_id=${boost.id}`,
-      cancel_url: `${req.headers.get("origin")}/`,
+      success_url: `${origin}/boost-success?boost_id=${boost.id}`,
+      cancel_url: `${origin}/`,
       metadata: {
         boost_id: boost.id,
         user_id: user.id,

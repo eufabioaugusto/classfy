@@ -1,6 +1,12 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import Stripe from "https://esm.sh/stripe@18.5.0";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.57.2";
+import {
+  findBillableSubscription,
+  findStripeCustomer,
+  getPlanFromProduct,
+  getSubscriptionPeriodEnd,
+} from "../_shared/stripe-subscription.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -51,46 +57,43 @@ serve(async (req) => {
       apiVersion: "2025-08-27.basil",
     });
 
-    // Check if customer exists
-    const customers = await stripe.customers.list({ email: user.email, limit: 1 });
-    
-    if (customers.data.length === 0) {
+    const { customerId, profile } = await findStripeCustomer(stripe, supabaseClient, {
+      id: user.id,
+      email: user.email,
+    });
+
+    if (!customerId) {
+      const expiresAt = profile?.plan_expires_at ? new Date(profile.plan_expires_at).getTime() : null;
+      const shouldExpireLocalPlan = Boolean(expiresAt && expiresAt <= Date.now());
+
+      if (shouldExpireLocalPlan) {
+        await supabaseClient
+          .from("profiles")
+          .update({ plan: "free", plan_expires_at: null, billing_id: null })
+          .eq("id", user.id);
+      }
+
       return new Response(JSON.stringify({ 
         hasSubscription: false,
-        plan: 'free'
+        plan: shouldExpireLocalPlan ? "free" : profile?.plan ?? "free",
+        subscriptionEnd: shouldExpireLocalPlan ? null : profile?.plan_expires_at ?? null,
       }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
         status: 200,
       });
     }
 
-    const customerId = customers.data[0].id;
-
-    // Get active subscriptions
-    const subscriptions = await stripe.subscriptions.list({
-      customer: customerId,
-      status: "active",
-      limit: 1,
-    });
-
-    const hasActiveSub = subscriptions.data.length > 0;
+    const subscription = await findBillableSubscription(stripe, customerId);
+    const hasActiveSub = Boolean(subscription);
     let planType = 'free';
     let subscriptionEnd = null;
 
-    if (hasActiveSub) {
-      const subscription = subscriptions.data[0];
-      subscriptionEnd = new Date(subscription.current_period_end * 1000).toISOString();
+    if (subscription) {
+      subscriptionEnd = getSubscriptionPeriodEnd(subscription);
       
       // Get product ID from subscription
-      const productId = subscription.items.data[0].price.product as string;
-      
-      // Map product ID to plan type using fixed IDs
-      const productToPlan: Record<string, string> = {
-        "prod_TTH0TCgKCJn5QS": "pro",
-        "prod_TTH12wU8lOauHD": "premium",
-      };
-      
-      planType = productToPlan[productId] || subscription.metadata.plan_type || 'pro';
+      const productId = subscription.items.data[0]?.price?.product as string | undefined;
+      planType = getPlanFromProduct(productId, subscription.metadata?.plan_type);
       
       console.log("[VERIFY-SUBSCRIPTION] Active subscription found:", {
         subscriptionId: subscription.id,
@@ -105,8 +108,18 @@ serve(async (req) => {
         .update({
           plan: planType,
           plan_expires_at: subscriptionEnd,
+          billing_id: customerId,
         })
         .eq('id', user.id);
+    } else {
+      await supabaseClient
+        .from("profiles")
+        .update({
+          plan: "free",
+          plan_expires_at: null,
+          billing_id: customerId,
+        })
+        .eq("id", user.id);
     }
 
     return new Response(JSON.stringify({

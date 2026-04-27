@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import Stripe from "https://esm.sh/stripe@18.5.0";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.57.2";
+import { findStripeCustomer, getRequestOrigin } from "../_shared/stripe-subscription.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -19,7 +20,9 @@ serve(async (req) => {
   );
 
   try {
-    const authHeader = req.headers.get("Authorization")!;
+    const authHeader = req.headers.get("Authorization");
+    if (!authHeader) throw new Error("User not authenticated");
+
     const token = authHeader.replace("Bearer ", "");
     const { data } = await supabaseClient.auth.getUser(token);
     const user = data.user;
@@ -34,21 +37,19 @@ serve(async (req) => {
       apiVersion: "2025-08-27.basil",
     });
 
-    // Find customer by email
-    const customers = await stripe.customers.list({ 
-      email: user.email, 
-      limit: 1 
+    const { customerId } = await findStripeCustomer(stripe, supabaseClient, {
+      id: user.id,
+      email: user.email,
     });
 
-    if (customers.data.length === 0) {
+    if (!customerId) {
       throw new Error("No Stripe customer found. You need an active subscription first.");
     }
 
-    const customerId = customers.data[0].id;
     console.log("[CUSTOMER-PORTAL] Found customer:", customerId);
 
     // Create portal session
-    const origin = req.headers.get("origin") || "http://localhost:3000";
+    const origin = getRequestOrigin(req);
     const portalSession = await stripe.billingPortal.sessions.create({
       customer: customerId,
       return_url: `${origin}/conta`,

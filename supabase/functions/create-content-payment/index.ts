@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import Stripe from "https://esm.sh/stripe@18.5.0";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.57.2";
+import { getOrCreateStripeCustomer, getRequestOrigin } from "../_shared/stripe-subscription.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -19,46 +20,54 @@ serve(async (req) => {
   );
 
   try {
-    const authHeader = req.headers.get("Authorization")!;
+    const authHeader = req.headers.get("Authorization");
+    if (!authHeader) throw new Error("User not authenticated");
+
     const token = authHeader.replace("Bearer ", "");
     const { data } = await supabaseClient.auth.getUser(token);
     const user = data.user;
     if (!user?.email) throw new Error("User not authenticated");
 
-    const { contentId, price, discount } = await req.json();
+    const { contentId } = await req.json();
 
-    if (!contentId || !price) {
+    if (!contentId) {
       throw new Error("Missing required fields");
     }
 
     // Get content details
     const { data: content, error: contentError } = await supabaseClient
       .from('contents')
-      .select('title')
+      .select('title, price, discount, visibility, status')
       .eq('id', contentId)
       .maybeSingle();
 
     if (contentError) throw contentError;
     if (!content) throw new Error('Content not found');
+    if (content.status !== "approved") throw new Error("Content is not available for purchase");
+    if (content.visibility !== "paid") throw new Error("Content is not configured as paid");
 
-    const finalPrice = price * (1 - (discount || 0) / 100);
+    const price = Number(content.price || 0);
+    const discount = Number(content.discount || 0);
+    const finalPrice = price * (1 - discount / 100);
+
+    if (!Number.isFinite(finalPrice) || finalPrice <= 0) {
+      throw new Error("Invalid content price");
+    }
 
     // Initialize Stripe
     const stripe = new Stripe(Deno.env.get("STRIPE_SECRET_KEY") || "", {
       apiVersion: "2025-08-27.basil",
     });
 
-    // Check if customer exists
-    const customers = await stripe.customers.list({ email: user.email, limit: 1 });
-    let customerId;
-    if (customers.data.length > 0) {
-      customerId = customers.data[0].id;
-    }
+    const origin = getRequestOrigin(req);
+    const customerId = await getOrCreateStripeCustomer(stripe, supabaseClient, {
+      id: user.id,
+      email: user.email,
+    });
 
     // Create checkout session
     const session = await stripe.checkout.sessions.create({
       customer: customerId,
-      customer_email: customerId ? undefined : user.email,
       payment_method_types: ["card"],
       line_items: [
         {
@@ -74,8 +83,8 @@ serve(async (req) => {
         },
       ],
       mode: "payment",
-      success_url: `${req.headers.get("origin")}/watch/${contentId}?purchase=success`,
-      cancel_url: `${req.headers.get("origin")}/watch/${contentId}?purchase=canceled`,
+      success_url: `${origin}/watch/${contentId}?purchase=success`,
+      cancel_url: `${origin}/watch/${contentId}?purchase=canceled`,
       metadata: {
         content_id: contentId,
         user_id: user.id,

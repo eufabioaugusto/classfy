@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import Stripe from "https://esm.sh/stripe@18.5.0";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.57.2";
+import { getPlanFromProduct, getSubscriptionPeriodEnd } from "../_shared/stripe-subscription.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -24,16 +25,19 @@ serve(async (req) => {
 
   const signature = req.headers.get("stripe-signature");
   const webhookSecret = Deno.env.get("STRIPE_WEBHOOK_SECRET");
+  let event: Stripe.Event | null = null;
+  let eventRecorded = false;
 
   try {
     const body = await req.text();
     
-    let event: Stripe.Event;
     if (webhookSecret && signature) {
       event = stripe.webhooks.constructEvent(body, signature, webhookSecret);
     } else {
       event = JSON.parse(body);
     }
+
+    if (!event) throw new Error("Invalid Stripe event payload");
 
     console.log(`Received event: ${event.type} (${event.id})`);
 
@@ -50,6 +54,8 @@ serve(async (req) => {
           { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
       }
       console.error('Error recording stripe event:', dedupError);
+    } else {
+      eventRecorded = true;
     }
 
     switch (event.type) {
@@ -90,15 +96,19 @@ serve(async (req) => {
         
         // Handle content purchase
         if (session.mode === "payment" && session.metadata?.content_id) {
-          const pricePaid = parseFloat(session.metadata.price_paid);
+          const pricePaid = parseFloat(session.metadata.price_paid || "");
+          const safePricePaid = Number.isFinite(pricePaid)
+            ? pricePaid
+            : (session.amount_total ? session.amount_total / 100 : 0);
+          const discountApplied = parseFloat(session.metadata.discount_applied || "0");
           
           const { error } = await supabaseClient
             .from("purchased_contents")
             .upsert({
               user_id: session.metadata.user_id,
               content_id: session.metadata.content_id,
-              price_paid: pricePaid,
-              discount_applied: parseFloat(session.metadata.discount_applied),
+              price_paid: safePricePaid,
+              discount_applied: Number.isFinite(discountApplied) ? discountApplied : 0,
             }, {
               onConflict: "user_id,content_id"
             });
@@ -109,7 +119,7 @@ serve(async (req) => {
             console.log("Purchase recorded successfully");
             
             // Record revenue: platform takes 20% commission on content sales
-            const platformCommission = pricePaid * 0.20;
+            const platformCommission = safePricePaid * 0.20;
             await recordRevenue(supabaseClient, {
               revenue_type: 'content_purchase',
               amount: platformCommission,
@@ -117,7 +127,7 @@ serve(async (req) => {
               user_id: session.metadata.user_id,
               metadata: { 
                 content_id: session.metadata.content_id,
-                total_price: pricePaid,
+                total_price: safePricePaid,
                 commission_rate: 0.20,
               },
             });
@@ -128,14 +138,9 @@ serve(async (req) => {
         if (session.mode === "subscription" && session.metadata?.user_id) {
           const subscription = await stripe.subscriptions.retrieve(session.subscription as string);
           
-          const productId = subscription.items.data[0].price.product as string;
-          const productToPlan: Record<string, string> = {
-            "prod_TTH0TCgKCJn5QS": "pro",
-            "prod_TTH12wU8lOauHD": "premium",
-          };
-          
-          const planType = productToPlan[productId] || session.metadata.plan_type || "pro";
-          const subscriptionEnd = new Date(subscription.current_period_end * 1000).toISOString();
+          const productId = subscription.items.data[0]?.price?.product as string | undefined;
+          const planType = getPlanFromProduct(productId, session.metadata.plan_type);
+          const subscriptionEnd = getSubscriptionPeriodEnd(subscription);
 
           console.log("[WEBHOOK] Subscription checkout completed:", {
             userId: session.metadata.user_id,
@@ -157,17 +162,6 @@ serve(async (req) => {
             console.error("Error updating subscription:", error);
           } else {
             console.log("Subscription activated successfully");
-            
-            // Record subscription revenue
-            const subscriptionAmount = session.amount_total ? session.amount_total / 100 : 0;
-            const revenueType = planType === 'premium' ? 'subscription_premium' : 'subscription_pro';
-            await recordRevenue(supabaseClient, {
-              revenue_type: revenueType,
-              amount: subscriptionAmount,
-              source_id: session.subscription as string,
-              user_id: session.metadata.user_id,
-              metadata: { plan_type: planType, product_id: productId },
-            });
           }
         }
 
@@ -211,18 +205,11 @@ serve(async (req) => {
           .single();
 
         if (profile) {
-          const isActive = subscription.status === "active";
+          const isActive = ["active", "trialing", "past_due"].includes(subscription.status);
           
-          const productId = subscription.items.data[0]?.price?.product as string;
-          const productToPlan: Record<string, string> = {
-            "prod_TTH0TCgKCJn5QS": "pro",
-            "prod_TTH12wU8lOauHD": "premium",
-          };
-          
-          const planType = isActive ? (productToPlan[productId] || subscription.metadata?.plan_type || "pro") : "free";
-          const subscriptionEnd = isActive 
-            ? new Date(subscription.current_period_end * 1000).toISOString()
-            : null;
+          const productId = subscription.items.data[0]?.price?.product as string | undefined;
+          const planType = isActive ? getPlanFromProduct(productId, subscription.metadata?.plan_type) : "free";
+          const subscriptionEnd = isActive ? getSubscriptionPeriodEnd(subscription) : null;
 
           console.log("[WEBHOOK] Subscription updated/deleted:", {
             userId: profile.id,
@@ -263,11 +250,14 @@ serve(async (req) => {
             .single();
 
           if (profile) {
-            const subscriptionEnd = new Date(subscription.current_period_end * 1000).toISOString();
+            const subscriptionEnd = getSubscriptionPeriodEnd(subscription);
+            const productId = subscription.items.data[0]?.price?.product as string | undefined;
+            const planType = getPlanFromProduct(productId, subscription.metadata?.plan_type);
 
             const { error } = await supabaseClient
               .from("profiles")
               .update({
+                plan: planType,
                 plan_expires_at: subscriptionEnd,
               })
               .eq("id", profile.id);
@@ -280,14 +270,13 @@ serve(async (req) => {
               // Record renewal revenue
               const invoiceAmount = invoice.amount_paid ? invoice.amount_paid / 100 : 0;
               if (invoiceAmount > 0) {
-                const productId = subscription.items.data[0]?.price?.product as string;
-                const revenueType = productId === "prod_TTH12wU8lOauHD" ? 'subscription_premium' : 'subscription_pro';
+                const revenueType = planType === "premium" ? 'subscription_premium' : 'subscription_pro';
                 await recordRevenue(supabaseClient, {
                   revenue_type: revenueType,
                   amount: invoiceAmount,
                   source_id: invoice.id,
                   user_id: profile.id,
-                  metadata: { renewal: true, invoice_id: invoice.id },
+                  metadata: { invoice_id: invoice.id, plan_type: planType, product_id: productId },
                 });
               }
             }
@@ -335,6 +324,17 @@ serve(async (req) => {
     });
   } catch (error) {
     console.error("Webhook error:", error);
+    if (eventRecorded && event?.id) {
+      const { error: deleteError } = await supabaseClient
+        .from("stripe_events_processed")
+        .delete()
+        .eq("event_id", event.id);
+
+      if (deleteError) {
+        console.error("Failed to release failed Stripe event for retry:", deleteError);
+      }
+    }
+
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
     return new Response(JSON.stringify({ error: errorMessage }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -351,7 +351,7 @@ async function recordRevenue(
     amount: number;
     source_id?: string;
     user_id?: string;
-    metadata?: Record<string, any>;
+    metadata?: Record<string, unknown>;
   }
 ) {
   try {
@@ -371,7 +371,7 @@ async function recordRevenue(
 
     if (error) {
       // unique_violation = source_id já registrado (retry do webhook) — ignorar silenciosamente
-      if ((error as any).code === '23505') {
+      if (typeof error === "object" && error !== null && "code" in error && error.code === '23505') {
         console.log('Revenue already recorded for source_id:', params.source_id, '— skipping.');
         return;
       }

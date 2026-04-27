@@ -1,6 +1,13 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import Stripe from "https://esm.sh/stripe@18.5.0";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.57.2";
+import {
+  STRIPE_PLANS,
+  findBillableSubscription,
+  findStripeCustomer,
+  getSubscriptionPeriodEnd,
+  isSubscriptionPlan,
+} from "../_shared/stripe-subscription.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -19,7 +26,9 @@ serve(async (req) => {
   );
 
   try {
-    const authHeader = req.headers.get("Authorization")!;
+    const authHeader = req.headers.get("Authorization");
+    if (!authHeader) throw new Error("User not authenticated");
+
     const token = authHeader.replace("Bearer ", "");
     const { data } = await supabaseClient.auth.getUser(token);
     const user = data.user;
@@ -40,30 +49,19 @@ serve(async (req) => {
       apiVersion: "2025-08-27.basil",
     });
 
-    // Find customer
-    const customers = await stripe.customers.list({ 
-      email: user.email, 
-      limit: 1 
+    const { customerId } = await findStripeCustomer(stripe, supabaseClient, {
+      id: user.id,
+      email: user.email,
     });
 
-    if (customers.data.length === 0) {
+    if (!customerId) {
       throw new Error("No Stripe customer found");
     }
 
-    const customerId = customers.data[0].id;
-
-    // Get active subscription
-    const subscriptions = await stripe.subscriptions.list({
-      customer: customerId,
-      status: "active",
-      limit: 1,
-    });
-
-    if (subscriptions.data.length === 0) {
+    const subscription = await findBillableSubscription(stripe, customerId);
+    if (!subscription) {
       throw new Error("No active subscription found");
     }
-
-    const subscription = subscriptions.data[0];
 
     // Handle cancel
     if (action === "cancel") {
@@ -83,22 +81,11 @@ serve(async (req) => {
     }
 
     // Handle upgrade/downgrade
-    if (!newPlan || !["pro", "premium"].includes(newPlan)) {
+    if (!isSubscriptionPlan(newPlan)) {
       throw new Error("Invalid plan for upgrade/downgrade");
     }
 
-    const planConfig: Record<string, { priceId: string; productId: string }> = {
-      pro: {
-        priceId: "price_1SWKSDBW0e1s8a6ZRbWZI6Fm",
-        productId: "prod_TTH0TCgKCJn5QS",
-      },
-      premium: {
-        priceId: "price_1SWKT6BW0e1s8a6ZGKTT7wTV",
-        productId: "prod_TTH12wU8lOauHD",
-      },
-    };
-
-    const targetPlan = planConfig[newPlan];
+    const targetPlan = STRIPE_PLANS[newPlan];
 
     // Update subscription
     const updatedSubscription = await stripe.subscriptions.update(subscription.id, {
@@ -126,7 +113,8 @@ serve(async (req) => {
       .from("profiles")
       .update({
         plan: newPlan,
-        plan_expires_at: new Date(updatedSubscription.current_period_end * 1000).toISOString(),
+        plan_expires_at: getSubscriptionPeriodEnd(updatedSubscription),
+        billing_id: customerId,
       })
       .eq("id", user.id);
 

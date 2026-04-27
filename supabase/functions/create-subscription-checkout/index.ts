@@ -1,6 +1,13 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import Stripe from "https://esm.sh/stripe@18.5.0";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.57.2";
+import {
+  STRIPE_PLANS,
+  findBillableSubscription,
+  getOrCreateStripeCustomer,
+  getRequestOrigin,
+  isSubscriptionPlan,
+} from "../_shared/stripe-subscription.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -19,7 +26,9 @@ serve(async (req) => {
   );
 
   try {
-    const authHeader = req.headers.get("Authorization")!;
+    const authHeader = req.headers.get("Authorization");
+    if (!authHeader) throw new Error("User not authenticated");
+
     const token = authHeader.replace("Bearer ", "");
     const { data } = await supabaseClient.auth.getUser(token);
     const user = data.user;
@@ -28,25 +37,11 @@ serve(async (req) => {
     const body = await req.json();
     const plan = body.plan || body.planType;
 
-    if (!plan || !['pro', 'premium'].includes(plan)) {
+    if (!isSubscriptionPlan(plan)) {
       throw new Error("Invalid plan selected");
     }
 
-    // Fixed Stripe Product IDs
-    const planConfig = {
-      pro: {
-        name: "Classfy Pro",
-        priceId: "price_1SWKSDBW0e1s8a6ZRbWZI6Fm",
-        productId: "prod_TTH0TCgKCJn5QS",
-      },
-      premium: {
-        name: "Classfy Premium",
-        priceId: "price_1SWKT6BW0e1s8a6ZGKTT7wTV",
-        productId: "prod_TTH12wU8lOauHD",
-      },
-    };
-
-    const selectedPlan = planConfig[plan as keyof typeof planConfig];
+    const selectedPlan = STRIPE_PLANS[plan];
 
     console.log("[CREATE-SUBSCRIPTION-CHECKOUT] Creating checkout for plan:", plan, "with fixed price ID:", selectedPlan.priceId);
 
@@ -55,17 +50,28 @@ serve(async (req) => {
       apiVersion: "2025-08-27.basil",
     });
 
-    // Check if customer exists
-    const customers = await stripe.customers.list({ email: user.email, limit: 1 });
-    let customerId;
-    if (customers.data.length > 0) {
-      customerId = customers.data[0].id;
+    const origin = getRequestOrigin(req);
+    const customerId = await getOrCreateStripeCustomer(stripe, supabaseClient, {
+      id: user.id,
+      email: user.email,
+    });
+
+    const existingSubscription = await findBillableSubscription(stripe, customerId);
+    if (existingSubscription) {
+      const portalSession = await stripe.billingPortal.sessions.create({
+        customer: customerId,
+        return_url: `${origin}/conta`,
+      });
+
+      return new Response(JSON.stringify({ url: portalSession.url, mode: "portal" }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+        status: 200,
+      });
     }
 
     // Create checkout session for subscription
     const session = await stripe.checkout.sessions.create({
       customer: customerId,
-      customer_email: customerId ? undefined : user.email,
       line_items: [
         {
           price: selectedPlan.priceId,
@@ -74,12 +80,19 @@ serve(async (req) => {
       ],
       mode: "subscription",
       payment_method_types: ['card'],
-      success_url: `${req.headers.get("origin")}/conta?subscription=success`,
-      cancel_url: `${req.headers.get("origin")}/conta?subscription=canceled`,
+      success_url: `${origin}/conta?subscription=success`,
+      cancel_url: `${origin}/conta?subscription=canceled`,
       metadata: {
         user_id: user.id,
         plan_type: plan,
         product_id: selectedPlan.productId,
+      },
+      subscription_data: {
+        metadata: {
+          user_id: user.id,
+          plan_type: plan,
+          product_id: selectedPlan.productId,
+        },
       },
     });
 

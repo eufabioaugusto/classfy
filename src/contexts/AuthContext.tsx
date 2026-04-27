@@ -86,12 +86,16 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     }
   };
 
-  const verifySubscription = async () => {
+  const verifySubscription = async (userId?: string) => {
     try {
       const { data, error } = await supabase.functions.invoke('verify-subscription');
       
       if (!error && data) {
         console.log('Subscription verified:', data);
+        const profileUserId = userId || user?.id;
+        if (profileUserId) {
+          await fetchUserProfile(profileUserId);
+        }
       }
     } catch (error) {
       console.error('Error verifying subscription:', error);
@@ -131,7 +135,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
                 handleDailyLogin(session.user.id);
               }
               
-              verifySubscription();
+              verifySubscription(session.user.id);
             }, 0);
           }
         } else {
@@ -159,7 +163,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
           hasProcessedSession.current = true;
         }
         
-        verifySubscription();
+        verifySubscription(session.user.id);
       } else {
         setLoading(false);
       }
