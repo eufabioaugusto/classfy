@@ -9,7 +9,7 @@ import { Separator } from "@/components/ui/separator";
 import {
   CheckCircle2, XCircle, RefreshCw, Lock, TrendingUp, PartyPopper,
   UserPlus, Share2, Star, Zap, ShoppingCart, Calendar, PlayCircle,
-  Heart, ArrowUpCircle,
+  Heart, ArrowUpCircle, ChevronDown,
   type LucideIcon,
 } from "lucide-react";
 
@@ -64,6 +64,7 @@ export function QualificacaoCard({ estimatedPoolShare, performancePoints, poolTo
   const [maturationDays, setMaturationDays] = useState<number | null>(null);
 
   const isHeroMode = estimatedPoolShare !== undefined;
+  const [collapsed, setCollapsed] = useState(false);
 
   useEffect(() => {
     if (user) loadQualification(false);
@@ -186,26 +187,36 @@ export function QualificacaoCard({ estimatedPoolShare, performancePoints, poolTo
 
           <div className="flex items-center gap-2 shrink-0">
             {qualified ? (
-              <Badge className="gap-1 bg-green-600 hover:bg-green-600">
-                <CheckCircle2 className="w-3 h-3" /> Qualificado
+              <Badge
+                className="gap-1 bg-green-600 hover:bg-green-700 cursor-pointer select-none"
+                onClick={() => loadQualification(true)}
+              >
+                <CheckCircle2 className="w-3 h-3" />
+                Qualificado
+                <RefreshCw className={`w-3 h-3 ml-0.5 ${refreshing ? 'animate-spin' : ''}`} />
               </Badge>
             ) : (
-              <Badge variant="outline" className="gap-1 text-muted-foreground">
-                <Lock className="w-3 h-3" /> Não qualificado
+              <Badge
+                variant="outline"
+                className="gap-1 text-muted-foreground hover:border-foreground/40 cursor-pointer select-none"
+                onClick={() => loadQualification(true)}
+              >
+                <Lock className="w-3 h-3" />
+                Não qualificado
+                <RefreshCw className={`w-3 h-3 ml-0.5 ${refreshing ? 'animate-spin' : ''}`} />
               </Badge>
             )}
             <Button
               size="icon" variant="ghost" className="h-7 w-7"
-              onClick={() => loadQualification(true)}
-              disabled={refreshing}
+              onClick={() => setCollapsed(c => !c)}
             >
-              <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? 'animate-spin' : ''}`} />
+              <ChevronDown className={`w-3.5 h-3.5 transition-transform duration-200 ${collapsed ? '' : 'rotate-180'}`} />
             </Button>
           </div>
         </div>
       </CardHeader>
 
-      <CardContent className="space-y-4">
+      {!collapsed && <CardContent className="space-y-4">
         {isHeroMode && <Separator className="-mt-1 mb-1" />}
 
         {/* QP Progress */}
@@ -293,7 +304,7 @@ export function QualificacaoCard({ estimatedPoolShare, performancePoints, poolTo
             Clique em atualizar para calcular sua qualificação.
           </p>
         )}
-      </CardContent>
+      </CardContent>}
     </Card>
   );
 }
