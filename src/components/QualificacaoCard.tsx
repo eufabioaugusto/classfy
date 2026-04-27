@@ -64,7 +64,7 @@ export function QualificacaoCard({ estimatedPoolShare, performancePoints, poolTo
   const [maturationDays, setMaturationDays] = useState<number | null>(null);
 
   const isHeroMode = estimatedPoolShare !== undefined;
-  const [collapsed, setCollapsed] = useState(false);
+  const [collapsed, setCollapsed] = useState(true);
 
   useEffect(() => {
     if (user) loadQualification(false);
