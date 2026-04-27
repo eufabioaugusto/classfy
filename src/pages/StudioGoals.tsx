@@ -28,64 +28,76 @@ import { cn } from '@/lib/utils';
 
 function ProgressIllustration() {
   return (
-    <svg width="100" height="100" viewBox="0 0 120 120" fill="none" xmlns="http://www.w3.org/2000/svg" className="shrink-0">
+    <svg width="110" height="106" viewBox="0 0 220 212" fill="none" xmlns="http://www.w3.org/2000/svg" className="shrink-0">
       <defs>
-        <linearGradient id="sf" x1="60" y1="18" x2="60" y2="96" gradientUnits="userSpaceOnUse">
-          <stop stopColor="#F0546C"/>
-          <stop offset="1" stopColor="#B01C38"/>
+        <radialGradient id="pg-blob" cx="50%" cy="50%" r="50%">
+          <stop offset="0%" stopColor="#FFBCC8"/>
+          <stop offset="55%" stopColor="#FFD6DF"/>
+          <stop offset="100%" stopColor="#FFF0F3" stopOpacity="0"/>
+        </radialGradient>
+        <linearGradient id="pg-star" x1="110" y1="32" x2="110" y2="166" gradientUnits="userSpaceOnUse">
+          <stop stopColor="#FF3D55"/>
+          <stop offset="1" stopColor="#C41030"/>
         </linearGradient>
       </defs>
 
-      {/* Soft halo behind star */}
-      <ellipse cx="61" cy="62" rx="44" ry="40" fill="#E8395A" fillOpacity="0.12"/>
+      {/* Organic blob */}
+      <path d="M30,102 C16,70 36,20 76,13 C96,8 118,16 142,12 C167,7 190,30 200,58
+               C210,84 205,110 197,134 C188,162 170,182 145,193
+               C120,204 92,205 68,193 C42,179 20,155 16,128 C13,110 20,108 30,102 Z"
+            fill="url(#pg-blob)"/>
+
+      {/* Drip at bottom */}
+      <ellipse cx="110" cy="200" rx="11" ry="9" fill="#FFCCD6" fillOpacity="0.55"/>
 
       {/* Star body */}
-      <path
-        d="M60,18 L70,46 L100,46 L78,64 L86,93 L60,76 L34,93 L42,64 L20,46 L50,46 Z"
-        fill="url(#sf)"
-        stroke="#7C1428"
-        strokeWidth="2.5"
-        strokeLinejoin="round"
-      />
+      <path d="M110,32 L127,85 L181,86 L138,114 L153,166 L110,138 L67,166 L82,114 L39,86 L93,85 Z"
+            fill="url(#pg-star)" stroke="#1C0007" strokeWidth="3.5" strokeLinejoin="round"/>
 
-      {/* Highlight on top-left of star */}
-      <path d="M44,30 Q54,20 65,29 Q60,38 54,36 Q48,38 44,30 Z" fill="white" fillOpacity="0.16"/>
+      {/* Left eye — dot */}
+      <circle cx="96" cy="107" r="4.5" fill="#1C0007"/>
 
-      {/* Left eye */}
-      <ellipse cx="49" cy="55" rx="4" ry="4.5" fill="#1E0509"/>
-      <circle cx="47.5" cy="53" r="1.6" fill="white"/>
+      {/* Right eye — wink ">" */}
+      <path d="M117,102 L125,108 L117,114" stroke="#1C0007" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" fill="none"/>
 
-      {/* Right eye */}
-      <ellipse cx="71" cy="55" rx="4" ry="4.5" fill="#1E0509"/>
-      <circle cx="69.5" cy="53" r="1.6" fill="white"/>
+      {/* Open mouth smile */}
+      <path d="M97,122 Q110,136 123,122" stroke="#1C0007" strokeWidth="3" strokeLinecap="round" fill="none"/>
+      {/* Mouth fill (subtle) */}
+      <path d="M97,122 Q110,136 123,122 Z" fill="#1C0007" fillOpacity="0.1"/>
 
-      {/* Smile */}
-      <path d="M49 65 Q60 76 71 65" stroke="#1E0509" strokeWidth="2.5" strokeLinecap="round" fill="none"/>
+      {/* Top-left looping squiggle */}
+      <path d="M56,56 C43,38 18,36 13,50 C8,66 24,76 37,66
+               C50,56 43,37 30,40 C22,43 19,52 24,58"
+            stroke="#1C0007" strokeWidth="2.5" strokeLinecap="round" fill="none"/>
 
-      {/* Cheek blush */}
-      <ellipse cx="41" cy="65" rx="6" ry="3.5" fill="#FFB3C0" fillOpacity="0.55"/>
-      <ellipse cx="79" cy="65" rx="6" ry="3.5" fill="#FFB3C0" fillOpacity="0.55"/>
+      {/* Top-right: exclamation mark */}
+      <line x1="163" y1="28" x2="163" y2="41" stroke="#1C0007" strokeWidth="2.5" strokeLinecap="round"/>
+      <circle cx="163" cy="47" r="2" fill="#1C0007"/>
+      {/* Top-right: small stroke + dot */}
+      <line x1="173" y1="26" x2="175" y2="34" stroke="#1C0007" strokeWidth="2" strokeLinecap="round"/>
+      <circle cx="176" cy="38" r="1.5" fill="#1C0007" fillOpacity="0.7"/>
+      {/* Top-right: curved arc */}
+      <path d="M178,47 Q187,40 192,49" stroke="#1C0007" strokeWidth="2" strokeLinecap="round" fill="none"/>
+      {/* Top-right: small confetti rect */}
+      <rect x="154" y="20" width="9" height="6" rx="2" fill="#C41030" opacity="0.85" transform="rotate(14,158,23)"/>
 
-      {/* Gold 4-point star — top right */}
-      <path d="M97 17 L99 23 L105 25 L99 27 L97 33 L95 27 L89 25 L95 23 Z" fill="#FFD700"/>
+      {/* Left: outlined star */}
+      <path d="M24,142 L27,151 L36.5,151 L29.5,157 L32.5,166 L24,161 L15.5,166 L18.5,157 L11.5,151 L21,151 Z"
+            stroke="#1C0007" strokeWidth="2" strokeLinejoin="round" fill="white"/>
 
-      {/* Gold 4-point star — bottom left */}
-      <path d="M14 72 L15.5 76.5 L20 78 L15.5 79.5 L14 84 L12.5 79.5 L8 78 L12.5 76.5 Z" fill="#FFD700" fillOpacity="0.9"/>
+      {/* Bottom-right: spiral squiggle */}
+      <path d="M168,163 C179,150 194,154 191,169 C188,184 171,189 163,177
+               C157,167 164,157 175,162 C183,167 179,180 168,181"
+            stroke="#1C0007" strokeWidth="2.5" strokeLinecap="round" fill="none"/>
 
-      {/* Small accent star — bottom right */}
-      <path d="M105 82 L106.2 85.5 L110 87 L106.2 88.5 L105 92 L103.8 88.5 L100 87 L103.8 85.5 Z" fill="#F0546C" fillOpacity="0.8"/>
+      {/* Bottom: small arc */}
+      <path d="M80,192 Q92,200 104,195" stroke="#1C0007" strokeWidth="2" strokeLinecap="round" fill="none"/>
 
-      {/* Dots */}
-      <circle cx="108" cy="47" r="3" fill="#FFD700" fillOpacity="0.9"/>
-      <circle cx="10" cy="38" r="2.5" fill="#FFD700" fillOpacity="0.75"/>
-      <circle cx="15" cy="94" r="2" fill="#F0546C" fillOpacity="0.65"/>
-      <circle cx="105" cy="97" r="2" fill="#FFD700" fillOpacity="0.7"/>
+      {/* Small confetti bottom-left */}
+      <rect x="50" y="177" width="8" height="5" rx="1.5" fill="#FF3D55" opacity="0.7" transform="rotate(-22,54,180)"/>
 
-      {/* Squiggly right */}
-      <path d="M111 61 C114 57 117 64 114 68" stroke="#F0546C" strokeWidth="2" strokeLinecap="round" fill="none" fillOpacity="0.6"/>
-
-      {/* Squiggly left */}
-      <path d="M5 55 C2 51 5 45 8 49" stroke="#FFD700" strokeWidth="1.8" strokeLinecap="round" fill="none" fillOpacity="0.75"/>
+      {/* Dot top-left corner */}
+      <circle cx="42" cy="26" r="2.5" fill="#1C0007" fillOpacity="0.35"/>
     </svg>
   );
 }
@@ -282,7 +294,7 @@ export default function StudioGoals() {
 
                   <TabsContent value="unlocked" className="mt-0">
                     {milestones.filter(m => m.isClaimed).length > 0 ? (
-                      <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-8 gap-5 pt-2">
+                      <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-8 gap-5 pt-2 pb-6">
                         {milestones.filter(m => m.isClaimed).map((milestone) => (
                           <CreatorAchievementBadge
                             key={milestone.id}
@@ -301,7 +313,7 @@ export default function StudioGoals() {
                   </TabsContent>
 
                   <TabsContent value="locked" className="mt-0">
-                    <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-8 gap-5 pt-2">
+                    <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-8 gap-5 pt-2 pb-6">
                       {milestones.filter(m => !m.isClaimed).map((milestone) => (
                         <CreatorAchievementBadge
                           key={milestone.id}
