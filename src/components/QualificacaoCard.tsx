@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { useNavigate } from "react-router-dom";
 import {
-  CheckCircle2, XCircle, RefreshCw, TrendingUp, PartyPopper,
+  CheckCircle2, RefreshCw, TrendingUp, PartyPopper,
   UserPlus, Share2, Star, Zap, ShoppingCart, Calendar, PlayCircle,
   Heart, ArrowUpCircle, ChevronDown, Lock,
   type LucideIcon,
@@ -170,18 +170,6 @@ export function QualificacaoCard({
     );
   }
 
-  // Checkpoints split by status
-  const checkpointEntries = details
-    ? Object.entries(CHECKPOINT_META).map(([key, meta]) => {
-        const cp = (details as any)[key] as CheckpointDetail | undefined;
-        if (!cp) return null;
-        const completed = cp.qp > 0 || cp.active === true;
-        return { key, meta, cp, completed };
-      }).filter(Boolean) as { key: string; meta: typeof CHECKPOINT_META[string]; cp: CheckpointDetail; completed: boolean }[]
-    : [];
-
-  const incomplete = checkpointEntries.filter(e => !e.completed);
-  const complete = checkpointEntries.filter(e => e.completed);
 
   return (
     <Card className={qualified ? 'border-green-500/30 bg-gradient-to-br from-green-500/5 to-emerald-500/5' : ''}>
@@ -255,134 +243,91 @@ export function QualificacaoCard({
       </CardHeader>
 
       {!collapsed && (
-        <CardContent className="space-y-4">
-          {isHeroMode && <Separator className="-mt-1 mb-1" />}
+        <CardContent className="space-y-5">
+          {isHeroMode && <Separator className="-mt-2 mb-1" />}
 
-          {/* === ESTADO: BLOQUEADO POR MATURAÇÃO === */}
-          {isBlockedByMaturation ? (
-            <div className="space-y-4">
-              {/* Countdown de dias */}
-              <div>
-                <div className="flex justify-between text-xs mb-1.5">
-                  <span className="text-muted-foreground">Tempo de conta</span>
-                  <span className="font-semibold tabular-nums">
-                    {accountAgeDays} / {maturationDays} dias
-                  </span>
-                </div>
-                <Progress value={(accountAgeDays / maturationDays!) * 100} className="h-2" />
-                <p className="text-xs text-muted-foreground mt-1.5">
-                  Faltam <strong>{maturationDays! - accountAgeDays} dias</strong> para liberar o acesso ao pool no plano {plan}.
-                </p>
-              </div>
-
-              {/* CTA upgrade */}
-              <button
-                onClick={() => navigate('/planos')}
-                className="w-full flex items-center justify-between px-4 py-3 rounded-lg border border-accent/30 bg-accent/5 hover:bg-accent/10 transition-colors text-left"
-              >
-                <div>
-                  <p className="text-sm font-semibold text-accent">Libere agora com o plano Pro ou Premium</p>
-                  <p className="text-xs text-muted-foreground mt-0.5">Período de carência reduzido — acesse o pool muito antes</p>
-                </div>
-                <ChevronDown className="w-4 h-4 text-accent -rotate-90 shrink-0 ml-3" />
-              </button>
-            </div>
+          {/* Status summary line */}
+          {qualified ? (
+            <p className="text-xs text-green-600 dark:text-green-400 flex items-center gap-1.5">
+              <PartyPopper className="w-3.5 h-3.5 shrink-0" />
+              Você está dentro — sua parte será calculada ao fechar o ciclo.
+            </p>
           ) : (
-            <>
-              {/* === ESTADO NORMAL: CRITÉRIOS === */}
-              <div>
-                <div className="flex justify-between text-xs mb-1.5 text-muted-foreground">
-                  <span>Acesso ao pool</span>
-                  <span>{Math.round(progressPct)}% concluído</span>
-                </div>
-                <Progress value={progressPct} className="h-2" />
-                {qualified ? (
-                  <p className="text-xs text-green-600 dark:text-green-400 mt-1.5 flex items-center gap-1.5">
-                    <PartyPopper className="w-3.5 h-3.5 shrink-0" />
-                    Você está dentro — sua parte será calculada ao fechar o ciclo.
-                  </p>
-                ) : (
-                  <p className="text-xs text-muted-foreground mt-1.5">
-                    {incomplete.length > 0
-                      ? `${incomplete.length} ${incomplete.length === 1 ? 'critério pendente' : 'critérios pendentes'} para desbloquear`
-                      : 'Atualiza para verificar sua qualificação.'}
-                  </p>
-                )}
-              </div>
-
-              {/* Plano */}
-              <div className="flex items-center gap-3 text-xs text-muted-foreground bg-muted/40 rounded-lg px-3 py-2">
-                <span>Plano: <strong className="capitalize text-foreground">{plan}</strong></span>
-                {maturationDays !== null && (
-                  <>
-                    <span>·</span>
-                    <span>Mínimo de <strong className="text-foreground">{maturationDays} dias</strong> de conta</span>
-                  </>
-                )}
-              </div>
-
-              {/* Checkpoints */}
-              {details ? (
-                <div className="space-y-3">
-                  {incomplete.length > 0 && (
-                    <div className="space-y-1.5">
-                      {!qualified && (
-                        <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">O que falta</p>
-                      )}
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
-                        {incomplete.map(({ key, meta: { label, Icon }, cp }) => (
-                          <div key={key} className="flex items-center justify-between p-2 rounded-lg border border-border bg-background">
-                            <div className="flex items-center gap-2 min-w-0">
-                              <Icon className="w-3.5 h-3.5 shrink-0 text-muted-foreground" />
-                              <div className="min-w-0">
-                                <p className="text-xs font-medium leading-none truncate">{label}</p>
-                                {cp.count !== undefined && (
-                                  <p className="text-xs text-muted-foreground mt-0.5">
-                                    {cp.count}{cp.required ? ` / ${cp.required}` : ''}
-                                  </p>
-                                )}
-                              </div>
-                            </div>
-                            <XCircle className="w-3.5 h-3.5 text-muted-foreground shrink-0 ml-2" />
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  {complete.length > 0 && (
-                    <div className="space-y-1.5">
-                      {incomplete.length > 0 && (
-                        <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Concluído</p>
-                      )}
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
-                        {complete.map(({ key, meta: { label, Icon }, cp }) => (
-                          <div key={key} className="flex items-center justify-between p-2 rounded-lg border border-green-500/30 bg-green-500/10">
-                            <div className="flex items-center gap-2 min-w-0">
-                              <Icon className="w-3.5 h-3.5 shrink-0 text-green-600 dark:text-green-400" />
-                              <div className="min-w-0">
-                                <p className="text-xs font-medium leading-none truncate">{label}</p>
-                                {cp.count !== undefined && (
-                                  <p className="text-xs text-muted-foreground mt-0.5">
-                                    {cp.count}{cp.required ? ` / ${cp.required}` : ''}
-                                  </p>
-                                )}
-                              </div>
-                            </div>
-                            <CheckCircle2 className="w-3.5 h-3.5 text-green-600 dark:text-green-400 shrink-0 ml-2" />
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              ) : (
-                <p className="text-sm text-center text-muted-foreground py-4">
-                  Expanda para verificar seus critérios.
-                </p>
-              )}
-            </>
+            <p className="text-xs text-muted-foreground">
+              Plano: <strong className="capitalize text-foreground">{plan}</strong>
+            </p>
           )}
+
+          {/* Critérios — estilo YouTube */}
+          <div className="space-y-5">
+            {/* 1. Maturação — sempre primeiro */}
+            {maturationDays !== null && (
+              <div>
+                <Progress
+                  value={Math.min(100, (accountAgeDays / maturationDays) * 100)}
+                  className="h-1.5 mb-2"
+                  indicatorClassName={!isBlockedByMaturation ? 'bg-green-500' : 'bg-primary'}
+                />
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <p className={`text-sm leading-snug ${!isBlockedByMaturation ? 'text-green-600 dark:text-green-400 font-medium' : ''}`}>
+                      {accountAgeDays} {accountAgeDays === 1 ? 'dia' : 'dias'} de conta
+                    </p>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      {isBlockedByMaturation
+                        ? <>Faltam <strong>{maturationDays - accountAgeDays} dias</strong> · <button onClick={() => navigate('/planos')} className="text-accent underline-offset-2 hover:underline">libere antes com Pro ou Premium</button></>
+                        : 'período de carência cumprido'}
+                    </p>
+                  </div>
+                  <span className="text-sm text-muted-foreground tabular-nums shrink-0">{maturationDays} dias</span>
+                </div>
+              </div>
+            )}
+
+            {/* 2. Outros critérios */}
+            {details ? Object.entries(CHECKPOINT_META).map(([key, { label, tip }]) => {
+              const cp = (details as any)[key] as CheckpointDetail | undefined;
+              if (!cp) return null;
+              const completed = cp.qp > 0 || cp.active === true;
+
+              let leftLabel = label;
+              let rightLabel: string | null = null;
+              let pct = completed ? 100 : 0;
+
+              if (cp.count !== undefined && cp.required !== undefined) {
+                leftLabel = `${cp.count.toLocaleString()} ${label.toLowerCase()}`;
+                rightLabel = cp.required.toLocaleString();
+                pct = Math.min(100, (cp.count / cp.required) * 100);
+              } else if (cp.count !== undefined && cp.count > 0) {
+                leftLabel = `${cp.count.toLocaleString()} ${label.toLowerCase()}`;
+              }
+
+              return (
+                <div key={key}>
+                  <Progress
+                    value={pct}
+                    className="h-1.5 mb-2"
+                    indicatorClassName={completed ? 'bg-green-500' : 'bg-primary'}
+                  />
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="min-w-0">
+                      <p className={`text-sm leading-snug ${completed ? 'text-green-600 dark:text-green-400 font-medium' : ''}`}>
+                        {leftLabel}
+                      </p>
+                      <p className="text-xs text-muted-foreground mt-0.5">{tip}</p>
+                    </div>
+                    {rightLabel && (
+                      <span className="text-sm text-muted-foreground tabular-nums shrink-0">{rightLabel}</span>
+                    )}
+                  </div>
+                </div>
+              );
+            }) : (
+              <p className="text-sm text-center text-muted-foreground py-3">
+                Expanda para verificar seus critérios.
+              </p>
+            )}
+          </div>
         </CardContent>
       )}
     </Card>
