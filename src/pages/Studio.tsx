@@ -209,11 +209,11 @@ export default function Studio() {
         <div className="flex-1 flex flex-col">
           <Header variant="studio" title="Studio Classfy" />
 
-          <main className="flex-1 p-4 md:p-8">
-            <div className="max-w-[1600px] mx-auto space-y-6">
+          <main className="flex-1 p-4 md:p-6">
+            <div className="max-w-[1600px] mx-auto space-y-4">
               {/* Welcome Section */}
               <div>
-                <h2 className="text-3xl font-bold text-foreground mb-2">Bem-vindo ao Studio!</h2>
+                <h2 className="text-xl font-bold text-foreground mb-1">Bem-vindo ao Studio!</h2>
                 <p className="text-muted-foreground">
                   Gerencie seus conteúdos, acompanhe métricas e publique novos materiais.
                 </p>
@@ -222,8 +222,8 @@ export default function Studio() {
               {/* Main Stats Grid - 4 columns */}
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                 {/* Total Contents */}
-                <Card className="p-5 bg-card/50 backdrop-blur-sm border-border/50 hover:border-border transition-all">
-                  <div className="flex items-start justify-between mb-3">
+                <Card className="p-4 bg-card/50 backdrop-blur-sm border-border/50 hover:border-border transition-all">
+                  <div className="flex items-start justify-between mb-2">
                     <div className="p-2 rounded-lg bg-blue-500/10">
                       <Video className="w-5 h-5 text-blue-500" />
                     </div>
@@ -238,7 +238,7 @@ export default function Studio() {
                   </div>
                   <div>
                     <p className="text-sm text-muted-foreground mb-1">Total de Conteúdos</p>
-                    <p className="text-3xl font-bold text-foreground">{stats.totalContents}</p>
+                    <p className="text-xl font-bold text-foreground">{stats.totalContents}</p>
                     {stats.pendingContents > 0 && (
                       <p className="text-xs text-yellow-500 mt-1">
                         {stats.pendingContents} pendente{stats.pendingContents > 1 ? 's' : ''}
@@ -248,8 +248,8 @@ export default function Studio() {
                 </Card>
 
                 {/* Views - Last 7 days with trend */}
-                <Card className="p-5 bg-card/50 backdrop-blur-sm border-border/50 hover:border-border transition-all">
-                  <div className="flex items-start justify-between mb-3">
+                <Card className="p-4 bg-card/50 backdrop-blur-sm border-border/50 hover:border-border transition-all">
+                  <div className="flex items-start justify-between mb-2">
                     <div className="p-2 rounded-lg bg-green-500/10">
                       <Eye className="w-5 h-5 text-green-500" />
                     </div>
@@ -265,7 +265,7 @@ export default function Studio() {
                   <div>
                     <p className="text-sm text-muted-foreground mb-1">Últimos 7 dias</p>
                     <div className="flex items-baseline gap-2">
-                      <p className="text-3xl font-bold text-foreground">{stats.last7DaysViews}</p>
+                      <p className="text-xl font-bold text-foreground">{stats.last7DaysViews}</p>
                       {stats.viewsTrend !== 0 && (
                         <span className={`text-xs font-medium flex items-center gap-0.5 ${
                           stats.viewsTrend > 0 ? 'text-green-500' : 'text-red-500'
@@ -282,21 +282,21 @@ export default function Studio() {
                 </Card>
 
                 {/* Followers */}
-                <Card className="p-5 bg-card/50 backdrop-blur-sm border-border/50 hover:border-border transition-all">
-                  <div className="flex items-start justify-between mb-3">
+                <Card className="p-4 bg-card/50 backdrop-blur-sm border-border/50 hover:border-border transition-all">
+                  <div className="flex items-start justify-between mb-2">
                     <div className="p-2 rounded-lg bg-purple-500/10">
                       <Users className="w-5 h-5 text-purple-500" />
                     </div>
                   </div>
                   <div>
                     <p className="text-sm text-muted-foreground mb-1">Seguidores</p>
-                    <p className="text-3xl font-bold text-foreground">{stats.followers}</p>
+                    <p className="text-xl font-bold text-foreground">{stats.followers}</p>
                   </div>
                 </Card>
 
                 {/* Earnings */}
-                <Card className="p-5 bg-card/50 backdrop-blur-sm border-border/50 hover:border-border transition-all">
-                  <div className="flex items-start justify-between mb-3">
+                <Card className="p-4 bg-card/50 backdrop-blur-sm border-border/50 hover:border-border transition-all">
+                  <div className="flex items-start justify-between mb-2">
                     <div className="p-2 rounded-lg bg-accent/10">
                       <DollarSign className="w-5 h-5 text-accent" />
                     </div>
@@ -311,7 +311,7 @@ export default function Studio() {
                   </div>
                   <div>
                     <p className="text-sm text-muted-foreground mb-1">Total Ganho</p>
-                    <p className="text-3xl font-bold text-foreground">
+                    <p className="text-xl font-bold text-foreground">
                       R$ {stats.earnings.toFixed(2)}
                     </p>
                   </div>
@@ -380,7 +380,7 @@ export default function Studio() {
               <CreatorMilestonesCard creatorId={user.id} compact />
 
               {/* Content Cards Grid - 2 columns */}
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                 {/* Recent Contents */}
                 <Card className="p-6 bg-card/50 backdrop-blur-sm border-border/50">
                   <div className="flex items-center justify-between mb-4">
@@ -487,7 +487,7 @@ export default function Studio() {
               </div>
 
               {/* Bottom Row - Full Width Cards */}
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                 {/* Active Boosts Details */}
                 {activeBoosts.length > 0 && (
                   <Card className="p-6 bg-card/50 backdrop-blur-sm border-border/50">

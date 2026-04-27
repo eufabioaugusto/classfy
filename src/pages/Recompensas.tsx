@@ -248,7 +248,7 @@ export default function Recompensas() {
         <div className="flex-1 flex flex-col">
           <Header variant="home" title="Minhas Recompensas" />
 
-          <main className="container mx-auto px-4 py-8 pb-24 md:pb-8 space-y-6">
+          <main className="container mx-auto px-4 py-5 pb-24 md:pb-6 space-y-4">
             {/* Pool Hero — qualification + estimated earnings */}
             <QualificacaoCard
               estimatedPoolShare={stats.estimatedPoolShare}
@@ -257,59 +257,52 @@ export default function Recompensas() {
             />
 
             {/* Level + Balance */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <Card className="col-span-1 md:col-span-2">
                 <CardHeader>
                   <div className="flex items-center justify-between">
                     <div>
-                      <CardDescription className="text-sm">Seu Nível</CardDescription>
-                      <CardTitle className="text-5xl font-bold flex items-center gap-2">
-                        <Trophy className="w-10 h-10 text-accent" />
+                      <CardDescription>Seu Nível</CardDescription>
+                      <CardTitle className="text-3xl font-bold flex items-center gap-2 mt-1">
+                        <Trophy className="w-7 h-7 text-accent" />
                         {stats.level}
                       </CardTitle>
                     </div>
                     <div className="text-right">
-                      <p className="text-sm text-muted-foreground">Pontos Totais</p>
-                      <p className="text-3xl font-bold text-primary">{stats.totalPoints.toLocaleString()}</p>
+                      <p className="text-xs text-muted-foreground">Pontos Totais</p>
+                      <p className="text-2xl font-bold text-primary">{stats.totalPoints.toLocaleString()}</p>
                     </div>
                   </div>
                 </CardHeader>
-                <CardContent className="space-y-3">
-                  <div className="space-y-2">
-                    <div className="flex justify-between text-sm">
-                      <span className="text-muted-foreground">Progresso para Nível {stats.level + 1}</span>
-                      <span className="font-semibold">{stats.pointsToNextLevel.toLocaleString('pt-BR')} pontos restantes</span>
-                    </div>
-                    <Progress value={stats.progressPercent} className="h-3" indicatorClassName="bg-gradient-to-r from-primary to-accent" />
+                <CardContent className="space-y-2">
+                  <div className="flex justify-between text-xs">
+                    <span className="text-muted-foreground">Progresso para Nível {stats.level + 1}</span>
+                    <span className="font-medium">{stats.pointsToNextLevel.toLocaleString('pt-BR')} pts restantes</span>
                   </div>
-                  <p className="text-xs text-muted-foreground">
-                    Continue engajando com conteúdos para ganhar mais pontos e subir de nível!
-                  </p>
+                  <Progress value={stats.progressPercent} className="h-2" indicatorClassName="bg-gradient-to-r from-primary to-accent" />
                 </CardContent>
               </Card>
 
               <Card className="bg-gradient-to-br from-green-500/10 to-emerald-500/10 border-green-500/20">
                 <CardHeader>
-                  <CardDescription className="text-sm">Saldo Disponível</CardDescription>
-                  <CardTitle className="text-4xl font-bold text-green-500 flex items-center gap-2">
-                    <DollarSign className="w-8 h-8" />
+                  <CardDescription>Saldo Disponível</CardDescription>
+                  <CardTitle className="text-2xl font-bold text-green-500 flex items-center gap-1.5 mt-1">
+                    <DollarSign className="w-5 h-5" />
                     R$ {stats.balance.toFixed(2)}
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <Separator className="my-3" />
-                  <div className="space-y-1">
-                    <div className="flex justify-between text-sm">
-                      <span className="text-muted-foreground">Total Ganho</span>
-                      <span className="font-semibold">R$ {stats.totalEarned.toFixed(2)}</span>
-                    </div>
+                  <Separator className="mb-2" />
+                  <div className="flex justify-between text-xs">
+                    <span className="text-muted-foreground">Total Ganho</span>
+                    <span className="font-medium">R$ {stats.totalEarned.toFixed(2)}</span>
                   </div>
                 </CardContent>
               </Card>
             </div>
 
             {/* Streak & Badges */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {/* Streak Card */}
               <Card>
                 <CardHeader>
@@ -319,20 +312,20 @@ export default function Recompensas() {
                   </div>
                   <CardDescription>Continue sua sequência diária para ganhar bônus</CardDescription>
                 </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-1">
-                      <p className="text-sm text-muted-foreground">Sequência Atual</p>
-                      <p className="text-3xl font-bold text-orange-500">{stats.currentStreak} dias</p>
+                <CardContent className="space-y-3">
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <p className="text-xs text-muted-foreground">Sequência Atual</p>
+                      <p className="text-2xl font-bold text-orange-500">{stats.currentStreak} dias</p>
                     </div>
-                    <div className="space-y-1">
-                      <p className="text-sm text-muted-foreground">Melhor Sequência</p>
-                      <p className="text-3xl font-bold">{stats.longestStreak} dias</p>
+                    <div>
+                      <p className="text-xs text-muted-foreground">Melhor Sequência</p>
+                      <p className="text-2xl font-bold">{stats.longestStreak} dias</p>
                     </div>
                   </div>
-                  <div className="p-3 rounded-lg bg-orange-500/10 border border-orange-500/20">
-                    <p className="text-sm flex items-center gap-2">
-                      <Target className="w-4 h-4" />
+                  <div className="px-3 py-2 rounded-lg bg-orange-500/10 border border-orange-500/20">
+                    <p className="text-xs flex items-center gap-2">
+                      <Target className="w-3.5 h-3.5" />
                       <span>Próxima recompensa em <strong>{Math.max(0, 7 - (stats.currentStreak % 7))} dias</strong></span>
                     </p>
                   </div>
