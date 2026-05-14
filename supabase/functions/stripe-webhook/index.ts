@@ -8,6 +8,33 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, stripe-signature",
 };
 
+function parseCommissionRate(configValue: unknown, fallback: number) {
+  if (typeof configValue === "number" && Number.isFinite(configValue)) {
+    return configValue <= 1 ? configValue : configValue / 100;
+  }
+
+  if (typeof configValue === "string") {
+    const parsedValue = Number(configValue);
+    if (Number.isFinite(parsedValue)) {
+      return parsedValue <= 1 ? parsedValue : parsedValue / 100;
+    }
+  }
+
+  if (configValue && typeof configValue === "object") {
+    const percentage = Number((configValue as { percentage?: unknown }).percentage);
+    if (Number.isFinite(percentage)) {
+      return percentage / 100;
+    }
+
+    const rate = Number((configValue as { rate?: unknown }).rate);
+    if (Number.isFinite(rate)) {
+      return rate <= 1 ? rate : rate / 100;
+    }
+  }
+
+  return fallback;
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -117,9 +144,19 @@ serve(async (req) => {
             console.error("Error recording purchase:", error);
           } else {
             console.log("Purchase recorded successfully");
-            
-            // Record revenue: platform takes 20% commission on content sales
-            const platformCommission = safePricePaid * 0.20;
+
+            const { data: commissionConfig } = await supabaseClient
+              .from("system_config")
+              .select("config_value")
+              .eq("config_key", "direct_sale_platform_commission_rate")
+              .maybeSingle();
+
+            const commissionRate = Math.min(
+              parseCommissionRate(commissionConfig?.config_value, 0.20),
+              1
+            );
+            const platformCommission = safePricePaid * commissionRate;
+
             await recordRevenue(supabaseClient, {
               revenue_type: 'content_purchase',
               amount: platformCommission,
@@ -128,7 +165,7 @@ serve(async (req) => {
               metadata: { 
                 content_id: session.metadata.content_id,
                 total_price: safePricePaid,
-                commission_rate: 0.20,
+                commission_rate: commissionRate,
               },
             });
           }

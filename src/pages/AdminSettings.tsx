@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useAuth } from "@/contexts/AuthContext";
-import { Navigate, useNavigate } from "react-router-dom";
+import { Navigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { AdminLayout } from "@/components/AdminLayout";
@@ -8,17 +8,17 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Settings, Save, DollarSign, CalendarClock, Play, CheckCircle, AlertCircle } from "lucide-react";
+import { Settings, Save, DollarSign, CalendarClock, Play } from "lucide-react";
 
 export default function AdminSettings() {
   const { role } = useAuth();
-  const navigate = useNavigate();
   const { toast } = useToast();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [closingCycle, setClosingCycle] = useState(false);
   const [maturationDays, setMaturationDays] = useState(7);
   const [minWithdrawalAmount, setMinWithdrawalAmount] = useState(10);
+  const [directSalePlatformCommission, setDirectSalePlatformCommission] = useState(20);
   const [lastCycle, setLastCycle] = useState<any>(null);
   const [cycleYearMonth, setCycleYearMonth] = useState("");
 
@@ -34,7 +34,11 @@ export default function AdminSettings() {
       const { data, error } = await supabase
         .from("system_config")
         .select("*")
-        .in("config_key", ["earnings_maturation_days", "minimum_withdrawal_amount"]);
+        .in("config_key", [
+          "earnings_maturation_days",
+          "minimum_withdrawal_amount",
+          "direct_sale_platform_commission_rate",
+        ]);
 
       if (error) throw error;
       
@@ -44,6 +48,23 @@ export default function AdminSettings() {
           setMaturationDays(configValue.days);
         } else if (config.config_key === "minimum_withdrawal_amount") {
           setMinWithdrawalAmount(configValue.amount);
+        } else if (config.config_key === "direct_sale_platform_commission_rate") {
+          if (typeof configValue === "number") {
+            setDirectSalePlatformCommission(configValue <= 1 ? configValue * 100 : configValue);
+          } else if (typeof configValue === "string") {
+            const parsedValue = Number(configValue);
+            if (Number.isFinite(parsedValue)) {
+              setDirectSalePlatformCommission(parsedValue <= 1 ? parsedValue * 100 : parsedValue);
+            }
+          } else if (configValue && typeof configValue === "object") {
+            const percentage = Number(configValue.percentage);
+            const rate = Number(configValue.rate);
+            if (Number.isFinite(percentage)) {
+              setDirectSalePlatformCommission(percentage);
+            } else if (Number.isFinite(rate)) {
+              setDirectSalePlatformCommission(rate <= 1 ? rate * 100 : rate);
+            }
+          }
         }
       });
     } catch (error: any) {
@@ -87,16 +108,25 @@ export default function AdminSettings() {
           config_key: "minimum_withdrawal_amount",
           config_value: { amount: minWithdrawalAmount },
         },
+        {
+          config_key: "direct_sale_platform_commission_rate",
+          config_value: {
+            percentage: directSalePlatformCommission,
+            rate: directSalePlatformCommission / 100,
+          },
+        },
       ];
 
       for (const update of updates) {
         const { error } = await supabase
           .from("system_config")
-          .update({
+          .upsert({
+            config_key: update.config_key,
             config_value: update.config_value,
             updated_at: new Date().toISOString(),
-          })
-          .eq("config_key", update.config_key);
+          }, {
+            onConflict: "config_key",
+          });
 
         if (error) throw error;
       }
@@ -275,6 +305,25 @@ export default function AdminSettings() {
             <p className="text-sm text-muted-foreground">
               Define o valor mínimo que um usuário pode solicitar para saque.
               Valor atual: <strong>R$ {minWithdrawalAmount.toFixed(2)}</strong>
+            </p>
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="directSaleCommission">
+              Comissão da Classfy em Vendas Diretas (%)
+            </Label>
+            <Input
+              id="directSaleCommission"
+              type="number"
+              min="0"
+              max="100"
+              step="0.01"
+              value={directSalePlatformCommission}
+              onChange={(e) => setDirectSalePlatformCommission(parseFloat(e.target.value) || 0)}
+            />
+            <p className="text-sm text-muted-foreground">
+              Define qual percentual da venda direta de conteúdo fica com a Classfy.
+              Percentual atual: <strong>{directSalePlatformCommission.toFixed(2)}%</strong>
             </p>
           </div>
 
