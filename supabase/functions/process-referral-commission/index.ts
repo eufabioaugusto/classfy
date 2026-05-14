@@ -6,6 +6,33 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
+function parseCommissionRate(configValue: unknown, fallback: number) {
+  if (typeof configValue === "number" && Number.isFinite(configValue)) {
+    return configValue <= 1 ? configValue : configValue / 100;
+  }
+
+  if (typeof configValue === "string") {
+    const parsedValue = Number(configValue);
+    if (Number.isFinite(parsedValue)) {
+      return parsedValue <= 1 ? parsedValue : parsedValue / 100;
+    }
+  }
+
+  if (configValue && typeof configValue === "object") {
+    const percentage = Number((configValue as { percentage?: unknown }).percentage);
+    if (Number.isFinite(percentage)) {
+      return percentage / 100;
+    }
+
+    const rate = Number((configValue as { rate?: unknown }).rate);
+    if (Number.isFinite(rate)) {
+      return rate <= 1 ? rate : rate / 100;
+    }
+  }
+
+  return fallback;
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -107,7 +134,7 @@ serve(async (req) => {
       .eq("config_key", "referral_commission_rate")
       .single();
 
-    const commissionRate = config ? Number(config.config_value) : 0.10;
+    const commissionRate = parseCommissionRate(config?.config_value, 0.10);
     
     // Cap commission rate at 50% for safety
     const safeCommissionRate = Math.min(commissionRate, 0.5);

@@ -10,6 +10,33 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Settings, Save, DollarSign, CalendarClock, Play } from "lucide-react";
 
+function parsePercentageConfig(configValue: unknown, fallback: number) {
+  if (typeof configValue === "number" && Number.isFinite(configValue)) {
+    return configValue <= 1 ? configValue * 100 : configValue;
+  }
+
+  if (typeof configValue === "string") {
+    const parsedValue = Number(configValue);
+    if (Number.isFinite(parsedValue)) {
+      return parsedValue <= 1 ? parsedValue * 100 : parsedValue;
+    }
+  }
+
+  if (configValue && typeof configValue === "object") {
+    const percentage = Number((configValue as { percentage?: unknown }).percentage);
+    if (Number.isFinite(percentage)) {
+      return percentage;
+    }
+
+    const rate = Number((configValue as { rate?: unknown }).rate);
+    if (Number.isFinite(rate)) {
+      return rate <= 1 ? rate * 100 : rate;
+    }
+  }
+
+  return fallback;
+}
+
 export default function AdminSettings() {
   const { role } = useAuth();
   const { toast } = useToast();
@@ -19,6 +46,7 @@ export default function AdminSettings() {
   const [maturationDays, setMaturationDays] = useState(7);
   const [minWithdrawalAmount, setMinWithdrawalAmount] = useState(10);
   const [directSalePlatformCommission, setDirectSalePlatformCommission] = useState(20);
+  const [affiliateCommissionRate, setAffiliateCommissionRate] = useState(10);
   const [lastCycle, setLastCycle] = useState<any>(null);
   const [cycleYearMonth, setCycleYearMonth] = useState("");
 
@@ -38,6 +66,7 @@ export default function AdminSettings() {
           "earnings_maturation_days",
           "minimum_withdrawal_amount",
           "direct_sale_platform_commission_rate",
+          "referral_commission_rate",
         ]);
 
       if (error) throw error;
@@ -49,22 +78,9 @@ export default function AdminSettings() {
         } else if (config.config_key === "minimum_withdrawal_amount") {
           setMinWithdrawalAmount(configValue.amount);
         } else if (config.config_key === "direct_sale_platform_commission_rate") {
-          if (typeof configValue === "number") {
-            setDirectSalePlatformCommission(configValue <= 1 ? configValue * 100 : configValue);
-          } else if (typeof configValue === "string") {
-            const parsedValue = Number(configValue);
-            if (Number.isFinite(parsedValue)) {
-              setDirectSalePlatformCommission(parsedValue <= 1 ? parsedValue * 100 : parsedValue);
-            }
-          } else if (configValue && typeof configValue === "object") {
-            const percentage = Number(configValue.percentage);
-            const rate = Number(configValue.rate);
-            if (Number.isFinite(percentage)) {
-              setDirectSalePlatformCommission(percentage);
-            } else if (Number.isFinite(rate)) {
-              setDirectSalePlatformCommission(rate <= 1 ? rate * 100 : rate);
-            }
-          }
+          setDirectSalePlatformCommission(parsePercentageConfig(configValue, 20));
+        } else if (config.config_key === "referral_commission_rate") {
+          setAffiliateCommissionRate(parsePercentageConfig(configValue, 10));
         }
       });
     } catch (error: any) {
@@ -113,6 +129,13 @@ export default function AdminSettings() {
           config_value: {
             percentage: directSalePlatformCommission,
             rate: directSalePlatformCommission / 100,
+          },
+        },
+        {
+          config_key: "referral_commission_rate",
+          config_value: {
+            percentage: affiliateCommissionRate,
+            rate: affiliateCommissionRate / 100,
           },
         },
       ];
@@ -324,6 +347,25 @@ export default function AdminSettings() {
             <p className="text-sm text-muted-foreground">
               Define qual percentual da venda direta de conteúdo fica com a Classfy.
               Percentual atual: <strong>{directSalePlatformCommission.toFixed(2)}%</strong>
+            </p>
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="affiliateCommission">
+              Comissão de Afiliados (%)
+            </Label>
+            <Input
+              id="affiliateCommission"
+              type="number"
+              min="0"
+              max="100"
+              step="0.01"
+              value={affiliateCommissionRate}
+              onChange={(e) => setAffiliateCommissionRate(parseFloat(e.target.value) || 0)}
+            />
+            <p className="text-sm text-muted-foreground">
+              Define o percentual pago ao afiliado quando uma indicação converte em compra.
+              Percentual atual: <strong>{affiliateCommissionRate.toFixed(2)}%</strong>
             </p>
           </div>
 
