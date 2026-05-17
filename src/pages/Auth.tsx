@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { useAuth } from "@/contexts/AuthContext";
+import { useTheme } from "@/contexts/ThemeContext";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -36,6 +37,7 @@ export default function Auth() {
   const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
   const [turnstileResetKey, setTurnstileResetKey] = useState(0);
   const { signIn, signUp } = useAuth();
+  const { theme } = useTheme();
   const { toast } = useToast();
 
   const resetTurnstile = useCallback(() => {
@@ -68,6 +70,18 @@ export default function Auth() {
   };
 
   // Fetch random video from database (WeTransfer style - one random per page load)
+  useEffect(() => {
+    const root = window.document.documentElement;
+
+    root.classList.remove("light", "dark");
+    root.classList.add("light");
+
+    return () => {
+      root.classList.remove("light", "dark");
+      root.classList.add(theme);
+    };
+  }, [theme]);
+
   useEffect(() => {
     const fetchRandomVideo = async () => {
       const { data } = await supabase
