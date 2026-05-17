@@ -44,6 +44,10 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const hasProcessedSession = useRef(false);
   // Track the last user ID we processed daily login for
   const lastDailyLoginUserId = useRef<string | null>(null);
+  // Track an in-flight daily login check to avoid racing getSession and INITIAL_SESSION
+  const dailyLoginInFlightUserId = useRef<string | null>(null);
+  // Track a user whose daily login should only run once the tab becomes visible
+  const pendingVisibleDailyLoginUserId = useRef<string | null>(null);
 
   const fetchUserProfile = async (userId: string) => {
     try {
@@ -105,16 +109,58 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   // Handle daily login check - only once per session per user
   const handleDailyLogin = async (userId: string) => {
     // Prevent duplicate calls for the same user in this session
-    if (lastDailyLoginUserId.current === userId) {
+    if (lastDailyLoginUserId.current === userId || dailyLoginInFlightUserId.current === userId) {
       console.log('Daily login already checked for this user in this session');
       return;
     }
-    
-    lastDailyLoginUserId.current = userId;
-    await checkDailyLogin(userId);
+
+    dailyLoginInFlightUserId.current = userId;
+
+    try {
+      const processed = await checkDailyLogin(userId);
+      if (processed !== false) {
+        lastDailyLoginUserId.current = userId;
+      }
+    } finally {
+      if (dailyLoginInFlightUserId.current === userId) {
+        dailyLoginInFlightUserId.current = null;
+      }
+    }
+  };
+
+  const requestDailyLoginWhenVisible = (userId: string) => {
+    if (window.location.pathname === '/reset-password') {
+      return;
+    }
+
+    if (lastDailyLoginUserId.current === userId || dailyLoginInFlightUserId.current === userId) {
+      return;
+    }
+
+    if (document.visibilityState === 'visible') {
+      pendingVisibleDailyLoginUserId.current = null;
+      handleDailyLogin(userId);
+      return;
+    }
+
+    pendingVisibleDailyLoginUserId.current = userId;
   };
 
   useEffect(() => {
+    const processPendingVisibleDailyLogin = () => {
+      const pendingUserId = pendingVisibleDailyLoginUserId.current;
+
+      if (!pendingUserId || document.visibilityState !== 'visible') {
+        return;
+      }
+
+      pendingVisibleDailyLoginUserId.current = null;
+      handleDailyLogin(pendingUserId);
+    };
+
+    document.addEventListener('visibilitychange', processPendingVisibleDailyLogin);
+    window.addEventListener('focus', processPendingVisibleDailyLogin);
+
     // Set up auth state listener
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       (event, session) => {
@@ -130,9 +176,9 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
             setTimeout(() => {
               fetchUserProfile(session.user.id);
               
-              // Only check daily login on actual sign in, not token refresh or password recovery
-              if (event === 'SIGNED_IN' && window.location.pathname !== '/reset-password') {
-                handleDailyLogin(session.user.id);
+              // Daily login only counts when the tab becomes visibly active to the user.
+              if ((event === 'SIGNED_IN' || event === 'INITIAL_SESSION') && window.location.pathname !== '/reset-password') {
+                requestDailyLoginWhenVisible(session.user.id);
               }
               
               verifySubscription(session.user.id);
@@ -142,6 +188,8 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
           setProfile(null);
           setRole('user');
           lastDailyLoginUserId.current = null;
+          dailyLoginInFlightUserId.current = null;
+          pendingVisibleDailyLoginUserId.current = null;
         }
       }
     );
@@ -158,7 +206,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         // (opening a recovery link creates a session but is not a real login)
         if (!hasProcessedSession.current && window.location.pathname !== '/reset-password') {
           hasProcessedSession.current = true;
-          handleDailyLogin(session.user.id);
+          requestDailyLoginWhenVisible(session.user.id);
         } else {
           hasProcessedSession.current = true;
         }
@@ -169,7 +217,11 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       }
     });
 
-    return () => subscription.unsubscribe();
+    return () => {
+      subscription.unsubscribe();
+      document.removeEventListener('visibilitychange', processPendingVisibleDailyLogin);
+      window.removeEventListener('focus', processPendingVisibleDailyLogin);
+    };
   }, []);
 
   const signIn = async (email: string, password: string) => {

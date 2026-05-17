@@ -12,6 +12,21 @@ interface ProcessRewardParams {
 // Session-level tracking to prevent duplicate calls
 const sessionRewardTracker = new Set<string>();
 
+const getBrazilDateString = (date = new Date()) => {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/Sao_Paulo",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(date);
+
+  const year = parts.find((part) => part.type === "year")?.value;
+  const month = parts.find((part) => part.type === "month")?.value;
+  const day = parts.find((part) => part.type === "day")?.value;
+
+  return `${year}-${month}-${day}`;
+};
+
 export function useRewardSystem() {
   // Track in-flight reward processing to prevent duplicates
   const processingRewards = useRef<Set<string>>(new Set());
@@ -23,11 +38,11 @@ export function useRewardSystem() {
     metadata = {},
   }: ProcessRewardParams) => {
     // Create unique key for this reward based on action type
-    const today = new Date().toISOString().split('T')[0];
+    const today = getBrazilDateString();
     let rewardKey: string;
     
     // Match the server-side tracking key logic
-    const dailyActions = ['DAILY_LOGIN', 'FIRST_CONTENT_WEEK', 'BINGE_WATCH'];
+    const dailyActions = ['DAILY_LOGIN', 'FIRST_CONTENT_WEEK', 'BINGE_WATCH', 'WEEKLY_STREAK'];
     const uniquePerContentActions = ['LIKE_CONTENT', 'SAVE_CONTENT', 'FAVORITE_CONTENT', 'WATCH_50', 'WATCH_100', 'COMMENT_CONTENT', 'VIEW_15S', 'SHARE_CONTENT'];
     
     if (dailyActions.includes(actionKey)) {
@@ -172,18 +187,23 @@ export function useRewardSystem() {
 
   const checkDailyLogin = async (userId: string) => {
     // Server-side validation handles duplicate prevention via reward_action_tracking table
-    const today = new Date().toISOString().split('T')[0];
+    const today = getBrazilDateString();
     
     // Update streak (server will handle if already done today)
-    const { data: streak } = await supabase
+    const { data: streak, error: streakError } = await supabase
       .from('user_login_streaks')
       .select('*')
       .eq('user_id', userId)
       .maybeSingle();
 
+    if (streakError) {
+      console.error('Error fetching login streak:', streakError);
+      return false;
+    }
+
     const yesterday = new Date();
     yesterday.setDate(yesterday.getDate() - 1);
-    const yesterdayStr = yesterday.toISOString().split('T')[0];
+    const yesterdayStr = getBrazilDateString(yesterday);
 
     let currentStreak = 1;
 
@@ -194,7 +214,7 @@ export function useRewardSystem() {
         currentStreak = isConsecutive ? (streak.current_streak || 0) + 1 : 1;
         const newLongest = Math.max(currentStreak, streak.longest_streak || 0);
 
-        await supabase
+        const { error: updateError } = await supabase
           .from('user_login_streaks')
           .update({
             current_streak: currentStreak,
@@ -202,11 +222,16 @@ export function useRewardSystem() {
             last_login_date: today,
           })
           .eq('user_id', userId);
+
+        if (updateError) {
+          console.error('Error updating login streak:', updateError);
+          return false;
+        }
       } else {
         currentStreak = streak.current_streak || 1;
       }
     } else {
-      await supabase
+      const { error: insertError } = await supabase
         .from('user_login_streaks')
         .insert({
           user_id: userId,
@@ -214,14 +239,24 @@ export function useRewardSystem() {
           longest_streak: 1,
           last_login_date: today,
         });
+
+      if (insertError) {
+        console.error('Error creating login streak:', insertError);
+        return false;
+      }
     }
 
     // Server validates via reward_action_tracking - will skip if already rewarded today
-    await processReward({
+    const dailyLoginResult = await processReward({
       actionKey: 'DAILY_LOGIN',
       userId,
       metadata: { date: today },
     });
+
+    if (dailyLoginResult === null) {
+      console.warn('Daily login reward was not confirmed for user:', userId);
+      return false;
+    }
 
     // Check WEEKLY_STREAK: reward when streak reaches 7 (or multiples)
     if (currentStreak >= 7 && currentStreak % 7 === 0) {
@@ -231,6 +266,8 @@ export function useRewardSystem() {
         metadata: { streak: currentStreak, date: today },
       });
     }
+
+    return true;
   };
 
   const checkCourseCompletion = async (userId: string, courseId: string) => {
