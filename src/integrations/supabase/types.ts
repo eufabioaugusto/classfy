@@ -2447,11 +2447,90 @@ export type Database = {
         }
         Relationships: []
       }
+      study_ai_state: {
+        Row: {
+          active_mode: string
+          created_at: string
+          current_focus: string | null
+          last_active_content_id: string | null
+          last_checkpoint_at: string | null
+          last_quiz_score: number | null
+          last_quiz_total: number | null
+          last_video_timestamp_seconds: number | null
+          learner_level: string
+          learning_style: string
+          mastered_topics: string[]
+          next_best_action: string | null
+          open_questions: string[]
+          session_summary: string | null
+          study_id: string
+          updated_at: string
+          user_goal: string | null
+          weak_topics: string[]
+        }
+        Insert: {
+          active_mode?: string
+          created_at?: string
+          current_focus?: string | null
+          last_active_content_id?: string | null
+          last_checkpoint_at?: string | null
+          last_quiz_score?: number | null
+          last_quiz_total?: number | null
+          last_video_timestamp_seconds?: number | null
+          learner_level?: string
+          learning_style?: string
+          mastered_topics?: string[]
+          next_best_action?: string | null
+          open_questions?: string[]
+          session_summary?: string | null
+          study_id: string
+          updated_at?: string
+          user_goal?: string | null
+          weak_topics?: string[]
+        }
+        Update: {
+          active_mode?: string
+          created_at?: string
+          current_focus?: string | null
+          last_active_content_id?: string | null
+          last_checkpoint_at?: string | null
+          last_quiz_score?: number | null
+          last_quiz_total?: number | null
+          last_video_timestamp_seconds?: number | null
+          learner_level?: string
+          learning_style?: string
+          mastered_topics?: string[]
+          next_best_action?: string | null
+          open_questions?: string[]
+          session_summary?: string | null
+          study_id?: string
+          updated_at?: string
+          user_goal?: string | null
+          weak_topics?: string[]
+        }
+        Relationships: [
+          {
+            foreignKeyName: "study_ai_state_last_active_content_id_fkey"
+            columns: ["last_active_content_id"]
+            isOneToOne: false
+            referencedRelation: "contents"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "study_ai_state_study_id_fkey"
+            columns: ["study_id"]
+            isOneToOne: true
+            referencedRelation: "studies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       study_messages: {
         Row: {
           content: string
           created_at: string
           id: string
+          metadata: Json
           related_contents: Json | null
           role: string
           study_id: string
@@ -2460,6 +2539,7 @@ export type Database = {
           content: string
           created_at?: string
           id?: string
+          metadata?: Json
           related_contents?: Json | null
           role: string
           study_id: string
@@ -2468,6 +2548,7 @@ export type Database = {
           content?: string
           created_at?: string
           id?: string
+          metadata?: Json
           related_contents?: Json | null
           role?: string
           study_id?: string

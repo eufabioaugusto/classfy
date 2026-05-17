@@ -13,6 +13,8 @@ import { useStudies } from "@/hooks/useStudies";
 import { StudyUsageIndicator } from "@/components/StudyUsageIndicator";
 import { ChatContentCard } from "@/components/ChatContentCard";
 import { ChatMessage } from "@/components/chat/ChatMessage";
+import { ClassyMessageExtras, ClassyMessageMetadata } from "@/components/chat/ClassyMessageExtras";
+import { ClassyStudyState, ClassyStudyStateBar } from "@/components/chat/ClassyStudyStateBar";
 import { UpgradePromptCard } from "@/components/chat/UpgradePromptCard";
 import { UnifiedVideoPlayer } from "@/components/unified/UnifiedVideoPlayer";
 import { SocialBar } from "@/components/unified/SocialBar";
@@ -72,12 +74,32 @@ import {
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 
+type StudyAiStateRecord = {
+  active_mode: ClassyStudyState["activeMode"];
+  current_focus: string | null;
+  learner_level: ClassyStudyState["learnerLevel"];
+  next_best_action: string | null;
+  user_goal: string | null;
+};
+
+const mapStudyStateRecord = (record: StudyAiStateRecord | null): ClassyStudyState | null => {
+  if (!record) return null;
+
+  return {
+    activeMode: record.active_mode,
+    currentFocus: record.current_focus,
+    learnerLevel: record.learner_level,
+    nextBestAction: record.next_best_action,
+    userGoal: record.user_goal,
+  };
+};
+
 function StudyContent() {
   const { id } = useParams<{ id: string }>();
   const { user, profile } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
-  const { updateLastActivity, getStudyUsage } = useStudies();
+  const { updateLastActivity, getStudyUsage, limits } = useStudies();
   const { setOpen, open } = useSidebar();
   const isMobile = useIsMobile();
   const { startMiniPlayer, closeMiniPlayer, state: miniPlayerState } = useMiniPlayer();
@@ -88,13 +110,8 @@ function StudyContent() {
     pro: 50,
     premium: Infinity,
   };
-  const MESSAGE_LIMITS: Record<'free' | 'pro' | 'premium', number> = {
-    free: 5,
-    pro: 30,
-    premium: Infinity,
-  };
   const playlistLimit = PLAYLIST_LIMITS[currentPlan];
-  const messageLimit = MESSAGE_LIMITS[currentPlan];
+  const messageLimit = limits.messages;
   
   const [study, setStudy] = useState<any>(null);
   const [messages, setMessages] = useState<StudyMessage[]>([]);
@@ -142,6 +159,7 @@ function StudyContent() {
     suggestedTopic?: string;
   } | null>(null);
   const [studyUsage, setStudyUsage] = useState<{ messageCount: number; maxMessages: number } | null>(null);
+  const [studyAiState, setStudyAiState] = useState<ClassyStudyState | null>(null);
 
   // Access control state
   const { checkAccess, hasAccess, blockReason, requiredPlan } = useAccessControl();
@@ -220,6 +238,7 @@ function StudyContent() {
 
     if (id) {
       fetchStudy();
+      fetchStudyAiState();
       fetchMessages();
       fetchPlaylists();
     }
@@ -228,6 +247,18 @@ function StudyContent() {
   useEffect(() => {
     scrollToBottom();
   }, [messages]);
+
+  useEffect(() => {
+    setStudyUsage((current) => {
+      if (!current) return current;
+      if (current.maxMessages === messageLimit) return current;
+
+      return {
+        ...current,
+        maxMessages: messageLimit,
+      };
+    });
+  }, [messageLimit]);
 
   useEffect(() => {
     if (
@@ -441,6 +472,36 @@ function StudyContent() {
     }
   };
 
+  const fetchStudyAiState = async () => {
+    if (!id) return;
+
+    try {
+      const { data, error } = await supabase
+        .from("study_ai_state")
+        .select("active_mode, current_focus, learner_level, next_best_action, user_goal")
+        .eq("study_id", id)
+        .maybeSingle();
+
+      if (error) throw error;
+
+      setStudyAiState(mapStudyStateRecord(data as StudyAiStateRecord | null));
+    } catch (error) {
+      console.error("Error fetching study ai state:", error);
+    }
+  };
+
+  const getAssistantMetadata = (message: StudyMessage): ClassyMessageMetadata | null => {
+    if (message.role !== "assistant" || !message.metadata || typeof message.metadata !== "object") {
+      return null;
+    }
+
+    return message.metadata as ClassyMessageMetadata;
+  };
+
+  const handleSuggestionClick = (suggestion: string) => {
+    setInput(suggestion);
+  };
+
   const sendInitialMessage = async () => {
     if (!id || !user || !study) return;
     
@@ -448,19 +509,6 @@ function StudyContent() {
 
     try {
       const initialMessage = `Olá! Quero aprender sobre ${study.title}`;
-      
-      const { error: userError } = await supabase
-        .from("study_messages")
-        .insert({
-          study_id: id,
-          role: "user",
-          content: initialMessage,
-        });
-
-      if (userError) throw userError;
-
-      await fetchMessages();
-      await updateLastActivity(id);
 
       const { data: aiData, error: aiError } = await supabase.functions.invoke(
         "classy-chat",
@@ -475,12 +523,26 @@ function StudyContent() {
 
       if (aiError) throw aiError;
 
+      const { error: userError } = await supabase
+        .from("study_messages")
+        .insert({
+          study_id: id,
+          role: "user",
+          content: initialMessage,
+        });
+
+      if (userError) throw userError;
+
       // Update usage info from response
       if (aiData.usage) {
         setStudyUsage({
-          messageCount: aiData.usage.messageCount,
+          messageCount: aiData.usage.userMessageCount,
           maxMessages: aiData.usage.maxMessages
         });
+      }
+
+      if (aiData.studyState) {
+        setStudyAiState(aiData.studyState);
       }
 
       const { data: aiMessageData, error: aiMessageError } = await supabase
@@ -489,6 +551,16 @@ function StudyContent() {
           study_id: id,
           role: "assistant",
           content: aiData.message,
+          metadata: {
+            intent: aiData.intent || null,
+            active_mode: aiData.studyState?.activeMode || null,
+            next_best_action: aiData.studyState?.nextBestAction || null,
+            follow_up_suggestions: aiData.followUpSuggestions || [],
+            citations: aiData.citations || [],
+            ui_blocks: aiData.uiBlocks || [],
+            content_strategy: aiData.contentStrategy || null,
+            checkpoint_generated: (aiData.uiBlocks || []).some((block: any) => block.type === "checkpoint"),
+          },
           related_contents: aiData.relatedContents || null,
         })
         .select()
@@ -499,6 +571,7 @@ function StudyContent() {
       // Mark this message as the newest for typewriter animation
       setNewestMessageId(aiMessageData.id);
       await fetchMessages();
+      await updateLastActivity(id);
       
       // Update study to get latest message_count
       const { data: updatedStudy } = await supabase
@@ -536,19 +609,6 @@ function StudyContent() {
     setSending(true);
 
     try {
-      const { error: userError } = await supabase
-        .from("study_messages")
-        .insert({
-          study_id: id,
-          role: "user",
-          content: userMessage,
-        });
-
-      if (userError) throw userError;
-
-      await fetchMessages();
-      await updateLastActivity(id);
-
       let currentVideoTime: number | undefined;
       if (activeContent) {
         const videoElement = document.querySelector('video');
@@ -573,7 +633,7 @@ function StudyContent() {
 
       // Handle limit errors
       if (aiData.limitReached) {
-        const limitType = aiData.limitType === 'DEVIATION_LIMIT_REACHED' ? 'deviations' : 'messages';
+        const limitType = aiData.limitType === 'deviations' ? 'deviations' : 'messages';
 
         setLimitReached({
           type: limitType,
@@ -581,19 +641,33 @@ function StudyContent() {
         });
 
         setStudyUsage({
-          messageCount: aiData.usage?.messageCount || study?.message_count || 0,
+          messageCount: aiData.usage?.userMessageCount || study?.message_count || 0,
           maxMessages: aiData.usage?.maxMessages || messageLimit,
         });
 
         return;
       }
 
+      const { error: userError } = await supabase
+        .from("study_messages")
+        .insert({
+          study_id: id,
+          role: "user",
+          content: userMessage,
+        });
+
+      if (userError) throw userError;
+
       // Update usage info
       if (aiData.usage) {
         setStudyUsage({
-          messageCount: aiData.usage.messageCount,
+          messageCount: aiData.usage.userMessageCount,
           maxMessages: aiData.usage.maxMessages
         });
+      }
+
+      if (aiData.studyState) {
+        setStudyAiState(aiData.studyState);
       }
 
       const { data: aiMessageData, error: aiMessageError } = await supabase
@@ -602,6 +676,16 @@ function StudyContent() {
           study_id: id,
           role: "assistant",
           content: aiData.message,
+          metadata: {
+            intent: aiData.intent || null,
+            active_mode: aiData.studyState?.activeMode || null,
+            next_best_action: aiData.studyState?.nextBestAction || null,
+            follow_up_suggestions: aiData.followUpSuggestions || [],
+            citations: aiData.citations || [],
+            ui_blocks: aiData.uiBlocks || [],
+            content_strategy: aiData.contentStrategy || null,
+            checkpoint_generated: (aiData.uiBlocks || []).some((block: any) => block.type === "checkpoint"),
+          },
           related_contents: aiData.relatedContents || null,
         })
         .select()
@@ -612,6 +696,7 @@ function StudyContent() {
       // Mark this message as the newest for typewriter animation
       setNewestMessageId(aiMessageData.id);
       await fetchMessages();
+      await updateLastActivity(id);
       
       // Update study to get latest message_count
       const { data: updatedStudy } = await supabase
@@ -983,6 +1068,7 @@ function StudyContent() {
             </div>
           </div>
         </header>
+        <ClassyStudyStateBar state={studyAiState} compact />
 
         {/* Modals for access control */}
         <UpgradeModal open={showUpgradeModal} onOpenChange={setShowUpgradeModal} requiredPlan={requiredPlan} />
@@ -1047,6 +1133,14 @@ function StudyContent() {
                       onContentGrow={message.id === newestMessageId && message.role === 'assistant' ? handleContentGrow : undefined}
                     />
                   </div>
+                  {message.role === "assistant" && (
+                    <ClassyMessageExtras
+                      metadata={getAssistantMetadata(message)}
+                      onSuggestionClick={handleSuggestionClick}
+                      onCitationClick={handleSeekToTimestamp}
+                      compact
+                    />
+                  )}
                   
                   {/* Mobile Content Cards */}
                   {message.role === "assistant" && messageContents.has(message.id) && (
@@ -1700,6 +1794,7 @@ function StudyContent() {
           </div>
         </div>
       </header>
+      <ClassyStudyStateBar state={studyAiState} />
 
       {/* Main Content Area - Responsive Layout based on sidebar state */}
       <div className="flex-1 flex min-w-0 overflow-hidden">
@@ -1967,6 +2062,13 @@ function StudyContent() {
                           onContentGrow={message.id === newestMessageId && message.role === 'assistant' ? handleContentGrow : undefined}
                         />
                       </div>
+                      {message.role === "assistant" && (
+                        <ClassyMessageExtras
+                          metadata={getAssistantMetadata(message)}
+                          onSuggestionClick={handleSuggestionClick}
+                          onCitationClick={handleSeekToTimestamp}
+                        />
+                      )}
                       
                       {/* Render content cards if available - Always carousel for responsive behavior */}
                       {message.role === "assistant" && messageContents.has(message.id) && (

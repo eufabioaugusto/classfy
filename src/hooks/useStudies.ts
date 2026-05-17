@@ -22,13 +22,21 @@ export interface StudyMessage {
   role: 'user' | 'assistant' | 'system';
   content: string;
   created_at: string;
+  related_contents?: any[] | null;
+  metadata?: Record<string, any> | null;
 }
 
-// Plan limits for studies, messages (user messages only), and deviations
-export const PLAN_LIMITS = {
+export interface StudyPlanLimits {
+  studies: number;
+  messages: number;
+  deviations: number;
+}
+
+// Fallback until limits are loaded from the DB source of truth
+export const PLAN_LIMITS: Record<'free' | 'pro' | 'premium', StudyPlanLimits> = {
   free: { studies: 5, messages: 5, deviations: 3 },
   pro: { studies: 50, messages: 30, deviations: 20 },
-  premium: { studies: Infinity, messages: Infinity, deviations: Infinity },
+  premium: { studies: Number.POSITIVE_INFINITY, messages: Number.POSITIVE_INFINITY, deviations: Number.POSITIVE_INFINITY },
 };
 
 export function useStudies() {
@@ -36,9 +44,32 @@ export function useStudies() {
   const [studies, setStudies] = useState<Study[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeCount, setActiveCount] = useState(0);
+  const [limits, setLimits] = useState<StudyPlanLimits>(PLAN_LIMITS.free);
 
   const currentPlan = (profile?.plan || 'free') as keyof typeof PLAN_LIMITS;
-  const limits = PLAN_LIMITS[currentPlan];
+
+  useEffect(() => {
+    setLimits(PLAN_LIMITS[currentPlan]);
+
+    const loadLimits = async () => {
+      const { data, error } = await supabase.rpc("get_study_limits", {
+        p_plan: currentPlan,
+      });
+
+      if (error || !data) {
+        console.error("Error loading study limits:", error);
+        return;
+      }
+
+      setLimits({
+        studies: Number(data.max_studies ?? PLAN_LIMITS[currentPlan].studies),
+        messages: Number(data.max_messages ?? PLAN_LIMITS[currentPlan].messages),
+        deviations: Number(data.max_deviations ?? PLAN_LIMITS[currentPlan].deviations),
+      });
+    };
+
+    loadLimits();
+  }, [currentPlan]);
 
   useEffect(() => {
     if (user) {
@@ -142,12 +173,16 @@ export function useStudies() {
     return {
       messageCount: study.message_count,
       maxMessages: limits.messages,
-      messagePercent: Math.min(100, Math.round((study.message_count / limits.messages) * 100)),
+      messagePercent: Number.isFinite(limits.messages)
+        ? Math.min(100, Math.round((study.message_count / limits.messages) * 100))
+        : 0,
       deviationCount: study.topic_deviations_count,
       maxDeviations: limits.deviations,
-      deviationPercent: Math.min(100, Math.round((study.topic_deviations_count / limits.deviations) * 100)),
-      isNearLimit: study.message_count >= limits.messages * 0.8,
-      isAtLimit: study.message_count >= limits.messages,
+      deviationPercent: Number.isFinite(limits.deviations)
+        ? Math.min(100, Math.round((study.topic_deviations_count / limits.deviations) * 100))
+        : 0,
+      isNearLimit: Number.isFinite(limits.messages) ? study.message_count >= limits.messages * 0.8 : false,
+      isAtLimit: Number.isFinite(limits.messages) ? study.message_count >= limits.messages : false,
     };
   };
 
