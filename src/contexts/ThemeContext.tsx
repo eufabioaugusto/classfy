@@ -17,8 +17,12 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     const root = window.document.documentElement;
+    const body = window.document.body;
     root.classList.remove("light", "dark");
     root.classList.add(theme);
+    const backgroundColor = theme === "dark" ? "#000000" : "#ffffff";
+    root.style.backgroundColor = backgroundColor;
+    body.style.backgroundColor = backgroundColor;
     localStorage.setItem("theme", theme);
   }, [theme]);
 
