@@ -39,6 +39,17 @@ export const PLAN_LIMITS: Record<'free' | 'pro' | 'premium', StudyPlanLimits> = 
   premium: { studies: Number.POSITIVE_INFINITY, messages: Number.POSITIVE_INFINITY, deviations: Number.POSITIVE_INFINITY },
 };
 
+function normalizeLimitValue(value: unknown, fallback: number) {
+  if (value === null || value === undefined) return fallback;
+
+  const numericValue = Number(value);
+  if (!Number.isFinite(numericValue) || numericValue >= 999999) {
+    return Number.POSITIVE_INFINITY;
+  }
+
+  return numericValue;
+}
+
 export function useStudies() {
   const { user, profile } = useAuth();
   const [studies, setStudies] = useState<Study[]>([]);
@@ -62,9 +73,9 @@ export function useStudies() {
       }
 
       setLimits({
-        studies: Number(data.max_studies ?? PLAN_LIMITS[currentPlan].studies),
-        messages: Number(data.max_messages ?? PLAN_LIMITS[currentPlan].messages),
-        deviations: Number(data.max_deviations ?? PLAN_LIMITS[currentPlan].deviations),
+        studies: normalizeLimitValue(data.max_studies, PLAN_LIMITS[currentPlan].studies),
+        messages: normalizeLimitValue(data.max_messages, PLAN_LIMITS[currentPlan].messages),
+        deviations: normalizeLimitValue(data.max_deviations, PLAN_LIMITS[currentPlan].deviations),
       });
     };
 

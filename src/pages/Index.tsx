@@ -12,7 +12,7 @@ import { FeaturedCreators } from "@/components/FeaturedCreators";
 import { SidebarProvider } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/AppSidebar";
 import { Header } from "@/components/Header";
-import { Sparkles, AlertCircle, BookOpen } from "lucide-react";
+import { AlertCircle, BookOpen } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useStudies } from "@/hooks/useStudies";
 import { GlobalLoader } from "@/components/GlobalLoader";
@@ -283,10 +283,6 @@ export default function Index() {
                   {/* Title (only when no search) */}
                   {!hasSearched && (
                     <div className="text-center mb-8 sm:mb-16 space-y-4 sm:space-y-6 animate-fade-in">
-                      <div className="inline-flex items-center gap-2 px-3 sm:px-4 py-1.5 sm:py-2 rounded-full bg-cinematic-accent/10 border border-cinematic-accent/20 text-cinematic-accent text-xs sm:text-sm font-medium mb-2 sm:mb-4">
-                        <Sparkles className="w-3 h-3 sm:w-4 sm:h-4" />
-                        <span>Powered by AI</span>
-                      </div>
                       <h1 className="text-3xl sm:text-4xl md:text-5xl lg:text-6xl font-bold text-foreground bg-gradient-to-br from-foreground to-foreground/70 bg-clip-text text-transparent px-2">
                         O que você quer aprender?
                       </h1>
