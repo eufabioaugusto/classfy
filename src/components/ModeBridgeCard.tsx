@@ -13,10 +13,8 @@ interface ModeBridgeCardProps {
 }
 
 type BridgeContent = {
-  eyebrow: string;
   planLabel: string;
   title: string;
-  description: string;
   cta: string;
   icon: typeof Sparkles;
 };
@@ -36,10 +34,8 @@ function getBridgeContent(
   if (variant === "explore-to-focus") {
     if (!isLoggedIn) {
       return {
-        eyebrow: "Classy personalizada",
         planLabel: "Comece grátis e evolua quando quiser",
-        title: "Saia da exploração com um estudo pronto.",
-        description: "Diga o tema e a Classy organiza o caminho para você.",
+        title: "Crie um estudo com a Classy em segundos.",
         cta: "Criar meu estudo",
         icon: Sparkles,
       };
@@ -47,10 +43,8 @@ function getBridgeContent(
 
     if (plan === "premium") {
       return {
-        eyebrow: "Modo foco premium",
         planLabel: "Estudos ilimitados com contexto contínuo",
         title: "Transforme qualquer tema em estudo com direção.",
-        description: "Use a Classy para sair da navegação e entrar em progresso.",
         cta: "Abrir modo foco",
         icon: Target,
       };
@@ -58,20 +52,16 @@ function getBridgeContent(
 
     if (plan === "pro") {
       return {
-        eyebrow: "Estude com estratégia",
-        planLabel: "Mais profundidade no Premium",
-        title: "Escolha um tema e deixe a Classy montar o foco.",
-        description: "Menos busca manual. Mais contexto, foco e continuidade.",
+        planLabel: "Plano Premium com mais profundidade",
+        title: "Deixe a Classy montar seu foco de estudo.",
         cta: "Começar estudo",
         icon: Sparkles,
       };
     }
 
     return {
-      eyebrow: "Da descoberta para o progresso",
       planLabel: "Você pode destravar estudos ilimitados depois",
       title: "Achou um tema? A Classy vira isso em estudo na hora.",
-      description: "Troque a busca solta por uma trilha clara de aprendizado.",
       cta: "Quero estudar",
       icon: Sparkles,
     };
@@ -79,10 +69,8 @@ function getBridgeContent(
 
   if (!isLoggedIn) {
     return {
-      eyebrow: "Explorar também ensina",
-      planLabel: "Comece grátis explorando creators, aulas e formatos",
-      title: "Veja creators, aulas e formatos antes de abrir um estudo.",
-      description: "Explore em alta e descubra temas que talvez você nem estivesse buscando.",
+      planLabel: "Plano Pro R$ 29,90/mês",
+      title: "Explore a vitrine de creators e conteúdos.",
       cta: "Explorar conteúdos",
       icon: Compass,
     };
@@ -90,10 +78,8 @@ function getBridgeContent(
 
   if (plan === "premium") {
     return {
-      eyebrow: "Curadoria + repertório",
       planLabel: "Premium também é repertório ilimitado",
       title: "Seu próximo insight pode estar no catálogo que você ainda não viu.",
-      description: "Descubra creators e formatos para enriquecer o que a Classy aprofunda depois.",
       cta: "Ver o explorar",
       icon: Compass,
     };
@@ -101,20 +87,16 @@ function getBridgeContent(
 
   if (plan === "pro") {
     return {
-      eyebrow: "Não fique só no prompt",
       planLabel: "Veja o catálogo antes de aprofundar",
-      title: "Explore creators e conteúdos em alta antes de definir o foco.",
-      description: "A navegação ajuda a encontrar repertório e atalhos melhores para estudar.",
+      title: "Explore creators e conteúdos antes de definir o foco.",
       cta: "Quero explorar",
       icon: Compass,
     };
   }
 
   return {
-    eyebrow: "Veja o que está rolando",
     planLabel: "Do catálogo ao estudo guiado, no seu ritmo",
     title: "O melhor próximo estudo pode começar no que já está em alta.",
-    description: "Explore creators e conteúdos antes de decidir o que a Classy vai organizar.",
     cta: "Explorar agora",
     icon: Compass,
   };
@@ -179,19 +161,13 @@ export function ModeBridgeCard({
 
           <div className="min-w-0 space-y-0.5">
             <div className="flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground/85 sm:text-xs">
-              <span className="inline-flex items-center rounded-full border border-border/35 bg-background/70 px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-                {content.eyebrow}
-              </span>
               <span className="font-medium">
                 {content.planLabel}
               </span>
             </div>
-            <h2 className="max-w-4xl text-sm font-semibold leading-tight text-foreground sm:text-base lg:text-[1.45rem]">
+            <h2 className="max-w-4xl text-sm font-semibold leading-tight text-foreground sm:text-[1.02rem] lg:text-[1.15rem]">
               {content.title}
             </h2>
-            <p className="max-w-3xl text-[11px] leading-relaxed text-muted-foreground sm:text-xs lg:text-sm">
-              {content.description}
-            </p>
           </div>
         </div>
 
