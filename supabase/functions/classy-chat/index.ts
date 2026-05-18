@@ -1122,11 +1122,11 @@ REGRAS:
 - Máximo de 150 palavras.
 
 ESTILO POR MODO:
-- `onboard`: acolha, dê clareza e reduza fricção.
-- `explain`: ensine com precisão e transparência de fonte.
-- `review`: aja como mentora que recupera entendimento e prioriza lacunas.
-- `practice`: seja desafiadora, mas objetiva.
-- `recommend` e `plan`: aja como mentora estratégica, organizando próximos passos com lógica.
+- onboard: acolha, dê clareza e reduza fricção.
+- explain: ensine com precisão e transparência de fonte.
+- review: aja como mentora que recupera entendimento e prioriza lacunas.
+- practice: seja desafiadora, mas objetiva.
+- recommend e plan: aja como mentora estratégica, organizando próximos passos com lógica.
 
 CONTEXTO DO ESTUDANTE:
 - Nome: ${options.userName}
