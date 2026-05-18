@@ -2450,15 +2450,18 @@ export type Database = {
       study_ai_state: {
         Row: {
           active_mode: string
+          celebration_count: number
           created_at: string
           current_focus: string | null
           last_active_content_id: string | null
+          last_celebration: string | null
           last_checkpoint_at: string | null
           last_quiz_score: number | null
           last_quiz_total: number | null
           last_video_timestamp_seconds: number | null
           learner_level: string
           learning_style: string
+          live_plan_steps: string[]
           mastered_topics: string[]
           next_best_action: string | null
           open_questions: string[]
@@ -2470,15 +2473,18 @@ export type Database = {
         }
         Insert: {
           active_mode?: string
+          celebration_count?: number
           created_at?: string
           current_focus?: string | null
           last_active_content_id?: string | null
+          last_celebration?: string | null
           last_checkpoint_at?: string | null
           last_quiz_score?: number | null
           last_quiz_total?: number | null
           last_video_timestamp_seconds?: number | null
           learner_level?: string
           learning_style?: string
+          live_plan_steps?: string[]
           mastered_topics?: string[]
           next_best_action?: string | null
           open_questions?: string[]
@@ -2490,15 +2496,18 @@ export type Database = {
         }
         Update: {
           active_mode?: string
+          celebration_count?: number
           created_at?: string
           current_focus?: string | null
           last_active_content_id?: string | null
+          last_celebration?: string | null
           last_checkpoint_at?: string | null
           last_quiz_score?: number | null
           last_quiz_total?: number | null
           last_video_timestamp_seconds?: number | null
           learner_level?: string
           learning_style?: string
+          live_plan_steps?: string[]
           mastered_topics?: string[]
           next_best_action?: string | null
           open_questions?: string[]
@@ -2520,6 +2529,51 @@ export type Database = {
             foreignKeyName: "study_ai_state_study_id_fkey"
             columns: ["study_id"]
             isOneToOne: true
+            referencedRelation: "studies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      study_ai_events: {
+        Row: {
+          assistant_message_id: string | null
+          created_at: string
+          event_key: string
+          id: string
+          payload: Json
+          study_id: string
+          user_id: string
+        }
+        Insert: {
+          assistant_message_id?: string | null
+          created_at?: string
+          event_key: string
+          id?: string
+          payload?: Json
+          study_id: string
+          user_id: string
+        }
+        Update: {
+          assistant_message_id?: string | null
+          created_at?: string
+          event_key?: string
+          id?: string
+          payload?: Json
+          study_id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "study_ai_events_assistant_message_id_fkey"
+            columns: ["assistant_message_id"]
+            isOneToOne: false
+            referencedRelation: "study_messages"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "study_ai_events_study_id_fkey"
+            columns: ["study_id"]
+            isOneToOne: false
             referencedRelation: "studies"
             referencedColumns: ["id"]
           },

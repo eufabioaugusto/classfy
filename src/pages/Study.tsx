@@ -77,8 +77,11 @@ import { toast } from "sonner";
 
 type StudyAiStateRecord = {
   active_mode: ClassyStudyState["activeMode"];
+  celebration_count: number | null;
   current_focus: string | null;
+  last_celebration: string | null;
   learner_level: ClassyStudyState["learnerLevel"];
+  live_plan_steps: string[] | null;
   next_best_action: string | null;
   user_goal: string | null;
   session_summary: string | null;
@@ -117,6 +120,9 @@ const mapStudyStateRecord = (record: StudyAiStateRecord | null): ClassyStudyStat
     lastQuizScore: record.last_quiz_score,
     lastQuizTotal: record.last_quiz_total,
     checkpointStatus,
+    livePlanSteps: record.live_plan_steps || [],
+    lastCelebration: record.last_celebration,
+    celebrationCount: record.celebration_count || 0,
   };
 };
 
@@ -168,6 +174,7 @@ function StudyContent() {
   const autoplayTimerRef = useRef<NodeJS.Timeout | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const trackedMessageEventsRef = useRef<Set<string>>(new Set());
   
   // Tool panels state - using unified ToolPanel type
   const [activeToolPanel, setActiveToolPanel] = useState<ToolPanel>(null);
@@ -275,6 +282,44 @@ function StudyContent() {
   }, [messages]);
 
   useEffect(() => {
+    if (!user || !id) return;
+
+    const assistantMessages = messages.filter((message) => message.role === "assistant");
+    assistantMessages.forEach((message) => {
+      if (trackedMessageEventsRef.current.has(message.id)) {
+        return;
+      }
+
+      const metadata = getAssistantMetadata(message);
+      if (!metadata) return;
+
+      trackedMessageEventsRef.current.add(message.id);
+
+      const blockTypes = new Set((metadata.ui_blocks || []).map((block) => block.type));
+      if (blockTypes.has("checkpoint")) {
+        trackClassyEvent("checkpoint_impression", {
+          assistant_message_id: message.id,
+          current_focus: studyAiState?.currentFocus || null,
+        });
+      }
+
+      if (blockTypes.has("celebration")) {
+        trackClassyEvent("celebration_impression", {
+          assistant_message_id: message.id,
+          current_focus: studyAiState?.currentFocus || null,
+        });
+      }
+
+      if (blockTypes.has("trail")) {
+        trackClassyEvent("learning_plan_impression", {
+          assistant_message_id: message.id,
+          current_focus: studyAiState?.currentFocus || null,
+        });
+      }
+    });
+  }, [messages, user, id, studyAiState]);
+
+  useEffect(() => {
     setStudyUsage((current) => {
       if (!current) return current;
       if (current.maxMessages === messageLimit) return current;
@@ -313,7 +358,11 @@ function StudyContent() {
           if (firstContentId) {
             setActivePlaylist({ messageId: playlistMessage.id, currentIndex: 0 });
             setShowPlaylistsDropdown(false);
-            handlePlayContent(firstContentId);
+            handlePlayContent(firstContentId, {
+              sourceMessageId: playlistMessage.id,
+              title: typeof firstContent === "string" ? undefined : firstContent.title,
+              relevanceScore: typeof firstContent === "string" ? null : firstContent.relevanceScore,
+            });
             navigate(location.pathname, { replace: true, state: {} });
           }
         }
@@ -504,7 +553,7 @@ function StudyContent() {
     try {
       const { data, error } = await supabase
         .from("study_ai_state")
-        .select("active_mode, current_focus, learner_level, next_best_action, user_goal, session_summary, mastered_topics, weak_topics, open_questions, last_checkpoint_at, last_quiz_score, last_quiz_total")
+        .select("active_mode, celebration_count, current_focus, last_celebration, learner_level, live_plan_steps, next_best_action, user_goal, session_summary, mastered_topics, weak_topics, open_questions, last_checkpoint_at, last_quiz_score, last_quiz_total")
         .eq("study_id", id)
         .maybeSingle();
 
@@ -526,7 +575,42 @@ function StudyContent() {
 
   const handleSuggestionClick = (suggestion: string) => {
     setInput(suggestion);
+    trackClassyEvent("suggestion_clicked", {
+      suggestion,
+      current_focus: studyAiState?.currentFocus || null,
+    });
+    trackClassyEvent("followup_used", {
+      suggestion,
+      current_focus: studyAiState?.currentFocus || null,
+    });
   };
+
+  const trackClassyEvent = async (eventKey: string, payload: Record<string, any>) => {
+    if (!user || !id) return;
+
+    try {
+      await supabase.from("study_ai_events").insert({
+        user_id: user.id,
+        study_id: id,
+        event_key: eventKey,
+        payload,
+      });
+    } catch (error) {
+      console.error("Error tracking classy event:", error);
+    }
+  };
+
+  const buildAssistantMetadata = (aiData: any) => ({
+    intent: aiData.intent || null,
+    active_mode: aiData.studyState?.activeMode || null,
+    next_best_action: aiData.studyState?.nextBestAction || null,
+    follow_up_suggestions: aiData.followUpSuggestions || [],
+    citations: aiData.citations || [],
+    ui_blocks: aiData.uiBlocks || [],
+    content_strategy: aiData.contentStrategy || null,
+    source_transparency: aiData.sourceTransparency || null,
+    checkpoint_generated: (aiData.uiBlocks || []).some((block: any) => block.type === "checkpoint"),
+  });
 
   const sendInitialMessage = async () => {
     if (!id || !user || !study) return;
@@ -577,16 +661,7 @@ function StudyContent() {
           study_id: id,
           role: "assistant",
           content: aiData.message,
-          metadata: {
-            intent: aiData.intent || null,
-            active_mode: aiData.studyState?.activeMode || null,
-            next_best_action: aiData.studyState?.nextBestAction || null,
-            follow_up_suggestions: aiData.followUpSuggestions || [],
-            citations: aiData.citations || [],
-            ui_blocks: aiData.uiBlocks || [],
-            content_strategy: aiData.contentStrategy || null,
-            checkpoint_generated: (aiData.uiBlocks || []).some((block: any) => block.type === "checkpoint"),
-          },
+          metadata: buildAssistantMetadata(aiData),
           related_contents: aiData.relatedContents || null,
         })
         .select()
@@ -702,16 +777,7 @@ function StudyContent() {
           study_id: id,
           role: "assistant",
           content: aiData.message,
-          metadata: {
-            intent: aiData.intent || null,
-            active_mode: aiData.studyState?.activeMode || null,
-            next_best_action: aiData.studyState?.nextBestAction || null,
-            follow_up_suggestions: aiData.followUpSuggestions || [],
-            citations: aiData.citations || [],
-            ui_blocks: aiData.uiBlocks || [],
-            content_strategy: aiData.contentStrategy || null,
-            checkpoint_generated: (aiData.uiBlocks || []).some((block: any) => block.type === "checkpoint"),
-          },
+          metadata: buildAssistantMetadata(aiData),
           related_contents: aiData.relatedContents || null,
         })
         .select()
@@ -795,8 +861,17 @@ function StudyContent() {
     toast.success("Link copiado para a área de transferência!");
   };
 
-  const handlePlayContent = async (contentId: string) => {
+  const handlePlayContent = async (contentId: string, source?: { sourceMessageId?: string; title?: string; relevanceScore?: number | null }) => {
     try {
+      if (source?.sourceMessageId) {
+        trackClassyEvent("content_opened", {
+          assistant_message_id: source.sourceMessageId,
+          content_id: contentId,
+          content_title: source.title || null,
+          relevance_score: source.relevanceScore ?? null,
+        });
+      }
+
       // Reset playback time for mini player tracking
       currentPlaybackTimeRef.current = 0;
       
@@ -900,7 +975,11 @@ function StudyContent() {
 
     if (nextContent) {
       setActivePlaylist({ ...activePlaylist, currentIndex: nextIndex });
-      handlePlayContent(nextContent.id);
+      handlePlayContent(nextContent.id, {
+        sourceMessageId: activePlaylist.messageId,
+        title: nextContent.title,
+        relevanceScore: nextContent.relevanceScore,
+      });
     }
     setAutoplayCountdown(null);
   };
@@ -959,6 +1038,10 @@ function StudyContent() {
   };
 
   const handleSeekToTimestamp = (seconds: number) => {
+    trackClassyEvent("citation_clicked", {
+      seconds,
+      current_focus: studyAiState?.currentFocus || null,
+    });
     toast.info(`Saltar para ${Math.floor(seconds / 60)}:${(seconds % 60).toString().padStart(2, "0")}`);
   };
 
@@ -1200,7 +1283,11 @@ function StudyContent() {
                                     price={content.price}
                                     is_free={content.is_free}
                                     relevanceScore={content.relevanceScore}
-                                    onPlay={handlePlayContent}
+                                    onPlay={(contentId) => handlePlayContent(contentId, {
+                                      sourceMessageId: message.id,
+                                      title: content.title,
+                                      relevanceScore: content.relevanceScore,
+                                    })}
                                     compact
                                   />
                                 </CarouselItem>
@@ -1230,7 +1317,11 @@ function StudyContent() {
                               price={content.price}
                               is_free={content.is_free}
                               relevanceScore={content.relevanceScore}
-                              onPlay={handlePlayContent}
+                              onPlay={(contentId) => handlePlayContent(contentId, {
+                                sourceMessageId: message.id,
+                                title: content.title,
+                                relevanceScore: content.relevanceScore,
+                              })}
                               compact
                             />
                           ))}
@@ -1245,7 +1336,11 @@ function StudyContent() {
                               onClick={() => {
                                 setActivePlaylist({ messageId: message.id, currentIndex: 0 });
                                 const firstContent = messageContents.get(message.id)?.[0];
-                                if (firstContent) handlePlayContent(firstContent.id);
+                                if (firstContent) handlePlayContent(firstContent.id, {
+                                  sourceMessageId: message.id,
+                                  title: firstContent.title,
+                                  relevanceScore: firstContent.relevanceScore,
+                                });
                               }}
                               className="gap-1.5 text-xs h-8"
                             >
@@ -1433,7 +1528,11 @@ function StudyContent() {
                       onClick={() => {
                         setActivePlaylist({ messageId: msg.id, currentIndex: 0 });
                         const firstContent = contents[0];
-                        if (firstContent) handlePlayContent(firstContent.id);
+                        if (firstContent) handlePlayContent(firstContent.id, {
+                          sourceMessageId: msg.id,
+                          title: firstContent.title,
+                          relevanceScore: firstContent.relevanceScore,
+                        });
                         setShowPlaylistSheet(false);
                       }}
                       className={`w-full text-left p-3 rounded-lg transition-all ${
@@ -1472,7 +1571,11 @@ function StudyContent() {
                       key={content.id}
                       onClick={() => {
                         setActivePlaylist({ ...activePlaylist, currentIndex: idx });
-                        handlePlayContent(content.id);
+                        handlePlayContent(content.id, {
+                          sourceMessageId: activePlaylist.messageId,
+                          title: content.title,
+                          relevanceScore: content.relevanceScore,
+                        });
                         setShowPlaylistSheet(false);
                       }}
                       className={`w-full text-left p-2.5 rounded-lg transition-all ${
@@ -1773,7 +1876,11 @@ function StudyContent() {
                         onClick={() => {
                           setActivePlaylist({ messageId: msg.id, currentIndex: 0 });
                           const firstContent = contents[0];
-                          if (firstContent) handlePlayContent(firstContent.id);
+                          if (firstContent) handlePlayContent(firstContent.id, {
+                            sourceMessageId: msg.id,
+                            title: firstContent.title,
+                            relevanceScore: firstContent.relevanceScore,
+                          });
                           setShowPlaylistsDropdown(false);
                         }}
                         className="cursor-pointer flex-col items-start gap-1 py-3"
@@ -2026,7 +2133,11 @@ function StudyContent() {
                         key={content.id}
                         onClick={() => {
                           setActivePlaylist({ ...activePlaylist, currentIndex: idx });
-                          handlePlayContent(content.id);
+                          handlePlayContent(content.id, {
+                            sourceMessageId: activePlaylist.messageId,
+                            title: content.title,
+                            relevanceScore: content.relevanceScore,
+                          });
                         }}
                         className={`w-full text-left p-3 rounded-lg transition-all ${
                           idx === activePlaylist.currentIndex
@@ -2131,10 +2242,14 @@ function StudyContent() {
                                       duration_minutes={content.duration_minutes}
                                       required_plan={content.required_plan}
                                       visibility={content.visibility}
-                                      price={content.price}
-                                      is_free={content.is_free}
-                                      relevanceScore={content.relevanceScore}
-                                      onPlay={handlePlayContent}
+                                    price={content.price}
+                                    is_free={content.is_free}
+                                    relevanceScore={content.relevanceScore}
+                                      onPlay={(contentId) => handlePlayContent(contentId, {
+                                        sourceMessageId: message.id,
+                                        title: content.title,
+                                        relevanceScore: content.relevanceScore,
+                                      })}
                                       compact
                                     />
                                   </CarouselItem>
@@ -2157,7 +2272,11 @@ function StudyContent() {
                                   onClick={() => {
                                     setActivePlaylist({ messageId: message.id, currentIndex: 0 });
                                     const firstContent = messageContents.get(message.id)?.[0];
-                                    if (firstContent) handlePlayContent(firstContent.id);
+                                    if (firstContent) handlePlayContent(firstContent.id, {
+                                      sourceMessageId: message.id,
+                                      title: firstContent.title,
+                                      relevanceScore: firstContent.relevanceScore,
+                                    });
                                   }}
                                   className="gap-2 shadow-sm hover:shadow-md transition-all h-9"
                                 >

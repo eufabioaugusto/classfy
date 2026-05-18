@@ -9,7 +9,7 @@ export interface ClassyCitation {
 }
 
 export interface ClassyUiBlock {
-  type: "goal" | "checkpoint" | "practice" | "next_step" | "resume" | "trail";
+  type: "goal" | "checkpoint" | "practice" | "next_step" | "resume" | "trail" | "celebration" | "sources";
   title: string;
   body?: string;
   bullets?: string[];
@@ -25,6 +25,7 @@ export interface ClassyMessageMetadata {
   follow_up_suggestions?: string[];
   intent?: string;
   next_best_action?: string;
+  source_transparency?: string;
   ui_blocks?: ClassyUiBlock[];
 }
 
@@ -41,6 +42,12 @@ const sourceLabel: Record<ClassyCitation["source"], string> = {
   quiz: "Quiz",
 };
 
+const contentStrategyLabel: Record<string, string> = {
+  grounded: "Baseado no conteúdo atual",
+  recommendation: "Baseado na trilha recomendada",
+  mixed: "Baseado em memória e contexto do estudo",
+};
+
 export function ClassyMessageExtras({
   metadata,
   onSuggestionClick,
@@ -52,13 +59,30 @@ export function ClassyMessageExtras({
   const blocks = metadata.ui_blocks || [];
   const suggestions = metadata.follow_up_suggestions || [];
   const citations = metadata.citations || [];
+  const contentStrategy = metadata.content_strategy;
+  const sourceTransparency = metadata.source_transparency;
 
-  if (blocks.length === 0 && suggestions.length === 0 && citations.length === 0) {
+  if (blocks.length === 0 && suggestions.length === 0 && citations.length === 0 && !contentStrategy && !sourceTransparency) {
     return null;
   }
 
   return (
     <div className={cn("space-y-3", compact && "space-y-2")}>
+      {(contentStrategy || sourceTransparency) && (
+        <div className="flex flex-wrap items-center gap-2">
+          {contentStrategy && (
+            <Badge variant="outline" className="px-2.5 py-1 text-[11px]">
+              {contentStrategyLabel[contentStrategy] || contentStrategy}
+            </Badge>
+          )}
+          {sourceTransparency && (
+            <Badge variant="secondary" className="px-2.5 py-1 text-[11px] whitespace-normal text-left">
+              {sourceTransparency}
+            </Badge>
+          )}
+        </div>
+      )}
+
       {blocks.length > 0 && (
         <div className="space-y-2">
           {blocks.map((block, index) => (

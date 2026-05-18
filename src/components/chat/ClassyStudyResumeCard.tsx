@@ -1,6 +1,6 @@
 import { formatDistanceToNow } from "date-fns";
 import { ptBR } from "date-fns/locale";
-import { AlertCircle, CheckCircle2, Clock3, Sparkles } from "lucide-react";
+import { AlertCircle, CheckCircle2, Clock3, Sparkles, Trophy } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -36,8 +36,10 @@ export function ClassyStudyResumeCard({
   const hasSummary = Boolean(state.sessionSummary);
   const hasTopics = (state.masteredTopics?.length || 0) > 0 || (state.weakTopics?.length || 0) > 0;
   const hasQuestions = (state.openQuestions?.length || 0) > 0;
+  const hasPlan = (state.livePlanSteps?.length || 0) > 0;
+  const hasCelebration = Boolean(state.lastCelebration);
 
-  if (!hasSummary && !hasTopics && !hasQuestions && !state.lastCheckpointAt) {
+  if (!hasSummary && !hasTopics && !hasQuestions && !state.lastCheckpointAt && !hasPlan && !hasCelebration) {
     return null;
   }
 
@@ -80,6 +82,19 @@ export function ClassyStudyResumeCard({
             </p>
           )}
 
+          {state.lastCelebration && (
+            <div className="rounded-xl border border-primary/20 bg-primary/5 p-3">
+              <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
+                <Trophy className="h-4 w-4 text-primary" />
+                Sinal de progresso real
+                {typeof state.celebrationCount === "number" && state.celebrationCount > 0 && (
+                  <Badge variant="secondary">+{state.celebrationCount}</Badge>
+                )}
+              </div>
+              <p className="mt-1 text-sm text-muted-foreground">{state.lastCelebration}</p>
+            </div>
+          )}
+
           {hasTopics && (
             <div className={cn("grid gap-3", compact ? "grid-cols-1" : "grid-cols-2")}>
               {(state.masteredTopics?.length || 0) > 0 && (
@@ -113,6 +128,27 @@ export function ClassyStudyResumeCard({
                   </div>
                 </div>
               )}
+            </div>
+          )}
+
+          {hasPlan && (
+            <div className="space-y-2">
+              <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                Plano vivo de aprendizagem
+              </div>
+              <div className="space-y-2">
+                {state.livePlanSteps?.slice(0, compact ? 3 : 4).map((step, index) => (
+                  <div
+                    key={`${index}-${step}`}
+                    className="flex gap-3 rounded-xl border border-border/50 bg-muted/30 px-3 py-2.5"
+                  >
+                    <div className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary/10 text-[11px] font-semibold text-primary">
+                      {index + 1}
+                    </div>
+                    <p className="text-sm text-foreground">{step}</p>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
 

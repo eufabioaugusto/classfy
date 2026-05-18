@@ -36,6 +36,9 @@ interface StudyAiStateRow {
   last_quiz_score: number | null;
   last_quiz_total: number | null;
   last_checkpoint_at: string | null;
+  live_plan_steps: string[];
+  last_celebration: string | null;
+  celebration_count: number;
 }
 
 serve(async (req) => {
@@ -196,6 +199,10 @@ serve(async (req) => {
       const quizStudyId = attempt.quiz?.study_id;
       return quizStudyId === studyId;
     }) || null;
+    const previousQuizAttempt = ((quizAttempts as any[]) || []).filter((attempt) => {
+      const quizStudyId = attempt.quiz?.study_id;
+      return quizStudyId === studyId;
+    })[1] || null;
 
     if (isFirstMessage && !study.main_topic && !playlistSummary) {
       await supabase
@@ -304,7 +311,6 @@ serve(async (req) => {
       currentFocus,
       activeContent: activeContentData,
     });
-
     const contentStrategy = transcriptionText && activeMode === "explain"
       ? "grounded"
       : relatedContents.length > 0
@@ -319,6 +325,16 @@ serve(async (req) => {
       latestQuizAttempt,
       progressData,
       currentFocus,
+    });
+    const refinedLivePlanSteps = buildLivePlanSteps({
+      currentFocus,
+      activeMode,
+      learnerLevel,
+      nextBestAction,
+      recommendedPath,
+      activeContent: activeContentData,
+      progressData,
+      weakTopics: aiState.weak_topics,
     });
 
     const userGoal = aiState.user_goal || (isFirstMessage ? extractFocusFromMessage(message) : study.title);
@@ -340,6 +356,20 @@ serve(async (req) => {
       focusChanged,
       lastCheckpointAt: aiState.last_checkpoint_at,
     });
+    const celebrationMessage = buildCelebrationMessage({
+      latestQuizAttempt,
+      previousQuizAttempt,
+      progressData,
+      currentFocus,
+      masteredTopics: aiState.mastered_topics,
+      lastCelebration: aiState.last_celebration,
+    });
+    const sourceTransparency = buildSourceTransparency({
+      contentStrategy,
+      hasTranscript: Boolean(transcriptionText),
+      notesCount: ((recentNotes as any[]) || []).length,
+      latestQuizAttempt,
+    });
 
     const tutorPrompt = buildTutorPrompt({
       userName,
@@ -360,7 +390,10 @@ serve(async (req) => {
       masteredTopics: aiState.mastered_topics,
       openQuestions: aiState.open_questions,
       recommendedPath,
+      livePlanSteps: refinedLivePlanSteps,
       checkpointStatus,
+      celebrationMessage,
+      sourceTransparency,
       relatedContents,
       isFirstMessage,
       playlistSummary: Boolean(playlistSummary),
@@ -401,7 +434,14 @@ serve(async (req) => {
       latestQuizAttempt,
       checkpointStatus,
       recommendedPath,
+      livePlanSteps: refinedLivePlanSteps,
+      celebrationMessage,
+      sourceTransparency,
     });
+
+    const mergedMasteredTopics = mergeTopics(aiState.mastered_topics, extractMasteredTopics(latestQuizAttempt, currentFocus));
+    const mergedWeakTopics = mergeTopics(aiState.weak_topics, extractWeakTopics(latestQuizAttempt, currentFocus));
+    const mergedOpenQuestions = mergeTopics(aiState.open_questions, collectOpenQuestions(activeMode, message));
 
     await supabase
       .from("study_ai_state")
@@ -413,9 +453,9 @@ serve(async (req) => {
         active_mode: activeMode,
         learning_style: aiState.learning_style || "mixed",
         session_summary: sessionSummary,
-        mastered_topics: mergeTopics(aiState.mastered_topics, extractMasteredTopics(latestQuizAttempt, currentFocus)),
-        weak_topics: mergeTopics(aiState.weak_topics, extractWeakTopics(latestQuizAttempt, currentFocus)),
-        open_questions: mergeTopics(aiState.open_questions, collectOpenQuestions(activeMode, message)),
+        mastered_topics: mergedMasteredTopics,
+        weak_topics: mergedWeakTopics,
+        open_questions: mergedOpenQuestions,
         next_best_action: nextBestAction,
         last_active_content_id: activeContentId || aiState.last_active_content_id,
         last_video_timestamp_seconds: typeof currentVideoTime === "number"
@@ -426,13 +466,45 @@ serve(async (req) => {
         last_checkpoint_at: uiBlocks.some((block) => block.type === "checkpoint")
           ? new Date().toISOString()
           : aiState.last_checkpoint_at,
+        live_plan_steps: refinedLivePlanSteps,
+        last_celebration: celebrationMessage || aiState.last_celebration,
+        celebration_count: celebrationMessage ? aiState.celebration_count + 1 : aiState.celebration_count,
       })
       .eq("study_id", studyId);
+
+    await trackStudyAiEvents(supabase, {
+      userId: user.id,
+      studyId,
+      events: [
+        {
+          event_key: "assistant_response",
+          payload: {
+            active_mode: activeMode,
+            current_focus: currentFocus,
+            checkpoint_status: checkpointStatus,
+            content_strategy: contentStrategy,
+          },
+        },
+        ...(didQuizImprove(previousQuizAttempt, latestQuizAttempt)
+          ? [{
+            event_key: "quiz_improved_after_guidance",
+            payload: {
+              previous_score: previousQuizAttempt?.score ?? null,
+              previous_total: previousQuizAttempt?.max_score ?? null,
+              score: latestQuizAttempt?.score ?? null,
+              total: latestQuizAttempt?.max_score ?? null,
+              current_focus: currentFocus,
+            },
+          }]
+          : []),
+      ],
+    });
 
     const responseData = {
       message: aiMessage,
       intent,
       contentStrategy,
+      sourceTransparency,
       usage: {
         userMessageCount: currentUserMessageCount + (playlistSummary ? 0 : 1),
         maxMessages: limits.maxMessages,
@@ -447,15 +519,18 @@ serve(async (req) => {
         nextBestAction,
         userGoal,
         sessionSummary,
-        masteredTopics: mergeTopics(aiState.mastered_topics, extractMasteredTopics(latestQuizAttempt, currentFocus)),
-        weakTopics: mergeTopics(aiState.weak_topics, extractWeakTopics(latestQuizAttempt, currentFocus)),
-        openQuestions: mergeTopics(aiState.open_questions, collectOpenQuestions(activeMode, message)),
+        masteredTopics: mergedMasteredTopics,
+        weakTopics: mergedWeakTopics,
+        openQuestions: mergedOpenQuestions,
         lastCheckpointAt: uiBlocks.some((block) => block.type === "checkpoint")
           ? new Date().toISOString()
           : aiState.last_checkpoint_at,
         lastQuizScore: latestQuizAttempt?.score ?? aiState.last_quiz_score,
         lastQuizTotal: latestQuizAttempt?.max_score ?? aiState.last_quiz_total,
         checkpointStatus,
+        livePlanSteps: refinedLivePlanSteps,
+        lastCelebration: celebrationMessage || aiState.last_celebration,
+        celebrationCount: celebrationMessage ? aiState.celebration_count + 1 : aiState.celebration_count,
       },
       uiBlocks,
       followUpSuggestions,
@@ -475,6 +550,27 @@ function jsonResponse(body: unknown, status = 200) {
     status,
     headers: { ...corsHeaders, "Content-Type": "application/json" },
   });
+}
+
+async function trackStudyAiEvents(
+  supabase: ReturnType<typeof createClient>,
+  options: {
+    userId: string;
+    studyId: string;
+    events: Array<{ event_key: string; payload: Record<string, unknown> }>;
+  },
+) {
+  const rows = options.events.filter(Boolean);
+  if (rows.length === 0) return;
+
+  await supabase.from("study_ai_events").insert(
+    rows.map((event) => ({
+      user_id: options.userId,
+      study_id: options.studyId,
+      event_key: event.event_key,
+      payload: event.payload,
+    })),
+  );
 }
 
 async function loadStudyLimits(supabase: ReturnType<typeof createClient>, plan: PlanType) {
@@ -502,6 +598,9 @@ function normalizeStateRow(row: Partial<StudyAiStateRow> | null): StudyAiStateRo
     last_quiz_score: row?.last_quiz_score ?? null,
     last_quiz_total: row?.last_quiz_total ?? null,
     last_checkpoint_at: row?.last_checkpoint_at ?? null,
+    live_plan_steps: row?.live_plan_steps || [],
+    last_celebration: row?.last_celebration ?? null,
+    celebration_count: Number(row?.celebration_count ?? 0),
   };
 }
 
@@ -718,6 +817,41 @@ function rankRelatedContent(
   return score;
 }
 
+function buildLivePlanSteps(options: {
+  currentFocus: string | null;
+  activeMode: ActiveMode;
+  learnerLevel: LearnerLevel;
+  nextBestAction: string | null;
+  recommendedPath: string[];
+  activeContent: any | null;
+  progressData: any;
+  weakTopics: string[];
+}) {
+  const steps: string[] = [];
+
+  if (options.activeContent && !options.progressData?.completed) {
+    steps.push(`Concluir ${options.activeContent.title} antes de abrir outra frente.`);
+  }
+
+  if (options.weakTopics.length > 0) {
+    steps.push(`Revisar ${options.weakTopics.slice(0, 2).join(" e ")} com foco em clareza prática.`);
+  }
+
+  if (options.nextBestAction) {
+    steps.push(options.nextBestAction);
+  }
+
+  if (options.recommendedPath.length > 0) {
+    steps.push(...options.recommendedPath);
+  }
+
+  if (steps.length === 0 && options.currentFocus) {
+    steps.push(`Consolidar ${options.currentFocus} com explicação, prática e revisão curta.`);
+  }
+
+  return Array.from(new Set(steps)).slice(0, 4);
+}
+
 function countUserMessagesSinceCheckpoint(messages: any[], lastCheckpointAt: string | null) {
   return messages.filter((item) => {
     if (item.role !== "user") return false;
@@ -777,6 +911,62 @@ function deriveCheckpointStatus(options: {
   }
 
   return "fresh";
+}
+
+function didQuizImprove(previousQuizAttempt: any, latestQuizAttempt: any) {
+  if (!previousQuizAttempt?.max_score || !latestQuizAttempt?.max_score) return false;
+  const previousRatio = previousQuizAttempt.score / previousQuizAttempt.max_score;
+  const latestRatio = latestQuizAttempt.score / latestQuizAttempt.max_score;
+  return latestRatio - previousRatio >= 0.15;
+}
+
+function buildCelebrationMessage(options: {
+  latestQuizAttempt: any;
+  previousQuizAttempt: any;
+  progressData: any;
+  currentFocus: string | null;
+  masteredTopics: string[];
+  lastCelebration: string | null;
+}) {
+  if (didQuizImprove(options.previousQuizAttempt, options.latestQuizAttempt)) {
+    return `Seu desempenho melhorou no quiz de ${options.currentFocus || "este estudo"}. Isso mostra retenção real, não só leitura passiva.`;
+  }
+
+  if (
+    options.latestQuizAttempt?.max_score &&
+    options.latestQuizAttempt.score / options.latestQuizAttempt.max_score >= 0.85 &&
+    options.currentFocus &&
+    !options.masteredTopics.includes(options.currentFocus)
+  ) {
+    return `Você já demonstra domínio forte em ${options.currentFocus}. Vale começar a conectar esse tema com aplicações mais avançadas.`;
+  }
+
+  if (options.progressData?.completed && options.currentFocus && options.lastCelebration?.includes(options.currentFocus) !== true) {
+    return `Você concluiu uma etapa importante em ${options.currentFocus}. Esse é um bom momento para consolidar e avançar com intenção.`;
+  }
+
+  return null;
+}
+
+function buildSourceTransparency(options: {
+  contentStrategy: string;
+  hasTranscript: boolean;
+  notesCount: number;
+  latestQuizAttempt: any;
+}) {
+  if (options.contentStrategy === "grounded" && options.hasTranscript) {
+    return "Resposta ancorada na transcrição do conteúdo ativo e no seu contexto atual de estudo.";
+  }
+
+  if (options.contentStrategy === "recommendation") {
+    return "Resposta guiada por curadoria de conteúdos relacionados e pelo seu histórico neste estudo.";
+  }
+
+  if (options.notesCount > 0 || options.latestQuizAttempt?.max_score) {
+    return "Resposta montada com base no histórico da conversa, notas recentes e sinais do seu quiz.";
+  }
+
+  return "Resposta baseada na conversa atual e no estado pedagógico persistido deste estudo.";
 }
 
 function buildRecommendedPath(options: {
@@ -902,7 +1092,10 @@ function buildTutorPrompt(options: {
   masteredTopics: string[];
   openQuestions: string[];
   recommendedPath: string[];
+  livePlanSteps: string[];
   checkpointStatus: "fresh" | "due" | "recommended";
+  celebrationMessage: string | null;
+  sourceTransparency: string;
   relatedContents: any[];
   isFirstMessage: boolean;
   playlistSummary: boolean;
@@ -928,6 +1121,13 @@ REGRAS:
 - Não seja genérica.
 - Máximo de 150 palavras.
 
+ESTILO POR MODO:
+- `onboard`: acolha, dê clareza e reduza fricção.
+- `explain`: ensine com precisão e transparência de fonte.
+- `review`: aja como mentora que recupera entendimento e prioriza lacunas.
+- `practice`: seja desafiadora, mas objetiva.
+- `recommend` e `plan`: aja como mentora estratégica, organizando próximos passos com lógica.
+
 CONTEXTO DO ESTUDANTE:
 - Nome: ${options.userName}
 - Plano: ${options.userPlan}
@@ -946,6 +1146,9 @@ SINAIS DE APRENDIZADO:
 - Tópicos frágeis: ${options.weakTopics.length > 0 ? options.weakTopics.join(", ") : "nenhum mapeado"}
 - Perguntas em aberto: ${options.openQuestions.length > 0 ? options.openQuestions.join(" | ") : "nenhuma registrada"}
 - Status de checkpoint: ${options.checkpointStatus}
+- Plano vivo atual: ${options.livePlanSteps.length > 0 ? options.livePlanSteps.join(" | ") : "ainda não estruturado"}
+- Celebração factual disponível: ${options.celebrationMessage || "nenhuma nesta rodada"}
+- Transparência de fonte: ${options.sourceTransparency}
 
 CONTEÚDO ATIVO:
 ${options.activeContent ? `- Título: ${options.activeContent.title}
@@ -971,7 +1174,7 @@ ${options.playlistSummary
     ? "- Gere um resumo curto da playlist salva, explicando o que a pessoa pode aprender com a trilha."
     : options.isFirstMessage
     ? "- Faça onboarding estratégico: acolha, diga como vai ajudar e convide a escolher o primeiro foco."
-    : "- Responda com estratégia pedagógica, e conduza o estudante para o próximo melhor passo."}
+    : "- Responda com estratégia pedagógica, conduza para o próximo melhor passo e, se houver celebração factual, reconheça isso sem exagero."}
 `;
 }
 
@@ -1120,8 +1323,11 @@ function buildUiBlocks(options: {
   latestQuizAttempt: any;
   checkpointStatus: "fresh" | "due" | "recommended";
   recommendedPath: string[];
+  livePlanSteps: string[];
+  celebrationMessage: string | null;
+  sourceTransparency: string;
 }) {
-  const blocks: Array<{ type: "goal" | "checkpoint" | "practice" | "next_step" | "resume" | "trail"; title: string; body?: string; bullets?: string[]; prompt?: string; action?: string }> = [];
+  const blocks: Array<{ type: "goal" | "checkpoint" | "practice" | "next_step" | "resume" | "trail" | "celebration" | "sources"; title: string; body?: string; bullets?: string[]; prompt?: string; action?: string }> = [];
 
   if (options.isFirstMessage) {
     blocks.push({
@@ -1165,13 +1371,27 @@ function buildUiBlocks(options: {
     });
   }
 
+  if (options.celebrationMessage) {
+    blocks.push({
+      type: "celebration",
+      title: "Sinal de progresso",
+      body: options.celebrationMessage,
+    });
+  }
+
   if (options.recommendedPath.length > 0 && (options.activeMode === "plan" || options.activeMode === "recommend" || options.activeMode === "review")) {
     blocks.push({
       type: "trail",
       title: "Trilha sugerida",
-      bullets: options.recommendedPath.slice(0, 3),
+      bullets: options.livePlanSteps.slice(0, 3),
     });
   }
+
+  blocks.push({
+    type: "sources",
+    title: "Como montei esta resposta",
+    body: options.sourceTransparency,
+  });
 
   blocks.push({
     type: "next_step",
@@ -1179,7 +1399,7 @@ function buildUiBlocks(options: {
     action: options.nextBestAction,
   });
 
-  return blocks.slice(0, 3);
+  return blocks.slice(0, 4);
 }
 
 function extractFocusFromMessage(message: string) {

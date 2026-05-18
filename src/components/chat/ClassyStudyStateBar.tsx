@@ -14,6 +14,9 @@ export interface ClassyStudyState {
   lastQuizScore?: number | null;
   lastQuizTotal?: number | null;
   checkpointStatus?: "fresh" | "due" | "recommended";
+  livePlanSteps?: string[];
+  lastCelebration?: string | null;
+  celebrationCount?: number;
 }
 
 interface ClassyStudyStateBarProps {
