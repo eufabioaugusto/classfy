@@ -9,7 +9,7 @@ export interface ClassyCitation {
 }
 
 export interface ClassyUiBlock {
-  type: "goal" | "checkpoint" | "practice" | "next_step";
+  type: "goal" | "checkpoint" | "practice" | "next_step" | "resume" | "trail";
   title: string;
   body?: string;
   bullets?: string[];

@@ -144,7 +144,7 @@ serve(async (req) => {
         : Promise.resolve({ data: null }),
       supabase
         .from("study_messages")
-        .select("role, content, metadata")
+        .select("role, content, metadata, created_at")
         .eq("study_id", studyId)
         .order("created_at", { ascending: true })
         .limit(40),
@@ -164,12 +164,14 @@ serve(async (req) => {
     ]);
 
     const aiState = normalizeStateRow(stateRow as Partial<StudyAiStateRow> | null);
-    const conversationHistory = ((messages as any[]) || []).map((item) => ({
+    const rawMessages = (messages as any[]) || [];
+    const conversationHistory = rawMessages.map((item) => ({
       role: item.role,
       content: item.content,
     }));
     const userHistory = conversationHistory.filter((item) => item.role === "user");
     const isFirstMessage = userHistory.length === 0;
+    const isReturningStudy = currentUserMessageCount > 0 && Boolean(aiState.session_summary || aiState.current_focus);
 
     let transcriptionText = "";
     if (activeContentId) {
@@ -209,7 +211,7 @@ serve(async (req) => {
         activeContent: activeContentData,
       });
 
-    const activeMode = mapIntentToMode(intent, isFirstMessage);
+    const baseActiveMode = mapIntentToMode(intent, isFirstMessage);
     const learnerLevel = inferLearnerLevel(aiState, latestQuizAttempt, progressData);
     const currentFocus = deriveCurrentFocus({
       studyTitle: study.title,
@@ -217,6 +219,18 @@ serve(async (req) => {
       state: aiState,
       message,
       activeContent: activeContentData,
+    });
+    const focusChanged = Boolean(
+      aiState.current_focus &&
+      currentFocus &&
+      aiState.current_focus !== currentFocus,
+    );
+    const userMessagesSinceCheckpoint = countUserMessagesSinceCheckpoint(rawMessages, aiState.last_checkpoint_at);
+    const activeMode = deriveAdaptiveMode({
+      baseMode: baseActiveMode,
+      latestQuizAttempt,
+      progressData,
+      hasActiveContent: Boolean(activeContentData),
     });
 
     let deviationWarning = "";
@@ -272,14 +286,24 @@ serve(async (req) => {
       activeMode,
       isFirstMessage,
       hasActiveContent: Boolean(activeContentData),
+      latestQuizAttempt,
     });
 
     const relatedContents = shouldSearch
       ? await searchRelatedContent(supabase, {
         query: currentFocus || study.title || message,
         activeContentId: activeContentId || null,
+        learnerLevel,
+        activeMode,
       })
       : [];
+    const recommendedPath = buildRecommendedPath({
+      activeMode,
+      learnerLevel,
+      relatedContents,
+      currentFocus,
+      activeContent: activeContentData,
+    });
 
     const contentStrategy = transcriptionText && activeMode === "explain"
       ? "grounded"
@@ -291,6 +315,7 @@ serve(async (req) => {
       activeMode,
       activeContent: activeContentData,
       relatedContents,
+      recommendedPath,
       latestQuizAttempt,
       progressData,
       currentFocus,
@@ -305,6 +330,15 @@ serve(async (req) => {
       learnerLevel,
       message,
       activeMode,
+      focusChanged,
+      latestQuizAttempt,
+      nextBestAction,
+    });
+    const checkpointStatus = deriveCheckpointStatus({
+      latestQuizAttempt,
+      userMessagesSinceCheckpoint,
+      focusChanged,
+      lastCheckpointAt: aiState.last_checkpoint_at,
     });
 
     const tutorPrompt = buildTutorPrompt({
@@ -321,6 +355,12 @@ serve(async (req) => {
       progressData,
       notesSummary,
       quizSummary,
+      sessionSummary,
+      weakTopics: aiState.weak_topics,
+      masteredTopics: aiState.mastered_topics,
+      openQuestions: aiState.open_questions,
+      recommendedPath,
+      checkpointStatus,
       relatedContents,
       isFirstMessage,
       playlistSummary: Boolean(playlistSummary),
@@ -339,6 +379,7 @@ serve(async (req) => {
       currentFocus,
       relatedContents,
       latestQuizAttempt,
+      recommendedPath,
     });
 
     const citations = buildCitations({
@@ -352,10 +393,14 @@ serve(async (req) => {
     const uiBlocks = buildUiBlocks({
       activeMode,
       isFirstMessage,
+      isReturningStudy,
       userGoal,
       currentFocus,
+      sessionSummary,
       nextBestAction,
       latestQuizAttempt,
+      checkpointStatus,
+      recommendedPath,
     });
 
     await supabase
@@ -401,6 +446,16 @@ serve(async (req) => {
         learnerLevel,
         nextBestAction,
         userGoal,
+        sessionSummary,
+        masteredTopics: mergeTopics(aiState.mastered_topics, extractMasteredTopics(latestQuizAttempt, currentFocus)),
+        weakTopics: mergeTopics(aiState.weak_topics, extractWeakTopics(latestQuizAttempt, currentFocus)),
+        openQuestions: mergeTopics(aiState.open_questions, collectOpenQuestions(activeMode, message)),
+        lastCheckpointAt: uiBlocks.some((block) => block.type === "checkpoint")
+          ? new Date().toISOString()
+          : aiState.last_checkpoint_at,
+        lastQuizScore: latestQuizAttempt?.score ?? aiState.last_quiz_score,
+        lastQuizTotal: latestQuizAttempt?.max_score ?? aiState.last_quiz_total,
+        checkpointStatus,
       },
       uiBlocks,
       followUpSuggestions,
@@ -601,8 +656,10 @@ function shouldSearchRelatedContent(options: {
   activeMode: ActiveMode;
   isFirstMessage: boolean;
   hasActiveContent: boolean;
+  latestQuizAttempt: any;
 }) {
   if (options.activeMode === "recommend" || options.activeMode === "plan") return true;
+  if (options.latestQuizAttempt?.max_score && options.latestQuizAttempt.score / options.latestQuizAttempt.max_score < 0.7) return true;
   if (options.isFirstMessage) return true;
   if (!options.hasActiveContent) return true;
   return false;
@@ -610,7 +667,7 @@ function shouldSearchRelatedContent(options: {
 
 async function searchRelatedContent(
   supabase: ReturnType<typeof createClient>,
-  options: { query: string; activeContentId: string | null },
+  options: { query: string; activeContentId: string | null; learnerLevel: LearnerLevel; activeMode: ActiveMode },
 ) {
   const { data, error } = await supabase.rpc("search_platform_content", {
     p_query: options.query,
@@ -632,13 +689,132 @@ async function searchRelatedContent(
     total_lessons: item.total_lessons,
     total_duration_seconds: item.total_duration_seconds,
     relevanceScore: Math.round(Number(item.rank || 0) * 100),
-  }));
+  })).sort((a: any, b: any) => rankRelatedContent(b, options) - rankRelatedContent(a, options));
+}
+
+function rankRelatedContent(
+  item: any,
+  options: { learnerLevel: LearnerLevel; activeMode: ActiveMode },
+) {
+  let score = Number(item.rank || 0) * 100;
+  const contentType = String(item.content_type || "").toLowerCase();
+  const totalLessons = Number(item.total_lessons || 0);
+  const totalDuration = Number(item.total_duration_seconds || 0);
+
+  if (options.activeMode === "review" || options.learnerLevel === "beginner") {
+    if (contentType.includes("video") || contentType.includes("audio")) score += 12;
+    if (totalLessons > 0 && totalLessons <= 10) score += 8;
+    if (totalDuration > 0 && totalDuration <= 1800) score += 6;
+  }
+
+  if (options.activeMode === "plan" || options.activeMode === "recommend") {
+    if (totalLessons > 3) score += 8;
+  }
+
+  if (options.learnerLevel === "advanced") {
+    score += totalLessons > 10 ? 6 : 0;
+  }
+
+  return score;
+}
+
+function countUserMessagesSinceCheckpoint(messages: any[], lastCheckpointAt: string | null) {
+  return messages.filter((item) => {
+    if (item.role !== "user") return false;
+    if (!lastCheckpointAt) return true;
+    return new Date(item.created_at).getTime() > new Date(lastCheckpointAt).getTime();
+  }).length;
+}
+
+function deriveAdaptiveMode(options: {
+  baseMode: ActiveMode;
+  latestQuizAttempt: any;
+  progressData: any;
+  hasActiveContent: boolean;
+}): ActiveMode {
+  if (options.baseMode === "practice" || options.baseMode === "plan" || options.baseMode === "recommend") {
+    return options.baseMode;
+  }
+
+  if (options.latestQuizAttempt?.max_score) {
+    const ratio = options.latestQuizAttempt.score / options.latestQuizAttempt.max_score;
+    if (ratio < 0.7) return "review";
+    if (ratio >= 0.85 && !options.hasActiveContent) return "plan";
+  }
+
+  if (options.progressData?.completed && !options.hasActiveContent) {
+    return "recommend";
+  }
+
+  return options.baseMode;
+}
+
+function deriveCheckpointStatus(options: {
+  latestQuizAttempt: any;
+  userMessagesSinceCheckpoint: number;
+  focusChanged: boolean;
+  lastCheckpointAt: string | null;
+}): "fresh" | "due" | "recommended" {
+  const hoursSinceCheckpoint = options.lastCheckpointAt
+    ? (Date.now() - new Date(options.lastCheckpointAt).getTime()) / (1000 * 60 * 60)
+    : Number.POSITIVE_INFINITY;
+
+  if (
+    options.latestQuizAttempt?.max_score &&
+    options.latestQuizAttempt.score / options.latestQuizAttempt.max_score < 0.7 &&
+    hoursSinceCheckpoint >= 6
+  ) {
+    return "recommended";
+  }
+
+  if (
+    !options.lastCheckpointAt ||
+    options.focusChanged ||
+    options.userMessagesSinceCheckpoint >= 4 ||
+    hoursSinceCheckpoint >= 24
+  ) {
+    return "due";
+  }
+
+  return "fresh";
+}
+
+function buildRecommendedPath(options: {
+  activeMode: ActiveMode;
+  learnerLevel: LearnerLevel;
+  relatedContents: any[];
+  currentFocus: string | null;
+  activeContent: any | null;
+}) {
+  if (options.relatedContents.length === 0) return [];
+
+  const picks = options.relatedContents.slice(0, 3);
+  const verbs = options.activeMode === "review"
+    ? ["Reveja", "Reforce", "Feche"]
+    : options.activeMode === "plan"
+    ? ["Comece", "Avance", "Consolide"]
+    : ["Abra", "Aprofunde", "Conecte"];
+
+  return picks.map((content, index) => {
+    const step = verbs[index] || "Explore";
+    if (index === 0 && options.activeContent?.title) {
+      return `${index + 1}. ${step} com ${content.title} para continuar depois de ${options.activeContent.title}.`;
+    }
+    if (options.learnerLevel === "beginner" && index === 0) {
+      return `${index + 1}. ${step} por ${content.title} para firmar a base de ${options.currentFocus || "este tema"}.`;
+    }
+    if (options.activeMode === "review" && index === 1) {
+      return `${index + 1}. ${step} com ${content.title} para corrigir pontos frágeis antes de avançar.`;
+    }
+    return `${index + 1}. ${step} com ${content.title} para aprofundar ${options.currentFocus || "o tema atual"}.`;
+  });
 }
 
 function deriveNextBestAction(options: {
   activeMode: ActiveMode;
   activeContent: any | null;
   relatedContents: any[];
+  recommendedPath: string[];
   latestQuizAttempt: any;
   progressData: any;
   currentFocus: string | null;
@@ -651,6 +827,9 @@ function deriveNextBestAction(options: {
   }
   if (options.activeContent && !options.progressData?.completed) {
     return "Concluir o conteúdo atual e testar a compreensão com uma pergunta ou quiz.";
+  }
+  if (options.recommendedPath.length > 0) {
+    return options.recommendedPath[0];
   }
   if (options.relatedContents.length > 0) {
     return "Abrir o primeiro conteúdo recomendado para aprofundar o tema atual.";
@@ -678,10 +857,30 @@ function buildSessionSummary(options: {
   learnerLevel: LearnerLevel;
   message: string;
   activeMode: ActiveMode;
+  focusChanged: boolean;
+  latestQuizAttempt: any;
+  nextBestAction: string;
 }) {
-  const lastTurn = `Foco atual: ${options.currentFocus || "não definido"}; modo: ${options.activeMode}; nível: ${options.learnerLevel}; última intenção: ${extractFocusFromMessage(options.message)}.`;
-  if (!options.existingSummary) return lastTurn;
-  return `${options.existingSummary.slice(0, 220)} ${lastTurn}`.slice(0, 420);
+  const summaryParts = [
+    `Foco atual em ${options.currentFocus || "tema não definido"}`,
+    `modo ${options.activeMode}`,
+    `nível ${options.learnerLevel}`,
+  ];
+
+  if (options.focusChanged) {
+    summaryParts.push("houve mudança recente de foco");
+  }
+
+  if (options.latestQuizAttempt?.max_score) {
+    summaryParts.push(`último quiz ${options.latestQuizAttempt.score}/${options.latestQuizAttempt.max_score}`);
+  }
+
+  summaryParts.push(`próximo passo: ${options.nextBestAction}`);
+
+  const currentSnapshot = `${summaryParts.join(", ")}.`;
+  if (!options.existingSummary) return currentSnapshot;
+
+  return `${options.existingSummary.slice(0, 190)} ${currentSnapshot}`.slice(0, 420);
 }
 
 function buildTutorPrompt(options: {
@@ -698,6 +897,12 @@ function buildTutorPrompt(options: {
   progressData: any;
   notesSummary: string;
   quizSummary: string;
+  sessionSummary: string;
+  weakTopics: string[];
+  masteredTopics: string[];
+  openQuestions: string[];
+  recommendedPath: string[];
+  checkpointStatus: "fresh" | "due" | "recommended";
   relatedContents: any[];
   isFirstMessage: boolean;
   playlistSummary: boolean;
@@ -736,6 +941,11 @@ SINAIS DE APRENDIZADO:
 - Progresso: ${options.progressData?.progress_percent ?? 0}%
 - ${options.quizSummary}
 - Notas recentes: ${options.notesSummary}
+- Resumo da jornada até aqui: ${options.sessionSummary}
+- Tópicos fortes: ${options.masteredTopics.length > 0 ? options.masteredTopics.join(", ") : "ainda não consolidado"}
+- Tópicos frágeis: ${options.weakTopics.length > 0 ? options.weakTopics.join(", ") : "nenhum mapeado"}
+- Perguntas em aberto: ${options.openQuestions.length > 0 ? options.openQuestions.join(" | ") : "nenhuma registrada"}
+- Status de checkpoint: ${options.checkpointStatus}
 
 CONTEÚDO ATIVO:
 ${options.activeContent ? `- Título: ${options.activeContent.title}
@@ -749,6 +959,9 @@ ${options.transcriptionText ? options.transcriptionText.slice(0, 7000) : "Sem tr
 
 CONTEÚDOS RELACIONADOS:
 ${relatedContentSummary}
+
+TRILHA RECOMENDADA:
+${options.recommendedPath.length > 0 ? options.recommendedPath.join("\n") : "Sem trilha estruturada adicional neste momento."}
 
 MENSAGEM DO ESTUDANTE:
 ${options.message}
@@ -811,6 +1024,7 @@ function buildFollowUpSuggestions(options: {
   currentFocus: string | null;
   relatedContents: any[];
   latestQuizAttempt: any;
+  recommendedPath: string[];
 }) {
   if (options.activeMode === "practice") {
     return [
@@ -833,6 +1047,14 @@ function buildFollowUpSuggestions(options: {
       "Monte uma trilha para mim",
       "Começar pelo básico",
       "Quero aplicações práticas",
+    ];
+  }
+
+  if (options.recommendedPath.length > 0) {
+    return [
+      "Retomar de onde parei",
+      "Qual é o próximo passo ideal?",
+      "Monte um checkpoint rápido",
     ];
   }
 
@@ -890,12 +1112,16 @@ function buildCitations(options: {
 function buildUiBlocks(options: {
   activeMode: ActiveMode;
   isFirstMessage: boolean;
+  isReturningStudy: boolean;
   userGoal: string | null;
   currentFocus: string | null;
+  sessionSummary: string;
   nextBestAction: string;
   latestQuizAttempt: any;
+  checkpointStatus: "fresh" | "due" | "recommended";
+  recommendedPath: string[];
 }) {
-  const blocks: Array<{ type: "goal" | "checkpoint" | "practice" | "next_step"; title: string; body?: string; bullets?: string[]; prompt?: string; action?: string }> = [];
+  const blocks: Array<{ type: "goal" | "checkpoint" | "practice" | "next_step" | "resume" | "trail"; title: string; body?: string; bullets?: string[]; prompt?: string; action?: string }> = [];
 
   if (options.isFirstMessage) {
     blocks.push({
@@ -905,13 +1131,28 @@ function buildUiBlocks(options: {
     });
   }
 
-  if (options.latestQuizAttempt?.max_score && options.latestQuizAttempt.score / options.latestQuizAttempt.max_score < 0.7) {
+  if (options.isReturningStudy && !options.isFirstMessage) {
+    blocks.push({
+      type: "resume",
+      title: "Retomada inteligente",
+      body: options.sessionSummary,
+    });
+  }
+
+  if (
+    options.checkpointStatus !== "fresh" ||
+    (options.latestQuizAttempt?.max_score && options.latestQuizAttempt.score / options.latestQuizAttempt.max_score < 0.7)
+  ) {
     blocks.push({
       type: "checkpoint",
-      title: "Checkpoint de revisão",
+      title: options.checkpointStatus === "recommended" ? "Checkpoint de recuperação" : "Checkpoint de continuidade",
       bullets: [
-        `Seu último quiz ficou em ${options.latestQuizAttempt.score}/${options.latestQuizAttempt.max_score}.`,
-        "Vale revisar os fundamentos antes de avançar.",
+        options.latestQuizAttempt?.max_score
+          ? `Seu último quiz ficou em ${options.latestQuizAttempt.score}/${options.latestQuizAttempt.max_score}.`
+          : `Seu foco atual é ${options.currentFocus || "este tema"}.`,
+        options.checkpointStatus === "recommended"
+          ? "Vale revisar os fundamentos antes de avançar."
+          : "Este é um bom momento para consolidar o que já foi visto.",
       ],
     });
   }
@@ -921,6 +1162,14 @@ function buildUiBlocks(options: {
       type: "practice",
       title: "Prática guiada",
       prompt: "Depois da explicação, tente resumir o conceito com suas próprias palavras.",
+    });
+  }
+
+  if (options.recommendedPath.length > 0 && (options.activeMode === "plan" || options.activeMode === "recommend" || options.activeMode === "review")) {
+    blocks.push({
+      type: "trail",
+      title: "Trilha sugerida",
+      bullets: options.recommendedPath.slice(0, 3),
     });
   }
 
@@ -956,9 +1205,17 @@ function extractMasteredTopics(latestQuizAttempt: any, currentFocus: string | nu
 }
 
 function collectOpenQuestions(activeMode: ActiveMode, message: string) {
-  if (activeMode === "explain" || activeMode === "review") {
-    return [extractFocusFromMessage(message)];
+  const focus = extractFocusFromMessage(message);
+  if (!focus) return [];
+
+  if (activeMode === "explain") {
+    return [`Quero entender melhor ${focus}`];
   }
+
+  if (activeMode === "review") {
+    return [`Quais são os pontos mais importantes sobre ${focus}?`];
+  }
+
   return [];
 }
 

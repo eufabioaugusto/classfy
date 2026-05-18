@@ -6,6 +6,14 @@ export interface ClassyStudyState {
   learnerLevel: "beginner" | "intermediate" | "advanced" | "unknown";
   nextBestAction: string | null;
   userGoal?: string | null;
+  sessionSummary?: string | null;
+  masteredTopics?: string[];
+  weakTopics?: string[];
+  openQuestions?: string[];
+  lastCheckpointAt?: string | null;
+  lastQuizScore?: number | null;
+  lastQuizTotal?: number | null;
+  checkpointStatus?: "fresh" | "due" | "recommended";
 }
 
 interface ClassyStudyStateBarProps {

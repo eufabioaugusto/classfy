@@ -14,6 +14,7 @@ import { StudyUsageIndicator } from "@/components/StudyUsageIndicator";
 import { ChatContentCard } from "@/components/ChatContentCard";
 import { ChatMessage } from "@/components/chat/ChatMessage";
 import { ClassyMessageExtras, ClassyMessageMetadata } from "@/components/chat/ClassyMessageExtras";
+import { ClassyStudyResumeCard } from "@/components/chat/ClassyStudyResumeCard";
 import { ClassyStudyState, ClassyStudyStateBar } from "@/components/chat/ClassyStudyStateBar";
 import { UpgradePromptCard } from "@/components/chat/UpgradePromptCard";
 import { UnifiedVideoPlayer } from "@/components/unified/UnifiedVideoPlayer";
@@ -80,10 +81,27 @@ type StudyAiStateRecord = {
   learner_level: ClassyStudyState["learnerLevel"];
   next_best_action: string | null;
   user_goal: string | null;
+  session_summary: string | null;
+  mastered_topics: string[] | null;
+  weak_topics: string[] | null;
+  open_questions: string[] | null;
+  last_checkpoint_at: string | null;
+  last_quiz_score: number | null;
+  last_quiz_total: number | null;
 };
 
 const mapStudyStateRecord = (record: StudyAiStateRecord | null): ClassyStudyState | null => {
   if (!record) return null;
+
+  const weakTopics = record.weak_topics || [];
+  const masteredTopics = record.mastered_topics || [];
+  const openQuestions = record.open_questions || [];
+  const checkpointStatus: ClassyStudyState["checkpointStatus"] =
+    weakTopics.length > 0
+      ? "recommended"
+      : record.last_checkpoint_at
+      ? "fresh"
+      : "due";
 
   return {
     activeMode: record.active_mode,
@@ -91,6 +109,14 @@ const mapStudyStateRecord = (record: StudyAiStateRecord | null): ClassyStudyStat
     learnerLevel: record.learner_level,
     nextBestAction: record.next_best_action,
     userGoal: record.user_goal,
+    sessionSummary: record.session_summary,
+    masteredTopics,
+    weakTopics,
+    openQuestions,
+    lastCheckpointAt: record.last_checkpoint_at,
+    lastQuizScore: record.last_quiz_score,
+    lastQuizTotal: record.last_quiz_total,
+    checkpointStatus,
   };
 };
 
@@ -478,7 +504,7 @@ function StudyContent() {
     try {
       const { data, error } = await supabase
         .from("study_ai_state")
-        .select("active_mode, current_focus, learner_level, next_best_action, user_goal")
+        .select("active_mode, current_focus, learner_level, next_best_action, user_goal, session_summary, mastered_topics, weak_topics, open_questions, last_checkpoint_at, last_quiz_score, last_quiz_total")
         .eq("study_id", id)
         .maybeSingle();
 
@@ -1069,6 +1095,11 @@ function StudyContent() {
           </div>
         </header>
         <ClassyStudyStateBar state={studyAiState} compact />
+        <ClassyStudyResumeCard
+          state={studyAiState}
+          compact
+          onSuggestionClick={handleSuggestionClick}
+        />
 
         {/* Modals for access control */}
         <UpgradeModal open={showUpgradeModal} onOpenChange={setShowUpgradeModal} requiredPlan={requiredPlan} />
@@ -1795,6 +1826,10 @@ function StudyContent() {
         </div>
       </header>
       <ClassyStudyStateBar state={studyAiState} />
+      <ClassyStudyResumeCard
+        state={studyAiState}
+        onSuggestionClick={handleSuggestionClick}
+      />
 
       {/* Main Content Area - Responsive Layout based on sidebar state */}
       <div className="flex-1 flex min-w-0 overflow-hidden">
