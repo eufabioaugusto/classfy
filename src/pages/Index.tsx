@@ -9,6 +9,7 @@ import { SearchBar } from "@/components/SearchBar";
 import { ContinueStudyCard } from "@/components/ContinueStudyCard";
 import { ContentSection } from "@/components/ContentSection";
 import { FeaturedCreators } from "@/components/FeaturedCreators";
+import { ModeBridgeCard } from "@/components/ModeBridgeCard";
 import { SidebarProvider } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/AppSidebar";
 import { Header } from "@/components/Header";
@@ -30,7 +31,7 @@ export default function Index() {
   const [searchParams, setSearchParams] = useSearchParams();
   const { activeCount, limits, canCreateMore } = useStudies();
 
-  // Mode from URL param, defaulting to localStorage value or explore
+  // Mode from URL param, defaulting to explore for the homepage entry
   const modeFromUrl = searchParams.get("mode");
   const [isExploreMode, setIsExploreMode] = useState(true);
 
@@ -67,10 +68,9 @@ export default function Index() {
       return;
     }
 
-    const saved = localStorage.getItem("exploreMode");
-    const defaultExplore = saved ? JSON.parse(saved) : true;
-    setIsExploreMode(defaultExplore);
-    setSearchParams({ mode: defaultExplore ? "explore" : "focus" }, { replace: true });
+    setIsExploreMode(true);
+    localStorage.setItem("exploreMode", "true");
+    setSearchParams({ mode: "explore" }, { replace: true });
   }, [modeFromUrl, setSearchParams]);
 
   // Search state
@@ -282,13 +282,22 @@ export default function Index() {
                 <div className={`w-full max-w-5xl ${!hasSearched ? "mt-8 sm:mt-16 md:mt-32" : "mt-4 sm:mt-8"} transition-all duration-500`}>
                   {/* Title (only when no search) */}
                   {!hasSearched && (
-                    <div className="text-center mb-8 sm:mb-16 space-y-4 sm:space-y-6 animate-fade-in">
+                    <div className="mb-8 animate-fade-in space-y-6 sm:mb-16 sm:space-y-8">
+                      <ModeBridgeCard
+                        variant="focus-to-explore"
+                        isLoggedIn={Boolean(user)}
+                        plan={currentPlan as "free" | "pro" | "premium"}
+                        onAction={() => setMode(true)}
+                      />
+
+                      <div className="text-center space-y-4 sm:space-y-6">
                       <h1 className="text-3xl sm:text-4xl md:text-5xl lg:text-6xl font-bold text-foreground bg-gradient-to-br from-foreground to-foreground/70 bg-clip-text text-transparent px-2">
                         O que você quer aprender?
                       </h1>
                       <p className="text-base sm:text-lg md:text-xl text-muted-foreground max-w-2xl mx-auto font-medium px-4">
                         Digite um tema e crie um estudo personalizado com a Classy
                       </p>
+                      </div>
                     </div>
                   )}
 
@@ -405,6 +414,13 @@ export default function Index() {
                   </div>
                 ) : (
                   <>
+                    <ModeBridgeCard
+                      variant="explore-to-focus"
+                      isLoggedIn={Boolean(user)}
+                      plan={currentPlan as "free" | "pro" | "premium"}
+                      onAction={() => setMode(false)}
+                    />
+
                     {/* Featured Creators Section */}
                     <FeaturedCreators creators={featuredCreators} />
 
