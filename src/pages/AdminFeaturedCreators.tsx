@@ -64,6 +64,48 @@ const generateSlug = (name: string): string => {
     .trim();
 };
 
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const isRetryableStorageError = (error: unknown) => {
+  if (!error || typeof error !== "object") return false;
+
+  const maybeError = error as { statusCode?: string; message?: string; status?: number };
+  const statusCode = Number(maybeError.statusCode ?? maybeError.status ?? 0);
+  const message = (maybeError.message || "").toLowerCase();
+
+  return (
+    statusCode === 0 ||
+    statusCode === 429 ||
+    statusCode === 500 ||
+    statusCode === 502 ||
+    statusCode === 503 ||
+    statusCode === 504 ||
+    message.includes("service unavailable") ||
+    message.includes("network") ||
+    message.includes("timeout")
+  );
+};
+
+async function retryStorageUpload<T>(operation: () => Promise<T>, attempts = 3): Promise<T> {
+  let lastError: unknown;
+
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      return await operation();
+    } catch (error) {
+      lastError = error;
+
+      if (!isRetryableStorageError(error) || attempt === attempts) {
+        throw error;
+      }
+
+      await sleep(500 * attempt);
+    }
+  }
+
+  throw lastError;
+}
+
 const AdminFeaturedCreators = () => {
   const { user, role, loading: authLoading } = useAuth();
   const navigate = useNavigate();
@@ -161,14 +203,16 @@ const AdminFeaturedCreators = () => {
     const fileName = `${path}-${Date.now()}.${fileExt}`;
     const filePath = `${fileName}`;
 
-    const { error: uploadError } = await supabase.storage
-      .from("featured-creators")
-      .upload(filePath, file, {
-        cacheControl: "3600",
-        upsert: false,
-      });
+    await retryStorageUpload(async () => {
+      const { error: uploadError } = await supabase.storage
+        .from("featured-creators")
+        .upload(filePath, file, {
+          cacheControl: "3600",
+          upsert: false,
+        });
 
-    if (uploadError) throw uploadError;
+      if (uploadError) throw uploadError;
+    });
 
     const { data: { publicUrl } } = supabase.storage
       .from("featured-creators")
@@ -182,14 +226,16 @@ const AdminFeaturedCreators = () => {
     const fileName = `${path}-${Date.now()}.${fileExt}`;
     const filePath = `trailers/${fileName}`;
 
-    const { error: uploadError } = await supabase.storage
-      .from("featured-creators")
-      .upload(filePath, file, {
-        cacheControl: "3600",
-        upsert: false,
-      });
+    await retryStorageUpload(async () => {
+      const { error: uploadError } = await supabase.storage
+        .from("featured-creators")
+        .upload(filePath, file, {
+          cacheControl: "3600",
+          upsert: false,
+        });
 
-    if (uploadError) throw uploadError;
+      if (uploadError) throw uploadError;
+    });
 
     const { data: { publicUrl } } = supabase.storage
       .from("featured-creators")
@@ -351,7 +397,11 @@ const AdminFeaturedCreators = () => {
       fetchData();
     } catch (error) {
       console.error("Error saving featured creator:", error);
-      toast.error("Erro ao salvar creator");
+      toast.error(
+        isRetryableStorageError(error)
+          ? "O storage da mídia oscilou. Tentamos novamente automaticamente, mas não concluímos."
+          : "Erro ao salvar creator",
+      );
     } finally {
       setSubmitting(false);
     }
