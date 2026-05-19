@@ -56,78 +56,76 @@ export function UpgradePromptCard({
   ];
 
   return (
-    <div className="w-full max-w-lg mx-auto">
-      <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-zinc-900 via-zinc-900 to-zinc-800 border border-zinc-700/50 shadow-2xl">
+    <div className="w-full">
+      <div className="relative overflow-hidden rounded-3xl border border-zinc-700/40 bg-gradient-to-br from-zinc-950 via-zinc-900 to-zinc-900 shadow-2xl">
         {/* Decorative gradient orbs */}
         <div className="absolute -top-20 -right-20 w-40 h-40 bg-[#e21d48]/20 rounded-full blur-3xl" />
         <div className="absolute -bottom-20 -left-20 w-40 h-40 bg-amber-500/10 rounded-full blur-3xl" />
         
-        <div className="relative p-5 space-y-4">
-          {/* Social proof */}
-          <div className="flex items-center justify-center gap-2">
-            <div className="flex -space-x-2">
-              {avatars.map((avatar, i) => (
-                <div 
-                  key={i} 
-                  className="w-7 h-7 rounded-full border-2 border-zinc-900 overflow-hidden"
-                >
-                  <img src={avatar} alt="" className="w-full h-full object-cover" />
-                </div>
-              ))}
+        <div className="relative grid gap-5 p-5 lg:grid-cols-[1.15fr_1.25fr_220px] lg:items-center">
+          <div className="space-y-3">
+            <div className="flex items-center gap-2">
+              <div className="flex -space-x-2">
+                {avatars.map((avatar, i) => (
+                  <div 
+                    key={i} 
+                    className="h-7 w-7 overflow-hidden rounded-full border-2 border-zinc-900"
+                  >
+                    <img src={avatar} alt="" className="h-full w-full object-cover" />
+                  </div>
+                ))}
+              </div>
+              <div className="flex items-center gap-1.5 text-xs text-zinc-400">
+                <Users className="h-3.5 w-3.5" />
+                <span>+500 alunos já assinaram</span>
+              </div>
             </div>
-            <div className="flex items-center gap-1.5 text-xs text-zinc-400">
-              <Users className="w-3.5 h-3.5" />
-              <span>+500 alunos já assinaram</span>
+
+            <div className="space-y-2">
+              <div className="inline-flex items-center gap-1.5 rounded-full bg-[#e21d48]/15 px-3 py-1 text-xs font-medium text-[#ff6b85]">
+                <Sparkles className="h-3 w-3" />
+                Limite atingido
+              </div>
+              <h3 className="text-xl font-bold text-white">
+                Continue sua jornada de aprendizado, {userName.split(' ')[0]}.
+              </h3>
+              <p className="max-w-md text-sm leading-6 text-zinc-400">
+                Você usou <span className="font-semibold text-white">{messageCount}/{maxMessages}</span> mensagens neste estudo. Desbloqueie mais profundidade sem interromper sua evolução.
+              </p>
             </div>
           </div>
 
-          {/* Header */}
-          <div className="text-center space-y-2">
-            <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#e21d48]/20 text-[#e21d48] text-xs font-medium">
-              <Sparkles className="w-3 h-3" />
-              Limite atingido
-            </div>
-            <h3 className="text-lg md:text-xl font-bold text-white">
-              Continue sua jornada de aprendizado, {userName.split(' ')[0]}!
-            </h3>
-            <p className="text-sm text-zinc-400">
-              Você usou <span className="text-white font-semibold">{messageCount}/{maxMessages}</span> mensagens. 
-              Desbloqueie acesso ilimitado para aprender sem limites.
-            </p>
-          </div>
-
-          {/* Plans */}
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid gap-3 sm:grid-cols-2">
             {plans.map((plan) => (
               <div 
                 key={plan.id}
-                className={`relative rounded-xl p-3 border ${plan.borderColor} ${plan.bgColor} transition-all hover:scale-[1.02] cursor-pointer`}
+                className={`relative rounded-2xl p-4 border ${plan.borderColor} ${plan.bgColor} transition-all hover:scale-[1.01] cursor-pointer`}
                 onClick={() => navigate('/planos')}
               >
                 {plan.popular && (
-                  <div className="absolute -top-2 left-1/2 -translate-x-1/2 px-2 py-0.5 bg-gradient-to-r from-[#e21d48] to-rose-600 rounded-full text-[10px] font-bold text-white whitespace-nowrap">
+                  <div className="absolute -top-2 left-4 rounded-full bg-gradient-to-r from-[#e21d48] to-rose-600 px-2 py-0.5 text-[10px] font-bold text-white">
                     MAIS POPULAR
                   </div>
                 )}
                 
-                <div className="space-y-2">
+                <div className="space-y-3">
                   <div className="flex items-center gap-2">
-                    <div className={`p-1.5 rounded-lg ${plan.iconBg}`}>
-                      <plan.icon className="w-3.5 h-3.5 text-white" />
+                    <div className={`rounded-lg p-1.5 ${plan.iconBg}`}>
+                      <plan.icon className="h-3.5 w-3.5 text-white" />
                     </div>
-                    <span className="font-bold text-white text-sm">{plan.name}</span>
+                    <span className="text-sm font-bold text-white">{plan.name}</span>
                   </div>
 
                   <div className="flex items-baseline gap-1">
                     <span className="text-[10px] text-zinc-500 line-through">R$ {plan.originalPrice.toFixed(2).replace('.', ',')}</span>
-                    <span className="text-base font-bold text-white">R$ {plan.price.toFixed(2).replace('.', ',')}</span>
+                    <span className="text-lg font-bold text-white">R$ {plan.price.toFixed(2).replace('.', ',')}</span>
                     <span className="text-[10px] text-zinc-400">/mês</span>
                   </div>
 
-                  <div className="space-y-1">
+                  <div className="space-y-1.5">
                     {plan.features.map((feature, i) => (
                       <div key={i} className="flex items-center gap-1.5 text-[11px] text-zinc-300">
-                        <Check className="w-3 h-3 text-emerald-400 flex-shrink-0" />
+                        <Check className="h-3 w-3 shrink-0 text-emerald-400" />
                         <span>{feature}</span>
                       </div>
                     ))}
@@ -137,19 +135,18 @@ export function UpgradePromptCard({
             ))}
           </div>
 
-          {/* CTA Button */}
-          <Button 
-            className="w-full h-11 text-sm font-semibold bg-gradient-to-r from-[#e21d48] to-rose-600 hover:from-[#c91a3d] hover:to-rose-700 shadow-lg shadow-[#e21d48]/25 border-0"
-            onClick={() => navigate('/planos')}
-          >
-            <Zap className="w-4 h-4 mr-2" />
-            Fazer Upgrade Agora
-          </Button>
-
-          {/* Urgency text */}
-          <p className="text-center text-[11px] text-zinc-500">
-            ⏰ Oferta por tempo limitado • Cancele quando quiser
-          </p>
+          <div className="flex flex-col gap-3">
+            <Button 
+              className="h-11 w-full border-0 bg-gradient-to-r from-[#e21d48] to-rose-600 text-sm font-semibold shadow-lg shadow-[#e21d48]/25 hover:from-[#c91a3d] hover:to-rose-700"
+              onClick={() => navigate('/planos')}
+            >
+              <Zap className="mr-2 h-4 w-4" />
+              Fazer Upgrade Agora
+            </Button>
+            <p className="text-center text-[11px] text-zinc-500 lg:text-left">
+              Oferta por tempo limitado • Cancele quando quiser
+            </p>
+          </div>
         </div>
       </div>
     </div>

@@ -871,10 +871,10 @@ function shouldSearchRelatedContent(options: {
   latestQuizAttempt: any;
 }) {
   if (options.activeMode === "onboard") return false;
-  if (options.isFirstMessage || options.currentUserMessageCount < 2) return false;
+  if (options.isFirstMessage || options.currentUserMessageCount < 1) return false;
   if (options.activeMode === "recommend" || options.activeMode === "plan") return true;
   if (options.latestQuizAttempt?.max_score && options.latestQuizAttempt.score / options.latestQuizAttempt.max_score < 0.7) return true;
-  if (options.activeMode === "explain") return false;
+  if (options.activeMode === "explain" && !options.hasActiveContent) return true;
   if (!options.hasActiveContent) return true;
   return false;
 }
@@ -1535,35 +1535,6 @@ function buildUiBlocks(options: {
     return blocks;
   }
 
-  if (options.isReturningStudy && !options.isFirstMessage) {
-    blocks.push({
-      type: "resume",
-      title: "Retomada inteligente",
-      body: options.sessionSummary,
-    });
-  }
-
-  if (
-    !options.isFirstMessage &&
-    (
-      options.checkpointStatus !== "fresh" ||
-      (options.latestQuizAttempt?.max_score && options.latestQuizAttempt.score / options.latestQuizAttempt.max_score < 0.7)
-    )
-  ) {
-    blocks.push({
-      type: "checkpoint",
-      title: options.checkpointStatus === "recommended" ? "Checkpoint de recuperação" : "Checkpoint de continuidade",
-      bullets: [
-        options.latestQuizAttempt?.max_score
-          ? `Seu último quiz ficou em ${options.latestQuizAttempt.score}/${options.latestQuizAttempt.max_score}.`
-          : `Seu foco atual é ${options.currentFocus || "este tema"}.`,
-        options.checkpointStatus === "recommended"
-          ? "Vale revisar os fundamentos antes de avançar."
-          : "Este é um bom momento para consolidar o que já foi visto.",
-      ],
-    });
-  }
-
   if (options.activeMode === "practice") {
     blocks.push({
       type: "practice",
@@ -1583,20 +1554,20 @@ function buildUiBlocks(options: {
   if (options.recommendedPath.length > 0 && (options.activeMode === "plan" || options.activeMode === "recommend" || options.activeMode === "review")) {
     blocks.push({
       type: "trail",
-      title: "Trilha sugerida",
+      title: "Rota sugerida",
       bullets: options.livePlanSteps.slice(0, 3),
     });
   }
 
-  if (options.activeMode !== "onboard" && !options.isFirstMessage && options.nextBestAction) {
+  if (options.activeMode !== "onboard" && !options.isFirstMessage && options.nextBestAction && blocks.length === 0) {
     blocks.push({
       type: "next_step",
-      title: "Próximo passo",
+      title: "Sugestão da Classy",
       action: options.nextBestAction,
     });
   }
 
-  return blocks.slice(0, 2);
+  return blocks.slice(0, 1);
 }
 
 function extractFocusFromMessage(message: string) {

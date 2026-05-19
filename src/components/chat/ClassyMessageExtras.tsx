@@ -56,7 +56,7 @@ export function ClassyMessageExtras({
 }: ClassyMessageExtrasProps) {
   if (!metadata) return null;
 
-  const blocks = metadata.ui_blocks || [];
+  const blocks = (metadata.ui_blocks || []).filter((block) => !["resume", "checkpoint"].includes(block.type));
   const suggestions = metadata.follow_up_suggestions || [];
   const citations = metadata.citations || [];
   const contentStrategy = metadata.content_strategy;
@@ -68,37 +68,32 @@ export function ClassyMessageExtras({
 
   return (
     <div className={cn("space-y-3", compact && "space-y-2")}>
-      {(contentStrategy || sourceTransparency) && (
-        <div className="flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
-          {contentStrategy && (
-            <span className="inline-flex items-center rounded-full border border-border/60 bg-muted/25 px-2.5 py-1">
-              {contentStrategyLabel[contentStrategy] || contentStrategy}
-            </span>
-          )}
-          {sourceTransparency && (
-            <span className="inline-flex items-center rounded-full border border-border/60 bg-muted/15 px-2.5 py-1">
-              {sourceTransparency}
-            </span>
-          )}
-        </div>
-      )}
-
       {blocks.length > 0 && (
         <div className="space-y-2">
-          {blocks.map((block, index) => (
+          {blocks.slice(0, 1).map((block, index) => (
             <div
               key={`${block.type}-${index}`}
-              className="rounded-xl border border-border/50 bg-card/60 px-3 py-2.5"
+              className="rounded-2xl border border-primary/15 bg-gradient-to-br from-primary/10 via-primary/5 to-transparent px-4 py-3"
             >
-              <p className="text-[11px] font-semibold uppercase tracking-wide text-primary">{block.title}</p>
-              {block.body && <p className="mt-1 text-sm text-foreground">{block.body}</p>}
-              {block.prompt && <p className="mt-1 text-sm text-foreground">{block.prompt}</p>}
-              {block.action && <p className="mt-1 text-sm text-foreground">{block.action}</p>}
+              <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-primary">
+                {block.type === "trail"
+                  ? "Rota sugerida"
+                  : block.type === "next_step"
+                  ? "Próximo passo"
+                  : block.type === "practice"
+                  ? "Prática guiada"
+                  : block.type === "celebration"
+                  ? "Sinal de progresso"
+                  : block.title}
+              </p>
+              {block.body && <p className="mt-1.5 text-sm leading-6 text-foreground">{block.body}</p>}
+              {block.prompt && <p className="mt-1.5 text-sm leading-6 text-foreground">{block.prompt}</p>}
+              {block.action && <p className="mt-1.5 text-sm leading-6 text-foreground">{block.action}</p>}
               {block.bullets && block.bullets.length > 0 && (
-                <ul className="mt-2 space-y-1 text-sm text-foreground">
+                <ul className="mt-2.5 space-y-1.5 text-sm text-foreground">
                   {block.bullets.map((bullet) => (
                     <li key={bullet} className="flex gap-2">
-                      <span className="mt-1 h-1.5 w-1.5 rounded-full bg-primary shrink-0" />
+                      <span className="mt-1.5 h-1.5 w-1.5 rounded-full bg-primary shrink-0" />
                       <span>{bullet}</span>
                     </li>
                   ))}

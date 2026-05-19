@@ -14,8 +14,7 @@ import { StudyUsageIndicator } from "@/components/StudyUsageIndicator";
 import { ChatContentCard } from "@/components/ChatContentCard";
 import { ChatMessage } from "@/components/chat/ChatMessage";
 import { ClassyMessageExtras, ClassyMessageMetadata } from "@/components/chat/ClassyMessageExtras";
-import { ClassyStudyResumeCard } from "@/components/chat/ClassyStudyResumeCard";
-import { ClassyStudyState, ClassyStudyStateBar } from "@/components/chat/ClassyStudyStateBar";
+import { ClassyStudyState } from "@/components/chat/ClassyStudyStateBar";
 import { UpgradePromptCard } from "@/components/chat/UpgradePromptCard";
 import { UnifiedVideoPlayer } from "@/components/unified/UnifiedVideoPlayer";
 import { SocialBar } from "@/components/unified/SocialBar";
@@ -168,6 +167,15 @@ const getInitialConversationErrorMessage = (error: any) => {
   }
 
   return "Erro ao iniciar conversa. Tente novamente.";
+};
+
+const modeLabelMap: Record<ClassyStudyState["activeMode"], string> = {
+  onboard: "Onboarding",
+  explain: "Explicando",
+  recommend: "Curadoria",
+  practice: "Prática",
+  review: "Revisão",
+  plan: "Plano",
 };
 
 const buildInitialAssistantReply = (studyTitle: string, userName?: string | null) => {
@@ -808,8 +816,6 @@ function StudyContent() {
           open_questions: INITIAL_ONBOARDING_SUGGESTIONS,
         });
 
-      await fetchMessages();
-      await fetchStudyAiState();
       await updateLastActivity(id);
 
       const { data: updatedStudy } = await supabase
@@ -844,10 +850,8 @@ function StudyContent() {
   const thinkingLabel = thinkingPhrases[thinkingPhraseIndex % thinkingPhrases.length];
   const hasDetailedStudyState = Boolean(
     studyAiState &&
-    !isEarlyOnboarding &&
+    userMessagesCount >= 2 &&
     (
-      studyAiState.sessionSummary ||
-      studyAiState.nextBestAction ||
       (studyAiState.livePlanSteps?.length || 0) > 0 ||
       (studyAiState.masteredTopics?.length || 0) > 0 ||
       (studyAiState.weakTopics?.length || 0) > 0 ||
@@ -1258,52 +1262,56 @@ function StudyContent() {
     ).join("");
   };
 
-  const studyMapSummary = studyAiState?.sessionSummary
-    || studyAiState?.nextBestAction
+  const studyMapTitle = studyAiState?.livePlanSteps?.length
+    ? "Sua rota de aprendizado está pronta"
+    : studyAiState?.lastCelebration
+    ? "Seu progresso já começou a aparecer"
+    : "Veja sua direção de estudo";
+  const studyMapSummary = studyAiState?.nextBestAction
     || studyAiState?.lastCelebration
     || "Abra para ver foco, próximos passos e sinais da sua jornada.";
+  const studyMapHighlights = [
+    studyAiState?.currentFocus,
+    studyAiState?.activeMode ? modeLabelMap[studyAiState.activeMode] : null,
+    typeof studyAiState?.lastQuizScore === "number" && typeof studyAiState?.lastQuizTotal === "number"
+      ? `Quiz ${studyAiState.lastQuizScore}/${studyAiState.lastQuizTotal}`
+      : null,
+  ].filter(Boolean) as string[];
 
   const studyMapCard = hasDetailedStudyState ? (
     <button
       type="button"
       onClick={() => setStudyMapDialogOpen(true)}
-      className="w-full rounded-2xl border border-border/60 bg-card/70 p-4 text-left shadow-sm transition-all hover:border-primary/40 hover:bg-card"
+      className="w-full rounded-3xl border border-primary/15 bg-gradient-to-br from-primary/12 via-primary/5 to-background p-4 text-left shadow-sm transition-all hover:border-primary/35 hover:shadow-md"
     >
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 space-y-2">
-          <div className="inline-flex items-center gap-2 rounded-full border border-primary/15 bg-primary/5 px-2.5 py-1 text-[11px] font-medium uppercase tracking-[0.14em] text-primary/85">
+          <div className="inline-flex items-center gap-2 rounded-full border border-primary/15 bg-background/70 px-2.5 py-1 text-[11px] font-medium uppercase tracking-[0.14em] text-primary/85">
             <Sparkles className="h-3 w-3" />
             Mapa do estudo
           </div>
-          <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-            <span className="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-background/60 px-2.5 py-1">
-              <Brain className="h-3 w-3" />
-              {studyAiState?.activeMode === "review"
-                ? "Revisão"
-                : studyAiState?.activeMode === "practice"
-                ? "Prática"
-                : studyAiState?.activeMode === "plan"
-                ? "Plano"
-                : studyAiState?.activeMode === "recommend"
-                ? "Curadoria"
-                : studyAiState?.activeMode === "explain"
-                ? "Explicando"
-                : "Onboarding"}
-            </span>
-            {studyAiState?.currentFocus && (
-              <span className="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-background/60 px-2.5 py-1">
-                <Compass className="h-3 w-3" />
-                {studyAiState.currentFocus}
-              </span>
-            )}
-          </div>
-          <p className="line-clamp-2 text-sm leading-6 text-foreground/90">
+          <h3 className="text-base font-semibold leading-6 text-foreground">
+            {studyMapTitle}
+          </h3>
+          <p className="line-clamp-2 text-sm leading-6 text-muted-foreground">
             {studyMapSummary}
           </p>
+          {studyMapHighlights.length > 0 && (
+            <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+              {studyMapHighlights.slice(0, 3).map((highlight) => (
+                <span
+                  key={highlight}
+                  className="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-background/65 px-2.5 py-1"
+                >
+                  <Brain className="h-3 w-3" />
+                  {highlight}
+                </span>
+              ))}
+            </div>
+          )}
         </div>
-        <div className="inline-flex shrink-0 items-center gap-1 rounded-full border border-border/60 bg-background/70 px-3 py-1.5 text-xs font-medium text-foreground">
-          Ver detalhes
-          <ChevronRightIcon className="h-3.5 w-3.5" />
+        <div className="inline-flex shrink-0 items-center justify-center rounded-full border border-border/60 bg-background/80 p-2 text-foreground">
+          <ChevronRightIcon className="h-4 w-4" />
         </div>
       </div>
     </button>
@@ -1319,12 +1327,90 @@ function StudyContent() {
           </DialogDescription>
         </DialogHeader>
         <ScrollArea className="max-h-[calc(85vh-88px)]">
-          <div className="space-y-1 p-1">
-            <ClassyStudyStateBar state={studyAiState} />
-            <ClassyStudyResumeCard
-              state={studyAiState}
-              onSuggestionClick={handleSuggestionClick}
-            />
+          <div className="space-y-4 p-6">
+            <div className="grid gap-3 md:grid-cols-3">
+              <div className="rounded-2xl border border-border/60 bg-muted/35 p-4">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Foco</p>
+                <p className="mt-2 text-sm font-medium text-foreground">{studyAiState?.currentFocus || studyAiState?.userGoal || study.title}</p>
+              </div>
+              <div className="rounded-2xl border border-border/60 bg-muted/35 p-4">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Modo atual</p>
+                <p className="mt-2 text-sm font-medium text-foreground">{studyAiState?.activeMode ? modeLabelMap[studyAiState.activeMode] : "Em andamento"}</p>
+              </div>
+              <div className="rounded-2xl border border-primary/20 bg-primary/8 p-4">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-primary/80">Próximo passo</p>
+                <p className="mt-2 text-sm font-medium text-foreground">{studyAiState?.nextBestAction || "Continue a conversa para a Classy ajustar sua direção."}</p>
+              </div>
+            </div>
+
+            {(studyAiState?.livePlanSteps?.length || 0) > 0 && (
+              <div className="rounded-3xl border border-border/60 bg-card p-5">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-primary/85">Rota sugerida</p>
+                <div className="mt-4 space-y-2.5">
+                  {studyAiState?.livePlanSteps?.slice(0, 4).map((step, index) => (
+                    <div key={step} className="flex gap-3 rounded-2xl border border-border/50 bg-muted/25 px-4 py-3">
+                      <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary/12 text-xs font-semibold text-primary">
+                        {index + 1}
+                      </div>
+                      <p className="text-sm leading-6 text-foreground">{step}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {((studyAiState?.masteredTopics?.length || 0) > 0 || (studyAiState?.weakTopics?.length || 0) > 0) && (
+              <div className="grid gap-3 md:grid-cols-2">
+                {(studyAiState?.masteredTopics?.length || 0) > 0 && (
+                  <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/8 p-4">
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-emerald-700">Já está firme</p>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {studyAiState?.masteredTopics?.slice(0, 4).map((topic) => (
+                        <span key={topic} className="rounded-full border border-emerald-500/20 bg-background/70 px-3 py-1 text-xs text-foreground">
+                          {topic}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {(studyAiState?.weakTopics?.length || 0) > 0 && (
+                  <div className="rounded-2xl border border-amber-500/20 bg-amber-500/8 p-4">
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-amber-700">Vale revisar</p>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {studyAiState?.weakTopics?.slice(0, 4).map((topic) => (
+                        <span key={topic} className="rounded-full border border-amber-500/20 bg-background/70 px-3 py-1 text-xs text-foreground">
+                          {topic}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {(studyAiState?.openQuestions?.length || 0) > 0 && (
+              <div className="rounded-2xl border border-border/60 bg-card p-4">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Próximos atalhos úteis</p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {studyAiState?.openQuestions?.slice(0, 3).map((question) => (
+                    <Button
+                      key={question}
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="h-8 rounded-full text-xs"
+                      onClick={() => {
+                        setStudyMapDialogOpen(false);
+                        handleSuggestionClick(question);
+                      }}
+                    >
+                      {question}
+                    </Button>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         </ScrollArea>
       </DialogContent>

@@ -29,7 +29,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({
   if (role === 'user') {
     return (
       <div className={cn(
-        "bg-primary text-primary-foreground rounded-2xl rounded-tr-md px-4 py-3 max-w-[80%]",
+        "bg-muted text-foreground rounded-2xl rounded-tr-md px-4 py-3 max-w-[80%] border border-border/60 shadow-sm",
         className
       )}>
         <p className="whitespace-pre-wrap">{content}</p>
@@ -39,7 +39,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({
 
   return (
     <div className={cn(
-      "bg-muted/50 text-foreground rounded-2xl rounded-tl-md px-5 py-4 max-w-[85%] shadow-sm border border-border/30",
+      "text-foreground rounded-2xl rounded-tl-md px-0 py-1 max-w-[85%]",
       !animationComplete && "animate-fade-in",
       className
     )}>
