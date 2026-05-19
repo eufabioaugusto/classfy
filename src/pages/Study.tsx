@@ -178,29 +178,6 @@ const modeLabelMap: Record<ClassyStudyState["activeMode"], string> = {
   plan: "Plano",
 };
 
-const ClassySparkIcon = ({ className }: { className?: string }) => (
-  <svg
-    viewBox="0 0 128 128"
-    aria-hidden="true"
-    className={cn("h-14 w-14", className)}
-  >
-    <path
-      d="M38 16c8 6 11 6 19 2 9-5 17-3 21 6 3 8 6 10 14 11 10 2 14 9 11 18-3 8-2 12 4 18 8 8 7 16-2 23-7 5-8 8-6 16 3 10-2 17-12 19-8 2-10 4-12 12-2 10-9 14-18 11-8-3-12-2-18 4-8 8-16 7-23-2-5-7-8-8-16-6-10 3-17-2-19-12-2-8-4-10-12-12-10-2-14-9-11-18 3-8 2-12-4-18-8-8-7-16 2-23 7-5 8-8 6-16-3-10 2-17 12-19 8-2 10-4 12-12 2-10 9-14 18-11 8 3 12 2 18-4Z"
-      fill="#ffd6de"
-    />
-    <path
-      d="M66 18l12 23 26 4-19 18 5 26-24-12-23 12 4-26-18-18 25-4 12-23Z"
-      fill="#ef4e68"
-      stroke="#781321"
-      strokeWidth="3"
-      strokeLinejoin="round"
-    />
-    <path d="M55 57c3-4 7-4 10 0M78 53c1 0 2 1 2 2s-1 2-2 2-2-1-2-2 1-2 2-2ZM56 65c1 0 2 1 2 2s-1 2-2 2-2-1-2-2 1-2 2-2Z" stroke="#781321" strokeWidth="3" strokeLinecap="round"/>
-    <path d="M61 75c5 4 10 4 15 0" stroke="#781321" strokeWidth="3" strokeLinecap="round"/>
-    <path d="M24 26c3 4 6 5 10 4M95 19c-1 5 0 8 4 11M19 96c4-2 7-2 10 0M103 88c5 0 8 1 11 4M17 49c4 0 6-1 8-4M104 55c3 3 5 4 9 4" stroke="#781321" strokeWidth="3" strokeLinecap="round"/>
-  </svg>
-);
-
 const buildInitialAssistantReply = (studyTitle: string, userName?: string | null) => {
   const firstName = userName?.trim()?.split(" ")[0];
   const greetingPrefix = firstName ? `Olá, ${firstName}!` : "Olá!";
@@ -1388,51 +1365,56 @@ function StudyContent() {
       <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between lg:gap-4">
         <div className="flex min-w-0 flex-1 items-start gap-3">
           <div className="shrink-0 pt-0.5">
-            <ClassySparkIcon className="h-11 w-11" />
+            <img
+              src="/star-red.png"
+              alt=""
+              aria-hidden="true"
+              className="h-11 w-11 object-contain"
+            />
           </div>
           <div className="min-w-0 flex-1">
             <p className="truncate text-xs leading-5 text-foreground/80 dark:text-white/78">
               <span className="font-semibold italic text-primary">Classy:</span>{" "}
               {studyHeaderSummary.replace(/^Classy:\s*/, "")}
             </p>
-            <div className="mt-1.5 flex min-w-0 flex-col gap-2 lg:flex-row lg:items-center lg:gap-4">
-              <div className="min-w-0 flex-1">
+            <div className="mt-1.5 min-w-0">
                 <div className="h-1.5 w-full max-w-[260px] overflow-hidden rounded-full bg-black/10 dark:bg-white/10">
                   <div
                     className="h-full rounded-full bg-primary transition-all"
                     style={{ width: `${Math.max(studyProgressPercent, 3)}%` }}
                   />
                 </div>
-                <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-foreground/72 dark:text-white/68">
+                <div className="mt-2 flex min-w-0 flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
+                  <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-foreground/72 dark:text-white/68">
                   <span>{studyProgressPercent}% concluído</span>
                   <span className="inline-flex items-center gap-1"><PlayCircle className="h-3.5 w-3.5" /> {savedPlaylists.size} playlists</span>
                   <span className="inline-flex items-center gap-1"><BookOpen className="h-3.5 w-3.5" /> {studyVideosCount} vídeos</span>
                   <span className="inline-flex items-center gap-1"><StickyNote className="h-3.5 w-3.5" /> {studyNotesCount} anotações</span>
                   <span className="inline-flex items-center gap-1"><Clock className="h-3.5 w-3.5" /> {studyTotalMinutes}min</span>
+                  </div>
+                  <div className="flex shrink-0 flex-wrap items-center gap-2">
+                    {studyMapHighlights.slice(1, 2).map((highlight) => (
+                      <span
+                        key={highlight}
+                        className="inline-flex items-center gap-1.5 rounded-full bg-background/85 px-3 py-1 text-[11px] font-medium text-foreground/80 dark:bg-white/8 dark:text-white/75"
+                      >
+                        <Brain className="h-3.5 w-3.5 text-muted-foreground dark:text-white/45" />
+                        {highlight}
+                      </span>
+                    ))}
+                    <span className="inline-flex items-center gap-1.5 rounded-full bg-background/85 px-3 py-1 text-[11px] font-medium text-foreground/80 dark:bg-white/8 dark:text-white/75">
+                      <Coins className="h-3.5 w-3.5 text-primary" />
+                      R$ {studyRewardsTotal.toFixed(2)}
+                    </span>
+                    <span className="inline-flex items-center gap-2 rounded-full bg-background px-4 py-2 text-xs font-semibold text-foreground dark:bg-white dark:text-zinc-900">
+                      Ver plano
+                      <ChevronRightIcon className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
+                    </span>
+                  </div>
                 </div>
-              </div>
-              <div className="flex shrink-0 flex-wrap items-center gap-2">
-                {studyMapHighlights.slice(0, 2).map((highlight, index) => (
-                <span
-                  key={highlight}
-                  className="inline-flex items-center gap-1.5 rounded-full bg-background/85 px-3 py-1 text-[11px] font-medium text-foreground/80 dark:bg-white/8 dark:text-white/75"
-                >
-                  {index === 0 ? <Compass className="h-3.5 w-3.5 text-primary" /> : <Brain className="h-3.5 w-3.5 text-muted-foreground dark:text-white/45" />}
-                  {highlight}
-                </span>
-                ))}
-                <span className="inline-flex items-center gap-1.5 rounded-full bg-background/85 px-3 py-1 text-[11px] font-medium text-foreground/80 dark:bg-white/8 dark:text-white/75">
-                  <Coins className="h-3.5 w-3.5 text-primary" />
-                  R$ {studyRewardsTotal.toFixed(2)}
-                </span>
-                <span className="inline-flex items-center gap-2 rounded-full bg-background px-4 py-2 text-xs font-semibold text-foreground dark:bg-white dark:text-zinc-900">
-                  Ver plano
-                  <ChevronRightIcon className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
-                </span>
               </div>
             </div>
           </div>
-        </div>
       </div>
     </button>
   ) : null;
