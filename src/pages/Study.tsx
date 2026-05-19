@@ -1282,20 +1282,21 @@ function StudyContent() {
     <button
       type="button"
       onClick={() => setStudyMapDialogOpen(true)}
-      className="group relative w-full overflow-hidden rounded-[28px] border border-primary/15 bg-gradient-to-r from-[#221117] via-[#181215] to-[#131214] p-5 text-left shadow-[0_16px_40px_rgba(0,0,0,0.18)] transition-all hover:-translate-y-0.5 hover:border-primary/25 hover:shadow-[0_20px_50px_rgba(0,0,0,0.24)]"
+      className="group relative w-full overflow-hidden rounded-[28px] border border-primary/15 bg-gradient-to-r from-rose-50 via-background to-amber-50 p-5 text-left shadow-[0_18px_44px_rgba(15,23,42,0.08)] transition-all hover:-translate-y-0.5 hover:border-primary/25 hover:shadow-[0_20px_50px_rgba(15,23,42,0.12)] dark:border-primary/20 dark:bg-gradient-to-r dark:from-[#1f1218] dark:via-[#171316] dark:to-[#131214] dark:shadow-[0_18px_44px_rgba(0,0,0,0.28)] dark:hover:shadow-[0_22px_54px_rgba(0,0,0,0.36)]"
     >
-      <div className="absolute inset-y-0 left-0 w-px bg-gradient-to-b from-primary/0 via-primary/70 to-primary/0" />
+      <div className="absolute inset-y-0 left-0 w-[3px] bg-gradient-to-b from-primary/20 via-primary to-primary/20" />
+      <div className="absolute right-0 top-0 h-32 w-32 rounded-full bg-primary/10 blur-3xl dark:bg-primary/14" />
 
-      <div className="relative flex items-center justify-between gap-5">
+      <div className="relative flex items-start justify-between gap-5">
         <div className="min-w-0 space-y-3">
-          <div className="inline-flex items-center gap-2 rounded-full border border-white/8 bg-white/5 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-white/80">
+          <div className="inline-flex items-center gap-2 rounded-full border border-primary/15 bg-background/80 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground shadow-sm dark:border-white/8 dark:bg-white/5 dark:text-white/75">
             <Sparkles className="h-3 w-3 text-primary" />
             Mapa do estudo
           </div>
-          <h3 className="text-lg font-semibold leading-7 text-white md:text-[22px]">
+          <h3 className="text-lg font-semibold leading-7 text-foreground md:text-[22px] dark:text-white">
             {studyMapTitle}
           </h3>
-          <p className="max-w-2xl text-sm leading-6 text-white/62">
+          <p className="max-w-2xl text-sm leading-6 text-muted-foreground dark:text-white/65">
             {studyMapSummary}
           </p>
           {studyMapHighlights.length > 0 && (
@@ -1303,20 +1304,20 @@ function StudyContent() {
               {studyMapHighlights.slice(0, 2).map((highlight, index) => (
                 <span
                   key={highlight}
-                  className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium ${
+                  className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium shadow-sm ${
                     index === 0
-                      ? "border-primary/20 bg-primary/12 text-white/90"
-                      : "border-white/8 bg-white/5 text-white/70"
+                      ? "border-primary/20 bg-primary/8 text-foreground dark:bg-primary/12 dark:text-white/90"
+                      : "border-border/70 bg-background/85 text-muted-foreground dark:border-white/8 dark:bg-white/5 dark:text-white/70"
                   }`}
                 >
-                  {index === 0 ? <Compass className="h-3.5 w-3.5 text-primary" /> : <Brain className="h-3.5 w-3.5 text-white/50" />}
+                  {index === 0 ? <Compass className="h-3.5 w-3.5 text-primary" /> : <Brain className="h-3.5 w-3.5 text-muted-foreground dark:text-white/50" />}
                   {highlight}
                 </span>
               ))}
             </div>
           )}
         </div>
-        <div className="inline-flex shrink-0 items-center gap-2 rounded-full border border-white/10 bg-white px-4 py-2 text-xs font-semibold text-zinc-900 shadow-lg shadow-black/10">
+        <div className="inline-flex shrink-0 items-center gap-2 rounded-full border border-primary/15 bg-background/90 px-4 py-2 text-xs font-semibold text-foreground shadow-lg shadow-primary/10 dark:border-white/10 dark:bg-white dark:text-zinc-900 dark:shadow-black/10">
           Ver plano
           <ChevronRightIcon className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
         </div>
