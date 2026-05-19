@@ -2280,7 +2280,7 @@ function StudyContent() {
             )}
           </div>
 
-          <div className="min-w-0 flex-1">
+          <div className="min-w-0 w-full max-w-4xl flex-[0_1_896px]">
             {studyMapCard}
           </div>
 
