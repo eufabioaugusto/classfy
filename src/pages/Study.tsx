@@ -1362,8 +1362,8 @@ function StudyContent() {
       onClick={() => setStudyMapDialogOpen(true)}
       className="group w-full rounded-[22px] border border-border/70 bg-[#e21e480d] px-4 py-3 text-left transition-colors hover:border-primary/20 dark:border-white/10 dark:bg-[#2a141acc]"
     >
-      <div className="flex flex-col gap-3 lg:grid lg:grid-cols-[minmax(0,1.5fr)_minmax(260px,1fr)_auto] lg:items-center lg:gap-4">
-        <div className="flex min-w-0 items-start gap-3">
+      <div className="flex flex-col gap-3 lg:flex lg:items-center lg:justify-between lg:gap-6">
+        <div className="flex min-w-0 items-start gap-3 lg:max-w-[340px] lg:flex-[0_1_34%]">
           <div className="shrink-0 pt-0.5">
             <img
               src="/star-red.png"
@@ -1379,7 +1379,7 @@ function StudyContent() {
             </p>
           </div>
         </div>
-        <div className="min-w-0">
+        <div className="min-w-0 lg:min-w-[280px] lg:flex-[0_1_36%]">
           <div className="h-1.5 w-full overflow-hidden rounded-full bg-black/10 dark:bg-white/10">
             <div
               className="h-full rounded-full bg-primary transition-all"
@@ -1394,7 +1394,7 @@ function StudyContent() {
             <span className="inline-flex items-center gap-1"><Clock className="h-3.5 w-3.5" /> {studyTotalMinutes}min</span>
           </div>
         </div>
-        <div className="flex shrink-0 flex-wrap items-center gap-2 lg:justify-end">
+        <div className="flex shrink-0 flex-wrap items-center gap-2 lg:ml-auto lg:justify-end">
           {studyMapHighlights.slice(1, 2).map((highlight) => (
             <span
               key={highlight}
