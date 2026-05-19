@@ -1383,61 +1383,55 @@ function StudyContent() {
     <button
       type="button"
       onClick={() => setStudyMapDialogOpen(true)}
-      className="group w-full rounded-[28px] border border-border/70 bg-[#e21e480d] p-4 text-left transition-colors hover:border-primary/20 dark:border-white/10 dark:bg-[#2a141acc]"
+      className="group w-full rounded-[22px] border border-border/70 bg-[#e21e480d] px-4 py-3 text-left transition-colors hover:border-primary/20 dark:border-white/10 dark:bg-[#2a141acc]"
     >
-      <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-        <div className="flex min-w-0 gap-4">
-          <div className="shrink-0">
-            <ClassySparkIcon className="h-16 w-16" />
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between lg:gap-4">
+        <div className="flex min-w-0 flex-1 items-start gap-3">
+          <div className="shrink-0 pt-0.5">
+            <ClassySparkIcon className="h-11 w-11" />
           </div>
-          <div className="min-w-0 flex-1 space-y-3">
-            <div className="space-y-2">
-              <p className="text-sm leading-6 text-foreground/85 dark:text-white/80">
-                <span className="font-semibold italic text-primary">Classy:</span>{" "}
-                {studyHeaderSummary.replace(/^Classy:\s*/, "")}
-              </p>
-              <div className="h-2 overflow-hidden rounded-full bg-black/12 dark:bg-white/12">
-                <div
-                  className="h-full rounded-full bg-primary transition-all"
-                  style={{ width: `${Math.max(studyProgressPercent, 3)}%` }}
-                />
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-xs leading-5 text-foreground/80 dark:text-white/78">
+              <span className="font-semibold italic text-primary">Classy:</span>{" "}
+              {studyHeaderSummary.replace(/^Classy:\s*/, "")}
+            </p>
+            <div className="mt-1.5 flex min-w-0 flex-col gap-2 lg:flex-row lg:items-center lg:gap-4">
+              <div className="min-w-0 flex-1">
+                <div className="h-1.5 w-full max-w-[260px] overflow-hidden rounded-full bg-black/10 dark:bg-white/10">
+                  <div
+                    className="h-full rounded-full bg-primary transition-all"
+                    style={{ width: `${Math.max(studyProgressPercent, 3)}%` }}
+                  />
+                </div>
+                <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-foreground/72 dark:text-white/68">
+                  <span>{studyProgressPercent}% concluído</span>
+                  <span className="inline-flex items-center gap-1"><PlayCircle className="h-3.5 w-3.5" /> {savedPlaylists.size} playlists</span>
+                  <span className="inline-flex items-center gap-1"><BookOpen className="h-3.5 w-3.5" /> {studyVideosCount} vídeos</span>
+                  <span className="inline-flex items-center gap-1"><StickyNote className="h-3.5 w-3.5" /> {studyNotesCount} anotações</span>
+                  <span className="inline-flex items-center gap-1"><Clock className="h-3.5 w-3.5" /> {studyTotalMinutes}min</span>
+                </div>
               </div>
-              <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-xs text-foreground/75 dark:text-white/72">
-                <span>{studyProgressPercent}% concluído</span>
-                <span className="inline-flex items-center gap-1.5"><PlayCircle className="h-3.5 w-3.5" /> {savedPlaylists.size} Playlists</span>
-                <span className="inline-flex items-center gap-1.5"><BookOpen className="h-3.5 w-3.5" /> {studyVideosCount} Vídeos</span>
-                <span className="inline-flex items-center gap-1.5"><StickyNote className="h-3.5 w-3.5" /> {studyNotesCount} Anotações</span>
-                <span className="inline-flex items-center gap-1.5"><Clock className="h-3.5 w-3.5" /> {studyTotalMinutes}min</span>
-              </div>
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              {studyMapHighlights.length > 0 && (
-                <>
+              <div className="flex shrink-0 flex-wrap items-center gap-2">
                 {studyMapHighlights.slice(0, 2).map((highlight, index) => (
-                  <span
-                    key={highlight}
-                    className={`inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-medium ${
-                      index === 0
-                        ? "bg-background/90 text-foreground dark:bg-white/8 dark:text-white/90"
-                        : "bg-background/70 text-muted-foreground dark:bg-white/5 dark:text-white/65"
-                    }`}
-                  >
-                    {index === 0 ? <Compass className="h-3.5 w-3.5 text-primary" /> : <Brain className="h-3.5 w-3.5 text-muted-foreground dark:text-white/45" />}
-                    {highlight}
-                  </span>
+                <span
+                  key={highlight}
+                  className="inline-flex items-center gap-1.5 rounded-full bg-background/85 px-3 py-1 text-[11px] font-medium text-foreground/80 dark:bg-white/8 dark:text-white/75"
+                >
+                  {index === 0 ? <Compass className="h-3.5 w-3.5 text-primary" /> : <Brain className="h-3.5 w-3.5 text-muted-foreground dark:text-white/45" />}
+                  {highlight}
+                </span>
                 ))}
-                </>
-              )}
-              <span className="inline-flex items-center gap-1.5 rounded-full bg-background/70 px-3 py-1.5 text-xs font-medium text-foreground dark:bg-white/5 dark:text-white/72">
-                <Coins className="h-3.5 w-3.5 text-primary" />
-                R$ {studyRewardsTotal.toFixed(2)}
-              </span>
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-background/85 px-3 py-1 text-[11px] font-medium text-foreground/80 dark:bg-white/8 dark:text-white/75">
+                  <Coins className="h-3.5 w-3.5 text-primary" />
+                  R$ {studyRewardsTotal.toFixed(2)}
+                </span>
+                <span className="inline-flex items-center gap-2 rounded-full bg-background px-4 py-2 text-xs font-semibold text-foreground dark:bg-white dark:text-zinc-900">
+                  Ver plano
+                  <ChevronRightIcon className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
+                </span>
+              </div>
             </div>
           </div>
-        </div>
-        <div className="inline-flex shrink-0 items-center gap-2 rounded-full bg-background px-4 py-2 text-xs font-semibold text-foreground dark:bg-white dark:text-zinc-900">
-          Ver plano
-          <ChevronRightIcon className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
         </div>
       </div>
     </button>
@@ -1631,7 +1625,7 @@ function StudyContent() {
             </div>
           </div>
           {studyMapCard && (
-            <div className="mt-3">
+            <div className="mt-3 w-full max-w-4xl mx-auto">
               {studyMapCard}
             </div>
           )}
@@ -2388,7 +2382,7 @@ function StudyContent() {
           </div>
         </div>
         {studyMapCard && (
-          <div className="mt-4">
+          <div className="mt-4 w-full max-w-4xl mx-auto">
             {studyMapCard}
           </div>
         )}
