@@ -2268,8 +2268,8 @@ function StudyContent() {
           
       {/* Study Header */}
       <header className="border-b border-border bg-card px-6 py-4 flex-shrink-0">
-        <div className="flex items-center justify-between gap-4">
-          <div className="flex-1">
+        <div className="flex items-center gap-4">
+          <div className="w-[220px] shrink-0">
             <h1 className="text-xl font-semibold text-foreground">
               {study.title}
             </h1>
@@ -2280,14 +2280,18 @@ function StudyContent() {
             )}
           </div>
 
-          {/* Usage Indicator - Desktop */}
-          <StudyUsageIndicator
-            messageCount={studyUsage?.messageCount || study?.message_count || 0}
-            maxMessages={studyUsage?.maxMessages || messageLimit}
-            plan={currentPlan}
-          />
+          <div className="min-w-0 flex-1">
+            {studyMapCard}
+          </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex shrink-0 items-center gap-2">
+            {/* Usage Indicator - Desktop */}
+            <StudyUsageIndicator
+              messageCount={studyUsage?.messageCount || study?.message_count || 0}
+              maxMessages={studyUsage?.maxMessages || messageLimit}
+              plan={currentPlan}
+            />
+
             {/* Playlists Button */}
             {savedPlaylists.size > 0 && (
               <DropdownMenu open={showPlaylistsDropdown} onOpenChange={setShowPlaylistsDropdown}>
@@ -2361,11 +2365,6 @@ function StudyContent() {
             </DropdownMenu>
           </div>
         </div>
-        {studyMapCard && (
-          <div className="mt-4 w-full max-w-4xl mx-auto">
-            {studyMapCard}
-          </div>
-        )}
       </header>
       {studyMapDialog}
 
