@@ -7,7 +7,7 @@ import { useMiniPlayer } from "@/contexts/MiniPlayerContext";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Loader2, Send, MoreVertical, Edit2, Share2, Trash2, X, List, Minimize2, Maximize2, Play, ChevronLeft, ChevronRight, AlertCircle, Sparkles, Brain, Compass, ChevronRight as ChevronRightIcon } from "lucide-react";
+import { Loader2, Send, MoreVertical, Edit2, Share2, Trash2, X, List, Minimize2, Maximize2, Play, ChevronLeft, ChevronRight, AlertCircle, Sparkles, Brain, Compass, ChevronRight as ChevronRightIcon, PlayCircle, BookOpen, StickyNote, Clock, Coins } from "lucide-react";
 import { StudyMessage } from "@/hooks/useStudies";
 import { useStudies } from "@/hooks/useStudies";
 import { StudyUsageIndicator } from "@/components/StudyUsageIndicator";
@@ -178,6 +178,29 @@ const modeLabelMap: Record<ClassyStudyState["activeMode"], string> = {
   plan: "Plano",
 };
 
+const ClassySparkIcon = ({ className }: { className?: string }) => (
+  <svg
+    viewBox="0 0 128 128"
+    aria-hidden="true"
+    className={cn("h-14 w-14", className)}
+  >
+    <path
+      d="M38 16c8 6 11 6 19 2 9-5 17-3 21 6 3 8 6 10 14 11 10 2 14 9 11 18-3 8-2 12 4 18 8 8 7 16-2 23-7 5-8 8-6 16 3 10-2 17-12 19-8 2-10 4-12 12-2 10-9 14-18 11-8-3-12-2-18 4-8 8-16 7-23-2-5-7-8-8-16-6-10 3-17-2-19-12-2-8-4-10-12-12-10-2-14-9-11-18 3-8 2-12-4-18-8-8-7-16 2-23 7-5 8-8 6-16-3-10 2-17 12-19 8-2 10-4 12-12 2-10 9-14 18-11 8 3 12 2 18-4Z"
+      fill="#ffd6de"
+    />
+    <path
+      d="M66 18l12 23 26 4-19 18 5 26-24-12-23 12 4-26-18-18 25-4 12-23Z"
+      fill="#ef4e68"
+      stroke="#781321"
+      strokeWidth="3"
+      strokeLinejoin="round"
+    />
+    <path d="M55 57c3-4 7-4 10 0M78 53c1 0 2 1 2 2s-1 2-2 2-2-1-2-2 1-2 2-2ZM56 65c1 0 2 1 2 2s-1 2-2 2-2-1-2-2 1-2 2-2Z" stroke="#781321" strokeWidth="3" strokeLinecap="round"/>
+    <path d="M61 75c5 4 10 4 15 0" stroke="#781321" strokeWidth="3" strokeLinecap="round"/>
+    <path d="M24 26c3 4 6 5 10 4M95 19c-1 5 0 8 4 11M19 96c4-2 7-2 10 0M103 88c5 0 8 1 11 4M17 49c4 0 6-1 8-4M104 55c3 3 5 4 9 4" stroke="#781321" strokeWidth="3" strokeLinecap="round"/>
+  </svg>
+);
+
 const buildInitialAssistantReply = (studyTitle: string, userName?: string | null) => {
   const firstName = userName?.trim()?.split(" ")[0];
   const greetingPrefix = firstName ? `Olá, ${firstName}!` : "Olá!";
@@ -251,6 +274,8 @@ function StudyContent() {
   const [activePlaylist, setActivePlaylist] = useState<{messageId: string, currentIndex: number} | null>(null);
   const [autoplayCountdown, setAutoplayCountdown] = useState<number | null>(null);
   const [playlistsCount, setPlaylistsCount] = useState(0);
+  const [studyNotesCount, setStudyNotesCount] = useState(0);
+  const [studyRewardsTotal, setStudyRewardsTotal] = useState(0);
   const [newestMessageId, setNewestMessageId] = useState<string | null>(null);
   const initialMessageTriggeredRef = useRef(false);
   const autoplayTimerRef = useRef<NodeJS.Timeout | null>(null);
@@ -681,6 +706,72 @@ function StudyContent() {
       console.error("Error fetching study ai state:", error);
     }
   };
+
+  const getStudyContentIds = () => {
+    const ids = new Set<string>();
+    messageContents.forEach((contents) => {
+      contents.forEach((content: any) => {
+        const contentId =
+          typeof content === "string"
+            ? content
+            : content && typeof content === "object" && "id" in content
+            ? String(content.id)
+            : null;
+
+        if (contentId) ids.add(contentId);
+      });
+    });
+
+    return Array.from(ids);
+  };
+
+  useEffect(() => {
+    if (!id) return;
+
+    const fetchNotesCount = async () => {
+      const { count, error } = await supabase
+        .from("study_notes")
+        .select("*", { count: "exact", head: true })
+        .eq("study_id", id);
+
+      if (error) {
+        console.error("Error fetching study notes count:", error);
+        return;
+      }
+
+      setStudyNotesCount(count || 0);
+    };
+
+    fetchNotesCount();
+  }, [id, notesRefresh]);
+
+  useEffect(() => {
+    if (!user || !id) return;
+
+    const contentIds = getStudyContentIds();
+    if (contentIds.length === 0) {
+      setStudyRewardsTotal(0);
+      return;
+    }
+
+    const fetchRewardsTotal = async () => {
+      const { data, error } = await supabase
+        .from("reward_events")
+        .select("value")
+        .eq("user_id", user.id)
+        .in("content_id", contentIds);
+
+      if (error) {
+        console.error("Error fetching study rewards:", error);
+        return;
+      }
+
+      const total = (data || []).reduce((sum, item) => sum + Number(item.value || 0), 0);
+      setStudyRewardsTotal(total);
+    };
+
+    fetchRewardsTotal();
+  }, [user, id, messageContents]);
 
   const getAssistantMetadata = (message: StudyMessage): ClassyMessageMetadata | null => {
     if (message.role !== "assistant" || !message.metadata || typeof message.metadata !== "object") {
@@ -1278,28 +1369,50 @@ function StudyContent() {
       : null,
   ].filter(Boolean) as string[];
 
+  const studyVideosCount = getStudyContentIds().length;
+  const studyProgressPercent = Math.min(
+    Math.round(((savedPlaylists.size || 0) * 20 + studyVideosCount * 10 + studyNotesCount * 5) / 2),
+    100
+  );
+  const studyTotalMinutes = studyVideosCount * 10 + studyNotesCount * 2;
+  const studyHeaderSummary = studyProgressPercent > 0
+    ? `Classy: Você está a ${studyProgressPercent}% de concluir este estudo. Continue assim!`
+    : "Classy: Seu estudo já está pronto para ganhar ritmo. Vamos começar?";
+
   const studyMapCard = hasDetailedStudyState ? (
     <button
       type="button"
       onClick={() => setStudyMapDialogOpen(true)}
-      className="group w-full rounded-[32px] border border-border/70 bg-[#e21e480d] p-6 text-left transition-colors hover:border-primary/20 dark:border-white/10 dark:bg-[#2a141acc]"
+      className="group w-full rounded-[28px] border border-border/70 bg-[#e21e480d] p-4 text-left transition-colors hover:border-primary/20 dark:border-white/10 dark:bg-[#2a141acc]"
     >
-      <div className="flex items-start justify-between gap-5">
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
         <div className="flex min-w-0 gap-4">
-          <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl border border-primary/15 bg-background/90 dark:border-white/10 dark:bg-white/5">
-            <Sparkles className="h-5 w-5 text-primary" />
+          <div className="shrink-0">
+            <ClassySparkIcon className="h-16 w-16" />
           </div>
-          <div className="min-w-0 space-y-3">
+          <div className="min-w-0 flex-1 space-y-3">
             <div className="space-y-2">
-              <h3 className="text-xl font-semibold leading-tight tracking-[-0.02em] text-foreground dark:text-white md:text-[22px]">
-                {studyMapTitle}
-              </h3>
-              <p className="max-w-2xl text-sm leading-6 text-muted-foreground dark:text-white/65">
-                {studyMapSummary}
+              <p className="text-sm leading-6 text-foreground/85 dark:text-white/80">
+                <span className="font-semibold italic text-primary">Classy:</span>{" "}
+                {studyHeaderSummary.replace(/^Classy:\s*/, "")}
               </p>
+              <div className="h-2 overflow-hidden rounded-full bg-black/12 dark:bg-white/12">
+                <div
+                  className="h-full rounded-full bg-primary transition-all"
+                  style={{ width: `${Math.max(studyProgressPercent, 3)}%` }}
+                />
+              </div>
+              <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-xs text-foreground/75 dark:text-white/72">
+                <span>{studyProgressPercent}% concluído</span>
+                <span className="inline-flex items-center gap-1.5"><PlayCircle className="h-3.5 w-3.5" /> {savedPlaylists.size} Playlists</span>
+                <span className="inline-flex items-center gap-1.5"><BookOpen className="h-3.5 w-3.5" /> {studyVideosCount} Vídeos</span>
+                <span className="inline-flex items-center gap-1.5"><StickyNote className="h-3.5 w-3.5" /> {studyNotesCount} Anotações</span>
+                <span className="inline-flex items-center gap-1.5"><Clock className="h-3.5 w-3.5" /> {studyTotalMinutes}min</span>
+              </div>
             </div>
-            {studyMapHighlights.length > 0 && (
-              <div className="flex flex-wrap items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
+              {studyMapHighlights.length > 0 && (
+                <>
                 {studyMapHighlights.slice(0, 2).map((highlight, index) => (
                   <span
                     key={highlight}
@@ -1313,8 +1426,13 @@ function StudyContent() {
                     {highlight}
                   </span>
                 ))}
-              </div>
-            )}
+                </>
+              )}
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-background/70 px-3 py-1.5 text-xs font-medium text-foreground dark:bg-white/5 dark:text-white/72">
+                <Coins className="h-3.5 w-3.5 text-primary" />
+                R$ {studyRewardsTotal.toFixed(2)}
+              </span>
+            </div>
           </div>
         </div>
         <div className="inline-flex shrink-0 items-center gap-2 rounded-full bg-background px-4 py-2 text-xs font-semibold text-foreground dark:bg-white dark:text-zinc-900">
@@ -1512,6 +1630,11 @@ function StudyContent() {
               </DropdownMenu>
             </div>
           </div>
+          {studyMapCard && (
+            <div className="mt-3">
+              {studyMapCard}
+            </div>
+          )}
         </header>
         {studyMapDialog}
 
@@ -1563,7 +1686,6 @@ function StudyContent() {
               </div>
             ) : (
               <>
-                {studyMapCard}
                 {messages.map((message) => {
                 return (
                 <div key={message.id} className="space-y-3 w-full overflow-hidden animate-fade-in">
@@ -2265,6 +2387,11 @@ function StudyContent() {
             </DropdownMenu>
           </div>
         </div>
+        {studyMapCard && (
+          <div className="mt-4">
+            {studyMapCard}
+          </div>
+        )}
       </header>
       {studyMapDialog}
 
@@ -2524,7 +2651,6 @@ function StudyContent() {
                   </div>
                 ) : (
                   <>
-                    {studyMapCard}
                     {messages.map((message) => {
                     return (
                     <div key={message.id} className="space-y-4 animate-fade-in">
