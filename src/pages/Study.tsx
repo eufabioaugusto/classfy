@@ -1362,14 +1362,14 @@ function StudyContent() {
       onClick={() => setStudyMapDialogOpen(true)}
       className="group w-full rounded-[22px] border border-border/70 bg-[#e21e480d] px-4 py-3 text-left transition-colors hover:border-primary/20 dark:border-white/10 dark:bg-[#2a141acc]"
     >
-      <div className="flex flex-col gap-3 lg:flex lg:items-center lg:justify-between lg:gap-6">
-        <div className="flex min-w-0 items-start gap-3 lg:max-w-[340px] lg:flex-[0_1_34%]">
+      <div className="flex flex-col gap-3 lg:grid lg:grid-cols-[minmax(240px,1.15fr)_minmax(320px,1fr)_auto] lg:items-center lg:gap-5">
+        <div className="flex min-w-0 items-center gap-3">
           <div className="shrink-0 pt-0.5">
             <img
               src="/star-red.png"
               alt=""
               aria-hidden="true"
-              className="h-11 w-11 object-contain"
+              className="h-10 w-10 object-contain"
             />
           </div>
           <div className="min-w-0 flex-1">
@@ -1379,14 +1379,14 @@ function StudyContent() {
             </p>
           </div>
         </div>
-        <div className="min-w-0 lg:min-w-[280px] lg:flex-[0_1_36%]">
+        <div className="min-w-0">
           <div className="h-1.5 w-full overflow-hidden rounded-full bg-black/10 dark:bg-white/10">
             <div
               className="h-full rounded-full bg-primary transition-all"
               style={{ width: `${Math.max(studyProgressPercent, 3)}%` }}
             />
           </div>
-          <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-foreground/72 dark:text-white/68">
+          <div className="mt-2 flex flex-wrap items-center justify-between gap-x-3 gap-y-1 text-[11px] text-foreground/72 dark:text-white/68">
             <span>{studyProgressPercent}% concluído</span>
             <span className="inline-flex items-center gap-1"><PlayCircle className="h-3.5 w-3.5" /> {savedPlaylists.size} playlists</span>
             <span className="inline-flex items-center gap-1"><BookOpen className="h-3.5 w-3.5" /> {studyVideosCount} vídeos</span>
@@ -1394,7 +1394,7 @@ function StudyContent() {
             <span className="inline-flex items-center gap-1"><Clock className="h-3.5 w-3.5" /> {studyTotalMinutes}min</span>
           </div>
         </div>
-        <div className="flex shrink-0 flex-wrap items-center gap-2 lg:ml-auto lg:justify-end">
+        <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
           {studyMapHighlights.slice(1, 2).map((highlight) => (
             <span
               key={highlight}
