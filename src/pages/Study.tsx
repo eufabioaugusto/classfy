@@ -1282,36 +1282,55 @@ function StudyContent() {
     <button
       type="button"
       onClick={() => setStudyMapDialogOpen(true)}
-      className="w-full rounded-3xl border border-primary/15 bg-gradient-to-br from-primary/12 via-primary/5 to-background p-4 text-left shadow-sm transition-all hover:border-primary/35 hover:shadow-md"
+      className="group relative w-full overflow-hidden rounded-[28px] border border-primary/20 bg-gradient-to-br from-[#2a0f18] via-[#1a1115] to-[#120f12] p-6 text-left shadow-[0_18px_60px_rgba(226,29,72,0.16)] transition-all hover:-translate-y-0.5 hover:border-primary/35 hover:shadow-[0_24px_70px_rgba(226,29,72,0.22)]"
     >
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0 space-y-2">
-          <div className="inline-flex items-center gap-2 rounded-full border border-primary/15 bg-background/70 px-2.5 py-1 text-[11px] font-medium uppercase tracking-[0.14em] text-primary/85">
-            <Sparkles className="h-3 w-3" />
+      <div className="absolute inset-y-0 left-0 w-1.5 bg-gradient-to-b from-primary via-rose-500 to-amber-400" />
+      <div className="absolute -right-16 top-0 h-36 w-36 rounded-full bg-primary/20 blur-3xl" />
+      <div className="absolute bottom-0 right-16 h-24 w-24 rounded-full bg-amber-400/10 blur-2xl" />
+
+      <div className="relative flex items-start justify-between gap-5">
+        <div className="min-w-0 space-y-4">
+          <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/6 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.16em] text-white/90">
+            <Sparkles className="h-3.5 w-3.5 text-primary" />
             Mapa do estudo
           </div>
-          <h3 className="text-base font-semibold leading-6 text-foreground">
-            {studyMapTitle}
-          </h3>
-          <p className="line-clamp-2 text-sm leading-6 text-muted-foreground">
-            {studyMapSummary}
-          </p>
+          <div className="space-y-2">
+            <h3 className="text-xl font-semibold leading-8 text-white md:text-2xl">
+              {studyMapTitle}
+            </h3>
+            <p className="max-w-2xl text-sm leading-7 text-white/72 md:text-base">
+              {studyMapSummary}
+            </p>
+          </div>
           {studyMapHighlights.length > 0 && (
-            <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-              {studyMapHighlights.slice(0, 3).map((highlight) => (
+            <div className="flex flex-wrap items-center gap-2.5">
+              {studyMapHighlights.slice(0, 3).map((highlight, index) => (
                 <span
                   key={highlight}
-                  className="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-background/65 px-2.5 py-1"
+                  className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium ${
+                    index === 0
+                      ? "border-primary/30 bg-primary/16 text-white"
+                      : "border-white/10 bg-white/6 text-white/75"
+                  }`}
                 >
-                  <Brain className="h-3 w-3" />
+                  {index === 0 ? <Compass className="h-3.5 w-3.5 text-primary" /> : <Brain className="h-3.5 w-3.5 text-white/55" />}
                   {highlight}
                 </span>
               ))}
             </div>
           )}
         </div>
-        <div className="inline-flex shrink-0 items-center justify-center rounded-full border border-border/60 bg-background/80 p-2 text-foreground">
-          <ChevronRightIcon className="h-4 w-4" />
+        <div className="flex shrink-0 flex-col items-end gap-3">
+          <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white px-4 py-2 text-xs font-semibold text-zinc-900 shadow-lg shadow-black/10">
+            Abrir plano
+            <ChevronRightIcon className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
+          </div>
+          <div className="hidden rounded-2xl border border-white/10 bg-black/18 px-4 py-3 text-right md:block">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-white/45">Status</p>
+            <p className="mt-1 text-sm font-medium text-white/90">
+              {studyAiState?.livePlanSteps?.length ? `${studyAiState.livePlanSteps.length} passos mapeados` : "Em evolução"}
+            </p>
+          </div>
         </div>
       </div>
     </button>
