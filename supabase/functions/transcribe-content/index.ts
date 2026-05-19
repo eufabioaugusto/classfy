@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.81.1";
+import { transcribeAudioWithAi } from "../_shared/ai-provider.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -69,74 +70,43 @@ serve(async (req) => {
     const fileBlob = await fileResponse.blob();
     const arrayBuffer = await fileBlob.arrayBuffer();
     const audioData = new Uint8Array(arrayBuffer);
+    const mimeType = fileBlob.type || fileResponse.headers.get("content-type") || "audio/webm";
 
     // Convert to base64 for API
     const base64Audio = btoa(String.fromCharCode(...audioData));
 
     console.log("File downloaded, size:", audioData.length, "bytes");
 
-    // Use Lovable AI to transcribe
-    const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
-    if (!LOVABLE_API_KEY) {
-      throw new Error("LOVABLE_API_KEY não configurado");
-    }
-
-    // Call Lovable AI for transcription
-    const aiResponse = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${LOVABLE_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "google/gemini-2.5-flash",
-        messages: [
-          {
-            role: "system",
-            content: "Você é um transcritor profissional. Transcreva o áudio fornecido com precisão, incluindo pontuação adequada e formatação em parágrafos. Mantenha a linguagem natural e o contexto do conteúdo educacional.",
-          },
-          {
-            role: "user",
-            content: [
-              {
-                type: "text",
-                text: `Transcreva este ${content.content_type === "podcast" ? "podcast" : "vídeo"} educacional em português. Título: "${content.title}"`,
-              },
-              {
-                type: "image_url",
-                image_url: {
-                  url: `data:audio/webm;base64,${base64Audio}`,
-                },
-              },
-            ],
-          },
-        ],
-      }),
+    const aiResponse = await transcribeAudioWithAi({
+      model: "google/gemini-2.5-flash",
+      prompt: `Você é um transcritor profissional. Transcreva com precisão este ${content.content_type === "podcast" ? "podcast" : "vídeo"} educacional em português. Título: "${content.title}". Entregue apenas a transcrição, com pontuação adequada e parágrafos naturais.`,
+      audioBase64: base64Audio,
+      mimeType,
+      openRouterModel: "openai/whisper-large-v3",
     });
 
-    if (!aiResponse.ok) {
-      const errorText = await aiResponse.text();
-      console.error("Lovable AI error:", aiResponse.status, errorText);
+    if (!aiResponse.response.ok) {
+      const errorText = JSON.stringify(aiResponse.data);
+      console.error("AI transcription error:", aiResponse.response.status, errorText);
       
-      if (aiResponse.status === 429) {
+      if (aiResponse.response.status === 429) {
         return new Response(
           JSON.stringify({ error: "Limite de requisições excedido. Tente novamente em alguns instantes." }),
           { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
       }
       
-      if (aiResponse.status === 402) {
+      if (aiResponse.response.status === 402) {
         return new Response(
-          JSON.stringify({ error: "Créditos insuficientes. Por favor, adicione créditos ao seu workspace." }),
+          JSON.stringify({ error: "Créditos insuficientes no provider de IA." }),
           { status: 402, headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
       }
 
-      throw new Error(`Erro na API Lovable AI: ${errorText}`);
+      throw new Error(`Erro na API de transcrição: ${errorText}`);
     }
 
-    const aiData = await aiResponse.json();
-    const transcriptionText = aiData.choices?.[0]?.message?.content;
+    const transcriptionText = aiResponse.text;
 
     if (!transcriptionText) {
       throw new Error("Nenhuma transcrição foi gerada");

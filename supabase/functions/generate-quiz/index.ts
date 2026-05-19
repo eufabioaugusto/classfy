@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { requestAiStructuredJson } from "../_shared/ai-provider.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -114,11 +115,6 @@ serve(async (req) => {
       );
     }
 
-    const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
-    if (!LOVABLE_API_KEY) {
-      throw new Error("LOVABLE_API_KEY not configured");
-    }
-
     // Generate quiz using AI
     const systemPrompt = `Você é um especialista em criar questões educacionais de alta qualidade.
 
@@ -136,63 +132,33 @@ INSTRUÇÕES:
 - Questões devem testar COMPREENSÃO, não memorização literal
 - Inclua explicações detalhadas para cada resposta correta
 
-Use tool calling para retornar as questões no formato estruturado.`;
+Retorne JSON no formato solicitado.`;
 
-    const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${LOVABLE_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "google/gemini-2.5-flash",
-        messages: [
-          { role: "system", content: systemPrompt },
-          { role: "user", content: "Gere o quiz" }
-        ],
-        tools: [{
-          type: "function",
-          function: {
-            name: "create_quiz",
-            description: "Cria um quiz com questões de múltipla escolha",
-            parameters: {
-              type: "object",
-              properties: {
-                questions: {
-                  type: "array",
-                  items: {
-                    type: "object",
-                    properties: {
-                      question: { type: "string", description: "A pergunta" },
-                      options: {
-                        type: "array",
-                        items: { type: "string" },
-                        description: "4 opções de resposta"
-                      },
-                      correctAnswer: { 
-                        type: "number", 
-                        description: "Índice da resposta correta (0-3)" 
-                      },
-                      explanation: { 
-                        type: "string", 
-                        description: "Explicação detalhada da resposta correta" 
-                      },
-                      difficulty: {
-                        type: "string",
-                        enum: ["easy", "medium", "hard"],
-                        description: "Nível de dificuldade"
-                      }
-                    },
-                    required: ["question", "options", "correctAnswer", "explanation", "difficulty"]
-                  }
-                }
-              },
-              required: ["questions"]
-            }
-          }
-        }],
-        tool_choice: { type: "function", function: { name: "create_quiz" } }
-      }),
+    const schemaHint = `{
+  "questions": [
+    {
+      "question": "string",
+      "options": ["string", "string", "string", "string"],
+      "correctAnswer": 0,
+      "explanation": "string",
+      "difficulty": "easy | medium | hard"
+    }
+  ]
+}`;
+
+    const { response, parsed: quizData } = await requestAiStructuredJson<{ questions: Array<{
+      question: string;
+      options: string[];
+      correctAnswer: number;
+      explanation: string;
+      difficulty: "easy" | "medium" | "hard";
+    }> }>({
+      model: "google/gemini-2.5-flash",
+      systemPrompt,
+      userPrompt: "Gere o quiz agora.",
+      schemaHint,
+      temperature: 0.4,
+      maxTokens: 1800,
     });
 
     if (!response.ok) {
@@ -201,16 +167,12 @@ Use tool calling para retornar as questões no formato estruturado.`;
       throw new Error(`Erro ao comunicar com IA: ${response.status} - ${errorText}`);
     }
 
-    const aiData = await response.json();
     console.log("AI response received");
-    const toolCall = aiData.choices?.[0]?.message?.tool_calls?.[0];
     
-    if (!toolCall) {
-      console.error("No tool call in AI response");
+    if (!quizData?.questions?.length) {
+      console.error("No quiz questions in AI response");
       throw new Error("IA não retornou dados do quiz. Tente novamente.");
     }
-
-    const quizData = JSON.parse(toolCall.function.arguments);
     console.log("Quiz data parsed, questions count:", quizData.questions?.length);
     
     // Save quiz to database

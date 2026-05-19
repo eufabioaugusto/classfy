@@ -16,7 +16,7 @@ const MODELS = {
   classifier: "google/gemini-2.5-flash-lite",
 };
 
-type AiProvider = "gemini" | "lovable" | "none";
+type AiProvider = "gemini" | "openrouter" | "lovable" | "none";
 
 type PlanType = "free" | "pro" | "premium";
 type ActiveMode = "onboard" | "explain" | "recommend" | "practice" | "review" | "plan";
@@ -573,6 +573,7 @@ function jsonResponse(body: unknown, status = 200) {
 
 function resolveAiProvider(): AiProvider {
   if (Deno.env.get("GEMINI_API_KEY")) return "gemini";
+  if (Deno.env.get("OPENROUTER_API_KEY")) return "openrouter";
   if (Deno.env.get("LOVABLE_API_KEY")) return "lovable";
   return "none";
 }
@@ -581,6 +582,11 @@ function resolveModelName(model: string, provider: AiProvider) {
   if (provider === "gemini") {
     if (model === MODELS.main) return "gemini-2.5-flash";
     if (model === MODELS.classifier) return "gemini-2.5-flash";
+  }
+
+  if (provider === "openrouter") {
+    if (model === MODELS.main) return "google/gemini-2.5-flash";
+    if (model === MODELS.classifier) return "google/gemini-2.5-flash";
   }
 
   return model;
@@ -634,11 +640,14 @@ async function requestAiCompletion(options: {
     return { provider, response, data, text };
   }
 
-  const lovableKey = Deno.env.get("LOVABLE_API_KEY");
-  const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+  const endpoint = provider === "openrouter"
+    ? "https://openrouter.ai/api/v1/chat/completions"
+    : "https://ai.gateway.lovable.dev/v1/chat/completions";
+  const apiKey = provider === "openrouter" ? Deno.env.get("OPENROUTER_API_KEY") : Deno.env.get("LOVABLE_API_KEY");
+  const response = await fetch(endpoint, {
     method: "POST",
     headers: {
-      Authorization: `Bearer ${lovableKey}`,
+      Authorization: `Bearer ${apiKey}`,
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
@@ -649,6 +658,7 @@ async function requestAiCompletion(options: {
       ],
       temperature: options.temperature,
       max_tokens: options.maxTokens,
+      ...(provider === "openrouter" ? { transforms: ["middle-out"] } : {}),
     }),
   });
 
