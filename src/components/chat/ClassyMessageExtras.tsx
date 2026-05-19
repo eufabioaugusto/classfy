@@ -69,16 +69,16 @@ export function ClassyMessageExtras({
   return (
     <div className={cn("space-y-3", compact && "space-y-2")}>
       {(contentStrategy || sourceTransparency) && (
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
           {contentStrategy && (
-            <Badge variant="outline" className="px-2.5 py-1 text-[11px]">
+            <span className="inline-flex items-center rounded-full border border-border/60 bg-muted/25 px-2.5 py-1">
               {contentStrategyLabel[contentStrategy] || contentStrategy}
-            </Badge>
+            </span>
           )}
           {sourceTransparency && (
-            <Badge variant="secondary" className="px-2.5 py-1 text-[11px] whitespace-normal text-left">
+            <span className="inline-flex items-center rounded-full border border-border/60 bg-muted/15 px-2.5 py-1">
               {sourceTransparency}
-            </Badge>
+            </span>
           )}
         </div>
       )}

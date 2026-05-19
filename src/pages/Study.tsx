@@ -7,7 +7,7 @@ import { useMiniPlayer } from "@/contexts/MiniPlayerContext";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Loader2, Send, MoreVertical, Edit2, Share2, Trash2, X, List, Minimize2, Maximize2, Play, ChevronLeft, ChevronRight, AlertCircle } from "lucide-react";
+import { Loader2, Send, MoreVertical, Edit2, Share2, Trash2, X, List, Minimize2, Maximize2, Play, ChevronLeft, ChevronRight, AlertCircle, Sparkles, Brain, Compass, ChevronRight as ChevronRightIcon } from "lucide-react";
 import { StudyMessage } from "@/hooks/useStudies";
 import { useStudies } from "@/hooks/useStudies";
 import { StudyUsageIndicator } from "@/components/StudyUsageIndicator";
@@ -128,6 +128,11 @@ const mapStudyStateRecord = (record: StudyAiStateRecord | null): ClassyStudyStat
 
 const STUDY_BOOTSTRAP_RETRY_LIMIT = 8;
 const STUDY_BOOTSTRAP_RETRY_DELAY_MS = 350;
+const INITIAL_ONBOARDING_SUGGESTIONS = [
+  "Quero começar do zero",
+  "Já sei o básico",
+  "Quero aplicar isso no trabalho",
+];
 
 const isTransientStudyBootstrapError = (error: any) => {
   const status = error?.context?.status ?? error?.status;
@@ -163,6 +168,35 @@ const getInitialConversationErrorMessage = (error: any) => {
   }
 
   return "Erro ao iniciar conversa. Tente novamente.";
+};
+
+const buildInitialAssistantReply = (studyTitle: string, userName?: string | null) => {
+  const firstName = userName?.trim()?.split(" ")[0];
+  const greetingPrefix = firstName ? `Olá, ${firstName}!` : "Olá!";
+
+  return [
+    `${greetingPrefix} Entendi que você quer aprender sobre ${studyTitle}.`,
+    "Antes de eu te guiar, quero calibrar rapidinho seu ponto de partida.",
+    "Você já teve algum contato com isso antes, ou está começando do zero?",
+  ].join("\n\n");
+};
+
+const buildInitialAssistantMetadata = (): ClassyMessageMetadata => ({
+  active_mode: "onboard",
+  follow_up_suggestions: INITIAL_ONBOARDING_SUGGESTIONS,
+  citations: [],
+  ui_blocks: [],
+  checkpoint_generated: false,
+});
+
+const buildThinkingPhrases = (topic?: string | null) => {
+  const focus = topic || "seu tema";
+
+  return [
+    `Explorando ${focus}...`,
+    `Conectando ideias sobre ${focus}...`,
+    "Montando uma resposta mais útil...",
+  ];
 };
 
 function StudyContent() {
@@ -233,6 +267,8 @@ function StudyContent() {
   } | null>(null);
   const [studyUsage, setStudyUsage] = useState<{ messageCount: number; maxMessages: number } | null>(null);
   const [studyAiState, setStudyAiState] = useState<ClassyStudyState | null>(null);
+  const [studyMapDialogOpen, setStudyMapDialogOpen] = useState(false);
+  const [thinkingPhraseIndex, setThinkingPhraseIndex] = useState(0);
 
   // Access control state
   const { checkAccess, hasAccess, blockReason, requiredPlan } = useAccessControl();
@@ -372,9 +408,11 @@ function StudyContent() {
   }, [messageLimit]);
 
   useEffect(() => {
+    const isFreshStudy = Number(study?.message_count || 0) === 0;
+
     if (
       study && 
-      !loadingMessages && 
+      (isFreshStudy || !loadingMessages) && 
       messages.length === 0 && 
       !initialMessageTriggeredRef.current &&
       !initialMessageSent && 
@@ -386,6 +424,19 @@ function StudyContent() {
       sendInitialMessage();
     }
   }, [study, loadingMessages, messages.length, initialMessageSent, loading, sending]);
+
+  useEffect(() => {
+    if (!sending) {
+      setThinkingPhraseIndex(0);
+      return;
+    }
+
+    const intervalId = window.setInterval(() => {
+      setThinkingPhraseIndex((current) => current + 1);
+    }, 1300);
+
+    return () => window.clearInterval(intervalId);
+  }, [sending]);
 
   useEffect(() => {
     const autoOpenPlaylistId = location.state?.autoOpenPlaylist;
@@ -631,8 +682,7 @@ function StudyContent() {
     return message.metadata as ClassyMessageMetadata;
   };
 
-  const handleSuggestionClick = (suggestion: string) => {
-    setInput(suggestion);
+  const handleSuggestionClick = async (suggestion: string) => {
     trackClassyEvent("suggestion_clicked", {
       suggestion,
       current_focus: studyAiState?.currentFocus || null,
@@ -641,6 +691,8 @@ function StudyContent() {
       suggestion,
       current_focus: studyAiState?.currentFocus || null,
     });
+
+    await handleSend(suggestion);
   };
 
   const trackClassyEvent = async (eventKey: string, payload: Record<string, any>) => {
@@ -672,42 +724,56 @@ function StudyContent() {
 
   const sendInitialMessage = async () => {
     if (!id || !user || !study) return;
-    
-    setSending(true);
+
+    const now = new Date().toISOString();
+    const initialMessage = `Olá! Quero aprender sobre ${study.title}`;
+    const assistantReply = buildInitialAssistantReply(study.title, profile?.display_name);
+    const assistantMetadata = buildInitialAssistantMetadata();
+
+    const localUserMessage: StudyMessage = {
+      id: `local-user-${Date.now()}`,
+      study_id: id,
+      role: "user",
+      content: initialMessage,
+      created_at: now,
+    };
+
+    const localAssistantMessage: StudyMessage = {
+      id: `local-assistant-${Date.now()}`,
+      study_id: id,
+      role: "assistant",
+      content: assistantReply,
+      created_at: now,
+      metadata: assistantMetadata,
+      related_contents: null,
+    };
+
+    setMessages([localUserMessage, localAssistantMessage]);
+    setNewestMessageId(localAssistantMessage.id);
+    setStudyUsage({
+      messageCount: 1,
+      maxMessages: messageLimit,
+    });
+    setStudyAiState({
+      activeMode: "onboard",
+      currentFocus: study.title,
+      learnerLevel: "unknown",
+      nextBestAction: "Entender seu nível atual antes de montar a melhor direção.",
+      userGoal: study.title,
+      sessionSummary: null,
+      masteredTopics: [],
+      weakTopics: [],
+      openQuestions: [],
+      lastCheckpointAt: null,
+      lastQuizScore: null,
+      lastQuizTotal: null,
+      checkpointStatus: "due",
+      livePlanSteps: [],
+      lastCelebration: null,
+      celebrationCount: 0,
+    });
 
     try {
-      const initialMessage = `Olá! Quero aprender sobre ${study.title}`;
-      let aiData: any = null;
-      let aiError: any = null;
-
-      for (let attempt = 0; attempt < STUDY_BOOTSTRAP_RETRY_LIMIT; attempt += 1) {
-        const response = await supabase.functions.invoke(
-          "classy-chat",
-          {
-            body: {
-              studyId: id,
-              message: initialMessage,
-              activeContentId: activeContent?.id,
-            },
-          }
-        );
-
-        aiData = response.data;
-        aiError = response.error;
-
-        if (!aiError) {
-          break;
-        }
-
-        if (!isTransientStudyBootstrapError(aiError)) {
-          throw aiError;
-        }
-
-        await new Promise((resolve) => setTimeout(resolve, STUDY_BOOTSTRAP_RETRY_DELAY_MS));
-      }
-
-      if (aiError) throw aiError;
-
       const { error: userError } = await supabase
         .from("study_messages")
         .insert({
@@ -718,53 +784,50 @@ function StudyContent() {
 
       if (userError) throw userError;
 
-      // Update usage info from response
-      if (aiData.usage) {
-        setStudyUsage({
-          messageCount: aiData.usage.userMessageCount,
-          maxMessages: aiData.usage.maxMessages
-        });
-      }
-
-      if (aiData.studyState) {
-        setStudyAiState(aiData.studyState);
-      }
-
-      const { data: aiMessageData, error: aiMessageError } = await supabase
+      const { error: aiMessageError } = await supabase
         .from("study_messages")
         .insert({
           study_id: id,
           role: "assistant",
-          content: aiData.message,
-          metadata: buildAssistantMetadata(aiData),
-          related_contents: aiData.relatedContents || null,
-        })
-        .select()
-        .single();
+          content: assistantReply,
+          metadata: assistantMetadata,
+          related_contents: null,
+        });
 
       if (aiMessageError) throw aiMessageError;
 
-      // Mark this message as the newest for typewriter animation
-      setNewestMessageId(aiMessageData.id);
+      await supabase
+        .from("study_ai_state")
+        .upsert({
+          study_id: id,
+          user_goal: study.title,
+          current_focus: study.title,
+          learner_level: "unknown",
+          active_mode: "onboard",
+          next_best_action: "Entender seu nível atual antes de montar a melhor direção.",
+          open_questions: INITIAL_ONBOARDING_SUGGESTIONS,
+        });
+
       await fetchMessages();
+      await fetchStudyAiState();
       await updateLastActivity(id);
-      
-      // Update study to get latest message_count
+
       const { data: updatedStudy } = await supabase
         .from("studies")
         .select("*")
         .eq("id", id)
         .single();
-      
+
       if (updatedStudy) {
         setStudy(updatedStudy);
+        setStudyUsage({
+          messageCount: updatedStudy.message_count || 1,
+          maxMessages: messageLimit,
+        });
       }
     } catch (error: any) {
-      console.error("Error sending initial message:", error);
-      initialMessageTriggeredRef.current = false;
+      console.error("Error syncing initial conversation:", error);
       toast.error(getInitialConversationErrorMessage(error));
-    } finally {
-      setSending(false);
     }
   };
 
@@ -777,16 +840,41 @@ function StudyContent() {
     studyAiState?.activeMode === "onboard" &&
     userMessagesCount <= 1 &&
     messages.length <= 2;
+  const thinkingPhrases = buildThinkingPhrases(study?.title);
+  const thinkingLabel = thinkingPhrases[thinkingPhraseIndex % thinkingPhrases.length];
+  const hasDetailedStudyState = Boolean(
+    studyAiState &&
+    !isEarlyOnboarding &&
+    (
+      studyAiState.sessionSummary ||
+      studyAiState.nextBestAction ||
+      (studyAiState.livePlanSteps?.length || 0) > 0 ||
+      (studyAiState.masteredTopics?.length || 0) > 0 ||
+      (studyAiState.weakTopics?.length || 0) > 0 ||
+      (studyAiState.openQuestions?.length || 0) > 0 ||
+      studyAiState.lastCelebration
+    )
+  );
 
-  const handleSend = async () => {
+  const handleSend = async (messageOverride?: string) => {
     if (isChatLocked) {
       toast.error("Limite atingido. Faça upgrade para continuar.");
       return;
     }
-    if (!input.trim() || !id || !user) return;
+    const resolvedMessage = (messageOverride ?? input).trim();
+    if (!resolvedMessage || !id || !user) return;
 
-    const userMessage = input.trim();
+    const userMessage = resolvedMessage;
+    const optimisticUserMessage: StudyMessage = {
+      id: `local-user-${Date.now()}`,
+      study_id: id,
+      role: "user",
+      content: userMessage,
+      created_at: new Date().toISOString(),
+    };
+
     setInput("");
+    setMessages((current) => [...current, optimisticUserMessage]);
     setSending(true);
 
     try {
@@ -882,6 +970,7 @@ function StudyContent() {
       }
     } catch (error: any) {
       console.error("Error sending message:", error);
+      setMessages((current) => current.filter((message) => message.id !== optimisticUserMessage.id));
       toast.error("Erro ao enviar mensagem");
     } finally {
       setSending(false);
@@ -1169,6 +1258,79 @@ function StudyContent() {
     ).join("");
   };
 
+  const studyMapSummary = studyAiState?.sessionSummary
+    || studyAiState?.nextBestAction
+    || studyAiState?.lastCelebration
+    || "Abra para ver foco, próximos passos e sinais da sua jornada.";
+
+  const studyMapCard = hasDetailedStudyState ? (
+    <button
+      type="button"
+      onClick={() => setStudyMapDialogOpen(true)}
+      className="w-full rounded-2xl border border-border/60 bg-card/70 p-4 text-left shadow-sm transition-all hover:border-primary/40 hover:bg-card"
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0 space-y-2">
+          <div className="inline-flex items-center gap-2 rounded-full border border-primary/15 bg-primary/5 px-2.5 py-1 text-[11px] font-medium uppercase tracking-[0.14em] text-primary/85">
+            <Sparkles className="h-3 w-3" />
+            Mapa do estudo
+          </div>
+          <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-background/60 px-2.5 py-1">
+              <Brain className="h-3 w-3" />
+              {studyAiState?.activeMode === "review"
+                ? "Revisão"
+                : studyAiState?.activeMode === "practice"
+                ? "Prática"
+                : studyAiState?.activeMode === "plan"
+                ? "Plano"
+                : studyAiState?.activeMode === "recommend"
+                ? "Curadoria"
+                : studyAiState?.activeMode === "explain"
+                ? "Explicando"
+                : "Onboarding"}
+            </span>
+            {studyAiState?.currentFocus && (
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-background/60 px-2.5 py-1">
+                <Compass className="h-3 w-3" />
+                {studyAiState.currentFocus}
+              </span>
+            )}
+          </div>
+          <p className="line-clamp-2 text-sm leading-6 text-foreground/90">
+            {studyMapSummary}
+          </p>
+        </div>
+        <div className="inline-flex shrink-0 items-center gap-1 rounded-full border border-border/60 bg-background/70 px-3 py-1.5 text-xs font-medium text-foreground">
+          Ver detalhes
+          <ChevronRightIcon className="h-3.5 w-3.5" />
+        </div>
+      </div>
+    </button>
+  ) : null;
+
+  const studyMapDialog = hasDetailedStudyState ? (
+    <Dialog open={studyMapDialogOpen} onOpenChange={setStudyMapDialogOpen}>
+      <DialogContent className="max-h-[85vh] max-w-3xl overflow-hidden p-0">
+        <DialogHeader className="border-b border-border/60 px-6 py-5 text-left">
+          <DialogTitle>Mapa do estudo</DialogTitle>
+          <DialogDescription>
+            Foco, próximos passos e sinais da sua jornada com a Classy.
+          </DialogDescription>
+        </DialogHeader>
+        <ScrollArea className="max-h-[calc(85vh-88px)]">
+          <div className="space-y-1 p-1">
+            <ClassyStudyStateBar state={studyAiState} />
+            <ClassyStudyResumeCard
+              state={studyAiState}
+              onSuggestionClick={handleSuggestionClick}
+            />
+          </div>
+        </ScrollArea>
+      </DialogContent>
+    </Dialog>
+  ) : null;
+
   if (loading) {
     return (
       <div className="flex-1">
@@ -1257,14 +1419,7 @@ function StudyContent() {
             </div>
           </div>
         </header>
-        {!isEarlyOnboarding && <ClassyStudyStateBar state={studyAiState} compact />}
-        {!isEarlyOnboarding && (
-          <ClassyStudyResumeCard
-            state={studyAiState}
-            compact
-            onSuggestionClick={handleSuggestionClick}
-          />
-        )}
+        {studyMapDialog}
 
         {/* Modals for access control */}
         <UpgradeModal open={showUpgradeModal} onOpenChange={setShowUpgradeModal} requiredPlan={requiredPlan} />
@@ -1313,7 +1468,9 @@ function StudyContent() {
                 <p className="text-sm">Iniciando conversa...</p>
               </div>
             ) : (
-              messages.map((message) => {
+              <>
+                {studyMapCard}
+                {messages.map((message) => {
                 return (
                 <div key={message.id} className="space-y-3 w-full overflow-hidden animate-fade-in">
                   <div
@@ -1449,7 +1606,8 @@ function StudyContent() {
                   )}
                 </div>
                 );
-              })
+              })}
+              </>
             )}
             <div ref={messagesEndRef} />
             {sending && (
@@ -1460,7 +1618,7 @@ function StudyContent() {
                     <span className="w-1.5 h-1.5 bg-muted-foreground/60 rounded-full animate-pulse" style={{ animationDelay: '150ms' }} />
                     <span className="w-1.5 h-1.5 bg-muted-foreground/60 rounded-full animate-pulse" style={{ animationDelay: '300ms' }} />
                   </div>
-                  <span className="text-xs text-muted-foreground">Pensando...</span>
+                  <span className="text-xs text-muted-foreground">{thinkingLabel}</span>
                 </div>
               </div>
             )}
@@ -2014,13 +2172,7 @@ function StudyContent() {
           </div>
         </div>
       </header>
-      {!isEarlyOnboarding && <ClassyStudyStateBar state={studyAiState} />}
-      {!isEarlyOnboarding && (
-        <ClassyStudyResumeCard
-          state={studyAiState}
-          onSuggestionClick={handleSuggestionClick}
-        />
-      )}
+      {studyMapDialog}
 
       {/* Main Content Area - Responsive Layout based on sidebar state */}
       <div className="flex-1 flex min-w-0 overflow-hidden">
@@ -2277,7 +2429,9 @@ function StudyContent() {
                     <p>Iniciando conversa sobre {study.title}...</p>
                   </div>
                 ) : (
-                  messages.map((message) => {
+                  <>
+                    {studyMapCard}
+                    {messages.map((message) => {
                     return (
                     <div key={message.id} className="space-y-4 animate-fade-in">
                       <div
@@ -2387,7 +2541,8 @@ function StudyContent() {
                       )}
                     </div>
                     );
-                  })
+                  })}
+                  </>
                 )}
                 <div ref={messagesEndRef} />
                 {sending && (
@@ -2398,7 +2553,7 @@ function StudyContent() {
                         <span className="w-1.5 h-1.5 bg-muted-foreground/60 rounded-full animate-pulse" style={{ animationDelay: '150ms' }} />
                         <span className="w-1.5 h-1.5 bg-muted-foreground/60 rounded-full animate-pulse" style={{ animationDelay: '300ms' }} />
                       </div>
-                      <span className="text-sm text-muted-foreground">Pensando...</span>
+                      <span className="text-sm text-muted-foreground">{thinkingLabel}</span>
                     </div>
                   </div>
                 )}

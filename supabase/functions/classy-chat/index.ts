@@ -294,6 +294,7 @@ serve(async (req) => {
     const shouldSearch = !playlistSummary && shouldSearchRelatedContent({
       activeMode,
       isFirstMessage,
+      currentUserMessageCount,
       hasActiveContent: Boolean(activeContentData),
       latestQuizAttempt,
     });
@@ -313,7 +314,9 @@ serve(async (req) => {
       currentFocus,
       activeContent: activeContentData,
     });
-    const contentStrategy = transcriptionText && activeMode === "explain"
+    const contentStrategy = currentUserMessageCount < 2
+      ? null
+      : transcriptionText && activeMode === "explain"
       ? "grounded"
       : relatedContents.length > 0
       ? "recommendation"
@@ -366,12 +369,14 @@ serve(async (req) => {
       masteredTopics: aiState.mastered_topics,
       lastCelebration: aiState.last_celebration,
     });
-    const sourceTransparency = buildSourceTransparency({
-      contentStrategy,
-      hasTranscript: Boolean(transcriptionText),
-      notesCount: ((recentNotes as any[]) || []).length,
-      latestQuizAttempt,
-    });
+    const sourceTransparency = currentUserMessageCount < 2
+      ? ""
+      : buildSourceTransparency({
+        contentStrategy,
+        hasTranscript: Boolean(transcriptionText),
+        notesCount: ((recentNotes as any[]) || []).length,
+        latestQuizAttempt,
+      });
 
     const tutorPrompt = buildTutorPrompt({
       userName,
@@ -445,6 +450,7 @@ serve(async (req) => {
     const uiBlocks = buildUiBlocks({
       activeMode,
       isFirstMessage,
+      currentUserMessageCount,
       isReturningStudy,
       userGoal,
       currentFocus,
@@ -860,12 +866,15 @@ function tokenize(value: string) {
 function shouldSearchRelatedContent(options: {
   activeMode: ActiveMode;
   isFirstMessage: boolean;
+  currentUserMessageCount: number;
   hasActiveContent: boolean;
   latestQuizAttempt: any;
 }) {
+  if (options.activeMode === "onboard") return false;
+  if (options.isFirstMessage || options.currentUserMessageCount < 2) return false;
   if (options.activeMode === "recommend" || options.activeMode === "plan") return true;
   if (options.latestQuizAttempt?.max_score && options.latestQuizAttempt.score / options.latestQuizAttempt.max_score < 0.7) return true;
-  if (options.isFirstMessage) return true;
+  if (options.activeMode === "explain") return false;
   if (!options.hasActiveContent) return true;
   return false;
 }
@@ -1507,6 +1516,7 @@ function buildCitations(options: {
 function buildUiBlocks(options: {
   activeMode: ActiveMode;
   isFirstMessage: boolean;
+  currentUserMessageCount: number;
   isReturningStudy: boolean;
   userGoal: string | null;
   currentFocus: string | null;
@@ -1521,7 +1531,7 @@ function buildUiBlocks(options: {
 }) {
   const blocks: Array<{ type: "goal" | "checkpoint" | "practice" | "next_step" | "resume" | "trail" | "celebration" | "sources"; title: string; body?: string; bullets?: string[]; prompt?: string; action?: string }> = [];
 
-  if (options.isFirstMessage) {
+  if (options.isFirstMessage || options.currentUserMessageCount < 2 || options.activeMode === "onboard") {
     return blocks;
   }
 
