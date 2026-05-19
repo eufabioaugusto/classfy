@@ -1,5 +1,5 @@
 import { Button } from "@/components/ui/button";
-import { Zap, Crown, Check, Sparkles, Users } from "lucide-react";
+import { Zap, Crown, Check, Sparkles } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
 interface UpgradePromptCardProps {
@@ -47,60 +47,32 @@ export function UpgradePromptCard({
     }
   ];
 
-  // Fake avatars for social proof
-  const avatars = [
-    "https://i.pravatar.cc/40?img=1",
-    "https://i.pravatar.cc/40?img=2",
-    "https://i.pravatar.cc/40?img=3",
-    "https://i.pravatar.cc/40?img=4",
-  ];
-
   return (
     <div className="w-full">
-      <div className="relative overflow-hidden rounded-[30px] border border-zinc-700/40 bg-gradient-to-br from-zinc-950 via-zinc-900 to-[#160f14] shadow-[0_24px_80px_rgba(0,0,0,0.35)]">
+      <div className="relative overflow-hidden rounded-[30px] border border-zinc-700/40 bg-gradient-to-r from-zinc-950 via-zinc-900 to-[#151214] shadow-[0_20px_60px_rgba(0,0,0,0.24)]">
         {/* Decorative gradient orbs */}
-        <div className="absolute -top-20 -right-16 h-44 w-44 rounded-full bg-[#e21d48]/24 blur-3xl" />
-        <div className="absolute -bottom-20 -left-12 h-44 w-44 rounded-full bg-amber-500/14 blur-3xl" />
-        <div className="absolute inset-y-0 left-0 w-1.5 bg-gradient-to-b from-primary via-rose-500 to-amber-400" />
+        <div className="absolute -top-20 right-0 h-40 w-40 rounded-full bg-[#e21d48]/18 blur-3xl" />
+        <div className="absolute inset-y-0 left-0 w-px bg-gradient-to-b from-primary/0 via-primary/70 to-primary/0" />
         
-        <div className="relative grid gap-6 p-6 lg:grid-cols-[1.15fr_1.25fr_0.95fr] lg:items-center lg:p-7">
-          <div className="space-y-4">
-            <div className="flex items-center gap-2">
-              <div className="flex -space-x-2">
-                {avatars.map((avatar, i) => (
-                  <div 
-                    key={i} 
-                    className="h-8 w-8 overflow-hidden rounded-full border-2 border-zinc-900"
-                  >
-                    <img src={avatar} alt="" className="h-full w-full object-cover" />
-                  </div>
-                ))}
-              </div>
-              <div className="flex items-center gap-1.5 text-xs text-zinc-400">
-                <Users className="h-3.5 w-3.5" />
-                <span>+500 alunos já assinaram</span>
-              </div>
+        <div className="relative grid gap-5 p-6 lg:grid-cols-[1.1fr_1fr_220px] lg:items-center">
+          <div className="space-y-3">
+            <div className="inline-flex items-center gap-1.5 rounded-full bg-[#e21d48]/15 px-3 py-1.5 text-xs font-medium text-[#ff6b85]">
+              <Sparkles className="h-3.5 w-3.5" />
+              Limite atingido
             </div>
-
-            <div className="space-y-2">
-              <div className="inline-flex items-center gap-1.5 rounded-full bg-[#e21d48]/15 px-3 py-1.5 text-xs font-medium text-[#ff6b85]">
-                <Sparkles className="h-3.5 w-3.5" />
-                Limite atingido
-              </div>
-              <h3 className="text-2xl font-bold leading-tight text-white">
-                Continue sua jornada de aprendizado, {userName.split(' ')[0]}.
-              </h3>
-              <p className="max-w-md text-sm leading-7 text-zinc-400">
-                Você usou <span className="font-semibold text-white">{messageCount}/{maxMessages}</span> mensagens neste estudo. Desbloqueie mais profundidade sem interromper sua evolução.
-              </p>
-            </div>
+            <h3 className="max-w-sm text-2xl font-semibold leading-tight text-white">
+              Continue sua jornada de aprendizado, {userName.split(' ')[0]}.
+            </h3>
+            <p className="max-w-sm text-sm leading-7 text-zinc-400">
+              Você usou <span className="font-semibold text-white">{messageCount}/{maxMessages}</span> mensagens neste estudo. Libere mais profundidade sem interromper sua evolução.
+            </p>
           </div>
 
-          <div className="grid gap-4 sm:grid-cols-2">
+          <div className="grid gap-3 sm:grid-cols-2">
             {plans.map((plan) => (
               <div 
                 key={plan.id}
-                className={`relative rounded-[24px] p-5 border ${plan.borderColor} ${plan.bgColor} transition-all hover:scale-[1.01] cursor-pointer min-h-[210px]`}
+                className={`relative rounded-[24px] p-4 border ${plan.borderColor} ${plan.bgColor} transition-all hover:scale-[1.01] cursor-pointer min-h-[180px]`}
                 onClick={() => navigate('/planos')}
               >
                 {plan.popular && (
@@ -109,7 +81,7 @@ export function UpgradePromptCard({
                   </div>
                 )}
                 
-                <div className="space-y-4">
+                <div className="space-y-3">
                   <div className="flex items-center gap-2">
                     <div className={`rounded-xl p-2 ${plan.iconBg}`}>
                       <plan.icon className="h-4 w-4 text-white" />
@@ -118,13 +90,13 @@ export function UpgradePromptCard({
                   </div>
 
                   <div className="flex items-baseline gap-1">
-                    <span className="text-[11px] text-zinc-500 line-through">R$ {plan.originalPrice.toFixed(2).replace('.', ',')}</span>
-                    <span className="text-3xl font-bold text-white">R$ {plan.price.toFixed(2).replace('.', ',')}</span>
+                    <span className="text-[10px] text-zinc-500 line-through">R$ {plan.originalPrice.toFixed(2).replace('.', ',')}</span>
+                    <span className="text-[2rem] font-bold text-white">R$ {plan.price.toFixed(2).replace('.', ',')}</span>
                     <span className="text-xs text-zinc-400">/mês</span>
                   </div>
 
-                  <div className="space-y-2">
-                    {plan.features.map((feature, i) => (
+                  <div className="space-y-1.5">
+                    {plan.features.slice(0, 3).map((feature, i) => (
                       <div key={i} className="flex items-center gap-2 text-xs text-zinc-300">
                         <Check className="h-3.5 w-3.5 shrink-0 text-emerald-400" />
                         <span>{feature}</span>
@@ -140,7 +112,7 @@ export function UpgradePromptCard({
             <div className="space-y-2">
               <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-white/45">Desbloqueio imediato</p>
               <p className="text-sm leading-7 text-zinc-300">
-                Continue a conversa sem travas e aproveite trilhas, estudos e aprofundamento com muito mais fôlego.
+                Continue a conversa sem travas e aproveite trilhas e aprofundamento com mais fôlego.
               </p>
             </div>
             <Button 

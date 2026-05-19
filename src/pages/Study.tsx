@@ -1282,55 +1282,43 @@ function StudyContent() {
     <button
       type="button"
       onClick={() => setStudyMapDialogOpen(true)}
-      className="group relative w-full overflow-hidden rounded-[28px] border border-primary/20 bg-gradient-to-br from-[#2a0f18] via-[#1a1115] to-[#120f12] p-6 text-left shadow-[0_18px_60px_rgba(226,29,72,0.16)] transition-all hover:-translate-y-0.5 hover:border-primary/35 hover:shadow-[0_24px_70px_rgba(226,29,72,0.22)]"
+      className="group relative w-full overflow-hidden rounded-[28px] border border-primary/15 bg-gradient-to-r from-[#221117] via-[#181215] to-[#131214] p-5 text-left shadow-[0_16px_40px_rgba(0,0,0,0.18)] transition-all hover:-translate-y-0.5 hover:border-primary/25 hover:shadow-[0_20px_50px_rgba(0,0,0,0.24)]"
     >
-      <div className="absolute inset-y-0 left-0 w-1.5 bg-gradient-to-b from-primary via-rose-500 to-amber-400" />
-      <div className="absolute -right-16 top-0 h-36 w-36 rounded-full bg-primary/20 blur-3xl" />
-      <div className="absolute bottom-0 right-16 h-24 w-24 rounded-full bg-amber-400/10 blur-2xl" />
+      <div className="absolute inset-y-0 left-0 w-px bg-gradient-to-b from-primary/0 via-primary/70 to-primary/0" />
 
-      <div className="relative flex items-start justify-between gap-5">
-        <div className="min-w-0 space-y-4">
-          <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/6 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.16em] text-white/90">
-            <Sparkles className="h-3.5 w-3.5 text-primary" />
+      <div className="relative flex items-center justify-between gap-5">
+        <div className="min-w-0 space-y-3">
+          <div className="inline-flex items-center gap-2 rounded-full border border-white/8 bg-white/5 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-white/80">
+            <Sparkles className="h-3 w-3 text-primary" />
             Mapa do estudo
           </div>
-          <div className="space-y-2">
-            <h3 className="text-xl font-semibold leading-8 text-white md:text-2xl">
-              {studyMapTitle}
-            </h3>
-            <p className="max-w-2xl text-sm leading-7 text-white/72 md:text-base">
-              {studyMapSummary}
-            </p>
-          </div>
+          <h3 className="text-lg font-semibold leading-7 text-white md:text-[22px]">
+            {studyMapTitle}
+          </h3>
+          <p className="max-w-2xl text-sm leading-6 text-white/62">
+            {studyMapSummary}
+          </p>
           {studyMapHighlights.length > 0 && (
-            <div className="flex flex-wrap items-center gap-2.5">
-              {studyMapHighlights.slice(0, 3).map((highlight, index) => (
+            <div className="flex flex-wrap items-center gap-2">
+              {studyMapHighlights.slice(0, 2).map((highlight, index) => (
                 <span
                   key={highlight}
                   className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium ${
                     index === 0
-                      ? "border-primary/30 bg-primary/16 text-white"
-                      : "border-white/10 bg-white/6 text-white/75"
+                      ? "border-primary/20 bg-primary/12 text-white/90"
+                      : "border-white/8 bg-white/5 text-white/70"
                   }`}
                 >
-                  {index === 0 ? <Compass className="h-3.5 w-3.5 text-primary" /> : <Brain className="h-3.5 w-3.5 text-white/55" />}
+                  {index === 0 ? <Compass className="h-3.5 w-3.5 text-primary" /> : <Brain className="h-3.5 w-3.5 text-white/50" />}
                   {highlight}
                 </span>
               ))}
             </div>
           )}
         </div>
-        <div className="flex shrink-0 flex-col items-end gap-3">
-          <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white px-4 py-2 text-xs font-semibold text-zinc-900 shadow-lg shadow-black/10">
-            Abrir plano
-            <ChevronRightIcon className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
-          </div>
-          <div className="hidden rounded-2xl border border-white/10 bg-black/18 px-4 py-3 text-right md:block">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-white/45">Status</p>
-            <p className="mt-1 text-sm font-medium text-white/90">
-              {studyAiState?.livePlanSteps?.length ? `${studyAiState.livePlanSteps.length} passos mapeados` : "Em evolução"}
-            </p>
-          </div>
+        <div className="inline-flex shrink-0 items-center gap-2 rounded-full border border-white/10 bg-white px-4 py-2 text-xs font-semibold text-zinc-900 shadow-lg shadow-black/10">
+          Ver plano
+          <ChevronRightIcon className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
         </div>
       </div>
     </button>
