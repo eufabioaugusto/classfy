@@ -1282,17 +1282,13 @@ function StudyContent() {
     <button
       type="button"
       onClick={() => setStudyMapDialogOpen(true)}
-      className="group relative w-full overflow-hidden rounded-[28px] border border-primary/15 bg-gradient-to-r from-rose-50 via-background to-amber-50 p-5 text-left shadow-[0_18px_44px_rgba(15,23,42,0.08)] transition-all hover:-translate-y-0.5 hover:border-primary/25 hover:shadow-[0_20px_50px_rgba(15,23,42,0.12)] dark:border-primary/20 dark:bg-gradient-to-r dark:from-[#1f1218] dark:via-[#171316] dark:to-[#131214] dark:shadow-[0_18px_44px_rgba(0,0,0,0.28)] dark:hover:shadow-[0_22px_54px_rgba(0,0,0,0.36)]"
+      className="group relative w-full overflow-hidden rounded-[28px] bg-gradient-to-r from-[#fff6f8] via-[#fff8fb] to-[#fff5f5] p-5 text-left shadow-[0_18px_44px_rgba(15,23,42,0.08)] transition-all hover:-translate-y-0.5 hover:shadow-[0_20px_50px_rgba(15,23,42,0.12)] dark:bg-gradient-to-r dark:from-[#2a141a] dark:via-[#211318] dark:to-[#1b1114] dark:shadow-[0_18px_44px_rgba(0,0,0,0.28)] dark:hover:shadow-[0_22px_54px_rgba(0,0,0,0.36)]"
     >
       <div className="absolute inset-y-0 left-0 w-[3px] bg-gradient-to-b from-primary/20 via-primary to-primary/20" />
-      <div className="absolute right-0 top-0 h-32 w-32 rounded-full bg-primary/10 blur-3xl dark:bg-primary/14" />
+      <div className="absolute inset-y-0 right-0 w-32 bg-gradient-to-l from-primary/8 via-primary/4 to-transparent dark:from-primary/12 dark:via-primary/6 dark:to-transparent" />
 
       <div className="relative flex items-start justify-between gap-5">
         <div className="min-w-0 space-y-3">
-          <div className="inline-flex items-center gap-2 rounded-full border border-primary/15 bg-background/80 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground shadow-sm dark:border-white/8 dark:bg-white/5 dark:text-white/75">
-            <Sparkles className="h-3 w-3 text-primary" />
-            Mapa do estudo
-          </div>
           <h3 className="text-lg font-semibold leading-7 text-foreground md:text-[22px] dark:text-white">
             {studyMapTitle}
           </h3>
@@ -1317,7 +1313,7 @@ function StudyContent() {
             </div>
           )}
         </div>
-        <div className="inline-flex shrink-0 items-center gap-2 rounded-full border border-primary/15 bg-background/90 px-4 py-2 text-xs font-semibold text-foreground shadow-lg shadow-primary/10 dark:border-white/10 dark:bg-white dark:text-zinc-900 dark:shadow-black/10">
+        <div className="inline-flex shrink-0 items-center gap-2 rounded-full bg-background/95 px-4 py-2 text-xs font-semibold text-foreground shadow-lg shadow-primary/10 dark:bg-white dark:text-zinc-900 dark:shadow-black/10">
           Ver plano
           <ChevronRightIcon className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
         </div>
@@ -2659,19 +2655,16 @@ function StudyContent() {
               <div className="max-w-4xl mx-auto">
                 {isChatLocked && (
                   <div className="pb-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
-                    <div className="w-full rounded-2xl border border-destructive/20 bg-gradient-to-br from-destructive/5 to-destructive/10 p-5 shadow-lg">
-                      <div className="flex items-start gap-4">
+                    <div className="w-full rounded-2xl border border-destructive/20 bg-gradient-to-r from-destructive/5 to-destructive/10 px-5 py-4 shadow-lg">
+                      <div className="flex items-center gap-4">
                         <div className="p-2 rounded-xl bg-destructive/10">
                           <AlertCircle className="w-5 h-5 text-destructive" />
                         </div>
-                        <div className="flex-1 space-y-1">
-                          <p className="text-sm font-medium text-destructive/90">
-                            {limitReached?.type === 'deviations' ? 'Novo Tema Detectado' : 'Limite Atingido'}
-                          </p>
-                          <p className="text-sm text-destructive/70 leading-relaxed">
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium text-destructive/85">
                             {limitReached?.type === 'deviations'
-                              ? `${limitReached?.suggestedTopic ? `"${limitReached.suggestedTopic}" - ` : ''}Faça upgrade para explorar temas ilimitados.`
-                              : 'Atualize seu plano para continuar conversando.'}
+                              ? `${limitReached?.suggestedTopic ? `"${limitReached.suggestedTopic}" • ` : ''}Faça upgrade para explorar temas ilimitados.`
+                              : 'Limite atingido • atualize seu plano para continuar conversando.'}
                           </p>
                         </div>
                       </div>

@@ -1,5 +1,5 @@
 import { Button } from "@/components/ui/button";
-import { Zap, Crown, Check, Sparkles } from "lucide-react";
+import { Crown, Check, Sparkles } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
 interface UpgradePromptCardProps {
@@ -22,7 +22,7 @@ export function UpgradePromptCard({
     {
       id: 'pro',
       name: 'Pro',
-      icon: Zap,
+      icon: Crown,
       price: 29.90,
       originalPrice: 49.90,
       messages: 30,
@@ -30,13 +30,13 @@ export function UpgradePromptCard({
       bgColor: 'bg-amber-500/10',
       borderColor: 'border-amber-500/30',
       iconBg: 'bg-gradient-to-br from-amber-500 to-yellow-500',
-      features: ['30 mensagens por estudo', '50 estudos ativos', 'Desvios ilimitados'],
+      features: ['Conteúdos sem anúncios', 'Classy Chat (IA) ilimitado', 'Downloads ilimitados', 'Suporte prioritário', 'Badge Pro no perfil'],
     },
     {
       id: 'premium',
       name: 'Premium',
       icon: Crown,
-      price: 59.90,
+      price: 49.90,
       originalPrice: 99.90,
       messages: Infinity,
       color: 'from-[#e21d48] to-rose-600',
@@ -44,7 +44,7 @@ export function UpgradePromptCard({
       borderColor: 'border-[#e21d48]/30',
       iconBg: 'bg-gradient-to-br from-[#e21d48] to-rose-600',
       popular: true,
-      features: ['Mensagens ilimitadas', 'Estudos ilimitados', 'Conteúdo exclusivo'],
+      features: ['Tudo do plano Pro', 'Cursos completos com certificado', 'Modo offline', 'Reprodução em segundo plano', 'Sessões de estudo com IA avançada', 'Acesso antecipado a novidades'],
     }
   ];
 
@@ -57,10 +57,6 @@ export function UpgradePromptCard({
 
         <div className="relative space-y-5 p-5 lg:p-6">
           <div className="space-y-3">
-            <div className="inline-flex items-center gap-1.5 rounded-full border border-primary/15 bg-primary/8 px-3 py-1.5 text-[11px] font-medium text-primary dark:border-primary/20 dark:bg-primary/12">
-              <Sparkles className="h-3.5 w-3.5" />
-              Limite atingido
-            </div>
             <div className="space-y-2">
               <h3 className="max-w-2xl text-[1.75rem] font-semibold leading-tight tracking-[-0.02em] text-foreground dark:text-white">
                 Continue sua jornada de aprendizado, {firstName}.
@@ -100,7 +96,7 @@ export function UpgradePromptCard({
 
                     <div className="flex items-end gap-2">
                       <div className="space-y-1">
-                        <div className="text-[10px] text-muted-foreground line-through dark:text-zinc-500">
+                        <div className="text-xs font-medium text-muted-foreground line-through dark:text-zinc-500">
                           R$ {plan.originalPrice.toFixed(2).replace('.', ',')}
                         </div>
                         <div className="flex items-baseline gap-1.5">
@@ -136,13 +132,13 @@ export function UpgradePromptCard({
               </div>
               <div className="mt-5 space-y-3">
                 <Button 
-                  className="h-12 w-full border-0 bg-primary text-sm font-semibold text-primary-foreground shadow-lg shadow-primary/20 hover:bg-primary/90"
+                  className="h-12 w-full border-0 bg-[#e21d48] text-sm font-semibold text-white shadow-lg shadow-[#e21d48]/20 hover:bg-[#c91a3d]"
                   onClick={() => navigate('/planos')}
                 >
-                  <Zap className="mr-2 h-4 w-4" />
+                  <Sparkles className="mr-2 h-4 w-4" />
                   Fazer Upgrade Agora
                 </Button>
-                <p className="text-[11px] text-muted-foreground dark:text-zinc-500">
+                <p className="whitespace-nowrap text-[11px] text-muted-foreground dark:text-zinc-500">
                   Oferta por tempo limitado • Cancele quando quiser
                 </p>
               </div>
