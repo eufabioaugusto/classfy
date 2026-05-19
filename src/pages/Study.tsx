@@ -1362,39 +1362,45 @@ function StudyContent() {
       onClick={() => setStudyMapDialogOpen(true)}
       className="group w-full rounded-[22px] border border-border/70 bg-[#e21e480d] px-4 py-3 text-left transition-colors hover:border-primary/20 dark:border-white/10 dark:bg-[#2a141acc]"
     >
-      <div className="flex flex-col gap-3 lg:grid lg:grid-cols-[minmax(240px,1.15fr)_minmax(320px,1fr)_auto] lg:items-center lg:gap-5">
-        <div className="flex min-w-0 items-center gap-3">
-          <div className="shrink-0 pt-0.5">
-            <img
-              src="/star-red.png"
-              alt=""
-              aria-hidden="true"
-              className="h-10 w-10 object-contain"
-            />
+      <div className="flex w-full items-center justify-between gap-4">
+        <div className="flex min-w-0 flex-1 flex-col gap-2">
+          <div className="flex min-w-0 items-center gap-3">
+            <div className="shrink-0 pt-0.5">
+              <img
+                src="/star-red.png"
+                alt=""
+                aria-hidden="true"
+                className="h-10 w-10 object-contain"
+              />
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-xs leading-5 text-foreground/80 dark:text-white/78">
+                <span className="font-semibold italic text-primary">Classy:</span>{" "}
+                {studyHeaderSummary.replace(/^Classy:\s*/, "")}
+              </p>
+            </div>
           </div>
-          <div className="min-w-0 flex-1">
-            <p className="truncate text-xs leading-5 text-foreground/80 dark:text-white/78">
-              <span className="font-semibold italic text-primary">Classy:</span>{" "}
-              {studyHeaderSummary.replace(/^Classy:\s*/, "")}
-            </p>
+
+          <div className="flex min-w-0 items-center gap-3">
+            <div className="min-w-[140px] flex-1">
+              <div className="h-1.5 w-full overflow-hidden rounded-full bg-black/10 dark:bg-white/10">
+                <div
+                  className="h-full rounded-full bg-primary transition-all"
+                  style={{ width: `${Math.max(studyProgressPercent, 3)}%` }}
+                />
+              </div>
+            </div>
+            <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-foreground/72 dark:text-white/68">
+              <span>{studyProgressPercent}% concluído</span>
+              <span className="inline-flex items-center gap-1"><PlayCircle className="h-3.5 w-3.5" /> {savedPlaylists.size} playlists</span>
+              <span className="inline-flex items-center gap-1"><BookOpen className="h-3.5 w-3.5" /> {studyVideosCount} vídeos</span>
+              <span className="inline-flex items-center gap-1"><StickyNote className="h-3.5 w-3.5" /> {studyNotesCount} anotações</span>
+              <span className="inline-flex items-center gap-1"><Clock className="h-3.5 w-3.5" /> {studyTotalMinutes}min</span>
+            </div>
           </div>
         </div>
-        <div className="min-w-0">
-          <div className="h-1.5 w-full overflow-hidden rounded-full bg-black/10 dark:bg-white/10">
-            <div
-              className="h-full rounded-full bg-primary transition-all"
-              style={{ width: `${Math.max(studyProgressPercent, 3)}%` }}
-            />
-          </div>
-          <div className="mt-2 flex flex-wrap items-center justify-between gap-x-3 gap-y-1 text-[11px] text-foreground/72 dark:text-white/68">
-            <span>{studyProgressPercent}% concluído</span>
-            <span className="inline-flex items-center gap-1"><PlayCircle className="h-3.5 w-3.5" /> {savedPlaylists.size} playlists</span>
-            <span className="inline-flex items-center gap-1"><BookOpen className="h-3.5 w-3.5" /> {studyVideosCount} vídeos</span>
-            <span className="inline-flex items-center gap-1"><StickyNote className="h-3.5 w-3.5" /> {studyNotesCount} anotações</span>
-            <span className="inline-flex items-center gap-1"><Clock className="h-3.5 w-3.5" /> {studyTotalMinutes}min</span>
-          </div>
-        </div>
-        <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+
+        <div className="flex shrink-0 items-center gap-2">
           {studyMapHighlights.slice(1, 2).map((highlight) => (
             <span
               key={highlight}
@@ -2268,7 +2274,7 @@ function StudyContent() {
           
       {/* Study Header */}
       <header className="border-b border-border bg-card px-6 py-4 flex-shrink-0">
-        <div className="flex items-center gap-4">
+        <div className="flex w-full items-center justify-between gap-4">
           <div className="w-[220px] shrink-0">
             <h1 className="text-xl font-semibold text-foreground">
               {study.title}
@@ -2280,8 +2286,10 @@ function StudyContent() {
             )}
           </div>
 
-          <div className="min-w-0 w-full max-w-4xl flex-[0_1_896px]">
-            {studyMapCard}
+          <div className="flex min-w-0 flex-1 justify-center">
+            <div className="w-full max-w-4xl">
+              {studyMapCard}
+            </div>
           </div>
 
           <div className="flex shrink-0 items-center gap-2">
