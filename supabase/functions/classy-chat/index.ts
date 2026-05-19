@@ -1219,16 +1219,18 @@ function buildTutorPrompt(options: {
 
 REGRAS:
 - Responda em português do Brasil.
-- Seja calorosa, objetiva e didática.
+- Seja calorosa, perceptiva e objetiva.
 - Responda primeiro à necessidade real do estudante.
+- Soe como um ótimo chat de IA: natural, fluida, sem cara de dashboard.
 - Se houver transcrição do conteúdo ativo, priorize isso como fonte.
-- Se houver conteúdos relacionados, contextualize a trilha mas NÃO liste manualmente os títulos como uma lista longa; os cards já aparecem na UI.
+- Se houver conteúdos relacionados, não despeje títulos nem trilhas cedo demais; a UI já mostra cards quando isso fizer sentido.
 - Não cite concorrentes nem links externos.
 - Não seja genérica.
-- Máximo de 150 palavras.
+- Evite blocos longos.
+- Máximo de 120 palavras.
 
 ESTILO POR MODO:
-- onboard: acolha, dê clareza e reduza fricção.
+- onboard: acolha, mostre que entendeu o tema e faça apenas 1 pergunta útil para calibrar nível, objetivo ou contexto.
 - explain: ensine com precisão e transparência de fonte.
 - review: aja como mentora que recupera entendimento e prioriza lacunas.
 - practice: seja desafiadora, mas objetiva.
@@ -1279,8 +1281,12 @@ INSTRUÇÕES DE ENTREGA:
 ${options.playlistSummary
     ? "- Gere um resumo curto da playlist salva, explicando o que a pessoa pode aprender com a trilha."
     : options.isFirstMessage
-    ? "- Faça onboarding estratégico: acolha, diga como vai ajudar e convide a escolher o primeiro foco."
-    : "- Responda com estratégia pedagógica, conduza para o próximo melhor passo e, se houver celebração factual, reconheça isso sem exagero."}
+    ? `- Faça um primeiro turno conversacional.
+- Não entregue trilha, checkpoint, plano vivo, resumo operacional ou múltiplas instruções.
+- Não recomende conteúdo específico ainda, a menos que o usuário peça ou já exista conteúdo ativo.
+- Responda em 2 ou 3 parágrafos curtos.
+- Termine com exatamente 1 pergunta clara.` 
+    : "- Responda com estratégia pedagógica, mas mantenha compacta a entrega. Só proponha próximo passo quando isso realmente ajudar."}
 `;
 }
 
@@ -1344,17 +1350,12 @@ function buildFallbackAiMessage(options: {
 
   if (options.isFirstMessage) {
     return [
-      `Perfeito, ${options.userName}. Vou te ajudar a estudar ${focus} com mais direção.`,
+      `Perfeito, ${options.userName}. Entendi que você quer aprender sobre ${focus}.`,
       options.activeContent?.title
-        ? `Já posso me apoiar no conteúdo ativo "${options.activeContent.title}" para explicar, revisar ou aprofundar.`
-        : `Posso te explicar o tema, montar uma trilha e sugerir o próximo melhor passo dentro da Classfy.`,
-      options.relatedContents.length > 0
-        ? `Para começar com repertório forte, estes conteúdos já parecem bons pontos de partida:\n${relatedTitles}`
-        : null,
-      options.nextBestAction
-        ? `Sugestão inicial: ${options.nextBestAction}`
-        : `Me diga se você quer começar por fundamentos, prática ou uma trilha guiada.`,
-    ].filter(Boolean).join("\n\n");
+        ? `Como já existe um conteúdo ativo, posso usar esse material para te explicar, revisar ou aprofundar sem perder contexto.`
+        : `Posso te ajudar a sair do zero, organizar o tema ou ir direto para aplicações práticas, dependendo do que você precisa.`,
+      `Você quer começar pelo básico, por aplicações práticas ou por um objetivo específico seu?`,
+    ].join("\n\n");
   }
 
   const modeLabel = {
@@ -1417,6 +1418,14 @@ function buildFollowUpSuggestions(options: {
       "Me faça uma pergunta de revisão",
       "Quero um exercício mais difícil",
       "Mostre a resposta comentada",
+    ];
+  }
+
+  if (options.activeMode === "onboard") {
+    return [
+      "Quero começar do zero",
+      "Já sei o básico",
+      "Quero aplicar isso no trabalho",
     ];
   }
 
@@ -1513,11 +1522,7 @@ function buildUiBlocks(options: {
   const blocks: Array<{ type: "goal" | "checkpoint" | "practice" | "next_step" | "resume" | "trail" | "celebration" | "sources"; title: string; body?: string; bullets?: string[]; prompt?: string; action?: string }> = [];
 
   if (options.isFirstMessage) {
-    blocks.push({
-      type: "goal",
-      title: "Objetivo da sessão",
-      body: options.userGoal || options.currentFocus || "Definir seu foco de aprendizado",
-    });
+    return blocks;
   }
 
   if (options.isReturningStudy && !options.isFirstMessage) {
@@ -1529,8 +1534,11 @@ function buildUiBlocks(options: {
   }
 
   if (
-    options.checkpointStatus !== "fresh" ||
-    (options.latestQuizAttempt?.max_score && options.latestQuizAttempt.score / options.latestQuizAttempt.max_score < 0.7)
+    !options.isFirstMessage &&
+    (
+      options.checkpointStatus !== "fresh" ||
+      (options.latestQuizAttempt?.max_score && options.latestQuizAttempt.score / options.latestQuizAttempt.max_score < 0.7)
+    )
   ) {
     blocks.push({
       type: "checkpoint",
@@ -1554,7 +1562,7 @@ function buildUiBlocks(options: {
     });
   }
 
-  if (options.celebrationMessage) {
+  if (options.celebrationMessage && !options.isFirstMessage) {
     blocks.push({
       type: "celebration",
       title: "Sinal de progresso",
@@ -1570,19 +1578,15 @@ function buildUiBlocks(options: {
     });
   }
 
-  blocks.push({
-    type: "sources",
-    title: "Como montei esta resposta",
-    body: options.sourceTransparency,
-  });
+  if (options.activeMode !== "onboard" && !options.isFirstMessage && options.nextBestAction) {
+    blocks.push({
+      type: "next_step",
+      title: "Próximo passo",
+      action: options.nextBestAction,
+    });
+  }
 
-  blocks.push({
-    type: "next_step",
-    title: "Próximo melhor passo",
-    action: options.nextBestAction,
-  });
-
-  return blocks.slice(0, 4);
+  return blocks.slice(0, 2);
 }
 
 function extractFocusFromMessage(message: string) {

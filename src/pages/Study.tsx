@@ -772,6 +772,11 @@ function StudyContent() {
   const maxMessages = studyUsage?.maxMessages || messageLimit;
   const isMessageLimitReached = currentPlan !== 'premium' && maxMessages !== Infinity && messageCount >= maxMessages;
   const isChatLocked = Boolean(limitReached) || isMessageLimitReached;
+  const userMessagesCount = messages.filter((message) => message.role === "user").length;
+  const isEarlyOnboarding =
+    studyAiState?.activeMode === "onboard" &&
+    userMessagesCount <= 1 &&
+    messages.length <= 2;
 
   const handleSend = async () => {
     if (isChatLocked) {
@@ -1252,12 +1257,14 @@ function StudyContent() {
             </div>
           </div>
         </header>
-        <ClassyStudyStateBar state={studyAiState} compact />
-        <ClassyStudyResumeCard
-          state={studyAiState}
-          compact
-          onSuggestionClick={handleSuggestionClick}
-        />
+        {!isEarlyOnboarding && <ClassyStudyStateBar state={studyAiState} compact />}
+        {!isEarlyOnboarding && (
+          <ClassyStudyResumeCard
+            state={studyAiState}
+            compact
+            onSuggestionClick={handleSuggestionClick}
+          />
+        )}
 
         {/* Modals for access control */}
         <UpgradeModal open={showUpgradeModal} onOpenChange={setShowUpgradeModal} requiredPlan={requiredPlan} />
@@ -2007,11 +2014,13 @@ function StudyContent() {
           </div>
         </div>
       </header>
-      <ClassyStudyStateBar state={studyAiState} />
-      <ClassyStudyResumeCard
-        state={studyAiState}
-        onSuggestionClick={handleSuggestionClick}
-      />
+      {!isEarlyOnboarding && <ClassyStudyStateBar state={studyAiState} />}
+      {!isEarlyOnboarding && (
+        <ClassyStudyResumeCard
+          state={studyAiState}
+          onSuggestionClick={handleSuggestionClick}
+        />
+      )}
 
       {/* Main Content Area - Responsive Layout based on sidebar state */}
       <div className="flex-1 flex min-w-0 overflow-hidden">

@@ -88,9 +88,9 @@ export function ClassyMessageExtras({
           {blocks.map((block, index) => (
             <div
               key={`${block.type}-${index}`}
-              className="rounded-xl border border-border/50 bg-card/70 px-3 py-3"
+              className="rounded-xl border border-border/50 bg-card/60 px-3 py-2.5"
             >
-              <p className="text-xs font-semibold uppercase tracking-wide text-primary">{block.title}</p>
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-primary">{block.title}</p>
               {block.body && <p className="mt-1 text-sm text-foreground">{block.body}</p>}
               {block.prompt && <p className="mt-1 text-sm text-foreground">{block.prompt}</p>}
               {block.action && <p className="mt-1 text-sm text-foreground">{block.action}</p>}
