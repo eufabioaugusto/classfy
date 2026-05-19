@@ -16,6 +16,8 @@ const MODELS = {
   classifier: "google/gemini-2.5-flash-lite",
 };
 
+type AiProvider = "gemini" | "lovable" | "none";
+
 type PlanType = "free" | "pro" | "premium";
 type ActiveMode = "onboard" | "explain" | "recommend" | "practice" | "review" | "plan";
 type LearnerLevel = "beginner" | "intermediate" | "advanced" | "unknown";
@@ -401,7 +403,24 @@ serve(async (req) => {
       nextBestAction,
     });
 
-    let aiMessage = await generateAiMessage(tutorPrompt, conversationHistory, message, playlistSummary);
+    const aiProviderAvailable = resolveAiProvider() !== "none";
+    let aiMessage = aiProviderAvailable
+      ? await generateAiMessage(tutorPrompt, conversationHistory, message, playlistSummary)
+      : buildFallbackAiMessage({
+        userName,
+        userGoal,
+        currentFocus,
+        activeMode,
+        activeContent: activeContentData,
+        relatedContents,
+        nextBestAction,
+        latestQuizAttempt,
+        isFirstMessage,
+        playlistSummary: Boolean(playlistSummary),
+        celebrationMessage,
+        learnerLevel,
+      });
+
     if (deviationWarning) {
       aiMessage += deviationWarning;
     }
@@ -552,6 +571,93 @@ function jsonResponse(body: unknown, status = 200) {
   });
 }
 
+function resolveAiProvider(): AiProvider {
+  if (Deno.env.get("GEMINI_API_KEY")) return "gemini";
+  if (Deno.env.get("LOVABLE_API_KEY")) return "lovable";
+  return "none";
+}
+
+function resolveModelName(model: string, provider: AiProvider) {
+  if (provider === "gemini") {
+    if (model === MODELS.main) return "gemini-2.5-flash";
+    if (model === MODELS.classifier) return "gemini-2.5-flash";
+  }
+
+  return model;
+}
+
+async function requestAiCompletion(options: {
+  model: string;
+  systemPrompt?: string;
+  messages: Array<{ role: string; content: string }>;
+  temperature: number;
+  maxTokens: number;
+}) {
+  const provider = resolveAiProvider();
+
+  if (provider === "none") {
+    throw new Error("AI_PROVIDER_NOT_CONFIGURED");
+  }
+
+  if (provider === "gemini") {
+    const geminiKey = Deno.env.get("GEMINI_API_KEY");
+    const modelName = resolveModelName(options.model, provider);
+    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent`, {
+      method: "POST",
+      headers: {
+        "x-goog-api-key": geminiKey!,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        system_instruction: options.systemPrompt
+          ? {
+            parts: [{ text: options.systemPrompt }],
+          }
+          : undefined,
+        contents: options.messages.map((message) => ({
+          role: message.role === "assistant" ? "model" : "user",
+          parts: [{ text: message.content }],
+        })),
+        generationConfig: {
+          temperature: options.temperature,
+          maxOutputTokens: options.maxTokens,
+        },
+      }),
+    });
+
+    const data = await response.json();
+    const text = data?.candidates?.[0]?.content?.parts
+      ?.map((part: { text?: string }) => part.text || "")
+      .join("")
+      .trim();
+
+    return { provider, response, data, text };
+  }
+
+  const lovableKey = Deno.env.get("LOVABLE_API_KEY");
+  const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${lovableKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model: resolveModelName(options.model, provider),
+      messages: [
+        ...(options.systemPrompt ? [{ role: "system", content: options.systemPrompt }] : []),
+        ...options.messages,
+      ],
+      temperature: options.temperature,
+      max_tokens: options.maxTokens,
+    }),
+  });
+
+  const data = await response.json();
+  const text = data?.choices?.[0]?.message?.content?.trim?.() || "";
+
+  return { provider, response, data, text };
+}
+
 async function trackStudyAiEvents(
   supabase: ReturnType<typeof createClient>,
   options: {
@@ -691,8 +797,7 @@ async function detectOffTopic(options: {
     return { isOffTopic: false };
   }
 
-  const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
-  if (!LOVABLE_API_KEY) return { isOffTopic: false };
+  if (resolveAiProvider() === "none") return { isOffTopic: false };
 
   const prompt = `Você classifica se uma mensagem de estudo está fora do tema.
 
@@ -708,24 +813,15 @@ ou
 {"isOffTopic": false}`;
 
   try {
-    const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${LOVABLE_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: MODELS.classifier,
-        messages: [{ role: "user", content: prompt }],
-        temperature: 0.1,
-        max_tokens: 80,
-      }),
+    const { response, text } = await requestAiCompletion({
+      model: MODELS.classifier,
+      messages: [{ role: "user", content: prompt }],
+      temperature: 0.1,
+      maxTokens: 80,
     });
 
     if (!response.ok) return { isOffTopic: false };
-    const data = await response.json();
-    const content = data.choices?.[0]?.message?.content || "";
-    const parsed = safeJsonParse(content);
+    const parsed = safeJsonParse(text);
     return { isOffTopic: Boolean(parsed?.isOffTopic) };
   } catch {
     return { isOffTopic: false };
@@ -1184,27 +1280,15 @@ async function generateAiMessage(
   message: string,
   playlistSummary: boolean,
 ) {
-  const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
-  if (!LOVABLE_API_KEY) {
-    throw new Error("LOVABLE_API_KEY not configured");
-  }
-
-  const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${LOVABLE_API_KEY}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      model: MODELS.main,
-      messages: [
-        { role: "system", content: systemPrompt },
-        ...conversationHistory.slice(-8),
-        { role: "user", content: message },
-      ],
-      temperature: playlistSummary ? 0.5 : 0.65,
-      max_tokens: 700,
-    }),
+  const { response, text } = await requestAiCompletion({
+    model: MODELS.main,
+    systemPrompt,
+    messages: [
+      ...conversationHistory.slice(-8),
+      { role: "user", content: message },
+    ],
+    temperature: playlistSummary ? 0.5 : 0.65,
+    maxTokens: 700,
   });
 
   if (!response.ok) {
@@ -1217,8 +1301,97 @@ async function generateAiMessage(
     throw new Error(`AI gateway error: ${response.status}`);
   }
 
-  const data = await response.json();
-  return data.choices?.[0]?.message?.content || "Desculpe, não consegui processar sua mensagem.";
+  return text || "Desculpe, não consegui processar sua mensagem.";
+}
+
+function buildFallbackAiMessage(options: {
+  userName: string;
+  userGoal: string | null;
+  currentFocus: string | null;
+  activeMode: ActiveMode;
+  activeContent: any | null;
+  relatedContents: any[];
+  nextBestAction: string | null;
+  latestQuizAttempt: any;
+  isFirstMessage: boolean;
+  playlistSummary: boolean;
+  celebrationMessage: string | null;
+  learnerLevel: LearnerLevel;
+}) {
+  const focus = options.currentFocus || options.userGoal || "este tema";
+  const relatedTitles = options.relatedContents
+    .slice(0, 3)
+    .map((content) => `- ${content.title}`)
+    .join("\n");
+
+  if (options.playlistSummary) {
+    return [
+      `Essa trilha foi organizada para te ajudar a avançar em ${focus} com uma sequência prática de conteúdos.`,
+      options.relatedContents.length > 0 ? `Vale começar por:\n${relatedTitles}` : null,
+      options.nextBestAction ? `Próximo passo: ${options.nextBestAction}` : null,
+    ].filter(Boolean).join("\n\n");
+  }
+
+  if (options.isFirstMessage) {
+    return [
+      `Perfeito, ${options.userName}. Vou te ajudar a estudar ${focus} com mais direção.`,
+      options.activeContent?.title
+        ? `Já posso me apoiar no conteúdo ativo "${options.activeContent.title}" para explicar, revisar ou aprofundar.`
+        : `Posso te explicar o tema, montar uma trilha e sugerir o próximo melhor passo dentro da Classfy.`,
+      options.relatedContents.length > 0
+        ? `Para começar com repertório forte, estes conteúdos já parecem bons pontos de partida:\n${relatedTitles}`
+        : null,
+      options.nextBestAction
+        ? `Sugestão inicial: ${options.nextBestAction}`
+        : `Me diga se você quer começar por fundamentos, prática ou uma trilha guiada.`,
+    ].filter(Boolean).join("\n\n");
+  }
+
+  const modeLabel = {
+    explain: `Vamos destrinchar ${focus} de forma objetiva.`,
+    recommend: `Vou te orientar com curadoria para avançar em ${focus}.`,
+    practice: `Vamos transformar ${focus} em prática agora.`,
+    review: `Hora de revisar ${focus} com foco no que mais importa.`,
+    plan: `Vou organizar um caminho claro para você estudar ${focus}.`,
+    onboard: `Vamos estruturar seu estudo em ${focus}.`,
+  }[options.activeMode];
+
+  const quizHint = options.latestQuizAttempt
+    ? `Seu último quiz ficou em ${options.latestQuizAttempt.score}/${options.latestQuizAttempt.max_score}.`
+    : null;
+
+  const levelHint = options.learnerLevel !== "unknown"
+    ? `Estou assumindo um nível ${translateLearnerLevel(options.learnerLevel)} por enquanto.`
+    : null;
+
+  return [
+    modeLabel,
+    options.celebrationMessage || null,
+    quizHint,
+    levelHint,
+    options.activeContent?.title
+      ? `Estou considerando o conteúdo ativo "${options.activeContent.title}" como contexto principal.`
+      : null,
+    options.relatedContents.length > 0
+      ? `Conteúdos que podem complementar este passo:\n${relatedTitles}`
+      : null,
+    options.nextBestAction
+      ? `Próximo melhor passo: ${options.nextBestAction}`
+      : `Se quiser, eu posso seguir por explicação, revisão ou recomendação de conteúdos.`,
+  ].filter(Boolean).join("\n\n");
+}
+
+function translateLearnerLevel(level: LearnerLevel) {
+  switch (level) {
+    case "beginner":
+      return "iniciante";
+    case "intermediate":
+      return "intermediário";
+    case "advanced":
+      return "avançado";
+    default:
+      return "indefinido";
+  }
 }
 
 function buildFollowUpSuggestions(options: {
