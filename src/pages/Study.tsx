@@ -126,6 +126,45 @@ const mapStudyStateRecord = (record: StudyAiStateRecord | null): ClassyStudyStat
   };
 };
 
+const STUDY_BOOTSTRAP_RETRY_LIMIT = 8;
+const STUDY_BOOTSTRAP_RETRY_DELAY_MS = 350;
+
+const isTransientStudyBootstrapError = (error: any) => {
+  const status = error?.context?.status ?? error?.status;
+  const message = String(error?.message || error?.context?.error?.message || "").toLowerCase();
+
+  return (
+    status === 404 ||
+    status === 408 ||
+    status === 425 ||
+    status === 429 ||
+    status === 500 ||
+    status === 502 ||
+    status === 503 ||
+    status === 504 ||
+    message.includes("not found") ||
+    message.includes("network") ||
+    message.includes("fetch") ||
+    message.includes("service unavailable") ||
+    message.includes("gateway") ||
+    message.includes("timeout")
+  );
+};
+
+const getInitialConversationErrorMessage = (error: any) => {
+  const status = error?.context?.status ?? error?.status;
+
+  if (status === 401 || status === 403) {
+    return "Sua sessão expirou. Entre novamente para continuar.";
+  }
+
+  if (status === 404) {
+    return "O estudo ainda está sendo preparado. Tente novamente em alguns segundos.";
+  }
+
+  return "Erro ao iniciar conversa. Tente novamente.";
+};
+
 function StudyContent() {
   const { id } = useParams<{ id: string }>();
   const { user, profile } = useAuth();
@@ -171,6 +210,7 @@ function StudyContent() {
   const [autoplayCountdown, setAutoplayCountdown] = useState<number | null>(null);
   const [playlistsCount, setPlaylistsCount] = useState(0);
   const [newestMessageId, setNewestMessageId] = useState<string | null>(null);
+  const initialMessageTriggeredRef = useRef(false);
   const autoplayTimerRef = useRef<NodeJS.Timeout | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -336,10 +376,12 @@ function StudyContent() {
       study && 
       !loadingMessages && 
       messages.length === 0 && 
+      !initialMessageTriggeredRef.current &&
       !initialMessageSent && 
       !loading && 
       !sending
     ) {
+      initialMessageTriggeredRef.current = true;
       setInitialMessageSent(true);
       sendInitialMessage();
     }
@@ -491,13 +533,29 @@ function StudyContent() {
     if (!id) return;
 
     try {
-      const { data, error } = await supabase
-        .from("studies")
-        .select("*")
-        .eq("id", id)
-        .single();
+      let data: any = null;
+      let lastError: any = null;
 
-      if (error) throw error;
+      for (let attempt = 0; attempt < STUDY_BOOTSTRAP_RETRY_LIMIT; attempt += 1) {
+        const response = await supabase
+          .from("studies")
+          .select("*")
+          .eq("id", id)
+          .maybeSingle();
+
+        data = response.data;
+        lastError = response.error;
+
+        if (data) {
+          break;
+        }
+
+        await new Promise((resolve) => setTimeout(resolve, STUDY_BOOTSTRAP_RETRY_DELAY_MS));
+      }
+
+      if (!data) {
+        throw lastError || new Error("STUDY_NOT_FOUND");
+      }
 
       setStudy(data);
       // Initialize usage from study data
@@ -619,17 +677,34 @@ function StudyContent() {
 
     try {
       const initialMessage = `Olá! Quero aprender sobre ${study.title}`;
+      let aiData: any = null;
+      let aiError: any = null;
 
-      const { data: aiData, error: aiError } = await supabase.functions.invoke(
-        "classy-chat",
-        {
-          body: {
-            studyId: id,
-            message: initialMessage,
-            activeContentId: activeContent?.id,
-          },
+      for (let attempt = 0; attempt < STUDY_BOOTSTRAP_RETRY_LIMIT; attempt += 1) {
+        const response = await supabase.functions.invoke(
+          "classy-chat",
+          {
+            body: {
+              studyId: id,
+              message: initialMessage,
+              activeContentId: activeContent?.id,
+            },
+          }
+        );
+
+        aiData = response.data;
+        aiError = response.error;
+
+        if (!aiError) {
+          break;
         }
-      );
+
+        if (!isTransientStudyBootstrapError(aiError)) {
+          throw aiError;
+        }
+
+        await new Promise((resolve) => setTimeout(resolve, STUDY_BOOTSTRAP_RETRY_DELAY_MS));
+      }
 
       if (aiError) throw aiError;
 
@@ -686,8 +761,8 @@ function StudyContent() {
       }
     } catch (error: any) {
       console.error("Error sending initial message:", error);
-      toast.error("Erro ao iniciar conversa. Estudo não encontrado.");
-      navigate("/");
+      initialMessageTriggeredRef.current = false;
+      toast.error(getInitialConversationErrorMessage(error));
     } finally {
       setSending(false);
     }

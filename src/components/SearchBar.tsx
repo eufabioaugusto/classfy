@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { Search, Loader2, Mic, Sparkles, TrendingUp, BookOpen } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/contexts/AuthContext";
+import { supabase } from "@/integrations/supabase/client";
 import { useNavigate } from "react-router-dom";
 import { useStudies } from "@/hooks/useStudies";
 import { cn } from "@/lib/utils";
@@ -39,6 +40,28 @@ export function SearchBar({ onResults, onLoading, onError, onLimitReached }: Sea
 
   const currentPlan = profile?.plan || 'free';
   const limitText = limits.studies === Infinity ? 'ilimitados' : `${activeCount}/${limits.studies}`;
+
+  const waitForStudyAvailability = async (studyId: string, maxAttempts = 8, delayMs = 350) => {
+    for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+      const { data, error } = await supabase
+        .from("studies")
+        .select("id")
+        .eq("id", studyId)
+        .maybeSingle();
+
+      if (data?.id) {
+        return;
+      }
+
+      if (error) {
+        console.error("Error checking study availability:", error);
+      }
+
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+    }
+
+    throw new Error("STUDY_NOT_READY");
+  };
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -147,8 +170,7 @@ export function SearchBar({ onResults, onLoading, onError, onLimitReached }: Sea
       }
 
       if (result?.data) {
-        // Small delay to ensure database consistency
-        await new Promise(resolve => setTimeout(resolve, 500));
+        await waitForStudyAvailability(result.data.id);
         // Navigate to study page
         navigate(`/c/${result.data.id}`);
       }
