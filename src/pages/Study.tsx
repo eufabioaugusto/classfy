@@ -1381,8 +1381,8 @@ function StudyContent() {
             </div>
           </div>
 
-          <div className="flex min-w-0 items-center gap-3">
-            <div className="min-w-[140px] flex-1">
+          <div className="flex min-w-0 flex-col gap-2">
+            <div className="min-w-[180px] flex-1">
               <div className="h-1.5 w-full overflow-hidden rounded-full bg-black/10 dark:bg-white/10">
                 <div
                   className="h-full rounded-full bg-primary transition-all"
@@ -1390,7 +1390,7 @@ function StudyContent() {
                 />
               </div>
             </div>
-            <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-foreground/72 dark:text-white/68">
+            <div className="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-foreground/72 dark:text-white/68">
               <span>{studyProgressPercent}% concluído</span>
               <span className="inline-flex items-center gap-1"><PlayCircle className="h-3.5 w-3.5" /> {savedPlaylists.size} playlists</span>
               <span className="inline-flex items-center gap-1"><BookOpen className="h-3.5 w-3.5" /> {studyVideosCount} vídeos</span>
