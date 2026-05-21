@@ -1378,104 +1378,91 @@ function StudyContent() {
   const studyHeaderSummary = studyProgressPercent > 0
     ? `Classy: Você está a ${studyProgressPercent}% de concluir este estudo. Continue assim!`
     : "Classy: Seu estudo já está pronto para ganhar ritmo. Vamos começar?";
+  const compactStudyTitle = (() => {
+    const cleaned = study.title
+      .replace(/^quero aprender sobre\s+/i, "")
+      .replace(/^quero aprender\s+/i, "")
+      .replace(/^aprender sobre\s+/i, "")
+      .trim();
+
+    return cleaned || study.title;
+  })();
+  const compactStageLabel =
+    studyAiState?.activeMode === "onboard"
+      ? "Diagnóstico"
+      : studyAiState?.activeMode
+      ? modeLabelMap[studyAiState.activeMode]
+      : "Diagnóstico";
 
   const studyMapCard = shouldShowStudyMap ? (
-    <button
-      type="button"
-      onClick={() => setStudyMapDialogOpen(true)}
-      className="group w-full rounded-[22px] border border-border/70 bg-[#e21e480d] px-4 py-3 text-left transition-colors hover:border-primary/20 dark:border-white/10 dark:bg-[#2a141acc]"
-    >
-      <div className="flex min-w-0 items-start gap-2 min-[1900px]:hidden">
-        <img
-          src="/star-red.png"
-          alt=""
-          aria-hidden="true"
-          className="mt-0.5 h-7 w-7 shrink-0 object-contain lg:h-8 lg:w-8"
-        />
-        <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-sm">
-          <span className="shrink-0 font-semibold italic text-foreground">
-            Classy
+    <div className="w-full overflow-hidden rounded-full border border-border/70 bg-[#FFF5F6] px-3 py-2 dark:border-white/10 dark:bg-[#2a141acc]">
+      <div className="flex min-w-0 items-center gap-2">
+        <button
+          type="button"
+          onClick={() => setStudyMapDialogOpen(true)}
+          className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden text-left"
+        >
+          <img
+            src="/star-red.png"
+            alt=""
+            aria-hidden="true"
+            className="h-7 w-7 shrink-0 object-contain"
+          />
+          <span className="min-w-0 truncate text-base font-semibold text-foreground">
+            {compactStudyTitle}
           </span>
-          <span className="shrink-0 text-muted-foreground">•</span>
-          <span className="shrink-0 text-foreground/85">
-            {studyProgressPercent}% concluído
+          <span className="inline-flex shrink-0 items-center justify-center rounded-full bg-background/92 px-2 py-1 text-sm font-semibold text-foreground dark:bg-white/10 dark:text-white">
+            {studyProgressPercent}%
           </span>
-          {studyMapHighlights.slice(1, 2).map((highlight) => (
-            <Fragment key={highlight}>
-              <span className="shrink-0 text-muted-foreground">•</span>
-              <span className="inline-flex min-w-0 shrink items-center gap-1.5 text-foreground/85">
-                <Brain className="h-4 w-4 shrink-0 text-muted-foreground" />
-                <span className="truncate">{highlight}</span>
-              </span>
-            </Fragment>
-          ))}
-          <span className="shrink-0 text-muted-foreground">•</span>
-          <span className="inline-flex shrink-0 items-center gap-1.5 font-semibold text-foreground">
-            Ver plano
-            <ChevronRightIcon className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
+          <span className="hidden shrink-0 items-center gap-1.5 rounded-full bg-background/92 px-2 py-1 text-sm font-medium text-foreground/82 min-[430px]:inline-flex dark:bg-white/10 dark:text-white/82">
+            <Brain className="h-4 w-4 text-muted-foreground dark:text-white/55" />
+            <span className="truncate">{compactStageLabel}</span>
           </span>
-        </div>
-      </div>
+        </button>
 
-      <div className="hidden w-full items-center justify-between gap-4 min-[1900px]:flex">
-        <div className="flex min-w-0 flex-1 flex-col gap-2">
-          <div className="flex min-w-0 items-center gap-3">
-            <div className="shrink-0 pt-0.5">
-              <img
-                src="/star-red.png"
-                alt=""
-                aria-hidden="true"
-                className="h-10 w-10 object-contain"
-              />
-            </div>
-            <div className="min-w-0 flex-1">
-              <p className="truncate text-xs leading-5 text-foreground/80 dark:text-white/78">
-                <span className="font-semibold italic text-primary">Classy:</span>{" "}
-                {studyHeaderSummary.replace(/^Classy:\s*/, "")}
-              </p>
-            </div>
-          </div>
+        <button
+          type="button"
+          onClick={() => setStudyMapDialogOpen(true)}
+          className="inline-flex shrink-0 items-center gap-1 rounded-full bg-background/96 px-3 py-1.5 text-sm font-semibold text-foreground dark:bg-white dark:text-zinc-900"
+        >
+          <span className="hidden min-[430px]:inline">Plano de estudo</span>
+          <span className="min-[430px]:hidden">Plano</span>
+          <ChevronRightIcon className="h-4 w-4" />
+        </button>
 
-          <div className="flex min-w-0 flex-col gap-2">
-            <div className="min-w-[180px] flex-1">
-              <div className="h-1.5 w-full overflow-hidden rounded-full bg-black/10 dark:bg-white/10">
-                <div
-                  className="h-full rounded-full bg-primary transition-all"
-                  style={{ width: `${Math.max(studyProgressPercent, 3)}%` }}
-                />
-              </div>
-            </div>
-            <div className="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-foreground/72 dark:text-white/68">
-              <span>{studyProgressPercent}% concluído</span>
-              <span className="inline-flex items-center gap-1"><PlayCircle className="h-3.5 w-3.5" /> {savedPlaylists.size} playlists</span>
-              <span className="inline-flex items-center gap-1"><BookOpen className="h-3.5 w-3.5" /> {studyVideosCount} vídeos</span>
-              <span className="inline-flex items-center gap-1"><StickyNote className="h-3.5 w-3.5" /> {studyNotesCount} anotações</span>
-              <span className="inline-flex items-center gap-1"><Clock className="h-3.5 w-3.5" /> {studyTotalMinutes}min</span>
-            </div>
-          </div>
-        </div>
-
-        <div className="flex shrink-0 items-center gap-2">
-          {studyMapHighlights.slice(1, 2).map((highlight) => (
-            <span
-              key={highlight}
-              className="inline-flex items-center gap-1.5 rounded-full bg-background/85 px-3 py-1 text-[11px] font-medium text-foreground/80 dark:bg-white/8 dark:text-white/75"
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0 rounded-full">
+              <MoreVertical className="h-4 w-4" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-48">
+            <DropdownMenuItem
+              onClick={() => {
+                setNewTitle(study.title);
+                setRenameDialogOpen(true);
+              }}
+              className="cursor-pointer"
             >
-              <Brain className="h-3.5 w-3.5 text-muted-foreground dark:text-white/45" />
-              {highlight}
-            </span>
-          ))}
-          <span className="inline-flex items-center gap-1.5 rounded-full bg-background/85 px-3 py-1 text-[11px] font-medium text-foreground/80 dark:bg-white/8 dark:text-white/75">
-            <Coins className="h-3.5 w-3.5 text-primary" />
-            R$ {studyRewardsTotal.toFixed(2)}
-          </span>
-          <span className="inline-flex items-center gap-2 rounded-full bg-background px-4 py-2 text-xs font-semibold text-foreground dark:bg-white dark:text-zinc-900">
-            Ver plano
-            <ChevronRightIcon className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
-          </span>
-        </div>
+              <Edit2 className="mr-2 h-4 w-4" />
+              Renomear
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={handleShare} className="cursor-pointer">
+              <Share2 className="mr-2 h-4 w-4" />
+              Compartilhar
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              onClick={() => setDeleteDialogOpen(true)}
+              className="cursor-pointer text-destructive"
+            >
+              <Trash2 className="mr-2 h-4 w-4" />
+              Excluir
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
-    </button>
+    </div>
   ) : null;
 
   const studyMapDialog = shouldShowStudyMap ? (
@@ -1601,69 +1588,25 @@ function StudyContent() {
         
         {/* Mobile Header - Compact */}
         <header className="border-b border-border bg-card px-3 py-2.5 flex-shrink-0">
-          <div className="flex items-center justify-between gap-2">
-            <div className="flex-1 min-w-0">
-              <h1 className="text-sm font-semibold text-foreground truncate">
-                {study.title}
-              </h1>
-            </div>
+          <div className="flex items-center justify-end gap-2">
+            {savedPlaylists.size > 0 && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-8 px-2 gap-1"
+                onClick={() => setShowPlaylistSheet(true)}
+              >
+                <List className="w-4 h-4" />
+                <span className="text-xs">{savedPlaylists.size}</span>
+              </Button>
+            )}
 
-            {/* Usage Indicator - Mobile Compact */}
             <StudyUsageIndicator
               messageCount={studyUsage?.messageCount || study?.message_count || 0}
               maxMessages={studyUsage?.maxMessages || messageLimit}
               plan={currentPlan}
               compact
             />
-
-            <div className="flex items-center gap-1">
-              {savedPlaylists.size > 0 && (
-                <Button 
-                  variant="outline" 
-                  size="sm" 
-                  className="h-8 px-2 gap-1"
-                  onClick={() => setShowPlaylistSheet(true)}
-                >
-                  <List className="w-4 h-4" />
-                  <span className="text-xs">{savedPlaylists.size}</span>
-                </Button>
-              )}
-
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button variant="ghost" size="icon" className="h-8 w-8">
-                    <MoreVertical className="w-4 h-4" />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="w-48">
-                  <DropdownMenuItem
-                    onClick={() => {
-                      setNewTitle(study.title);
-                      setRenameDialogOpen(true);
-                    }}
-                    className="cursor-pointer"
-                  >
-                    <Edit2 className="w-4 h-4 mr-2" />
-                    Renomear
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    onClick={handleShare}
-                    className="cursor-pointer"
-                  >
-                    <Share2 className="w-4 h-4 mr-2" />
-                    Compartilhar
-                  </DropdownMenuItem>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem
-                    onClick={() => setDeleteDialogOpen(true)}
-                    className="cursor-pointer text-destructive"
-                  >
-                    <Trash2 className="w-4 h-4 mr-2" />
-                    Excluir
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </div>
           </div>
           {studyMapCard && (
             <div className="mt-3 w-full max-w-4xl mx-auto">
@@ -2330,7 +2273,7 @@ function StudyContent() {
       {/* Study Header */}
       <header className="border-b border-border bg-card px-6 py-4 flex-shrink-0">
         <div className="flex w-full items-center justify-between gap-4">
-          <div className="w-[220px] shrink-0">
+          <div className="hidden w-[220px] shrink-0 lg:block">
             <h1 className="text-xl font-semibold text-foreground">
               {study.title}
             </h1>
