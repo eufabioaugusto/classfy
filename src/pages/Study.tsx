@@ -1362,37 +1362,39 @@ function StudyContent() {
       onClick={() => setStudyMapDialogOpen(true)}
       className="group w-full rounded-[22px] border border-border/70 bg-[#e21e480d] px-4 py-3 text-left transition-colors hover:border-primary/20 dark:border-white/10 dark:bg-[#2a141acc]"
     >
-      <div className="flex items-center gap-3 overflow-x-auto whitespace-nowrap md:hidden">
+      <div className="flex min-w-0 items-start gap-2 2xl:hidden">
         <img
           src="/star-red.png"
           alt=""
           aria-hidden="true"
-          className="h-8 w-8 shrink-0 object-contain"
+          className="mt-0.5 h-7 w-7 shrink-0 object-contain lg:h-8 lg:w-8"
         />
-        <span className="shrink-0 text-base font-semibold italic text-foreground">
-          Classy
-        </span>
-        <span className="shrink-0 text-muted-foreground">•</span>
-        <span className="shrink-0 text-base text-foreground/85">
-          {studyProgressPercent}% concluído
-        </span>
-        {studyMapHighlights.slice(1, 2).map((highlight) => (
-          <Fragment key={highlight}>
-            <span className="shrink-0 text-muted-foreground">•</span>
-            <span className="inline-flex shrink-0 items-center gap-2 text-base text-foreground/85">
-              <Brain className="h-4 w-4 text-muted-foreground" />
-              {highlight}
-            </span>
-          </Fragment>
-        ))}
-        <span className="shrink-0 text-muted-foreground">•</span>
-        <span className="inline-flex shrink-0 items-center gap-2 text-base font-semibold text-foreground">
-          Ver plano
-          <ChevronRightIcon className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
-        </span>
+        <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-sm">
+          <span className="shrink-0 font-semibold italic text-foreground">
+            Classy
+          </span>
+          <span className="shrink-0 text-muted-foreground">•</span>
+          <span className="shrink-0 text-foreground/85">
+            {studyProgressPercent}% concluído
+          </span>
+          {studyMapHighlights.slice(1, 2).map((highlight) => (
+            <Fragment key={highlight}>
+              <span className="shrink-0 text-muted-foreground">•</span>
+              <span className="inline-flex min-w-0 shrink items-center gap-1.5 text-foreground/85">
+                <Brain className="h-4 w-4 shrink-0 text-muted-foreground" />
+                <span className="truncate">{highlight}</span>
+              </span>
+            </Fragment>
+          ))}
+          <span className="shrink-0 text-muted-foreground">•</span>
+          <span className="inline-flex shrink-0 items-center gap-1.5 font-semibold text-foreground">
+            Ver plano
+            <ChevronRightIcon className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
+          </span>
+        </div>
       </div>
 
-      <div className="hidden w-full items-center justify-between gap-4 md:flex">
+      <div className="hidden w-full items-center justify-between gap-4 2xl:flex">
         <div className="flex min-w-0 flex-1 flex-col gap-2">
           <div className="flex min-w-0 items-center gap-3">
             <div className="shrink-0 pt-0.5">
