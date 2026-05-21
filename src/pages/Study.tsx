@@ -259,6 +259,7 @@ function StudyContent() {
   const scrollRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const trackedMessageEventsRef = useRef<Set<string>>(new Set());
+  const latestMessagesRef = useRef<StudyMessage[]>([]);
   
   // Tool panels state - using unified ToolPanel type
   const [activeToolPanel, setActiveToolPanel] = useState<ToolPanel>(null);
@@ -365,6 +366,10 @@ function StudyContent() {
 
   useEffect(() => {
     scrollToBottom();
+  }, [messages]);
+
+  useEffect(() => {
+    latestMessagesRef.current = messages;
   }, [messages]);
 
   useEffect(() => {
@@ -648,7 +653,20 @@ function StudyContent() {
 
       if (error) throw error;
 
-      setMessages((data || []) as StudyMessage[]);
+      const fetchedMessages = (data || []) as StudyMessage[];
+
+      if (
+        fetchedMessages.length === 0 &&
+        initialMessageTriggeredRef.current &&
+        latestMessagesRef.current.length > 0
+      ) {
+        return;
+      }
+
+      setMessages(fetchedMessages);
+      if (fetchedMessages.length > 0) {
+        setInitialMessageSent(true);
+      }
       
       if (data) {
         const newContentsMap = new Map();
@@ -899,8 +917,12 @@ function StudyContent() {
           maxMessages: messageLimit,
         });
       }
+
+      await fetchMessages();
     } catch (error: any) {
       console.error("Error syncing initial conversation:", error);
+      initialMessageTriggeredRef.current = false;
+      setInitialMessageSent(false);
       toast.error(getInitialConversationErrorMessage(error));
     }
   };
@@ -927,6 +949,7 @@ function StudyContent() {
       studyAiState.lastCelebration
     )
   );
+  const shouldShowStudyMap = Boolean(study);
 
   const handleSend = async (messageOverride?: string) => {
     if (isChatLocked) {
@@ -1356,13 +1379,13 @@ function StudyContent() {
     ? `Classy: Você está a ${studyProgressPercent}% de concluir este estudo. Continue assim!`
     : "Classy: Seu estudo já está pronto para ganhar ritmo. Vamos começar?";
 
-  const studyMapCard = hasDetailedStudyState ? (
+  const studyMapCard = shouldShowStudyMap ? (
     <button
       type="button"
       onClick={() => setStudyMapDialogOpen(true)}
       className="group w-full rounded-[22px] border border-border/70 bg-[#e21e480d] px-4 py-3 text-left transition-colors hover:border-primary/20 dark:border-white/10 dark:bg-[#2a141acc]"
     >
-      <div className="flex min-w-0 items-start gap-2 2xl:hidden">
+      <div className="flex min-w-0 items-start gap-2 min-[1900px]:hidden">
         <img
           src="/star-red.png"
           alt=""
@@ -1394,7 +1417,7 @@ function StudyContent() {
         </div>
       </div>
 
-      <div className="hidden w-full items-center justify-between gap-4 2xl:flex">
+      <div className="hidden w-full items-center justify-between gap-4 min-[1900px]:flex">
         <div className="flex min-w-0 flex-1 flex-col gap-2">
           <div className="flex min-w-0 items-center gap-3">
             <div className="shrink-0 pt-0.5">
@@ -1455,7 +1478,7 @@ function StudyContent() {
     </button>
   ) : null;
 
-  const studyMapDialog = hasDetailedStudyState ? (
+  const studyMapDialog = shouldShowStudyMap ? (
     <Dialog open={studyMapDialogOpen} onOpenChange={setStudyMapDialogOpen}>
       <DialogContent className="max-h-[85vh] max-w-3xl overflow-hidden p-0">
         <DialogHeader className="border-b border-border/60 px-6 py-5 text-left">
