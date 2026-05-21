@@ -816,12 +816,15 @@ function StudyContent() {
     checkpoint_generated: (aiData.uiBlocks || []).some((block: any) => block.type === "checkpoint"),
   });
 
+  const studyTitleText = study?.title?.trim() || "Novo estudo";
+  const studyLearningTopic = study?.title?.trim() || "este tema";
+
   const sendInitialMessage = async () => {
     if (!id || !user || !study) return;
 
     const now = new Date().toISOString();
-    const initialMessage = `Olá! Quero aprender sobre ${study.title}`;
-    const assistantReply = buildInitialAssistantReply(study.title, profile?.display_name);
+    const initialMessage = `Olá! Quero aprender sobre ${studyLearningTopic}`;
+    const assistantReply = buildInitialAssistantReply(studyLearningTopic, profile?.display_name);
     const assistantMetadata = buildInitialAssistantMetadata();
 
     const localUserMessage: StudyMessage = {
@@ -850,10 +853,10 @@ function StudyContent() {
     });
     setStudyAiState({
       activeMode: "onboard",
-      currentFocus: study.title,
+      currentFocus: studyTitleText,
       learnerLevel: "unknown",
       nextBestAction: "Entender seu nível atual antes de montar a melhor direção.",
-      userGoal: study.title,
+      userGoal: studyTitleText,
       sessionSummary: null,
       masteredTopics: [],
       weakTopics: [],
@@ -894,8 +897,8 @@ function StudyContent() {
         .from("study_ai_state")
         .upsert({
           study_id: id,
-          user_goal: study.title,
-          current_focus: study.title,
+          user_goal: studyTitleText,
+          current_focus: studyTitleText,
           learner_level: "unknown",
           active_mode: "onboard",
           next_best_action: "Entender seu nível atual antes de montar a melhor direção.",
@@ -1369,6 +1372,21 @@ function StudyContent() {
       : null,
   ].filter(Boolean) as string[];
 
+  if (loading) {
+    return (
+      <div className="flex-1">
+        <Header />
+        <div className="flex items-center justify-center min-h-[calc(100vh-4rem)]">
+          <Loader2 className="w-8 h-8 animate-spin text-primary" />
+        </div>
+      </div>
+    );
+  }
+
+  if (!study) {
+    return null;
+  }
+
   const studyVideosCount = getStudyContentIds().length;
   const studyProgressPercent = Math.min(
     Math.round(((savedPlaylists.size || 0) * 20 + studyVideosCount * 10 + studyNotesCount * 5) / 2),
@@ -1379,13 +1397,13 @@ function StudyContent() {
     ? `Classy: Você está a ${studyProgressPercent}% de concluir este estudo. Continue assim!`
     : "Classy: Seu estudo já está pronto para ganhar ritmo. Vamos começar?";
   const compactStudyTitle = (() => {
-    const cleaned = study.title
+    const cleaned = studyTitleText
       .replace(/^quero aprender sobre\s+/i, "")
       .replace(/^quero aprender\s+/i, "")
       .replace(/^aprender sobre\s+/i, "")
       .trim();
 
-    return cleaned || study.title;
+    return cleaned || studyTitleText;
   })();
   const compactStageLabel =
     studyAiState?.activeMode === "onboard"
@@ -1404,7 +1422,7 @@ function StudyContent() {
       <DropdownMenuContent align="end" className="w-48">
         <DropdownMenuItem
           onClick={() => {
-            setNewTitle(study.title);
+            setNewTitle(studyTitleText);
             setRenameDialogOpen(true);
           }}
           className="cursor-pointer"
@@ -1552,7 +1570,7 @@ function StudyContent() {
             <div className="grid gap-3 md:grid-cols-3">
               <div className="rounded-2xl border border-border/60 bg-muted/35 p-4">
                 <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Foco</p>
-                <p className="mt-2 text-sm font-medium text-foreground">{studyAiState?.currentFocus || studyAiState?.userGoal || study.title}</p>
+                <p className="mt-2 text-sm font-medium text-foreground">{studyAiState?.currentFocus || studyAiState?.userGoal || studyTitleText}</p>
               </div>
               <div className="rounded-2xl border border-border/60 bg-muted/35 p-4">
                 <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Modo atual</p>
@@ -1637,21 +1655,6 @@ function StudyContent() {
       </DialogContent>
     </Dialog>
   ) : null;
-
-  if (loading) {
-    return (
-      <div className="flex-1">
-        <Header />
-        <div className="flex items-center justify-center min-h-[calc(100vh-4rem)]">
-          <Loader2 className="w-8 h-8 animate-spin text-primary" />
-        </div>
-      </div>
-    );
-  }
-
-  if (!study) {
-    return null;
-  }
 
   // Mobile Layout
   if (isMobile) {
@@ -2348,7 +2351,7 @@ function StudyContent() {
         <div className="flex w-full items-center justify-between gap-4">
           <div className="hidden w-[220px] shrink-0 lg:block">
             <h1 className="text-xl font-semibold text-foreground">
-              {study.title}
+              {studyTitleText}
             </h1>
             {study.description && (
               <p className="text-sm text-muted-foreground mt-1">
@@ -2417,7 +2420,7 @@ function StudyContent() {
               <DropdownMenuContent align="end" className="w-48">
                 <DropdownMenuItem
                   onClick={() => {
-                    setNewTitle(study.title);
+                    setNewTitle(studyTitleText);
                     setRenameDialogOpen(true);
                   }}
                   className="cursor-pointer"
@@ -2699,7 +2702,7 @@ function StudyContent() {
                 {loading || (messages.length === 0 && !initialMessageSent) ? (
                   <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
                     <Loader2 className="w-8 h-8 animate-spin mx-auto mb-4" />
-                    <p>Iniciando conversa sobre {study.title}...</p>
+                    <p>Iniciando conversa sobre {studyTitleText}...</p>
                   </div>
                 ) : (
                   <>
