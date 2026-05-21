@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { BookOpen, PlayCircle, StickyNote, Trophy, Clock, Coins } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
+import { fetchStudyJourneySummary } from "@/lib/study/getStudyJourneySummary";
 
 interface StudyMetrics {
   id: string;
@@ -57,19 +58,12 @@ export function ContinueStudyCard({ userId }: ContinueStudyCardProps) {
       // Fetch metrics for each study
       const studiesWithMetrics = await Promise.all(
         studies.map(async (study) => {
-          // Playlists count
-          const { count: playlistsCount } = await supabase
-            .from("study_playlists")
-            .select("*", { count: "exact", head: true })
-            .eq("study_id", study.id);
+          const summary = await fetchStudyJourneySummary({
+            studyId: study.id,
+            userId,
+            title: study.title || "Novo estudo",
+          });
 
-          // Notes count
-          const { count: notesCount } = await supabase
-            .from("study_notes")
-            .select("*", { count: "exact", head: true })
-            .eq("study_id", study.id);
-
-          // Fetch playlists for this specific study
           const { data: studyPlaylists } = await supabase
             .from("study_playlists")
             .select("message_id")
@@ -77,81 +71,21 @@ export function ContinueStudyCard({ userId }: ContinueStudyCardProps) {
             .eq("user_id", userId)
             .order("created_at", { ascending: false });
 
-          // Get messages with their related contents for THIS study
-          const { data: messages } = await supabase
-            .from("study_messages")
-            .select("id, related_contents")
-            .eq("study_id", study.id)
-            .eq("role", "assistant")
-            .order("created_at", { ascending: true });
-
-          let videosWatchedCount = 0;
-          let firstContentId: string | null = null;
           let thumbnailUrl = null;
           let videoUrl = null;
-          const allContentIds: string[] = [];
 
-          if (messages && messages.length > 0) {
-            for (const msg of messages) {
-              if (msg.related_contents && Array.isArray(msg.related_contents) && msg.related_contents.length > 0) {
-                for (const content of msg.related_contents) {
-                  let contentId: string | null = null;
-                  if (typeof content === 'object' && content !== null && 'id' in content) {
-                    contentId = content.id as string;
-                  } else if (typeof content === 'string') {
-                    contentId = content;
-                  }
-                  if (contentId) {
-                    allContentIds.push(contentId);
-                    if (!firstContentId) firstContentId = contentId;
-                  }
-                }
-                videosWatchedCount += msg.related_contents.length;
-              }
-            }
+          if (summary.primaryContentId) {
+            const { data: content } = await supabase
+              .from("contents")
+              .select("thumbnail_url, video_url, file_url")
+              .eq("id", summary.primaryContentId)
+              .maybeSingle();
 
-            // Fetch thumbnail and video from first content
-            if (firstContentId) {
-              const { data: content } = await supabase
-                .from("contents")
-                .select("thumbnail_url, video_url, file_url")
-                .eq("id", firstContentId)
-                .maybeSingle();
-              
-              if (content) {
-                thumbnailUrl = content.thumbnail_url;
-                videoUrl = content.video_url || content.file_url;
-              }
+            if (content) {
+              thumbnailUrl = content.thumbnail_url;
+              videoUrl = content.video_url || content.file_url;
             }
           }
-
-          // Calculate total rewards from reward_events for contents in this study
-          let totalRewards = 0;
-          if (allContentIds.length > 0) {
-            const { data: rewards } = await supabase
-              .from("reward_events")
-              .select("value")
-              .eq("user_id", userId)
-              .in("content_id", allContentIds);
-            
-            if (rewards) {
-              totalRewards = rewards.reduce((sum, r) => sum + (r.value || 0), 0);
-            }
-          }
-
-          // Estimate study time (10 minutes per video + 2 minutes per note)
-          const totalStudyTime = videosWatchedCount * 10 + (notesCount || 0) * 2;
-
-          // Calculate progress (based on activity)
-          const progressPercent = Math.min(
-            Math.round(
-              ((playlistsCount || 0) * 20 +
-                videosWatchedCount * 10 +
-                (notesCount || 0) * 5) /
-                2
-            ),
-            100
-          );
 
           // Get last playlist message ID for this study
           const lastPlaylistMessageId = studyPlaylists?.[0]?.message_id || null;
@@ -161,12 +95,12 @@ export function ContinueStudyCard({ userId }: ContinueStudyCardProps) {
             title: study.title,
             description: study.description,
             lastActivityAt: study.last_activity_at,
-            playlistsCount: playlistsCount || 0,
-            videosWatchedCount,
-            notesCount: notesCount || 0,
-            totalStudyTime,
-            totalRewards,
-            progressPercent,
+            playlistsCount: summary.playlistsCount,
+            videosWatchedCount: summary.videosCount,
+            notesCount: summary.notesCount,
+            totalStudyTime: summary.estimatedMinutes,
+            totalRewards: summary.rewardValue,
+            progressPercent: summary.progressPercent,
             thumbnailUrl,
             videoUrl,
             lastPlaylistMessageId,

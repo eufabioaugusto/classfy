@@ -29,6 +29,7 @@ import { WatchRelated } from "@/components/WatchRelated";
 import { formatDistanceToNow } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { MobileStudyPlayer } from "@/components/study/MobileStudyPlayer";
+import { useStudyJourneySummary } from "@/hooks/useStudyJourneySummary";
 
 import { StudyQuiz } from "@/components/StudyQuiz";
 import { StudyNotes } from "@/components/StudyNotes";
@@ -170,11 +171,11 @@ const getInitialConversationErrorMessage = (error: any) => {
 };
 
 const modeLabelMap: Record<ClassyStudyState["activeMode"], string> = {
-  onboard: "Onboarding",
+  onboard: "Diagnóstico",
   explain: "Explicando",
-  recommend: "Curadoria",
-  practice: "Prática",
-  review: "Revisão",
+  recommend: "Trilha",
+  practice: "Praticando",
+  review: "Revisando",
   plan: "Plano",
 };
 
@@ -205,6 +206,15 @@ const buildThinkingPhrases = (topic?: string | null) => {
     `Conectando ideias sobre ${focus}...`,
     "Montando uma resposta mais útil...",
   ];
+};
+
+const sanitizeRelatedContents = (contents: any[] | null | undefined) => {
+  if (!Array.isArray(contents)) return [];
+
+  return contents.filter((content) => {
+    if (!content || typeof content !== "object") return false;
+    return "id" in content && content.id;
+  });
 };
 
 function StudyContent() {
@@ -251,8 +261,6 @@ function StudyContent() {
   const [activePlaylist, setActivePlaylist] = useState<{messageId: string, currentIndex: number} | null>(null);
   const [autoplayCountdown, setAutoplayCountdown] = useState<number | null>(null);
   const [playlistsCount, setPlaylistsCount] = useState(0);
-  const [studyNotesCount, setStudyNotesCount] = useState(0);
-  const [studyRewardsTotal, setStudyRewardsTotal] = useState(0);
   const [newestMessageId, setNewestMessageId] = useState<string | null>(null);
   const initialMessageTriggeredRef = useRef(false);
   const autoplayTimerRef = useRef<NodeJS.Timeout | null>(null);
@@ -671,8 +679,9 @@ function StudyContent() {
       if (data) {
         const newContentsMap = new Map();
         data.forEach((msg: any) => {
-          if (msg.related_contents && msg.related_contents.length > 0) {
-            newContentsMap.set(msg.id, msg.related_contents);
+          const sanitizedContents = sanitizeRelatedContents(msg.related_contents);
+          if (sanitizedContents.length > 0) {
+            newContentsMap.set(msg.id, sanitizedContents);
           }
         });
         setMessageContents(newContentsMap);
@@ -701,72 +710,6 @@ function StudyContent() {
       console.error("Error fetching study ai state:", error);
     }
   };
-
-  const getStudyContentIds = () => {
-    const ids = new Set<string>();
-    messageContents.forEach((contents) => {
-      contents.forEach((content: any) => {
-        const contentId =
-          typeof content === "string"
-            ? content
-            : content && typeof content === "object" && "id" in content
-            ? String(content.id)
-            : null;
-
-        if (contentId) ids.add(contentId);
-      });
-    });
-
-    return Array.from(ids);
-  };
-
-  useEffect(() => {
-    if (!id) return;
-
-    const fetchNotesCount = async () => {
-      const { count, error } = await supabase
-        .from("study_notes")
-        .select("*", { count: "exact", head: true })
-        .eq("study_id", id);
-
-      if (error) {
-        console.error("Error fetching study notes count:", error);
-        return;
-      }
-
-      setStudyNotesCount(count || 0);
-    };
-
-    fetchNotesCount();
-  }, [id, notesRefresh]);
-
-  useEffect(() => {
-    if (!user || !id) return;
-
-    const contentIds = getStudyContentIds();
-    if (contentIds.length === 0) {
-      setStudyRewardsTotal(0);
-      return;
-    }
-
-    const fetchRewardsTotal = async () => {
-      const { data, error } = await supabase
-        .from("reward_events")
-        .select("value")
-        .eq("user_id", user.id)
-        .in("content_id", contentIds);
-
-      if (error) {
-        console.error("Error fetching study rewards:", error);
-        return;
-      }
-
-      const total = (data || []).reduce((sum, item) => sum + Number(item.value || 0), 0);
-      setStudyRewardsTotal(total);
-    };
-
-    fetchRewardsTotal();
-  }, [user, id, messageContents]);
 
   const getAssistantMetadata = (message: StudyMessage): ClassyMessageMetadata | null => {
     if (message.role !== "assistant" || !message.metadata || typeof message.metadata !== "object") {
@@ -818,6 +761,34 @@ function StudyContent() {
 
   const studyTitleText = study?.title?.trim() || "Novo estudo";
   const studyLearningTopic = study?.title?.trim() || "este tema";
+  const {
+    summary: studyJourneySummary,
+    refetch: refetchStudyJourneySummary,
+  } = useStudyJourneySummary({
+    studyId: id,
+    userId: user?.id,
+    title: studyTitleText,
+    overrides: {
+      activeMode: studyAiState?.activeMode,
+      currentFocus: studyAiState?.currentFocus,
+      nextBestAction: studyAiState?.nextBestAction,
+    },
+    enabled: Boolean(id && user?.id && study),
+  });
+
+  useEffect(() => {
+    if (!study || !user || !id) return;
+    refetchStudyJourneySummary();
+  }, [
+    study,
+    user,
+    id,
+    refetchStudyJourneySummary,
+    messageContents,
+    notesRefresh,
+    savedPlaylists.size,
+    messages.length,
+  ]);
 
   const sendInitialMessage = async () => {
     if (!id || !user || !study) return;
@@ -952,7 +923,7 @@ function StudyContent() {
       studyAiState.lastCelebration
     )
   );
-  const shouldShowStudyMap = Boolean(study);
+  const shouldShowStudyMap = Boolean(study && studyJourneySummary);
 
   const handleSend = async (messageOverride?: string) => {
     if (isChatLocked) {
@@ -1044,7 +1015,7 @@ function StudyContent() {
           role: "assistant",
           content: aiData.message,
           metadata: buildAssistantMetadata(aiData),
-          related_contents: aiData.relatedContents || null,
+          related_contents: sanitizeRelatedContents(aiData.relatedContents) || null,
         })
         .select()
         .single();
@@ -1356,22 +1327,6 @@ function StudyContent() {
     ).join("");
   };
 
-  const studyMapTitle = studyAiState?.livePlanSteps?.length
-    ? "Sua rota de aprendizado está pronta"
-    : studyAiState?.lastCelebration
-    ? "Seu progresso já começou a aparecer"
-    : "Veja sua direção de estudo";
-  const studyMapSummary = studyAiState?.nextBestAction
-    || studyAiState?.lastCelebration
-    || "Abra para ver foco, próximos passos e sinais da sua jornada.";
-  const studyMapHighlights = [
-    studyAiState?.currentFocus,
-    studyAiState?.activeMode ? modeLabelMap[studyAiState.activeMode] : null,
-    typeof studyAiState?.lastQuizScore === "number" && typeof studyAiState?.lastQuizTotal === "number"
-      ? `Quiz ${studyAiState.lastQuizScore}/${studyAiState.lastQuizTotal}`
-      : null,
-  ].filter(Boolean) as string[];
-
   if (loading) {
     return (
       <div className="flex-1">
@@ -1387,30 +1342,25 @@ function StudyContent() {
     return null;
   }
 
-  const studyVideosCount = getStudyContentIds().length;
-  const studyProgressPercent = Math.min(
-    Math.round(((savedPlaylists.size || 0) * 20 + studyVideosCount * 10 + studyNotesCount * 5) / 2),
-    100
-  );
-  const studyTotalMinutes = studyVideosCount * 10 + studyNotesCount * 2;
-  const studyHeaderSummary = studyProgressPercent > 0
-    ? `Classy: Você está a ${studyProgressPercent}% de concluir este estudo. Continue assim!`
-    : "Classy: Seu estudo já está pronto para ganhar ritmo. Vamos começar?";
-  const compactStudyTitle = (() => {
-    const cleaned = studyTitleText
-      .replace(/^quero aprender sobre\s+/i, "")
-      .replace(/^quero aprender\s+/i, "")
-      .replace(/^aprender sobre\s+/i, "")
-      .trim();
-
-    return cleaned || studyTitleText;
-  })();
+  const studyProgressPercent = studyJourneySummary?.progressPercent ?? 0;
+  const studyTotalMinutes = studyJourneySummary?.estimatedMinutes ?? 0;
+  const studyHeaderSummary =
+    studyJourneySummary?.summaryLine ||
+    "Classy: Seu estudo já está pronto para ganhar ritmo. Vamos começar?";
+  const compactStudyTitle = studyJourneySummary?.shortTitle || studyTitleText;
   const compactStageLabel =
-    studyAiState?.activeMode === "onboard"
-      ? "Diagnóstico"
-      : studyAiState?.activeMode
+    studyJourneySummary?.stageLabel ||
+    (studyAiState?.activeMode
       ? modeLabelMap[studyAiState.activeMode]
-      : "Diagnóstico";
+      : "Diagnóstico");
+  const studyVideosCount = studyJourneySummary?.videosCount ?? 0;
+  const studyPlaylistsCount = studyJourneySummary?.playlistsCount ?? savedPlaylists.size;
+  const studyNotesCount = studyJourneySummary?.notesCount ?? 0;
+  const studyRewardValue = studyJourneySummary?.rewardValue ?? 0;
+  const studyPerformancePoints = studyJourneySummary?.performancePoints ?? 0;
+  const studyEngagedContentsCount = studyJourneySummary?.engagedContentsCount ?? 0;
+  const studyCompletedContentsCount = studyJourneySummary?.completedContentsCount ?? 0;
+  const studyRecommendedContentsCount = studyJourneySummary?.totalRecommendedContents ?? 0;
 
   const studyMapActions = (
     <DropdownMenu>
@@ -1448,7 +1398,7 @@ function StudyContent() {
 
   const studyMapCompactCard = shouldShowStudyMap ? (
     <div className="w-full overflow-hidden rounded-full border border-border/70 bg-[#FFF5F6] px-3 py-2 dark:border-white/10 dark:bg-[#2a141acc]">
-      <div className="flex min-w-0 flex-nowrap items-center gap-2">
+      <div className="flex w-full min-w-0 items-center gap-2">
         <img
           src="/star-red.png"
           alt=""
@@ -1478,8 +1428,8 @@ function StudyContent() {
           onClick={() => setStudyMapDialogOpen(true)}
           className="inline-flex shrink-0 items-center gap-1 rounded-full bg-background/96 px-3 py-1.5 text-sm font-semibold text-foreground dark:bg-white dark:text-zinc-900"
         >
-          <span className="hidden min-[430px]:inline">Plano de estudo</span>
-          <span className="min-[430px]:hidden">Plano</span>
+          <span className="hidden min-[520px]:inline">Plano de estudo</span>
+          <span className="min-[520px]:hidden">Plano</span>
           <ChevronRightIcon className="h-4 w-4" />
         </button>
 
@@ -1520,7 +1470,7 @@ function StudyContent() {
             </div>
             <div className="flex shrink-0 items-center gap-3 text-xs text-foreground/78 dark:text-white/75">
               <span>{studyProgressPercent}% concluído</span>
-              <span>{savedPlaylists.size || 0} playlists</span>
+              <span>{studyPlaylistsCount} playlists</span>
               <span>{studyVideosCount} vídeos</span>
               <span>{studyNotesCount} anotações</span>
               <span>{studyTotalMinutes}min</span>
@@ -1535,7 +1485,7 @@ function StudyContent() {
           </span>
           <span className="inline-flex items-center gap-1.5 rounded-full bg-background/92 px-3 py-1.5 text-sm font-semibold text-foreground dark:bg-white/10 dark:text-white">
             <Coins className="h-4 w-4 text-muted-foreground dark:text-white/55" />
-            R$ {Number(study.pool_balance || 0).toFixed(2)}
+            R$ {studyRewardValue.toFixed(2)}
           </span>
           <span className="inline-flex items-center gap-1 rounded-full bg-background/96 px-3 py-1.5 text-sm font-semibold text-foreground dark:bg-white dark:text-zinc-900">
             Plano de estudo
@@ -1551,8 +1501,8 @@ function StudyContent() {
 
   const studyMapCard = shouldShowStudyMap ? (
     <>
-      <div className="2xl:hidden">{studyMapCompactCard}</div>
-      <div className="hidden 2xl:block">{studyMapDesktopCard}</div>
+      <div className="xl:hidden">{studyMapCompactCard}</div>
+      <div className="hidden xl:block">{studyMapDesktopCard}</div>
     </>
   ) : null;
 
@@ -1579,6 +1529,33 @@ function StudyContent() {
               <div className="rounded-2xl border border-primary/20 bg-primary/8 p-4">
                 <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-primary/80">Próximo passo</p>
                 <p className="mt-2 text-sm font-medium text-foreground">{studyAiState?.nextBestAction || "Continue a conversa para a Classy ajustar sua direção."}</p>
+              </div>
+            </div>
+
+            <div className="grid gap-3 md:grid-cols-4">
+              <div className="rounded-2xl border border-border/60 bg-muted/35 p-4">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Progresso</p>
+                <p className="mt-2 text-lg font-semibold text-foreground">{studyProgressPercent}%</p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {studyEngagedContentsCount} engajados de {studyRecommendedContentsCount || 0} sugeridos
+                </p>
+              </div>
+              <div className="rounded-2xl border border-border/60 bg-muted/35 p-4">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Conteúdos</p>
+                <p className="mt-2 text-lg font-semibold text-foreground">{studyCompletedContentsCount}/{studyRecommendedContentsCount || 0}</p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {studyPlaylistsCount} playlists · {studyVideosCount} vídeos
+                </p>
+              </div>
+              <div className="rounded-2xl border border-border/60 bg-muted/35 p-4">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Ganhos</p>
+                <p className="mt-2 text-lg font-semibold text-foreground">R$ {studyRewardValue.toFixed(2)}</p>
+                <p className="mt-1 text-xs text-muted-foreground">{studyPerformancePoints} pontos de performance</p>
+              </div>
+              <div className="rounded-2xl border border-border/60 bg-muted/35 p-4">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Ritmo</p>
+                <p className="mt-2 text-lg font-semibold text-foreground">{studyTotalMinutes}min</p>
+                <p className="mt-1 text-xs text-muted-foreground">{studyNotesCount} anotações no estudo</p>
               </div>
             </div>
 
@@ -2349,7 +2326,7 @@ function StudyContent() {
       {/* Study Header */}
       <header className="border-b border-border bg-card px-6 py-4 flex-shrink-0">
         <div className="flex w-full items-center justify-between gap-4">
-          <div className="hidden w-[220px] shrink-0 lg:block">
+          <div className="hidden w-[220px] shrink-0 xl:block">
             <h1 className="text-xl font-semibold text-foreground">
               {studyTitleText}
             </h1>
