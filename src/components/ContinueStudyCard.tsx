@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { BookOpen, PlayCircle, StickyNote, Trophy, Clock, Coins } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
-import { fetchStudyJourneySummary } from "@/lib/study/getStudyJourneySummary";
+import { fetchStudyJourneySummary, toShortTitle } from "@/lib/study/getStudyJourneySummary";
 
 interface StudyMetrics {
   id: string;
@@ -61,7 +61,7 @@ export function ContinueStudyCard({ userId }: ContinueStudyCardProps) {
           const summary = await fetchStudyJourneySummary({
             studyId: study.id,
             userId,
-            title: study.title || "Novo estudo",
+            title: toShortTitle(study.title || "Novo estudo"),
           });
 
           const { data: studyPlaylists } = await supabase
@@ -92,7 +92,7 @@ export function ContinueStudyCard({ userId }: ContinueStudyCardProps) {
 
           return {
             id: study.id,
-            title: study.title,
+            title: toShortTitle(study.title),
             description: study.description,
             lastActivityAt: study.last_activity_at,
             playlistsCount: summary.playlistsCount,
@@ -167,7 +167,7 @@ export function ContinueStudyCard({ userId }: ContinueStudyCardProps) {
               <>
                 <img
                   src={study.thumbnailUrl}
-                  alt={study.title}
+                  alt={toShortTitle(study.title)}
                   className="w-full h-full object-cover"
                   onError={(e) => {
                     console.error('Thumbnail failed to load:', study.thumbnailUrl);
@@ -195,7 +195,7 @@ export function ContinueStudyCard({ userId }: ContinueStudyCardProps) {
                 {index === 0 ? "Você já começou essa jornada. Vamos continuar?" : "Continue de onde parou"}
               </p>
               <h2 className="text-xl md:text-5xl font-bold text-white leading-tight line-clamp-2">
-                {study.title}
+                {toShortTitle(study.title)}
               </h2>
             </div>
 

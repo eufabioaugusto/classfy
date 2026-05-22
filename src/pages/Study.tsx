@@ -209,6 +209,15 @@ const buildThinkingPhrases = (topic?: string | null) => {
   ];
 };
 
+const resizeTextareaToContent = (textarea: HTMLTextAreaElement | null) => {
+  if (!textarea) return;
+
+  textarea.style.height = "0px";
+  const nextHeight = Math.min(textarea.scrollHeight, 160);
+  textarea.style.height = `${Math.max(nextHeight, 24)}px`;
+  textarea.style.overflowY = textarea.scrollHeight > 160 ? "auto" : "hidden";
+};
+
 const sanitizeRelatedContents = (contents: any[] | null | undefined) => {
   if (!Array.isArray(contents)) return [];
 
@@ -267,6 +276,7 @@ function StudyContent() {
   const autoplayTimerRef = useRef<NodeJS.Timeout | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const messageInputRef = useRef<HTMLTextAreaElement>(null);
   const trackedMessageEventsRef = useRef<Set<string>>(new Set());
   const latestMessagesRef = useRef<StudyMessage[]>([]);
   
@@ -764,6 +774,11 @@ function StudyContent() {
   const studyTitleText = study?.title?.trim() || "Novo estudo";
   const studyDisplayTitle = toShortTitle(studyTitleText) || studyTitleText;
   const studyLearningTopic = studyDisplayTitle || "este tema";
+
+  useEffect(() => {
+    resizeTextareaToContent(messageInputRef.current);
+  }, [input]);
+
   const studyJourneyOverrides = useMemo(
     () => ({
       activeMode: studyAiState?.activeMode,
@@ -791,7 +806,7 @@ function StudyContent() {
     if (!id || !user || !study) return;
 
     const now = new Date().toISOString();
-    const initialMessage = `Olá! Quero aprender sobre ${studyLearningTopic}`;
+    const initialMessage = `Quero aprender sobre ${studyLearningTopic}`;
     const assistantReply = buildInitialAssistantReply(studyLearningTopic, profile?.display_name);
     const assistantMetadata = buildInitialAssistantMetadata();
 
@@ -2786,10 +2801,12 @@ function StudyContent() {
                       : "border-border/50 hover:border-border focus-within:border-primary/30 focus-within:shadow-2xl focus-within:shadow-primary/5"
                   )}>
                     {/* Text Input */}
-                    <div className="flex-1 min-h-[56px] flex items-center px-5 py-3">
+                    <div className="flex-1 min-h-[56px] px-5 py-3">
                       <textarea
+                        ref={messageInputRef}
                         value={input}
                         onChange={(e) => setInput(e.target.value)}
+                        onInput={(e) => resizeTextareaToContent(e.currentTarget)}
                         onKeyDown={(e) => {
                           if (e.key === 'Enter' && !e.shiftKey) {
                             e.preventDefault();
@@ -2800,12 +2817,12 @@ function StudyContent() {
                         disabled={sending || isChatLocked}
                         rows={1}
                         className={cn(
-                          "w-full bg-transparent resize-none outline-none",
+                          "block w-full bg-transparent resize-none overflow-y-hidden outline-none",
                           "text-sm sm:text-base leading-relaxed",
                           "placeholder:text-muted-foreground/60",
                           "disabled:cursor-not-allowed"
                         )}
-                        style={{ maxHeight: '120px' }}
+                        style={{ minHeight: "24px", maxHeight: "160px" }}
                       />
                     </div>
 

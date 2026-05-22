@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
+import { normalizeStudyTitle } from "@/lib/study/getStudyJourneySummary";
 
 export interface Study {
   id: string;
@@ -128,11 +129,13 @@ export function useStudies() {
     }
 
     try {
+      const normalizedTitle = normalizeStudyTitle(title);
+
       const { data, error } = await supabase
         .from("studies")
         .insert({
           user_id: user.id,
-          title,
+          title: normalizedTitle,
           description,
           plan_at_creation: currentPlan,
           status: 'active',

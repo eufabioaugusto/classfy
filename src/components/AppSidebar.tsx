@@ -3,6 +3,7 @@ import { useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { useStudies } from "@/hooks/useStudies";
 import { useAdminPendingCounts } from "@/hooks/useAdminPendingCounts";
+import { toShortTitle } from "@/lib/study/getStudyJourneySummary";
 import { BecomeCreatorModal } from "@/components/BecomeCreatorModal";
 import { UpgradeModal } from "@/components/UpgradeModal";
 import { ProfileAvatar } from "@/components/ProfileAvatar";
@@ -260,7 +261,7 @@ export function AppSidebar() {
                               activeClassName="bg-muted text-cinematic-accent font-medium"
                             >
                               <BookOpen className="h-4 w-4" />
-                              <span className="truncate max-w-[160px]">{study.title}</span>
+                              <span className="truncate max-w-[160px]">{toShortTitle(study.title)}</span>
                             </NavLink>
                           </SidebarMenuButton>
                         </SidebarMenuItem>

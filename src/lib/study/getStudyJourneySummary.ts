@@ -98,13 +98,39 @@ export interface StudyJourneySummaryOverrides {
 const clamp = (value: number, min: number, max: number) =>
   Math.min(Math.max(value, min), max);
 
+const stripStudyLeadIn = (value: string) => {
+  const patterns = [
+    /^(ol[aá]|oi|opa|e ai|e aí|hey)\s*[!,.:\-–—]?\s*/i,
+    /^quero aprender sobre\s+/i,
+    /^quero aprender\s+/i,
+    /^aprender sobre\s+/i,
+    /^aprender\s+/i,
+    /^estudo sobre\s+/i,
+    /^estudo de\s+/i,
+    /^como\s+/i,
+  ];
+
+  let cleaned = value.trim();
+  let previous = "";
+
+  while (cleaned && cleaned !== previous) {
+    previous = cleaned;
+
+    patterns.forEach((pattern) => {
+      cleaned = cleaned.replace(pattern, "");
+    });
+
+    cleaned = cleaned
+      .replace(/\s+/g, " ")
+      .replace(/\s+[!?.:,;]+$/g, "")
+      .trim();
+  }
+
+  return cleaned;
+};
+
 export const toShortTitle = (title: string) => {
-  const cleaned = title
-    .replace(/^quero aprender sobre\s+/i, "")
-    .replace(/^quero aprender\s+/i, "")
-    .replace(/^aprender sobre\s+/i, "")
-    .replace(/^como\s+/i, "")
-    .trim();
+  const cleaned = stripStudyLeadIn(title);
 
   if (!cleaned) return title.trim();
 
@@ -112,6 +138,18 @@ export const toShortTitle = (title: string) => {
     .split(/[:|-]/)[0]
     .trim()
     .replace(/\s+/g, " ");
+};
+
+export const normalizeStudyTitle = (title: string) => {
+  const shortTitle = toShortTitle(title);
+
+  if (!shortTitle) return title.trim();
+
+  const normalizedShort = shortTitle
+    .replace(/^(de|do|da|dos|das)\s+/i, "")
+    .trim();
+
+  return normalizedShort ? `Aprender ${normalizedShort}` : `Aprender ${shortTitle}`;
 };
 
 const extractContentIds = (messages: StudyMessageRow[]) => {

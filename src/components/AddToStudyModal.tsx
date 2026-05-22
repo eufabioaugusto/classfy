@@ -5,6 +5,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Plus, BookOpen, Loader2 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
+import { toShortTitle } from "@/lib/study/getStudyJourneySummary";
 import { toast } from "sonner";
 import { useNavigate } from "react-router-dom";
 
@@ -140,7 +141,7 @@ export function AddToStudyModal({ open, onOpenChange, contentId, contentTitle }:
                       <BookOpen className="w-4 h-4 mr-2 flex-shrink-0" />
                     )}
                     <div className="flex-1 min-w-0">
-                      <p className="font-medium truncate">{study.title}</p>
+                      <p className="font-medium truncate">{toShortTitle(study.title)}</p>
                       {study.description && (
                         <p className="text-xs text-muted-foreground truncate mt-0.5">
                           {study.description}
