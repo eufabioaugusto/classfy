@@ -98,7 +98,7 @@ export interface StudyJourneySummaryOverrides {
 const clamp = (value: number, min: number, max: number) =>
   Math.min(Math.max(value, min), max);
 
-const toShortTitle = (title: string) => {
+export const toShortTitle = (title: string) => {
   const cleaned = title
     .replace(/^quero aprender sobre\s+/i, "")
     .replace(/^quero aprender\s+/i, "")

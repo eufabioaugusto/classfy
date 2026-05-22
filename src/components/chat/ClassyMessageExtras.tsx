@@ -61,8 +61,16 @@ export function ClassyMessageExtras({
   const citations = metadata.citations || [];
   const contentStrategy = metadata.content_strategy;
   const sourceTransparency = metadata.source_transparency;
+  const suggestionFriendlyIntents = new Set(["onboard", "clarify", "plan", "recommend", "practice"]);
+  const shouldShowSuggestions =
+    suggestions.length > 0 &&
+    !compact &&
+    (suggestionFriendlyIntents.has(metadata.intent || "") ||
+      metadata.active_mode === "onboard" ||
+      blocks.some((block) => ["practice", "trail"].includes(block.type)));
+  const visibleSuggestions = shouldShowSuggestions ? suggestions.slice(0, 3) : [];
 
-  if (blocks.length === 0 && suggestions.length === 0 && citations.length === 0 && !contentStrategy && !sourceTransparency) {
+  if (blocks.length === 0 && visibleSuggestions.length === 0 && citations.length === 0 && !contentStrategy && !sourceTransparency) {
     return null;
   }
 
@@ -104,9 +112,9 @@ export function ClassyMessageExtras({
         </div>
       )}
 
-      {suggestions.length > 0 && (
+      {visibleSuggestions.length > 0 && (
         <div className="flex flex-wrap gap-2">
-          {suggestions.map((suggestion) => (
+          {visibleSuggestions.map((suggestion) => (
             <Button
               key={suggestion}
               type="button"

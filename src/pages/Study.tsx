@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useState, useRef } from "react";
+import { Fragment, useEffect, useMemo, useState, useRef } from "react";
 import { cn } from "@/lib/utils";
 import { useParams, useNavigate, useLocation } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
@@ -30,6 +30,7 @@ import { formatDistanceToNow } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { MobileStudyPlayer } from "@/components/study/MobileStudyPlayer";
 import { useStudyJourneySummary } from "@/hooks/useStudyJourneySummary";
+import { toShortTitle } from "@/lib/study/getStudyJourneySummary";
 
 import { StudyQuiz } from "@/components/StudyQuiz";
 import { StudyNotes } from "@/components/StudyNotes";
@@ -553,6 +554,7 @@ function StudyContent() {
         });
 
       await fetchMessages();
+      await refetchStudyJourneySummary();
       scrollToBottom();
     } catch (error) {
       console.error('Error creating playlist:', error);
@@ -760,7 +762,20 @@ function StudyContent() {
   });
 
   const studyTitleText = study?.title?.trim() || "Novo estudo";
-  const studyLearningTopic = study?.title?.trim() || "este tema";
+  const studyDisplayTitle = toShortTitle(studyTitleText) || studyTitleText;
+  const studyLearningTopic = studyDisplayTitle || "este tema";
+  const studyJourneyOverrides = useMemo(
+    () => ({
+      activeMode: studyAiState?.activeMode,
+      currentFocus: studyAiState?.currentFocus,
+      nextBestAction: studyAiState?.nextBestAction,
+    }),
+    [
+      studyAiState?.activeMode,
+      studyAiState?.currentFocus,
+      studyAiState?.nextBestAction,
+    ]
+  );
   const {
     summary: studyJourneySummary,
     refetch: refetchStudyJourneySummary,
@@ -768,27 +783,9 @@ function StudyContent() {
     studyId: id,
     userId: user?.id,
     title: studyTitleText,
-    overrides: {
-      activeMode: studyAiState?.activeMode,
-      currentFocus: studyAiState?.currentFocus,
-      nextBestAction: studyAiState?.nextBestAction,
-    },
+    overrides: studyJourneyOverrides,
     enabled: Boolean(id && user?.id && study),
   });
-
-  useEffect(() => {
-    if (!study || !user || !id) return;
-    refetchStudyJourneySummary();
-  }, [
-    study,
-    user,
-    id,
-    refetchStudyJourneySummary,
-    messageContents,
-    notesRefresh,
-    savedPlaylists.size,
-    messages.length,
-  ]);
 
   const sendInitialMessage = async () => {
     if (!id || !user || !study) return;
@@ -824,10 +821,10 @@ function StudyContent() {
     });
     setStudyAiState({
       activeMode: "onboard",
-      currentFocus: studyTitleText,
+      currentFocus: studyDisplayTitle,
       learnerLevel: "unknown",
       nextBestAction: "Entender seu nível atual antes de montar a melhor direção.",
-      userGoal: studyTitleText,
+      userGoal: studyDisplayTitle,
       sessionSummary: null,
       masteredTopics: [],
       weakTopics: [],
@@ -868,8 +865,8 @@ function StudyContent() {
         .from("study_ai_state")
         .upsert({
           study_id: id,
-          user_goal: studyTitleText,
-          current_focus: studyTitleText,
+          user_goal: studyDisplayTitle,
+          current_focus: studyDisplayTitle,
           learner_level: "unknown",
           active_mode: "onboard",
           next_best_action: "Entender seu nível atual antes de montar a melhor direção.",
@@ -893,6 +890,7 @@ function StudyContent() {
       }
 
       await fetchMessages();
+      await refetchStudyJourneySummary();
     } catch (error: any) {
       console.error("Error syncing initial conversation:", error);
       initialMessageTriggeredRef.current = false;
@@ -1025,6 +1023,7 @@ function StudyContent() {
       // Mark this message as the newest for typewriter animation
       setNewestMessageId(aiMessageData.id);
       await fetchMessages();
+      await refetchStudyJourneySummary();
       await updateLastActivity(id);
       
       // Update study to get latest message_count
@@ -1269,6 +1268,7 @@ function StudyContent() {
       setNoteDialogOpen(false);
       setNoteText("");
       setNotesRefresh((prev) => prev + 1);
+      await refetchStudyJourneySummary();
     } catch (error) {
       console.error("Error saving note:", error);
       toast.error("Erro ao salvar anotação");
@@ -1344,10 +1344,7 @@ function StudyContent() {
 
   const studyProgressPercent = studyJourneySummary?.progressPercent ?? 0;
   const studyTotalMinutes = studyJourneySummary?.estimatedMinutes ?? 0;
-  const studyHeaderSummary =
-    studyJourneySummary?.summaryLine ||
-    "Classy: Seu estudo já está pronto para ganhar ritmo. Vamos começar?";
-  const compactStudyTitle = studyJourneySummary?.shortTitle || studyTitleText;
+  const compactStudyTitle = studyJourneySummary?.shortTitle || studyDisplayTitle;
   const compactStageLabel =
     studyJourneySummary?.stageLabel ||
     (studyAiState?.activeMode
@@ -1396,99 +1393,46 @@ function StudyContent() {
     </DropdownMenu>
   );
 
-  const studyMapCompactCard = shouldShowStudyMap ? (
-    <div className="w-full overflow-hidden rounded-full border border-border/70 bg-[#FFF5F6] px-3 py-2 dark:border-white/10 dark:bg-[#2a141acc]">
-      <div className="flex w-full min-w-0 items-center gap-2">
+  const studyMapCard = shouldShowStudyMap ? (
+    <button
+      type="button"
+      onClick={() => setStudyMapDialogOpen(true)}
+      className="group w-full overflow-hidden rounded-full border border-border/70 bg-[#FFF5F6] px-3 py-2.5 text-left transition-colors hover:border-primary/20 dark:border-white/10 dark:bg-[#2a141acc] sm:px-4"
+    >
+      <div className="flex w-full items-center gap-2 sm:gap-3">
         <img
           src="/star-red.png"
           alt=""
           aria-hidden="true"
-          className="h-7 w-7 shrink-0 object-contain"
+          className="h-7 w-7 shrink-0 object-contain sm:h-8 sm:w-8"
         />
 
-        <button
-          type="button"
-          onClick={() => setStudyMapDialogOpen(true)}
-          className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden text-left"
-        >
-          <span className="min-w-0 truncate text-base font-semibold text-foreground">
+        <div className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden sm:gap-3">
+          <span className="min-w-0 flex-1 truncate text-sm font-bold text-foreground sm:text-base">
             {compactStudyTitle}
           </span>
-          <span className="inline-flex shrink-0 items-center justify-center rounded-full bg-background/92 px-2 py-1 text-sm font-semibold text-foreground dark:bg-white/10 dark:text-white">
+
+          <span className="inline-flex shrink-0 items-center justify-center rounded-full bg-background/92 px-2.5 py-1 text-sm font-semibold text-foreground dark:bg-white/10 dark:text-white">
             {studyProgressPercent}%
           </span>
-          <span className="hidden shrink-0 items-center gap-1.5 rounded-full bg-background/92 px-2 py-1 text-sm font-medium text-foreground/82 min-[430px]:inline-flex dark:bg-white/10 dark:text-white/82">
+
+          <span className="hidden shrink-0 items-center gap-1.5 rounded-full bg-background/92 px-2.5 py-1 text-sm font-medium text-foreground/82 min-[430px]:inline-flex dark:bg-white/10 dark:text-white/82">
             <Brain className="h-4 w-4 text-muted-foreground dark:text-white/55" />
             <span className="truncate">{compactStageLabel}</span>
           </span>
-        </button>
 
-        <button
-          type="button"
-          onClick={() => setStudyMapDialogOpen(true)}
-          className="inline-flex shrink-0 items-center gap-1 rounded-full bg-background/96 px-3 py-1.5 text-sm font-semibold text-foreground dark:bg-white dark:text-zinc-900"
-        >
-          <span className="hidden min-[520px]:inline">Plano de estudo</span>
-          <span className="min-[520px]:hidden">Plano</span>
-          <ChevronRightIcon className="h-4 w-4" />
-        </button>
-
-        {studyMapActions}
-      </div>
-    </div>
-  ) : null;
-
-  const studyMapDesktopCard = shouldShowStudyMap ? (
-    <button
-      type="button"
-      onClick={() => setStudyMapDialogOpen(true)}
-      className="group w-full rounded-[22px] border border-border/70 bg-[#FFF5F6] px-4 py-3 text-left transition-colors hover:border-primary/20 dark:border-white/10 dark:bg-[#2a141acc]"
-    >
-      <div className="flex w-full items-center justify-between gap-4">
-        <div className="flex min-w-0 flex-1 flex-col gap-2">
-          <div className="flex min-w-0 items-center gap-3">
-            <img
-              src="/star-red.png"
-              alt=""
-              aria-hidden="true"
-              className="h-8 w-8 shrink-0 object-contain"
-            />
-            <p className="min-w-0 truncate text-sm font-medium text-foreground/90 dark:text-white/90">
-              <span className="font-semibold italic">Classy:</span>{" "}
-              {studyHeaderSummary.replace(/^Classy:\s*/i, "")}
-            </p>
-          </div>
-
-          <div className="flex min-w-0 items-center gap-3">
-            <div className="min-w-0 flex-1">
-              <div className="h-2 overflow-hidden rounded-full bg-black/10 dark:bg-white/10">
-                <div
-                  className="h-full rounded-full bg-primary transition-[width]"
-                  style={{ width: `${studyProgressPercent}%` }}
-                />
-              </div>
-            </div>
-            <div className="flex shrink-0 items-center gap-3 text-xs text-foreground/78 dark:text-white/75">
-              <span>{studyProgressPercent}% concluído</span>
-              <span>{studyPlaylistsCount} playlists</span>
-              <span>{studyVideosCount} vídeos</span>
-              <span>{studyNotesCount} anotações</span>
-              <span>{studyTotalMinutes}min</span>
-            </div>
-          </div>
+          {studyRewardValue > 0 && (
+            <span className="hidden shrink-0 items-center gap-1.5 rounded-full bg-background/92 px-2.5 py-1 text-sm font-semibold text-foreground min-[760px]:inline-flex dark:bg-white/10 dark:text-white">
+              <Coins className="h-4 w-4 text-muted-foreground dark:text-white/55" />
+              R$ {studyRewardValue.toFixed(2)}
+            </span>
+          )}
         </div>
 
-        <div className="flex shrink-0 items-center gap-2">
-          <span className="inline-flex items-center gap-1.5 rounded-full bg-background/92 px-3 py-1.5 text-sm font-medium text-foreground/82 dark:bg-white/10 dark:text-white/82">
-            <Brain className="h-4 w-4 text-muted-foreground dark:text-white/55" />
-            <span className="truncate">{compactStageLabel}</span>
-          </span>
-          <span className="inline-flex items-center gap-1.5 rounded-full bg-background/92 px-3 py-1.5 text-sm font-semibold text-foreground dark:bg-white/10 dark:text-white">
-            <Coins className="h-4 w-4 text-muted-foreground dark:text-white/55" />
-            R$ {studyRewardValue.toFixed(2)}
-          </span>
-          <span className="inline-flex items-center gap-1 rounded-full bg-background/96 px-3 py-1.5 text-sm font-semibold text-foreground dark:bg-white dark:text-zinc-900">
-            Plano de estudo
+        <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
+          <span className="hidden items-center gap-1 rounded-full bg-background/96 px-3 py-1.5 text-sm font-semibold text-foreground min-[520px]:inline-flex dark:bg-white dark:text-zinc-900">
+            <span className="hidden min-[760px]:inline">Plano de estudo</span>
+            <span className="min-[760px]:hidden">Plano</span>
             <ChevronRightIcon className="h-4 w-4" />
           </span>
           <span onClick={(event) => event.stopPropagation()}>
@@ -1497,13 +1441,6 @@ function StudyContent() {
         </div>
       </div>
     </button>
-  ) : null;
-
-  const studyMapCard = shouldShowStudyMap ? (
-    <>
-      <div className="xl:hidden">{studyMapCompactCard}</div>
-      <div className="hidden xl:block">{studyMapDesktopCard}</div>
-    </>
   ) : null;
 
   const studyMapDialog = shouldShowStudyMap ? (
@@ -1520,7 +1457,9 @@ function StudyContent() {
             <div className="grid gap-3 md:grid-cols-3">
               <div className="rounded-2xl border border-border/60 bg-muted/35 p-4">
                 <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Foco</p>
-                <p className="mt-2 text-sm font-medium text-foreground">{studyAiState?.currentFocus || studyAiState?.userGoal || studyTitleText}</p>
+                <p className="mt-2 text-sm font-medium text-foreground">
+                  {toShortTitle(studyAiState?.currentFocus || studyAiState?.userGoal || studyDisplayTitle)}
+                </p>
               </div>
               <div className="rounded-2xl border border-border/60 bg-muted/35 p-4">
                 <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Modo atual</p>
@@ -2326,17 +2265,6 @@ function StudyContent() {
       {/* Study Header */}
       <header className="border-b border-border bg-card px-6 py-4 flex-shrink-0">
         <div className="flex w-full items-center justify-between gap-4">
-          <div className="hidden w-[220px] shrink-0 xl:block">
-            <h1 className="text-xl font-semibold text-foreground">
-              {studyTitleText}
-            </h1>
-            {study.description && (
-              <p className="text-sm text-muted-foreground mt-1">
-                {study.description}
-              </p>
-            )}
-          </div>
-
           <div className="flex min-w-0 flex-1 justify-center">
             <div className="w-full max-w-4xl">
               {studyMapCard}
@@ -2679,7 +2607,7 @@ function StudyContent() {
                 {loading || (messages.length === 0 && !initialMessageSent) ? (
                   <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
                     <Loader2 className="w-8 h-8 animate-spin mx-auto mb-4" />
-                    <p>Iniciando conversa sobre {studyTitleText}...</p>
+                    <p>Iniciando conversa sobre {studyDisplayTitle}...</p>
                   </div>
                 ) : (
                   <>
