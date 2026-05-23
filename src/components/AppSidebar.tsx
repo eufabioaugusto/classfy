@@ -146,7 +146,6 @@ export function AppSidebar() {
     limits,
     canCreateMore,
     archiveStudy,
-    createStudy,
     refetch: refetchStudies,
   } = useStudies();
   const { counts: adminCounts } = useAdminPendingCounts();
@@ -247,19 +246,6 @@ export function AppSidebar() {
 
     await navigator.clipboard.writeText(payload.url);
     toast.success("Link do estudo copiado para compartilhar.");
-  };
-
-  const handleDuplicateStudy = async (study: (typeof activeStudies)[number]) => {
-    const duplicatedTitle = `${study.title} (cópia)`;
-    const result = await createStudy(duplicatedTitle, study.description || undefined);
-
-    if (result?.error) {
-      toast.error("Não foi possível duplicar o estudo.");
-      return;
-    }
-
-    toast.success("Estudo duplicado com sucesso.");
-    await refetchStudies();
   };
 
   const handleArchiveStudy = async (studyId: string) => {
@@ -537,10 +523,6 @@ export function AppSidebar() {
                                     <Pin className="mr-2 h-4 w-4" />
                                   )}
                                   {pinnedStudyIds.includes(study.id) ? "Desafixar do topo" : "Fixar no topo"}
-                                </DropdownMenuItem>
-                                <DropdownMenuItem onClick={() => handleDuplicateStudy(study)}>
-                                  <Copy className="mr-2 h-4 w-4" />
-                                  Duplicar estudo
                                 </DropdownMenuItem>
                                 <DropdownMenuItem onClick={() => openRenameDialog(study)}>
                                   <Pencil className="mr-2 h-4 w-4" />
