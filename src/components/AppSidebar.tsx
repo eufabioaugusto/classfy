@@ -464,7 +464,7 @@ export function AppSidebar() {
                     <SidebarMenu>
                       {orderedStudies.map((study) => (
                         <SidebarMenuItem key={study.id}>
-                          <div className="group relative">
+                          <div className="group/study-item relative z-0">
                             <SidebarMenuButton asChild>
                               <NavLink
                                 to={`/c/${study.id}`}
@@ -485,7 +485,7 @@ export function AppSidebar() {
                                   type="button"
                                   variant="ghost"
                                   size="icon"
-                                  className="absolute right-1.5 top-1/2 h-7 w-7 -translate-y-1/2 rounded-lg border border-transparent bg-background/75 opacity-0 shadow-sm backdrop-blur-sm transition-all hover:border-border/60 hover:bg-background group-hover:opacity-100 data-[state=open]:border-border/60 data-[state=open]:bg-background data-[state=open]:opacity-100"
+                                  className="pointer-events-none absolute right-1.5 top-1/2 z-20 h-7 w-7 -translate-y-1/2 rounded-lg border border-transparent bg-background opacity-0 shadow-sm transition-all hover:border-border/60 hover:bg-background group-hover/study-item:pointer-events-auto group-hover/study-item:opacity-100 data-[state=open]:pointer-events-auto data-[state=open]:border-border/60 data-[state=open]:bg-background data-[state=open]:opacity-100"
                                   onClick={(event) => {
                                     event.preventDefault();
                                     event.stopPropagation();
@@ -494,7 +494,11 @@ export function AppSidebar() {
                                   <MoreHorizontal className="h-4 w-4" />
                                 </Button>
                               </DropdownMenuTrigger>
-                              <DropdownMenuContent align="end" className="w-72 rounded-2xl border-border/70 bg-background/98 p-2 shadow-2xl">
+                              <DropdownMenuContent
+                                align="end"
+                                sideOffset={10}
+                                className="z-[120] w-72 rounded-2xl border border-border/80 bg-popover p-2 text-popover-foreground shadow-[0_24px_80px_rgba(0,0,0,0.22)]"
+                              >
                                 <DropdownMenuLabel className="px-3 py-2">
                                   <div className="space-y-1">
                                     <p className="truncate text-sm font-semibold text-foreground">{toShortTitle(study.title)}</p>
