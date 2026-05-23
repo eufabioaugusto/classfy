@@ -180,14 +180,29 @@ const modeLabelMap: Record<ClassyStudyState["activeMode"], string> = {
   plan: "Plano",
 };
 
+const sanitizeStudyTopic = (value?: string | null) => {
+  if (!value) return "";
+
+  return value
+    .replace(/^ol[aá](?:,\s*[^!?.]+)?[!?.]?\s*/i, "")
+    .replace(/^quero aprender(?:\s+sobre)?\s+/i, "")
+    .replace(/^aprender(?:\s+sobre)?\s+/i, "")
+    .replace(/^estudo(?:\s+sobre)?\s+/i, "")
+    .replace(/^tema:\s*/i, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/[!?.:,;\s]+$/g, "");
+};
+
 const buildInitialAssistantReply = (studyTitle: string, userName?: string | null) => {
   const firstName = userName?.trim()?.split(" ")[0];
   const greetingPrefix = firstName ? `Olá, ${firstName}!` : "Olá!";
+  const cleanTopic = sanitizeStudyTopic(studyTitle) || studyTitle;
 
   return [
-    `${greetingPrefix} Entendi que você quer aprender sobre ${studyTitle}.`,
+    `${greetingPrefix} Vamos estruturar seu estudo em ${cleanTopic}.`,
     "Antes de eu te guiar, quero calibrar rapidinho seu ponto de partida.",
-    "Você já teve algum contato com isso antes, ou está começando do zero?",
+    "Você já teve algum contato com esse tema, ou está começando do zero?",
   ].join("\n\n");
 };
 
@@ -772,13 +787,13 @@ function StudyContent() {
   });
 
   const studyTitleText = study?.title?.trim() || "Novo estudo";
-  const studyDisplayTitle = toShortTitle(studyTitleText) || studyTitleText;
+  const sanitizedStudyTopic = sanitizeStudyTopic(studyTitleText) || studyTitleText;
+  const studyDisplayTitle = toShortTitle(sanitizedStudyTopic) || sanitizedStudyTopic;
   const studyLearningTopic = studyDisplayTitle || "este tema";
 
   useEffect(() => {
     resizeTextareaToContent(messageInputRef.current);
   }, [input]);
-
   const studyJourneyOverrides = useMemo(
     () => ({
       activeMode: studyAiState?.activeMode,
@@ -801,12 +816,33 @@ function StudyContent() {
     overrides: studyJourneyOverrides,
     enabled: Boolean(id && user?.id && study),
   });
+  const studyJourneyRefetchPrimedRef = useRef(false);
 
+  useEffect(() => {
+    if (!study || !user || !id) return;
+    if (!studyJourneyRefetchPrimedRef.current) {
+      studyJourneyRefetchPrimedRef.current = true;
+      return;
+    }
+    refetchStudyJourneySummary();
+  }, [
+    study?.id,
+    user?.id,
+    id,
+    notesRefresh,
+    savedPlaylists.size,
+    messages.length,
+    studyJourneyOverrides,
+    refetchStudyJourneySummary,
+  ]);
   const sendInitialMessage = async () => {
     if (!id || !user || !study) return;
 
     const now = new Date().toISOString();
-    const initialMessage = `Quero aprender sobre ${studyLearningTopic}`;
+    const initialMessage =
+      studyLearningTopic === "este tema"
+        ? "Quero começar um novo estudo"
+        : `Quero aprender ${studyLearningTopic}`;
     const assistantReply = buildInitialAssistantReply(studyLearningTopic, profile?.display_name);
     const assistantMetadata = buildInitialAssistantMetadata();
 

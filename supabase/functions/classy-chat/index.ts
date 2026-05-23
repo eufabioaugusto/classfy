@@ -209,7 +209,7 @@ serve(async (req) => {
     if (isFirstMessage && !study.main_topic && !playlistSummary) {
       await supabase
         .from("studies")
-        .update({ main_topic: study.title || extractFocusFromMessage(message) })
+        .update({ main_topic: sanitizeStudyLabel(study.title) || extractFocusFromMessage(message) })
         .eq("id", studyId);
     }
 
@@ -787,9 +787,9 @@ function deriveCurrentFocus(options: {
   activeContent: any | null;
 }) {
   if (options.activeContent?.title) return options.activeContent.title;
-  if (options.state.current_focus) return options.state.current_focus;
-  if (options.studyMainTopic) return options.studyMainTopic;
-  return extractFocusFromMessage(options.message) || options.studyTitle;
+  if (options.state.current_focus) return sanitizeStudyLabel(options.state.current_focus);
+  if (options.studyMainTopic) return sanitizeStudyLabel(options.studyMainTopic);
+  return extractFocusFromMessage(options.message) || sanitizeStudyLabel(options.studyTitle);
 }
 
 async function detectOffTopic(options: {
@@ -1446,20 +1446,8 @@ function buildFollowUpSuggestions(options: {
     ];
   }
 
-  if (options.relatedContents.length > 0) {
-    return [
-      "Monte uma trilha para mim",
-      "Começar pelo básico",
-      "Quero aplicações práticas",
-    ];
-  }
-
-  if (options.recommendedPath.length > 0) {
-    return [
-      "Retomar de onde parei",
-      "Qual é o próximo passo ideal?",
-      "Monte um checkpoint rápido",
-    ];
+  if (options.recommendedPath.length > 0 || options.relatedContents.length > 0) {
+    return [];
   }
 
   if (options.activeContent) {
@@ -1551,7 +1539,11 @@ function buildUiBlocks(options: {
     });
   }
 
-  if (options.recommendedPath.length > 0 && (options.activeMode === "plan" || options.activeMode === "recommend" || options.activeMode === "review")) {
+  if (
+    options.recommendedPath.length > 0 &&
+    options.livePlanSteps.length > 0 &&
+    (options.activeMode === "plan" || options.activeMode === "recommend" || options.activeMode === "review")
+  ) {
     blocks.push({
       type: "trail",
       title: "Rota sugerida",
@@ -1571,11 +1563,38 @@ function buildUiBlocks(options: {
 }
 
 function extractFocusFromMessage(message: string) {
-  return message
-    .replace(/^ol[aá]!?\s*/i, "")
-    .replace(/^quero aprender sobre\s*/i, "")
+  return sanitizeStudyLabel(message).slice(0, 100);
+}
+
+function sanitizeStudyLabel(value: string | null | undefined) {
+  if (!value) return "";
+
+  const normalized = value
+    .replace(/^ol[aá](?:,\s*[^!?.]+)?[!?.]?\s*/i, "")
+    .replace(/^quero aprender(?:\s+sobre)?\s+/i, "")
+    .replace(/^aprender(?:\s+sobre)?\s+/i, "")
+    .replace(/^estudo(?:\s+sobre)?\s+/i, "")
+    .replace(/^tema:\s*/i, "")
+    .replace(/\s+/g, " ")
     .trim()
-    .slice(0, 100);
+    .replace(/[!?.:,;\s]+$/g, "");
+
+  const segments = normalized
+    .split(/\s+/)
+    .map((token) => token.trim())
+    .filter(Boolean);
+  const midpoint = segments.length / 2;
+
+  if (
+    segments.length >= 6 &&
+    Number.isInteger(midpoint) &&
+    segments.slice(0, midpoint).join(" ").toLowerCase() ===
+      segments.slice(midpoint).join(" ").toLowerCase()
+  ) {
+    return segments.slice(0, midpoint).join(" ");
+  }
+
+  return normalized;
 }
 
 function mergeTopics(existing: string[], incoming: string[]) {

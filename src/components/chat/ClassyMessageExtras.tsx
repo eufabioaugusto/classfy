@@ -56,7 +56,14 @@ export function ClassyMessageExtras({
 }: ClassyMessageExtrasProps) {
   if (!metadata) return null;
 
-  const blocks = (metadata.ui_blocks || []).filter((block) => !["resume", "checkpoint"].includes(block.type));
+  const rawBlocks = metadata.ui_blocks || [];
+  const hasTrailBlock = rawBlocks.some((block) => block.type === "trail");
+  const hasRelatedContentStrategy = metadata.content_strategy === "recommendation";
+  const blocks = rawBlocks.filter((block) => {
+    if (["resume", "checkpoint"].includes(block.type)) return false;
+    if (block.type === "trail" && hasRelatedContentStrategy) return false;
+    return true;
+  });
   const suggestions = metadata.follow_up_suggestions || [];
   const citations = metadata.citations || [];
   const contentStrategy = metadata.content_strategy;
@@ -65,6 +72,8 @@ export function ClassyMessageExtras({
   const shouldShowSuggestions =
     suggestions.length > 0 &&
     !compact &&
+    !hasRelatedContentStrategy &&
+    !hasTrailBlock &&
     (suggestionFriendlyIntents.has(metadata.intent || "") ||
       metadata.active_mode === "onboard" ||
       blocks.some((block) => ["practice", "trail"].includes(block.type)));
