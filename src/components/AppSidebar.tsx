@@ -4,12 +4,13 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useStudies } from "@/hooks/useStudies";
 import { useAdminPendingCounts } from "@/hooks/useAdminPendingCounts";
 import { toShortTitle } from "@/lib/study/getStudyJourneySummary";
+import { supabase } from "@/integrations/supabase/client";
 import { BecomeCreatorModal } from "@/components/BecomeCreatorModal";
 import { UpgradeModal } from "@/components/UpgradeModal";
 import { ProfileAvatar } from "@/components/ProfileAvatar";
 import { CreatorStatsCard } from "@/components/CreatorStatsCard";
 import { Badge } from "@/components/ui/badge";
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Home,
   Clock,
@@ -41,6 +42,15 @@ import {
   Crown,
   Circle,
   Layers,
+  MoreHorizontal,
+  Pencil,
+  Archive,
+  Trash2,
+  ExternalLink,
+  Link2,
+  Copy,
+  Pin,
+  PinOff,
 } from "lucide-react";
 import {
   Sidebar,
@@ -58,6 +68,36 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/component
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { toast } from "sonner";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuShortcut,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 
 const mainItems = [
   { title: "Início", url: "/", icon: Home },
@@ -93,16 +133,31 @@ const adminItems = [
   { title: "Configurações", url: "/admin/settings", icon: Settings, countKey: null },
 ];
 
+const PINNED_STUDIES_STORAGE_KEY = "classfy:pinned-studies";
+
 export function AppSidebar() {
   const { state, isMobile } = useSidebar();
   const location = useLocation();
   const navigate = useNavigate();
   const { user, signOut, role, profile } = useAuth();
-  const { activeStudies, activeCount, limits, canCreateMore } = useStudies();
+  const {
+    activeStudies,
+    activeCount,
+    limits,
+    canCreateMore,
+    archiveStudy,
+    createStudy,
+    refetch: refetchStudies,
+  } = useStudies();
   const { counts: adminCounts } = useAdminPendingCounts();
   const [studiesOpen, setStudiesOpen] = useState(true);
   const [creatorModalOpen, setCreatorModalOpen] = useState(false);
   const [upgradeModalOpen, setUpgradeModalOpen] = useState(false);
+  const [renameDialogOpen, setRenameDialogOpen] = useState(false);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [studyTitleDraft, setStudyTitleDraft] = useState("");
+  const [selectedStudy, setSelectedStudy] = useState<(typeof activeStudies)[number] | null>(null);
+  const [pinnedStudyIds, setPinnedStudyIds] = useState<string[]>([]);
   // No mobile, quando o sidebar abre como Sheet, sempre mostrar expandido
   const collapsed = isMobile ? false : state === "collapsed";
   const limitText = limits.studies === Infinity ? "Ilimitado" : `${activeCount}/${limits.studies}`;
@@ -122,6 +177,161 @@ export function AppSidebar() {
   const showAdmin = user && role === "admin";
 
   const isActive = (path: string) => location.pathname === path;
+  const studyUrl = (studyId: string) => `${window.location.origin}/c/${studyId}`;
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    try {
+      const rawPinnedStudies = window.localStorage.getItem(PINNED_STUDIES_STORAGE_KEY);
+      const parsedPinnedStudies = rawPinnedStudies ? JSON.parse(rawPinnedStudies) : [];
+      setPinnedStudyIds(Array.isArray(parsedPinnedStudies) ? parsedPinnedStudies : []);
+    } catch {
+      setPinnedStudyIds([]);
+    }
+  }, []);
+
+  const orderedStudies = useMemo(() => {
+    const pinnedSet = new Set(pinnedStudyIds);
+    const pinned = activeStudies.filter((study) => pinnedSet.has(study.id));
+    const regular = activeStudies.filter((study) => !pinnedSet.has(study.id));
+
+    pinned.sort((a, b) => pinnedStudyIds.indexOf(a.id) - pinnedStudyIds.indexOf(b.id));
+    return [...pinned, ...regular];
+  }, [activeStudies, pinnedStudyIds]);
+
+  const persistPinnedStudyIds = (nextPinnedStudyIds: string[]) => {
+    setPinnedStudyIds(nextPinnedStudyIds);
+    window.localStorage.setItem(PINNED_STUDIES_STORAGE_KEY, JSON.stringify(nextPinnedStudyIds));
+  };
+
+  const handleTogglePinStudy = (studyId: string) => {
+    const isPinned = pinnedStudyIds.includes(studyId);
+    const nextPinnedStudyIds = isPinned
+      ? pinnedStudyIds.filter((id) => id !== studyId)
+      : [studyId, ...pinnedStudyIds];
+
+    persistPinnedStudyIds(nextPinnedStudyIds);
+    toast.success(isPinned ? "Estudo desafixado." : "Estudo fixado no topo.");
+  };
+
+  const handleOpenStudyInNewTab = (studyId: string) => {
+    window.open(`/c/${studyId}`, "_blank", "noopener,noreferrer");
+  };
+
+  const handleCopyStudyLink = async (studyId: string) => {
+    await navigator.clipboard.writeText(studyUrl(studyId));
+    toast.success("Link do estudo copiado.");
+  };
+
+  const handleCopyStudyTitle = async (title: string) => {
+    await navigator.clipboard.writeText(title);
+    toast.success("Título do estudo copiado.");
+  };
+
+  const handleShareStudy = async (study: (typeof activeStudies)[number]) => {
+    const payload = {
+      title: study.title,
+      text: `Confira este estudo: ${study.title}`,
+      url: studyUrl(study.id),
+    };
+
+    if (navigator.share) {
+      try {
+        await navigator.share(payload);
+        return;
+      } catch {
+        // fallback below
+      }
+    }
+
+    await navigator.clipboard.writeText(payload.url);
+    toast.success("Link do estudo copiado para compartilhar.");
+  };
+
+  const handleDuplicateStudy = async (study: (typeof activeStudies)[number]) => {
+    const duplicatedTitle = `${study.title} (cópia)`;
+    const result = await createStudy(duplicatedTitle, study.description || undefined);
+
+    if (result?.error) {
+      toast.error("Não foi possível duplicar o estudo.");
+      return;
+    }
+
+    toast.success("Estudo duplicado com sucesso.");
+    await refetchStudies();
+  };
+
+  const handleArchiveStudy = async (studyId: string) => {
+    await archiveStudy(studyId);
+    persistPinnedStudyIds(pinnedStudyIds.filter((id) => id !== studyId));
+    toast.success("Estudo arquivado.");
+  };
+
+  const openRenameDialog = (study: (typeof activeStudies)[number]) => {
+    setSelectedStudy(study);
+    setStudyTitleDraft(study.title);
+    setRenameDialogOpen(true);
+  };
+
+  const openDeleteDialog = (study: (typeof activeStudies)[number]) => {
+    setSelectedStudy(study);
+    setDeleteDialogOpen(true);
+  };
+
+  const handleRenameStudy = async () => {
+    if (!selectedStudy || !studyTitleDraft.trim()) return;
+
+    const { error } = await supabase
+      .from("studies")
+      .update({ title: studyTitleDraft.trim() })
+      .eq("id", selectedStudy.id);
+
+    if (error) {
+      toast.error("Erro ao renomear estudo.");
+      return;
+    }
+
+    setRenameDialogOpen(false);
+    setSelectedStudy(null);
+    toast.success("Estudo renomeado.");
+    await refetchStudies();
+  };
+
+  const handleDeleteStudy = async () => {
+    if (!selectedStudy) return;
+
+    const { error: messagesError } = await supabase
+      .from("study_messages")
+      .delete()
+      .eq("study_id", selectedStudy.id);
+
+    if (messagesError) {
+      toast.error("Erro ao excluir mensagens do estudo.");
+      return;
+    }
+
+    const { error: studyError } = await supabase
+      .from("studies")
+      .delete()
+      .eq("id", selectedStudy.id);
+
+    if (studyError) {
+      toast.error("Erro ao excluir estudo.");
+      return;
+    }
+
+    persistPinnedStudyIds(pinnedStudyIds.filter((id) => id !== selectedStudy.id));
+    setDeleteDialogOpen(false);
+    setSelectedStudy(null);
+    toast.success("Estudo excluído.");
+
+    if (location.pathname === `/c/${selectedStudy.id}`) {
+      navigate("/");
+    }
+
+    await refetchStudies();
+  };
 
   return (
     <TooltipProvider delayDuration={0}>
@@ -252,21 +462,106 @@ export function AppSidebar() {
                 <CollapsibleContent>
                   <SidebarGroupContent>
                     <SidebarMenu>
-                      {activeStudies.map((study) => (
+                      {orderedStudies.map((study) => (
                         <SidebarMenuItem key={study.id}>
-                          <SidebarMenuButton asChild>
-                            <NavLink
-                              to={`/c/${study.id}`}
-                              className="text-foreground/80 hover:bg-muted hover:text-foreground"
-                              activeClassName="bg-muted text-cinematic-accent font-medium"
-                            >
-                              <BookOpen className="h-4 w-4" />
-                              <span className="truncate max-w-[160px]">{toShortTitle(study.title)}</span>
-                            </NavLink>
-                          </SidebarMenuButton>
+                          <div className="group relative">
+                            <SidebarMenuButton asChild>
+                              <NavLink
+                                to={`/c/${study.id}`}
+                                className="pr-12 text-foreground/80 hover:bg-muted/80 hover:text-foreground"
+                                activeClassName="bg-muted text-cinematic-accent font-medium shadow-[inset_0_1px_0_rgba(255,255,255,0.18)]"
+                              >
+                                <BookOpen className="h-4 w-4 shrink-0" />
+                                <span className="truncate max-w-[136px]">{toShortTitle(study.title)}</span>
+                                {pinnedStudyIds.includes(study.id) && (
+                                  <Pin className="ml-auto h-3.5 w-3.5 shrink-0 text-primary/80" />
+                                )}
+                              </NavLink>
+                            </SidebarMenuButton>
+
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="icon"
+                                  className="absolute right-1.5 top-1/2 h-7 w-7 -translate-y-1/2 rounded-lg border border-transparent bg-background/75 opacity-0 shadow-sm backdrop-blur-sm transition-all hover:border-border/60 hover:bg-background group-hover:opacity-100 data-[state=open]:border-border/60 data-[state=open]:bg-background data-[state=open]:opacity-100"
+                                  onClick={(event) => {
+                                    event.preventDefault();
+                                    event.stopPropagation();
+                                  }}
+                                >
+                                  <MoreHorizontal className="h-4 w-4" />
+                                </Button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="end" className="w-72 rounded-2xl border-border/70 bg-background/98 p-2 shadow-2xl">
+                                <DropdownMenuLabel className="px-3 py-2">
+                                  <div className="space-y-1">
+                                    <p className="truncate text-sm font-semibold text-foreground">{toShortTitle(study.title)}</p>
+                                    <p className="text-xs font-normal text-muted-foreground">
+                                      {pinnedStudyIds.includes(study.id) ? "Estudo fixado no topo" : "Ações rápidas do estudo"}
+                                    </p>
+                                  </div>
+                                </DropdownMenuLabel>
+                                <DropdownMenuSeparator />
+                                <DropdownMenuItem onClick={() => navigate(`/c/${study.id}`)}>
+                                  <BookOpen className="mr-2 h-4 w-4" />
+                                  Abrir estudo
+                                  <DropdownMenuShortcut>Enter</DropdownMenuShortcut>
+                                </DropdownMenuItem>
+                                <DropdownMenuItem onClick={() => handleOpenStudyInNewTab(study.id)}>
+                                  <ExternalLink className="mr-2 h-4 w-4" />
+                                  Abrir em nova aba
+                                </DropdownMenuItem>
+                                <DropdownMenuItem onClick={() => handleShareStudy(study)}>
+                                  <Link2 className="mr-2 h-4 w-4" />
+                                  Compartilhar
+                                </DropdownMenuItem>
+                                <DropdownMenuItem onClick={() => handleCopyStudyLink(study.id)}>
+                                  <Copy className="mr-2 h-4 w-4" />
+                                  Copiar link
+                                </DropdownMenuItem>
+                                <DropdownMenuItem onClick={() => handleCopyStudyTitle(study.title)}>
+                                  <Copy className="mr-2 h-4 w-4" />
+                                  Copiar título
+                                </DropdownMenuItem>
+                                <DropdownMenuSeparator />
+                                <DropdownMenuItem onClick={() => handleTogglePinStudy(study.id)}>
+                                  {pinnedStudyIds.includes(study.id) ? (
+                                    <PinOff className="mr-2 h-4 w-4" />
+                                  ) : (
+                                    <Pin className="mr-2 h-4 w-4" />
+                                  )}
+                                  {pinnedStudyIds.includes(study.id) ? "Desafixar do topo" : "Fixar no topo"}
+                                </DropdownMenuItem>
+                                <DropdownMenuItem onClick={() => handleDuplicateStudy(study)}>
+                                  <Copy className="mr-2 h-4 w-4" />
+                                  Duplicar estudo
+                                </DropdownMenuItem>
+                                <DropdownMenuItem onClick={() => openRenameDialog(study)}>
+                                  <Pencil className="mr-2 h-4 w-4" />
+                                  Renomear
+                                  <DropdownMenuShortcut>⌘R</DropdownMenuShortcut>
+                                </DropdownMenuItem>
+                                <DropdownMenuSeparator />
+                                <DropdownMenuItem onClick={() => handleArchiveStudy(study.id)}>
+                                  <Archive className="mr-2 h-4 w-4" />
+                                  Arquivar
+                                </DropdownMenuItem>
+                                <DropdownMenuItem
+                                  className="text-destructive focus:text-destructive"
+                                  onClick={() => openDeleteDialog(study)}
+                                >
+                                  <Trash2 className="mr-2 h-4 w-4" />
+                                  Excluir
+                                  <DropdownMenuShortcut>Del</DropdownMenuShortcut>
+                                </DropdownMenuItem>
+                              </DropdownMenuContent>
+                            </DropdownMenu>
+                          </div>
                         </SidebarMenuItem>
                       ))}
-                      {activeStudies.length === 0 && (
+                      {orderedStudies.length === 0 && (
                         <div className="px-4 py-2 text-sm text-muted-foreground">Nenhum estudo ativo</div>
                       )}
                       {canCreateMore && (
@@ -620,6 +915,57 @@ export function AppSidebar() {
 
         {/* Upgrade Modal */}
         <UpgradeModal open={upgradeModalOpen} onOpenChange={setUpgradeModalOpen} requiredPlan="pro" />
+
+        <Dialog open={renameDialogOpen} onOpenChange={setRenameDialogOpen}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Renomear estudo</DialogTitle>
+              <DialogDescription>Escolha um novo nome para esse estudo no sidebar.</DialogDescription>
+            </DialogHeader>
+            <div className="space-y-2">
+              <Label htmlFor="sidebar-study-title">Novo nome</Label>
+              <Input
+                id="sidebar-study-title"
+                value={studyTitleDraft}
+                onChange={(event) => setStudyTitleDraft(event.target.value)}
+                placeholder="Digite o novo nome..."
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    handleRenameStudy();
+                  }
+                }}
+              />
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setRenameDialogOpen(false)}>
+                Cancelar
+              </Button>
+              <Button onClick={handleRenameStudy} disabled={!studyTitleDraft.trim()}>
+                Salvar
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Excluir estudo</AlertDialogTitle>
+              <AlertDialogDescription>
+                Tem certeza que deseja excluir este estudo? Essa ação também remove as mensagens dele e não pode ser desfeita.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancelar</AlertDialogCancel>
+              <AlertDialogAction
+                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                onClick={handleDeleteStudy}
+              >
+                Excluir
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </Sidebar>
     </TooltipProvider>
   );
