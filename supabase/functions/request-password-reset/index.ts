@@ -11,7 +11,7 @@ const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY")!;
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const FROM_EMAIL = "Classfy <noreply@classfy.com.br>";
-const APP_URL = "https://app.classfy.com.br";
+const APP_URL = "https://classfy.com.br";
 
 serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -92,7 +92,7 @@ serve(async (req) => {
         <tr><td align="center" style="padding-top:24px;">
           <p style="margin:0;font-size:12px;color:#71717a;line-height:1.6;">
             Este email foi enviado pela <strong>Classfy</strong>.<br/>
-            <a href="${APP_URL}" style="color:#71717a;">app.classfy.com.br</a>
+            <a href="${APP_URL}" style="color:#71717a;">classfy.com.br</a>
           </p>
         </td></tr>
       </table>

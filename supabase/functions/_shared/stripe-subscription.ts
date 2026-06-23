@@ -84,7 +84,7 @@ export function getSubscriptionPeriodEnd(subscription: StripeSubscription | null
 }
 
 export function getRequestOrigin(req: Request): string {
-  return req.headers.get("origin") || Deno.env.get("APP_URL") || "https://app.classfy.com.br";
+  return req.headers.get("origin") || Deno.env.get("APP_URL") || "https://classfy.com.br";
 }
 
 export async function getOrCreateStripeCustomer(

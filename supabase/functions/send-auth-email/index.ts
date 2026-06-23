@@ -3,7 +3,7 @@ import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY")!;
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const FROM_EMAIL = "Classfy <noreply@classfy.com.br>";
-const APP_URL = "https://app.classfy.com.br";
+const APP_URL = "https://classfy.com.br";
 
 interface HookPayload {
   user: {
@@ -65,7 +65,7 @@ function template(subject: string, preheader: string, bodyHtml: string): string 
               <p style="margin:0;font-size:12px;color:#71717a;line-height:1.6;">
                 Este email foi enviado pela <strong>Classfy</strong>.<br/>
                 Se você não solicitou este email, ignore-o com segurança.<br/>
-                <a href="${APP_URL}" style="color:#71717a;">app.classfy.com.br</a>
+                <a href="${APP_URL}" style="color:#71717a;">classfy.com.br</a>
               </p>
             </td>
           </tr>

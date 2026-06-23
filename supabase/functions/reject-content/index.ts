@@ -114,7 +114,7 @@ Deno.serve(async (req) => {
               Entre em contato com nosso suporte para entender o motivo e como ajustar seu conteúdo para uma nova submissão.
             </p>
           </div>
-          ${ctaButton('Ir para o Studio', 'https://app.classfy.com.br/studio/contents')}
+          ${ctaButton('Ir para o Studio', 'https://classfy.com.br/studio/contents')}
           <p style="margin:0;font-size:13px;color:#71717a;">Você pode editar e reenviar o conteúdo para nova revisão.</p>
         `);
         await sendEmail(RESEND_API_KEY, creatorAuth.user.email, subject, html);

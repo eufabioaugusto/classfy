@@ -1,4 +1,4 @@
-export const APP_URL = "https://app.classfy.com.br";
+export const APP_URL = "https://classfy.com.br";
 export const FROM_EMAIL = "Classfy <noreply@classfy.com.br>";
 
 export function emailCard(subject: string, preheader: string, body: string): string {
@@ -22,7 +22,7 @@ export function emailCard(subject: string, preheader: string, body: string): str
           <p style="margin:0;font-size:12px;color:#71717a;line-height:1.6;">
             Este email foi enviado pela <strong>Classfy</strong>.<br/>
             Se não reconhece esta ação, ignore este email.<br/>
-            <a href="${APP_URL}" style="color:#71717a;">app.classfy.com.br</a>
+            <a href="${APP_URL}" style="color:#71717a;">classfy.com.br</a>
           </p>
         </td></tr>
       </table>
