@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { Ionicons } from '@expo/vector-icons';
 import { ResizeMode, Video } from 'expo-av';
 import { router, useLocalSearchParams } from 'expo-router';
@@ -5,6 +6,7 @@ import { ActivityIndicator, Image, Pressable, StyleSheet, Text, View } from 'rea
 
 import { AppScreen } from '@/components/AppScreen';
 import { SectionHeader } from '@/components/SectionHeader';
+import { WatchCommentsSheet } from '@/components/WatchCommentsSheet';
 import { useWatchActions } from '@/features/watch/useWatchActions';
 import { useWatchContent } from '@/features/watch/useWatchContent';
 import { useWatchProgress } from '@/features/watch/useWatchProgress';
@@ -29,6 +31,7 @@ function blockCopy(reason: string | null, requiredPlan: string) {
 
 export default function WatchScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
+  const [commentsOpen, setCommentsOpen] = useState(false);
   const { content, access, followersCount, loading, error } = useWatchContent(id);
   const actions = useWatchActions({
     contentId: content?.id,
@@ -152,6 +155,7 @@ export default function WatchScreen() {
           active={actions.isFavorited}
           onPress={actions.toggleFavorite}
         />
+        <ActionButton icon="chatbubble-outline" label="Comentarios" onPress={() => setCommentsOpen(true)} />
         <ActionButton icon="school-outline" label="Estudo" onPress={() => {}} />
       </View>
 
@@ -191,6 +195,12 @@ export default function WatchScreen() {
           </View>
         </>
       ) : null}
+
+      <WatchCommentsSheet
+        visible={commentsOpen}
+        contentId={content.id}
+        onClose={() => setCommentsOpen(false)}
+      />
     </AppScreen>
   );
 }
