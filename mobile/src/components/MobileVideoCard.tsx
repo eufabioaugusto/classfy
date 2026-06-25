@@ -1,5 +1,5 @@
 import { Href, Link } from 'expo-router';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { colors } from '@/theme/colors';
 import { radius } from '@/theme/radius';
@@ -16,6 +16,7 @@ const accessColor = {
   free: colors.free,
   pro: colors.pro,
   premium: colors.premium,
+  paid: colors.hot,
 };
 
 export function MobileVideoCard({ content, featured = false }: MobileVideoCardProps) {
@@ -23,6 +24,9 @@ export function MobileVideoCard({ content, featured = false }: MobileVideoCardPr
     <Link href={`/watch/${content.id}` as Href} asChild>
       <Pressable style={styles.container}>
         <View style={[styles.thumbnail, { backgroundColor: content.tone }]}>
+          {content.thumbnailUrl ? (
+            <Image source={{ uri: content.thumbnailUrl }} style={styles.thumbnailImage} />
+          ) : null}
           <View style={styles.thumbnailShade} />
           <View style={styles.playCircle}>
             <Text style={styles.playIcon}>▶</Text>
@@ -36,7 +40,11 @@ export function MobileVideoCard({ content, featured = false }: MobileVideoCardPr
         </View>
         <View style={styles.metaRow}>
           <View style={styles.avatar}>
-            <Text style={styles.avatarText}>{content.creator[0]}</Text>
+            {content.creatorAvatarUrl ? (
+              <Image source={{ uri: content.creatorAvatarUrl }} style={styles.avatarImage} />
+            ) : (
+              <Text style={styles.avatarText}>{content.creator[0]}</Text>
+            )}
           </View>
           <View style={styles.copy}>
             <Text numberOfLines={featured ? 2 : 2} style={[styles.title, featured && styles.featuredTitle]}>
@@ -61,6 +69,10 @@ const styles = StyleSheet.create({
     aspectRatio: 16 / 9,
     borderRadius: radius.md,
     overflow: 'hidden',
+  },
+  thumbnailImage: {
+    height: '100%',
+    width: '100%',
   },
   thumbnailShade: {
     ...StyleSheet.absoluteFillObject,
@@ -122,7 +134,12 @@ const styles = StyleSheet.create({
     borderRadius: radius.pill,
     height: 38,
     justifyContent: 'center',
+    overflow: 'hidden',
     width: 38,
+  },
+  avatarImage: {
+    height: '100%',
+    width: '100%',
   },
   avatarText: {
     color: colors.text,

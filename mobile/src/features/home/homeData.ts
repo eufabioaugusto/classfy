@@ -4,9 +4,13 @@ export type HomeContent = {
   creator: string;
   views: string;
   duration: string;
-  access: 'free' | 'pro' | 'premium';
+  access: 'free' | 'pro' | 'premium' | 'paid';
   category: string;
   tone: string;
+  contentType?: 'aula' | 'short' | 'podcast' | 'curso' | 'live' | string;
+  thumbnailUrl?: string | null;
+  creatorAvatarUrl?: string | null;
+  description?: string | null;
 };
 
 export type HomeShort = {
@@ -14,9 +18,17 @@ export type HomeShort = {
   title: string;
   creator: string;
   tone: string;
+  thumbnailUrl?: string | null;
 };
 
-export const homeCategories = ['Todos', 'Aulas', 'Creators', 'Pro', 'Premium', 'Podcasts', 'Cursos'];
+export type HomeSection = {
+  key: string;
+  title: string;
+  layout: 'vertical' | 'horizontal' | 'shorts';
+  contents: HomeContent[];
+};
+
+export const homeCategories = ['Todos', 'Aulas', 'PRO', 'Podcasts', 'Shorts', 'Premium', 'Cursos'];
 
 export const featuredContent: HomeContent = {
   id: 'featured-masterclass',
@@ -47,7 +59,7 @@ export const feedContents: HomeContent[] = [
     views: '8.4K views',
     duration: '12:05',
     access: 'pro',
-    category: 'Pro',
+    category: 'PRO',
     tone: '#1C1426',
   },
   {
@@ -90,5 +102,26 @@ export const shortContents: HomeShort[] = [
     title: 'Como pensar recompensa sem virar gamificacao barata',
     creator: 'Classfy Labs',
     tone: '#1B1428',
+  },
+];
+
+export const previewSections: HomeSection[] = [
+  {
+    key: 'trending',
+    title: 'Em Alta',
+    layout: 'vertical',
+    contents: feedContents,
+  },
+  {
+    key: 'pro',
+    title: 'Itens PRO',
+    layout: 'horizontal',
+    contents: feedContents.filter((content) => content.access === 'pro'),
+  },
+  {
+    key: 'premium',
+    title: 'Itens Premium',
+    layout: 'horizontal',
+    contents: feedContents.filter((content) => content.access === 'premium'),
   },
 ];

@@ -1,4 +1,4 @@
-import { FlatList, StyleSheet, Text, View } from 'react-native';
+import { FlatList, Image, StyleSheet, Text, View } from 'react-native';
 
 import { HomeShort } from '@/features/home/homeData';
 import { colors } from '@/theme/colors';
@@ -21,6 +21,7 @@ export function ShortsRail({ shorts }: ShortsRailProps) {
       renderItem={({ item }) => (
         <View style={styles.item}>
           <View style={[styles.poster, { backgroundColor: item.tone }]}>
+            {item.thumbnailUrl ? <Image source={{ uri: item.thumbnailUrl }} style={styles.posterImage} /> : null}
             <View style={styles.posterShade} />
             <Text style={styles.shortMark}>Short</Text>
           </View>
@@ -49,6 +50,10 @@ const styles = StyleSheet.create({
     borderRadius: radius.md,
     marginBottom: spacing.sm,
     overflow: 'hidden',
+  },
+  posterImage: {
+    height: '100%',
+    width: '100%',
   },
   posterShade: {
     ...StyleSheet.absoluteFillObject,
