@@ -222,7 +222,7 @@ export function useWatchContent(contentId?: string) {
           .maybeSingle(),
         supabase
           .from('courses')
-          .select('id,title,description,thumbnail_url,visibility,price,total_duration_seconds,views_count,likes_count,status,creator_id,category_id,created_at,tags,creator:profiles!creator_id(id,display_name,avatar_url,creator_channel_name)')
+          .select('id,title,description,thumbnail_url,visibility,price,total_duration_seconds,views_count,likes_count,status,creator_id,created_at,tags,creator:profiles!creator_id(id,display_name,avatar_url,creator_channel_name)')
           .eq('id', contentId)
           .maybeSingle(),
       ]);
