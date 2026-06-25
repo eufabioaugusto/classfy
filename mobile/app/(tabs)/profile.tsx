@@ -1,31 +1,50 @@
 import { Href, Link } from 'expo-router';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { AppScreen } from '@/components/AppScreen';
 import { SectionHeader } from '@/components/SectionHeader';
+import { useAuth } from '@/features/auth/authContext';
 import { colors, radius, spacing, type } from '@/theme/tokens';
 
 const items = ['Historico', 'Salvos', 'Favoritos', 'Carteira', 'Mensagens'];
 
 export default function ProfileScreen() {
+  const { configured, loading, user, profile, signOut } = useAuth();
+  const displayName = profile?.creator_channel_name || profile?.display_name || user?.email || 'Conta Classfy';
+  const subtitle = user
+    ? `${profile?.plan || 'free'} · ${user.email || 'usuario logado'}`
+    : configured
+      ? 'Entre para carregar perfil, carteira e biblioteca.'
+      : 'Configure o Supabase para entrar.';
+
   return (
     <AppScreen>
       <View style={styles.profileHeader}>
         <View style={styles.avatar}>
-          <Text style={styles.avatarText}>C</Text>
+          <Text style={styles.avatarText}>{displayName[0]?.toUpperCase() || 'C'}</Text>
         </View>
         <View style={styles.profileCopy}>
-          <Text style={styles.name}>Conta Classfy</Text>
-          <Text style={styles.meta}>Auth Supabase preparado para conectar.</Text>
+          <Text style={styles.name}>{displayName}</Text>
+          <Text style={styles.meta}>{subtitle}</Text>
         </View>
       </View>
 
       <View style={styles.actions}>
-        <Link href={'/auth/sign-in' as Href} asChild>
-          <Pressable style={styles.primaryButton}>
-            <Text style={styles.primaryButtonText}>Entrar</Text>
+        {loading ? (
+          <View style={styles.primaryButton}>
+            <ActivityIndicator color={colors.background} />
+          </View>
+        ) : user ? (
+          <Pressable style={styles.primaryButton} onPress={signOut}>
+            <Text style={styles.primaryButtonText}>Sair</Text>
           </Pressable>
-        </Link>
+        ) : (
+          <Link href={'/auth/sign-in' as Href} asChild>
+            <Pressable style={styles.primaryButton}>
+              <Text style={styles.primaryButtonText}>Entrar</Text>
+            </Pressable>
+          </Link>
+        )}
         <Link href={'/settings' as Href} asChild>
           <Pressable style={styles.secondaryButton}>
             <Text style={styles.secondaryButtonText}>Settings</Text>
@@ -38,7 +57,7 @@ export default function ProfileScreen() {
         {items.map((item) => (
           <View key={item} style={styles.item}>
             <Text style={styles.itemText}>{item}</Text>
-            <Text style={styles.itemMeta}>Planejado</Text>
+            <Text style={styles.itemMeta}>{user ? 'Conectado' : 'Login'}</Text>
           </View>
         ))}
       </View>

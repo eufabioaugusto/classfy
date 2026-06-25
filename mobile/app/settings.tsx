@@ -1,10 +1,13 @@
 import { StyleSheet, Text, View } from 'react-native';
 
 import { AppScreen } from '@/components/AppScreen';
+import { useAuth } from '@/features/auth/authContext';
 import { isSupabaseConfigured } from '@/lib/supabase';
 import { colors, radius, spacing, type } from '@/theme/tokens';
 
 export default function SettingsScreen() {
+  const { user, profile } = useAuth();
+
   return (
     <AppScreen>
       <Text style={styles.title}>Settings</Text>
@@ -17,6 +20,16 @@ export default function SettingsScreen() {
       <View style={styles.row}>
         <Text style={styles.label}>Deep link scheme</Text>
         <Text style={styles.value}>classfy://</Text>
+      </View>
+      <View style={styles.row}>
+        <Text style={styles.label}>Sessao</Text>
+        <Text style={[styles.value, user ? styles.ok : styles.warn]}>
+          {user ? 'Logado' : 'Deslogado'}
+        </Text>
+      </View>
+      <View style={styles.row}>
+        <Text style={styles.label}>Plano</Text>
+        <Text style={styles.value}>{profile?.plan || 'free'}</Text>
       </View>
     </AppScreen>
   );

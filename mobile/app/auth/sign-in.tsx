@@ -1,7 +1,9 @@
 import { useState } from 'react';
 import { Alert, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { router } from 'expo-router';
 
 import { AppScreen } from '@/components/AppScreen';
+import { useAuth } from '@/features/auth/authContext';
 import { isSupabaseConfigured, supabase } from '@/lib/supabase';
 import { colors, radius, spacing, type } from '@/theme/tokens';
 
@@ -9,6 +11,7 @@ export default function SignInScreen() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
+  const { refreshProfile } = useAuth();
 
   async function handleSignIn() {
     if (!isSupabaseConfigured) {
@@ -25,7 +28,8 @@ export default function SignInScreen() {
       return;
     }
 
-    Alert.alert('Login realizado', 'Sessao Supabase criada no app mobile.');
+    await refreshProfile();
+    router.replace('/(tabs)/profile');
   }
 
   return (
