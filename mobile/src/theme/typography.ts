@@ -1,0 +1,16 @@
+export const typography = {
+  family: undefined,
+  label: 11,
+  caption: 12,
+  bodySmall: 13,
+  body: 15,
+  bodyLarge: 16,
+  titleSmall: 18,
+  title: 22,
+  titleLarge: 26,
+  weightRegular: '400' as const,
+  weightMedium: '500' as const,
+  weightSemibold: '600' as const,
+  weightBold: '700' as const,
+  weightBlack: '900' as const,
+};
