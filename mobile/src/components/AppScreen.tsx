@@ -6,20 +6,23 @@ import { colors, spacing } from '@/theme/tokens';
 
 type AppScreenProps = PropsWithChildren<{
   scroll?: boolean;
+  edgeToEdge?: boolean;
 }>;
 
-export function AppScreen({ children, scroll = true }: AppScreenProps) {
+export function AppScreen({ children, scroll = true, edgeToEdge = false }: AppScreenProps) {
+  const contentStyle = edgeToEdge ? styles.edgeContent : styles.content;
+
   if (!scroll) {
     return (
       <SafeAreaView style={styles.safe}>
-        <View style={styles.content}>{children}</View>
+        <View style={contentStyle}>{children}</View>
       </SafeAreaView>
     );
   }
 
   return (
     <SafeAreaView style={styles.safe}>
-      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+      <ScrollView contentContainerStyle={contentStyle} showsVerticalScrollIndicator={false}>
         {children}
       </ScrollView>
     </SafeAreaView>
@@ -35,5 +38,9 @@ const styles = StyleSheet.create({
     flexGrow: 1,
     paddingHorizontal: spacing.lg,
     paddingTop: spacing.md,
+  },
+  edgeContent: {
+    flexGrow: 1,
+    paddingTop: 0,
   },
 });

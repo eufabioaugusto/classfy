@@ -26,6 +26,8 @@ export type WatchContent = {
   likes_count: number | null;
   status: string | null;
   creator_id: string;
+  category_id: string | null;
+  created_at: string | null;
   tags: string[] | null;
   content_type: string;
   isCourse: boolean;
@@ -53,6 +55,8 @@ type WatchRow = {
   likes_count?: number | null;
   status?: string | null;
   creator_id: string;
+  category_id?: string | null;
+  created_at?: string | null;
   tags?: string[] | null;
   content_type?: string | null;
   creator?: WatchCreator | WatchCreator[] | null;
@@ -89,6 +93,8 @@ function normalizeContent(data: WatchRow): WatchContent {
     likes_count: data.likes_count ?? null,
     status: data.status ?? null,
     creator_id: data.creator_id,
+    category_id: data.category_id ?? null,
+    created_at: data.created_at ?? null,
     tags: data.tags ?? null,
     content_type: data.content_type || 'aula',
     isCourse: false,
@@ -110,6 +116,8 @@ function normalizeCourse(data: WatchRow): WatchContent {
     likes_count: data.likes_count ?? null,
     status: data.status ?? null,
     creator_id: data.creator_id,
+    category_id: data.category_id ?? null,
+    created_at: data.created_at ?? null,
     tags: data.tags ?? null,
     content_type: 'curso',
     isCourse: true,
@@ -209,12 +217,12 @@ export function useWatchContent(contentId?: string) {
       const [contentResult, courseResult] = await Promise.all([
         supabase
           .from('contents')
-          .select('id,content_type,title,description,file_url,thumbnail_url,visibility,price,duration_seconds,views_count,likes_count,status,creator_id,tags,creator:profiles!creator_id(id,display_name,avatar_url,creator_channel_name)')
+          .select('id,content_type,title,description,file_url,thumbnail_url,visibility,price,duration_seconds,views_count,likes_count,status,creator_id,category_id,created_at,tags,creator:profiles!creator_id(id,display_name,avatar_url,creator_channel_name)')
           .eq('id', contentId)
           .maybeSingle(),
         supabase
           .from('courses')
-          .select('id,title,description,thumbnail_url,visibility,price,total_duration_seconds,views_count,likes_count,status,creator_id,tags,creator:profiles!creator_id(id,display_name,avatar_url,creator_channel_name)')
+          .select('id,title,description,thumbnail_url,visibility,price,total_duration_seconds,views_count,likes_count,status,creator_id,category_id,created_at,tags,creator:profiles!creator_id(id,display_name,avatar_url,creator_channel_name)')
           .eq('id', contentId)
           .maybeSingle(),
       ]);
