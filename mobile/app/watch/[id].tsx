@@ -1,10 +1,12 @@
-import { useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { Ionicons } from '@expo/vector-icons';
 import { ResizeMode, Video } from 'expo-av';
 import { router, useLocalSearchParams } from 'expo-router';
 import {
   ActivityIndicator,
+  Animated,
   Image,
+  PanResponder,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -19,6 +21,7 @@ import { useWatchActions } from '@/features/watch/useWatchActions';
 import { useWatchContent } from '@/features/watch/useWatchContent';
 import { useWatchProgress } from '@/features/watch/useWatchProgress';
 import { useWatchRelated, type WatchRelatedItem } from '@/features/watch/useWatchRelated';
+import { useMiniPlayer } from '@/features/watch/miniPlayerContext';
 import { colors } from '@/theme/colors';
 import { radius } from '@/theme/radius';
 import { spacing } from '@/theme/spacing';
@@ -57,6 +60,8 @@ export default function WatchScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const [commentsOpen, setCommentsOpen] = useState(false);
   const [descriptionOpen, setDescriptionOpen] = useState(false);
+  const dragY = useRef(new Animated.Value(0)).current;
+  const { startMiniPlayer } = useMiniPlayer();
   const { content, access, followersCount, loading, error } = useWatchContent(id);
   const related = useWatchRelated({
     contentId: content?.id,
@@ -75,6 +80,48 @@ export default function WatchScreen() {
     durationSeconds: content?.duration_seconds,
     enabled: Boolean(access.hasAccess && content?.file_url && !content?.isCourse),
   });
+
+  const panResponder = useMemo(
+    () =>
+      PanResponder.create({
+        onMoveShouldSetPanResponder: (_, gesture) =>
+          gesture.dy > 8 && Math.abs(gesture.dy) > Math.abs(gesture.dx),
+        onPanResponderMove: (_, gesture) => {
+          if (gesture.dy > 0) dragY.setValue(gesture.dy);
+        },
+        onPanResponderRelease: (_, gesture) => {
+          const shouldMinimize = gesture.dy > 120 || gesture.vy > 1.15;
+
+          if (shouldMinimize && content) {
+            startMiniPlayer({
+              id: content.id,
+              title: content.title,
+              thumbnailUrl: content.thumbnail_url,
+              creatorName:
+                content.creator?.creator_channel_name ||
+                content.creator?.display_name ||
+                'Creator Classfy',
+              durationSeconds: content.duration_seconds,
+            });
+            dragY.setValue(0);
+            if (router.canGoBack()) {
+              router.back();
+            } else {
+              router.replace('/');
+            }
+            return;
+          }
+
+          Animated.spring(dragY, {
+            toValue: 0,
+            friction: 8,
+            tension: 80,
+            useNativeDriver: true,
+          }).start();
+        },
+      }),
+    [content, dragY, startMiniPlayer],
+  );
 
   if (loading) {
     return (
@@ -104,9 +151,25 @@ export default function WatchScreen() {
   const showPlayableVideo = access.hasAccess && content.file_url && !content.isCourse;
   const creatorName = content.creator?.creator_channel_name || content.creator?.display_name || 'Creator Classfy';
 
+  const overlayStyle = {
+    transform: [
+      {
+        translateY: dragY,
+      },
+      {
+        scale: dragY.interpolate({
+          inputRange: [0, 260],
+          outputRange: [1, 0.86],
+          extrapolate: 'clamp',
+        }),
+      },
+    ],
+  };
+
   return (
-    <AppScreen edgeToEdge>
-      <View style={styles.playerShell}>
+    <AppScreen edgeToEdge backgroundColor="transparent">
+      <Animated.View style={[styles.overlaySurface, overlayStyle]}>
+      <View style={styles.playerShell} {...panResponder.panHandlers}>
         <View style={styles.player}>
           {showPlayableVideo ? (
             <Video
@@ -266,6 +329,7 @@ export default function WatchScreen() {
         contentId={content.id}
         onClose={() => setCommentsOpen(false)}
       />
+      </Animated.View>
     </AppScreen>
   );
 }
@@ -366,6 +430,12 @@ function WatchRelatedList({ items, loading }: { items: WatchRelatedItem[]; loadi
 }
 
 const styles = StyleSheet.create({
+  overlaySurface: {
+    backgroundColor: colors.background,
+    flex: 1,
+    minHeight: '100%',
+    overflow: 'hidden',
+  },
   playerShell: {
     backgroundColor: colors.background,
   },

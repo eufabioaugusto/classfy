@@ -1,27 +1,34 @@
 import { PropsWithChildren } from 'react';
-import { ScrollView, StyleSheet, View } from 'react-native';
+import { ScrollView, StyleSheet, View, ViewStyle } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { colors, spacing } from '@/theme/tokens';
 
 type AppScreenProps = PropsWithChildren<{
+  backgroundColor?: string;
   scroll?: boolean;
   edgeToEdge?: boolean;
 }>;
 
-export function AppScreen({ children, scroll = true, edgeToEdge = false }: AppScreenProps) {
+export function AppScreen({
+  backgroundColor = colors.background,
+  children,
+  scroll = true,
+  edgeToEdge = false,
+}: AppScreenProps) {
   const contentStyle = edgeToEdge ? styles.edgeContent : styles.content;
+  const safeStyle: ViewStyle = { ...styles.safe, backgroundColor };
 
   if (!scroll) {
     return (
-      <SafeAreaView style={styles.safe}>
+      <SafeAreaView style={safeStyle}>
         <View style={contentStyle}>{children}</View>
       </SafeAreaView>
     );
   }
 
   return (
-    <SafeAreaView style={styles.safe}>
+    <SafeAreaView style={safeStyle}>
       <ScrollView contentContainerStyle={contentStyle} showsVerticalScrollIndicator={false}>
         {children}
       </ScrollView>
