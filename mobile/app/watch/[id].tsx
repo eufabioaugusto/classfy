@@ -7,6 +7,7 @@ import { AppScreen } from '@/components/AppScreen';
 import { SectionHeader } from '@/components/SectionHeader';
 import { useWatchActions } from '@/features/watch/useWatchActions';
 import { useWatchContent } from '@/features/watch/useWatchContent';
+import { useWatchProgress } from '@/features/watch/useWatchProgress';
 import { colors } from '@/theme/colors';
 import { radius } from '@/theme/radius';
 import { spacing } from '@/theme/spacing';
@@ -34,6 +35,11 @@ export default function WatchScreen() {
     isCourse: content?.isCourse,
     initialLikes: content?.likes_count,
     hasAccess: access.hasAccess,
+  });
+  const progress = useWatchProgress({
+    contentId: content?.id,
+    durationSeconds: content?.duration_seconds,
+    enabled: Boolean(access.hasAccess && content?.file_url && !content?.isCourse),
   });
 
   if (loading) {
@@ -74,6 +80,11 @@ export default function WatchScreen() {
             resizeMode={ResizeMode.CONTAIN}
             posterSource={content.thumbnail_url ? { uri: content.thumbnail_url } : undefined}
             posterStyle={styles.video}
+            onPlaybackStatusUpdate={(status) => {
+              if (status.isLoaded && status.isPlaying) {
+                progress.handlePlaybackPosition(status.positionMillis / 1000);
+              }
+            }}
           />
         ) : (
           <>
@@ -144,6 +155,24 @@ export default function WatchScreen() {
         <ActionButton icon="school-outline" label="Estudo" onPress={() => {}} />
       </View>
 
+      {showPlayableVideo ? (
+        <View style={styles.progressPanel}>
+          <View style={styles.progressHeader}>
+            <Text style={styles.progressTitle}>Progresso real</Text>
+            <Text style={styles.progressValue}>{Math.floor(progress.watchPercent)}%</Text>
+          </View>
+          <View style={styles.progressTrack}>
+            <View style={[styles.progressFill, { width: `${Math.min(progress.watchPercent, 100)}%` }]} />
+          </View>
+          <View style={styles.milestones}>
+            <Milestone label="Start" active={progress.milestones.start} />
+            <Milestone label="15s" active={progress.milestones.view15s} />
+            <Milestone label="50%" active={progress.milestones.half} />
+            <Milestone label="90%" active={progress.milestones.complete} />
+          </View>
+        </View>
+      ) : null}
+
       {content.description ? (
         <View style={styles.description}>
           <Text style={styles.descriptionText}>{content.description}</Text>
@@ -179,6 +208,14 @@ function ActionButton({ icon, label, active, onPress }: ActionButtonProps) {
       <Ionicons name={icon} color={active ? colors.background : colors.text} size={18} />
       <Text style={[styles.actionText, active && styles.actionTextActive]}>{label}</Text>
     </Pressable>
+  );
+}
+
+function Milestone({ label, active }: { label: string; active: boolean }) {
+  return (
+    <View style={[styles.milestone, active && styles.milestoneActive]}>
+      <Text style={[styles.milestoneText, active && styles.milestoneTextActive]}>{label}</Text>
+    </View>
   );
 }
 
@@ -296,6 +333,62 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: spacing.sm,
     marginBottom: spacing.lg,
+  },
+  progressPanel: {
+    backgroundColor: colors.surface,
+    borderColor: colors.borderSubtle,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    gap: spacing.md,
+    marginBottom: spacing.lg,
+    padding: spacing.md,
+  },
+  progressHeader: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  progressTitle: {
+    color: colors.text,
+    fontSize: typography.bodySmall,
+    fontWeight: typography.weightBlack,
+  },
+  progressValue: {
+    color: colors.accent,
+    fontSize: typography.bodySmall,
+    fontWeight: typography.weightBlack,
+  },
+  progressTrack: {
+    backgroundColor: colors.surfaceMuted,
+    borderRadius: radius.pill,
+    height: 6,
+    overflow: 'hidden',
+  },
+  progressFill: {
+    backgroundColor: colors.accent,
+    height: '100%',
+  },
+  milestones: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
+  },
+  milestone: {
+    backgroundColor: colors.surfaceAlt,
+    borderRadius: radius.pill,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs,
+  },
+  milestoneActive: {
+    backgroundColor: colors.accent,
+  },
+  milestoneText: {
+    color: colors.muted,
+    fontSize: typography.label,
+    fontWeight: typography.weightBold,
+  },
+  milestoneTextActive: {
+    color: colors.text,
   },
   actionButton: {
     alignItems: 'center',
