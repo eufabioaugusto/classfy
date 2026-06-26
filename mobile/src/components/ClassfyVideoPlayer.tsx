@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Ionicons } from '@expo/vector-icons';
+import { Feather, Ionicons } from '@expo/vector-icons';
 import { Audio, AVPlaybackStatus, ResizeMode, Video } from 'expo-av';
 import { Animated, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 
@@ -90,9 +90,9 @@ export function ClassfyVideoPlayer({
     return Math.min((positionMillis / durationMillis) * 100, 100);
   }, [durationMillis, positionMillis]);
 
-  const resetControlsTimer = () => {
+  const resetControlsTimer = (playing = isPlaying) => {
     if (controlsTimerRef.current) clearTimeout(controlsTimerRef.current);
-    if (isPlaying) {
+    if (playing) {
       controlsTimerRef.current = setTimeout(() => setShowControls(false), 2000);
     }
   };
@@ -111,12 +111,13 @@ export function ClassfyVideoPlayer({
     if (status.isPlaying) {
       await videoRef.current?.pauseAsync();
       setIsPlaying(false);
+      if (controlsTimerRef.current) clearTimeout(controlsTimerRef.current);
     } else {
       await videoRef.current?.playAsync();
       setIsPlaying(true);
     }
     setShowControls(true);
-    resetControlsTimer();
+    resetControlsTimer(!status.isPlaying);
   };
 
   const seekBy = async (deltaMillis: number) => {
@@ -184,12 +185,13 @@ export function ClassfyVideoPlayer({
         onPlaybackStatusUpdate={handleStatus}
       />
 
-      <Pressable style={styles.leftTapZone} onPress={() => handleSideTap('left')} />
-      <Pressable style={styles.centerTapZone} onPress={toggleControls} />
-      <Pressable style={styles.rightTapZone} onPress={() => handleSideTap('right')} />
+      <Pressable pointerEvents={showControls ? 'none' : 'auto'} style={styles.leftTapZone} onPress={() => handleSideTap('left')} />
+      <Pressable pointerEvents={showControls ? 'none' : 'auto'} style={styles.centerTapZone} onPress={toggleControls} />
+      <Pressable pointerEvents={showControls ? 'none' : 'auto'} style={styles.rightTapZone} onPress={() => handleSideTap('right')} />
 
       {controlsVisible ? (
         <Animated.View pointerEvents={showControls ? 'box-none' : 'none'} style={[styles.controls, { opacity: controlsOpacity }]}>
+          <Pressable style={styles.controlsBackdrop} onPress={() => setShowControls(false)} />
           <View style={styles.topRow}>
             <View style={styles.topLeft}>
               <Pressable hitSlop={12} style={styles.topButton} onPress={onMinimize}>
@@ -231,10 +233,7 @@ export function ClassfyVideoPlayer({
               </Text>
             </View>
             <Pressable style={styles.floatButton} onPress={openFullscreen}>
-              <View style={styles.expandGlyph}>
-                <Ionicons name="arrow-up" color={colors.text} size={18} style={styles.expandArrowTop} />
-                <Ionicons name="arrow-down" color={colors.text} size={18} style={styles.expandArrowBottom} />
-              </View>
+              <Feather name="maximize-2" color={colors.text} size={23} />
             </Pressable>
           </View>
 
@@ -376,6 +375,10 @@ const styles = StyleSheet.create({
     elevation: 4,
     zIndex: 4,
   },
+  controlsBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 0,
+  },
   topRow: {
     alignItems: 'center',
     flexDirection: 'row',
@@ -412,6 +415,7 @@ const styles = StyleSheet.create({
     position: 'absolute',
     right: 0,
     top: '34%',
+    zIndex: 5,
   },
   roundButton: {
     alignItems: 'center',
@@ -492,23 +496,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     marginLeft: 'auto',
     width: 40,
-  },
-  expandGlyph: {
-    height: 24,
-    position: 'relative',
-    width: 24,
-  },
-  expandArrowTop: {
-    left: 0,
-    position: 'absolute',
-    top: 1,
-    transform: [{ rotate: '-45deg' }],
-  },
-  expandArrowBottom: {
-    bottom: 1,
-    position: 'absolute',
-    right: 0,
-    transform: [{ rotate: '-45deg' }],
   },
   progressRail: {
     bottom: 0,
