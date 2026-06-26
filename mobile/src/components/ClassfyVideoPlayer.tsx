@@ -45,7 +45,6 @@ export function ClassfyVideoPlayer({
   const [showControls, setShowControls] = useState(true);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
-  const [isMuted, setIsMuted] = useState(false);
   const [positionMillis, setPositionMillis] = useState(0);
   const [durationMillis, setDurationMillis] = useState(0);
   const [playbackRate, setPlaybackRate] = useState(1);
@@ -128,12 +127,6 @@ export function ClassfyVideoPlayer({
     resetControlsTimer();
   };
 
-  const toggleMute = async () => {
-    await videoRef.current?.setIsMutedAsync(!isMuted);
-    setIsMuted((current) => !current);
-    setShowControls(true);
-  };
-
   const openFullscreen = async () => {
     await videoRef.current?.presentFullscreenPlayer();
   };
@@ -169,31 +162,39 @@ export function ClassfyVideoPlayer({
       {showControls ? (
         <View pointerEvents="box-none" style={styles.controls}>
           <View style={styles.topRow}>
-            <Pressable hitSlop={12} style={styles.topButton} onPress={onMinimize}>
-              <Ionicons name="chevron-down" color={colors.text} size={34} />
-            </Pressable>
+            <View style={styles.topLeft}>
+              <Pressable hitSlop={12} style={styles.topButton} onPress={onMinimize}>
+                <Ionicons name="chevron-down" color={colors.text} size={30} />
+              </Pressable>
+              <Pressable style={styles.premiumPill} onPress={() => setSettingsOpen(true)}>
+                <Ionicons name="options-outline" color={colors.text} size={16} />
+                <Text numberOfLines={1} style={styles.premiumText}>
+                  Controles Premium
+                </Text>
+              </Pressable>
+            </View>
             <View style={styles.topActions}>
               <Pressable style={styles.topButton}>
-                <Ionicons name="tv-outline" color={colors.text} size={28} />
+                <Ionicons name="tv-outline" color={colors.text} size={25} />
               </Pressable>
               <Pressable style={styles.topButton}>
-                <Ionicons name="chatbox-ellipses-outline" color={colors.text} size={28} />
+                <Ionicons name="text-outline" color={colors.text} size={25} />
               </Pressable>
               <Pressable style={styles.topButton} onPress={() => setSettingsOpen(true)}>
-                <Ionicons name="settings-outline" color={colors.text} size={31} />
+                <Ionicons name="settings-outline" color={colors.text} size={28} />
               </Pressable>
             </View>
           </View>
 
           <View style={styles.centerControls}>
             <Pressable style={styles.roundButton} onPress={() => seekBy(-10000)}>
-              <Ionicons name="play-skip-back" color={colors.text} size={28} />
+              <Ionicons name="play-skip-back" color={colors.text} size={23} />
             </Pressable>
             <Pressable style={styles.playButton} onPress={togglePlay}>
-              <Ionicons name={isPlaying ? 'pause' : 'play'} color={colors.text} size={48} />
+              <Ionicons name={isPlaying ? 'pause' : 'play'} color={colors.text} size={40} />
             </Pressable>
             <Pressable style={styles.roundButton} onPress={() => seekBy(10000)}>
-              <Ionicons name="play-skip-forward" color={colors.text} size={28} />
+              <Ionicons name="play-skip-forward" color={colors.text} size={23} />
             </Pressable>
           </View>
 
@@ -203,22 +204,12 @@ export function ClassfyVideoPlayer({
                 {formatTime(positionMillis)} / {formatTime(durationMillis)}
               </Text>
             </View>
-            <Pressable style={styles.premiumPill} onPress={() => setSettingsOpen(true)}>
-              <Ionicons name="options-outline" color={colors.text} size={20} />
-              <Text numberOfLines={1} style={styles.premiumText}>
-                Controles Premium
-              </Text>
-              <Ionicons name="close-circle-outline" color={colors.textSecondary} size={20} />
-            </Pressable>
             <Pressable style={styles.floatButton} onPress={openFullscreen}>
-              <Ionicons name="expand-outline" color={colors.text} size={27} />
+              <Ionicons name="expand-outline" color={colors.text} size={25} />
             </Pressable>
           </View>
 
           <View style={styles.bottomActions}>
-            <Pressable style={styles.bottomAction} onPress={toggleMute}>
-              <Ionicons name={isMuted ? 'volume-mute' : 'volume-high'} color={colors.text} size={22} />
-            </Pressable>
             <Pressable style={styles.bottomAction} onPress={onNotesPress}>
               <Ionicons name="document-text-outline" color={colors.text} size={22} />
             </Pressable>
@@ -227,9 +218,11 @@ export function ClassfyVideoPlayer({
             </Text>
           </View>
 
-          <View style={styles.progressTrack}>
-            <View style={[styles.progressFill, { width: `${progressPercent}%` }]} />
-            <View style={[styles.progressThumb, { left: `${progressPercent}%` }]} />
+          <View style={styles.progressRail}>
+            <View style={styles.progressTrack}>
+              <View style={[styles.progressFill, { width: `${progressPercent}%` }]} />
+              <View style={[styles.progressThumb, { left: `${progressPercent}%` }]} />
+            </View>
           </View>
         </View>
       ) : null}
@@ -357,23 +350,29 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     flexDirection: 'row',
     justifyContent: 'space-between',
-    paddingHorizontal: spacing.md,
+    paddingHorizontal: spacing.sm,
     paddingTop: spacing.sm,
+  },
+  topLeft: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: spacing.xs,
+    minWidth: 0,
   },
   topActions: {
     flexDirection: 'row',
-    gap: spacing.md,
+    gap: spacing.sm,
   },
   topButton: {
     alignItems: 'center',
-    height: 42,
+    height: 36,
     justifyContent: 'center',
-    width: 42,
+    width: 36,
   },
   centerControls: {
     alignItems: 'center',
     flexDirection: 'row',
-    gap: spacing.xl,
+    gap: spacing.lg,
     justifyContent: 'center',
     left: 0,
     position: 'absolute',
@@ -382,23 +381,23 @@ const styles = StyleSheet.create({
   },
   roundButton: {
     alignItems: 'center',
-    backgroundColor: 'rgba(0,0,0,0.34)',
+    backgroundColor: 'rgba(0,0,0,0.30)',
     borderRadius: radius.pill,
-    height: 58,
+    height: 48,
     justifyContent: 'center',
-    width: 58,
+    width: 48,
   },
   playButton: {
     alignItems: 'center',
-    backgroundColor: 'rgba(0,0,0,0.44)',
+    backgroundColor: 'rgba(0,0,0,0.38)',
     borderRadius: radius.pill,
-    height: 82,
+    height: 70,
     justifyContent: 'center',
-    width: 82,
+    width: 70,
   },
   bottomOverlay: {
     alignItems: 'center',
-    bottom: spacing.xl,
+    bottom: 28,
     flexDirection: 'row',
     gap: spacing.sm,
     left: spacing.md,
@@ -406,7 +405,7 @@ const styles = StyleSheet.create({
     right: spacing.md,
   },
   metaPill: {
-    backgroundColor: 'rgba(0,0,0,0.52)',
+    backgroundColor: 'rgba(0,0,0,0.48)',
     borderRadius: radius.pill,
     paddingHorizontal: spacing.sm,
     paddingVertical: spacing.xs,
@@ -418,31 +417,34 @@ const styles = StyleSheet.create({
   },
   premiumPill: {
     alignItems: 'center',
-    backgroundColor: 'rgba(0,0,0,0.58)',
+    backgroundColor: 'rgba(0,0,0,0.48)',
+    borderColor: 'rgba(255,255,255,0.16)',
+    borderWidth: 1,
     borderRadius: radius.pill,
-    flex: 1,
     flexDirection: 'row',
-    gap: spacing.sm,
-    minHeight: 42,
-    paddingHorizontal: spacing.md,
+    gap: spacing.xs,
+    maxWidth: 168,
+    minHeight: 34,
+    paddingHorizontal: spacing.sm,
   },
   premiumText: {
     color: colors.text,
-    flex: 1,
-    fontSize: typography.bodySmall,
+    flexShrink: 1,
+    fontSize: typography.caption,
     fontWeight: typography.weightBold,
   },
   floatButton: {
     alignItems: 'center',
     backgroundColor: 'rgba(0,0,0,0.45)',
     borderRadius: radius.pill,
-    height: 50,
+    height: 46,
     justifyContent: 'center',
-    width: 50,
+    marginLeft: 'auto',
+    width: 46,
   },
   bottomActions: {
     alignItems: 'center',
-    bottom: 2,
+    bottom: 8,
     flexDirection: 'row',
     gap: spacing.sm,
     left: spacing.md,
@@ -451,9 +453,9 @@ const styles = StyleSheet.create({
   },
   bottomAction: {
     alignItems: 'center',
-    height: 34,
+    height: 30,
     justifyContent: 'center',
-    width: 34,
+    width: 30,
   },
   videoTitle: {
     color: colors.text,
@@ -461,10 +463,17 @@ const styles = StyleSheet.create({
     fontSize: typography.caption,
     fontWeight: typography.weightBold,
   },
-  progressTrack: {
-    backgroundColor: 'rgba(255,255,255,0.24)',
+  progressRail: {
     bottom: 0,
-    height: 4,
+    height: 18,
+    left: 0,
+    position: 'absolute',
+    right: 0,
+  },
+  progressTrack: {
+    backgroundColor: 'rgba(255,255,255,0.26)',
+    bottom: 6,
+    height: 3,
     left: 0,
     position: 'absolute',
     right: 0,
@@ -476,11 +485,11 @@ const styles = StyleSheet.create({
   progressThumb: {
     backgroundColor: colors.accent,
     borderRadius: radius.pill,
-    bottom: -5,
-    height: 14,
-    marginLeft: -7,
+    height: 12,
+    marginLeft: -6,
     position: 'absolute',
-    width: 14,
+    top: -4.5,
+    width: 12,
   },
   sheetBackdrop: {
     backgroundColor: 'rgba(0,0,0,0.54)',
