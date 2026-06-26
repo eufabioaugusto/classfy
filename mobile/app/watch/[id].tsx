@@ -1,6 +1,6 @@
 import { useMemo, useRef, useState } from 'react';
 import { Ionicons } from '@expo/vector-icons';
-import { ResizeMode, Video } from 'expo-av';
+import { AVPlaybackStatus } from 'expo-av';
 import { router, useLocalSearchParams } from 'expo-router';
 import {
   ActivityIndicator,
@@ -16,6 +16,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { ClassfyVideoPlayer } from '@/components/ClassfyVideoPlayer';
 import { WatchCommentsSheet } from '@/components/WatchCommentsSheet';
 import { WatchDescriptionSheet } from '@/components/WatchDescriptionSheet';
 import { useWatchActions } from '@/features/watch/useWatchActions';
@@ -84,6 +85,12 @@ export default function WatchScreen() {
     durationSeconds: content?.duration_seconds,
     enabled: Boolean(access.hasAccess && content?.file_url && !content?.isCourse),
   });
+
+  const handlePlayerStatus = (status: AVPlaybackStatus) => {
+    if (!status.isLoaded) return;
+    currentPositionMillisRef.current = status.positionMillis;
+    wasPlayingRef.current = status.isPlaying;
+  };
 
   const panResponder = useMemo(
     () =>
@@ -201,22 +208,28 @@ export default function WatchScreen() {
             <View style={styles.playerShell} {...panResponder.panHandlers}>
               <View style={styles.player}>
                 {showPlayableVideo ? (
-                  <Video
-                    source={{ uri: content.file_url! }}
-                    style={styles.video}
-                    useNativeControls
-                    resizeMode={ResizeMode.CONTAIN}
-                    posterSource={content.thumbnail_url ? { uri: content.thumbnail_url } : undefined}
-                    posterStyle={styles.video}
-                    onPlaybackStatusUpdate={(status) => {
-                      if (status.isLoaded) {
-                        currentPositionMillisRef.current = status.positionMillis;
-                        wasPlayingRef.current = status.isPlaying;
-                        if (status.isPlaying) {
-                          progress.handlePlaybackPosition(status.positionMillis / 1000);
-                        }
-                      }
+                  <ClassfyVideoPlayer
+                    src={content.file_url!}
+                    poster={content.thumbnail_url}
+                    title={content.title}
+                    creatorName={creatorName}
+                    onMinimize={() => {
+                      startMiniPlayer({
+                        id: content.id,
+                        title: content.title,
+                        fileUrl: content.file_url,
+                        thumbnailUrl: content.thumbnail_url,
+                        creatorName,
+                        durationSeconds: content.duration_seconds,
+                        startPositionMillis: currentPositionMillisRef.current,
+                        shouldPlay: wasPlayingRef.current,
+                      });
+                      if (router.canGoBack()) router.back();
+                      else router.replace('/');
                     }}
+                    onNotesPress={() => {}}
+                    onPlaybackPosition={progress.handlePlaybackPosition}
+                    onStatusUpdate={handlePlayerStatus}
                   />
                 ) : (
                   <>
