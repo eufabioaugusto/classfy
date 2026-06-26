@@ -13,6 +13,7 @@ import {
   Text,
   View,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { WatchCommentsSheet } from '@/components/WatchCommentsSheet';
 import { WatchDescriptionSheet } from '@/components/WatchDescriptionSheet';
@@ -57,6 +58,7 @@ function blockCopy(reason: string | null, requiredPlan: string) {
 
 export default function WatchScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
+  const insets = useSafeAreaInsets();
   const [commentsOpen, setCommentsOpen] = useState(false);
   const [descriptionOpen, setDescriptionOpen] = useState(false);
   const dragY = useRef(new Animated.Value(0)).current;
@@ -174,7 +176,11 @@ export default function WatchScreen() {
   return (
     <View style={styles.modalRoot}>
       <Animated.View style={[styles.overlaySurface, overlayStyle]}>
-        <ScrollView bounces={false} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+        <ScrollView
+          bounces={false}
+          contentContainerStyle={[styles.scrollContent, { paddingTop: insets.top + spacing.sm }]}
+          showsVerticalScrollIndicator={false}
+        >
           <View style={styles.playerShell} {...panResponder.panHandlers}>
             <View style={styles.player}>
               {showPlayableVideo ? (
@@ -434,7 +440,7 @@ const styles = StyleSheet.create({
   },
   modalRoot: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: colors.background,
+    backgroundColor: 'transparent',
   },
   overlaySurface: {
     backgroundColor: colors.background,
