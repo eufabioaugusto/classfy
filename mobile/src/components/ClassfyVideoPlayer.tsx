@@ -40,6 +40,7 @@ export function ClassfyVideoPlayer({
 }: ClassfyVideoPlayerProps) {
   const videoRef = useRef<Video>(null);
   const controlsTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const singleTapTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastLeftTapRef = useRef(0);
   const lastRightTapRef = useRef(0);
   const [showControls, setShowControls] = useState(true);
@@ -59,6 +60,7 @@ export function ClassfyVideoPlayer({
 
     return () => {
       if (controlsTimerRef.current) clearTimeout(controlsTimerRef.current);
+      if (singleTapTimerRef.current) clearTimeout(singleTapTimerRef.current);
     };
   }, []);
 
@@ -110,13 +112,14 @@ export function ClassfyVideoPlayer({
     const now = Date.now();
     const ref = side === 'left' ? lastLeftTapRef : lastRightTapRef;
     if (now - ref.current < 320) {
+      if (singleTapTimerRef.current) clearTimeout(singleTapTimerRef.current);
       seekBy(side === 'left' ? -10000 : 10000);
       ref.current = 0;
       return;
     }
     ref.current = now;
-    setShowControls(true);
-    resetControlsTimer();
+    if (singleTapTimerRef.current) clearTimeout(singleTapTimerRef.current);
+    singleTapTimerRef.current = setTimeout(toggleControls, 220);
   };
 
   const setRate = async (rate: number) => {
@@ -166,22 +169,19 @@ export function ClassfyVideoPlayer({
               <Pressable hitSlop={12} style={styles.topButton} onPress={onMinimize}>
                 <Ionicons name="chevron-down" color={colors.text} size={30} />
               </Pressable>
-              <Pressable style={styles.premiumPill} onPress={() => setSettingsOpen(true)}>
-                <Ionicons name="options-outline" color={colors.text} size={16} />
-                <Text numberOfLines={1} style={styles.premiumText}>
-                  Controles Premium
-                </Text>
-              </Pressable>
             </View>
             <View style={styles.topActions}>
-              <Pressable style={styles.topButton}>
-                <Ionicons name="tv-outline" color={colors.text} size={25} />
+              <Pressable style={styles.controlPill} onPress={() => setSettingsOpen(true)}>
+                <Ionicons name="options-outline" color={colors.text} size={16} />
+                <Text numberOfLines={1} style={styles.premiumText}>
+                  Controles
+                </Text>
               </Pressable>
-              <Pressable style={styles.topButton}>
-                <Ionicons name="text-outline" color={colors.text} size={25} />
-              </Pressable>
-              <Pressable style={styles.topButton} onPress={() => setSettingsOpen(true)}>
-                <Ionicons name="settings-outline" color={colors.text} size={28} />
+              <Pressable style={styles.notePill} onPress={onNotesPress}>
+                <Ionicons name="document-text-outline" color={colors.text} size={18} />
+                <Text numberOfLines={1} style={styles.noteText}>
+                  Notas
+                </Text>
               </Pressable>
             </View>
           </View>
@@ -205,14 +205,14 @@ export function ClassfyVideoPlayer({
               </Text>
             </View>
             <Pressable style={styles.floatButton} onPress={openFullscreen}>
-              <Ionicons name="expand-outline" color={colors.text} size={25} />
+              <View style={styles.expandGlyph}>
+                <Ionicons name="arrow-up" color={colors.text} size={17} style={styles.expandArrowTop} />
+                <Ionicons name="arrow-down" color={colors.text} size={17} style={styles.expandArrowBottom} />
+              </View>
             </Pressable>
           </View>
 
           <View style={styles.bottomActions}>
-            <Pressable style={styles.bottomAction} onPress={onNotesPress}>
-              <Ionicons name="document-text-outline" color={colors.text} size={22} />
-            </Pressable>
             <Text style={styles.videoTitle} numberOfLines={1}>
               {title}
             </Text>
@@ -257,6 +257,7 @@ function SettingsSheet({
         <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
         <View style={styles.sheet}>
           <View style={styles.sheetHandle} />
+          <Text style={styles.sheetSectionTitle}>Controles</Text>
           <SheetRow icon="options-outline" label="Qualidade" value="Automatica (720p)" />
           <View style={styles.speedBlock}>
             <View style={styles.speedHeader}>
@@ -278,10 +279,12 @@ function SettingsSheet({
             </View>
           </View>
           <SheetRow icon="text-outline" label="Legendas" value="Desativadas" />
-          <SheetRow icon="language-outline" label="Legendas premium" value="Em breve" premium />
           <SheetRow icon="lock-closed-outline" label="Tela de bloqueio" />
-          <SheetRow icon="star-outline" label="Recompensas" value="Progresso ativo" premium />
           <SheetRow icon="person-circle-outline" label="Criador" value={creatorName || 'Classfy'} />
+          <Text style={styles.sheetSectionTitle}>Controles Premium</Text>
+          <SheetRow icon="language-outline" label="Legendas traduzidas" value="Bloqueado" premium locked />
+          <SheetRow icon="sparkles-outline" label="Resumo inteligente" value="Bloqueado" premium locked />
+          <SheetRow icon="star-outline" label="Recompensas avancadas" value="Bloqueado" premium locked />
         </View>
       </View>
     </Modal>
@@ -293,19 +296,21 @@ function SheetRow({
   label,
   value,
   premium,
+  locked,
 }: {
   icon: keyof typeof Ionicons.glyphMap;
   label: string;
   value?: string;
   premium?: boolean;
+  locked?: boolean;
 }) {
   return (
-    <View style={styles.sheetRow}>
-      <Ionicons name={icon} color={colors.text} size={29} />
+    <View style={[styles.sheetRow, locked && styles.sheetRowLocked]}>
+      <Ionicons name={icon} color={locked ? colors.muted : colors.text} size={29} />
       <Text style={styles.sheetLabel}>{label}</Text>
       {premium ? <Text style={styles.premiumBadge}>PRO</Text> : null}
       {value ? <Text numberOfLines={1} style={styles.sheetValue}>{value}</Text> : null}
-      <Ionicons name="chevron-forward" color={colors.muted} size={22} />
+      <Ionicons name={locked ? 'lock-closed-outline' : 'chevron-forward'} color={colors.muted} size={22} />
     </View>
   );
 }
@@ -360,8 +365,11 @@ const styles = StyleSheet.create({
     minWidth: 0,
   },
   topActions: {
+    alignItems: 'center',
     flexDirection: 'row',
-    gap: spacing.sm,
+    gap: spacing.xs,
+    justifyContent: 'flex-end',
+    minWidth: 0,
   },
   topButton: {
     alignItems: 'center',
@@ -415,7 +423,7 @@ const styles = StyleSheet.create({
     fontSize: typography.bodySmall,
     fontWeight: typography.weightBold,
   },
-  premiumPill: {
+  controlPill: {
     alignItems: 'center',
     backgroundColor: 'rgba(0,0,0,0.48)',
     borderColor: 'rgba(255,255,255,0.16)',
@@ -423,7 +431,7 @@ const styles = StyleSheet.create({
     borderRadius: radius.pill,
     flexDirection: 'row',
     gap: spacing.xs,
-    maxWidth: 168,
+    maxWidth: 116,
     minHeight: 34,
     paddingHorizontal: spacing.sm,
   },
@@ -433,14 +441,47 @@ const styles = StyleSheet.create({
     fontSize: typography.caption,
     fontWeight: typography.weightBold,
   },
+  notePill: {
+    alignItems: 'center',
+    backgroundColor: 'rgba(0,0,0,0.34)',
+    borderColor: 'rgba(255,255,255,0.12)',
+    borderRadius: radius.pill,
+    borderWidth: 1,
+    flexDirection: 'row',
+    gap: spacing.xs,
+    minHeight: 34,
+    paddingHorizontal: spacing.sm,
+  },
+  noteText: {
+    color: colors.text,
+    fontSize: typography.caption,
+    fontWeight: typography.weightBold,
+  },
   floatButton: {
     alignItems: 'center',
-    backgroundColor: 'rgba(0,0,0,0.45)',
+    backgroundColor: 'rgba(0,0,0,0.34)',
     borderRadius: radius.pill,
-    height: 46,
+    height: 42,
     justifyContent: 'center',
     marginLeft: 'auto',
-    width: 46,
+    width: 42,
+  },
+  expandGlyph: {
+    height: 26,
+    position: 'relative',
+    width: 26,
+  },
+  expandArrowTop: {
+    left: 1,
+    position: 'absolute',
+    top: 0,
+    transform: [{ rotate: '-45deg' }],
+  },
+  expandArrowBottom: {
+    bottom: 0,
+    position: 'absolute',
+    right: 1,
+    transform: [{ rotate: '-45deg' }],
   },
   bottomActions: {
     alignItems: 'center',
@@ -512,11 +553,23 @@ const styles = StyleSheet.create({
     marginTop: spacing.md,
     width: 52,
   },
+  sheetSectionTitle: {
+    color: colors.textSecondary,
+    fontSize: typography.caption,
+    fontWeight: typography.weightBlack,
+    letterSpacing: 0,
+    marginBottom: spacing.xs,
+    marginTop: spacing.sm,
+    textTransform: 'uppercase',
+  },
   sheetRow: {
     alignItems: 'center',
     flexDirection: 'row',
     gap: spacing.md,
     minHeight: 58,
+  },
+  sheetRowLocked: {
+    opacity: 0.58,
   },
   sheetLabel: {
     color: colors.text,
