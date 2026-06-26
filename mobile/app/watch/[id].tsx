@@ -14,7 +14,6 @@ import {
   View,
 } from 'react-native';
 
-import { AppScreen } from '@/components/AppScreen';
 import { WatchCommentsSheet } from '@/components/WatchCommentsSheet';
 import { WatchDescriptionSheet } from '@/components/WatchDescriptionSheet';
 import { useWatchActions } from '@/features/watch/useWatchActions';
@@ -84,13 +83,15 @@ export default function WatchScreen() {
   const panResponder = useMemo(
     () =>
       PanResponder.create({
+        onMoveShouldSetPanResponderCapture: (_, gesture) =>
+          gesture.dy > 6 && Math.abs(gesture.dy) > Math.abs(gesture.dx),
         onMoveShouldSetPanResponder: (_, gesture) =>
-          gesture.dy > 8 && Math.abs(gesture.dy) > Math.abs(gesture.dx),
+          gesture.dy > 6 && Math.abs(gesture.dy) > Math.abs(gesture.dx),
         onPanResponderMove: (_, gesture) => {
           if (gesture.dy > 0) dragY.setValue(gesture.dy);
         },
         onPanResponderRelease: (_, gesture) => {
-          const shouldMinimize = gesture.dy > 120 || gesture.vy > 1.15;
+          const shouldMinimize = gesture.dy > 96 || gesture.vy > 0.95;
 
           if (shouldMinimize && content) {
             startMiniPlayer({
@@ -104,11 +105,8 @@ export default function WatchScreen() {
               durationSeconds: content.duration_seconds,
             });
             dragY.setValue(0);
-            if (router.canGoBack()) {
-              router.back();
-            } else {
-              router.replace('/');
-            }
+            if (router.canGoBack()) router.back();
+            else router.replace('/');
             return;
           }
 
@@ -125,18 +123,18 @@ export default function WatchScreen() {
 
   if (loading) {
     return (
-      <AppScreen>
+      <View style={styles.stateScreen}>
         <View style={styles.centerState}>
           <ActivityIndicator color={colors.accent} />
           <Text style={styles.centerText}>Carregando Watch...</Text>
         </View>
-      </AppScreen>
+      </View>
     );
   }
 
   if (error || !content) {
     return (
-      <AppScreen>
+      <View style={styles.stateScreen}>
         <View style={styles.centerState}>
           <Text style={styles.errorTitle}>Conteudo indisponivel</Text>
           <Text style={styles.centerText}>{error || 'Nao foi possivel carregar este conteudo.'}</Text>
@@ -144,18 +142,25 @@ export default function WatchScreen() {
             <Text style={styles.primaryButtonText}>Voltar</Text>
           </Pressable>
         </View>
-      </AppScreen>
+      </View>
     );
   }
 
   const showPlayableVideo = access.hasAccess && content.file_url && !content.isCourse;
   const creatorName = content.creator?.creator_channel_name || content.creator?.display_name || 'Creator Classfy';
-
   const overlayStyle = {
+    borderRadius: dragY.interpolate({
+      inputRange: [0, 140],
+      outputRange: [0, 24],
+      extrapolate: 'clamp',
+    }),
+    opacity: dragY.interpolate({
+      inputRange: [0, 220],
+      outputRange: [1, 0.62],
+      extrapolate: 'clamp',
+    }),
     transform: [
-      {
-        translateY: dragY,
-      },
+      { translateY: dragY },
       {
         scale: dragY.interpolate({
           inputRange: [0, 260],
@@ -167,170 +172,167 @@ export default function WatchScreen() {
   };
 
   return (
-    <AppScreen edgeToEdge backgroundColor="transparent">
+    <View style={styles.modalRoot}>
       <Animated.View style={[styles.overlaySurface, overlayStyle]}>
-      <View style={styles.playerShell} {...panResponder.panHandlers}>
-        <View style={styles.player}>
-          {showPlayableVideo ? (
-            <Video
-              source={{ uri: content.file_url! }}
-              style={styles.video}
-              useNativeControls
-              resizeMode={ResizeMode.CONTAIN}
-              posterSource={content.thumbnail_url ? { uri: content.thumbnail_url } : undefined}
-              posterStyle={styles.video}
-              onPlaybackStatusUpdate={(status) => {
-                if (status.isLoaded && status.isPlaying) {
-                  progress.handlePlaybackPosition(status.positionMillis / 1000);
-                }
-              }}
-            />
-          ) : (
-            <>
-              {content.thumbnail_url ? <Image source={{ uri: content.thumbnail_url }} style={styles.poster} /> : null}
-              <View style={styles.posterOverlay} />
-              <View style={styles.playBadge}>
-                <Ionicons name={access.hasAccess ? 'play' : 'lock-closed'} color={colors.background} size={36} />
-              </View>
-              <Text style={styles.playerBadge}>{formatType(content.content_type, content.isCourse)}</Text>
-            </>
-          )}
-        </View>
-      </View>
-
-      <View style={styles.body}>
-        {!access.hasAccess ? (
-          <View style={styles.accessPanel}>
-            <Text style={styles.accessTitle}>Acesso bloqueado</Text>
-            <Text style={styles.accessBody}>{blockCopy(access.reason, access.requiredPlan)}</Text>
-          </View>
-        ) : null}
-
-        <View style={styles.titleBlock}>
-          <View style={styles.typeRow}>
-            <Text style={styles.type}>{formatType(content.content_type, content.isCourse)}</Text>
-            <Text style={styles.dot}>•</Text>
-            <Text style={styles.meta}>{formatCount(content.views_count)} views</Text>
-            <Text style={styles.dot}>•</Text>
-            <Text style={styles.meta}>{content.visibility.toUpperCase()}</Text>
-          </View>
-          <Text style={styles.title}>{content.title}</Text>
-        </View>
-
-        <View style={styles.creatorRow}>
-          <View style={styles.creatorLeft}>
-            <View style={styles.avatar}>
-              {content.creator?.avatar_url ? (
-                <Image source={{ uri: content.creator.avatar_url }} style={styles.avatarImage} />
+        <ScrollView bounces={false} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+          <View style={styles.playerShell} {...panResponder.panHandlers}>
+            <View style={styles.player}>
+              {showPlayableVideo ? (
+                <Video
+                  source={{ uri: content.file_url! }}
+                  style={styles.video}
+                  useNativeControls
+                  resizeMode={ResizeMode.CONTAIN}
+                  posterSource={content.thumbnail_url ? { uri: content.thumbnail_url } : undefined}
+                  posterStyle={styles.video}
+                  onPlaybackStatusUpdate={(status) => {
+                    if (status.isLoaded && status.isPlaying) {
+                      progress.handlePlaybackPosition(status.positionMillis / 1000);
+                    }
+                  }}
+                />
               ) : (
-                <Text style={styles.avatarText}>{creatorName[0] || 'C'}</Text>
+                <>
+                  {content.thumbnail_url ? <Image source={{ uri: content.thumbnail_url }} style={styles.poster} /> : null}
+                  <View style={styles.posterOverlay} />
+                  <View style={styles.playBadge}>
+                    <Ionicons name={access.hasAccess ? 'play' : 'lock-closed'} color={colors.background} size={36} />
+                  </View>
+                  <Text style={styles.playerBadge}>{formatType(content.content_type, content.isCourse)}</Text>
+                </>
               )}
-            </View>
-            <View style={styles.creatorCopy}>
-              <View style={styles.creatorNameRow}>
-                <Text numberOfLines={1} style={styles.creatorName}>
-                  {creatorName}
-                </Text>
-                <Ionicons name="checkmark-circle" color="#3B82F6" size={17} />
+              <View style={styles.dragCapture} {...panResponder.panHandlers}>
+                <View style={styles.dragHandle} />
               </View>
-              <Text style={styles.creatorMeta}>{formatCount(followersCount)} seguidores</Text>
             </View>
           </View>
-          <Pressable style={styles.followButton}>
-            <Text style={styles.followButtonText}>Seguir</Text>
-          </Pressable>
-        </View>
 
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.actions}
-        >
-          <ActionButton
-            icon={actions.isLiked ? 'thumbs-up' : 'thumbs-up-outline'}
-            label={formatCount(actions.likesCount)}
-            active={actions.isLiked}
-            onPress={actions.toggleLike}
-          />
-          <ActionButton
-            icon={actions.isSaved ? 'bookmark' : 'bookmark-outline'}
-            label="Salvar"
-            active={actions.isSaved}
-            onPress={actions.toggleSave}
-          />
-          <ActionButton
-            icon={actions.isFavorited ? 'star' : 'star-outline'}
-            label="Favorito"
-            active={actions.isFavorited}
-            onPress={actions.toggleFavorite}
-          />
-          <ActionButton icon="chatbubble-outline" label="Comentarios" onPress={() => setCommentsOpen(true)} />
-          <ActionButton icon="share-social-outline" label="Compartilhar" onPress={() => {}} />
+          <View style={styles.body}>
+            {!access.hasAccess ? (
+              <View style={styles.accessPanel}>
+                <Text style={styles.accessTitle}>Acesso bloqueado</Text>
+                <Text style={styles.accessBody}>{blockCopy(access.reason, access.requiredPlan)}</Text>
+              </View>
+            ) : null}
+
+            <View style={styles.titleBlock}>
+              <View style={styles.typeRow}>
+                <Text style={styles.type}>{formatType(content.content_type, content.isCourse)}</Text>
+                <Text style={styles.dot}>•</Text>
+                <Text style={styles.meta}>{formatCount(content.views_count)} views</Text>
+                <Text style={styles.dot}>•</Text>
+                <Text style={styles.meta}>{content.visibility.toUpperCase()}</Text>
+              </View>
+              <Text style={styles.title}>{content.title}</Text>
+            </View>
+
+            <View style={styles.creatorRow}>
+              <View style={styles.creatorLeft}>
+                <View style={styles.avatar}>
+                  {content.creator?.avatar_url ? (
+                    <Image source={{ uri: content.creator.avatar_url }} style={styles.avatarImage} />
+                  ) : (
+                    <Text style={styles.avatarText}>{creatorName[0] || 'C'}</Text>
+                  )}
+                </View>
+                <View style={styles.creatorCopy}>
+                  <View style={styles.creatorNameRow}>
+                    <Text numberOfLines={1} style={styles.creatorName}>
+                      {creatorName}
+                    </Text>
+                    <Ionicons name="checkmark-circle" color="#3B82F6" size={17} />
+                  </View>
+                  <Text style={styles.creatorMeta}>{formatCount(followersCount)} seguidores</Text>
+                </View>
+              </View>
+              <Pressable style={styles.followButton}>
+                <Text style={styles.followButtonText}>Seguir</Text>
+              </Pressable>
+            </View>
+
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.actions}>
+              <ActionButton
+                icon={actions.isLiked ? 'thumbs-up' : 'thumbs-up-outline'}
+                label={formatCount(actions.likesCount)}
+                active={actions.isLiked}
+                onPress={actions.toggleLike}
+              />
+              <ActionButton
+                icon={actions.isSaved ? 'bookmark' : 'bookmark-outline'}
+                label="Salvar"
+                active={actions.isSaved}
+                onPress={actions.toggleSave}
+              />
+              <ActionButton
+                icon={actions.isFavorited ? 'star' : 'star-outline'}
+                label="Favorito"
+                active={actions.isFavorited}
+                onPress={actions.toggleFavorite}
+              />
+              <ActionButton icon="chatbubble-outline" label="Comentarios" onPress={() => setCommentsOpen(true)} />
+              <ActionButton icon="share-social-outline" label="Compartilhar" onPress={() => {}} />
+            </ScrollView>
+
+            <Pressable style={styles.descriptionCard} onPress={() => setDescriptionOpen(true)}>
+              <Text style={styles.descriptionMeta}>
+                {formatCount(content.views_count)} views
+                {content.tags?.length ? `  ${content.tags.slice(0, 3).map((tag) => `#${tag}`).join(' ')}` : ''}
+              </Text>
+              <Text numberOfLines={2} style={styles.descriptionText}>
+                {content.description || 'Sem descricao disponivel.'}
+              </Text>
+              <View style={styles.moreRow}>
+                <Text style={styles.moreText}>...mais</Text>
+                <Ionicons name="chevron-down" color={colors.muted} size={16} />
+              </View>
+            </Pressable>
+
+            <WatchStudyTools isCourse={content.isCourse} />
+
+            {showPlayableVideo ? (
+              <View style={styles.progressPanel}>
+                <View style={styles.progressTop}>
+                  <Text style={styles.progressLabel}>Progresso real</Text>
+                  <Text style={styles.progressValue}>{Math.floor(progress.watchPercent)}%</Text>
+                </View>
+                <View style={styles.progressTrack}>
+                  <View style={[styles.progressFill, { width: `${Math.min(progress.watchPercent, 100)}%` }]} />
+                </View>
+                <View style={styles.milestones}>
+                  <Milestone label="Start" active={progress.milestones.start} />
+                  <Milestone label="15s" active={progress.milestones.view15s} />
+                  <Milestone label="50%" active={progress.milestones.half} />
+                  <Milestone label="90%" active={progress.milestones.complete} />
+                </View>
+              </View>
+            ) : null}
+
+            <Pressable style={styles.commentsRow} onPress={() => setCommentsOpen(true)}>
+              <View style={styles.rowTitle}>
+                <Ionicons name="chatbubble-outline" color={colors.muted} size={23} />
+                <Text style={styles.rowTitleText}>Comentarios</Text>
+              </View>
+              <Ionicons name="chevron-down" color={colors.muted} size={22} />
+            </Pressable>
+
+            <WatchRelatedList items={related.items} loading={related.loading} />
+          </View>
         </ScrollView>
 
-        <Pressable style={styles.descriptionCard} onPress={() => setDescriptionOpen(true)}>
-          <Text style={styles.descriptionMeta}>
-            {formatCount(content.views_count)} views
-            {content.tags?.length ? `  ${content.tags.slice(0, 3).map((tag) => `#${tag}`).join(' ')}` : ''}
-          </Text>
-          <Text numberOfLines={2} style={styles.descriptionText}>
-            {content.description || 'Sem descricao disponivel.'}
-          </Text>
-          <View style={styles.moreRow}>
-            <Text style={styles.moreText}>...mais</Text>
-            <Ionicons name="chevron-down" color={colors.muted} size={16} />
-          </View>
-        </Pressable>
-
-        <WatchStudyTools isCourse={content.isCourse} />
-
-        {showPlayableVideo ? (
-          <View style={styles.progressPanel}>
-            <View style={styles.progressTop}>
-              <Text style={styles.progressLabel}>Progresso real</Text>
-              <Text style={styles.progressValue}>{Math.floor(progress.watchPercent)}%</Text>
-            </View>
-            <View style={styles.progressTrack}>
-              <View style={[styles.progressFill, { width: `${Math.min(progress.watchPercent, 100)}%` }]} />
-            </View>
-            <View style={styles.milestones}>
-              <Milestone label="Start" active={progress.milestones.start} />
-              <Milestone label="15s" active={progress.milestones.view15s} />
-              <Milestone label="50%" active={progress.milestones.half} />
-              <Milestone label="90%" active={progress.milestones.complete} />
-            </View>
-          </View>
-        ) : null}
-
-        <Pressable style={styles.commentsRow} onPress={() => setCommentsOpen(true)}>
-          <View style={styles.rowTitle}>
-            <Ionicons name="chatbubble-outline" color={colors.muted} size={23} />
-            <Text style={styles.rowTitleText}>Comentarios</Text>
-          </View>
-          <Ionicons name="chevron-down" color={colors.muted} size={22} />
-        </Pressable>
-
-        <WatchRelatedList items={related.items} loading={related.loading} />
-      </View>
-
-      <WatchDescriptionSheet
-        visible={descriptionOpen}
-        title={content.title}
-        description={content.description}
-        viewsCount={content.views_count}
-        likesCount={actions.likesCount}
-        createdAt={content.created_at}
-        creatorName={creatorName}
-        tags={content.tags}
-        onClose={() => setDescriptionOpen(false)}
-      />
-      <WatchCommentsSheet
-        visible={commentsOpen}
-        contentId={content.id}
-        onClose={() => setCommentsOpen(false)}
-      />
+        <WatchDescriptionSheet
+          visible={descriptionOpen}
+          title={content.title}
+          description={content.description}
+          viewsCount={content.views_count}
+          likesCount={actions.likesCount}
+          createdAt={content.created_at}
+          creatorName={creatorName}
+          tags={content.tags}
+          onClose={() => setDescriptionOpen(false)}
+        />
+        <WatchCommentsSheet visible={commentsOpen} contentId={content.id} onClose={() => setCommentsOpen(false)} />
       </Animated.View>
-    </AppScreen>
+    </View>
   );
 }
 
@@ -403,11 +405,7 @@ function WatchRelatedList({ items, loading }: { items: WatchRelatedItem[]; loadi
       <Text style={styles.relatedTitle}>A seguir</Text>
       <View style={styles.relatedList}>
         {items.slice(0, 8).map((item) => (
-          <Pressable
-            key={item.id}
-            style={styles.relatedItem}
-            onPress={() => router.push(`/watch/${item.id}`)}
-          >
+          <Pressable key={item.id} style={styles.relatedItem} onPress={() => router.push(`/watch/${item.id}`)}>
             <View style={styles.relatedThumb}>
               {item.thumbnail_url ? <Image source={{ uri: item.thumbnail_url }} style={styles.relatedImage} /> : null}
               <View style={styles.relatedOverlay} />
@@ -430,11 +428,23 @@ function WatchRelatedList({ items, loading }: { items: WatchRelatedItem[]; loadi
 }
 
 const styles = StyleSheet.create({
+  stateScreen: {
+    backgroundColor: colors.background,
+    flex: 1,
+  },
+  modalRoot: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: colors.background,
+  },
   overlaySurface: {
     backgroundColor: colors.background,
     flex: 1,
-    minHeight: '100%',
     overflow: 'hidden',
+  },
+  scrollContent: {
+    backgroundColor: colors.background,
+    minHeight: '100%',
+    paddingBottom: spacing.section,
   },
   playerShell: {
     backgroundColor: colors.background,
@@ -456,6 +466,21 @@ const styles = StyleSheet.create({
   posterOverlay: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: colors.overlaySoft,
+  },
+  dragCapture: {
+    alignItems: 'center',
+    height: 72,
+    left: 0,
+    paddingTop: spacing.sm,
+    position: 'absolute',
+    right: 0,
+    top: 0,
+  },
+  dragHandle: {
+    backgroundColor: 'rgba(255,255,255,0.32)',
+    borderRadius: radius.pill,
+    height: 4,
+    width: 46,
   },
   playBadge: {
     alignItems: 'center',
@@ -847,7 +872,7 @@ const styles = StyleSheet.create({
     flex: 1,
     gap: spacing.md,
     justifyContent: 'center',
-    paddingVertical: spacing.section,
+    paddingHorizontal: spacing.xl,
   },
   centerText: {
     color: colors.muted,
