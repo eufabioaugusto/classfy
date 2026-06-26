@@ -176,8 +176,13 @@ export default function WatchScreen() {
     ],
   };
   const contentOpacity = dragY.interpolate({
-    inputRange: [0, minimizeThreshold * 0.55, minimizeThreshold],
-    outputRange: [1, 0.25, 0],
+    inputRange: [0, 24, minimizeThreshold * 0.62],
+    outputRange: [1, 0.12, 0],
+    extrapolate: 'clamp',
+  });
+  const topSpacerHeight = dragY.interpolate({
+    inputRange: [0, 18],
+    outputRange: [insets.top + spacing.sm, 0],
     extrapolate: 'clamp',
   });
 
@@ -186,9 +191,10 @@ export default function WatchScreen() {
       <Animated.View style={[styles.overlaySurface, overlayStyle]}>
         <ScrollView
           bounces={false}
-          contentContainerStyle={[styles.scrollContent, { paddingTop: insets.top + spacing.sm }]}
+          contentContainerStyle={styles.scrollContent}
           showsVerticalScrollIndicator={false}
         >
+          <Animated.View style={[styles.topSpacer, { height: topSpacerHeight }]} />
           <View style={styles.playerShell} {...panResponder.panHandlers}>
             <View style={styles.player}>
               {showPlayableVideo ? (
@@ -455,14 +461,17 @@ const styles = StyleSheet.create({
     backgroundColor: 'transparent',
   },
   overlaySurface: {
-    backgroundColor: colors.background,
+    backgroundColor: 'transparent',
     flex: 1,
     overflow: 'hidden',
   },
   scrollContent: {
-    backgroundColor: colors.background,
+    backgroundColor: 'transparent',
     minHeight: '100%',
     paddingBottom: spacing.section,
+  },
+  topSpacer: {
+    backgroundColor: colors.background,
   },
   playerShell: {
     backgroundColor: colors.background,
@@ -528,6 +537,7 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
   },
   body: {
+    backgroundColor: colors.background,
     paddingBottom: spacing.section,
     paddingHorizontal: spacing.lg,
     paddingTop: spacing.lg,

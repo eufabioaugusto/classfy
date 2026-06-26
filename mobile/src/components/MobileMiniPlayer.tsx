@@ -84,9 +84,9 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0,0,0,0.18)',
   },
   pauseIcon: {
-    left: spacing.lg,
+    left: spacing.md,
     position: 'absolute',
-    top: '42%',
+    top: spacing.md,
   },
   closeButton: {
     alignItems: 'center',
