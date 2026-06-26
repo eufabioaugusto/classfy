@@ -206,7 +206,8 @@ export function ClassfyVideoPlayer({
 
       {controlsVisible ? (
         <Animated.View pointerEvents={showControls ? 'box-none' : 'none'} style={[styles.controls, { opacity: controlsOpacity }]}>
-          <View style={styles.topRow}>
+          <Pressable style={styles.cleanTapZone} onPress={() => setShowControls(false)} />
+          <View pointerEvents="box-none" style={styles.topRow}>
             <View style={styles.topLeft}>
               <Pressable hitSlop={12} style={styles.topButton} onPress={onMinimize}>
                 <Ionicons name="chevron-down" color={colors.text} size={30} />
@@ -227,9 +228,8 @@ export function ClassfyVideoPlayer({
               </Pressable>
             </View>
           </View>
-          <Pressable style={styles.cleanTapZone} onPress={() => setShowControls(false)} />
 
-          <View style={styles.centerControls}>
+          <View pointerEvents="box-none" style={styles.centerControls}>
             <Pressable style={styles.roundButton} onPress={() => seekBy(-10000)}>
               <Ionicons name="play-skip-back" color={colors.text} size={23} />
             </Pressable>
@@ -241,7 +241,7 @@ export function ClassfyVideoPlayer({
             </Pressable>
           </View>
 
-          <View style={styles.bottomOverlay}>
+          <View pointerEvents="box-none" style={styles.bottomOverlay}>
             <View style={styles.metaPill}>
               <Text style={styles.timeText}>
                 {formatTime(positionMillis)} / {formatTime(durationMillis)}
