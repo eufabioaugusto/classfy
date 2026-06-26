@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Feather, Ionicons } from '@expo/vector-icons';
 import { Audio, AVPlaybackStatus, ResizeMode, Video } from 'expo-av';
-import { Animated, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Animated, GestureResponderEvent, LayoutChangeEvent, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { colors } from '@/theme/colors';
 import { radius } from '@/theme/radius';
@@ -49,6 +49,7 @@ export function ClassfyVideoPlayer({
   const [isPlaying, setIsPlaying] = useState(false);
   const [positionMillis, setPositionMillis] = useState(0);
   const [durationMillis, setDurationMillis] = useState(0);
+  const [progressWidth, setProgressWidth] = useState(0);
   const [playbackRate, setPlaybackRate] = useState(1);
 
   useEffect(() => {
@@ -130,6 +131,20 @@ export function ClassfyVideoPlayer({
     resetControlsTimer();
   };
 
+  const handleProgressLayout = (event: LayoutChangeEvent) => {
+    setProgressWidth(event.nativeEvent.layout.width);
+  };
+
+  const seekToProgressLocation = (event: GestureResponderEvent) => {
+    if (!durationMillis || !progressWidth) return;
+    const locationX = Math.max(0, Math.min(progressWidth, event.nativeEvent.locationX));
+    const nextPosition = Math.round((locationX / progressWidth) * durationMillis);
+    videoRef.current?.setPositionAsync(nextPosition).catch(() => {});
+    setPositionMillis(nextPosition);
+    setShowControls(true);
+    resetControlsTimer();
+  };
+
   const handleSideTap = (side: 'left' | 'right') => {
     const now = Date.now();
     const ref = side === 'left' ? lastLeftTapRef : lastRightTapRef;
@@ -191,7 +206,6 @@ export function ClassfyVideoPlayer({
 
       {controlsVisible ? (
         <Animated.View pointerEvents={showControls ? 'box-none' : 'none'} style={[styles.controls, { opacity: controlsOpacity }]}>
-          <Pressable style={styles.controlsBackdrop} onPress={() => setShowControls(false)} />
           <View style={styles.topRow}>
             <View style={styles.topLeft}>
               <Pressable hitSlop={12} style={styles.topButton} onPress={onMinimize}>
@@ -213,6 +227,7 @@ export function ClassfyVideoPlayer({
               </Pressable>
             </View>
           </View>
+          <Pressable style={styles.cleanTapZone} onPress={() => setShowControls(false)} />
 
           <View style={styles.centerControls}>
             <Pressable style={styles.roundButton} onPress={() => seekBy(-10000)}>
@@ -237,7 +252,15 @@ export function ClassfyVideoPlayer({
             </Pressable>
           </View>
 
-          <View style={styles.progressRail}>
+          <View
+            style={styles.progressRail}
+            onLayout={handleProgressLayout}
+            onStartShouldSetResponder={() => true}
+            onMoveShouldSetResponder={() => true}
+            onResponderGrant={seekToProgressLocation}
+            onResponderMove={seekToProgressLocation}
+            onResponderRelease={() => resetControlsTimer()}
+          >
             <View style={styles.progressTrack}>
               <View style={[styles.progressFill, { width: `${progressPercent}%` }]} />
               <View style={[styles.progressThumb, { left: `${progressPercent}%` }]} />
@@ -375,17 +398,27 @@ const styles = StyleSheet.create({
     elevation: 4,
     zIndex: 4,
   },
-  controlsBackdrop: {
-    ...StyleSheet.absoluteFillObject,
-    zIndex: 0,
+  cleanTapZone: {
+    bottom: 24,
+    elevation: 2,
+    left: 0,
+    position: 'absolute',
+    right: 0,
+    top: 52,
+    zIndex: 2,
   },
   topRow: {
     alignItems: 'center',
     flexDirection: 'row',
     justifyContent: 'space-between',
+    left: 0,
     paddingHorizontal: spacing.sm,
     paddingTop: spacing.sm,
-    zIndex: 5,
+    position: 'absolute',
+    right: 0,
+    top: 0,
+    elevation: 30,
+    zIndex: 30,
   },
   topLeft: {
     alignItems: 'center',
@@ -395,16 +428,20 @@ const styles = StyleSheet.create({
   },
   topActions: {
     alignItems: 'center',
+    elevation: 31,
     flexDirection: 'row',
     gap: spacing.xs,
     justifyContent: 'flex-end',
     minWidth: 0,
+    zIndex: 31,
   },
   topButton: {
     alignItems: 'center',
+    elevation: 32,
     height: 36,
     justifyContent: 'center',
     width: 36,
+    zIndex: 32,
   },
   centerControls: {
     alignItems: 'center',
@@ -415,6 +452,7 @@ const styles = StyleSheet.create({
     position: 'absolute',
     right: 0,
     top: '34%',
+    elevation: 8,
     zIndex: 5,
   },
   roundButton: {
@@ -441,6 +479,7 @@ const styles = StyleSheet.create({
     left: spacing.md,
     position: 'absolute',
     right: spacing.md,
+    elevation: 8,
     zIndex: 5,
   },
   metaPill: {
@@ -465,6 +504,8 @@ const styles = StyleSheet.create({
     maxWidth: 116,
     minHeight: 34,
     paddingHorizontal: spacing.sm,
+    elevation: 32,
+    zIndex: 32,
   },
   premiumText: {
     color: colors.text,
@@ -482,6 +523,8 @@ const styles = StyleSheet.create({
     gap: spacing.xs,
     minHeight: 34,
     paddingHorizontal: spacing.sm,
+    elevation: 32,
+    zIndex: 32,
   },
   noteText: {
     color: colors.text,
@@ -499,7 +542,8 @@ const styles = StyleSheet.create({
   },
   progressRail: {
     bottom: 0,
-    height: 18,
+    elevation: 12,
+    height: 24,
     left: 0,
     position: 'absolute',
     right: 0,
@@ -507,7 +551,7 @@ const styles = StyleSheet.create({
   },
   progressTrack: {
     backgroundColor: 'rgba(255,255,255,0.26)',
-    bottom: 6,
+    bottom: 9,
     height: 3,
     left: 0,
     position: 'absolute',
