@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Ionicons } from '@expo/vector-icons';
 import { Audio, AVPlaybackStatus, ResizeMode, Video } from 'expo-av';
-import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Animated, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { colors } from '@/theme/colors';
 import { radius } from '@/theme/radius';
@@ -31,7 +31,6 @@ function formatTime(milliseconds: number) {
 export function ClassfyVideoPlayer({
   src,
   poster,
-  title,
   creatorName,
   onMinimize,
   onNotesPress,
@@ -41,9 +40,11 @@ export function ClassfyVideoPlayer({
   const videoRef = useRef<Video>(null);
   const controlsTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const singleTapTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const controlsOpacity = useRef(new Animated.Value(1)).current;
   const lastLeftTapRef = useRef(0);
   const lastRightTapRef = useRef(0);
   const [showControls, setShowControls] = useState(true);
+  const [controlsVisible, setControlsVisible] = useState(true);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
   const [positionMillis, setPositionMillis] = useState(0);
@@ -64,6 +65,26 @@ export function ClassfyVideoPlayer({
     };
   }, []);
 
+  useEffect(() => {
+    if (showControls) {
+      setControlsVisible(true);
+      Animated.timing(controlsOpacity, {
+        duration: 140,
+        toValue: 1,
+        useNativeDriver: true,
+      }).start();
+      return;
+    }
+
+    Animated.timing(controlsOpacity, {
+      duration: 180,
+      toValue: 0,
+      useNativeDriver: true,
+    }).start(({ finished }) => {
+      if (finished) setControlsVisible(false);
+    });
+  }, [controlsOpacity, showControls]);
+
   const progressPercent = useMemo(() => {
     if (!durationMillis) return 0;
     return Math.min((positionMillis / durationMillis) * 100, 100);
@@ -72,7 +93,7 @@ export function ClassfyVideoPlayer({
   const resetControlsTimer = () => {
     if (controlsTimerRef.current) clearTimeout(controlsTimerRef.current);
     if (isPlaying) {
-      controlsTimerRef.current = setTimeout(() => setShowControls(false), 2800);
+      controlsTimerRef.current = setTimeout(() => setShowControls(false), 2000);
     }
   };
 
@@ -130,6 +151,11 @@ export function ClassfyVideoPlayer({
     resetControlsTimer();
   };
 
+  const openSettings = () => {
+    setShowControls(true);
+    setSettingsOpen(true);
+  };
+
   const openFullscreen = async () => {
     await videoRef.current?.presentFullscreenPlayer();
   };
@@ -162,8 +188,8 @@ export function ClassfyVideoPlayer({
       <Pressable style={styles.centerTapZone} onPress={toggleControls} />
       <Pressable style={styles.rightTapZone} onPress={() => handleSideTap('right')} />
 
-      {showControls ? (
-        <View pointerEvents="box-none" style={styles.controls}>
+      {controlsVisible ? (
+        <Animated.View pointerEvents={showControls ? 'box-none' : 'none'} style={[styles.controls, { opacity: controlsOpacity }]}>
           <View style={styles.topRow}>
             <View style={styles.topLeft}>
               <Pressable hitSlop={12} style={styles.topButton} onPress={onMinimize}>
@@ -171,7 +197,7 @@ export function ClassfyVideoPlayer({
               </Pressable>
             </View>
             <View style={styles.topActions}>
-              <Pressable style={styles.controlPill} onPress={() => setSettingsOpen(true)}>
+              <Pressable style={styles.controlPill} onPress={openSettings}>
                 <Ionicons name="options-outline" color={colors.text} size={16} />
                 <Text numberOfLines={1} style={styles.premiumText}>
                   Controles
@@ -206,16 +232,10 @@ export function ClassfyVideoPlayer({
             </View>
             <Pressable style={styles.floatButton} onPress={openFullscreen}>
               <View style={styles.expandGlyph}>
-                <Ionicons name="arrow-up" color={colors.text} size={17} style={styles.expandArrowTop} />
-                <Ionicons name="arrow-down" color={colors.text} size={17} style={styles.expandArrowBottom} />
+                <Ionicons name="arrow-up" color={colors.text} size={18} style={styles.expandArrowTop} />
+                <Ionicons name="arrow-down" color={colors.text} size={18} style={styles.expandArrowBottom} />
               </View>
             </Pressable>
-          </View>
-
-          <View style={styles.bottomActions}>
-            <Text style={styles.videoTitle} numberOfLines={1}>
-              {title}
-            </Text>
           </View>
 
           <View style={styles.progressRail}>
@@ -224,7 +244,7 @@ export function ClassfyVideoPlayer({
               <View style={[styles.progressThumb, { left: `${progressPercent}%` }]} />
             </View>
           </View>
-        </View>
+        </Animated.View>
       ) : null}
 
       <SettingsSheet
@@ -332,6 +352,7 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: 56,
     width: '33%',
+    zIndex: 1,
   },
   centerTapZone: {
     bottom: 56,
@@ -339,6 +360,7 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: 56,
     width: '34%',
+    zIndex: 1,
   },
   rightTapZone: {
     bottom: 56,
@@ -346,10 +368,13 @@ const styles = StyleSheet.create({
     right: 0,
     top: 56,
     width: '33%',
+    zIndex: 1,
   },
   controls: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: 'rgba(0,0,0,0.34)',
+    elevation: 4,
+    zIndex: 4,
   },
   topRow: {
     alignItems: 'center',
@@ -357,6 +382,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingHorizontal: spacing.sm,
     paddingTop: spacing.sm,
+    zIndex: 5,
   },
   topLeft: {
     alignItems: 'center',
@@ -405,12 +431,13 @@ const styles = StyleSheet.create({
   },
   bottomOverlay: {
     alignItems: 'center',
-    bottom: 28,
+    bottom: 14,
     flexDirection: 'row',
     gap: spacing.sm,
     left: spacing.md,
     position: 'absolute',
     right: spacing.md,
+    zIndex: 5,
   },
   metaPill: {
     backgroundColor: 'rgba(0,0,0,0.48)',
@@ -461,48 +488,27 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: 'rgba(0,0,0,0.34)',
     borderRadius: radius.pill,
-    height: 42,
+    height: 40,
     justifyContent: 'center',
     marginLeft: 'auto',
-    width: 42,
+    width: 40,
   },
   expandGlyph: {
-    height: 26,
+    height: 24,
     position: 'relative',
-    width: 26,
+    width: 24,
   },
   expandArrowTop: {
-    left: 1,
+    left: 0,
     position: 'absolute',
-    top: 0,
+    top: 1,
     transform: [{ rotate: '-45deg' }],
   },
   expandArrowBottom: {
-    bottom: 0,
+    bottom: 1,
     position: 'absolute',
-    right: 1,
+    right: 0,
     transform: [{ rotate: '-45deg' }],
-  },
-  bottomActions: {
-    alignItems: 'center',
-    bottom: 8,
-    flexDirection: 'row',
-    gap: spacing.sm,
-    left: spacing.md,
-    position: 'absolute',
-    right: spacing.md,
-  },
-  bottomAction: {
-    alignItems: 'center',
-    height: 30,
-    justifyContent: 'center',
-    width: 30,
-  },
-  videoTitle: {
-    color: colors.text,
-    flex: 1,
-    fontSize: typography.caption,
-    fontWeight: typography.weightBold,
   },
   progressRail: {
     bottom: 0,
@@ -510,6 +516,7 @@ const styles = StyleSheet.create({
     left: 0,
     position: 'absolute',
     right: 0,
+    zIndex: 6,
   },
   progressTrack: {
     backgroundColor: 'rgba(255,255,255,0.26)',
@@ -528,6 +535,7 @@ const styles = StyleSheet.create({
     borderRadius: radius.pill,
     height: 12,
     marginLeft: -6,
+    opacity: 0,
     position: 'absolute',
     top: -4.5,
     width: 12,
