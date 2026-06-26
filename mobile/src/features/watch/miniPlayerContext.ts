@@ -3,9 +3,12 @@ import { createContext, useContext } from 'react';
 export type MiniPlayerContent = {
   id: string;
   title: string;
+  fileUrl?: string | null;
   thumbnailUrl?: string | null;
   creatorName?: string | null;
   durationSeconds?: number | null;
+  startPositionMillis?: number;
+  shouldPlay?: boolean;
 };
 
 export type MiniPlayerContextValue = {

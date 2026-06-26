@@ -5,6 +5,7 @@ import { router, useLocalSearchParams } from 'expo-router';
 import {
   ActivityIndicator,
   Animated,
+  Dimensions,
   Image,
   PanResponder,
   Pressable,
@@ -62,6 +63,8 @@ export default function WatchScreen() {
   const [commentsOpen, setCommentsOpen] = useState(false);
   const [descriptionOpen, setDescriptionOpen] = useState(false);
   const dragY = useRef(new Animated.Value(0)).current;
+  const currentPositionMillisRef = useRef(0);
+  const wasPlayingRef = useRef(false);
   const { startMiniPlayer } = useMiniPlayer();
   const { content, access, followersCount, loading, error } = useWatchContent(id);
   const related = useWatchRelated({
@@ -93,18 +96,22 @@ export default function WatchScreen() {
           if (gesture.dy > 0) dragY.setValue(gesture.dy);
         },
         onPanResponderRelease: (_, gesture) => {
-          const shouldMinimize = gesture.dy > 96 || gesture.vy > 0.95;
+          const minimizeThreshold = Dimensions.get('window').height * 0.42;
+          const shouldMinimize = gesture.dy > minimizeThreshold || gesture.vy > 1.2;
 
           if (shouldMinimize && content) {
             startMiniPlayer({
               id: content.id,
               title: content.title,
+              fileUrl: content.file_url,
               thumbnailUrl: content.thumbnail_url,
               creatorName:
                 content.creator?.creator_channel_name ||
                 content.creator?.display_name ||
                 'Creator Classfy',
               durationSeconds: content.duration_seconds,
+              startPositionMillis: currentPositionMillisRef.current,
+              shouldPlay: wasPlayingRef.current,
             });
             dragY.setValue(0);
             if (router.canGoBack()) router.back();
@@ -150,28 +157,29 @@ export default function WatchScreen() {
 
   const showPlayableVideo = access.hasAccess && content.file_url && !content.isCourse;
   const creatorName = content.creator?.creator_channel_name || content.creator?.display_name || 'Creator Classfy';
+  const minimizeThreshold = Dimensions.get('window').height * 0.42;
   const overlayStyle = {
     borderRadius: dragY.interpolate({
       inputRange: [0, 140],
       outputRange: [0, 24],
       extrapolate: 'clamp',
     }),
-    opacity: dragY.interpolate({
-      inputRange: [0, 220],
-      outputRange: [1, 0.62],
-      extrapolate: 'clamp',
-    }),
     transform: [
       { translateY: dragY },
       {
         scale: dragY.interpolate({
-          inputRange: [0, 260],
+          inputRange: [0, minimizeThreshold],
           outputRange: [1, 0.86],
           extrapolate: 'clamp',
         }),
       },
     ],
   };
+  const contentOpacity = dragY.interpolate({
+    inputRange: [0, minimizeThreshold * 0.55, minimizeThreshold],
+    outputRange: [1, 0.25, 0],
+    extrapolate: 'clamp',
+  });
 
   return (
     <View style={styles.modalRoot}>
@@ -192,8 +200,12 @@ export default function WatchScreen() {
                   posterSource={content.thumbnail_url ? { uri: content.thumbnail_url } : undefined}
                   posterStyle={styles.video}
                   onPlaybackStatusUpdate={(status) => {
-                    if (status.isLoaded && status.isPlaying) {
-                      progress.handlePlaybackPosition(status.positionMillis / 1000);
+                    if (status.isLoaded) {
+                      currentPositionMillisRef.current = status.positionMillis;
+                      wasPlayingRef.current = status.isPlaying;
+                      if (status.isPlaying) {
+                        progress.handlePlaybackPosition(status.positionMillis / 1000);
+                      }
                     }
                   }}
                 />
@@ -213,7 +225,7 @@ export default function WatchScreen() {
             </View>
           </View>
 
-          <View style={styles.body}>
+          <Animated.View style={[styles.body, { opacity: contentOpacity }]}>
             {!access.hasAccess ? (
               <View style={styles.accessPanel}>
                 <Text style={styles.accessTitle}>Acesso bloqueado</Text>
@@ -322,7 +334,7 @@ export default function WatchScreen() {
             </Pressable>
 
             <WatchRelatedList items={related.items} loading={related.loading} />
-          </View>
+          </Animated.View>
         </ScrollView>
 
         <WatchDescriptionSheet

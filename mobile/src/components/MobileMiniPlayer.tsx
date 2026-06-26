@@ -1,6 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
+import { ResizeMode, Video } from 'expo-av';
 import { router } from 'expo-router';
-import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Dimensions, Image, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { useMiniPlayer } from '@/features/watch/miniPlayerContext';
@@ -8,6 +9,8 @@ import { colors } from '@/theme/colors';
 import { radius } from '@/theme/radius';
 import { spacing } from '@/theme/spacing';
 import { typography } from '@/theme/typography';
+
+const screenWidth = Dimensions.get('window').width;
 
 export function MobileMiniPlayer() {
   const insets = useSafeAreaInsets();
@@ -22,100 +25,85 @@ export function MobileMiniPlayer() {
 
   return (
     <View pointerEvents="box-none" style={StyleSheet.absoluteFill}>
-      <View style={[styles.container, { bottom: insets.bottom + 72 }]}>
-        <View style={styles.progressTrack}>
-          <View style={styles.progressFill} />
+      <Pressable style={[styles.container, { bottom: insets.bottom + 86 }]} onPress={expand}>
+        <View style={styles.videoBox}>
+          {content.fileUrl ? (
+            <Video
+              source={{ uri: content.fileUrl }}
+              style={styles.video}
+              resizeMode={ResizeMode.COVER}
+              shouldPlay={content.shouldPlay ?? true}
+              isMuted={false}
+              posterSource={content.thumbnailUrl ? { uri: content.thumbnailUrl } : undefined}
+              posterStyle={styles.video}
+              progressUpdateIntervalMillis={1000}
+              status={{
+                positionMillis: content.startPositionMillis || 0,
+                shouldPlay: content.shouldPlay ?? true,
+              }}
+            />
+          ) : content.thumbnailUrl ? (
+            <Image source={{ uri: content.thumbnailUrl }} style={styles.video} />
+          ) : null}
+          <View style={styles.shade} />
+          <Ionicons name="pause" color={colors.text} size={32} style={styles.pauseIcon} />
+          <Pressable hitSlop={12} style={styles.closeButton} onPress={closeMiniPlayer}>
+            <Ionicons name="close" color={colors.text} size={24} />
+          </Pressable>
         </View>
-        <Pressable style={styles.main} onPress={expand}>
-          <View style={styles.thumbnail}>
-            {content.thumbnailUrl ? <Image source={{ uri: content.thumbnailUrl }} style={styles.image} /> : null}
-            <View style={styles.thumbnailOverlay} />
-            <Ionicons name="play" color={colors.text} size={22} />
-          </View>
-
-          <View style={styles.copy}>
-            <Text numberOfLines={1} style={styles.title}>
-              {content.title}
-            </Text>
-            <Text numberOfLines={1} style={styles.creator}>
-              {content.creatorName || 'Creator Classfy'}
-            </Text>
-          </View>
-
-          <Pressable hitSlop={10} style={styles.iconButton} onPress={expand}>
-            <Ionicons name="chevron-up" color={colors.text} size={22} />
-          </Pressable>
-          <Pressable hitSlop={10} style={styles.iconButton} onPress={closeMiniPlayer}>
-            <Ionicons name="close" color={colors.text} size={22} />
-          </Pressable>
-        </Pressable>
-      </View>
+        <Text numberOfLines={1} style={styles.title}>
+          {content.title}
+        </Text>
+      </Pressable>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
-    backgroundColor: colors.surface,
-    borderColor: colors.borderSubtle,
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    left: spacing.sm,
-    overflow: 'hidden',
     position: 'absolute',
-    right: spacing.sm,
+    right: spacing.md,
+    width: Math.min(230, screenWidth * 0.52),
   },
-  progressTrack: {
-    backgroundColor: colors.surfaceMuted,
-    height: 2,
-  },
-  progressFill: {
-    backgroundColor: colors.accent,
-    height: '100%',
-    width: '34%',
-  },
-  main: {
-    alignItems: 'center',
-    flexDirection: 'row',
-    gap: spacing.md,
-    padding: spacing.sm,
-  },
-  thumbnail: {
-    alignItems: 'center',
+  videoBox: {
     aspectRatio: 16 / 9,
     backgroundColor: colors.background,
     borderRadius: radius.md,
-    justifyContent: 'center',
     overflow: 'hidden',
-    width: 112,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.36,
+    shadowRadius: 16,
   },
-  image: {
-    ...StyleSheet.absoluteFillObject,
+  video: {
     height: '100%',
     width: '100%',
   },
-  thumbnailOverlay: {
+  shade: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0,0,0,0.28)',
+    backgroundColor: 'rgba(0,0,0,0.18)',
   },
-  copy: {
-    flex: 1,
-    minWidth: 0,
+  pauseIcon: {
+    left: spacing.lg,
+    position: 'absolute',
+    top: '42%',
+  },
+  closeButton: {
+    alignItems: 'center',
+    height: 44,
+    justifyContent: 'center',
+    position: 'absolute',
+    right: spacing.xs,
+    top: spacing.xs,
+    width: 44,
   },
   title: {
     color: colors.text,
-    fontSize: typography.bodySmall,
-    fontWeight: typography.weightBlack,
-  },
-  creator: {
-    color: colors.muted,
     fontSize: typography.caption,
+    fontWeight: typography.weightBold,
     marginTop: spacing.xs,
-  },
-  iconButton: {
-    alignItems: 'center',
-    height: 34,
-    justifyContent: 'center',
-    width: 30,
+    textShadowColor: 'rgba(0,0,0,0.65)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 2,
   },
 });
