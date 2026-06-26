@@ -180,9 +180,9 @@ export default function WatchScreen() {
     outputRange: [1, 0.12, 0],
     extrapolate: 'clamp',
   });
-  const topSpacerHeight = dragY.interpolate({
+  const contentLift = dragY.interpolate({
     inputRange: [0, 18],
-    outputRange: [insets.top + spacing.sm, 0],
+    outputRange: [0, -(insets.top + spacing.sm)],
     extrapolate: 'clamp',
   });
 
@@ -191,47 +191,50 @@ export default function WatchScreen() {
       <Animated.View style={[styles.overlaySurface, overlayStyle]}>
         <ScrollView
           bounces={false}
-          contentContainerStyle={styles.scrollContent}
+          contentContainerStyle={[
+            styles.scrollContent,
+            { paddingTop: insets.top + spacing.sm },
+          ]}
           showsVerticalScrollIndicator={false}
         >
-          <Animated.View style={[styles.topSpacer, { height: topSpacerHeight }]} />
-          <View style={styles.playerShell} {...panResponder.panHandlers}>
-            <View style={styles.player}>
-              {showPlayableVideo ? (
-                <Video
-                  source={{ uri: content.file_url! }}
-                  style={styles.video}
-                  useNativeControls
-                  resizeMode={ResizeMode.CONTAIN}
-                  posterSource={content.thumbnail_url ? { uri: content.thumbnail_url } : undefined}
-                  posterStyle={styles.video}
-                  onPlaybackStatusUpdate={(status) => {
-                    if (status.isLoaded) {
-                      currentPositionMillisRef.current = status.positionMillis;
-                      wasPlayingRef.current = status.isPlaying;
-                      if (status.isPlaying) {
-                        progress.handlePlaybackPosition(status.positionMillis / 1000);
+          <Animated.View style={{ transform: [{ translateY: contentLift }] }}>
+            <View style={styles.playerShell} {...panResponder.panHandlers}>
+              <View style={styles.player}>
+                {showPlayableVideo ? (
+                  <Video
+                    source={{ uri: content.file_url! }}
+                    style={styles.video}
+                    useNativeControls
+                    resizeMode={ResizeMode.CONTAIN}
+                    posterSource={content.thumbnail_url ? { uri: content.thumbnail_url } : undefined}
+                    posterStyle={styles.video}
+                    onPlaybackStatusUpdate={(status) => {
+                      if (status.isLoaded) {
+                        currentPositionMillisRef.current = status.positionMillis;
+                        wasPlayingRef.current = status.isPlaying;
+                        if (status.isPlaying) {
+                          progress.handlePlaybackPosition(status.positionMillis / 1000);
+                        }
                       }
-                    }
-                  }}
-                />
-              ) : (
-                <>
-                  {content.thumbnail_url ? <Image source={{ uri: content.thumbnail_url }} style={styles.poster} /> : null}
-                  <View style={styles.posterOverlay} />
-                  <View style={styles.playBadge}>
-                    <Ionicons name={access.hasAccess ? 'play' : 'lock-closed'} color={colors.background} size={36} />
-                  </View>
-                  <Text style={styles.playerBadge}>{formatType(content.content_type, content.isCourse)}</Text>
-                </>
-              )}
-              <View style={styles.dragCapture} {...panResponder.panHandlers}>
-                <View style={styles.dragHandle} />
+                    }}
+                  />
+                ) : (
+                  <>
+                    {content.thumbnail_url ? <Image source={{ uri: content.thumbnail_url }} style={styles.poster} /> : null}
+                    <View style={styles.posterOverlay} />
+                    <View style={styles.playBadge}>
+                      <Ionicons name={access.hasAccess ? 'play' : 'lock-closed'} color={colors.background} size={36} />
+                    </View>
+                    <Text style={styles.playerBadge}>{formatType(content.content_type, content.isCourse)}</Text>
+                  </>
+                )}
+                <View style={styles.dragCapture} {...panResponder.panHandlers}>
+                  <View style={styles.dragHandle} />
+                </View>
               </View>
             </View>
-          </View>
 
-          <Animated.View style={[styles.body, { opacity: contentOpacity }]}>
+            <Animated.View style={[styles.body, { opacity: contentOpacity }]}>
             {!access.hasAccess ? (
               <View style={styles.accessPanel}>
                 <Text style={styles.accessTitle}>Acesso bloqueado</Text>
@@ -340,6 +343,7 @@ export default function WatchScreen() {
             </Pressable>
 
             <WatchRelatedList items={related.items} loading={related.loading} />
+            </Animated.View>
           </Animated.View>
         </ScrollView>
 
@@ -469,9 +473,6 @@ const styles = StyleSheet.create({
     backgroundColor: 'transparent',
     minHeight: '100%',
     paddingBottom: spacing.section,
-  },
-  topSpacer: {
-    backgroundColor: colors.background,
   },
   playerShell: {
     backgroundColor: colors.background,
