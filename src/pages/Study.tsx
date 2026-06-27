@@ -2422,7 +2422,7 @@ function StudyContent() {
               <ScrollArea className="h-full">
                 <div className="flex flex-col bg-background">
                   {/* Video Tools Bar - Using unified StudyToolbar - ABOVE player */}
-                  <div className="flex items-center gap-2 p-2 bg-background/95 backdrop-blur-sm border-b border-border sticky top-0 z-40 shadow-sm">
+                  <div className="flex items-center gap-2 p-2 bg-background/95 backdrop-blur-sm border-b border-border sticky top-0 z-20 shadow-sm">
                     <StudyToolbar
                       activePanel={activeToolPanel}
                       onPanelChange={setActiveToolPanel}
