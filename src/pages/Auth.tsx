@@ -35,6 +35,7 @@ export default function Auth() {
   const [backgroundVideos, setBackgroundVideos] = useState<string[]>([]);
   const [currentVideoIndex, setCurrentVideoIndex] = useState(0);
   const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
+  const [turnstileUnavailable, setTurnstileUnavailable] = useState(false);
   const [turnstileResetKey, setTurnstileResetKey] = useState(0);
   const { signIn, signUp } = useAuth();
   const { theme } = useTheme();
@@ -42,6 +43,7 @@ export default function Auth() {
 
   const resetTurnstile = useCallback(() => {
     setTurnstileToken(null);
+    setTurnstileUnavailable(false);
     setTurnstileResetKey(k => k + 1);
   }, []);
 
@@ -115,7 +117,10 @@ export default function Auth() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!turnstileToken) {
+    const shouldVerifyTurnstile = !!TURNSTILE_SITE_KEY && !!turnstileToken;
+    const isTurnstileBlocking = !!TURNSTILE_SITE_KEY && !turnstileToken && !turnstileUnavailable;
+
+    if (isTurnstileBlocking) {
       toast({
         title: "Verificação necessária",
         description: "Complete a verificação de segurança antes de continuar.",
@@ -126,20 +131,22 @@ export default function Auth() {
 
     setLoading(true);
     try {
-      // Verify Turnstile token server-side
-      const { data: verifyData, error: verifyError } = await supabase.functions.invoke(
-        "verify-turnstile",
-        { body: { token: turnstileToken } }
-      );
+      if (shouldVerifyTurnstile) {
+        // Verify Turnstile token server-side
+        const { data: verifyData, error: verifyError } = await supabase.functions.invoke(
+          "verify-turnstile",
+          { body: { token: turnstileToken } }
+        );
 
-      if (verifyError || !verifyData?.success) {
-        toast({
-          title: "Verificação de segurança falhou",
-          description: "Por favor, tente novamente.",
-          variant: "destructive"
-        });
-        resetTurnstile();
-        return;
+        if (verifyError || !verifyData?.success) {
+          toast({
+            title: "Verificação de segurança falhou",
+            description: "Por favor, tente novamente.",
+            variant: "destructive"
+          });
+          resetTurnstile();
+          return;
+        }
       }
 
       if (isLogin) {
@@ -560,14 +567,21 @@ export default function Auth() {
                   siteKey={TURNSTILE_SITE_KEY}
                   onVerify={setTurnstileToken}
                   onExpire={resetTurnstile}
+                  onUnavailable={() => setTurnstileUnavailable(true)}
                   resetKey={turnstileResetKey}
                 />
+              )}
+
+              {TURNSTILE_SITE_KEY && turnstileUnavailable && !turnstileToken && (
+                <p className="text-xs text-muted-foreground text-center">
+                  A verificação de segurança não carregou neste navegador. Você pode continuar o acesso.
+                </p>
               )}
 
               <Button
                 type="submit"
                 className="w-full h-12 text-base font-semibold bg-primary hover:bg-primary/90 transition-all"
-                disabled={loading || (!!TURNSTILE_SITE_KEY && !turnstileToken)}
+                disabled={loading || (!!TURNSTILE_SITE_KEY && !turnstileToken && !turnstileUnavailable)}
               >
                 {loading ? (
                   <>
