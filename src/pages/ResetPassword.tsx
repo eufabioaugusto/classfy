@@ -18,6 +18,7 @@ export default function ResetPassword() {
   const [done, setDone] = useState(false);
   const navigate = useNavigate();
   const { toast } = useToast();
+  const currentYear = new Date().getFullYear();
 
   useEffect(() => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
@@ -104,7 +105,7 @@ export default function ResetPassword() {
             </div>
           </div>
 
-          <p className="text-xs text-white/30">© 2025 Classfy. Todos os direitos reservados.</p>
+          <p className="text-xs text-white/30">© {currentYear} Classfy. Todos os direitos reservados.</p>
         </motion.div>
       </div>
 
