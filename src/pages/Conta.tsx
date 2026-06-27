@@ -375,6 +375,12 @@ export default function Conta() {
                       displayName={profile?.display_name || ""}
                       size="xl"
                       editable={true}
+                      onUploadSuccess={(avatarUrl) => {
+                        setProfile((currentProfile: any) => ({
+                          ...currentProfile,
+                          avatar_url: avatarUrl,
+                        }));
+                      }}
                     />
                     <div className="text-center">
                       <p className="font-semibold text-lg">{profile?.display_name}</p>

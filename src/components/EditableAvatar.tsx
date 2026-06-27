@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -13,7 +13,7 @@ interface EditableAvatarProps {
   displayName: string;
   size?: "sm" | "md" | "lg" | "xl";
   editable?: boolean;
-  onUploadSuccess?: () => void;
+  onUploadSuccess?: (avatarUrl: string) => void;
 }
 
 export const EditableAvatar = ({ 
@@ -25,8 +25,13 @@ export const EditableAvatar = ({
   onUploadSuccess 
 }: EditableAvatarProps) => {
   const [uploading, setUploading] = useState(false);
+  const [currentAvatarUrl, setCurrentAvatarUrl] = useState(avatarUrl);
   const { toast } = useToast();
   const { refreshProfile } = useAuth();
+
+  useEffect(() => {
+    setCurrentAvatarUrl(avatarUrl);
+  }, [avatarUrl]);
 
   const sizeClasses = {
     sm: "h-8 w-8",
@@ -49,6 +54,19 @@ export const EditableAvatar = ({
       .join("")
       .toUpperCase()
       .slice(0, 2);
+  };
+
+  const getAvatarStoragePath = (url: string) => {
+    try {
+      const cleanUrl = new URL(url);
+      const marker = "/avatars/";
+      const markerIndex = cleanUrl.pathname.indexOf(marker);
+      if (markerIndex === -1) return null;
+      return decodeURIComponent(cleanUrl.pathname.slice(markerIndex + marker.length));
+    } catch {
+      const [withoutQuery] = url.split("?");
+      return withoutQuery.split("/avatars/")[1] || null;
+    }
   };
 
   const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -86,8 +104,10 @@ export const EditableAvatar = ({
 
       // Delete old avatar if exists
       if (avatarUrl) {
-        const oldPath = avatarUrl.split('/').slice(-2).join('/');
-        await supabase.storage.from('avatars').remove([oldPath]);
+        const oldPath = getAvatarStoragePath(avatarUrl);
+        if (oldPath) {
+          await supabase.storage.from('avatars').remove([oldPath]);
+        }
       }
 
       // Upload new avatar
@@ -113,8 +133,7 @@ export const EditableAvatar = ({
 
       if (updateError) throw updateError;
 
-      // Atualiza o contexto de autenticação
-      await refreshProfile();
+      setCurrentAvatarUrl(avatarUrlWithTimestamp);
       
       toast({
         title: "Foto atualizada!",
@@ -122,8 +141,11 @@ export const EditableAvatar = ({
       });
 
       if (onUploadSuccess) {
-        onUploadSuccess();
+        onUploadSuccess(avatarUrlWithTimestamp);
       }
+
+      // Atualiza os demais pontos da UI que consomem o AuthContext.
+      await refreshProfile();
     } catch (error: any) {
       toast({
         title: "Erro ao fazer upload",
@@ -140,9 +162,9 @@ export const EditableAvatar = ({
   return (
     <div className="flex flex-col items-center gap-4">
       <Avatar className={sizeClasses[size]}>
-        {avatarUrl && (
+        {currentAvatarUrl && (
           <AvatarImage 
-            src={avatarUrl} 
+            src={currentAvatarUrl} 
             alt={displayName}
           />
         )}
