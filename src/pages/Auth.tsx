@@ -7,6 +7,7 @@ import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { motion, AnimatePresence } from "framer-motion";
 import { supabase } from "@/integrations/supabase/client";
+import { getSafeErrorPayload, logAppEvent } from "@/lib/appLogger";
 import TurnstileWidget from "@/components/TurnstileWidget";
 import {
   Loader2,
@@ -132,6 +133,12 @@ export default function Auth() {
     setLoading(true);
     try {
       if (shouldVerifyTurnstile) {
+        await logAppEvent({
+          source: "auth_page",
+          event: "turnstile_verification_started",
+          context: { mode: isLogin ? "login" : "signup" },
+        });
+
         // Verify Turnstile token server-side
         const { data: verifyData, error: verifyError } = await supabase.functions.invoke(
           "verify-turnstile",
@@ -139,6 +146,17 @@ export default function Auth() {
         );
 
         if (verifyError || !verifyData?.success) {
+          await logAppEvent({
+            level: "warn",
+            source: "auth_page",
+            event: "turnstile_verification_failed",
+            message: verifyError?.message || "Turnstile returned unsuccessful verification",
+            context: {
+              mode: isLogin ? "login" : "signup",
+              verifyData,
+              error: verifyError ? getSafeErrorPayload(verifyError) : undefined,
+            },
+          });
           toast({
             title: "Verificação de segurança falhou",
             description: "Por favor, tente novamente.",
@@ -147,11 +165,30 @@ export default function Auth() {
           resetTurnstile();
           return;
         }
+
+        await logAppEvent({
+          source: "auth_page",
+          event: "turnstile_verification_succeeded",
+          context: { mode: isLogin ? "login" : "signup" },
+        });
       }
 
       if (isLogin) {
+        await logAppEvent({
+          source: "auth_page",
+          event: "login_started",
+          context: { email },
+        });
+
         const { error } = await signIn(email, password);
         if (error) {
+          await logAppEvent({
+            level: "warn",
+            source: "auth_page",
+            event: "login_failed",
+            message: error.message,
+            context: { email, error: getSafeErrorPayload(error) },
+          });
           toast({
             title: "Erro ao fazer login",
             description: error.message,
@@ -170,8 +207,21 @@ export default function Auth() {
           setLoading(false);
           return;
         }
+        await logAppEvent({
+          source: "auth_page",
+          event: "signup_started",
+          context: { email, hasDisplayName: !!displayName.trim() },
+        });
+
         const { error } = await signUp(email, password, displayName);
         if (error) {
+          await logAppEvent({
+            level: "error",
+            source: "auth_page",
+            event: "signup_failed",
+            message: error.message,
+            context: { email, error: getSafeErrorPayload(error) },
+          });
           toast({
             title: "Erro ao criar conta",
             description: error.message,
@@ -179,6 +229,11 @@ export default function Auth() {
           });
           resetTurnstile();
         } else {
+          await logAppEvent({
+            source: "auth_page",
+            event: "signup_succeeded",
+            context: { email },
+          });
           toast({
             title: "Conta criada! 🎉",
             description: "Enviamos um email de confirmação. Verifique sua caixa de entrada (e spam) para ativar sua conta."
@@ -186,6 +241,13 @@ export default function Auth() {
         }
       }
     } catch (error: any) {
+      await logAppEvent({
+        level: "error",
+        source: "auth_page",
+        event: "auth_submit_exception",
+        message: error.message,
+        context: { mode: isLogin ? "login" : "signup", error: getSafeErrorPayload(error) },
+      });
       toast({
         title: "Erro",
         description: error.message,

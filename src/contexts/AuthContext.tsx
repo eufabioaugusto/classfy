@@ -3,6 +3,7 @@ import { User, Session } from "@supabase/supabase-js";
 import { supabase } from "@/integrations/supabase/client";
 import { useNavigate } from "react-router-dom";
 import { useRewardSystem } from "@/hooks/useRewardSystem";
+import { getSafeErrorPayload, logAppEvent } from "@/lib/appLogger";
 
 type AppRole = 'user' | 'creator' | 'admin';
 type PlanType = 'free' | 'pro' | 'premium';
@@ -239,6 +240,12 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
   const signUp = async (email: string, password: string, displayName: string) => {
     const redirectUrl = `${window.location.origin}/`;
+
+    await logAppEvent({
+      source: "auth_context",
+      event: "supabase_signup_request_started",
+      context: { email, redirectUrl, hasDisplayName: !!displayName.trim() },
+    });
     
     const { data, error } = await supabase.auth.signUp({
       email,
@@ -250,6 +257,26 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         }
       }
     });
+
+    if (error) {
+      await logAppEvent({
+        level: "error",
+        source: "auth_context",
+        event: "supabase_signup_request_failed",
+        message: error.message,
+        context: { email, error: getSafeErrorPayload(error) },
+      });
+    } else {
+      await logAppEvent({
+        source: "auth_context",
+        event: "supabase_signup_request_succeeded",
+        context: {
+          email,
+          userId: data.user?.id,
+          hasSession: !!data.session,
+        },
+      });
+    }
     
     if (!error && data.user) {
       // Check for referral code and create conversion

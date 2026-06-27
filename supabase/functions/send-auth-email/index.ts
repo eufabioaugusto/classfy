@@ -1,9 +1,11 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
+import { recordEdgeLog } from "../_shared/app-logger.ts";
 
 const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY")!;
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const FROM_EMAIL = "Classfy <noreply@classfy.com.br>";
 const APP_URL = "https://classfy.com.br";
+const JSON_HEADERS = { "Content-Type": "application/json" };
 
 interface HookPayload {
   user: {
@@ -183,14 +185,36 @@ function getEmailContent(payload: HookPayload): { subject: string; html: string 
 }
 
 serve(async (req) => {
+  const requestId = crypto.randomUUID();
+
   try {
     const body = await req.text();
     const payload: HookPayload = JSON.parse(body);
     const content = getEmailContent(payload);
 
     if (!content) {
-      return new Response(JSON.stringify({}), { status: 200 });
+      await recordEdgeLog({
+        source: "send-auth-email",
+        event: "auth_email_skipped",
+        requestId,
+        context: {
+          actionType: payload.email_data?.email_action_type,
+          hasEmail: !!payload.user?.email,
+        },
+      });
+      return new Response(JSON.stringify({}), { status: 200, headers: JSON_HEADERS });
     }
+
+    await recordEdgeLog({
+      source: "send-auth-email",
+      event: "auth_email_send_started",
+      requestId,
+      context: {
+        actionType: payload.email_data.email_action_type,
+        email: payload.user.email,
+        redirectTo: payload.email_data.redirect_to,
+      },
+    });
 
     const res = await fetch("https://api.resend.com/emails", {
       method: "POST",
@@ -209,12 +233,41 @@ serve(async (req) => {
     if (!res.ok) {
       const err = await res.text();
       console.error("Resend error:", err);
-      return new Response(JSON.stringify({ error: err }), { status: 500 });
+      await recordEdgeLog({
+        level: "error",
+        source: "send-auth-email",
+        event: "auth_email_send_failed",
+        message: err,
+        requestId,
+        context: {
+          status: res.status,
+          actionType: payload.email_data.email_action_type,
+          email: payload.user.email,
+        },
+      });
+      return new Response(JSON.stringify({ error: err }), { status: 500, headers: JSON_HEADERS });
     }
 
-    return new Response(JSON.stringify({}), { status: 200 });
+    await recordEdgeLog({
+      source: "send-auth-email",
+      event: "auth_email_send_succeeded",
+      requestId,
+      context: {
+        actionType: payload.email_data.email_action_type,
+        email: payload.user.email,
+      },
+    });
+
+    return new Response(JSON.stringify({}), { status: 200, headers: JSON_HEADERS });
   } catch (err) {
     console.error("Hook error:", err);
-    return new Response(JSON.stringify({ error: String(err) }), { status: 500 });
+    await recordEdgeLog({
+      level: "error",
+      source: "send-auth-email",
+      event: "auth_email_hook_failed",
+      message: String(err),
+      requestId,
+    });
+    return new Response(JSON.stringify({ error: String(err) }), { status: 500, headers: JSON_HEADERS });
   }
 });
