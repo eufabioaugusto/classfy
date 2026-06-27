@@ -1067,6 +1067,7 @@ function WatchContent() {
                           activePanel={activeStudyPanel}
                           onPanelChange={setActiveStudyPanel}
                           disabled={!hasAccess}
+                          surface="dark"
                         />
                       }
                     />
@@ -1096,6 +1097,7 @@ function WatchContent() {
                             activePanel={activeStudyPanel}
                             onPanelChange={setActiveStudyPanel}
                             disabled={!hasAccess}
+                            surface="dark"
                           />
                         }
                       />

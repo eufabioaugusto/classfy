@@ -8,6 +8,7 @@ interface StudyToolbarProps {
   onPanelChange: (panel: ToolPanel) => void;
   compact?: boolean;
   disabled?: boolean;
+  surface?: "auto" | "dark";
 }
 
 const tools = [
@@ -58,11 +59,19 @@ const tools = [
   },
 ];
 
-export function StudyToolbar({ activePanel, onPanelChange, compact = false, disabled = false }: StudyToolbarProps) {
+export function StudyToolbar({
+  activePanel,
+  onPanelChange,
+  compact = false,
+  disabled = false,
+  surface = "auto",
+}: StudyToolbarProps) {
   const handleToggle = (panelId: ToolPanel) => {
     if (disabled) return;
     onPanelChange(activePanel === panelId ? null : panelId);
   };
+
+  const isDarkSurface = surface === "dark";
 
   if (compact) {
     // Mobile: Horizontal scrollable pills
@@ -100,7 +109,7 @@ export function StudyToolbar({ activePanel, onPanelChange, compact = false, disa
     );
   }
 
-  // Desktop: Compact horizontal bar (rendered inside player overlay — dark bg)
+  // Desktop: Compact horizontal bar
   return (
     <div className="flex items-center gap-1.5 flex-wrap">
       {tools.map((tool) => {
@@ -114,25 +123,40 @@ export function StudyToolbar({ activePanel, onPanelChange, compact = false, disa
             disabled={disabled}
             className={cn(
               "group flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition-all duration-200",
-              "hover:scale-[1.02] active:scale-[0.98]",
-              isActive
-                ? "bg-white/20 backdrop-blur-sm shadow-md"
-                : "bg-white/10 backdrop-blur-sm hover:bg-white/20",
+              "border hover:scale-[1.02] active:scale-[0.98]",
+              isDarkSurface
+                ? isActive
+                  ? "bg-white/20 border-white/15 backdrop-blur-sm shadow-md"
+                  : "bg-white/10 border-white/10 backdrop-blur-sm hover:bg-white/20 hover:border-white/20"
+                : isActive
+                  ? "bg-primary/10 border-primary/20 text-foreground shadow-sm"
+                  : "bg-secondary border-border text-muted-foreground hover:bg-accent hover:text-foreground",
               disabled && "opacity-40 cursor-not-allowed"
             )}
           >
             <Icon className={cn(
               "w-3.5 h-3.5 flex-shrink-0 transition-colors",
-              isActive ? tool.iconColor : "text-white/70 group-hover:text-white"
+              isActive
+                ? tool.iconColor
+                : isDarkSurface
+                  ? "text-white/70 group-hover:text-white"
+                  : "text-muted-foreground group-hover:text-foreground"
             )} />
             <span className={cn(
               "text-xs font-medium whitespace-nowrap",
-              isActive ? "text-white" : "text-white/80 group-hover:text-white"
+              isDarkSurface
+                ? isActive ? "text-white" : "text-white/80 group-hover:text-white"
+                : isActive ? "text-foreground" : "text-muted-foreground group-hover:text-foreground"
             )}>
               {tool.label}
             </span>
             {isActive && (
-              <Sparkles className="w-2.5 h-2.5 text-white/80 animate-pulse flex-shrink-0" />
+              <Sparkles
+                className={cn(
+                  "w-2.5 h-2.5 animate-pulse flex-shrink-0",
+                  isDarkSurface ? "text-white/80" : "text-primary"
+                )}
+              />
             )}
           </button>
         );
