@@ -129,24 +129,24 @@ export function StudyToolbar({
                   ? "bg-white/20 border-white/15 backdrop-blur-sm shadow-md"
                   : "bg-white/10 border-white/10 backdrop-blur-sm hover:bg-white/20 hover:border-white/20"
                 : isActive
-                  ? "bg-primary/10 border-primary/20 text-foreground shadow-sm"
-                  : "bg-secondary border-border text-muted-foreground hover:bg-accent hover:text-foreground",
+                  ? "bg-accent border-accent text-accent-foreground shadow-sm hover:bg-accent hover:text-accent-foreground"
+                  : "bg-secondary border-border text-muted-foreground hover:bg-accent hover:text-accent-foreground",
               disabled && "opacity-40 cursor-not-allowed"
             )}
           >
             <Icon className={cn(
               "w-3.5 h-3.5 flex-shrink-0 transition-colors",
               isActive
-                ? tool.iconColor
+                ? isDarkSurface ? tool.iconColor : "text-accent-foreground"
                 : isDarkSurface
                   ? "text-white/70 group-hover:text-white"
-                  : "text-muted-foreground group-hover:text-foreground"
+                  : "text-muted-foreground group-hover:text-accent-foreground"
             )} />
             <span className={cn(
               "text-xs font-medium whitespace-nowrap",
               isDarkSurface
                 ? isActive ? "text-white" : "text-white/80 group-hover:text-white"
-                : isActive ? "text-foreground" : "text-muted-foreground group-hover:text-foreground"
+                : isActive ? "text-accent-foreground" : "text-muted-foreground group-hover:text-accent-foreground"
             )}>
               {tool.label}
             </span>
@@ -154,7 +154,7 @@ export function StudyToolbar({
               <Sparkles
                 className={cn(
                   "w-2.5 h-2.5 animate-pulse flex-shrink-0",
-                  isDarkSurface ? "text-white/80" : "text-primary"
+                  isDarkSurface ? "text-white/80" : "text-accent-foreground"
                 )}
               />
             )}

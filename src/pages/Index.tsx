@@ -96,6 +96,7 @@ export default function Index() {
         supabase
           .from("featured_creators")
           .select(`*, profiles:creator_id (display_name, creator_channel_name)`)
+          .eq("show_on_home", true)
           .order("order_index", { ascending: true }),
         supabase
           .from("contents")
