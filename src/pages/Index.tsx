@@ -7,6 +7,7 @@ import { ContentCard } from "@/components/ContentCard";
 import { ConversionModal } from "@/components/ConversionModal";
 import { SearchBar } from "@/components/SearchBar";
 import { ContinueStudyCard } from "@/components/ContinueStudyCard";
+import { ContinueWatching } from "@/components/ContinueWatching";
 import { ContentSection } from "@/components/ContentSection";
 import { FeaturedCreators } from "@/components/FeaturedCreators";
 import { ModeBridgeCard } from "@/components/ModeBridgeCard";
@@ -424,6 +425,9 @@ export default function Index() {
 
                     {/* Featured Creators Section */}
                     <FeaturedCreators creators={featuredCreators} />
+
+                    {/* Continue Watching Section */}
+                    {user && <ContinueWatching userId={user.id} />}
 
                     {/* 1. Em Alta - 4 cards (Apenas Aulas) */}
                     {trendingClasses.length > 0 && (
