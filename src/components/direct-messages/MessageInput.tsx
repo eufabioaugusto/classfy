@@ -123,7 +123,7 @@ export const MessageInput = ({
             <PopoverContent 
               side="top" 
               align="end" 
-              className="w-full p-0 border-none shadow-lg z-[70] bg-background"
+              className="z-[150] w-full border-none bg-background p-0 shadow-lg"
               style={{ width: '350px' }}
               onInteractOutside={(e) => e.preventDefault()}
             >
