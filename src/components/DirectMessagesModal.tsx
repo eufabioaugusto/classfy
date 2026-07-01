@@ -34,7 +34,7 @@ export const DirectMessagesModal = ({ open, onClose, initialRecipientId }: Direc
 
   return createPortal(
     <>
-      <div className="fixed inset-0 bg-background z-[55] flex flex-col">
+      <div className="fixed inset-0 z-[130] flex flex-col bg-background">
         {/* Header */}
         <div className="border-b px-4 py-3 flex items-center justify-between">
           <div className="flex items-center gap-3">

@@ -234,7 +234,7 @@ export const NewConversationModal = ({
 
   return (
     <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent className="sm:max-w-md z-[60]">
+      <DialogContent className="z-[140] sm:max-w-md">
         <DialogHeader>
           <DialogTitle>Nova mensagem</DialogTitle>
         </DialogHeader>

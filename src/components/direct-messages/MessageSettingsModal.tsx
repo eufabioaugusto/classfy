@@ -90,7 +90,7 @@ export const MessageSettingsModal = ({ open, onClose }: MessageSettingsModalProp
 
   return (
     <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="z-[140] sm:max-w-md">
         <DialogHeader>
           <DialogTitle>Configurações de Mensagens</DialogTitle>
           <DialogDescription>
