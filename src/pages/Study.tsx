@@ -32,6 +32,7 @@ import { ptBR } from "date-fns/locale";
 import { MobileStudyPlayer } from "@/components/study/MobileStudyPlayer";
 import { useStudyJourneySummary } from "@/hooks/useStudyJourneySummary";
 import { toShortTitle } from "@/lib/study/getStudyJourneySummary";
+import { getActiveDifficulties, getTopInterests, trackUserInteraction } from "@/lib/personalization/interests";
 
 import { StudyQuiz } from "@/components/StudyQuiz";
 import { StudyNotes } from "@/components/StudyNotes";
@@ -556,6 +557,11 @@ function StudyContent() {
 
       toast.success('Playlist salva! Gerando resumo...');
 
+      const [topInterests, activeDifficulties] = await Promise.all([
+        getTopInterests(user.id),
+        getActiveDifficulties(user.id),
+      ]);
+
       const { data: aiData, error: aiError } = await supabase.functions.invoke(
         "classy-chat",
         {
@@ -564,6 +570,8 @@ function StudyContent() {
             message: `Analise esses ${contentIds.length} conteúdos e gere um resumo contextual do que a pessoa pode aprender com essa playlist: ${JSON.stringify(contentsInfo)}`,
             playlistSummary: true,
             activeContentId: null,
+            user_interests: topInterests,
+            user_difficulties: activeDifficulties,
           },
         }
       );
@@ -1005,6 +1013,11 @@ function StudyContent() {
         }
       }
 
+      const [topInterests, activeDifficulties] = await Promise.all([
+        getTopInterests(user.id),
+        getActiveDifficulties(user.id),
+      ]);
+
       const { data: aiData, error: aiError } = await supabase.functions.invoke(
         "classy-chat",
         {
@@ -1012,7 +1025,9 @@ function StudyContent() {
             studyId: id,
             message: userMessage,
             activeContentId: activeContent?.id,
-            currentVideoTime
+            currentVideoTime,
+            user_interests: topInterests,
+            user_difficulties: activeDifficulties,
           },
         }
       );
@@ -1171,6 +1186,14 @@ function StudyContent() {
         .single();
 
       if (error) throw error;
+
+      await trackUserInteraction({
+        userId: user?.id,
+        action: "click",
+        title: data.title,
+        tags: data.tags,
+        categoryId: data.category_id,
+      });
 
       // Check access control
       const accessResult = await checkAccess({

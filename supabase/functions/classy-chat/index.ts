@@ -55,6 +55,8 @@ serve(async (req) => {
       activeContentId,
       currentVideoTime,
       playlistSummary,
+      user_interests,
+      user_difficulties,
     } = await req.json();
 
     const authHeader = req.headers.get("authorization");
@@ -406,6 +408,8 @@ serve(async (req) => {
       playlistSummary: Boolean(playlistSummary),
       message,
       nextBestAction,
+      userInterests: Array.isArray(user_interests) ? user_interests : [],
+      userDifficulties: Array.isArray(user_difficulties) ? user_difficulties : [],
     });
 
     const aiProviderAvailable = resolveAiProvider() !== "none";
@@ -1216,6 +1220,8 @@ function buildTutorPrompt(options: {
   playlistSummary: boolean;
   message: string;
   nextBestAction: string;
+  userInterests: string[];
+  userDifficulties: string[];
 }) {
   const relatedContentSummary = options.relatedContents.length > 0
     ? options.relatedContents
@@ -1261,6 +1267,8 @@ SINAIS DE APRENDIZADO:
 - Resumo da jornada até aqui: ${options.sessionSummary}
 - Tópicos fortes: ${options.masteredTopics.length > 0 ? options.masteredTopics.join(", ") : "ainda não consolidado"}
 - Tópicos frágeis: ${options.weakTopics.length > 0 ? options.weakTopics.join(", ") : "nenhum mapeado"}
+- Interesses recorrentes do usuário: ${options.userInterests.length > 0 ? options.userInterests.slice(0, 8).join(", ") : "ainda não identificados"}
+- Dificuldades recorrentes do usuário: ${options.userDifficulties.length > 0 ? options.userDifficulties.slice(0, 5).join(" | ") : "ainda não identificadas"}
 - Perguntas em aberto: ${options.openQuestions.length > 0 ? options.openQuestions.join(" | ") : "nenhuma registrada"}
 - Status de checkpoint: ${options.checkpointStatus}
 - Plano vivo atual: ${options.livePlanSteps.length > 0 ? options.livePlanSteps.join(" | ") : "ainda não estruturado"}

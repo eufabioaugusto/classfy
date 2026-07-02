@@ -1824,7 +1824,9 @@ export type Database = {
           creator_channel_name: string | null
           creator_status: Database["public"]["Enums"]["creator_status"]
           display_name: string
+          difficulties: Json | null
           id: string
+          interests: Json | null
           plan: Database["public"]["Enums"]["plan_type"]
           plan_expires_at: string | null
           updated_at: string
@@ -1839,7 +1841,9 @@ export type Database = {
           creator_channel_name?: string | null
           creator_status?: Database["public"]["Enums"]["creator_status"]
           display_name: string
+          difficulties?: Json | null
           id: string
+          interests?: Json | null
           plan?: Database["public"]["Enums"]["plan_type"]
           plan_expires_at?: string | null
           updated_at?: string
@@ -1854,7 +1858,9 @@ export type Database = {
           creator_channel_name?: string | null
           creator_status?: Database["public"]["Enums"]["creator_status"]
           display_name?: string
+          difficulties?: Json | null
           id?: string
+          interests?: Json | null
           plan?: Database["public"]["Enums"]["plan_type"]
           plan_expires_at?: string | null
           updated_at?: string

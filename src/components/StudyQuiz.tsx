@@ -9,6 +9,8 @@ import { Progress } from "@/components/ui/progress";
 import { Loader2, CheckCircle2, XCircle, Trophy, RotateCcw } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { useAuth } from "@/contexts/AuthContext";
+import { registerDifficulty } from "@/lib/personalization/interests";
 
 interface Question {
   question: string;
@@ -25,6 +27,7 @@ interface StudyQuizProps {
 }
 
 export function StudyQuiz({ studyId, contentId, contentTitle }: StudyQuizProps) {
+  const { user } = useAuth();
   const [quiz, setQuiz] = useState<any>(null);
   const [loading, setLoading] = useState(false);
   const [currentQuestion, setCurrentQuestion] = useState(0);
@@ -122,7 +125,7 @@ export function StudyQuiz({ studyId, contentId, contentTitle }: StudyQuizProps) 
         .from("quiz_attempts")
         .insert({
           quiz_id: quiz.id,
-          user_id: (await supabase.auth.getUser()).data.user?.id,
+          user_id: user?.id,
           answers: [...answers, selectedAnswer],
           score: finalScore,
           max_score: questions.length,
@@ -130,6 +133,21 @@ export function StudyQuiz({ studyId, contentId, contentTitle }: StudyQuizProps) 
         });
 
       if (error) throw error;
+
+      const percentage = questions.length > 0 ? (finalScore / questions.length) * 100 : 0;
+      if (percentage < 60) {
+        const missedTopics = questions
+          .filter((question, index) => [...answers, selectedAnswer][index] !== question.correctAnswer)
+          .map((question) => question.question)
+          .slice(0, 3)
+          .join(" | ");
+
+        await registerDifficulty({
+          userId: user?.id,
+          topic: contentTitle,
+          detail: missedTopics || `Quiz com ${percentage.toFixed(0)}% de acertos`,
+        });
+      }
     } catch (error) {
       console.error("Error saving quiz attempt:", error);
     }

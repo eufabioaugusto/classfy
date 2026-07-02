@@ -6,6 +6,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useNavigate } from "react-router-dom";
 import { useStudies } from "@/hooks/useStudies";
 import { cn } from "@/lib/utils";
+import { trackUserInteraction } from "@/lib/personalization/interests";
 
 interface SearchBarProps {
   onResults: (results: any[]) => void;
@@ -152,6 +153,12 @@ export function SearchBar({ onResults, onLoading, onError, onLimitReached }: Sea
     onLoading(true);
 
     try {
+      await trackUserInteraction({
+        userId: user.id,
+        action: "search",
+        title: query.trim(),
+      });
+
       // Create study
       const result = await createStudy(query.trim());
 

@@ -23,6 +23,7 @@ import { UpgradeModal } from "@/components/UpgradeModal";
 import { PurchaseModal } from "@/components/PurchaseModal";
 import { CreatorApprovedBanner } from "@/components/CreatorApprovedBanner";
 import { ContentCardSkeleton } from "@/components/ContentCardSkeleton";
+import { boostContentList, getTopInterests, trackUserInteraction } from "@/lib/personalization/interests";
 
 export default function Index() {
   const { user, loading: authLoading, profile } = useAuth();
@@ -82,7 +83,7 @@ export default function Index() {
 
   // Explore mode data with React Query for caching
   const { data: exploreData, isLoading: exploreLoading } = useQuery({
-    queryKey: ["explore-data"],
+    queryKey: ["explore-data", user?.id],
     queryFn: async () => {
       const [
         featuredCreatorsResult,
@@ -165,14 +166,23 @@ export default function Index() {
         })
       );
 
+      const topInterests = await getTopInterests(user?.id);
+
       return {
         featuredCreators: creatorsWithDuration,
-        trendingClasses: trendingResult.data || [],
-        proContents: proResult.data || [],
-        trendingPodcasts: podcastResult.data || [],
-        shorts: shortsResult.data || [],
-        premiumContents: premiumResult.data || [],
-        courses: coursesResult.data || []
+        trendingClasses: boostContentList(trendingResult.data || [], topInterests),
+        proContents: boostContentList(proResult.data || [], topInterests),
+        trendingPodcasts: boostContentList(podcastResult.data || [], topInterests),
+        shorts: boostContentList(shortsResult.data || [], topInterests),
+        premiumContents: boostContentList(premiumResult.data || [], topInterests),
+        courses: boostContentList(coursesResult.data || [], topInterests),
+        personalizedContents: boostContentList([
+          ...(trendingResult.data || []),
+          ...(proResult.data || []),
+          ...(podcastResult.data || []),
+          ...(shortsResult.data || []),
+          ...(premiumResult.data || []),
+        ], topInterests).slice(0, 8),
       };
     },
     enabled: isExploreMode,
@@ -187,6 +197,7 @@ export default function Index() {
   const shorts = exploreData?.shorts || [];
   const premiumContents = exploreData?.premiumContents || [];
   const courses = exploreData?.courses || [];
+  const personalizedContents = exploreData?.personalizedContents || [];
 
   // Modal state
   const [modalOpen, setModalOpen] = useState(false);
@@ -219,6 +230,15 @@ export default function Index() {
     if (!user && !isFreeContent) {
       navigate("/auth");
       return;
+    }
+    if (user) {
+      trackUserInteraction({
+        userId: user.id,
+        action: "click",
+        title: content.title,
+        tags: content.tags,
+        categoryId: content.category_id,
+      });
     }
     navigate(`/watch/${content.id}`, isMobile ? { state: { backgroundLocation: location } } : undefined);
   };
@@ -428,6 +448,17 @@ export default function Index() {
 
                     {/* Continue Watching Section */}
                     {user && <ContinueWatching userId={user.id} />}
+
+                    {user && personalizedContents.length > 0 && (
+                      <ContentSection
+                        title="Para você"
+                        contents={personalizedContents}
+                        onContentClick={handleContentClick}
+                        userPlan={currentPlan}
+                        onUpgradeClick={handleUpgradeClick}
+                        onPurchaseClick={handlePurchaseClick}
+                      />
+                    )}
 
                     {/* 1. Em Alta - 4 cards (Apenas Aulas) */}
                     {trendingClasses.length > 0 && (

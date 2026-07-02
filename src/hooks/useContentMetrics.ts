@@ -2,6 +2,7 @@ import { useState, useRef, useCallback } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
 import { useRewardSystem } from "@/hooks/useRewardSystem";
+import { trackUserInteraction } from "@/lib/personalization/interests";
 
 interface MetricsState {
   start: boolean;
@@ -28,6 +29,7 @@ export function useContentMetrics({ contentId, duration, onMilestone }: UseConte
   const currentTimeRef = useRef(0);
   const lastProgressUpdateRef = useRef(0);
   const lastWatchTimeUpdateRef = useRef(0);
+  const interestMilestonesRef = useRef({ half: false, complete: false });
 
   // --- Anti-seek tracking ---
   // Tracks the REAL accumulated seconds the user has watched (not seeked position)
@@ -118,6 +120,24 @@ export function useContentMetrics({ contentId, duration, onMilestone }: UseConte
     }
   }, [user, contentId]);
 
+  const trackContentInterest = useCallback(async (action: "watch_50" | "watch_100") => {
+    if (!user || !contentId) return;
+
+    const { data } = await supabase
+      .from("contents")
+      .select("title, tags, category_id")
+      .eq("id", contentId)
+      .maybeSingle();
+
+    await trackUserInteraction({
+      userId: user.id,
+      action,
+      title: data?.title,
+      tags: data?.tags,
+      categoryId: data?.category_id,
+    });
+  }, [contentId, user]);
+
   const handleTimeUpdate = useCallback(async (currentTime: number) => {
     if (!contentId || !user || duration === 0) return;
 
@@ -160,12 +180,20 @@ export function useContentMetrics({ contentId, duration, onMilestone }: UseConte
     // Half metric - user must have actually watched >= 50% of the content
     if (!metricsRecorded.half && realPercent >= 50) {
       await recordMetric("half");
+      if (!interestMilestonesRef.current.half) {
+        interestMilestonesRef.current.half = true;
+        await trackContentInterest("watch_50");
+      }
       onMilestone?.();
     }
 
     // Complete metric - user must have actually watched >= 90% of the content
     if (!metricsRecorded.complete && realPercent >= 90) {
       await recordMetric("complete");
+      if (!interestMilestonesRef.current.complete) {
+        interestMilestonesRef.current.complete = true;
+        await trackContentInterest("watch_100");
+      }
       await checkBingeWatch();
       onMilestone?.();
     }
@@ -183,7 +211,7 @@ export function useContentMetrics({ contentId, duration, onMilestone }: UseConte
       lastWatchTimeUpdateRef.current = floorRealTime;
       await updateWatchTime(realWatchTime);
     }
-  }, [contentId, user, duration, metricsRecorded, recordMetric, processReward, trackProgress, checkFirstContentWeek, checkBingeWatch, updateWatchTime]);
+  }, [contentId, user, duration, metricsRecorded, recordMetric, processReward, trackProgress, checkFirstContentWeek, checkBingeWatch, updateWatchTime, trackContentInterest]);
 
   const registerView = useCallback(async () => {
     if (!user || !contentId) return;
@@ -222,6 +250,7 @@ export function useContentMetrics({ contentId, duration, onMilestone }: UseConte
     lastWatchTimeUpdateRef.current = 0;
     accumulatedWatchTimeRef.current = 0;
     previousTimeRef.current = 0;
+    interestMilestonesRef.current = { half: false, complete: false };
   }, []);
 
   return {

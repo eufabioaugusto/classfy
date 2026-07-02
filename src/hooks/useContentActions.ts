@@ -4,6 +4,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useRewardSystem } from "@/hooks/useRewardSystem";
 import { toast } from "@/hooks/use-toast";
 import { useParticleBurst } from "@/hooks/useParticleBurst";
+import { trackUserInteraction } from "@/lib/personalization/interests";
 
 interface UseContentActionsProps {
   contentId: string;
@@ -124,6 +125,24 @@ export function useContentActions({ contentId, isCourse = false, hasAccess = tru
     return data?.performance_points || 0;
   }, [user, contentId]);
 
+  const trackContentInterest = useCallback(async (action: "like" | "save" | "favorite") => {
+    if (!user || isCourse) return;
+
+    const { data } = await supabase
+      .from("contents")
+      .select("title, tags, category_id")
+      .eq("id", contentId)
+      .maybeSingle();
+
+    await trackUserInteraction({
+      userId: user.id,
+      action,
+      title: data?.title,
+      tags: data?.tags,
+      categoryId: data?.category_id,
+    });
+  }, [contentId, isCourse, user]);
+
   const toggleLike = useCallback(async () => {
     if (!user) {
       toast({
@@ -165,6 +184,7 @@ export function useContentActions({ contentId, isCourse = false, hasAccess = tru
           if (hasAccess) {
             await rewardLike(user.id, contentId, true);
           }
+          await trackContentInterest("like");
         } else if (error.code === "23505") {
           setIsLiked(true);
         } else {
@@ -181,7 +201,7 @@ export function useContentActions({ contentId, isCourse = false, hasAccess = tru
         variant: "destructive",
       });
     }
-  }, [user, isLiked, contentId, isCourse, triggerLikeBurst, rewardLike, refreshLikesCountEventually, hasAccess, getLikeRewardPoints]);
+  }, [user, isLiked, contentId, isCourse, triggerLikeBurst, rewardLike, refreshLikesCountEventually, hasAccess, getLikeRewardPoints, trackContentInterest]);
 
   const performUnlike = useCallback(async () => {
     if (!user) return;
@@ -262,6 +282,7 @@ export function useContentActions({ contentId, isCourse = false, hasAccess = tru
 
         setIsSaved(true);
         await rewardSave(user.id, contentId);
+        await trackContentInterest("save");
       }
     } catch (error) {
       console.error("Error toggling save:", error);
@@ -271,7 +292,7 @@ export function useContentActions({ contentId, isCourse = false, hasAccess = tru
         variant: "destructive",
       });
     }
-  }, [user, isSaved, contentId, isCourse, rewardSave]);
+  }, [user, isSaved, contentId, isCourse, rewardSave, trackContentInterest]);
 
   const toggleFavorite = useCallback(async () => {
     if (!user) {
@@ -304,6 +325,7 @@ export function useContentActions({ contentId, isCourse = false, hasAccess = tru
 
         setIsFavorited(true);
         await rewardFavorite(user.id, contentId);
+        await trackContentInterest("favorite");
       }
     } catch (error) {
       console.error("Error toggling favorite:", error);
@@ -313,7 +335,7 @@ export function useContentActions({ contentId, isCourse = false, hasAccess = tru
         variant: "destructive",
       });
     }
-  }, [user, isFavorited, contentId, isCourse, rewardFavorite]);
+  }, [user, isFavorited, contentId, isCourse, rewardFavorite, trackContentInterest]);
 
   const formatCount = (count: number) => {
     if (count >= 1000000) {
