@@ -327,11 +327,14 @@ export function AppSidebar() {
       >
         <SidebarContent>
           {/* Logo/Brand */}
-          <div className={`p-6 space-y-4 ${collapsed ? "px-3" : ""}`}>
-            <div className="flex items-center gap-2 cursor-pointer">
+          <div className={`space-y-4 ${collapsed ? "flex flex-col items-center px-0 py-6" : "p-6"}`}>
+            <div className={`flex items-center gap-2 cursor-pointer ${collapsed ? "w-full justify-center" : ""}`}>
               {/* Mobile: Show toggle button before logo */}
               {isMobile && <SidebarTrigger className="shrink-0" />}
-              <div onClick={() => navigate("/")} className="flex items-center">
+              <div
+                onClick={() => navigate("/")}
+                className={`flex items-center ${collapsed ? "h-10 w-10 justify-center" : ""}`}
+              >
                 {!collapsed && <span className="text-xl font-bold text-foreground">Classfy</span>}
                 {collapsed && <span className="text-xl font-bold text-foreground">C</span>}
               </div>
