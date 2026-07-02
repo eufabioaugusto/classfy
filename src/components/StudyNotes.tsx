@@ -5,6 +5,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/contexts/AuthContext";
 import { Clock, Trash2, Edit2, Check, X, StickyNote } from "lucide-react";
 import { format } from "date-fns";
 
@@ -24,6 +25,7 @@ interface Note {
 }
 
 export function StudyNotes({ studyId, activeContentId, onSeekToTimestamp }: StudyNotesProps) {
+  const { user } = useAuth();
   const [notes, setNotes] = useState<Note[]>([]);
   const [loading, setLoading] = useState(true);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -32,18 +34,28 @@ export function StudyNotes({ studyId, activeContentId, onSeekToTimestamp }: Stud
 
   useEffect(() => {
     loadNotes();
-  }, [studyId, activeContentId]);
+  }, [studyId, activeContentId, user?.id]);
 
   const loadNotes = async () => {
+    if (!user) {
+      setNotes([]);
+      setLoading(false);
+      return;
+    }
+
     try {
-      const query = supabase
+      setLoading(true);
+
+      let query = supabase
         .from("study_notes")
         .select("*")
-        .eq("study_id", studyId)
+        .eq("user_id", user.id)
         .order("created_at", { ascending: false });
 
       if (activeContentId) {
-        query.eq("content_id", activeContentId);
+        query = query.eq("content_id", activeContentId);
+      } else {
+        query = query.eq("study_id", studyId);
       }
 
       const { data, error } = await query;
