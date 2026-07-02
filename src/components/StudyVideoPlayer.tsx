@@ -298,6 +298,7 @@ export const StudyVideoPlayer = ({ content, studyId, onClose, onTranscriptionUpd
               src={content.file_url}
               className="w-full h-full object-contain cursor-pointer"
               onClick={togglePlay}
+              preload="metadata"
             />
           ) : (
             <div className="w-full h-full flex items-center justify-center">

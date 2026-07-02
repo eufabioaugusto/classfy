@@ -61,7 +61,10 @@ export const AvatarUpload = ({ userId, currentAvatarUrl, onUploadSuccess }: Avat
       // Upload new avatar
       const { error: uploadError } = await supabase.storage
         .from('avatars')
-        .upload(fileName, file, { upsert: true });
+        .upload(fileName, file, { 
+          upsert: true,
+          cacheControl: "3600"
+        });
 
       if (uploadError) throw uploadError;
 

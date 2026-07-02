@@ -562,6 +562,7 @@ export function UnifiedVideoPlayer({
             poster={content.thumbnail_url}
             onClick={togglePlay}
             onDoubleClick={toggleFullscreen}
+            preload="metadata"
           />
         ) : (
           <>

@@ -54,7 +54,8 @@ export const CoverUpload = ({ userId, currentCoverUrl, onUploadComplete }: Cover
       const { error: uploadError, data } = await supabase.storage
         .from("covers")
         .upload(fileName, file, {
-          upsert: true,
+          upsert: false,
+          cacheControl: "31536000"
         });
 
       if (uploadError) throw uploadError;

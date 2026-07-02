@@ -389,6 +389,7 @@ export const WatchVideoPlayer = ({ content, onTimeUpdate, onCreateNote, seekToTi
             className="w-full aspect-video"
             src={content.file_url}
             poster={content.thumbnail_url}
+            preload="metadata"
           />
         ) : (
           <>

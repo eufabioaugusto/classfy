@@ -70,7 +70,10 @@ export default function StudioLive() {
       const fileExt = file.name.split(".").pop();
       const fileName = `live-thumbnails/${user.id}/${Date.now()}.${fileExt}`;
 
-      const { error } = await supabase.storage.from("contents").upload(fileName, file);
+      const { error } = await supabase.storage.from("contents").upload(fileName, file, {
+        cacheControl: "31536000",
+        upsert: false
+      });
       if (error) throw error;
 
       const { data: { publicUrl } } = supabase.storage.from("contents").getPublicUrl(fileName);

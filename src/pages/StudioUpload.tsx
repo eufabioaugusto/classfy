@@ -354,6 +354,7 @@ export default function StudioUpload() {
         xhr.open('POST', uploadUrl);
         xhr.setRequestHeader('Authorization', `Bearer ${session?.session?.access_token}`);
         xhr.setRequestHeader('x-upsert', 'true');
+        xhr.setRequestHeader('cache-control', 'public, max-age=31536000, immutable');
         xhr.send(fileToUpload);
       });
 
@@ -444,7 +445,10 @@ export default function StudioUpload() {
 
       const { error } = await supabase.storage
         .from('contents')
-        .upload(fileName, file);
+        .upload(fileName, file, {
+          cacheControl: "31536000",
+          upsert: false
+        });
 
       clearInterval(progressInterval);
       setThumbnailProgress(100);
@@ -482,7 +486,11 @@ export default function StudioUpload() {
         const fileName = `thumbnails/${user.id}/${Date.now()}.jpg`;
         const { error } = await supabase.storage
           .from('contents')
-          .upload(fileName, data.thumbnailFile, { contentType: 'image/jpeg', upsert: true });
+          .upload(fileName, data.thumbnailFile, { 
+            contentType: 'image/jpeg', 
+            upsert: false,
+            cacheControl: "31536000"
+          });
         if (!error) {
           const { data: { publicUrl } } = supabase.storage
             .from('contents')
@@ -530,7 +538,11 @@ export default function StudioUpload() {
       const fileName = `thumbnails/${user.id}/${Date.now()}.jpg`;
       const { error } = await supabase.storage
         .from('contents')
-        .upload(fileName, file, { contentType: 'image/jpeg', upsert: true });
+        .upload(fileName, file, { 
+          contentType: 'image/jpeg', 
+          upsert: false,
+          cacheControl: "31536000"
+        });
 
       if (error) throw error;
 

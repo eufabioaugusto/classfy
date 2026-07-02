@@ -72,6 +72,7 @@ export default function AdminCuration() {
       xhr.open("POST", uploadUrl);
       xhr.setRequestHeader("Authorization", `Bearer ${session?.session?.access_token}`);
       xhr.setRequestHeader("x-upsert", "true");
+      xhr.setRequestHeader("cache-control", "public, max-age=31536000, immutable");
       xhr.send(file);
     }).catch((err) => {
       toast.error("Erro no upload: " + err.message);
@@ -92,7 +93,8 @@ export default function AdminCuration() {
     const fileName = `curated/${user!.id}/thumb_${Date.now()}.jpg`;
     const { error } = await supabase.storage.from("contents").upload(fileName, file, {
       contentType: "image/jpeg",
-      upsert: true,
+      upsert: false,
+      cacheControl: "31536000"
     });
     if (error) { toast.error("Erro ao enviar thumbnail"); return; }
     const { data: { publicUrl } } = supabase.storage.from("contents").getPublicUrl(fileName);

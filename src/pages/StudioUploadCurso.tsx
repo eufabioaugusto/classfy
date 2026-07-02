@@ -242,7 +242,10 @@ export default function StudioUploadCurso() {
 
       const { error } = await supabase.storage
         .from('contents')
-        .upload(fileName, file);
+        .upload(fileName, file, {
+          cacheControl: "31536000",
+          upsert: false
+        });
 
       clearInterval(progressInterval);
       setThumbnailProgress(100);
@@ -453,6 +456,7 @@ export default function StudioUploadCurso() {
         xhr.open('POST', uploadUrl);
         xhr.setRequestHeader('Authorization', `Bearer ${session?.session?.access_token}`);
         xhr.setRequestHeader('x-upsert', 'true');
+        xhr.setRequestHeader('cache-control', 'public, max-age=31536000, immutable');
         xhr.send(fileToUpload);
       });
 
