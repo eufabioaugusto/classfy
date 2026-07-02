@@ -1,9 +1,12 @@
 import { useEffect, useState, useRef, useCallback } from "react";
-import { Eye, Heart, Bookmark, MessageCircle, CheckCircle2, PlayCircle, Zap } from "lucide-react";
+import { Eye, Heart, Bookmark, MessageCircle, CheckCircle2, PlayCircle, Zap, Sparkles, Brain, Coins, ChevronRight } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
+import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { cn } from "@/lib/utils";
+import { Progress } from "@/components/ui/progress";
+import { fetchStudyJourneySummary, type StudyJourneySummary, toShortTitle } from "@/lib/study/getStudyJourneySummary";
 
 interface ActionState {
   key: string;
@@ -34,6 +37,8 @@ interface Props {
   contentId: string;
   refreshTrigger?: number;
   liveStates?: LiveStates;
+  studyId?: string | null;
+  studyTitle?: string | null;
 }
 
 // Stable particle config (no re-randomize on re-render)
@@ -85,12 +90,16 @@ function DotBurst({ isActive }: { isActive: boolean }) {
   );
 }
 
-export function ContentRewardProgress({ contentId, refreshTrigger, liveStates }: Props) {
+export function ContentRewardProgress({ contentId, refreshTrigger, liveStates, studyId, studyTitle }: Props) {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const [actions, setActions] = useState<ActionState[]>([]);
   const [earnedPP, setEarnedPP] = useState(0);
   const [initialLoading, setInitialLoading] = useState(true);
   const [burstKeys, setBurstKeys] = useState<Set<string>>(new Set());
+  const [resolvedStudyTitle, setResolvedStudyTitle] = useState(studyTitle?.trim() || "");
+  const [studySummary, setStudySummary] = useState<StudyJourneySummary | null>(null);
+  const [studyLoading, setStudyLoading] = useState(false);
 
   // Keep a ref to current actions for use inside async load
   const actionsRef = useRef<ActionState[]>([]);
@@ -114,20 +123,80 @@ export function ContentRewardProgress({ contentId, refreshTrigger, liveStates }:
 
   // Initial load
   useEffect(() => {
+    if (studyId) return;
     if (!user || !contentId) return;
     load(true);
-  }, [user, contentId]);
+  }, [user, contentId, studyId]);
 
   // Refresh after action (with delay for DB commit) — only burst watch milestones
   useEffect(() => {
+    if (studyId) return;
     if (!refreshTrigger || refreshTrigger === 0) return;
     if (!user || !contentId) return;
     const t = setTimeout(() => load(false), 400);
     return () => clearTimeout(t);
-  }, [refreshTrigger]);
+  }, [refreshTrigger, studyId]);
+
+  useEffect(() => {
+    setResolvedStudyTitle(studyTitle?.trim() || "");
+  }, [studyId, studyTitle]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadStudySummary() {
+      if (!studyId || !user?.id) {
+        setStudySummary(null);
+        setStudyLoading(false);
+        return;
+      }
+
+      setStudyLoading(true);
+      try {
+        let title = studyTitle?.trim() || resolvedStudyTitle;
+
+        if (!title) {
+          const { data, error } = await supabase
+            .from("studies")
+            .select("title")
+            .eq("id", studyId)
+            .eq("user_id", user.id)
+            .maybeSingle();
+
+          if (error) throw error;
+          title = data?.title?.trim() || "Estudo";
+        }
+
+        if (cancelled) return;
+        setResolvedStudyTitle(title);
+
+        const summary = await fetchStudyJourneySummary({
+          studyId,
+          userId: user.id,
+          title,
+        });
+
+        if (!cancelled) {
+          setStudySummary(summary);
+        }
+      } catch (error) {
+        console.error("Error loading study reward progress:", error);
+        if (!cancelled) setStudySummary(null);
+      } finally {
+        if (!cancelled) setStudyLoading(false);
+      }
+    }
+
+    loadStudySummary();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [resolvedStudyTitle, studyId, studyTitle, user?.id, refreshTrigger]);
 
   // Live dot update for LIKE/SAVE — detect gain and burst instantly
   useEffect(() => {
+    if (studyId) return;
     if (!liveStates || actionsRef.current.length === 0) return;
 
     const prev = actionsRef.current;
@@ -217,6 +286,57 @@ export function ContentRewardProgress({ contentId, refreshTrigger, liveStates }:
     } finally {
       if (isInitial) setInitialLoading(false);
     }
+  }
+
+  if (studyId) {
+    const title = studySummary?.shortTitle || toShortTitle(resolvedStudyTitle) || "Estudo";
+    const progressPercent = studySummary?.progressPercent ?? 0;
+    const stageLabel = studySummary?.stageLabel || "Em andamento";
+    const rewardValue = studySummary?.rewardValue ?? 0;
+
+    return (
+      <button
+        type="button"
+        onClick={() => navigate(`/c/${studyId}`)}
+        className="group w-full overflow-hidden rounded-lg border border-white/10 bg-zinc-950 px-3 py-2.5 text-left text-white shadow-sm transition-colors hover:border-white/20 hover:bg-zinc-900"
+      >
+        <div className="flex flex-col gap-2">
+          <div className="flex min-w-0 items-center gap-2 text-sm">
+            <Sparkles className="h-4 w-4 shrink-0 text-red-400" />
+            <span className="min-w-0 flex-1 truncate font-semibold">{title}</span>
+            {studyLoading && !studySummary ? (
+              <span className="shrink-0 text-xs text-white/45">Carregando...</span>
+            ) : (
+              <>
+                <span className="shrink-0 font-semibold tabular-nums text-white">{progressPercent}%</span>
+                <span className="hidden h-1 w-1 shrink-0 rounded-full bg-white/35 min-[420px]:block" />
+                <span className="hidden shrink-0 items-center gap-1 text-white/70 min-[420px]:inline-flex">
+                  <Brain className="h-3.5 w-3.5" />
+                  {stageLabel}
+                </span>
+                <span className="hidden h-1 w-1 shrink-0 rounded-full bg-white/35 min-[560px]:block" />
+                <span className="hidden shrink-0 items-center gap-1 font-semibold text-white min-[560px]:inline-flex">
+                  <Coins className="h-3.5 w-3.5 text-white/60" />
+                  R$ {rewardValue.toFixed(2)}
+                </span>
+              </>
+            )}
+          </div>
+
+          <div className="flex items-center gap-3">
+            <Progress
+              value={progressPercent}
+              className="h-1.5 flex-1 rounded-full bg-white/15"
+              indicatorClassName="bg-red-500"
+            />
+            <span className="inline-flex shrink-0 items-center gap-1 text-xs font-semibold text-white/82 transition-colors group-hover:text-white">
+              Plano de estudo
+              <ChevronRight className="h-3.5 w-3.5" />
+            </span>
+          </div>
+        </div>
+      </button>
+    );
   }
 
   if (initialLoading) return null;

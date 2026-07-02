@@ -26,6 +26,7 @@ import { PurchaseModal } from "@/components/PurchaseModal";
 import { AddToStudyModal } from "@/components/AddToStudyModal";
 import { ContentComments } from "@/components/ContentComments";
 import { WatchRelated } from "@/components/WatchRelated";
+import { ContentRewardProgress } from "@/components/watch/ContentRewardProgress";
 import { formatDistanceToNow } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { MobileStudyPlayer } from "@/components/study/MobileStudyPlayer";
@@ -1651,7 +1652,7 @@ function StudyContent() {
               compact
             />
           </div>
-          {studyMapCard && (
+          {studyMapCard && !activeContent && (
             <div className="mt-3 w-full max-w-4xl mx-auto">
               {studyMapCard}
             </div>
@@ -1693,6 +1694,8 @@ function StudyContent() {
             onVideoEnded={handleVideoEnded}
             onNoteCreated={() => setNotesRefresh((prev) => prev + 1)}
             onCancelAutoplay={cancelAutoplay}
+            studyId={id}
+            studyTitle={studyTitleText}
           />
         )}
 
@@ -2318,7 +2321,7 @@ function StudyContent() {
         <div className="flex w-full items-center justify-between gap-4">
           <div className="flex min-w-0 flex-1 justify-center">
             <div className="w-full max-w-4xl">
-              {studyMapCard}
+              {!activeContent && studyMapCard}
             </div>
           </div>
 
@@ -2513,6 +2516,15 @@ function StudyContent() {
                         </div>
                       </div>
                     )}
+                  </div>
+
+                  <div className="px-3 pt-3">
+                    <ContentRewardProgress
+                      contentId={activeContent.id}
+                      studyId={id}
+                      studyTitle={studyTitleText}
+                      refreshTrigger={notesRefresh}
+                    />
                   </div>
 
                   {/* Title */}

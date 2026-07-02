@@ -4,6 +4,7 @@ import { ChevronDown, Minimize2 } from "lucide-react";
 import { UnifiedVideoPlayer } from "@/components/unified/UnifiedVideoPlayer";
 import { SocialBar } from "@/components/unified/SocialBar";
 import { StudyToolbar, ToolPanel } from "@/components/unified/StudyToolbar";
+import { ContentRewardProgress } from "@/components/watch/ContentRewardProgress";
 import { cn } from "@/lib/utils";
 import { motion, AnimatePresence, useMotionValue, useTransform, PanInfo } from "framer-motion";
 
@@ -28,6 +29,8 @@ interface MobileStudyPlayerProps {
   onVideoEnded: () => void;
   onNoteCreated: () => void;
   onCancelAutoplay: () => void;
+  studyId?: string | null;
+  studyTitle?: string | null;
 }
 
 export function MobileStudyPlayer({
@@ -41,6 +44,8 @@ export function MobileStudyPlayer({
   onVideoEnded,
   onNoteCreated,
   onCancelAutoplay,
+  studyId,
+  studyTitle,
 }: MobileStudyPlayerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [isDragging, setIsDragging] = useState(false);
@@ -168,6 +173,16 @@ export function MobileStudyPlayer({
           </div>
         )}
       </div>
+
+      {studyId && (
+        <div className="bg-card px-2 py-2">
+          <ContentRewardProgress
+            contentId={activeContent.id}
+            studyId={studyId}
+            studyTitle={studyTitle}
+          />
+        </div>
+      )}
 
       {/* Mobile Social Bar - BELOW player */}
       <div className="px-2 py-2 bg-card border-b border-border">

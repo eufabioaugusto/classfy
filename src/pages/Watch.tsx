@@ -104,6 +104,22 @@ function WatchContent() {
   const { user, profile, loading, role } = useAuth();
   const { setOpen: setSidebarOpen } = useSidebar();
   const { startMiniPlayer, closeMiniPlayer, state: miniPlayerState } = useMiniPlayer();
+  const locationState = (location.state || {}) as {
+    studyId?: string;
+    studyTitle?: string;
+    study?: { id?: string; title?: string };
+  };
+  const searchParams = new URLSearchParams(location.search);
+  const activeStudyId =
+    searchParams.get("studyId") ||
+    locationState.studyId ||
+    locationState.study?.id ||
+    null;
+  const activeStudyTitle =
+    searchParams.get("studyTitle") ||
+    locationState.studyTitle ||
+    locationState.study?.title ||
+    null;
   const [content, setContent] = useState<Content | null>(null);
   const [loadingContent, setLoadingContent] = useState(true);
   const [hasAccess, setHasAccess] = useState(false);
@@ -1112,7 +1128,13 @@ function WatchContent() {
 
                   {/* Reward progress bar */}
                   {hasAccess && user && !isCourse && (
-                    <ContentRewardProgress contentId={content.id} refreshTrigger={rewardRefreshTrigger} liveStates={liveActionStates} />
+                    <ContentRewardProgress
+                      contentId={content.id}
+                      refreshTrigger={rewardRefreshTrigger}
+                      liveStates={liveActionStates}
+                      studyId={activeStudyId}
+                      studyTitle={activeStudyTitle}
+                    />
                   )}
 
                   {/* Attribution banner for curated content */}
