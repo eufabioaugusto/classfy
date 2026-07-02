@@ -160,6 +160,10 @@ export function AppSidebar() {
   // No mobile, quando o sidebar abre como Sheet, sempre mostrar expandido
   const collapsed = isMobile ? false : state === "collapsed";
   const limitText = limits.studies === Infinity ? "Ilimitado" : `${activeCount}/${limits.studies}`;
+  const collapsedGroupClass = collapsed ? "px-0" : undefined;
+  const collapsedMenuClass = collapsed ? "items-center overflow-visible" : undefined;
+  const collapsedIconButtonClass = "relative !h-10 !w-10 !p-0 justify-center overflow-visible";
+  const collapsedIconLinkClass = `${collapsedIconButtonClass} text-foreground/80 hover:bg-muted hover:text-foreground`;
 
   // Visibilidade dos itens do menu
   const showBecomeCreator =
@@ -387,10 +391,10 @@ export function AppSidebar() {
           <Separator className="bg-border/10" />
 
           {/* Main Navigation */}
-          <SidebarGroup>
+          <SidebarGroup className={collapsedGroupClass}>
             {!collapsed && <SidebarGroupLabel className="text-muted-foreground">Menu</SidebarGroupLabel>}
             <SidebarGroupContent>
-              <SidebarMenu>
+              <SidebarMenu className={collapsedMenuClass}>
                 {mainItems.map((item) => (
                   <SidebarMenuItem key={item.title}>
                     {collapsed ? (
@@ -400,7 +404,7 @@ export function AppSidebar() {
                             <NavLink
                               to={item.url}
                               end
-                              className="text-foreground/80 hover:bg-muted hover:text-foreground justify-center"
+                              className={collapsedIconLinkClass}
                               activeClassName="bg-muted text-cinematic-accent font-medium"
                             >
                               <item.icon className={`w-4 h-4 ${'highlight' in item && item.highlight ? 'text-red-500' : ''}`} />
@@ -595,13 +599,13 @@ export function AppSidebar() {
 
           {/* Studies icon when collapsed */}
           {user && collapsed && (
-            <SidebarGroup>
+            <SidebarGroup className={collapsedGroupClass}>
               <SidebarGroupContent>
-                <SidebarMenu>
+                <SidebarMenu className={collapsedMenuClass}>
                   <SidebarMenuItem>
                     <Tooltip>
                       <TooltipTrigger asChild>
-                        <SidebarMenuButton className="justify-center">
+                        <SidebarMenuButton className={collapsedIconButtonClass}>
                           <BookOpen className="h-4 w-4" />
                         </SidebarMenuButton>
                       </TooltipTrigger>
@@ -618,16 +622,16 @@ export function AppSidebar() {
           {/* Become Creator (Users only) */}
           {showBecomeCreator && (
             <>
-              <SidebarGroup>
+              <SidebarGroup className={collapsedGroupClass}>
                 <SidebarGroupContent>
-                  <SidebarMenu>
+                  <SidebarMenu className={collapsedMenuClass}>
                     <SidebarMenuItem>
                       {collapsed ? (
                         <Tooltip>
                           <TooltipTrigger asChild>
                             <SidebarMenuButton
                               onClick={() => setCreatorModalOpen(true)}
-                              className="text-foreground/80 hover:bg-muted hover:text-foreground justify-center"
+                              className={collapsedIconLinkClass}
                             >
                               <Sparkles className="w-4 h-4" />
                             </SidebarMenuButton>
@@ -656,13 +660,13 @@ export function AppSidebar() {
           {/* Pending Creator Status Card */}
           {showPendingCreator && (
             <>
-              <SidebarGroup>
+              <SidebarGroup className={collapsedGroupClass}>
                 <SidebarGroupContent>
                   {collapsed ? (
-                    <div className="flex justify-center py-2">
+                    <div className="flex justify-center py-2 overflow-visible">
                       <Tooltip>
                         <TooltipTrigger asChild>
-                          <div className="p-2 rounded-lg bg-muted/60">
+                          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-muted/60">
                             <Crown className="h-4 w-4 text-muted-foreground" />
                           </div>
                         </TooltipTrigger>
@@ -682,10 +686,10 @@ export function AppSidebar() {
           {showStudio && (
             <>
               <Separator className="bg-border my-2" />
-              <SidebarGroup>
+              <SidebarGroup className={collapsedGroupClass}>
                 {!collapsed && <SidebarGroupLabel className="text-muted-foreground">Studio Classfy</SidebarGroupLabel>}
                 <SidebarGroupContent>
-                  <SidebarMenu>
+                  <SidebarMenu className={collapsedMenuClass}>
                     {studioItems.map((item) => (
                       <SidebarMenuItem key={item.title}>
                         {collapsed ? (
@@ -694,7 +698,7 @@ export function AppSidebar() {
                               <SidebarMenuButton asChild>
                                 <NavLink
                                   to={item.url}
-                                  className="text-foreground/80 hover:bg-muted hover:text-foreground justify-center"
+                                  className={collapsedIconLinkClass}
                                   activeClassName="bg-muted text-cinematic-accent font-medium"
                                 >
                                   <item.icon className="w-4 h-4" />
@@ -729,10 +733,10 @@ export function AppSidebar() {
           {showAdmin && (
             <>
               <Separator className="bg-border my-2" />
-              <SidebarGroup>
+              <SidebarGroup className={collapsedGroupClass}>
                 {!collapsed && <SidebarGroupLabel className="text-muted-foreground">Administração</SidebarGroupLabel>}
                 <SidebarGroupContent>
-                  <SidebarMenu>
+                  <SidebarMenu className={collapsedMenuClass}>
                     {adminItems.map((item) => {
                       const pendingCount = item.countKey ? adminCounts[item.countKey] : 0;
                       return (
@@ -743,7 +747,7 @@ export function AppSidebar() {
                                 <SidebarMenuButton asChild>
                                   <NavLink
                                     to={item.url}
-                                    className="text-foreground/80 hover:bg-muted hover:text-foreground justify-center relative"
+                                    className={collapsedIconLinkClass}
                                     activeClassName="bg-muted text-cinematic-accent font-medium"
                                   >
                                     <item.icon className="w-4 h-4" />
@@ -833,9 +837,9 @@ export function AppSidebar() {
               )}
 
               <Separator className="bg-border mb-2" />
-              <SidebarGroup>
+              <SidebarGroup className={collapsedGroupClass}>
                 <SidebarGroupContent>
-                  <SidebarMenu>
+                  <SidebarMenu className={collapsedMenuClass}>
                     <SidebarMenuItem>
                       {collapsed ? (
                         <Tooltip>
@@ -843,7 +847,7 @@ export function AppSidebar() {
                             <SidebarMenuButton asChild>
                               <NavLink
                                 to="/conta"
-                                className="text-foreground/80 hover:bg-muted hover:text-foreground justify-center"
+                                className={collapsedIconLinkClass}
                                 activeClassName="bg-muted text-cinematic-accent"
                               >
                                 <Settings className="w-4 h-4" />
@@ -873,7 +877,7 @@ export function AppSidebar() {
                           <TooltipTrigger asChild>
                             <SidebarMenuButton
                               onClick={signOut}
-                              className="text-foreground/80 hover:bg-muted hover:text-foreground justify-center"
+                              className={collapsedIconLinkClass}
                             >
                               <LogOut className="w-4 h-4" />
                             </SidebarMenuButton>
