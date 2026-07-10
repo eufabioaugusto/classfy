@@ -10,6 +10,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
 import { useMediaSession } from "@/hooks/useMediaSession";
+import Hls from "hls.js";
 
 interface WatchVideoPlayerProps {
   content: {
@@ -175,6 +176,54 @@ export const WatchVideoPlayer = ({ content, onTimeUpdate, onCreateNote, seekToTi
       }
     }
   }, [seekToTime]);
+
+  // ── HLS Stream Loading ──────────────────────────────────────────────────────
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video || !content.file_url) return;
+
+    let hls: Hls | null = null;
+    const isHls = content.file_url.includes(".m3u8") || content.video_provider === "bunny";
+
+    if (isHls && Hls.isSupported()) {
+      hls = new Hls({
+        maxMaxBufferLength: 10,
+        enableWorker: true,
+        lowLatencyMode: true,
+      });
+
+      hls.loadSource(content.file_url);
+      hls.attachMedia(video);
+
+      hls.on(Hls.Events.ERROR, (event, data) => {
+        if (data.fatal) {
+          switch (data.type) {
+            case Hls.ErrorTypes.NETWORK_ERROR:
+              hls?.startLoad();
+              break;
+            case Hls.ErrorTypes.MEDIA_ERROR:
+              hls?.recoverMediaError();
+              break;
+            default:
+              hls?.destroy();
+              break;
+          }
+        }
+      });
+    } else if (isHls && video.canPlayType("application/vnd.apple.mpegurl")) {
+      // Native HLS fallback (Safari/iOS)
+      video.src = content.file_url;
+    } else {
+      // Standard MP4 fallback
+      video.src = content.file_url;
+    }
+
+    return () => {
+      if (hls) {
+        hls.destroy();
+      }
+    };
+  }, [content.file_url, content.video_provider]);
 
   useEffect(() => {
     const media = mediaRef.current;
@@ -386,21 +435,10 @@ export const WatchVideoPlayer = ({ content, onTimeUpdate, onCreateNote, seekToTi
         onMouseMove={handleMouseMove}
         onMouseLeave={handleMouseLeave}
       >
-        {content.video_provider === "bunny" && content.bunny_video_id ? (
-          <div className="relative w-full aspect-video overflow-hidden">
-            <iframe
-              src={`https://iframe.mediadelivery.net/embed/${content.bunny_library_id || '700986'}/${content.bunny_video_id}?autoplay=true&loop=false&muted=false&preload=true&responsive=true`}
-              loading="lazy"
-              className="absolute top-0 left-0 w-full h-full border-none"
-              allow="accelerometer; gyroscope; autoplay; encrypted-media; picture-in-picture;"
-              allowFullScreen={true}
-            />
-          </div>
-        ) : isVideo ? (
+        {isVideo ? (
           <video
             ref={videoRef}
             className="w-full aspect-video"
-            src={content.file_url}
             poster={content.thumbnail_url}
             preload="metadata"
           />
@@ -417,12 +455,11 @@ export const WatchVideoPlayer = ({ content, onTimeUpdate, onCreateNote, seekToTi
         )}
 
         {/* Custom Controls */}
-        {content.video_provider !== "bunny" && (
-          <div
-            className={`absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/90 via-black/50 to-transparent p-2 sm:p-4 transition-opacity duration-300 ${
-              showControls ? "opacity-100" : "opacity-0"
-            }`}
-          >
+        <div
+          className={`absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/90 via-black/50 to-transparent p-2 sm:p-4 transition-opacity duration-300 ${
+            showControls ? "opacity-100" : "opacity-0"
+          }`}
+        >
           {/* Progress Bar */}
           <div className="relative w-full mb-2 sm:mb-4">
             <input
@@ -562,7 +599,6 @@ export const WatchVideoPlayer = ({ content, onTimeUpdate, onCreateNote, seekToTi
               )}
             </div>
           </div>
-        )}
       </Card>
 
       {/* Note Modal */}

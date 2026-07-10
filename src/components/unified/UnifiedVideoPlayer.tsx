@@ -23,6 +23,7 @@ import { toast } from "sonner";
 import { useMediaSession } from "@/hooks/useMediaSession";
 import { useContentMetrics } from "@/hooks/useContentMetrics";
 import { cn } from "@/lib/utils";
+import Hls from "hls.js";
 
 export interface UnifiedVideoPlayerProps {
   content: {
@@ -177,6 +178,54 @@ export function UnifiedVideoPlayer({
     document.addEventListener("fullscreenchange", handleFsChange);
     return () => document.removeEventListener("fullscreenchange", handleFsChange);
   }, []);
+
+  // ── HLS Stream Loading ──────────────────────────────────────────────────────
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video || !content.file_url) return;
+
+    let hls: Hls | null = null;
+    const isHls = content.file_url.includes(".m3u8") || content.video_provider === "bunny";
+
+    if (isHls && Hls.isSupported()) {
+      hls = new Hls({
+        maxMaxBufferLength: 10,
+        enableWorker: true,
+        lowLatencyMode: true,
+      });
+
+      hls.loadSource(content.file_url);
+      hls.attachMedia(video);
+
+      hls.on(Hls.Events.ERROR, (event, data) => {
+        if (data.fatal) {
+          switch (data.type) {
+            case Hls.ErrorTypes.NETWORK_ERROR:
+              hls?.startLoad();
+              break;
+            case Hls.ErrorTypes.MEDIA_ERROR:
+              hls?.recoverMediaError();
+              break;
+            default:
+              hls?.destroy();
+              break;
+          }
+        }
+      });
+    } else if (isHls && video.canPlayType("application/vnd.apple.mpegurl")) {
+      // Native HLS fallback (Safari/iOS)
+      video.src = content.file_url;
+    } else {
+      // Standard MP4 fallback
+      video.src = content.file_url;
+    }
+
+    return () => {
+      if (hls) {
+        hls.destroy();
+      }
+    };
+  }, [content.file_url, content.video_provider]);
 
   // ── Media Session ─────────────────────────────────────────────────────────
   useEffect(() => {
@@ -553,17 +602,7 @@ export function UnifiedVideoPlayer({
         onMouseMove={resetControlsTimeout}
         onMouseLeave={handleMouseLeave}
       >
-        {content.video_provider === "bunny" && content.bunny_video_id ? (
-          <div className="relative w-full aspect-video overflow-hidden">
-            <iframe
-              src={`https://iframe.mediadelivery.net/embed/${content.bunny_library_id || '700986'}/${content.bunny_video_id}?autoplay=true&loop=false&muted=false&preload=true&responsive=true`}
-              loading="lazy"
-              className="absolute top-0 left-0 w-full h-full border-none"
-              allow="accelerometer; gyroscope; autoplay; encrypted-media; picture-in-picture;"
-              allowFullScreen={true}
-            />
-          </div>
-        ) : isVideo ? (
+        {isVideo ? (
           <video
             ref={videoRef}
             className={cn(
@@ -571,7 +610,6 @@ export function UnifiedVideoPlayer({
               compact ? "h-full object-contain" : "aspect-video",
               theaterMode && "max-h-[calc(100vh-7rem)] object-contain"
             )}
-            src={content.file_url}
             poster={content.thumbnail_url}
             onClick={togglePlay}
             onDoubleClick={toggleFullscreen}
