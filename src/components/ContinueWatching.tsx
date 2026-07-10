@@ -113,7 +113,7 @@ export function ContinueWatching({ userId, className }: ContinueWatchingProps) {
           .eq("completed", false)
           .gt("progress_percent", 0)
           .order("updated_at", { ascending: false })
-          .limit(5);
+          .limit(4);
 
         if (error) throw error;
         if (mounted) setItems((data || []) as unknown as ContinueWatchingItem[]);
@@ -162,7 +162,7 @@ export function ContinueWatching({ userId, className }: ContinueWatchingProps) {
         </button>
       </div>
 
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3 sm:gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-4">
         {items.map((item) => {
           const content = item.contents;
           if (!content) return null;
