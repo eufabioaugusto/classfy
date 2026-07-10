@@ -1,5 +1,5 @@
 import { Button } from "@/components/ui/button";
-import { Crown, Check, Sparkles } from "lucide-react";
+import { Crown, Check, Sparkles, Security } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
 interface UpgradePromptCardProps {
@@ -80,7 +80,7 @@ export function UpgradePromptCard({
                   onClick={() => navigate('/planos')}
                 >
                   {plan.popular && (
-                    <div className="absolute -top-2 left-4 rounded-full bg-primary px-2.5 py-1 text-[10px] font-bold text-primary-foreground shadow-sm">
+                    <div className="absolute -top-2 right-4 rounded-full bg-primary px-2.5 py-1 text-[10px] font-bold text-primary-foreground shadow-sm">
                       MAIS POPULAR
                     </div>
                   )}
@@ -122,7 +122,10 @@ export function UpgradePromptCard({
 
             <div className="flex flex-col justify-between rounded-[24px] border border-border/70 bg-background/70 p-5 dark:border-white/8 dark:bg-white/[0.04]">
               <div className="space-y-3">
-                <p className="text-[12px] font-semibold text-muted-foreground dark:text-white/45">
+                <p className="flex items-center gap-1.5 text-[12px] font-semibold text-muted-foreground dark:text-white/45">
+                  <span className="flex h-4 w-4 items-center justify-center rounded-full bg-green-500/15">
+                    <Security className="h-3 w-3 text-green-500" strokeWidth={3} />
+                  </span>
                   Desbloqueio imediato
                 </p>
                 <p className="text-sm leading-7 text-foreground/85 dark:text-zinc-200">
