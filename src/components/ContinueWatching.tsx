@@ -113,7 +113,7 @@ export function ContinueWatching({ userId, className }: ContinueWatchingProps) {
           .eq("completed", false)
           .gt("progress_percent", 0)
           .order("updated_at", { ascending: false })
-          .limit(6);
+          .limit(5);
 
         if (error) throw error;
         if (mounted) setItems((data || []) as unknown as ContinueWatchingItem[]);
@@ -162,7 +162,7 @@ export function ContinueWatching({ userId, className }: ContinueWatchingProps) {
         </button>
       </div>
 
-      <div className="flex gap-3 overflow-x-auto pb-1 scrollbar-hide sm:gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3 sm:gap-4">
         {items.map((item) => {
           const content = item.contents;
           if (!content) return null;
@@ -176,7 +176,7 @@ export function ContinueWatching({ userId, className }: ContinueWatchingProps) {
               key={item.content_id}
               type="button"
               onClick={() => handlePress(item)}
-              className="group w-[220px] shrink-0 overflow-hidden rounded-xl border border-border/70 bg-card text-left shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-lg sm:w-[260px]"
+              className="group w-full overflow-hidden rounded-xl border border-border/70 bg-card text-left shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-lg"
             >
               <div className="relative aspect-video overflow-hidden bg-muted">
                 {content.thumbnail_url ? (
@@ -192,7 +192,7 @@ export function ContinueWatching({ userId, className }: ContinueWatchingProps) {
                   </div>
                 )}
                 <div className="absolute inset-0 bg-gradient-to-t from-black/55 via-black/10 to-transparent" />
-                <div className="absolute left-2 top-2 rounded-full bg-background/95 px-2.5 py-1 text-[11px] font-semibold text-foreground shadow-sm">
+                <div className="absolute left-2 top-2 bg-black/50 text-white font-bold text-[10px] px-2 py-0.5 rounded shadow-md transition-colors duration-300 group-hover:bg-black/75">
                   {getContentTypeLabel(content.content_type)}
                 </div>
                 {duration && (
