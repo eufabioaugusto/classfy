@@ -1,5 +1,6 @@
 import { useRef, useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
+import Hls from "hls.js";
 import { Heart, MessageCircle, Share2, Bookmark, Volume2, VolumeX, Home, Search, Target, Gift, Send } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
@@ -21,6 +22,10 @@ interface ShortContent {
   views_count: number;
   likes_count: number;
   creator_id: string;
+  video_provider?: string;
+  bunny_video_id?: string | null;
+  bunny_library_id?: string | null;
+  bunny_hls_url?: string | null;
   creator: {
     id: string;
     display_name: string;
@@ -75,6 +80,7 @@ export function MobileShortsView({
   const [isScrolling, setIsScrolling] = useState(false);
   const [showDMModal, setShowDMModal] = useState(false);
   const scrollTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const activeHlsRef = useRef<Hls | null>(null);
 
   const currentShort = shorts[currentIndex];
 
@@ -116,17 +122,55 @@ export function MobileShortsView({
     };
   }, [currentIndex, shorts.length, onIndexChange]);
 
-  // Play/pause videos based on current index
+  // Play/pause and dynamic HLS loader for active mobile short
   useEffect(() => {
+    // 1. Clean up active Hls session
+    if (activeHlsRef.current) {
+      activeHlsRef.current.destroy();
+      activeHlsRef.current = null;
+    }
+
+    // 2. Set src of all inactive video elements to empty to save bandwidth
     videoRefs.current.forEach((video, idx) => {
-      if (!video) return;
-      if (idx === currentIndex && hasAccess) {
-        video.play().catch(() => {});
-      } else {
-        video.pause();
+      if (video && idx !== currentIndex) {
+        video.src = "";
       }
     });
-  }, [currentIndex, hasAccess]);
+
+    const activeVideo = videoRefs.current[currentIndex];
+    const activeShort = shorts[currentIndex];
+    if (!activeVideo || !activeShort) return;
+
+    let hls: Hls | null = null;
+    const url = activeShort.video_url || activeShort.file_url || "";
+    const isHls = url.includes(".m3u8") || activeShort.video_provider === "bunny";
+
+    if (isHls && Hls.isSupported()) {
+      hls = new Hls({
+        maxMaxBufferLength: 5,
+        enableWorker: true,
+        lowLatencyMode: true,
+      });
+      hls.loadSource(url);
+      hls.attachMedia(activeVideo);
+      activeHlsRef.current = hls;
+    } else {
+      activeVideo.src = url;
+    }
+
+    if (hasAccess) {
+      activeVideo.play().catch(() => {});
+    }
+
+    return () => {
+      if (hls) {
+        hls.destroy();
+        if (activeHlsRef.current === hls) {
+          activeHlsRef.current = null;
+        }
+      }
+    };
+  }, [currentIndex, shorts, hasAccess]);
 
   // Scroll to index when it changes externally
   useEffect(() => {
@@ -163,7 +207,6 @@ export function MobileShortsView({
             {/* Video */}
             <video
               ref={(el) => (videoRefs.current[index] = el)}
-              src={short.video_url || short.file_url || ""}
               className="absolute inset-0 w-full h-full object-cover"
               loop
               playsInline

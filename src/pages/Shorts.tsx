@@ -26,6 +26,10 @@ interface ShortContent {
   views_count: number;
   likes_count: number;
   creator_id: string;
+  video_provider?: string;
+  bunny_video_id?: string | null;
+  bunny_library_id?: string | null;
+  bunny_hls_url?: string | null;
   creator: {
     id: string;
     display_name: string;
@@ -108,24 +112,28 @@ export default function Shorts() {
         const { data: specificShort, error: specificError } = await supabase
           .from("contents")
           .select(`
-            id,
-            title,
-            description,
-            video_url,
-            thumbnail_url,
-            file_url,
-            visibility,
-            price,
-            duration_seconds,
-            views_count,
-            likes_count,
-            creator_id,
-            creator:profiles!contents_creator_id_fkey(
-              id,
-              display_name,
-              avatar_url,
-              creator_channel_name
-            )
+             id,
+             title,
+             description,
+             video_url,
+             thumbnail_url,
+             file_url,
+             visibility,
+             price,
+             duration_seconds,
+             views_count,
+             likes_count,
+             creator_id,
+             video_provider,
+             bunny_video_id,
+             bunny_library_id,
+             bunny_hls_url,
+             creator:profiles!contents_creator_id_fkey(
+               id,
+               display_name,
+               avatar_url,
+               creator_channel_name
+             )
           `)
           .eq("id", id)
           .eq("content_type", "short")
@@ -159,6 +167,10 @@ export default function Shorts() {
           views_count,
           likes_count,
           creator_id,
+          video_provider,
+          bunny_video_id,
+          bunny_library_id,
+          bunny_hls_url,
           creator:profiles!contents_creator_id_fkey(
             id,
             display_name,
@@ -213,6 +225,10 @@ export default function Shorts() {
           views_count,
           likes_count,
           creator_id,
+          video_provider,
+          bunny_video_id,
+          bunny_library_id,
+          bunny_hls_url,
           creator:profiles!contents_creator_id_fkey(
             id,
             display_name,

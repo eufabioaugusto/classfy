@@ -1,5 +1,6 @@
-import { useRef, useState, useCallback } from "react";
+import { useRef, useState, useCallback, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
+import Hls from "hls.js";
 import {
   Heart,
   MessageCircle,
@@ -34,6 +35,10 @@ interface ShortContent {
   views_count: number;
   likes_count: number;
   creator_id: string;
+  video_provider?: string;
+  bunny_video_id?: string | null;
+  bunny_library_id?: string | null;
+  bunny_hls_url?: string | null;
   creator: {
     id: string;
     display_name: string;
@@ -92,6 +97,40 @@ export function DesktopShortsView({
   const hideControlsTimeout = useRef<NodeJS.Timeout | null>(null);
 
   const currentShort = shorts[currentIndex];
+
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video || !currentShort) return;
+
+    let hls: Hls | null = null;
+    const url = currentShort.video_url || currentShort.file_url || "";
+    const isHls = url.includes(".m3u8") || currentShort.video_provider === "bunny";
+
+    if (isHls && Hls.isSupported()) {
+      hls = new Hls({
+        maxMaxBufferLength: 5,
+        enableWorker: true,
+        lowLatencyMode: true,
+      });
+      hls.loadSource(url);
+      hls.attachMedia(video);
+    } else if (isHls && video.canPlayType("application/vnd.apple.mpegurl")) {
+      video.src = url;
+    } else {
+      video.src = url;
+    }
+
+    if (isPlaying && hasAccess) {
+      video.play().catch(() => {});
+    }
+
+    return () => {
+      if (hls) {
+        hls.destroy();
+      }
+      video.src = "";
+    };
+  }, [currentShort, isPlaying, hasAccess]);
 
   const formatCount = (count: number) => {
     if (count >= 1000000) return `${(count / 1000000).toFixed(1)}M`;
@@ -195,7 +234,6 @@ export function DesktopShortsView({
           <div className="relative w-[340px] md:w-[380px] aspect-[9/16] rounded-xl overflow-hidden bg-black shadow-2xl ring-1 ring-white/10">
             <video
               ref={videoRef}
-              src={currentShort.video_url || currentShort.file_url || ""}
               className="w-full h-full object-cover"
               loop
               playsInline
