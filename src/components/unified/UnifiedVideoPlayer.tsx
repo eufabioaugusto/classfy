@@ -14,6 +14,9 @@ import {
   SkipBack,
   SkipForward,
   Loader2,
+  Settings,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
@@ -89,7 +92,12 @@ export function UnifiedVideoPlayer({
   const [isBuffering, setIsBuffering] = useState(false);
   const [showControls, setShowControls] = useState(true);
   const [playbackRate, setPlaybackRate] = useState(1);
-  const [showPlaybackMenu, setShowPlaybackMenu] = useState(false);
+  const [showSettingsMenu, setShowSettingsMenu] = useState(false);
+  const [settingsSubMenu, setSettingsSubMenu] = useState<"main" | "speed" | "quality">("main");
+  const [availableQualities, setAvailableQualities] = useState<Array<{ index: number; label: string }>>([]);
+  const [currentQualityLabel, setCurrentQualityLabel] = useState("Auto");
+  const [activeQualityIndex, setActiveQualityIndex] = useState(-1);
+  const hlsRef = useRef<Hls | null>(null);
   const [noteModalOpen, setNoteModalOpen] = useState(false);
   const [noteText, setNoteText] = useState("");
   const [noteTimestamp, setNoteTimestamp] = useState(0);
@@ -196,6 +204,26 @@ export function UnifiedVideoPlayer({
 
       hls.loadSource(content.file_url);
       hls.attachMedia(video);
+      hlsRef.current = hls;
+
+      hls.on(Hls.Events.MANIFEST_PARSED, () => {
+        if (hls) {
+          const qualities = hls.levels.map((level, index) => ({
+            index,
+            label: `${level.height}p`
+          })).reverse();
+          setAvailableQualities(qualities);
+        }
+      });
+
+      hls.on(Hls.Events.LEVEL_SWITCHED, (event, data) => {
+        if (hls && hls.currentLevel === -1) {
+          const autoLevel = hls.levels[data.level];
+          if (autoLevel) {
+            setCurrentQualityLabel(`Auto (${autoLevel.height}p)`);
+          }
+        }
+      });
 
       hls.on(Hls.Events.ERROR, (event, data) => {
         if (data.fatal) {
@@ -208,6 +236,7 @@ export function UnifiedVideoPlayer({
               break;
             default:
               hls?.destroy();
+              hlsRef.current = null;
               break;
           }
         }
@@ -215,14 +244,19 @@ export function UnifiedVideoPlayer({
     } else if (isHls && video.canPlayType("application/vnd.apple.mpegurl")) {
       // Native HLS fallback (Safari/iOS)
       video.src = content.file_url;
+      setAvailableQualities([]);
+      setCurrentQualityLabel("Auto");
     } else {
       // Standard MP4 fallback
       video.src = content.file_url;
+      setAvailableQualities([]);
+      setCurrentQualityLabel("Padrão");
     }
 
     return () => {
       if (hls) {
         hls.destroy();
+        hlsRef.current = null;
       }
     };
   }, [content.file_url, content.video_provider]);
@@ -496,7 +530,23 @@ export function UnifiedVideoPlayer({
     if (!media) return;
     media.playbackRate = rate;
     setPlaybackRate(rate);
-    setShowPlaybackMenu(false);
+    setSettingsSubMenu("main");
+  };
+
+  const changeQuality = (index: number) => {
+    if (hlsRef.current) {
+      hlsRef.current.currentLevel = index;
+      setActiveQualityIndex(index);
+      if (index === -1) {
+        const currentLevel = hlsRef.current.currentLevel;
+        const currentHeight = currentLevel !== -1 ? hlsRef.current.levels[currentLevel]?.height : null;
+        setCurrentQualityLabel(currentHeight ? `Auto (${currentHeight}p)` : "Auto");
+      } else {
+        const selectedLevel = hlsRef.current.levels[index];
+        setCurrentQualityLabel(selectedLevel ? `${selectedLevel.height}p` : "Custom");
+      }
+    }
+    setSettingsSubMenu("main");
   };
 
   const triggerClickAnim = (type: "play" | "pause") => {
@@ -842,34 +892,115 @@ export function UnifiedVideoPlayer({
                   </Button>
                 )}
 
-                {/* Playback Speed */}
+                {/* Settings Gear (YouTube style) */}
                 <div className="relative">
                   <Button
                     size="icon"
                     variant="ghost"
-                    onClick={() => setShowPlaybackMenu(!showPlaybackMenu)}
-                    className="text-white hover:bg-white/20 h-8 w-8"
-                    title="Velocidade"
+                    onClick={() => {
+                      setShowSettingsMenu(!showSettingsMenu);
+                      setSettingsSubMenu("main");
+                    }}
+                    className="text-white hover:bg-white/20 h-8 w-8 transition-transform duration-300 hover:rotate-45"
+                    title="Configurações (Velocidade e Qualidade)"
                   >
-                    <span className="text-xs font-medium">{playbackRate}x</span>
+                    <Settings className="w-4 h-4" />
                   </Button>
 
-                  {showPlaybackMenu && (
-                    <div className="absolute bottom-full right-0 mb-2 bg-background/95 backdrop-blur-sm border border-border rounded-lg shadow-xl p-1 z-50 min-w-[80px]">
-                      {[0.5, 0.75, 1, 1.25, 1.5, 2].map((rate) => (
-                        <button
-                          key={rate}
-                          onClick={() => changePlaybackRate(rate)}
-                          className={cn(
-                            "w-full text-left px-3 py-1.5 text-sm rounded-md transition-colors",
-                            playbackRate === rate
-                              ? "bg-primary text-primary-foreground"
-                              : "hover:bg-muted"
+                  {showSettingsMenu && (
+                    <div className="absolute bottom-full right-0 mb-2 bg-black/95 backdrop-blur-md border border-white/10 rounded-xl shadow-2xl p-2 z-50 min-w-[220px] text-white animate-in fade-in slide-in-from-bottom-2 duration-200">
+                      
+                      {/* SUB-MENU: MAIN OPTIONS */}
+                      {settingsSubMenu === "main" && (
+                        <div className="space-y-1">
+                          <button
+                            onClick={() => setSettingsSubMenu("speed")}
+                            className="w-full flex items-center justify-between px-3 py-2 text-sm rounded-lg hover:bg-white/10 transition-colors"
+                          >
+                            <span className="text-white/80">Velocidade da reprodução</span>
+                            <span className="flex items-center text-white/50 text-xs font-semibold">
+                              {playbackRate === 1 ? "Normal" : `${playbackRate}x`}
+                              <ChevronRight className="w-3.5 h-3.5 ml-1" />
+                            </span>
+                          </button>
+
+                          {availableQualities.length > 0 && (
+                            <button
+                              onClick={() => setSettingsSubMenu("quality")}
+                              className="w-full flex items-center justify-between px-3 py-2 text-sm rounded-lg hover:bg-white/10 transition-colors"
+                            >
+                              <span className="text-white/80">Qualidade</span>
+                              <span className="flex items-center text-white/50 text-xs font-semibold">
+                                {currentQualityLabel}
+                                <ChevronRight className="w-3.5 h-3.5 ml-1" />
+                              </span>
+                            </button>
                           )}
-                        >
-                          {rate}x
-                        </button>
-                      ))}
+                        </div>
+                      )}
+
+                      {/* SUB-MENU: SPEED SELECTION */}
+                      {settingsSubMenu === "speed" && (
+                        <div className="space-y-1">
+                          <button
+                            onClick={() => setSettingsSubMenu("main")}
+                            className="w-full flex items-center px-2 py-1.5 text-xs text-white/60 hover:text-white mb-1"
+                          >
+                            <ChevronLeft className="w-3.5 h-3.5 mr-1" /> Voltar
+                          </button>
+                          {[0.5, 0.75, 1, 1.25, 1.5, 2].map((rate) => (
+                            <button
+                              key={rate}
+                              onClick={() => changePlaybackRate(rate)}
+                              className={cn(
+                                "w-full text-left px-3 py-1.5 text-sm rounded-lg transition-colors flex items-center justify-between",
+                                playbackRate === rate ? "bg-primary text-primary-foreground font-semibold" : "hover:bg-white/10 text-white/80"
+                              )}
+                            >
+                              <span>{rate === 1 ? "Normal" : `${rate}x`}</span>
+                              {playbackRate === rate && <span className="w-1.5 h-1.5 bg-white rounded-full" />}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+
+                      {/* SUB-MENU: QUALITY SELECTION */}
+                      {settingsSubMenu === "quality" && (
+                        <div className="space-y-1">
+                          <button
+                            onClick={() => setSettingsSubMenu("main")}
+                            className="w-full flex items-center px-2 py-1.5 text-xs text-white/60 hover:text-white mb-1"
+                          >
+                            <ChevronLeft className="w-3.5 h-3.5 mr-1" /> Voltar
+                          </button>
+
+                          {/* Auto Quality */}
+                          <button
+                            onClick={() => changeQuality(-1)}
+                            className={cn(
+                              "w-full text-left px-3 py-1.5 text-sm rounded-lg transition-colors flex items-center justify-between",
+                              activeQualityIndex === -1 ? "bg-primary text-primary-foreground font-semibold" : "hover:bg-white/10 text-white/80"
+                            )}
+                          >
+                            <span>Auto</span>
+                            {activeQualityIndex === -1 && <span className="w-1.5 h-1.5 bg-white rounded-full" />}
+                          </button>
+
+                          {availableQualities.map((q) => (
+                            <button
+                              key={q.index}
+                              onClick={() => changeQuality(q.index)}
+                              className={cn(
+                                "w-full text-left px-3 py-1.5 text-sm rounded-lg transition-colors flex items-center justify-between",
+                                activeQualityIndex === q.index ? "bg-primary text-primary-foreground font-semibold" : "hover:bg-white/10 text-white/80"
+                              )}
+                            >
+                              <span>{q.label}</span>
+                              {activeQualityIndex === q.index && <span className="w-1.5 h-1.5 bg-white rounded-full" />}
+                            </button>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
