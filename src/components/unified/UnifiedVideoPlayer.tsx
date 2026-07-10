@@ -670,13 +670,12 @@ export function UnifiedVideoPlayer({
         )}
 
         {/* Controls overlay */}
-        {content.video_provider !== "bunny" && (
-          <div
-            className={cn(
-              "absolute bottom-0 left-0 right-0 transition-opacity duration-300",
-              showControls ? "opacity-100" : "opacity-0 pointer-events-none"
-            )}
-          >
+        <div
+          className={cn(
+            "absolute bottom-0 left-0 right-0 transition-opacity duration-300",
+            showControls ? "opacity-100" : "opacity-0 pointer-events-none"
+          )}
+        >
           {/* Gradient */}
           <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/40 to-transparent pointer-events-none" />
 
@@ -904,7 +903,6 @@ export function UnifiedVideoPlayer({
             </div>
           </div>
           </div>
-        )}
       </div>
 
       {/* Note Modal */}
