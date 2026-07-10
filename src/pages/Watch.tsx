@@ -256,6 +256,7 @@ function WatchContent() {
             visibility, price, duration_seconds, views_count, likes_count,
             status, creator_id, category_id, tags, created_at,
             is_curated, attribution_text, license_type, source_url,
+            video_provider, bunny_library_id, bunny_video_id,
             creator:profiles!creator_id(id, display_name, avatar_url, creator_channel_name)
           `)
           .eq("id", id)
@@ -315,7 +316,7 @@ function WatchContent() {
         // Fetch modules (needed for course display)
         const { data: modules } = await supabase
           .from("course_modules")
-          .select(`*, lessons:course_lessons(*)`)
+          .select(`*, lessons:course_lessons(*, content:contents(video_provider, bunny_video_id, bunny_library_id))`)
           .eq("course_id", id)
           .order("order_index", { ascending: true });
 
@@ -1070,6 +1071,9 @@ function WatchContent() {
                         duration_seconds: currentLesson.duration_seconds || 0,
                         content_id: currentLesson.content_id || null,
                         lesson_id: currentLesson.id,
+                        video_provider: currentLesson.content?.video_provider,
+                        bunny_video_id: currentLesson.content?.bunny_video_id,
+                        bunny_library_id: currentLesson.content?.bunny_library_id,
                       }}
                       mode="watch"
                       onTimeUpdate={handleTimeUpdate}
@@ -1099,6 +1103,9 @@ function WatchContent() {
                           content_type: content.content_type,
                           duration_seconds: content.duration_seconds,
                           content_id: content.id,
+                          video_provider: content.video_provider,
+                          bunny_video_id: content.bunny_video_id,
+                          bunny_library_id: content.bunny_library_id,
                         }}
                         mode="watch"
                         onTimeUpdate={handleTimeUpdate}

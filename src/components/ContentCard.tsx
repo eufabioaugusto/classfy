@@ -69,7 +69,7 @@ export const ContentCard = ({
   const creatorAvatar = propCreatorAvatar || content?.profiles?.avatar_url;
   const creatorId = content?.creator_id || content?.profiles?.id;
   const channelName = content?.profiles?.creator_channel_name;
-  const duration = propDuration || content?.duration_minutes;
+  const duration = propDuration || content?.duration_minutes || (content?.duration_seconds ? Math.round(content.duration_seconds / 60) : null);
   const lessonCount = propLessonCount || content?.lesson_count;
   const isFree = propIsFree !== undefined ? propIsFree : (content?.is_free ?? true);
   const price = propPrice || content?.price;

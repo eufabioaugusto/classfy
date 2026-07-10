@@ -104,6 +104,13 @@ Deno.serve(async (req) => {
       }
     }
 
+    // Fetch current content to avoid overwriting custom uploaded thumbnails
+    const { data: currentContent } = await supabase
+      .from('contents')
+      .select('thumbnail_url')
+      .eq('bunny_video_id', videoGuid)
+      .maybeSingle();
+
     // 3. Update database
     const updateData: any = {
       bunny_status: bunnyStatus,
@@ -114,7 +121,10 @@ Deno.serve(async (req) => {
     if (bunnyStatus === 'ready') {
       // In ready state, we also point file_url to the HLS playlist
       updateData.file_url = hlsUrl;
-      updateData.thumbnail_url = thumbnailUrl;
+      // Only set generic Bunny thumbnail if the user hasn't uploaded a custom one
+      if (!currentContent?.thumbnail_url) {
+        updateData.thumbnail_url = thumbnailUrl;
+      }
       if (durationSeconds !== null) {
         updateData.duration_seconds = durationSeconds;
       }
