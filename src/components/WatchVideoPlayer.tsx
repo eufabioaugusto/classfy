@@ -24,6 +24,9 @@ interface WatchVideoPlayerProps {
     creator?: {
       display_name: string;
     };
+    video_provider?: string;
+    bunny_video_id?: string | null;
+    bunny_library_id?: string | null;
   };
   onTimeUpdate?: (currentTime: number) => void;
   onCreateNote?: () => void;
@@ -383,7 +386,17 @@ export const WatchVideoPlayer = ({ content, onTimeUpdate, onCreateNote, seekToTi
         onMouseMove={handleMouseMove}
         onMouseLeave={handleMouseLeave}
       >
-        {isVideo ? (
+        {content.video_provider === "bunny" && content.bunny_video_id ? (
+          <div className="relative w-full aspect-video overflow-hidden">
+            <iframe
+              src={`https://iframe.mediadelivery.net/embed/${content.bunny_library_id || '700986'}/${content.bunny_video_id}?autoplay=true&loop=false&muted=false&preload=true&responsive=true`}
+              loading="lazy"
+              className="absolute top-0 left-0 w-full h-full border-none"
+              allow="accelerometer; gyroscope; autoplay; encrypted-media; picture-in-picture;"
+              allowFullScreen={true}
+            />
+          </div>
+        ) : isVideo ? (
           <video
             ref={videoRef}
             className="w-full aspect-video"
@@ -404,11 +417,12 @@ export const WatchVideoPlayer = ({ content, onTimeUpdate, onCreateNote, seekToTi
         )}
 
         {/* Custom Controls */}
-        <div
-          className={`absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/90 via-black/50 to-transparent p-2 sm:p-4 transition-opacity duration-300 ${
-            showControls ? "opacity-100" : "opacity-0"
-          }`}
-        >
+        {content.video_provider !== "bunny" && (
+          <div
+            className={`absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/90 via-black/50 to-transparent p-2 sm:p-4 transition-opacity duration-300 ${
+              showControls ? "opacity-100" : "opacity-0"
+            }`}
+          >
           {/* Progress Bar */}
           <div className="relative w-full mb-2 sm:mb-4">
             <input
@@ -548,7 +562,7 @@ export const WatchVideoPlayer = ({ content, onTimeUpdate, onCreateNote, seekToTi
               )}
             </div>
           </div>
-        </div>
+        )}
       </Card>
 
       {/* Note Modal */}

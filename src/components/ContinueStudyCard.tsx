@@ -142,33 +142,12 @@ export function ContinueStudyCard({ userId }: ContinueStudyCardProps) {
         >
           {/* Background Video/Image with Overlay */}
           <div className="absolute inset-0 bg-black">
-            {study.videoUrl ? (
-              <>
-                <video
-                  key={study.videoUrl}
-                  autoPlay
-                  loop
-                  muted
-                  playsInline
-                  preload="metadata"
-                  className="w-full h-full object-cover opacity-70"
-                  onError={(e) => {
-                    console.error('Video failed to load:', study.videoUrl);
-                    e.currentTarget.style.display = 'none';
-                  }}
-                  onLoadedData={() => console.log('Video loaded successfully')}
-                >
-                  <source src={study.videoUrl} type="video/mp4" />
-                </video>
-                {/* Dark overlay gradient - stronger at bottom */}
-                <div className="absolute inset-0 bg-gradient-to-t from-black via-black/70 to-black/30" />
-              </>
-            ) : study.thumbnailUrl ? (
+            {study.thumbnailUrl ? (
               <>
                 <img
                   src={study.thumbnailUrl}
                   alt={toShortTitle(study.title)}
-                  className="w-full h-full object-cover"
+                  className="w-full h-full object-cover opacity-70 group-hover:scale-105 transition-transform duration-500"
                   onError={(e) => {
                     console.error('Thumbnail failed to load:', study.thumbnailUrl);
                     e.currentTarget.style.display = 'none';
@@ -176,7 +155,7 @@ export function ContinueStudyCard({ userId }: ContinueStudyCardProps) {
                   onLoad={() => console.log('Thumbnail loaded successfully')}
                 />
                 {/* Dark overlay gradient - stronger at bottom */}
-                <div className="absolute inset-0 bg-gradient-to-t from-black via-black/60 to-black/20" />
+                <div className="absolute inset-0 bg-gradient-to-t from-black via-black/70 to-black/30" />
               </>
             ) : (
               <>

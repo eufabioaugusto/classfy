@@ -23,6 +23,9 @@ import { StandaloneCoverSelector } from "@/components/StandaloneCoverSelector";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from "@/components/ui/drawer";
 import { VideoPreparationLobby } from "@/components/video-lobby/VideoPreparationLobby";
+import * as tus from "tus-js-client";
+import { compressImage } from "@/utils/imageCompression";
+
 
 const DRAFT_KEY = "studio-upload-draft";
 const DRAFT_MAX_AGE = 24 * 60 * 60 * 1000; // 24h
@@ -93,6 +96,12 @@ export default function StudioUpload() {
   const [lobbyVideoSrc, setLobbyVideoSrc] = useState("");
   const isMobile = useIsMobile();
   const pendingFileRef = useRef<File | null>(null);
+  const [videoProvider, setVideoProvider] = useState<string>("supabase");
+  const [bunnyLibraryId, setBunnyLibraryId] = useState<string | null>(null);
+  const [bunnyVideoId, setBunnyVideoId] = useState<string | null>(null);
+  const [bunnyStatus, setBunnyStatus] = useState<string | null>(null);
+  const [bunnyHlsUrl, setBunnyHlsUrl] = useState<string | null>(null);
+  const [bunnyThumbnailUrl, setBunnyThumbnailUrl] = useState<string | null>(null);
   // Session persistence: restore draft
   useEffect(() => {
     if (editId) return; // Don't restore draft in edit mode
@@ -202,6 +211,13 @@ export default function StudioUpload() {
         setThumbnailPreview(data.thumbnail_url || "");
         setFileProgress(100);
         setThumbnailProgress(100);
+        // Load bunny fields if editing
+        setVideoProvider(data.video_provider || "supabase");
+        setBunnyLibraryId(data.bunny_library_id || null);
+        setBunnyVideoId(data.bunny_video_id || null);
+        setBunnyStatus(data.bunny_status || null);
+        setBunnyHlsUrl(data.bunny_hls_url || null);
+        setBunnyThumbnailUrl(data.bunny_thumbnail_url || null);
       }
     } catch (error: any) {
       console.error("Erro ao carregar conteúdo:", error);
@@ -316,78 +332,148 @@ export default function StudioUpload() {
         }
       }
       
-      setUploadState("uploading");
-      setFileProgress(0);
-      
-      const fileExt = fileToUpload.name.split('.').pop();
-      const fileName = `${user.id}/${Date.now()}.${fileExt}`;
+      if (contentType !== "podcast") {
+        setVideoProvider("bunny");
+        setUploadState("uploading");
+        setFileProgress(0);
 
-      const { data: session } = await supabase.auth.getSession();
-      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-      const uploadUrl = `${supabaseUrl}/storage/v1/object/contents/${fileName}`;
-
-      const maxRetries = 3;
-      let attempt = 0;
-
-      const attemptUpload = () => new Promise<void>((resolve, reject) => {
-        const xhr = new XMLHttpRequest();
-        xhrRef.current = xhr;
-
-        xhr.upload.addEventListener('progress', (event) => {
-          if (event.lengthComputable) {
-            const percent = Math.round((event.loaded / event.total) * 100);
-            setFileProgress(percent);
-          }
+        console.log("Chamando edge function bunny-video-sign...");
+        const { data: signData, error: signError } = await supabase.functions.invoke("bunny-video-sign", {
+          body: { title: title || fileToUpload.name }
         });
 
-        xhr.addEventListener('load', () => {
-          if (xhr.status >= 200 && xhr.status < 300) {
-            resolve();
-          } else {
-            reject(new Error(`Upload failed with status ${xhr.status}`));
-          }
-        });
-
-        xhr.addEventListener('error', () => reject(new Error('Upload failed')));
-        xhr.addEventListener('abort', () => reject(new Error('Upload aborted')));
-
-        xhr.open('POST', uploadUrl);
-        xhr.setRequestHeader('Authorization', `Bearer ${session?.session?.access_token}`);
-        xhr.setRequestHeader('x-upsert', 'true');
-        xhr.setRequestHeader('cache-control', 'public, max-age=31536000, immutable');
-        xhr.send(fileToUpload);
-      });
-
-      while (attempt < maxRetries) {
-        try {
-          await attemptUpload();
-          break;
-        } catch (err: any) {
-          attempt++;
-          if (err.message === 'Upload aborted' || attempt >= maxRetries) throw err;
-          const delay = Math.min(1000 * Math.pow(2, attempt - 1), 8000);
-          toast.info(`Tentativa ${attempt + 1}/${maxRetries}... Reenviando em ${delay / 1000}s`);
-          setFileProgress(0);
-          await new Promise(r => setTimeout(r, delay));
+        if (signError || !signData) {
+          throw new Error(signError?.message || "Falha ao obter credenciais de assinatura da Bunny Stream");
         }
-      }
 
-      setUploadState("processing");
-      
-      const { data: { publicUrl } } = supabase.storage
-        .from('contents')
-        .getPublicUrl(fileName);
+        const { videoId, libraryId, signature, expirationTime, uploadUrl } = signData;
+        setBunnyVideoId(videoId);
+        setBunnyLibraryId(libraryId);
+        setBunnyStatus("processing");
 
-      await new Promise(resolve => setTimeout(resolve, 500));
+        const cdnHostname = "vz-42560f79-6f8.b-cdn.net";
+        const hlsUrl = `https://${cdnHostname}/${videoId}/playlist.m3u8`;
+        const thumbnailUrl = `https://${cdnHostname}/${videoId}/thumbnail.jpg`;
 
-      setFileUrl(publicUrl);
-      setUploadState("complete");
-      setFileProgress(100);
-      
-      if (compressionRatio > 5) {
-        toast.success(`Arquivo enviado! Comprimido ${compressionRatio.toFixed(0)}%`);
+        setBunnyHlsUrl(hlsUrl);
+        setBunnyThumbnailUrl(thumbnailUrl);
+
+        // Define as URLs para compatibilidade imediata no frontend
+        setFileUrl(hlsUrl);
+        if (!thumbnailUrl && !manualThumbnail) {
+          setThumbnailUrl(thumbnailUrl);
+        }
+
+        // Fazer o upload TUS usando tus-js-client
+        await new Promise<void>((resolve, reject) => {
+          const upload = new tus.Upload(fileToUpload, {
+            endpoint: uploadUrl,
+            retryDelays: [0, 3000, 5000, 10000],
+            headers: {
+              AuthorizationSignature: signature,
+              AuthorizationExpire: expirationTime.toString(),
+              LibraryId: libraryId,
+              VideoId: videoId,
+            },
+            metadata: {
+              filename: fileToUpload.name,
+              filetype: fileToUpload.type,
+              title: title || fileToUpload.name,
+            },
+            onProgress: (bytesUploaded, bytesTotal) => {
+              const percent = Math.round((bytesUploaded / bytesTotal) * 100);
+              setFileProgress(percent);
+            },
+            onSuccess: () => {
+              console.log("Bunny Stream upload complete!");
+              resolve();
+            },
+            onError: (error) => {
+              console.error("Bunny Stream upload error:", error);
+              reject(error);
+            },
+          });
+          upload.start();
+        });
+
+        setUploadState("processing");
+        setFileProgress(100);
+        setUploadState("complete");
+        toast.success("Vídeo enviado com sucesso para a Bunny Stream!");
       } else {
-        toast.success("Arquivo enviado com sucesso!");
+        setUploadState("uploading");
+        setFileProgress(0);
+        
+        const fileExt = fileToUpload.name.split('.').pop();
+        const fileName = `${user.id}/${Date.now()}.${fileExt}`;
+
+        const { data: session } = await supabase.auth.getSession();
+        const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+        const uploadUrl = `${supabaseUrl}/storage/v1/object/contents/${fileName}`;
+
+        const maxRetries = 3;
+        let attempt = 0;
+
+        const attemptUpload = () => new Promise<void>((resolve, reject) => {
+          const xhr = new XMLHttpRequest();
+          xhrRef.current = xhr;
+
+          xhr.upload.addEventListener('progress', (event) => {
+            if (event.lengthComputable) {
+              const percent = Math.round((event.loaded / event.total) * 100);
+              setFileProgress(percent);
+            }
+          });
+
+          xhr.addEventListener('load', () => {
+            if (xhr.status >= 200 && xhr.status < 300) {
+              resolve();
+            } else {
+              reject(new Error(`Upload failed with status ${xhr.status}`));
+            }
+          });
+
+          xhr.addEventListener('error', () => reject(new Error('Upload failed')));
+          xhr.addEventListener('abort', () => reject(new Error('Upload aborted')));
+
+          xhr.open('POST', uploadUrl);
+          xhr.setRequestHeader('Authorization', `Bearer ${session?.session?.access_token}`);
+          xhr.setRequestHeader('x-upsert', 'true');
+          xhr.setRequestHeader('cache-control', 'public, max-age=31536000, immutable');
+          xhr.send(fileToUpload);
+        });
+
+        while (attempt < maxRetries) {
+          try {
+            await attemptUpload();
+            break;
+          } catch (err: any) {
+            attempt++;
+            if (err.message === 'Upload aborted' || attempt >= maxRetries) throw err;
+            const delay = Math.min(1000 * Math.pow(2, attempt - 1), 8000);
+            toast.info(`Tentativa ${attempt + 1}/${maxRetries}... Reenviando em ${delay / 1000}s`);
+            setFileProgress(0);
+            await new Promise(r => setTimeout(r, delay));
+          }
+        }
+
+        setUploadState("processing");
+        
+        const { data: { publicUrl } } = supabase.storage
+          .from('contents')
+          .getPublicUrl(fileName);
+
+        await new Promise(resolve => setTimeout(resolve, 500));
+
+        setFileUrl(publicUrl);
+        setUploadState("complete");
+        setFileProgress(100);
+        
+        if (compressionRatio > 5) {
+          toast.success(`Arquivo enviado! Comprimido ${compressionRatio.toFixed(0)}%`);
+        } else {
+          toast.success("Arquivo enviado com sucesso!");
+        }
       }
     } catch (error: any) {
       toast.error(error.message || "Erro ao enviar arquivo");
@@ -430,7 +516,8 @@ export default function StudioUpload() {
     setThumbnailProgress(0);
 
     try {
-      const fileExt = file.name.split('.').pop();
+      const compressedFile = await compressImage(file, 1280, 720, 0.8);
+      const fileExt = compressedFile.name.split('.').pop();
       const fileName = `thumbnails/${user.id}/${Date.now()}.${fileExt}`;
       
       const progressInterval = setInterval(() => {
@@ -445,7 +532,7 @@ export default function StudioUpload() {
 
       const { error } = await supabase.storage
         .from('contents')
-        .upload(fileName, file, {
+        .upload(fileName, compressedFile, {
           cacheControl: "31536000",
           upsert: false
         });
@@ -483,10 +570,11 @@ export default function StudioUpload() {
       setThumbnailPreview(data.thumbnailPreview);
       setManualThumbnail(true);
       try {
+        const compressedFile = await compressImage(data.thumbnailFile, 1280, 720, 0.8);
         const fileName = `thumbnails/${user.id}/${Date.now()}.jpg`;
         const { error } = await supabase.storage
           .from('contents')
-          .upload(fileName, data.thumbnailFile, { 
+          .upload(fileName, compressedFile, { 
             contentType: 'image/jpeg', 
             upsert: false,
             cacheControl: "31536000"
@@ -535,10 +623,11 @@ export default function StudioUpload() {
     setThumbnailPreview(previewUrl);
     
     try {
+      const compressedFile = await compressImage(file, 1280, 720, 0.8);
       const fileName = `thumbnails/${user.id}/${Date.now()}.jpg`;
       const { error } = await supabase.storage
         .from('contents')
-        .upload(fileName, file, { 
+        .upload(fileName, compressedFile, { 
           contentType: 'image/jpeg', 
           upsert: false,
           cacheControl: "31536000"
@@ -616,6 +705,12 @@ export default function StudioUpload() {
         price: visibility === 'paid' ? parseFloat(price) : 0,
         discount: visibility === 'paid' ? parseFloat(discount) : 0,
         tags: tags.length > 0 ? tags : null,
+        video_provider: videoProvider,
+        bunny_library_id: bunnyLibraryId,
+        bunny_video_id: bunnyVideoId,
+        bunny_status: bunnyStatus,
+        bunny_hls_url: bunnyHlsUrl,
+        bunny_thumbnail_url: bunnyThumbnailUrl,
       };
 
       if (isEditMode && editId) {

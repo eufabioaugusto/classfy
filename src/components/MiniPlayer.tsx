@@ -125,12 +125,25 @@ function DesktopMiniPlayer() {
     >
       {/* Video Container */}
       <div className="relative aspect-video bg-black cursor-pointer" onClick={handleGoToWatch}>
-        <video
-          ref={videoRef}
-          className="w-full h-full object-cover"
-          poster={state.content.thumbnail_url}
-          playsInline
-        />
+        {state.content.video_provider === "bunny" && state.content.bunny_video_id ? (
+          <div className="w-full h-full relative pointer-events-none">
+            <img 
+              src={state.content.thumbnail_url || `https://vz-42560f79-6f8.b-cdn.net/${state.content.bunny_video_id}/thumbnail.jpg`}
+              className="w-full h-full object-cover"
+              alt={state.content.title}
+            />
+            <div className="absolute inset-0 bg-black/30 flex items-center justify-center">
+              <Play className="w-12 h-12 text-white opacity-80" />
+            </div>
+          </div>
+        ) : (
+          <video
+            ref={videoRef}
+            className="w-full h-full object-cover"
+            poster={state.content.thumbnail_url}
+            playsInline
+          />
+        )}
 
         {/* Hover Controls Overlay */}
         <div
@@ -161,37 +174,43 @@ function DesktopMiniPlayer() {
           </button>
 
           {/* Center - Play/Pause */}
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              togglePlay();
-            }}
-            className="p-3 rounded-full bg-black/60 hover:bg-black/80 transition-colors"
-          >
-            {state.isPlaying ? (
-              <Pause className="h-6 w-6 text-white" />
-            ) : (
-              <Play className="h-6 w-6 text-white" />
-            )}
-          </button>
+          {state.content.video_provider !== "bunny" && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                togglePlay();
+              }}
+              className="p-3 rounded-full bg-black/60 hover:bg-black/80 transition-colors"
+            >
+              {state.isPlaying ? (
+                <Pause className="h-6 w-6 text-white" />
+              ) : (
+                <Play className="h-6 w-6 text-white" />
+              )}
+            </button>
+          )}
 
           {/* Bottom Left - Time */}
-          <div className="absolute bottom-3 left-3 text-xs text-white font-medium">
-            {formatTime(state.currentTime)} / {formatTime(state.duration)}
-          </div>
+          {state.content.video_provider !== "bunny" && (
+            <div className="absolute bottom-3 left-3 text-xs text-white font-medium">
+              {formatTime(state.currentTime)} / {formatTime(state.duration)}
+            </div>
+          )}
         </div>
 
         {/* Progress Bar */}
-        <div className="absolute bottom-0 left-0 right-0 h-1 bg-white/30">
-          <div
-            className="h-full bg-red-500 transition-all"
-            style={{ width: `${progressPercent}%` }}
-          />
-          <div
-            className="absolute top-1/2 -translate-y-1/2 w-3 h-3 bg-red-500 rounded-full"
-            style={{ left: `${progressPercent}%`, transform: `translateX(-50%) translateY(-50%)` }}
-          />
-        </div>
+        {state.content.video_provider !== "bunny" && (
+          <div className="absolute bottom-0 left-0 right-0 h-1 bg-white/30">
+            <div
+              className="h-full bg-red-500 transition-all"
+              style={{ width: `${progressPercent}%` }}
+            />
+            <div
+              className="absolute top-1/2 -translate-y-1/2 w-3 h-3 bg-red-500 rounded-full"
+              style={{ left: `${progressPercent}%`, transform: `translateX(-50%) translateY(-50%)` }}
+            />
+          </div>
+        )}
       </div>
 
       {/* Info Bar */}

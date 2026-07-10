@@ -37,6 +37,9 @@ export interface UnifiedVideoPlayerProps {
     creator?: {
       display_name: string;
     };
+    video_provider?: string;
+    bunny_video_id?: string | null;
+    bunny_library_id?: string | null;
   };
   mode?: "watch" | "study";
   compact?: boolean;
@@ -550,7 +553,17 @@ export function UnifiedVideoPlayer({
         onMouseMove={resetControlsTimeout}
         onMouseLeave={handleMouseLeave}
       >
-        {isVideo ? (
+        {content.video_provider === "bunny" && content.bunny_video_id ? (
+          <div className="relative w-full aspect-video overflow-hidden">
+            <iframe
+              src={`https://iframe.mediadelivery.net/embed/${content.bunny_library_id || '700986'}/${content.bunny_video_id}?autoplay=true&loop=false&muted=false&preload=true&responsive=true`}
+              loading="lazy"
+              className="absolute top-0 left-0 w-full h-full border-none"
+              allow="accelerometer; gyroscope; autoplay; encrypted-media; picture-in-picture;"
+              allowFullScreen={true}
+            />
+          </div>
+        ) : isVideo ? (
           <video
             ref={videoRef}
             className={cn(
@@ -619,12 +632,13 @@ export function UnifiedVideoPlayer({
         )}
 
         {/* Controls overlay */}
-        <div
-          className={cn(
-            "absolute bottom-0 left-0 right-0 transition-opacity duration-300",
-            showControls ? "opacity-100" : "opacity-0 pointer-events-none"
-          )}
-        >
+        {content.video_provider !== "bunny" && (
+          <div
+            className={cn(
+              "absolute bottom-0 left-0 right-0 transition-opacity duration-300",
+              showControls ? "opacity-100" : "opacity-0 pointer-events-none"
+            )}
+          >
           {/* Gradient */}
           <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/40 to-transparent pointer-events-none" />
 
@@ -851,7 +865,8 @@ export function UnifiedVideoPlayer({
               </div>
             </div>
           </div>
-        </div>
+          </div>
+        )}
       </div>
 
       {/* Note Modal */}

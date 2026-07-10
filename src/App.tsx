@@ -58,6 +58,8 @@ const LiveWatch = lazy(() => import("./pages/LiveWatch"));
 const CreatorProfile = lazy(() => import("./pages/CreatorProfile"));
 const ResetPassword = lazy(() => import("./pages/ResetPassword"));
 const NotFound = lazy(() => import("./pages/NotFound"));
+const MediaAudit = lazy(() => import("./pages/MediaAudit"));
+
 
 const queryClient = new QueryClient();
 
@@ -131,6 +133,7 @@ function AppContent() {
       <Route path="/live/:id" element={<LiveWatch />} />
       <Route path="/creators/destaque/:slug" element={<FeaturedCreatorPage />} />
       <Route path="/:username" element={<CreatorProfile />} />
+      {import.meta.env.DEV && <Route path="/dev/media-audit" element={<MediaAudit />} />}
       <Route path="*" element={<NotFound />} />
     </>
   );

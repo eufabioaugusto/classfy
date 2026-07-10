@@ -500,12 +500,12 @@ const FeaturedCreatorPage = () => {
                 <video
                   ref={videoRef}
                   src={creator.trailer_url}
-                  autoPlay
                   muted
                   playsInline
                   onPlay={handleVideoPlay}
                   onPause={handleVideoPause}
                   controls
+                  preload="metadata"
                   poster={creator.hero_image_url || creator.background_image_url}
                   className="w-full h-full object-cover"
                 >

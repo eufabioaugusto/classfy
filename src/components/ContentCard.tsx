@@ -102,7 +102,8 @@ export const ContentCard = ({
     if (visibility === "premium") return userPlan === "premium";
     return true;
   }, [visibility, isPurchased, userPlan]);
-  const hasPreviewableVideo = hasVideo && canPreview;
+  // Disable video hover previews globally to save Supabase CDN bandwidth as requested
+  const hasPreviewableVideo = false;
   const publishedAt = content?.published_at || content?.created_at;
 
   // Check if content is new (published within last 48 hours)

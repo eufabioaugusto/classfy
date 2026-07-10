@@ -11,6 +11,9 @@ export interface MiniPlayerContent {
   creator?: {
     display_name: string;
   };
+  video_provider?: string;
+  bunny_video_id?: string | null;
+  bunny_library_id?: string | null;
 }
 
 interface MiniPlayerState {
