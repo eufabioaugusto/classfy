@@ -1,5 +1,5 @@
 import { Button } from "@/components/ui/button";
-import { Crown, Check, Sparkles, Security } from "lucide-react";
+import { Crown, Check, Sparkles, LockOpen } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
 interface UpgradePromptCardProps {
@@ -124,7 +124,7 @@ export function UpgradePromptCard({
               <div className="space-y-3">
                 <p className="flex items-center gap-1.5 text-[12px] font-semibold text-muted-foreground dark:text-white/45">
                   <span className="flex h-4 w-4 items-center justify-center rounded-full bg-green-500/15">
-                    <Security className="h-3 w-3 text-green-500" strokeWidth={3} />
+                    <LockOpen className="h-3 w-3 text-green-500" strokeWidth={3} />
                   </span>
                   Desbloqueio imediato
                 </p>

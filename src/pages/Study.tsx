@@ -2883,7 +2883,7 @@ function StudyContent() {
                           "placeholder:text-muted-foreground/60",
                           "disabled:cursor-not-allowed"
                         )}
-                        style={{ minHeight: "24px", maxHeight: "160px", lineHeight: "2.2rem" }}
+                        style={{ minHeight: "24px", maxHeight: "160px" }}
                       />
                     </div>
 
