@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { useMiniPlayer } from "@/contexts/MiniPlayerContext";
 import { useNavigate, useLocation } from "react-router-dom";
 import { X, Play, Pause, ChevronUp, ChevronDown, PictureInPicture2 } from "lucide-react";
+import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
 import { cn } from "@/lib/utils";
 import { useIsMobile } from "@/hooks/use-mobile";
@@ -288,6 +289,12 @@ function DesktopMiniPlayer() {
 // Main export that chooses between Mobile and Desktop
 export const MiniPlayer = () => {
   const isMobile = useIsMobile();
+  const { user } = useAuth();
+  const location = useLocation();
+
+  if (!user || location.pathname === "/auth") {
+    return null;
+  }
   
   if (isMobile) {
     return <MobileMiniPlayer />;

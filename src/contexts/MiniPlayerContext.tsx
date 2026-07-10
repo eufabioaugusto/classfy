@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useRef, useCallback, useEffect, ReactNode } from "react";
 import { useMediaSession } from "@/hooks/useMediaSession";
+import { useAuth } from "@/contexts/AuthContext";
 
 export interface MiniPlayerContent {
   id: string;
@@ -149,6 +150,14 @@ export const MiniPlayerProvider = ({ children }: { children: ReactNode }) => {
       isExpanded: false,
     });
   }, []);
+
+  const { user } = useAuth();
+
+  useEffect(() => {
+    if (!user) {
+      closeMiniPlayer();
+    }
+  }, [user, closeMiniPlayer]);
 
   const togglePlay = useCallback(() => {
     const video = videoRef.current;
