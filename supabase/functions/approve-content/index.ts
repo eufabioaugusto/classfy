@@ -80,6 +80,17 @@ Deno.serve(async (req) => {
 
     console.log(`${itemType} approved successfully`);
 
+    // Check if this content was already approved (and thus rewarded) in the past
+    const trackingKey = `CONTENT_APPROVED_${contentId}`;
+    const { data: existingTracking } = await supabase
+      .from('reward_action_tracking')
+      .select('id')
+      .eq('user_id', content.creator_id)
+      .eq('action_key', trackingKey)
+      .maybeSingle();
+
+    const alreadyRewarded = !!existingTracking;
+
     // Get reward config to calculate points and value
     const { data: rewardConfig } = await supabase
       .from('reward_actions_config')
@@ -92,14 +103,18 @@ Deno.serve(async (req) => {
     const valueAmount = rewardConfig?.value_creator || 5.00;
 
     // ALWAYS create notification for content approval (independent of reward)
-      const itemLabel = itemType === 'course' ? 'curso' : 'conteúdo';
-      const { error: notificationError } = await supabase
+    const itemLabel = itemType === 'course' ? 'curso' : 'conteúdo';
+    const notificationMessage = alreadyRewarded
+      ? `Seu ${itemLabel} "${content.title}" foi aprovado e publicado!`
+      : `Seu ${itemLabel} "${content.title}" foi aprovado e publicado! Você ganhou ${pointsAmount} pontos e R$ ${valueAmount.toFixed(2)}!`;
+
+    const { error: notificationError } = await supabase
       .from('notifications')
       .insert({
         user_id: content.creator_id,
         type: 'admin',
         title: itemType === 'course' ? 'Curso aprovado! ✅' : 'Conteúdo aprovado! ✅',
-        message: `Seu ${itemLabel} "${content.title}" foi aprovado e publicado! Você ganhou ${pointsAmount} pontos e R$ ${valueAmount.toFixed(2)}!`,
+        message: notificationMessage,
         related_content_id: contentId,
         is_read: false
       });
@@ -123,9 +138,9 @@ Deno.serve(async (req) => {
           <p style="margin:0 0 4px;font-size:15px;color:#52525b;line-height:1.6;">
             Olá, <strong>${name}</strong>! Seu ${itemLabel} <strong>"${content.title}"</strong> foi aprovado e já está disponível na plataforma.
           </p>
-          ${rewardBox(pointsAmount, valueAmount)}
+          ${alreadyRewarded ? '' : rewardBox(pointsAmount, valueAmount)}
           ${ctaButton('Ver meu conteúdo', `${APP_URL}/studio/contents`)}
-          <p style="margin:0;font-size:13px;color:#71717a;">Continue criando! Cada conteúdo aprovado gera pontos e saldo na sua carteira.</p>
+          ${alreadyRewarded ? '' : '<p style="margin:0;font-size:13px;color:#71717a;">Continue criando! Cada conteúdo aprovado gera pontos e saldo na sua carteira.</p>'}
         `);
         await sendEmail(RESEND_API_KEY, creatorAuth.user.email, subject, html);
       }
@@ -135,48 +150,52 @@ Deno.serve(async (req) => {
 
     // Process reward (don't block response if it fails)
     try {
-      // Check if this is the first approved content
-      const { count: approvedCount } = await supabase
-        .from('contents')
-        .select('*', { count: 'exact', head: true })
-        .eq('creator_id', content.creator_id)
-        .eq('status', 'approved');
-
-      const isFirstApproval = approvedCount === 1; // Including the one we just approved
-
-      // Process CONTENT_APPROVED reward
-      const { data: rewardData, error: rewardError } = await supabase.functions.invoke('process-reward', {
-        body: {
-          actionKey: 'CONTENT_APPROVED',
-          userId: content.creator_id,
-          contentId: contentId,
-          metadata: { content_title: content.title }
-        }
-      });
-
-      if (rewardError) {
-        console.error('Error processing reward:', rewardError);
-      } else {
-        console.log('Reward processed:', rewardData);
-      }
-
-      // Process FIRST_UPLOAD reward if this is the first approval
-      if (isFirstApproval) {
-        console.log('First upload detected for creator:', content.creator_id);
-        const { error: firstUploadError } = await supabase.functions.invoke('process-reward', {
+      if (!alreadyRewarded) {
+        // Process CONTENT_APPROVED reward
+        const { data: rewardData, error: rewardError } = await supabase.functions.invoke('process-reward', {
           body: {
-            actionKey: 'FIRST_UPLOAD',
+            actionKey: 'CONTENT_APPROVED',
             userId: content.creator_id,
             contentId: contentId,
-            metadata: { first_content_title: content.title }
+            metadata: { content_title: content.title }
           }
         });
 
-        if (firstUploadError) {
-          console.error('Error processing first upload reward:', firstUploadError);
+        if (rewardError) {
+          console.error('Error processing reward:', rewardError);
         } else {
-          console.log('First upload reward processed');
+          console.log('Reward processed:', rewardData);
         }
+
+        // Check if this is the first approved content
+        const { count: approvedCount } = await supabase
+          .from('contents')
+          .select('*', { count: 'exact', head: true })
+          .eq('creator_id', content.creator_id)
+          .eq('status', 'approved');
+
+        const isFirstApproval = approvedCount === 1; // Including the one we just approved
+
+        // Process FIRST_UPLOAD reward if this is the first approval
+        if (isFirstApproval) {
+          console.log('First upload detected for creator:', content.creator_id);
+          const { error: firstUploadError } = await supabase.functions.invoke('process-reward', {
+            body: {
+              actionKey: 'FIRST_UPLOAD',
+              userId: content.creator_id,
+              contentId: contentId,
+              metadata: { first_content_title: content.title }
+            }
+          });
+
+          if (firstUploadError) {
+            console.error('Error processing first upload reward:', firstUploadError);
+          } else {
+            console.log('First upload reward processed');
+          }
+        }
+      } else {
+        console.log('Content already approved and rewarded previously, skipping payouts.');
       }
     } catch (err) {
       console.error('Exception processing reward:', err);
