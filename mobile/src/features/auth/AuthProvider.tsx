@@ -2,6 +2,7 @@ import { Session } from '@supabase/supabase-js';
 import { PropsWithChildren, useCallback, useEffect, useMemo, useState } from 'react';
 
 import { isSupabaseConfigured, supabase } from '@/lib/supabase';
+import { registerForPushNotificationsAsync } from '@/lib/notifications';
 import { AuthContext, AuthContextValue, MobileProfile } from './authContext';
 
 export function AuthProvider({ children }: PropsWithChildren) {
@@ -14,7 +15,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
   const loadProfile = useCallback(async (userId: string) => {
     const { data, error } = await supabase
       .from('profiles')
-      .select('id,display_name,avatar_url,creator_channel_name,plan')
+      .select('id,display_name,avatar_url,creator_channel_name,plan,bio,interests,difficulties,cover_image_url,expo_push_token')
       .eq('id', userId)
       .maybeSingle();
 
@@ -24,6 +25,11 @@ export function AuthProvider({ children }: PropsWithChildren) {
     }
 
     setProfile((data as MobileProfile | null) ?? null);
+    
+    // Register device push token automatically for push notifications
+    if (data?.id) {
+      registerForPushNotificationsAsync(data.id);
+    }
   }, []);
 
   const refreshProfile = useCallback(async () => {

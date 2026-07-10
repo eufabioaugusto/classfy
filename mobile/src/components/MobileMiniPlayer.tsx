@@ -27,19 +27,19 @@ export function MobileMiniPlayer() {
     <View pointerEvents="box-none" style={StyleSheet.absoluteFill}>
       <Pressable style={[styles.container, { bottom: insets.bottom + 86 }]} onPress={expand}>
         <View style={styles.videoBox}>
-          {content.fileUrl ? (
+          {content.fileUrl && (content.shouldPlay ?? true) ? (
             <Video
               source={{ uri: content.fileUrl }}
               style={styles.video}
               resizeMode={ResizeMode.COVER}
-              shouldPlay={content.shouldPlay ?? true}
+              shouldPlay={true}
               isMuted={false}
               posterSource={content.thumbnailUrl ? { uri: content.thumbnailUrl } : undefined}
               posterStyle={styles.video}
               progressUpdateIntervalMillis={1000}
               status={{
                 positionMillis: content.startPositionMillis || 0,
-                shouldPlay: content.shouldPlay ?? true,
+                shouldPlay: true,
               }}
             />
           ) : content.thumbnailUrl ? (

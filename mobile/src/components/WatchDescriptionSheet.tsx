@@ -1,10 +1,13 @@
+import { useRef, useMemo, useEffect } from 'react';
 import { Ionicons } from '@expo/vector-icons';
-import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Modal, Pressable, ScrollView, StyleSheet, Text, View, Animated, PanResponder, Dimensions, useWindowDimensions } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { colors } from '@/theme/colors';
 import { radius } from '@/theme/radius';
 import { spacing } from '@/theme/spacing';
 import { typography } from '@/theme/typography';
+import { useBottomSheetScroll } from '@/hooks/useBottomSheetScroll';
 
 type WatchDescriptionSheetProps = {
   visible: boolean;
@@ -43,51 +46,146 @@ export function WatchDescriptionSheet({
   tags,
   onClose,
 }: WatchDescriptionSheetProps) {
+  const sheetTranslateY = useRef(new Animated.Value(0)).current;
+  const insets = useSafeAreaInsets();
+  const { width: windowWidth, height: windowHeight } = useWindowDimensions();
+  const isLandscape = windowWidth > windowHeight;
+  const playerHeight = isLandscape ? 0 : windowWidth * (9 / 16);
+  const playerBottom = isLandscape ? 20 : insets.top + 12 + playerHeight;
+  const maxSheetHeight = windowHeight - playerBottom;
+
+  const {
+    scrollEnabled,
+    handleScroll,
+    onTouchStart,
+    onTouchMove,
+    onTouchEnd,
+    onTouchCancel,
+    isScrollAtTop,
+    setIsScrollAtTop,
+  } = useBottomSheetScroll();
+
+  useEffect(() => {
+    if (visible) {
+      sheetTranslateY.setValue(0);
+      setIsScrollAtTop(true);
+    }
+  }, [visible, setIsScrollAtTop]);
+
+  const sheetPanResponder = useMemo(
+    () =>
+      PanResponder.create({
+        onStartShouldSetPanResponder: () => false,
+        onMoveShouldSetPanResponder: (_, gestureState) =>
+          isScrollAtTop && gestureState.dy > 5 && Math.abs(gestureState.dy) > Math.abs(gestureState.dx),
+        onStartShouldSetPanResponderCapture: () => false,
+        onMoveShouldSetPanResponderCapture: (_, gestureState) =>
+          isScrollAtTop && gestureState.dy > 5 && Math.abs(gestureState.dy) > Math.abs(gestureState.dx),
+        onPanResponderMove: (_, gestureState) => {
+          if (gestureState.dy > 0) {
+            sheetTranslateY.setValue(gestureState.dy);
+          }
+        },
+        onPanResponderRelease: (_, gestureState) => {
+          if (gestureState.dy > 120 || gestureState.vy > 0.5) {
+            Animated.timing(sheetTranslateY, {
+              toValue: Dimensions.get('window').height,
+              duration: 200,
+              useNativeDriver: true,
+            }).start(() => {
+              onClose();
+            });
+          } else {
+            Animated.spring(sheetTranslateY, {
+              toValue: 0,
+              friction: 8,
+              tension: 80,
+              useNativeDriver: true,
+            }).start();
+          }
+        },
+      }),
+    [onClose, sheetTranslateY, isScrollAtTop]
+  );
+
   return (
-    <Modal animationType="slide" transparent visible={visible} onRequestClose={onClose}>
+    <Modal animationType="slide" transparent visible={visible} onRequestClose={onClose} supportedOrientations={['portrait', 'landscape']}>
       <View style={styles.backdrop}>
         <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
-        <View style={styles.sheet}>
-          <View style={styles.handle} />
-          <View style={styles.header}>
-            <Text style={styles.headerTitle}>Descricao</Text>
-            <Pressable hitSlop={12} onPress={onClose}>
-              <Ionicons name="close" color={colors.text} size={28} />
-            </Pressable>
+        <Animated.View
+          style={[
+            styles.sheet,
+            {
+              maxHeight: maxSheetHeight,
+              transform: [{ translateY: sheetTranslateY }]
+            }
+          ]}
+          {...sheetPanResponder.panHandlers}
+        >
+          <View
+            style={[
+              { flex: 1, width: '100%' },
+              isLandscape && {
+                width: Math.min(windowWidth, windowHeight * (16 / 9)),
+                alignSelf: 'center',
+              }
+            ]}
+          >
+            <View onStartShouldSetResponder={() => true} style={{ backgroundColor: 'transparent' }}>
+              <View style={styles.handle} />
+              <View style={styles.header}>
+                <Text style={styles.headerTitle}>Descricao</Text>
+                <Pressable hitSlop={12} onPress={onClose}>
+                  <Ionicons name="close" color={colors.text} size={28} />
+                </Pressable>
+              </View>
+            </View>
+
+            <ScrollView
+              style={{ flexShrink: 1 }}
+              showsVerticalScrollIndicator={false}
+              onScroll={handleScroll}
+              scrollEventThrottle={16}
+              bounces={false}
+              disableScrollViewPanResponder={true}
+              scrollEnabled={scrollEnabled}
+              onTouchStart={onTouchStart}
+              onTouchMove={onTouchMove}
+              onTouchEnd={onTouchEnd}
+              onTouchCancel={onTouchCancel}
+            >
+              <Text style={styles.title}>{title}</Text>
+
+              <View style={styles.stats}>
+                <Stat value={formatCount(likesCount)} label="Gostei" />
+                <Stat value={formatCount(viewsCount)} label="Views" />
+                <Stat value={formatDate(createdAt)} label="Publicado" />
+              </View>
+
+              {creatorName ? (
+                <View style={styles.creatorChip}>
+                  <Text style={styles.creatorChipText}>{creatorName}</Text>
+                </View>
+              ) : null}
+
+              <View style={styles.descriptionCard}>
+                <Text style={styles.descriptionText}>
+                  {description || 'Sem descricao disponivel para este conteudo.'}
+                </Text>
+              </View>
+
+              {tags?.length ? (
+                <View style={styles.tags}>
+                  {tags.slice(0, 12).map((tag) => (
+                    <View key={tag} style={styles.tag}>
+                      <Text style={styles.tagText}>#{tag}</Text>
+                    </View>
+                  ))}
+                </View>
+              ) : null}
+            </ScrollView>
           </View>
-
-          <ScrollView showsVerticalScrollIndicator={false}>
-            <Text style={styles.title}>{title}</Text>
-
-            <View style={styles.stats}>
-              <Stat value={formatCount(likesCount)} label="Gostei" />
-              <Stat value={formatCount(viewsCount)} label="Views" />
-              <Stat value={formatDate(createdAt)} label="Publicado" />
-            </View>
-
-            {creatorName ? (
-              <View style={styles.creatorChip}>
-                <Text style={styles.creatorChipText}>{creatorName}</Text>
-              </View>
-            ) : null}
-
-            <View style={styles.descriptionCard}>
-              <Text style={styles.descriptionText}>
-                {description || 'Sem descricao disponivel para este conteudo.'}
-              </Text>
-            </View>
-
-            {tags?.length ? (
-              <View style={styles.tags}>
-                {tags.slice(0, 12).map((tag) => (
-                  <View key={tag} style={styles.tag}>
-                    <Text style={styles.tagText}>#{tag}</Text>
-                  </View>
-                ))}
-              </View>
-            ) : null}
-          </ScrollView>
-        </View>
+        </Animated.View>
       </View>
     </Modal>
   );
@@ -108,7 +206,7 @@ function Stat({ value, label }: { value: string; label: string }) {
 
 const styles = StyleSheet.create({
   backdrop: {
-    backgroundColor: 'rgba(0,0,0,0.58)',
+    backgroundColor: 'transparent',
     flex: 1,
     justifyContent: 'flex-end',
   },
@@ -117,6 +215,7 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: radius.lg,
     borderTopRightRadius: radius.lg,
     maxHeight: '78%',
+    flex: 1,
     paddingBottom: spacing.xl,
     paddingHorizontal: spacing.lg,
   },

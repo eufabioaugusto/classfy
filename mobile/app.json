@@ -30,16 +30,31 @@
       [
         "expo-splash-screen",
         {
-          "backgroundColor": "#208AEF",
+          "backgroundColor": "#000000",
           "android": {
             "image": "./assets/images/splash-icon.png",
             "imageWidth": 76
           }
         }
+      ],
+      "expo-web-browser",
+      [
+        "expo-speech-recognition",
+        {
+          "microphonePermission": "Permitir uso do microfone para ditar mensagens.",
+          "speechRecognitionPermission": "Permitir reconhecimento de voz para transcrever ditados."
+        }
       ]
     ],
     "experiments": {
       "typedRoutes": true
-    }
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "81d4f70f-940b-4487-8119-6039e4f47d56"
+      }
+    },
+    "owner": "fabioarb"
   }
 }

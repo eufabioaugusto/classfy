@@ -6,6 +6,7 @@ import { HomeContent, HomeSection, featuredContent, previewSections } from './ho
 type HomeSectionsState = {
   featured: HomeContent;
   sections: HomeSection[];
+  featuredCreators: any[];
   loading: boolean;
   error: string | null;
   usingFallback: boolean;
@@ -22,6 +23,10 @@ type SupabaseHomeRow = {
   duration_seconds?: number | null;
   total_lessons?: number | null;
   total_duration_seconds?: number | null;
+  file_url?: string | null;
+  video_url?: string | null;
+  price?: number | null;
+  discount?: number | null;
   profiles?:
     | {
         display_name?: string | null;
@@ -54,7 +59,7 @@ function formatDuration(seconds?: number | null) {
     const mins = minutes % 60;
     return `${hours}:${String(mins).padStart(2, '0')}:${String(remaining).padStart(2, '0')}`;
   }
-  return `${minutes}:${String(remaining).padStart(2, '0')}`;
+  return `${minutes}:${String(minutes).padStart(2, '0')}`;
 }
 
 function profileName(item: SupabaseHomeRow) {
@@ -62,6 +67,7 @@ function profileName(item: SupabaseHomeRow) {
   return profile?.creator_channel_name || profile?.display_name || 'Creator Classfy';
 }
 
+// Helper to check profile avatar URL
 function profileAvatar(item: SupabaseHomeRow) {
   const profile = Array.isArray(item.profiles) ? item.profiles[0] : item.profiles;
   return profile?.avatar_url ?? null;
@@ -81,6 +87,10 @@ function normalizeContent(item: SupabaseHomeRow, category: string, index: number
     thumbnailUrl: item.thumbnail_url ?? null,
     creatorAvatarUrl: profileAvatar(item),
     description: item.description ?? null,
+    fileUrl: item.file_url ?? null,
+    videoUrl: item.video_url ?? null,
+    price: item.price ?? null,
+    discount: item.discount ?? null,
   };
 }
 
@@ -98,6 +108,8 @@ function normalizeCourse(item: SupabaseHomeRow, index: number): HomeContent {
     thumbnailUrl: item.thumbnail_url ?? null,
     creatorAvatarUrl: profileAvatar(item),
     description: item.description ?? null,
+    price: item.price ?? null,
+    discount: item.discount ?? null,
   };
 }
 
@@ -113,11 +125,42 @@ function firstAvailable(sections: HomeSection[]) {
   return sections.find((section) => section.contents.length > 0)?.contents[0] ?? featuredContent;
 }
 
+// Fallback featured creators if Supabase is offline
+const fallbackCreators = [
+  {
+    id: 'c1',
+    creator_id: '1',
+    background_image_url: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?q=80&w=400',
+    badge_text: 'New',
+    featured_image_url: '',
+    description: 'Encontre a Luz do seu Poder Pessoal',
+    link_url: '',
+    order_index: 1,
+    creator_name: 'Cindy Ribas',
+    total_duration: '8 minutos',
+    slug: 'cindy-ribas',
+  },
+  {
+    id: 'c2',
+    creator_id: '2',
+    background_image_url: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?q=80&w=400',
+    badge_text: 'New',
+    featured_image_url: '',
+    description: 'Construa sua Mentalidade Digital',
+    link_url: '',
+    order_index: 2,
+    creator_name: 'Fabio Augusto',
+    total_duration: '1h 12min',
+    slug: 'fabio-augusto',
+  },
+];
+
 export function useHomeSections(): HomeSectionsState {
   const fallback = useMemo(
     () => ({
       featured: featuredContent,
       sections: previewSections,
+      featuredCreators: fallbackCreators,
       loading: false,
       error: null,
       usingFallback: true,
@@ -127,7 +170,7 @@ export function useHomeSections(): HomeSectionsState {
 
   const [state, setState] = useState<HomeSectionsState>(
     isSupabaseConfigured
-      ? { featured: featuredContent, sections: [], loading: true, error: null, usingFallback: false }
+      ? { featured: featuredContent, sections: [], featuredCreators: [], loading: true, error: null, usingFallback: false }
       : fallback,
   );
 
@@ -148,17 +191,18 @@ export function useHomeSections(): HomeSectionsState {
         shortsResult,
         premiumResult,
         coursesResult,
+        featuredCreatorsResult,
       ] = await Promise.all([
         supabase
           .from('contents')
-          .select('id,title,description,thumbnail_url,content_type,visibility,views_count,duration_seconds,profiles:creator_id(display_name,creator_channel_name,avatar_url)')
+          .select('id,title,description,thumbnail_url,content_type,visibility,views_count,duration_seconds,file_url,video_url,price,discount,profiles:creator_id(display_name,creator_channel_name,avatar_url)')
           .eq('content_type', 'aula')
           .eq('status', 'approved')
           .order('views_count', { ascending: false })
           .limit(8),
         supabase
           .from('contents')
-          .select('id,title,description,thumbnail_url,content_type,visibility,views_count,duration_seconds,profiles:creator_id(display_name,creator_channel_name,avatar_url)')
+          .select('id,title,description,thumbnail_url,content_type,visibility,views_count,duration_seconds,file_url,video_url,price,discount,profiles:creator_id(display_name,creator_channel_name,avatar_url)')
           .eq('visibility', 'pro')
           .eq('status', 'approved')
           .in('content_type', ['aula'])
@@ -166,31 +210,36 @@ export function useHomeSections(): HomeSectionsState {
           .limit(8),
         supabase
           .from('contents')
-          .select('id,title,description,thumbnail_url,content_type,visibility,views_count,duration_seconds,profiles:creator_id(display_name,creator_channel_name,avatar_url)')
+          .select('id,title,description,thumbnail_url,content_type,visibility,views_count,duration_seconds,file_url,video_url,price,discount,profiles:creator_id(display_name,creator_channel_name,avatar_url)')
           .eq('content_type', 'podcast')
           .eq('status', 'approved')
           .order('views_count', { ascending: false })
           .limit(8),
         supabase
           .from('contents')
-          .select('id,title,description,thumbnail_url,content_type,visibility,views_count,duration_seconds,profiles:creator_id(display_name,creator_channel_name,avatar_url)')
+          .select('id,title,description,thumbnail_url,content_type,visibility,views_count,duration_seconds,file_url,video_url,price,discount,profiles:creator_id(display_name,creator_channel_name,avatar_url)')
           .eq('content_type', 'short')
           .eq('status', 'approved')
           .order('created_at', { ascending: false })
           .limit(10),
         supabase
           .from('contents')
-          .select('id,title,description,thumbnail_url,content_type,visibility,views_count,duration_seconds,profiles:creator_id(display_name,creator_channel_name,avatar_url)')
+          .select('id,title,description,thumbnail_url,content_type,visibility,views_count,duration_seconds,file_url,video_url,price,discount,profiles:creator_id(display_name,creator_channel_name,avatar_url)')
           .eq('visibility', 'premium')
           .eq('status', 'approved')
           .order('created_at', { ascending: false })
           .limit(8),
         supabase
           .from('courses')
-          .select('id,title,description,thumbnail_url,visibility,total_lessons,total_duration_seconds,profiles:creator_id(display_name,creator_channel_name,avatar_url)')
+          .select('id,title,description,thumbnail_url,visibility,price,discount,total_lessons,total_duration_seconds,profiles:creator_id(display_name,creator_channel_name,avatar_url)')
           .eq('status', 'approved')
           .order('created_at', { ascending: false })
           .limit(8),
+        supabase
+          .from('featured_creators')
+          .select('id,creator_id,background_image_url,badge_text,featured_image_url,description,link_url,order_index,slug,profiles:creator_id(display_name,creator_channel_name)')
+          .eq('show_on_home', true)
+          .order('order_index', { ascending: true }),
       ]);
 
       if (!mounted) {
@@ -203,12 +252,38 @@ export function useHomeSections(): HomeSectionsState {
         podcastResult.error ||
         shortsResult.error ||
         premiumResult.error ||
-        coursesResult.error;
+        coursesResult.error ||
+        featuredCreatorsResult.error;
 
       if (firstError) {
         setState({ ...fallback, error: firstError.message });
         return;
       }
+
+      // Process featured creators with duration calculation dynamically from contents table
+      const featuredCreatorsData = featuredCreatorsResult.data || [];
+      const creatorsWithDuration = await Promise.all(
+        featuredCreatorsData.map(async (creator: any) => {
+          const { data: contents } = await supabase
+            .from('contents')
+            .select('duration_seconds')
+            .eq('creator_id', creator.creator_id)
+            .eq('status', 'approved');
+
+          const totalSeconds = contents?.reduce((acc, c) => acc + (c.duration_seconds || 0), 0) || 0;
+          const hours = Math.floor(totalSeconds / 3600);
+          const minutes = Math.floor((totalSeconds % 3600) / 60);
+
+          const profile = Array.isArray(creator.profiles) ? creator.profiles[0] : creator.profiles;
+          const creatorName = profile?.creator_channel_name || profile?.display_name || 'Creator';
+
+          return {
+            ...creator,
+            creator_name: creatorName,
+            total_duration: hours > 0 ? `${hours}h ${minutes}min` : `${minutes} minutos`,
+          };
+        })
+      );
 
       const rawSections: HomeSection[] = [
         {
@@ -254,6 +329,7 @@ export function useHomeSections(): HomeSectionsState {
       setState({
         featured: firstAvailable(sections),
         sections,
+        featuredCreators: creatorsWithDuration,
         loading: false,
         error: null,
         usingFallback: false,

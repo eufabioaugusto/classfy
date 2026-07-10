@@ -12,5 +12,5 @@ export const typography = {
   weightMedium: '500' as const,
   weightSemibold: '600' as const,
   weightBold: '700' as const,
-  weightBlack: '900' as const,
+  weightBlack: '700' as const,
 };

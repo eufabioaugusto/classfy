@@ -13,4 +13,6 @@ export type ContentSummary = {
   views_count?: number | null;
   duration_seconds?: number | null;
   profiles?: CreatorSummary | CreatorSummary[] | null;
+  price?: number | null;
+  discount?: number | null;
 };

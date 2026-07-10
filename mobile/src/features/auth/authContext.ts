@@ -7,6 +7,11 @@ export type MobileProfile = {
   avatar_url: string | null;
   creator_channel_name: string | null;
   plan: string | null;
+  bio?: string | null;
+  interests?: any;
+  difficulties?: any;
+  cover_image_url?: string | null;
+  expo_push_token?: string | null;
 };
 
 export type AuthContextValue = {

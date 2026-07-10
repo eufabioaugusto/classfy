@@ -73,7 +73,7 @@ const styles = StyleSheet.create({
   title: {
     color: colors.text,
     fontSize: type.xxxl,
-    fontWeight: '900',
+    fontWeight: '700',
   },
   subtitle: {
     color: colors.muted,
@@ -101,6 +101,6 @@ const styles = StyleSheet.create({
   buttonText: {
     color: colors.background,
     fontSize: type.md,
-    fontWeight: '900',
+    fontWeight: '700',
   },
 });

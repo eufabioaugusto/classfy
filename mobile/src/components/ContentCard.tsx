@@ -1,6 +1,9 @@
 import { Href, Link } from 'expo-router';
-import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Image } from 'expo-image';
+import { Ionicons } from '@expo/vector-icons';
 
+import { useAuth } from '@/features/auth/authContext';
 import { colors, radius, spacing, type } from '@/theme/tokens';
 import { ContentSummary } from '@/types/content';
 
@@ -21,8 +24,26 @@ function formatViews(value?: number | null) {
 }
 
 export function ContentCard({ content }: ContentCardProps) {
+  const { profile } = useAuth();
+  const userPlan = (profile?.plan || 'free') as 'free' | 'pro' | 'premium';
+
+  // Access check to decide the target route directly on card click
+  let targetHref: string = `/watch/${content.id}`;
+
+  if (content.visibility === 'paid') {
+    targetHref = `/purchase/${content.id}`;
+  } else if (content.visibility === 'pro' && userPlan === 'free') {
+    targetHref = '/premium';
+  } else if (content.visibility === 'premium' && userPlan !== 'premium') {
+    targetHref = '/premium';
+  }
+
+  const discount = content.discount || 0;
+  const price = content.price || 0;
+  const finalPrice = price * (1 - discount / 100);
+
   return (
-    <Link href={`/watch/${content.id}` as Href} asChild>
+    <Link href={targetHref as Href} asChild>
       <Pressable style={styles.card}>
         <View style={styles.thumbnail}>
           {content.thumbnail_url ? (
@@ -41,6 +62,25 @@ export function ContentCard({ content }: ContentCardProps) {
           <Text numberOfLines={1} style={styles.meta}>
             {creatorName(content)} · {formatViews(content.views_count)}
           </Text>
+          
+          {/* Display Price and Buy Options for Paid Content */}
+          {content.visibility === 'paid' && price > 0 ? (
+            <View style={styles.priceTagRow}>
+              <Ionicons name="cart-outline" size={13} color={colors.accent} />
+              <Text style={styles.priceTagText}>
+                R$ {finalPrice.toFixed(2)}
+              </Text>
+              {discount > 0 && (
+                <Text style={styles.strikethroughPrice}>
+                  R$ {price.toFixed(2)}
+                </Text>
+              )}
+              <View style={styles.buyBadge}>
+                <Text style={styles.buyBadgeText}>COMPRAR</Text>
+              </View>
+            </View>
+          ) : null}
+
           {content.description ? (
             <Text numberOfLines={2} style={styles.description}>
               {content.description}
@@ -105,9 +145,41 @@ const styles = StyleSheet.create({
     color: colors.muted,
     fontSize: type.sm,
   },
+  priceTagRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 2,
+    gap: 4,
+  },
+  priceTagText: {
+    color: colors.accent,
+    fontSize: type.sm,
+    fontWeight: '900',
+  },
+  strikethroughPrice: {
+    color: colors.muted,
+    textDecorationLine: 'line-through',
+    fontSize: type.xs,
+    marginLeft: 2,
+  },
+  buyBadge: {
+    backgroundColor: 'rgba(226, 29, 72, 0.08)',
+    borderColor: 'rgba(226, 29, 72, 0.15)',
+    borderWidth: 1,
+    borderRadius: radius.sm,
+    paddingHorizontal: 6,
+    paddingVertical: 1,
+    marginLeft: 6,
+  },
+  buyBadgeText: {
+    color: colors.accent,
+    fontSize: 9,
+    fontWeight: '900',
+  },
   description: {
     color: colors.muted,
     fontSize: type.sm,
     lineHeight: 19,
+    marginTop: 2,
   },
 });

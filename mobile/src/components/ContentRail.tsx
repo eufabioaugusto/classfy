@@ -6,9 +6,15 @@ import { MobileVideoCard } from './MobileVideoCard';
 
 type ContentRailProps = {
   contents: HomeContent[];
+  layout?: 'horizontal' | 'vertical' | 'square';
 };
 
-export function ContentRail({ contents }: ContentRailProps) {
+export function ContentRail({ contents, layout = 'horizontal' }: ContentRailProps) {
+  const getItemWidth = () => {
+    if (layout === 'square') return 140;
+    return 272;
+  };
+
   return (
     <FlatList
       horizontal
@@ -17,8 +23,8 @@ export function ContentRail({ contents }: ContentRailProps) {
       showsHorizontalScrollIndicator={false}
       contentContainerStyle={styles.content}
       renderItem={({ item }) => (
-        <View style={styles.item}>
-          <MobileVideoCard content={item} />
+        <View style={[styles.item, { width: getItemWidth() }]}>
+          <MobileVideoCard content={item} layout={layout} />
         </View>
       )}
     />
@@ -29,8 +35,9 @@ const styles = StyleSheet.create({
   content: {
     gap: spacing.lg,
     paddingBottom: spacing.lg,
+    paddingHorizontal: 0, // Align exactly at 0 margin inside AppScreen
   },
   item: {
-    width: 272,
+    // Width handled dynamically in inline styles
   },
 });

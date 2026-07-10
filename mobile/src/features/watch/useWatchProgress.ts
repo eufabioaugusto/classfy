@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { useAuth } from '@/features/auth/authContext';
 import { supabase } from '@/lib/supabase';
@@ -28,6 +28,8 @@ export function useWatchProgress({ contentId, durationSeconds = 0, enabled = fal
     half: false,
     complete: false,
   });
+  const [savedPosition, setSavedPosition] = useState<number | null>(null);
+  const [hasLoadedSavedProgress, setHasLoadedSavedProgress] = useState(false);
 
   const previousPositionRef = useRef(0);
   const accumulatedWatchRef = useRef(0);
@@ -38,6 +40,45 @@ export function useWatchProgress({ contentId, durationSeconds = 0, enabled = fal
     half: false,
     complete: false,
   });
+  const lastUpdateTimestampRef = useRef<number | null>(null);
+
+  // Load saved progress on mount
+  useEffect(() => {
+    if (!user || !contentId || !enabled) {
+      setSavedPosition(null);
+      setHasLoadedSavedProgress(false);
+      return;
+    }
+
+    async function loadProgress() {
+      try {
+        const { data, error } = await supabase
+          .from('user_progress')
+          .select('last_position_seconds, progress_percent')
+          .eq('user_id', user?.id)
+          .eq('content_id', contentId)
+          .maybeSingle();
+
+        if (!error && data) {
+          const secs = data.last_position_seconds || 0;
+          setSavedPosition(secs);
+          setWatchPercent(data.progress_percent || 0);
+          accumulatedWatchRef.current = secs;
+          previousPositionRef.current = secs;
+          lastProgressWriteRef.current = secs;
+        } else {
+          setSavedPosition(0);
+        }
+      } catch (e) {
+        console.error('Error loading user progress:', e);
+        setSavedPosition(0);
+      } finally {
+        setHasLoadedSavedProgress(true);
+      }
+    }
+
+    loadProgress();
+  }, [user, contentId, enabled]);
 
   const updateMilestone = useCallback((key: keyof WatchMilestones) => {
     milestoneRef.current = { ...milestoneRef.current, [key]: true };
@@ -127,10 +168,26 @@ export function useWatchProgress({ contentId, durationSeconds = 0, enabled = fal
     async (positionSeconds: number) => {
       if (!enabled || !user || !contentId || !durationSeconds) return;
 
+      const now = Date.now();
+      if (lastUpdateTimestampRef.current === null) {
+        lastUpdateTimestampRef.current = now;
+        previousPositionRef.current = positionSeconds;
+        return;
+      }
+
+      const realDelta = (now - lastUpdateTimestampRef.current) / 1000;
+      lastUpdateTimestampRef.current = now;
+
       const delta = positionSeconds - previousPositionRef.current;
       previousPositionRef.current = positionSeconds;
 
-      if (delta > 0 && delta <= maxNaturalJumpSeconds) {
+      // Skip progress update if elapsed real time is too large (indicating resumption from pause/background)
+      if (realDelta > 1.5) {
+        return;
+      }
+
+      // Increment progress only if playhead advanced forward organically relative to wall-clock time
+      if (delta > 0 && delta <= maxNaturalJumpSeconds && delta <= realDelta * 2.5) {
         accumulatedWatchRef.current += delta;
       }
 
@@ -186,5 +243,7 @@ export function useWatchProgress({ contentId, durationSeconds = 0, enabled = fal
     realWatchSeconds,
     milestones,
     handlePlaybackPosition,
+    savedPositionSeconds: savedPosition,
+    hasLoadedSavedProgress,
   };
 }

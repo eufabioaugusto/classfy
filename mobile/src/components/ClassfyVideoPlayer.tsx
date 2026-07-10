@@ -1,12 +1,17 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
 import { Feather, Ionicons } from '@expo/vector-icons';
 import { Audio, AVPlaybackStatus, ResizeMode, Video } from 'expo-av';
-import { Animated, GestureResponderEvent, LayoutChangeEvent, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Animated, GestureResponderEvent, Image, LayoutChangeEvent, Modal, Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 
 import { colors } from '@/theme/colors';
 import { radius } from '@/theme/radius';
 import { spacing } from '@/theme/spacing';
 import { typography } from '@/theme/typography';
+
+export type ClassfyVideoPlayerRef = {
+  seekTo: (seconds: number) => Promise<void>;
+  getCurrentPosition: () => number;
+};
 
 type ClassfyVideoPlayerProps = {
   src: string;
@@ -17,6 +22,20 @@ type ClassfyVideoPlayerProps = {
   onNotesPress?: () => void;
   onPlaybackPosition?: (positionSeconds: number) => void;
   onStatusUpdate?: (status: AVPlaybackStatus) => void;
+  isFullscreen?: boolean;
+  onFullscreenToggle?: (fullscreen: boolean) => void;
+  playbackRate?: number;
+  onControlsPress?: () => void;
+  isLiked?: boolean;
+  likesCount?: number;
+  onLikePress?: () => void;
+  isSaved?: boolean;
+  onSavePress?: () => void;
+  isFavorited?: boolean;
+  onFavoritePress?: () => void;
+  onCommentsPress?: () => void;
+  onSharePress?: () => void;
+  onStudyPress?: (tab: 'notes' | 'transcript' | 'quiz' | 'suggestions') => void;
 };
 
 const speedOptions = [0.5, 0.75, 1, 1.25, 1.5, 2];
@@ -28,16 +47,51 @@ function formatTime(milliseconds: number) {
   return `${minutes}:${seconds.toString().padStart(2, '0')}`;
 }
 
-export function ClassfyVideoPlayer({
+function formatCount(value?: number | null) {
+  if (!value) return '0';
+  if (value >= 1000000) return `${(value / 1000000).toFixed(1).replace(/\.0$/, '')}M`;
+  if (value >= 1000) return `${(value / 1000).toFixed(1).replace(/\.0$/, '')}k`;
+  return value.toString();
+}
+
+export const ClassfyVideoPlayer = forwardRef<ClassfyVideoPlayerRef, ClassfyVideoPlayerProps>(({
   src,
   poster,
+  title,
   creatorName,
   onMinimize,
   onNotesPress,
   onPlaybackPosition,
   onStatusUpdate,
-}: ClassfyVideoPlayerProps) {
+  isFullscreen = false,
+  onFullscreenToggle,
+  playbackRate = 1,
+  onControlsPress,
+  isLiked,
+  likesCount,
+  onLikePress,
+  isSaved,
+  onSavePress,
+  isFavorited,
+  onFavoritePress,
+  onCommentsPress,
+  onSharePress,
+  onStudyPress,
+}, ref) => {
   const videoRef = useRef<Video>(null);
+
+  useImperativeHandle(ref, () => ({
+    seekTo: async (seconds: number) => {
+      const status = await videoRef.current?.getStatusAsync();
+      if (status?.isLoaded) {
+        await videoRef.current?.setPositionAsync(seconds * 1000);
+        setPositionMillis(seconds * 1000);
+      }
+    },
+    getCurrentPosition: () => {
+      return positionMillis / 1000;
+    },
+  }));
   const controlsTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const singleTapTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const controlsOpacity = useRef(new Animated.Value(1)).current;
@@ -45,12 +99,11 @@ export function ClassfyVideoPlayer({
   const lastRightTapRef = useRef(0);
   const [showControls, setShowControls] = useState(true);
   const [controlsVisible, setControlsVisible] = useState(true);
-  const [settingsOpen, setSettingsOpen] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
+  const [hasStartedPlaying, setHasStartedPlaying] = useState(false);
   const [positionMillis, setPositionMillis] = useState(0);
   const [durationMillis, setDurationMillis] = useState(0);
   const [progressWidth, setProgressWidth] = useState(0);
-  const [playbackRate, setPlaybackRate] = useState(1);
 
   useEffect(() => {
     Audio.setAudioModeAsync({
@@ -107,6 +160,13 @@ export function ClassfyVideoPlayer({
   };
 
   const togglePlay = async () => {
+    if (!hasStartedPlaying) {
+      setHasStartedPlaying(true);
+      setIsPlaying(true);
+      setShowControls(true);
+      resetControlsTimer(true);
+      return;
+    }
     const status = await videoRef.current?.getStatusAsync();
     if (!status?.isLoaded) return;
     if (status.isPlaying) {
@@ -159,21 +219,21 @@ export function ClassfyVideoPlayer({
     singleTapTimerRef.current = setTimeout(toggleControls, 220);
   };
 
-  const setRate = async (rate: number) => {
-    await videoRef.current?.setRateAsync(rate, true);
-    setPlaybackRate(rate);
-    setSettingsOpen(false);
-    setShowControls(true);
-    resetControlsTimer();
-  };
-
   const openSettings = () => {
     setShowControls(true);
-    setSettingsOpen(true);
+    onControlsPress?.();
   };
 
-  const openFullscreen = async () => {
-    await videoRef.current?.presentFullscreenPlayer();
+  useEffect(() => {
+    if (videoRef.current) {
+      videoRef.current.setRateAsync(playbackRate, true).catch(() => {});
+    }
+    setShowControls(true);
+    resetControlsTimer();
+  }, [playbackRate]);
+
+  const toggleFullscreen = () => {
+    onFullscreenToggle?.(!isFullscreen);
   };
 
   const handleStatus = (status: AVPlaybackStatus) => {
@@ -185,16 +245,26 @@ export function ClassfyVideoPlayer({
     if (status.isPlaying) onPlaybackPosition?.(status.positionMillis / 1000);
   };
 
+  const { width: windowWidth, height: windowHeight } = useWindowDimensions();
   return (
-    <View style={styles.container}>
+    <View style={[
+      styles.container,
+      isFullscreen && {
+        aspectRatio: 16 / 9,
+        height: windowHeight,
+        width: undefined,
+        justifyContent: 'center',
+        alignItems: 'center',
+      }
+    ]}>
       <Video
         ref={videoRef}
-        source={{ uri: src }}
+        source={hasStartedPlaying ? { uri: src } : undefined}
         style={styles.video}
         resizeMode={ResizeMode.CONTAIN}
         posterSource={poster ? { uri: poster } : undefined}
         posterStyle={styles.video}
-        shouldPlay={false}
+        shouldPlay={hasStartedPlaying}
         useNativeControls={false}
         progressUpdateIntervalMillis={350}
         onPlaybackStatusUpdate={handleStatus}
@@ -209,9 +279,17 @@ export function ClassfyVideoPlayer({
           <Pressable style={styles.cleanTapZone} onPress={() => setShowControls(false)} />
           <View pointerEvents="box-none" style={styles.topRow}>
             <View style={styles.topLeft}>
-              <Pressable hitSlop={12} style={styles.topButton} onPress={onMinimize}>
+              <Pressable hitSlop={12} style={styles.topButton} onPress={isFullscreen ? toggleFullscreen : onMinimize}>
                 <Ionicons name="chevron-down" color={colors.text} size={30} />
               </Pressable>
+              {isFullscreen && (
+                <View style={styles.topMeta}>
+                  <Text style={styles.fullscreenTitle} numberOfLines={1}>{title}</Text>
+                  <Text style={styles.fullscreenCreator} numberOfLines={1}>
+                    {'@' + (creatorName || 'classfy').toLowerCase().replace(/\s+/g, '.')}
+                  </Text>
+                </View>
+              )}
             </View>
             <View style={styles.topActions}>
               <Pressable style={styles.controlPill} onPress={openSettings}>
@@ -241,19 +319,66 @@ export function ClassfyVideoPlayer({
             </Pressable>
           </View>
 
-          <View pointerEvents="box-none" style={styles.bottomOverlay}>
-            <View style={styles.metaPill}>
-              <Text style={styles.timeText}>
-                {formatTime(positionMillis)} / {formatTime(durationMillis)}
-              </Text>
+          {isFullscreen ? (
+            <View pointerEvents="box-none" style={styles.fullscreenBottomRow}>
+              <View style={styles.fullscreenActionsRow}>
+                <View style={styles.fullscreenTimePill}>
+                  <Text style={styles.timeText}>
+                    {formatTime(positionMillis)} / {formatTime(durationMillis)}
+                  </Text>
+                </View>
+
+                {/* Like Pill */}
+                <Pressable style={styles.fullscreenLikePill} onPress={onLikePress}>
+                  <Ionicons name={isLiked ? 'thumbs-up' : 'thumbs-up-outline'} color={colors.text} size={18} />
+                  {likesCount !== undefined && likesCount > 0 ? (
+                    <Text style={styles.fullscreenPillText}>{formatCount(likesCount)}</Text>
+                  ) : null}
+                </Pressable>
+
+                {/* Comments Pill */}
+                <Pressable style={styles.fullscreenSinglePill} onPress={onCommentsPress}>
+                  <Ionicons name="chatbubble-outline" color={colors.text} size={18} />
+                </Pressable>
+
+                {/* Favorite/Save Pill */}
+                <Pressable style={styles.fullscreenSinglePill} onPress={onSavePress}>
+                  <Ionicons name={isSaved ? 'bookmark' : 'bookmark-outline'} color={colors.text} size={18} />
+                </Pressable>
+
+                {/* Star/Study Pill */}
+                <Pressable style={styles.fullscreenSinglePill} onPress={() => onStudyPress?.('quiz')}>
+                  <Ionicons name="sparkles-outline" color={colors.text} size={18} />
+                </Pressable>
+              </View>
+
+              <View style={styles.fullscreenBottomRight}>
+                {poster && (
+                  <Pressable style={styles.moreVideosPill} onPress={() => onStudyPress?.('suggestions')}>
+                    <Text style={styles.moreVideosText}>Mais vídeos</Text>
+                    <Image source={{ uri: poster }} style={styles.moreVideosThumb} />
+                  </Pressable>
+                )}
+                <Pressable style={styles.fullscreenMinimizeBtn} onPress={toggleFullscreen}>
+                  <Feather name="minimize-2" color={colors.text} size={22} />
+                </Pressable>
+              </View>
             </View>
-            <Pressable style={styles.floatButton} onPress={openFullscreen}>
-              <Feather name="maximize-2" color={colors.text} size={23} />
-            </Pressable>
-          </View>
+          ) : (
+            <View pointerEvents="box-none" style={styles.bottomOverlay}>
+              <View style={styles.metaPill}>
+                <Text style={styles.timeText}>
+                  {formatTime(positionMillis)} / {formatTime(durationMillis)}
+                </Text>
+              </View>
+              <Pressable style={styles.floatButton} onPress={toggleFullscreen}>
+                <Feather name={isFullscreen ? 'minimize-2' : 'maximize-2'} color={colors.text} size={23} />
+              </Pressable>
+            </View>
+          )}
 
           <View
-            style={styles.progressRail}
+            style={[styles.progressRail, isFullscreen && { bottom: 68 }]}
             onLayout={handleProgressLayout}
             onStartShouldSetResponder={() => true}
             onMoveShouldSetResponder={() => true}
@@ -269,93 +394,9 @@ export function ClassfyVideoPlayer({
         </Animated.View>
       ) : null}
 
-      <SettingsSheet
-        visible={settingsOpen}
-        playbackRate={playbackRate}
-        creatorName={creatorName}
-        onClose={() => setSettingsOpen(false)}
-        onRateSelect={setRate}
-      />
     </View>
   );
-}
-
-function SettingsSheet({
-  visible,
-  playbackRate,
-  creatorName,
-  onClose,
-  onRateSelect,
-}: {
-  visible: boolean;
-  playbackRate: number;
-  creatorName?: string | null;
-  onClose: () => void;
-  onRateSelect: (rate: number) => void;
-}) {
-  return (
-    <Modal transparent visible={visible} animationType="slide" onRequestClose={onClose}>
-      <View style={styles.sheetBackdrop}>
-        <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
-        <View style={styles.sheet}>
-          <View style={styles.sheetHandle} />
-          <Text style={styles.sheetSectionTitle}>Controles</Text>
-          <SheetRow icon="options-outline" label="Qualidade" value="Automatica (720p)" />
-          <View style={styles.speedBlock}>
-            <View style={styles.speedHeader}>
-              <Ionicons name="play-circle-outline" color={colors.text} size={28} />
-              <Text style={styles.sheetLabel}>Velocidade da reproducao</Text>
-            </View>
-            <View style={styles.speedOptions}>
-              {speedOptions.map((rate) => (
-                <Pressable
-                  key={rate}
-                  style={[styles.speedChip, playbackRate === rate && styles.speedChipActive]}
-                  onPress={() => onRateSelect(rate)}
-                >
-                  <Text style={[styles.speedText, playbackRate === rate && styles.speedTextActive]}>
-                    {rate}x
-                  </Text>
-                </Pressable>
-              ))}
-            </View>
-          </View>
-          <SheetRow icon="text-outline" label="Legendas" value="Desativadas" />
-          <SheetRow icon="lock-closed-outline" label="Tela de bloqueio" />
-          <SheetRow icon="person-circle-outline" label="Criador" value={creatorName || 'Classfy'} />
-          <Text style={styles.sheetSectionTitle}>Controles Premium</Text>
-          <SheetRow icon="language-outline" label="Legendas traduzidas" value="Bloqueado" premium locked />
-          <SheetRow icon="sparkles-outline" label="Resumo inteligente" value="Bloqueado" premium locked />
-          <SheetRow icon="star-outline" label="Recompensas avancadas" value="Bloqueado" premium locked />
-        </View>
-      </View>
-    </Modal>
-  );
-}
-
-function SheetRow({
-  icon,
-  label,
-  value,
-  premium,
-  locked,
-}: {
-  icon: keyof typeof Ionicons.glyphMap;
-  label: string;
-  value?: string;
-  premium?: boolean;
-  locked?: boolean;
-}) {
-  return (
-    <View style={[styles.sheetRow, locked && styles.sheetRowLocked]}>
-      <Ionicons name={icon} color={locked ? colors.muted : colors.text} size={29} />
-      <Text style={styles.sheetLabel}>{label}</Text>
-      {premium ? <Text style={styles.premiumBadge}>PRO</Text> : null}
-      {value ? <Text numberOfLines={1} style={styles.sheetValue}>{value}</Text> : null}
-      <Ionicons name={locked ? 'lock-closed-outline' : 'chevron-forward'} color={colors.muted} size={22} />
-    </View>
-  );
-}
+});
 
 const styles = StyleSheet.create({
   container: {
@@ -571,96 +612,106 @@ const styles = StyleSheet.create({
     top: -4.5,
     width: 12,
   },
-  sheetBackdrop: {
-    backgroundColor: 'rgba(0,0,0,0.54)',
-    flex: 1,
-    justifyContent: 'flex-end',
+  topMeta: {
+    marginLeft: spacing.sm,
+    justifyContent: 'center',
+    flexShrink: 1,
   },
-  sheet: {
-    backgroundColor: '#202020',
-    borderTopLeftRadius: radius.lg,
-    borderTopRightRadius: radius.lg,
-    paddingBottom: spacing.xxl,
-    paddingHorizontal: spacing.lg,
+  fullscreenTitle: {
+    color: colors.text,
+    fontSize: typography.body,
+    fontWeight: typography.weightBlack,
   },
-  sheetHandle: {
-    alignSelf: 'center',
-    backgroundColor: colors.surfaceMuted,
-    borderRadius: radius.pill,
-    height: 5,
-    marginBottom: spacing.lg,
-    marginTop: spacing.md,
-    width: 52,
-  },
-  sheetSectionTitle: {
+  fullscreenCreator: {
     color: colors.textSecondary,
     fontSize: typography.caption,
-    fontWeight: typography.weightBlack,
-    letterSpacing: 0,
-    marginBottom: spacing.xs,
-    marginTop: spacing.sm,
-    textTransform: 'uppercase',
+    marginTop: 2,
   },
-  sheetRow: {
+  fullscreenBottomRow: {
     alignItems: 'center',
+    bottom: spacing.md,
     flexDirection: 'row',
-    gap: spacing.md,
-    minHeight: 58,
+    justifyContent: 'space-between',
+    left: spacing.md,
+    position: 'absolute',
+    right: spacing.md,
+    zIndex: 5,
   },
-  sheetRowLocked: {
-    opacity: 0.58,
-  },
-  sheetLabel: {
-    color: colors.text,
-    flex: 1,
-    fontSize: typography.bodyLarge,
-    fontWeight: typography.weightBold,
-  },
-  sheetValue: {
-    color: colors.muted,
-    flexShrink: 1,
-    fontSize: typography.body,
-  },
-  premiumBadge: {
-    backgroundColor: colors.accent,
-    borderRadius: radius.xs,
-    color: colors.text,
-    fontSize: typography.label,
-    fontWeight: typography.weightBlack,
-    overflow: 'hidden',
-    paddingHorizontal: spacing.xs,
-    paddingVertical: spacing.xxs,
-  },
-  speedBlock: {
-    paddingVertical: spacing.sm,
-  },
-  speedHeader: {
+  fullscreenActionsRow: {
+    flexDirection: 'row',
     alignItems: 'center',
-    flexDirection: 'row',
-    gap: spacing.md,
-    marginBottom: spacing.sm,
-  },
-  speedOptions: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
     gap: spacing.sm,
-    paddingLeft: 42,
   },
-  speedChip: {
-    backgroundColor: colors.surface,
+  fullscreenTimePill: {
+    backgroundColor: 'rgba(0,0,0,0.5)',
     borderRadius: radius.pill,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
+    justifyContent: 'center',
   },
-  speedChipActive: {
-    backgroundColor: colors.text,
+  fullscreenLikePill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255,255,255,0.12)',
+    borderColor: 'rgba(255,255,255,0.1)',
+    borderWidth: 1,
+    borderRadius: radius.pill,
+    height: 38,
+    paddingHorizontal: spacing.sm,
+    gap: spacing.xs,
   },
-  speedText: {
+  fullscreenPillText: {
     color: colors.text,
-    fontSize: typography.caption,
-    fontWeight: typography.weightBold,
+    fontSize: 13,
+    fontWeight: 'bold',
   },
-  speedTextActive: {
-    color: colors.background,
+  fullscreenSinglePill: {
+    alignItems: 'center',
+    backgroundColor: 'rgba(255,255,255,0.12)',
+    borderColor: 'rgba(255,255,255,0.1)',
+    borderWidth: 1,
+    borderRadius: radius.pill,
+    width: 38,
+    height: 38,
+    justifyContent: 'center',
+  },
+  fullscreenBottomRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  moreVideosPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0,0,0,0.58)',
+    borderColor: 'rgba(255,255,255,0.12)',
+    borderWidth: 1,
+    borderRadius: 20,
+    paddingLeft: 12,
+    paddingRight: 4,
+    paddingVertical: 4,
+    gap: spacing.sm,
+  },
+  moreVideosText: {
+    color: colors.text,
+    fontSize: 13,
+    fontWeight: 'bold',
+  },
+  moreVideosThumb: {
+    width: 48,
+    height: 27,
+    borderRadius: 8,
+    backgroundColor: colors.surfaceMuted,
+  },
+  fullscreenMinimizeBtn: {
+    alignItems: 'center',
+    backgroundColor: 'rgba(0,0,0,0.58)',
+    borderColor: 'rgba(255,255,255,0.12)',
+    borderWidth: 1,
+    borderRadius: radius.pill,
+    width: 38,
+    height: 38,
+    justifyContent: 'center',
   },
 });
+

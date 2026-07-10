@@ -23,6 +23,8 @@ export function HomeSectionBlock({ section }: HomeSectionBlockProps) {
             creator: content.creator,
             tone: content.tone,
             thumbnailUrl: content.thumbnailUrl,
+            fileUrl: content.fileUrl,
+            videoUrl: content.videoUrl,
           }))}
         />
       </View>
@@ -33,7 +35,10 @@ export function HomeSectionBlock({ section }: HomeSectionBlockProps) {
     return (
       <View style={styles.block}>
         <SectionHeader title={section.title} actionLabel="Ver todos" />
-        <ContentRail contents={section.contents} />
+        <ContentRail
+          contents={section.contents}
+          layout={section.key === 'podcasts' ? 'square' : 'horizontal'}
+        />
       </View>
     );
   }

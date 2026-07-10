@@ -9,7 +9,7 @@ interface UpgradePromptCardProps {
   maxMessages: number;
 }
 
-export function UpgradePromptCard({ 
+export function UpgradePromptCard({
   userName = "você",
   currentPlan,
   messageCount,
@@ -73,11 +73,10 @@ export function UpgradePromptCard({
                 <button
                   type="button"
                   key={plan.id}
-                  className={`relative rounded-[24px] border p-4 text-left transition-all hover:-translate-y-0.5 ${
-                    plan.id === "premium"
-                      ? "border-primary/20 bg-primary/8 dark:border-primary/25 dark:bg-primary/10"
-                      : "border-amber-500/20 bg-amber-500/8 dark:border-amber-500/25 dark:bg-amber-500/10"
-                  }`}
+                  className={`relative rounded-[24px] border p-4 text-left transition-all hover:-translate-y-0.5 ${plan.id === "premium"
+                    ? "border-primary/20 bg-primary/8 dark:border-primary/25 dark:bg-primary/10"
+                    : "border-amber-500/20 bg-amber-500/8 dark:border-amber-500/25 dark:bg-amber-500/10"
+                    }`}
                   onClick={() => navigate('/planos')}
                 >
                   {plan.popular && (
@@ -123,7 +122,7 @@ export function UpgradePromptCard({
 
             <div className="flex flex-col justify-between rounded-[24px] border border-border/70 bg-background/70 p-5 dark:border-white/8 dark:bg-white/[0.04]">
               <div className="space-y-3">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground dark:text-white/45">
+                <p className="text-[12px] font-semibold text-muted-foreground dark:text-white/45">
                   Desbloqueio imediato
                 </p>
                 <p className="text-sm leading-7 text-foreground/85 dark:text-zinc-200">
@@ -131,14 +130,14 @@ export function UpgradePromptCard({
                 </p>
               </div>
               <div className="mt-5 space-y-3">
-                <Button 
+                <Button
                   className="h-12 w-full border-0 bg-[#e21d48] text-sm font-semibold text-white shadow-lg shadow-[#e21d48]/20 hover:bg-[#c91a3d]"
                   onClick={() => navigate('/planos')}
                 >
                   <Sparkles className="mr-2 h-4 w-4" />
                   Fazer Upgrade Agora
                 </Button>
-                <p className="whitespace-nowrap text-[11px] text-muted-foreground dark:text-zinc-500">
+                <p className="whitespace-nowrap text-[9px] mx-auto text-center text-muted-foreground dark:text-zinc-500">
                   Oferta por tempo limitado • Cancele quando quiser
                 </p>
               </div>

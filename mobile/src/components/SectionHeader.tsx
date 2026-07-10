@@ -35,17 +35,17 @@ const styles = StyleSheet.create({
   eyebrow: {
     color: colors.accent,
     fontSize: type.xs,
-    fontWeight: '900',
+    fontWeight: '700',
     textTransform: 'uppercase',
   },
   title: {
     color: colors.text,
     fontSize: type.xl,
-    fontWeight: '900',
+    fontWeight: '700',
   },
   action: {
     color: colors.muted,
     fontSize: type.sm,
-    fontWeight: '800',
+    fontWeight: '600',
   },
 });

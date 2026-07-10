@@ -1830,6 +1830,7 @@ export type Database = {
           plan: Database["public"]["Enums"]["plan_type"]
           plan_expires_at: string | null
           updated_at: string
+          expo_push_token: string | null
         }
         Insert: {
           avatar_url?: string | null
@@ -1847,6 +1848,7 @@ export type Database = {
           plan?: Database["public"]["Enums"]["plan_type"]
           plan_expires_at?: string | null
           updated_at?: string
+          expo_push_token?: string | null
         }
         Update: {
           avatar_url?: string | null
@@ -1864,6 +1866,7 @@ export type Database = {
           plan?: Database["public"]["Enums"]["plan_type"]
           plan_expires_at?: string | null
           updated_at?: string
+          expo_push_token?: string | null
         }
         Relationships: []
       }

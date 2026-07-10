@@ -11,6 +11,10 @@ export type HomeContent = {
   thumbnailUrl?: string | null;
   creatorAvatarUrl?: string | null;
   description?: string | null;
+  fileUrl?: string | null;
+  videoUrl?: string | null;
+  price?: number | null;
+  discount?: number | null;
 };
 
 export type HomeShort = {
@@ -19,6 +23,8 @@ export type HomeShort = {
   creator: string;
   tone: string;
   thumbnailUrl?: string | null;
+  fileUrl?: string | null;
+  videoUrl?: string | null;
 };
 
 export type HomeSection = {

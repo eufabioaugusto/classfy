@@ -1,5 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useState } from 'react';
+import { useState, useRef, useMemo, useEffect } from 'react';
 import {
   ActivityIndicator,
   FlatList,
@@ -10,14 +10,23 @@ import {
   Text,
   TextInput,
   View,
+  Animated,
+  PanResponder,
+  Dimensions,
+  useWindowDimensions,
+  KeyboardAvoidingView,
+  Platform,
+  Keyboard,
+  TouchableWithoutFeedback,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { useWatchComments, WatchComment } from '@/features/watch/useWatchComments';
 import { colors } from '@/theme/colors';
 import { radius } from '@/theme/radius';
 import { spacing } from '@/theme/spacing';
 import { typography } from '@/theme/typography';
+import { useBottomSheetScroll } from '@/hooks/useBottomSheetScroll';
 
 type WatchCommentsSheetProps = {
   visible: boolean;
@@ -57,6 +66,8 @@ function CommentRow({ comment }: { comment: WatchComment }) {
   );
 }
 
+const AnimatedKeyboardAvoidingView = Animated.createAnimatedComponent(KeyboardAvoidingView);
+
 export function WatchCommentsSheet({ visible, contentId, onClose }: WatchCommentsSheetProps) {
   const [newComment, setNewComment] = useState('');
   const { comments, loading, submitting, user, profile, submitComment } = useWatchComments({
@@ -64,71 +75,172 @@ export function WatchCommentsSheet({ visible, contentId, onClose }: WatchComment
     enabled: visible,
   });
 
+  const sheetTranslateY = useRef(new Animated.Value(0)).current;
+  const insets = useSafeAreaInsets();
+  const { width: windowWidth, height: windowHeight } = useWindowDimensions();
+  const isLandscape = windowWidth > windowHeight;
+  const playerHeight = isLandscape ? 0 : windowWidth * (9 / 16);
+  const playerBottom = isLandscape ? 20 : insets.top + 12 + playerHeight;
+  const maxSheetHeight = windowHeight - playerBottom;
+
+  const {
+    scrollEnabled,
+    handleScroll,
+    onTouchStart,
+    onTouchMove,
+    onTouchEnd,
+    onTouchCancel,
+    isScrollAtTop,
+    setIsScrollAtTop,
+  } = useBottomSheetScroll();
+
+  useEffect(() => {
+    if (visible) {
+      sheetTranslateY.setValue(0);
+      setIsScrollAtTop(true);
+    }
+  }, [visible, setIsScrollAtTop]);
+
+  const sheetPanResponder = useMemo(
+    () =>
+      PanResponder.create({
+        onStartShouldSetPanResponder: () => false,
+        onMoveShouldSetPanResponder: (_, gestureState) =>
+          isScrollAtTop && gestureState.dy > 5 && Math.abs(gestureState.dy) > Math.abs(gestureState.dx),
+        onStartShouldSetPanResponderCapture: () => false,
+        onMoveShouldSetPanResponderCapture: (_, gestureState) =>
+          isScrollAtTop && gestureState.dy > 5 && Math.abs(gestureState.dy) > Math.abs(gestureState.dx),
+        onPanResponderMove: (_, gestureState) => {
+          if (gestureState.dy > 0) {
+            sheetTranslateY.setValue(gestureState.dy);
+          }
+        },
+        onPanResponderRelease: (_, gestureState) => {
+          if (gestureState.dy > 120 || gestureState.vy > 0.5) {
+            Animated.timing(sheetTranslateY, {
+              toValue: Dimensions.get('window').height,
+              duration: 200,
+              useNativeDriver: true,
+            }).start(() => {
+              onClose();
+            });
+          } else {
+            Animated.spring(sheetTranslateY, {
+              toValue: 0,
+              friction: 8,
+              tension: 80,
+              useNativeDriver: true,
+            }).start();
+          }
+        },
+      }),
+    [onClose, sheetTranslateY, isScrollAtTop]
+  );
+
   async function handleSubmit() {
     const ok = await submitComment(newComment);
     if (ok) setNewComment('');
   }
 
   return (
-    <Modal animationType="slide" transparent visible={visible} onRequestClose={onClose}>
+    <Modal animationType="slide" transparent visible={visible} onRequestClose={onClose} supportedOrientations={['portrait', 'landscape']}>
       <View style={styles.backdrop}>
-        <SafeAreaView style={styles.sheet}>
-          <View style={styles.handle} />
-          <View style={styles.header}>
-            <Text style={styles.title}>Comentarios ({comments.length})</Text>
-            <Pressable style={styles.closeButton} onPress={onClose}>
-              <Ionicons name="close" color={colors.text} size={20} />
-            </Pressable>
-          </View>
-
-          {loading ? (
-            <View style={styles.loading}>
-              <ActivityIndicator color={colors.accent} />
-            </View>
-          ) : (
-            <FlatList
-              data={comments}
-              keyExtractor={(item) => item.id}
-              renderItem={({ item }) => <CommentRow comment={item} />}
-              contentContainerStyle={styles.commentList}
-              ListEmptyComponent={
-                <View style={styles.empty}>
-                  <Text style={styles.emptyTitle}>Nenhum comentario ainda</Text>
-                  <Text style={styles.emptyBody}>Seja o primeiro a comentar.</Text>
-                </View>
+        <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
+        <AnimatedKeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          style={[
+            styles.sheet,
+            {
+              maxHeight: maxSheetHeight,
+              transform: [{ translateY: sheetTranslateY }]
+            }
+          ]}
+          keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
+          {...sheetPanResponder.panHandlers}
+        >
+          <View
+            style={[
+              { flex: 1, width: '100%' },
+              isLandscape && {
+                width: Math.min(windowWidth, windowHeight * (16 / 9)),
+                alignSelf: 'center',
               }
-            />
-          )}
-
-          {user ? (
-            <View style={styles.inputRow}>
-              <View style={styles.inputAvatar}>
-                <Text style={styles.avatarText}>
-                  {(profile?.display_name || user.email || 'U')[0]?.toUpperCase()}
-                </Text>
+            ]}
+          >
+            <SafeAreaView style={{ flex: 1 }} edges={['bottom']}>
+              <View onStartShouldSetResponder={() => true} style={{ backgroundColor: 'transparent' }}>
+                <View style={styles.handle} />
+                <View style={styles.header}>
+                  <Text style={styles.title}>Comentarios ({comments.length})</Text>
+                  <Pressable style={styles.closeButton} onPress={onClose}>
+                    <Ionicons name="close" color={colors.text} size={20} />
+                  </Pressable>
+                </View>
               </View>
-              <TextInput
-                value={newComment}
-                onChangeText={setNewComment}
-                placeholder="Adicione um comentario..."
-                placeholderTextColor={colors.muted}
-                style={styles.input}
-                multiline
-              />
-              <Pressable
-                disabled={submitting || !newComment.trim()}
-                onPress={handleSubmit}
-                style={[styles.sendButton, (!newComment.trim() || submitting) && styles.sendButtonDisabled]}
-              >
-                <Ionicons name="send" color={colors.text} size={18} />
-              </Pressable>
-            </View>
-          ) : (
-            <View style={styles.loginHint}>
-              <Text style={styles.loginHintText}>Entre para comentar.</Text>
-            </View>
-          )}
-        </SafeAreaView>
+
+              {loading ? (
+                <View style={styles.loading}>
+                  <ActivityIndicator color={colors.accent} />
+                </View>
+              ) : (
+                <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+                  <FlatList
+                    data={comments}
+                    keyExtractor={(item) => item.id}
+                    renderItem={({ item }) => <CommentRow comment={item} />}
+                    contentContainerStyle={styles.commentList}
+                    onScroll={handleScroll}
+                    scrollEventThrottle={16}
+                    bounces={false}
+                    disableScrollViewPanResponder={true}
+                    scrollEnabled={scrollEnabled}
+                    onTouchStart={onTouchStart}
+                    onTouchMove={onTouchMove}
+                    onTouchEnd={onTouchEnd}
+                    onTouchCancel={onTouchCancel}
+                    keyboardDismissMode="interactive"
+                    keyboardShouldPersistTaps="handled"
+                    ListEmptyComponent={
+                      <View style={styles.empty}>
+                        <Text style={styles.emptyTitle}>Nenhum comentario ainda</Text>
+                        <Text style={styles.emptyBody}>Seja o primeiro a comentar.</Text>
+                      </View>
+                    }
+                  />
+                </TouchableWithoutFeedback>
+              )}
+
+              {user ? (
+                <View style={styles.inputRow}>
+                  <View style={styles.inputAvatar}>
+                    <Text style={styles.avatarText}>
+                      {(profile?.display_name || user.email || 'U')[0]?.toUpperCase()}
+                    </Text>
+                  </View>
+                  <TextInput
+                    value={newComment}
+                    onChangeText={setNewComment}
+                    placeholder="Adicione um comentario..."
+                    placeholderTextColor={colors.muted}
+                    style={styles.input}
+                    multiline
+                  />
+                  <Pressable
+                    disabled={submitting || !newComment.trim()}
+                    onPress={handleSubmit}
+                    style={[styles.sendButton, (!newComment.trim() || submitting) && styles.sendButtonDisabled]}
+                  >
+                    <Ionicons name="send" color={colors.text} size={18} />
+                  </Pressable>
+                </View>
+              ) : (
+                <View style={styles.loginHint}>
+                  <Text style={styles.loginHintText}>Entre para comentar.</Text>
+                </View>
+              )}
+            </SafeAreaView>
+          </View>
+        </AnimatedKeyboardAvoidingView>
       </View>
     </Modal>
   );
@@ -136,7 +248,7 @@ export function WatchCommentsSheet({ visible, contentId, onClose }: WatchComment
 
 const styles = StyleSheet.create({
   backdrop: {
-    backgroundColor: 'rgba(0,0,0,0.45)',
+    backgroundColor: 'transparent',
     flex: 1,
     justifyContent: 'flex-end',
   },
@@ -146,7 +258,7 @@ const styles = StyleSheet.create({
     borderTopRightRadius: 24,
     maxHeight: '82%',
     minHeight: '62%',
-    overflow: 'hidden',
+    flex: 1,
   },
   handle: {
     alignSelf: 'center',
