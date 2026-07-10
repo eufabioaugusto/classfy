@@ -106,8 +106,8 @@ const mapStudyStateRecord = (record: StudyAiStateRecord | null): ClassyStudyStat
     weakTopics.length > 0
       ? "recommended"
       : record.last_checkpoint_at
-      ? "fresh"
-      : "due";
+        ? "fresh"
+        : "due";
 
   return {
     activeMode: record.active_mode,
@@ -262,7 +262,7 @@ function StudyContent() {
   };
   const playlistLimit = PLAYLIST_LIMITS[currentPlan];
   const messageLimit = limits.messages;
-  
+
   const [study, setStudy] = useState<any>(null);
   const [messages, setMessages] = useState<StudyMessage[]>([]);
   const [messageContents, setMessageContents] = useState<Map<string, any[]>>(new Map());
@@ -285,7 +285,7 @@ function StudyContent() {
   const [wasOpenBeforeFocus, setWasOpenBeforeFocus] = useState(true);
   const [savedPlaylists, setSavedPlaylists] = useState<Set<string>>(new Set());
   const [showPlaylistsDropdown, setShowPlaylistsDropdown] = useState(false);
-  const [activePlaylist, setActivePlaylist] = useState<{messageId: string, currentIndex: number} | null>(null);
+  const [activePlaylist, setActivePlaylist] = useState<{ messageId: string, currentIndex: number } | null>(null);
   const [autoplayCountdown, setAutoplayCountdown] = useState<number | null>(null);
   const [playlistsCount, setPlaylistsCount] = useState(0);
   const [newestMessageId, setNewestMessageId] = useState<string | null>(null);
@@ -296,7 +296,7 @@ function StudyContent() {
   const messageInputRef = useRef<HTMLTextAreaElement>(null);
   const trackedMessageEventsRef = useRef<Set<string>>(new Set());
   const latestMessagesRef = useRef<StudyMessage[]>([]);
-  
+
   // Tool panels state - using unified ToolPanel type
   const [activeToolPanel, setActiveToolPanel] = useState<ToolPanel>(null);
   const [miniPlayerActive, setMiniPlayerActive] = useState(false);
@@ -323,11 +323,11 @@ function StudyContent() {
   const [showPurchaseModal, setShowPurchaseModal] = useState(false);
   const [activeContentInfo, setActiveContentInfo] = useState<{ price?: number } | null>(null);
   const [followersCount, setFollowersCount] = useState(0);
-  
+
   // Track current playback time for mini player
   const currentPlaybackTimeRef = useRef(0);
   const activeContentRef = useRef<any>(null);
-  
+
   // Keep activeContentRef updated
   useEffect(() => {
     activeContentRef.current = activeContent;
@@ -353,7 +353,7 @@ function StudyContent() {
     return () => {
       const content = activeContentRef.current;
       const playbackTime = currentPlaybackTimeRef.current;
-      
+
       // Only activate if we have content and some playback progress
       if (content && playbackTime > 0) {
         startMiniPlayer({
@@ -462,12 +462,12 @@ function StudyContent() {
     const isFreshStudy = Number(study?.message_count || 0) === 0;
 
     if (
-      study && 
-      (isFreshStudy || !loadingMessages) && 
-      messages.length === 0 && 
+      study &&
+      (isFreshStudy || !loadingMessages) &&
+      messages.length === 0 &&
       !initialMessageTriggeredRef.current &&
-      !initialMessageSent && 
-      !loading && 
+      !initialMessageSent &&
+      !loading &&
       !sending
     ) {
       initialMessageTriggeredRef.current = true;
@@ -521,9 +521,9 @@ function StudyContent() {
       toast.error("Você atingiu o limite de playlists para o seu plano.");
       return;
     }
-    
+
     setSending(true);
-    
+
     try {
       const { error: playlistError } = await supabase
         .from("study_playlists")
@@ -537,7 +537,7 @@ function StudyContent() {
 
       setSavedPlaylists(prev => new Set(prev).add(messageId));
       setPlaylistsCount(prev => prev + 1);
-      
+
       const { data: transcriptions } = await supabase
         .from('transcriptions')
         .select('content_id, text')
@@ -599,9 +599,9 @@ function StudyContent() {
   };
 
   const getPlaylistMessages = () => {
-    return messages.filter(msg => 
-      msg.role === 'assistant' && 
-      messageContents.get(msg.id) && 
+    return messages.filter(msg =>
+      msg.role === 'assistant' &&
+      messageContents.get(msg.id) &&
       messageContents.get(msg.id)!.length > 1 &&
       savedPlaylists.has(msg.id)
     );
@@ -711,7 +711,7 @@ function StudyContent() {
       if (fetchedMessages.length > 0) {
         setInitialMessageSent(true);
       }
-      
+
       if (data) {
         const newContentsMap = new Map();
         data.forEach((msg: any) => {
@@ -1092,14 +1092,14 @@ function StudyContent() {
       await fetchMessages();
       await refetchStudyJourneySummary();
       await updateLastActivity(id);
-      
+
       // Update study to get latest message_count
       const { data: updatedStudy } = await supabase
         .from("studies")
         .select("*")
         .eq("id", id)
         .single();
-      
+
       if (updatedStudy) {
         setStudy(updatedStudy);
       }
@@ -1178,7 +1178,7 @@ function StudyContent() {
 
       // Reset playback time for mini player tracking
       currentPlaybackTimeRef.current = 0;
-      
+
       const { data, error } = await supabase
         .from("contents")
         .select("id, title, file_url, content_type, duration_seconds, visibility, price, creator_id, views_count, created_at, tags, thumbnail_url, description, category_id, creator:profiles!creator_id(id, display_name, avatar_url, creator_channel_name, creator_channel_name)")
@@ -1236,7 +1236,7 @@ function StudyContent() {
       } else {
         setActiveContent(data);
       }
-      
+
       await loadTranscription(contentId);
     } catch (error) {
       console.error("Error loading content:", error);
@@ -1257,7 +1257,7 @@ function StudyContent() {
 
   const startAutoplayCountdown = (nextIndex: number) => {
     setAutoplayCountdown(5);
-    
+
     const interval = setInterval(() => {
       setAutoplayCountdown((prev) => {
         if (prev === null || prev <= 1) {
@@ -1268,7 +1268,7 @@ function StudyContent() {
         return prev - 1;
       });
     }, 1000);
-    
+
     autoplayTimerRef.current = interval;
   };
 
@@ -1361,7 +1361,7 @@ function StudyContent() {
 
   const generateTranscription = async () => {
     if (!activeContent) return;
-    
+
     setTranscriptionLoading(true);
     try {
       const { data, error } = await supabase.functions.invoke("transcribe-content", {
@@ -1377,7 +1377,7 @@ function StudyContent() {
 
       setTranscription(data.transcription.text);
       toast.success("Transcrição gerada com sucesso!");
-      
+
       await loadTranscription(activeContent.id);
     } catch (error: any) {
       console.error("Error generating transcription:", error);
@@ -1388,17 +1388,17 @@ function StudyContent() {
   };
 
   // Escape special regex characters to prevent ReDoS attacks
-  const escapeRegex = (str: string) => 
+  const escapeRegex = (str: string) =>
     str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
   const highlightSearchResults = (text: string, query: string) => {
     if (!query.trim()) return text;
-    
+
     const escapedQuery = escapeRegex(query);
     const regex = new RegExp(`(${escapedQuery})`, "gi");
-    return text.split(regex).map((part, i) => 
-      regex.test(part) 
-        ? `<mark class="bg-primary/30 text-foreground">${part}</mark>` 
+    return text.split(regex).map((part, i) =>
+      regex.test(part)
+        ? `<mark class="bg-primary/30 text-foreground">${part}</mark>`
         : part
     ).join("");
   };
@@ -1653,7 +1653,7 @@ function StudyContent() {
     return (
       <div className="flex flex-col h-[100dvh] overflow-hidden">
         <Header />
-        
+
         {/* Mobile Header - Compact */}
         <header className="border-b border-border bg-card px-3 py-2.5 flex-shrink-0">
           <div className="flex items-center justify-end gap-2">
@@ -1727,54 +1727,86 @@ function StudyContent() {
         <div className="flex-1 min-h-0 overflow-hidden w-full max-w-full">
           <ScrollArea className="h-full w-full max-w-full" ref={scrollRef}>
             <div className="py-4 space-y-4 px-3 w-full max-w-full">
-            {loading || (messages.length === 0 && !initialMessageSent) ? (
-              <div className="flex flex-col items-center justify-center py-8 text-muted-foreground">
-                <Loader2 className="w-6 h-6 animate-spin mx-auto mb-3" />
-                <p className="text-sm">Iniciando conversa...</p>
-              </div>
-            ) : (
-              <>
-                {messages.map((message) => {
-                return (
-                <div key={message.id} className="space-y-3 w-full overflow-hidden animate-fade-in">
-                  <div
-                    className={`flex w-full ${
-                      message.role === "user" ? "justify-end" : "justify-start"
-                    }`}
-                  >
-                    <ChatMessage
-                      content={message.content}
-                      role={message.role}
-                      isNew={message.id === newestMessageId && message.role === 'assistant'}
-                      className="text-sm"
-                      onContentGrow={message.id === newestMessageId && message.role === 'assistant' ? handleContentGrow : undefined}
-                    />
-                  </div>
-                  {message.role === "assistant" && (
-                    <ClassyMessageExtras
-                      metadata={getAssistantMetadata(message)}
-                      onSuggestionClick={handleSuggestionClick}
-                      onCitationClick={handleSeekToTimestamp}
-                      compact
-                    />
-                  )}
-                  
-                  {/* Mobile Content Cards */}
-                  {message.role === "assistant" && messageContents.has(message.id) && (
-                    <div className="space-y-3 w-full">
-                      {messageContents.get(message.id)!.length >= 3 ? (
-                        <div className="relative">
-                          <Carousel
-                            opts={{
-                              align: "start",
-                              loop: false,
-                            }}
-                            className="w-full"
-                          >
-                            <CarouselContent className="-ml-2">
-                              {messageContents.get(message.id)?.map((content: any) => (
-                                <CarouselItem key={content.id} className="pl-2 basis-[75%]">
+              {loading || (messages.length === 0 && !initialMessageSent) ? (
+                <div className="flex flex-col items-center justify-center py-8 text-muted-foreground">
+                  <Loader2 className="w-6 h-6 animate-spin mx-auto mb-3" />
+                  <p className="text-sm">Iniciando conversa...</p>
+                </div>
+              ) : (
+                <>
+                  {messages.map((message) => {
+                    return (
+                      <div key={message.id} className="space-y-3 w-full overflow-hidden animate-fade-in">
+                        <div
+                          className={`flex w-full ${message.role === "user" ? "justify-end" : "justify-start"
+                            }`}
+                        >
+                          <ChatMessage
+                            content={message.content}
+                            role={message.role}
+                            isNew={message.id === newestMessageId && message.role === 'assistant'}
+                            className="text-sm"
+                            onContentGrow={message.id === newestMessageId && message.role === 'assistant' ? handleContentGrow : undefined}
+                          />
+                        </div>
+                        {message.role === "assistant" && (
+                          <ClassyMessageExtras
+                            metadata={getAssistantMetadata(message)}
+                            onSuggestionClick={handleSuggestionClick}
+                            onCitationClick={handleSeekToTimestamp}
+                            compact
+                          />
+                        )}
+
+                        {/* Mobile Content Cards */}
+                        {message.role === "assistant" && messageContents.has(message.id) && (
+                          <div className="space-y-3 w-full">
+                            {messageContents.get(message.id)!.length >= 3 ? (
+                              <div className="relative">
+                                <Carousel
+                                  opts={{
+                                    align: "start",
+                                    loop: false,
+                                  }}
+                                  className="w-full"
+                                >
+                                  <CarouselContent className="-ml-2">
+                                    {messageContents.get(message.id)?.map((content: any) => (
+                                      <CarouselItem key={content.id} className="pl-2 basis-[75%]">
+                                        <ChatContentCard
+                                          id={content.id}
+                                          title={content.title}
+                                          description={content.description}
+                                          thumbnail_url={content.thumbnail_url}
+                                          content_type={content.content_type}
+                                          duration_minutes={content.duration_minutes}
+                                          required_plan={content.required_plan}
+                                          visibility={content.visibility}
+                                          price={content.price}
+                                          is_free={content.is_free}
+                                          relevanceScore={content.relevanceScore}
+                                          onPlay={(contentId) => handlePlayContent(contentId, {
+                                            sourceMessageId: message.id,
+                                            title: content.title,
+                                            relevanceScore: content.relevanceScore,
+                                          })}
+                                          compact
+                                        />
+                                      </CarouselItem>
+                                    ))}
+                                  </CarouselContent>
+                                </Carousel>
+                              </div>
+                            ) : (
+                              <div
+                                className={`grid gap-2 w-full ${messageContents.get(message.id)!.length === 1
+                                  ? 'grid-cols-1'
+                                  : 'grid-cols-2'
+                                  }`}
+                              >
+                                {messageContents.get(message.id)?.map((content: any) => (
                                   <ChatContentCard
+                                    key={content.id}
                                     id={content.id}
                                     title={content.title}
                                     description={content.description}
@@ -1793,126 +1825,92 @@ function StudyContent() {
                                     })}
                                     compact
                                   />
-                                </CarouselItem>
-                              ))}
-                            </CarouselContent>
-                          </Carousel>
-                        </div>
-                      ) : (
-                        <div 
-                          className={`grid gap-2 w-full ${
-                            messageContents.get(message.id)!.length === 1 
-                              ? 'grid-cols-1' 
-                              : 'grid-cols-2'
-                          }`}
-                        >
-                          {messageContents.get(message.id)?.map((content: any) => (
-                            <ChatContentCard
-                              key={content.id}
-                              id={content.id}
-                              title={content.title}
-                              description={content.description}
-                              thumbnail_url={content.thumbnail_url}
-                              content_type={content.content_type}
-                              duration_minutes={content.duration_minutes}
-                              required_plan={content.required_plan}
-                              visibility={content.visibility}
-                              price={content.price}
-                              is_free={content.is_free}
-                              relevanceScore={content.relevanceScore}
-                              onPlay={(contentId) => handlePlayContent(contentId, {
-                                sourceMessageId: message.id,
-                                title: content.title,
-                                relevanceScore: content.relevanceScore,
-                              })}
-                              compact
-                            />
-                          ))}
-                        </div>
-                      )}
-                      {messageContents.get(message.id) && messageContents.get(message.id)!.length > 1 && (
-                        <div className="flex gap-2 justify-start">
-                          {savedPlaylists.has(message.id) ? (
-                            <Button
-                              size="sm"
-                              variant="default"
-                              onClick={() => {
-                                setActivePlaylist({ messageId: message.id, currentIndex: 0 });
-                                const firstContent = messageContents.get(message.id)?.[0];
-                                if (firstContent) handlePlayContent(firstContent.id, {
-                                  sourceMessageId: message.id,
-                                  title: firstContent.title,
-                                  relevanceScore: firstContent.relevanceScore,
-                                });
-                              }}
-                              className="gap-1.5 text-xs h-8"
-                            >
-                              <Play className="w-3.5 h-3.5" />
-                              Assistir Playlist
-                            </Button>
-                          ) : (
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              onClick={() => {
-                                const contentIds = messageContents.get(message.id)?.map(c => c.id) || [];
-                                handleCreatePlaylist(message.id, contentIds);
-                              }}
-                              className="gap-1.5 text-xs h-8"
-                            >
-                              <List className="w-3.5 h-3.5" />
-                              Salvar ({messageContents.get(message.id)!.length})
-                            </Button>
-                          )}
-                        </div>
-                      )}
+                                ))}
+                              </div>
+                            )}
+                            {messageContents.get(message.id) && messageContents.get(message.id)!.length > 1 && (
+                              <div className="flex gap-2 justify-start">
+                                {savedPlaylists.has(message.id) ? (
+                                  <Button
+                                    size="sm"
+                                    variant="default"
+                                    onClick={() => {
+                                      setActivePlaylist({ messageId: message.id, currentIndex: 0 });
+                                      const firstContent = messageContents.get(message.id)?.[0];
+                                      if (firstContent) handlePlayContent(firstContent.id, {
+                                        sourceMessageId: message.id,
+                                        title: firstContent.title,
+                                        relevanceScore: firstContent.relevanceScore,
+                                      });
+                                    }}
+                                    className="gap-1.5 text-xs h-8"
+                                  >
+                                    <Play className="w-3.5 h-3.5" />
+                                    Assistir Playlist
+                                  </Button>
+                                ) : (
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => {
+                                      const contentIds = messageContents.get(message.id)?.map(c => c.id) || [];
+                                      handleCreatePlaylist(message.id, contentIds);
+                                    }}
+                                    className="gap-1.5 text-xs h-8"
+                                  >
+                                    <List className="w-3.5 h-3.5" />
+                                    Salvar ({messageContents.get(message.id)!.length})
+                                  </Button>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </>
+              )}
+              <div ref={messagesEndRef} />
+              {sending && (
+                <div className="flex justify-start animate-fade-in pl-1">
+                  <div className="flex items-center gap-2 py-2">
+                    <div className="flex gap-1">
+                      <span className="w-1.5 h-1.5 bg-muted-foreground/60 rounded-full animate-pulse" />
+                      <span className="w-1.5 h-1.5 bg-muted-foreground/60 rounded-full animate-pulse" style={{ animationDelay: '150ms' }} />
+                      <span className="w-1.5 h-1.5 bg-muted-foreground/60 rounded-full animate-pulse" style={{ animationDelay: '300ms' }} />
                     </div>
-                  )}
-                </div>
-                );
-              })}
-              </>
-            )}
-            <div ref={messagesEndRef} />
-            {sending && (
-              <div className="flex justify-start animate-fade-in pl-1">
-                <div className="flex items-center gap-2 py-2">
-                  <div className="flex gap-1">
-                    <span className="w-1.5 h-1.5 bg-muted-foreground/60 rounded-full animate-pulse" />
-                    <span className="w-1.5 h-1.5 bg-muted-foreground/60 rounded-full animate-pulse" style={{ animationDelay: '150ms' }} />
-                    <span className="w-1.5 h-1.5 bg-muted-foreground/60 rounded-full animate-pulse" style={{ animationDelay: '300ms' }} />
+                    <span className="text-xs text-muted-foreground">{thinkingLabel}</span>
                   </div>
-                  <span className="text-xs text-muted-foreground">{thinkingLabel}</span>
                 </div>
-              </div>
-            )}
+              )}
 
-            {isChatLocked && (
-              <div className="space-y-3 w-full overflow-hidden animate-fade-in">
-                <div className="flex w-full justify-start">
-                  <div className="w-full">
-                    <div className="w-full rounded-xl border border-destructive/30 bg-destructive/10 px-4 py-3">
-                      <div className="flex items-start gap-3">
-                        <AlertCircle className="w-5 h-5 text-destructive mt-0.5" />
-                        <p className="text-sm text-destructive">
-                          {limitReached?.type === 'deviations'
-                            ? `Novo tema detectado${limitReached?.suggestedTopic ? `: "${limitReached.suggestedTopic}"` : ''}. Faça upgrade para continuar explorando sem limites.`
-                            : 'Você atingiu o limite de mensagens do seu plano. Faça upgrade para continuar.'}
-                        </p>
+              {isChatLocked && (
+                <div className="space-y-3 w-full overflow-hidden animate-fade-in">
+                  <div className="flex w-full justify-start">
+                    <div className="w-full">
+                      <div className="w-full rounded-xl border border-destructive/30 bg-destructive/10 px-4 py-3">
+                        <div className="flex items-start gap-3">
+                          <AlertCircle className="w-5 h-5 text-destructive mt-0.5" />
+                          <p className="text-sm text-destructive">
+                            {limitReached?.type === 'deviations'
+                              ? `Novo tema detectado${limitReached?.suggestedTopic ? `: "${limitReached.suggestedTopic}"` : ''}. Faça upgrade para continuar explorando sem limites.`
+                              : 'Você atingiu o limite de mensagens do seu plano. Faça upgrade para continuar.'}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="mt-3">
+                        <UpgradePromptCard
+                          userName={profile?.display_name}
+                          currentPlan={currentPlan}
+                          messageCount={messageCount}
+                          maxMessages={maxMessages}
+                        />
                       </div>
                     </div>
-                    <div className="mt-3">
-                      <UpgradePromptCard
-                        userName={profile?.display_name}
-                        currentPlan={currentPlan}
-                        messageCount={messageCount}
-                        maxMessages={maxMessages}
-                      />
-                    </div>
                   </div>
                 </div>
-              </div>
-            )}
+              )}
             </div>
           </ScrollArea>
         </div>
@@ -2039,11 +2037,10 @@ function StudyContent() {
                         });
                         setShowPlaylistSheet(false);
                       }}
-                      className={`w-full text-left p-3 rounded-lg transition-all ${
-                        isActive
-                          ? 'bg-primary text-primary-foreground'
-                          : 'bg-muted hover:bg-muted/80'
-                      }`}
+                      className={`w-full text-left p-3 rounded-lg transition-all ${isActive
+                        ? 'bg-primary text-primary-foreground'
+                        : 'bg-muted hover:bg-muted/80'
+                        }`}
                     >
                       <div className="font-medium text-sm">Playlist {idx + 1}</div>
                       <div className={`text-xs mt-1 ${isActive ? 'text-primary-foreground/80' : 'text-muted-foreground'}`}>
@@ -2082,21 +2079,18 @@ function StudyContent() {
                         });
                         setShowPlaylistSheet(false);
                       }}
-                      className={`w-full text-left p-2.5 rounded-lg transition-all ${
-                        idx === activePlaylist.currentIndex
-                          ? 'bg-primary text-primary-foreground'
-                          : 'bg-card hover:bg-muted'
-                      }`}
+                      className={`w-full text-left p-2.5 rounded-lg transition-all ${idx === activePlaylist.currentIndex
+                        ? 'bg-primary text-primary-foreground'
+                        : 'bg-card hover:bg-muted'
+                        }`}
                     >
                       <div className="flex items-start gap-2">
-                        <span className={`text-xs font-semibold mt-0.5 ${
-                          idx === activePlaylist.currentIndex ? 'text-primary-foreground' : 'text-muted-foreground'
-                        }`}>
+                        <span className={`text-xs font-semibold mt-0.5 ${idx === activePlaylist.currentIndex ? 'text-primary-foreground' : 'text-muted-foreground'
+                          }`}>
                           {idx + 1}
                         </span>
-                        <p className={`text-sm font-medium line-clamp-2 ${
-                          idx === activePlaylist.currentIndex ? 'text-primary-foreground' : 'text-foreground'
-                        }`}>
+                        <p className={`text-sm font-medium line-clamp-2 ${idx === activePlaylist.currentIndex ? 'text-primary-foreground' : 'text-foreground'
+                          }`}>
                           {content.title}
                         </p>
                       </div>
@@ -2118,7 +2112,7 @@ function StudyContent() {
   // Helper function to render tool sheets
   function renderToolSheets() {
     if (!activeContent) return null;
-    
+
     return (
       <>
         {/* Transcription Sheet */}
@@ -2165,9 +2159,9 @@ function StudyContent() {
                     )}
                   </div>
                   <div className="prose prose-sm max-w-none text-foreground">
-                    <div 
-                      dangerouslySetInnerHTML={{ 
-                        __html: highlightSearchResults(transcription, searchQuery) 
+                    <div
+                      dangerouslySetInnerHTML={{
+                        __html: highlightSearchResults(transcription, searchQuery)
                       }}
                     />
                   </div>
@@ -2185,7 +2179,7 @@ function StudyContent() {
               <SheetDescription className="line-clamp-1">Teste seus conhecimentos</SheetDescription>
             </SheetHeader>
             <div className="mt-6">
-              <StudyQuiz 
+              <StudyQuiz
                 studyId={id!}
                 contentId={activeContent.id}
                 contentTitle={activeContent.title}
@@ -2339,7 +2333,7 @@ function StudyContent() {
   return (
     <div className="flex-1 flex flex-col h-screen w-full min-w-0 overflow-hidden">
       <Header />
-          
+
       {/* Study Header */}
       <header className="border-b border-border bg-card px-6 py-4 flex-shrink-0">
         <div className="flex w-full items-center justify-between gap-4">
@@ -2439,9 +2433,9 @@ function StudyContent() {
         {activeContent && !miniPlayerActive && (
           <>
             {/* Video Panel: flex-based width that adapts to available space */}
-            <div 
+            <div
               className="overflow-hidden"
-              style={{ 
+              style={{
                 flex: activePlaylist ? '6 1 0%' : '7 1 0%',
                 minWidth: '350px',
               }}
@@ -2454,9 +2448,9 @@ function StudyContent() {
                       activePanel={activeToolPanel}
                       onPanelChange={setActiveToolPanel}
                     />
-                    
+
                     <div className="flex-1" />
-                    
+
                     {/* Mini Player Toggle */}
                     <Button
                       variant="ghost"
@@ -2503,7 +2497,7 @@ function StudyContent() {
                               })()}
                             </p>
                           </div>
-                          
+
                           <div className="flex items-center justify-center">
                             <div className="relative w-24 h-24">
                               <svg className="w-24 h-24 transform -rotate-90">
@@ -2533,7 +2527,7 @@ function StudyContent() {
                               </span>
                             </div>
                           </div>
-                          
+
                           <Button variant="outline" onClick={cancelAutoplay}>
                             Cancelar
                           </Button>
@@ -2561,10 +2555,10 @@ function StudyContent() {
                     <SocialBar
                       contentId={activeContent.id}
                       contentTitle={activeContent.title}
-                      creator={activeContent.creator ? {id: activeContent.creator.id, display_name: activeContent.creator.display_name, avatar_url: activeContent.creator.avatar_url, channel_name: (activeContent.creator as any)?.creator_channel_name} : null}
+                      creator={activeContent.creator ? { id: activeContent.creator.id, display_name: activeContent.creator.display_name, avatar_url: activeContent.creator.avatar_url, channel_name: (activeContent.creator as any)?.creator_channel_name } : null}
                       followersCount={followersCount}
                       showCreator={true}
-                      onAddToStudy={() => {}}
+                      onAddToStudy={() => { }}
                     />
                   </div>
 
@@ -2605,9 +2599,9 @@ function StudyContent() {
 
             {/* Active Playlist Panel - fixed width, shrinks when sidebar open */}
             {activePlaylist && (
-              <div 
+              <div
                 className="flex-shrink-0 h-full flex flex-col bg-card border-l border-border"
-                style={{ 
+                style={{
                   width: '200px',
                   minWidth: '160px',
                   transition: 'width 0.2s ease-out'
@@ -2629,7 +2623,7 @@ function StudyContent() {
                     {messageContents.get(activePlaylist.messageId)?.length || 0} conteúdos
                   </p>
                 </div>
-                
+
                 <ScrollArea className="flex-1">
                   <div className="p-2 space-y-2">
                     {messageContents.get(activePlaylist.messageId)?.map((content, idx) => (
@@ -2643,28 +2637,24 @@ function StudyContent() {
                             relevanceScore: content.relevanceScore,
                           });
                         }}
-                        className={`w-full text-left p-3 rounded-lg transition-all ${
-                          idx === activePlaylist.currentIndex
-                            ? 'bg-primary text-primary-foreground'
-                            : 'bg-muted hover:bg-muted/80'
-                        }`}
+                        className={`w-full text-left p-3 rounded-lg transition-all ${idx === activePlaylist.currentIndex
+                          ? 'bg-primary text-primary-foreground'
+                          : 'bg-muted hover:bg-muted/80'
+                          }`}
                       >
                         <div className="flex items-start gap-2">
-                          <span className={`text-xs font-semibold mt-1 ${
-                            idx === activePlaylist.currentIndex ? 'text-primary-foreground' : 'text-muted-foreground'
-                          }`}>
+                          <span className={`text-xs font-semibold mt-1 ${idx === activePlaylist.currentIndex ? 'text-primary-foreground' : 'text-muted-foreground'
+                            }`}>
                             {idx + 1}
                           </span>
                           <div className="flex-1 min-w-0">
-                            <p className={`text-sm font-medium line-clamp-2 ${
-                              idx === activePlaylist.currentIndex ? 'text-primary-foreground' : 'text-foreground'
-                            }`}>
+                            <p className={`text-sm font-medium line-clamp-2 ${idx === activePlaylist.currentIndex ? 'text-primary-foreground' : 'text-foreground'
+                              }`}>
                               {content.title}
                             </p>
                             {content.description && (
-                              <p className={`text-xs mt-1 line-clamp-1 ${
-                                idx === activePlaylist.currentIndex ? 'text-primary-foreground/80' : 'text-muted-foreground'
-                              }`}>
+                              <p className={`text-xs mt-1 line-clamp-1 ${idx === activePlaylist.currentIndex ? 'text-primary-foreground/80' : 'text-muted-foreground'
+                                }`}>
                                 {content.description}
                               </p>
                             )}
@@ -2680,9 +2670,9 @@ function StudyContent() {
         )}
 
         {/* Right Panel - Chat - flex-based width that adapts to remaining space */}
-        <div 
+        <div
           className={`flex flex-col overflow-hidden ${activeContent && !miniPlayerActive ? 'border-l border-border' : ''}`}
-          style={{ 
+          style={{
             flex: activeContent && !miniPlayerActive ? '3 1 0%' : '1 1 0%',
             minWidth: activeContent && !miniPlayerActive ? '260px' : undefined,
           }}
@@ -2699,116 +2689,115 @@ function StudyContent() {
                 ) : (
                   <>
                     {messages.map((message) => {
-                    return (
-                    <div key={message.id} className="space-y-4 animate-fade-in">
-                      <div
-                        className={`flex ${
-                          message.role === "user" ? "justify-end" : "justify-start"
-                        }`}
-                      >
-                        <ChatMessage
-                          content={message.content}
-                          role={message.role}
-                          isNew={message.id === newestMessageId && message.role === 'assistant'}
-                          onContentGrow={message.id === newestMessageId && message.role === 'assistant' ? handleContentGrow : undefined}
-                        />
-                      </div>
-                      {message.role === "assistant" && (
-                        <ClassyMessageExtras
-                          metadata={getAssistantMetadata(message)}
-                          onSuggestionClick={handleSuggestionClick}
-                          onCitationClick={handleSeekToTimestamp}
-                        />
-                      )}
-                      
-                      {/* Render content cards if available - Always carousel for responsive behavior */}
-                      {message.role === "assistant" && messageContents.has(message.id) && (
-                        <div className="space-y-4 w-full">
-                          <div className="relative">
-                            <Carousel
-                              opts={{
-                                align: "start",
-                                loop: false,
-                              }}
-                              className="w-full"
-                            >
-                              <CarouselContent className="-ml-2">
-                                {messageContents.get(message.id)?.map((content: any) => (
-                                  <CarouselItem 
-                                    key={content.id} 
-                                    className="pl-2 basis-[280px] max-w-[280px]"
-                                  >
-                                    <ChatContentCard
-                                      id={content.id}
-                                      title={content.title}
-                                      description={content.description}
-                                      thumbnail_url={content.thumbnail_url}
-                                      content_type={content.content_type}
-                                      duration_minutes={content.duration_minutes}
-                                      required_plan={content.required_plan}
-                                      visibility={content.visibility}
-                                    price={content.price}
-                                    is_free={content.is_free}
-                                    relevanceScore={content.relevanceScore}
-                                      onPlay={(contentId) => handlePlayContent(contentId, {
-                                        sourceMessageId: message.id,
-                                        title: content.title,
-                                        relevanceScore: content.relevanceScore,
-                                      })}
-                                      compact
-                                    />
-                                  </CarouselItem>
-                                ))}
-                              </CarouselContent>
-                              {(messageContents.get(message.id)?.length ?? 0) > 1 && (
-                                <>
-                                  <CarouselPrevious className="absolute -left-3 top-1/2 -translate-y-1/2 h-8 w-8 bg-background/80 backdrop-blur-sm border-border" />
-                                  <CarouselNext className="absolute -right-3 top-1/2 -translate-y-1/2 h-8 w-8 bg-background/80 backdrop-blur-sm border-border" />
-                                </>
-                              )}
-                            </Carousel>
+                      return (
+                        <div key={message.id} className="space-y-4 animate-fade-in">
+                          <div
+                            className={`flex ${message.role === "user" ? "justify-end" : "justify-start"
+                              }`}
+                          >
+                            <ChatMessage
+                              content={message.content}
+                              role={message.role}
+                              isNew={message.id === newestMessageId && message.role === 'assistant'}
+                              onContentGrow={message.id === newestMessageId && message.role === 'assistant' ? handleContentGrow : undefined}
+                            />
                           </div>
-                          {messageContents.get(message.id) && messageContents.get(message.id)!.length > 1 && (
-                            <div className="flex gap-2 justify-start pt-3 mt-1 border-t border-border/30">
-                              {savedPlaylists.has(message.id) ? (
-                                <Button
-                                  size="sm"
-                                  variant="default"
-                                  onClick={() => {
-                                    setActivePlaylist({ messageId: message.id, currentIndex: 0 });
-                                    const firstContent = messageContents.get(message.id)?.[0];
-                                    if (firstContent) handlePlayContent(firstContent.id, {
-                                      sourceMessageId: message.id,
-                                      title: firstContent.title,
-                                      relevanceScore: firstContent.relevanceScore,
-                                    });
+                          {message.role === "assistant" && (
+                            <ClassyMessageExtras
+                              metadata={getAssistantMetadata(message)}
+                              onSuggestionClick={handleSuggestionClick}
+                              onCitationClick={handleSeekToTimestamp}
+                            />
+                          )}
+
+                          {/* Render content cards if available - Always carousel for responsive behavior */}
+                          {message.role === "assistant" && messageContents.has(message.id) && (
+                            <div className="space-y-4 w-full">
+                              <div className="relative">
+                                <Carousel
+                                  opts={{
+                                    align: "start",
+                                    loop: false,
                                   }}
-                                  className="gap-2 shadow-sm hover:shadow-md transition-all h-9"
+                                  className="w-full"
                                 >
-                                  <Play className="w-4 h-4" />
-                                  Assistir Playlist
-                                </Button>
-                              ) : (
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  onClick={() => {
-                                    const contentIds = messageContents.get(message.id)?.map(c => c.id) || [];
-                                    handleCreatePlaylist(message.id, contentIds);
-                                  }}
-                                  className="gap-2 shadow-sm hover:shadow-md transition-all hover:border-primary/50 h-9"
-                                >
-                                  <List className="w-4 h-4" />
-                                  Salvar Playlist ({messageContents.get(message.id)!.length} conteúdos)
-                                </Button>
+                                  <CarouselContent className="-ml-2">
+                                    {messageContents.get(message.id)?.map((content: any) => (
+                                      <CarouselItem
+                                        key={content.id}
+                                        className="pl-2 basis-[280px] max-w-[280px]"
+                                      >
+                                        <ChatContentCard
+                                          id={content.id}
+                                          title={content.title}
+                                          description={content.description}
+                                          thumbnail_url={content.thumbnail_url}
+                                          content_type={content.content_type}
+                                          duration_minutes={content.duration_minutes}
+                                          required_plan={content.required_plan}
+                                          visibility={content.visibility}
+                                          price={content.price}
+                                          is_free={content.is_free}
+                                          relevanceScore={content.relevanceScore}
+                                          onPlay={(contentId) => handlePlayContent(contentId, {
+                                            sourceMessageId: message.id,
+                                            title: content.title,
+                                            relevanceScore: content.relevanceScore,
+                                          })}
+                                          compact
+                                        />
+                                      </CarouselItem>
+                                    ))}
+                                  </CarouselContent>
+                                  {(messageContents.get(message.id)?.length ?? 0) > 1 && (
+                                    <>
+                                      <CarouselPrevious className="absolute -left-3 top-1/2 -translate-y-1/2 h-8 w-8 bg-background/80 backdrop-blur-sm border-border" />
+                                      <CarouselNext className="absolute -right-3 top-1/2 -translate-y-1/2 h-8 w-8 bg-background/80 backdrop-blur-sm border-border" />
+                                    </>
+                                  )}
+                                </Carousel>
+                              </div>
+                              {messageContents.get(message.id) && messageContents.get(message.id)!.length > 1 && (
+                                <div className="flex gap-2 justify-start pt-3 mt-1 border-t border-border/30">
+                                  {savedPlaylists.has(message.id) ? (
+                                    <Button
+                                      size="sm"
+                                      variant="default"
+                                      onClick={() => {
+                                        setActivePlaylist({ messageId: message.id, currentIndex: 0 });
+                                        const firstContent = messageContents.get(message.id)?.[0];
+                                        if (firstContent) handlePlayContent(firstContent.id, {
+                                          sourceMessageId: message.id,
+                                          title: firstContent.title,
+                                          relevanceScore: firstContent.relevanceScore,
+                                        });
+                                      }}
+                                      className="gap-2 shadow-sm hover:shadow-md transition-all h-9"
+                                    >
+                                      <Play className="w-4 h-4" />
+                                      Assistir Playlist
+                                    </Button>
+                                  ) : (
+                                    <Button
+                                      size="sm"
+                                      variant="outline"
+                                      onClick={() => {
+                                        const contentIds = messageContents.get(message.id)?.map(c => c.id) || [];
+                                        handleCreatePlaylist(message.id, contentIds);
+                                      }}
+                                      className="gap-2 shadow-sm hover:shadow-md transition-all hover:border-primary/50 h-9"
+                                    >
+                                      <List className="w-4 h-4" />
+                                      Salvar Playlist ({messageContents.get(message.id)!.length} conteúdos)
+                                    </Button>
+                                  )}
+                                </div>
                               )}
                             </div>
                           )}
                         </div>
-                      )}
-                    </div>
-                    );
-                  })}
+                      );
+                    })}
                   </>
                 )}
                 <div ref={messagesEndRef} />
@@ -2868,8 +2857,8 @@ function StudyContent() {
                   <div className={cn(
                     "relative flex items-end gap-2 rounded-3xl transition-all duration-300",
                     "bg-card border-2 shadow-lg hover:shadow-xl",
-                    isChatLocked 
-                      ? "border-border/30 opacity-60" 
+                    isChatLocked
+                      ? "border-border/30 opacity-60"
                       : "border-border/50 hover:border-border focus-within:border-primary/30 focus-within:shadow-2xl focus-within:shadow-primary/5"
                   )}>
                     {/* Text Input */}
@@ -2894,14 +2883,14 @@ function StudyContent() {
                           "placeholder:text-muted-foreground/60",
                           "disabled:cursor-not-allowed"
                         )}
-                        style={{ minHeight: "24px", maxHeight: "160px" }}
+                        style={{ minHeight: "24px", maxHeight: "160px", lineHeight: "2.2rem" }}
                       />
                     </div>
 
                     {/* Send Button */}
                     <div className="pr-2 pb-2">
-                      <Button 
-                        type="submit" 
+                      <Button
+                        type="submit"
                         disabled={sending || isChatLocked || !input.trim()}
                         size="icon"
                         className={cn(
