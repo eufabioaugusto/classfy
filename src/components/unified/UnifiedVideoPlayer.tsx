@@ -901,24 +901,24 @@ export function UnifiedVideoPlayer({
                       setShowSettingsMenu(!showSettingsMenu);
                       setSettingsSubMenu("main");
                     }}
-                    className="text-white hover:bg-white/20 h-8 w-8 transition-transform duration-300 hover:rotate-45"
+                    className="text-white hover:bg-white/20 h-8 w-8"
                     title="Configurações (Velocidade e Qualidade)"
                   >
                     <Settings className="w-4 h-4" />
                   </Button>
 
                   {showSettingsMenu && (
-                    <div className="absolute bottom-full right-0 mb-2 bg-black/95 backdrop-blur-md border border-white/10 rounded-xl shadow-2xl p-2 z-50 min-w-[220px] text-white animate-in fade-in slide-in-from-bottom-2 duration-200">
+                    <div className="absolute bottom-full right-0 mb-2 bg-black/60 backdrop-blur-md border border-white/10 rounded-xl shadow-2xl p-2 z-50 min-w-[245px] text-white animate-in fade-in slide-in-from-bottom-2 duration-200">
                       
                       {/* SUB-MENU: MAIN OPTIONS */}
                       {settingsSubMenu === "main" && (
                         <div className="space-y-1">
                           <button
                             onClick={() => setSettingsSubMenu("speed")}
-                            className="w-full flex items-center justify-between px-3 py-2 text-sm rounded-lg hover:bg-white/10 transition-colors"
+                            className="w-full flex items-center justify-between px-3 py-2 text-sm rounded-lg hover:bg-white/10 transition-colors text-left"
                           >
-                            <span className="text-white/80">Velocidade da reprodução</span>
-                            <span className="flex items-center text-white/50 text-xs font-semibold">
+                            <span className="text-white/80 text-left">Velocidade da reprodução</span>
+                            <span className="flex items-center text-white/50 text-xs font-semibold ml-2">
                               {playbackRate === 1 ? "Normal" : `${playbackRate}x`}
                               <ChevronRight className="w-3.5 h-3.5 ml-1" />
                             </span>
@@ -927,10 +927,10 @@ export function UnifiedVideoPlayer({
                           {availableQualities.length > 0 && (
                             <button
                               onClick={() => setSettingsSubMenu("quality")}
-                              className="w-full flex items-center justify-between px-3 py-2 text-sm rounded-lg hover:bg-white/10 transition-colors"
+                              className="w-full flex items-center justify-between px-3 py-2 text-sm rounded-lg hover:bg-white/10 transition-colors text-left"
                             >
-                              <span className="text-white/80">Qualidade</span>
-                              <span className="flex items-center text-white/50 text-xs font-semibold">
+                              <span className="text-white/80 text-left">Qualidade</span>
+                              <span className="flex items-center text-white/50 text-xs font-semibold ml-2">
                                 {currentQualityLabel}
                                 <ChevronRight className="w-3.5 h-3.5 ml-1" />
                               </span>
@@ -995,7 +995,15 @@ export function UnifiedVideoPlayer({
                                 activeQualityIndex === q.index ? "bg-primary text-primary-foreground font-semibold" : "hover:bg-white/10 text-white/80"
                               )}
                             >
-                              <span>{q.label}</span>
+                              <span className="flex items-center">
+                                {q.label}
+                                {q.label === "720p" && (
+                                  <span className="ml-2 px-1 py-0.2 text-[8px] font-extrabold bg-white/20 text-white rounded-[3px] tracking-wide leading-none">HD</span>
+                                )}
+                                {q.label === "1080p" && (
+                                  <span className="ml-2 px-1 py-0.2 text-[8px] font-extrabold bg-white/20 text-white rounded-[3px] tracking-wide leading-none">FHD</span>
+                                )}
+                              </span>
                               {activeQualityIndex === q.index && <span className="w-1.5 h-1.5 bg-white rounded-full" />}
                             </button>
                           ))}
