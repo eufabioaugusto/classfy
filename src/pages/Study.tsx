@@ -1200,6 +1200,7 @@ function StudyContent() {
         contentId: data.id,
         visibility: data.visibility as any,
         price: data.price,
+        creatorId: data.creator_id,
       });
 
       if (!accessResult.hasAccess) {

@@ -169,6 +169,11 @@ export const ContentCard = ({
   };
 
   const checkAccess = () => {
+    // Creator/Owner always has access
+    if (user && creatorId === user.id) {
+      return true;
+    }
+
     // Allow visitors to view free content without login (for conversion)
     // Views/rewards will only count after they sign up
     if (visibility === "free") {

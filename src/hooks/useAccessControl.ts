@@ -17,6 +17,7 @@ interface UseAccessControlProps {
   visibility?: Visibility;
   price?: number;
   isCourse?: boolean;
+  creatorId?: string;
 }
 
 export function useAccessControl() {
@@ -34,6 +35,7 @@ export function useAccessControl() {
     visibility = "free",
     price = 0,
     isCourse = false,
+    creatorId,
   }: UseAccessControlProps): Promise<AccessState> => {
     setLoading(true);
 
@@ -48,6 +50,18 @@ export function useAccessControl() {
 
       // Admins always have access
       if (role === "admin") {
+        newState = {
+          hasAccess: true,
+          blockReason: null,
+          requiredPlan: "pro",
+          isPurchased: false,
+        };
+        setAccessState(newState);
+        return newState;
+      }
+
+      // Creator/Owner always has access
+      if (user && creatorId && user.id === creatorId) {
         newState = {
           hasAccess: true,
           blockReason: null,

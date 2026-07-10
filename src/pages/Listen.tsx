@@ -89,6 +89,13 @@ export default function Listen() {
 
   const checkAccess = async (content: Content) => {
     if (!profile || !user) return;
+
+    // Creator/Owner always has access
+    if (content.creator_id === user.id) {
+      setHasAccess(true);
+      return;
+    }
+
     const userPlan = profile.plan || 'free';
 
     if (content.visibility === 'paid') {

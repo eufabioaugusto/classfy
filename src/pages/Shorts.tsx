@@ -282,6 +282,13 @@ export default function Shorts() {
   const checkAccess = async (short: ShortContent) => {
     if (!user || !short) return;
 
+    // Creator/Owner always has access
+    if (short.creator_id === user.id) {
+      setHasAccess(true);
+      await incrementView(short.id);
+      return;
+    }
+
     // Check if content is free
     if (short.visibility === "free") {
       setHasAccess(true);

@@ -42,6 +42,7 @@ interface RelatedContent {
   price: number | null;
   is_free: boolean;
   discount?: number | null;
+  creator_id?: string;
   creator?: {
     display_name?: string | null;
   } | null;
@@ -99,6 +100,7 @@ export const WatchRelated = ({ contentId, categoryId, tags, contentType, current
           price,
           is_free,
           discount,
+          creator_id,
           creator:profiles!creator_id(display_name)
         `)
         .eq('status', 'approved')
@@ -134,6 +136,11 @@ export const WatchRelated = ({ contentId, categoryId, tags, contentType, current
   };
 
   const checkAccess = (content: RelatedContent): { hasAccess: boolean; reason?: 'plan' | 'purchase' } => {
+    // Creator/Owner always has access
+    if (user && content.creator_id === user.id) {
+      return { hasAccess: true };
+    }
+
     const userPlan = profile?.plan || 'free';
     const visibility = content.visibility || 'free';
     const isPaid = !content.is_free && content.price && content.price > 0;
