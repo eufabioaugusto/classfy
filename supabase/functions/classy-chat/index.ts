@@ -12,8 +12,8 @@ const DEFAULT_LIMITS = {
 };
 
 const MODELS = {
-  main: "google/gemini-3-flash-preview",
-  classifier: "google/gemini-2.5-flash-lite",
+  main: "google/gemini-2.5-flash",
+  classifier: "google/gemini-2.5-flash",
 };
 
 type AiProvider = "gemini" | "openrouter" | "lovable" | "none";
@@ -109,20 +109,31 @@ serve(async (req) => {
     const userName = profile?.display_name?.split(" ")[0] || "você";
     const userPlan = (profile?.plan || "free") as PlanType;
     const limits = await loadStudyLimits(supabase, userPlan);
-    const currentUserMessageCount = Number(study.message_count || 0);
+    const dailyLimits = await getDailyLimits(supabase);
+    const maxMessagesToday = dailyLimits[userPlan];
+
+    const timeLimit24hAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+    const { count: dailyUserMessageCount } = await supabase
+      .from("study_messages")
+      .select("*", { count: "exact", head: true })
+      .eq("study_id", studyId)
+      .eq("role", "user")
+      .gt("created_at", timeLimit24hAgo);
+    
+    const currentDailyCount = dailyUserMessageCount || 0;
     const currentDeviations = Number(study.topic_deviations_count || 0);
 
-    if (!playlistSummary && currentUserMessageCount >= limits.maxMessages) {
+    if (!playlistSummary && currentDailyCount >= maxMessagesToday) {
       return jsonResponse({
         error: "MESSAGE_LIMIT_REACHED",
         message:
-          `${userName}, você atingiu o limite de ${limits.maxMessages} mensagens suas neste estudo. ` +
-          "Faça upgrade ou crie um novo estudo para continuar. 📚",
+          `${userName}, você atingiu o seu limite diário de ${maxMessagesToday} mensagens de chat neste estudo. ` +
+          "Faça upgrade de plano para enviar mais ou aguarde o reset de 24 horas. 📚",
         limitReached: true,
         limitType: "messages",
         usage: {
-          userMessageCount: currentUserMessageCount,
-          maxMessages: limits.maxMessages,
+          userMessageCount: currentDailyCount,
+          maxMessages: maxMessagesToday,
           deviationCount: currentDeviations,
           maxDeviations: limits.maxDeviations,
           plan: userPlan,
@@ -178,6 +189,7 @@ serve(async (req) => {
     }));
     const userHistory = conversationHistory.filter((item) => item.role === "user");
     const isFirstMessage = userHistory.length === 0;
+    const currentUserMessageCount = userHistory.length;
     const isReturningStudy = currentUserMessageCount > 0 && Boolean(aiState.session_summary || aiState.current_focus);
 
     let transcriptionText = "";
@@ -590,15 +602,11 @@ function resolveAiProvider(): AiProvider {
 
 function resolveModelName(model: string, provider: AiProvider) {
   if (provider === "gemini") {
-    if (model === MODELS.main) return "gemini-2.5-flash";
-    if (model === MODELS.classifier) return "gemini-2.5-flash";
+    return "gemini-2.5-flash";
   }
-
-  if (provider === "openrouter") {
-    if (model === MODELS.main) return "google/gemini-2.5-flash";
-    if (model === MODELS.classifier) return "google/gemini-2.5-flash";
+  if (provider === "openrouter" || provider === "lovable") {
+    return "google/gemini-2.5-flash";
   }
-
   return model;
 }
 
@@ -618,6 +626,34 @@ async function requestAiCompletion(options: {
   if (provider === "gemini") {
     const geminiKey = Deno.env.get("GEMINI_API_KEY");
     const modelName = resolveModelName(options.model, provider);
+    
+    // Sanitize and format contents for Gemini (alternating user/model starting with user)
+    const contents: Array<{ role: string; parts: Array<{ text: string }> }> = [];
+    for (const msg of options.messages) {
+      if (msg.role === "system") continue;
+      const role = msg.role === "assistant" ? "model" : "user";
+      if (contents.length > 0 && contents[contents.length - 1].role === role) {
+        contents[contents.length - 1].parts[0].text += "\n\n" + msg.content;
+      } else {
+        contents.push({
+          role,
+          parts: [{ text: msg.content }],
+        });
+      }
+    }
+    
+    // Ensure it starts with user
+    while (contents.length > 0 && contents[0].role === "model") {
+      contents.shift();
+    }
+    
+    if (contents.length === 0) {
+      contents.push({
+        role: "user",
+        parts: [{ text: "Olá" }],
+      });
+    }
+
     const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent`, {
       method: "POST",
       headers: {
@@ -630,10 +666,7 @@ async function requestAiCompletion(options: {
             parts: [{ text: options.systemPrompt }],
           }
           : undefined,
-        contents: options.messages.map((message) => ({
-          role: message.role === "assistant" ? "model" : "user",
-          parts: [{ text: message.content }],
-        })),
+        contents,
         generationConfig: {
           temperature: options.temperature,
           maxOutputTokens: options.maxTokens,
@@ -642,6 +675,10 @@ async function requestAiCompletion(options: {
     });
 
     const data = await response.json();
+    if (!response.ok) {
+      console.error(`Gemini API Error (status ${response.status}):`, JSON.stringify(data));
+    }
+
     const text = data?.candidates?.[0]?.content?.parts
       ?.map((part: { text?: string }) => part.text || "")
       .join("")
@@ -673,6 +710,9 @@ async function requestAiCompletion(options: {
   });
 
   const data = await response.json();
+  if (!response.ok) {
+    console.error(`AI API Error (status ${response.status}):`, JSON.stringify(data));
+  }
   const text = data?.choices?.[0]?.message?.content?.trim?.() || "";
 
   return { provider, response, data, text };
@@ -697,6 +737,26 @@ async function trackStudyAiEvents(
       payload: event.payload,
     })),
   );
+}
+
+async function getDailyLimits(supabase: ReturnType<typeof createClient>): Promise<Record<PlanType, number>> {
+  try {
+    const { data } = await supabase
+      .from("system_config")
+      .select("config_value")
+      .eq("config_key", "classy_chat_daily_limits")
+      .maybeSingle();
+    if (data?.config_value) {
+      return {
+        free: Number(data.config_value.free ?? 15),
+        pro: Number(data.config_value.pro ?? 50),
+        premium: Number(data.config_value.premium ?? 200),
+      };
+    }
+  } catch (err) {
+    console.error("Failed to load classy_chat_daily_limits from system_config:", err);
+  }
+  return { free: 15, pro: 50, premium: 200 };
 }
 
 async function loadStudyLimits(supabase: ReturnType<typeof createClient>, plan: PlanType) {
@@ -1230,80 +1290,58 @@ function buildTutorPrompt(options: {
       .join("\n")
     : "Nenhum conteúdo relacionado encontrado.";
 
-  return `Você é Classy, a tutora estratégica da Classfy.
+  return `Você é a Classy, a mentora intelectual e estratégica da Classfy. Seu papel é oferecer mentoria pedagógica de altíssimo nível, combinando clareza conceitual, sofisticação intelectual e calor humano.
 
-REGRAS:
-- Responda em português do Brasil.
-- Seja calorosa, perceptiva e objetiva.
-- Responda primeiro à necessidade real do estudante.
-- Soe como um ótimo chat de IA: natural, fluida, sem cara de dashboard.
-- Se houver transcrição do conteúdo ativo, priorize isso como fonte.
-- Se houver conteúdos relacionados, não despeje títulos nem trilhas cedo demais; a UI já mostra cards quando isso fizer sentido.
-- Não cite concorrentes nem links externos.
-- Não seja genérica.
-- Evite blocos longos.
-- Máximo de 120 palavras.
+DIRETRIZES DE TOM E FORMATAÇÃO (PREMIUM UX):
+1. ZERO CLICHÊS DE IA: Banimento estrito de saudações e encerramentos artificiais.
+   - NUNCA use frases como: "Que ótima pergunta!", "Excelente escolha!", "Entendi que você...", "Como você mencionou...", "Espero que isso ajude!", "Estou aqui para ajudar!", "Certamente!", "Com certeza!", "Ótimo, Creator!".
+   - Vá direto ao ponto de valor da resposta. A empatia se expressa pela relevância e pela profundidade pedagógica, não por cordialidades mecânicas.
+2. TÉCNICA DE FEYNMAN & ANALOGIAS: Explique conceitos difíceis com metáforas simples do mundo real. Prefira o entendimento intuitivo à teoria pura.
+3. CONVERSA FLUIDA: Evite listas numeradas ou bullet points excessivos. Escreva de forma orgânica, usando no máximo 2 a 3 parágrafos curtos.
+4. MARKDOWN SOFISTICADO: Use **negrito** estritamente para destacar um conceito-chave na primeira aparição. Evite excesso de formatação ou emojis.
+5. CONEXÃO ATIVA: Conecte o assunto atual aos interesses do estudante (${options.userInterests.slice(0, 3).join(", ")}) ou a tópicos frágeis identificados (${options.weakTopics.slice(0, 3).join(", ")}).
+6. MÁXIMO DE 180 PALAVRAS: Seja concisa, mas profunda. Cada frase deve carregar valor real.
 
-ESTILO POR MODO:
-- onboard: acolha, mostre que entendeu o tema e faça apenas 1 pergunta útil para calibrar nível, objetivo ou contexto.
-- explain: ensine com precisão e transparência de fonte.
-- review: aja como mentora que recupera entendimento e prioriza lacunas.
-- practice: seja desafiadora, mas objetiva.
-- recommend e plan: aja como mentora estratégica, organizando próximos passos com lógica.
+REGRAS DE CONDUTA POR MODO:
+- onboard (Abertura de Conversa):
+  * Não se apresente com discursos longos. Reconheça o tema central com um gancho intelectual instigante.
+  * Faça exatamente uma pergunta calibrada e cirúrgica para entender o nível de maturidade ou o objetivo prático do estudante no assunto.
+- explain (Explicação e Aprofundamento):
+  * Ensine o conceito com precisão cirúrgica usando uma analogia marcante.
+  * Termine com uma provocação ou um convite para refletir sobre a aplicação prática daquilo.
+- practice (Exercício e Desafio):
+  * Não peça para o usuário treinar sozinho. Proponha um micro-desafio de cenário real curto e imediato: "Imagine a situação X. Como você aplicaria Y para resolver?"
+- review (Mentoria de Lacunas):
+  * Identifique erros ou lacunas passadas com base no progresso (${options.progressData?.progress_percent ?? 0}%) ou tópicos frágeis (${options.weakTopics.join(", ")}).
+  * Re-explique sob uma perspectiva alternativa e peça para o estudante resumir de volta.
+- recommend / plan (Direcionamento de Estudos):
+  * Explique brevemente o porquê pedagógico da rota sugerida antes de apresentá-la.
 
 CONTEXTO DO ESTUDANTE:
 - Nome: ${options.userName}
-- Plano: ${options.userPlan}
-- Objetivo atual: ${options.userGoal || options.studyTitle}
+- Nível: ${options.learnerLevel}
+- Objetivo: ${options.userGoal || options.studyTitle}
 - Foco atual: ${options.currentFocus || options.studyTitle}
-- Nível inferido: ${options.learnerLevel}
-- Modo atual: ${options.activeMode}
-- Próximo melhor passo: ${options.nextBestAction}
+- Tópicos consolidados: ${options.masteredTopics.length > 0 ? options.masteredTopics.join(", ") : "nenhum ainda"}
+- Tópicos frágeis mapeados: ${options.weakTopics.length > 0 ? options.weakTopics.join(", ") : "nenhum ainda"}
+- Notas da jornada: ${options.notesSummary || "sem notas"}
+- Resumo da jornada: ${options.sessionSummary || "iniciando agora"}
 
-SINAIS DE APRENDIZADO:
-- Progresso: ${options.progressData?.progress_percent ?? 0}%
-- ${options.quizSummary}
-- Notas recentes: ${options.notesSummary}
-- Resumo da jornada até aqui: ${options.sessionSummary}
-- Tópicos fortes: ${options.masteredTopics.length > 0 ? options.masteredTopics.join(", ") : "ainda não consolidado"}
-- Tópicos frágeis: ${options.weakTopics.length > 0 ? options.weakTopics.join(", ") : "nenhum mapeado"}
-- Interesses recorrentes do usuário: ${options.userInterests.length > 0 ? options.userInterests.slice(0, 8).join(", ") : "ainda não identificados"}
-- Dificuldades recorrentes do usuário: ${options.userDifficulties.length > 0 ? options.userDifficulties.slice(0, 5).join(" | ") : "ainda não identificadas"}
-- Perguntas em aberto: ${options.openQuestions.length > 0 ? options.openQuestions.join(" | ") : "nenhuma registrada"}
-- Status de checkpoint: ${options.checkpointStatus}
-- Plano vivo atual: ${options.livePlanSteps.length > 0 ? options.livePlanSteps.join(" | ") : "ainda não estruturado"}
-- Celebração factual disponível: ${options.celebrationMessage || "nenhuma nesta rodada"}
-- Transparência de fonte: ${options.sourceTransparency}
-
-CONTEÚDO ATIVO:
-${options.activeContent ? `- Título: ${options.activeContent.title}
-- Tipo: ${options.activeContent.content_type}
+CONTEÚDO ATIVO ATUAL:
+${options.activeContent ? `- Título: ${options.activeContent.title} (${options.activeContent.content_type})
 - Criador: ${options.activeContent.profiles?.display_name || "Desconhecido"}
-- Timestamp atual: ${typeof options.currentVideoTime === "number" ? formatTimestamp(options.currentVideoTime) : "não informado"}`
-    : "Nenhum conteúdo ativo agora."}
+- Timestamp: ${typeof options.currentVideoTime === "number" ? formatTimestamp(options.currentVideoTime) : "não informado"}`
+    : "Nenhum conteúdo ativo."}
 
 TRANSCRIÇÃO DO CONTEÚDO ATIVO:
-${options.transcriptionText ? options.transcriptionText.slice(0, 7000) : "Sem transcrição disponível."}
-
-CONTEÚDOS RELACIONADOS:
-${relatedContentSummary}
-
-TRILHA RECOMENDADA:
-${options.recommendedPath.length > 0 ? options.recommendedPath.join("\n") : "Sem trilha estruturada adicional neste momento."}
-
-MENSAGEM DO ESTUDANTE:
-${options.message}
+${options.transcriptionText ? options.transcriptionText.slice(0, 6000) : "Sem transcrição disponível."}
 
 INSTRUÇÕES DE ENTREGA:
 ${options.playlistSummary
-    ? "- Gere um resumo curto da playlist salva, explicando o que a pessoa pode aprender com a trilha."
+    ? "Gere um resumo estratégico de valor da playlist salva, descrevendo de forma inspiradora o impacto que o estudante terá ao dominá-la."
     : options.isFirstMessage
-    ? `- Faça um primeiro turno conversacional.
-- Não entregue trilha, checkpoint, plano vivo, resumo operacional ou múltiplas instruções.
-- Não recomende conteúdo específico ainda, a menos que o usuário peça ou já exista conteúdo ativo.
-- Responda em 2 ou 3 parágrafos curtos.
-- Termine com exatamente 1 pergunta clara.` 
-    : "- Responda com estratégia pedagógica, mas mantenha compacta a entrega. Só proponha próximo passo quando isso realmente ajudar."}
+    ? "Esta é a primeira mensagem da conversa. Acolha com o modo 'onboard', sem despejar trilhas ou resumos operacionais. Foco total em calibrar o estudante com 1 pergunta intrigante."
+    : "Responda de forma fluida seguindo as diretrizes Conversacionais Premium."}
 `;
 }
 
@@ -1321,7 +1359,7 @@ async function generateAiMessage(
       { role: "user", content: message },
     ],
     temperature: playlistSummary ? 0.5 : 0.65,
-    maxTokens: 700,
+    maxTokens: 2500,
   });
 
   if (!response.ok) {
