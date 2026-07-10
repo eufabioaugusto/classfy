@@ -2879,7 +2879,7 @@ function StudyContent() {
                         rows={1}
                         className={cn(
                           "block w-full bg-transparent resize-none overflow-y-hidden outline-none",
-                          "text-sm sm:text-base leading-relaxed",
+                          "text-sm sm:text-base leading-[2.2rem]",
                           "placeholder:text-muted-foreground/60",
                           "disabled:cursor-not-allowed"
                         )}
