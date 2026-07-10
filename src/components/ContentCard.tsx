@@ -8,6 +8,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { CreatorLink } from "@/components/CreatorLink";
 import { FeaturedBadge } from "@/components/FeaturedBadge";
 import { useIsMobile } from "@/hooks/use-mobile";
+import { useAuth } from "@/contexts/AuthContext";
 
 interface ContentCardProps {
   id?: string;
@@ -81,6 +82,7 @@ export const ContentCard = ({
   const isPurchased = propIsPurchased !== undefined ? propIsPurchased : false;
   const navigate = useNavigate();
   const location = useLocation();
+  const { user } = useAuth();
   const isRestricted = !isFree || requiredPlan;
   const isPaid = visibility === "paid";
   const [isBoosted, setIsBoosted] = useState(propIsBoosted ?? false);
