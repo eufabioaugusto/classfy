@@ -276,22 +276,27 @@ export const ContentCard = ({
         {/* NEW badge - Top Left (below boost if both present) */}
         {isNew && !isBoosted && (
           <div className="absolute top-2 left-2">
-            <Badge className="bg-accent/95 backdrop-blur-md text-accent-foreground font-bold text-[10px] px-2 py-0.5 shadow-md flex items-center gap-1">
-              <Sparkles className="w-3 h-3" />
+            <span className="bg-black/50 text-white font-bold text-[10px] px-2 py-0.5 rounded shadow-md transition-colors duration-300 group-hover:bg-black/75">
               NOVO
-            </Badge>
+            </span>
           </div>
         )}
 
         {/* Tier badge - Top Right */}
         {visibility === "premium" && !isPurchased && (
           <div className="absolute top-2 right-2">
-            <Crown className="w-5 h-5 text-red-500 drop-shadow-md" fill="currentColor" />
+            <div className="bg-black/55 backdrop-blur-[2px] text-white border border-white/10 font-bold text-[9px] px-1.5 py-0.5 rounded flex items-center gap-1 shadow-md">
+              <span className="text-white/90">PREMIUM</span>
+              <Crown className="w-3 h-3 text-red-500 fill-current" />
+            </div>
           </div>
         )}
         {visibility === "pro" && !isPurchased && (
           <div className="absolute top-2 right-2">
-            <Crown className="w-5 h-5 text-yellow-400 drop-shadow-md" fill="currentColor" />
+            <div className="bg-black/55 backdrop-blur-[2px] text-white border border-white/10 font-bold text-[9px] px-1.5 py-0.5 rounded flex items-center gap-1 shadow-md">
+              <span className="text-white/90">PRO</span>
+              <Crown className="w-3 h-3 text-yellow-400 fill-current" />
+            </div>
           </div>
         )}
 
