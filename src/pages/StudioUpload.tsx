@@ -25,6 +25,7 @@ import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from "@/components/u
 import { VideoPreparationLobby } from "@/components/video-lobby/VideoPreparationLobby";
 import * as tus from "tus-js-client";
 import { compressImage } from "@/utils/imageCompression";
+import { videoService } from "@/lib/video/service";
 
 
 const DRAFT_KEY = "studio-upload-draft";
@@ -97,6 +98,7 @@ export default function StudioUpload() {
   const isMobile = useIsMobile();
   const pendingFileRef = useRef<File | null>(null);
   const [videoProvider, setVideoProvider] = useState<string>("supabase");
+  const [mediaAssetId, setMediaAssetId] = useState<string | null>(null);
   const [bunnyLibraryId, setBunnyLibraryId] = useState<string | null>(null);
   const [bunnyVideoId, setBunnyVideoId] = useState<string | null>(null);
   const [bunnyStatus, setBunnyStatus] = useState<string | null>(null);
@@ -213,6 +215,7 @@ export default function StudioUpload() {
         setThumbnailProgress(100);
         // Load bunny fields if editing
         setVideoProvider(data.video_provider || "supabase");
+        setMediaAssetId(data.media_asset_id || null);
         setBunnyLibraryId(data.bunny_library_id || null);
         setBunnyVideoId(data.bunny_video_id || null);
         setBunnyStatus(data.bunny_status || null);
@@ -333,73 +336,42 @@ export default function StudioUpload() {
       }
       
       if (contentType !== "podcast") {
-        setVideoProvider("bunny");
         setUploadState("uploading");
         setFileProgress(0);
+        const target = await videoService.createUpload(title || fileToUpload.name);
+        setMediaAssetId(target.mediaAssetId);
+        setVideoProvider(target.provider);
+        setFileUrl(`media:${target.mediaAssetId}`);
 
-        console.log("Chamando edge function bunny-video-sign...");
-        const { data: signData, error: signError } = await supabase.functions.invoke("bunny-video-sign", {
-          body: { title: title || fileToUpload.name }
-        });
-
-        if (signError || !signData) {
-          throw new Error(signError?.message || "Falha ao obter credenciais de assinatura da Bunny Stream");
-        }
-
-        const { videoId, libraryId, signature, expirationTime, uploadUrl } = signData;
-        setBunnyVideoId(videoId);
-        setBunnyLibraryId(libraryId);
-        setBunnyStatus("processing");
-
-        const cdnHostname = "vz-42560f79-6f8.b-cdn.net";
-        const hlsUrl = `https://${cdnHostname}/${videoId}/playlist.m3u8`;
-        const thumbnailUrl = `https://${cdnHostname}/${videoId}/thumbnail.jpg`;
-
-        setBunnyHlsUrl(hlsUrl);
-        setBunnyThumbnailUrl(thumbnailUrl);
-
-        // Define as URLs para compatibilidade imediata no frontend
-        setFileUrl(hlsUrl);
-        if (!thumbnailUrl && !manualThumbnail) {
-          setThumbnailUrl(thumbnailUrl);
-        }
-
-        // Fazer o upload TUS usando tus-js-client
-        await new Promise<void>((resolve, reject) => {
-          const upload = new tus.Upload(fileToUpload, {
-            endpoint: uploadUrl,
-            retryDelays: [0, 3000, 5000, 10000],
-            headers: {
-              AuthorizationSignature: signature,
-              AuthorizationExpire: expirationTime.toString(),
-              LibraryId: libraryId,
-              VideoId: videoId,
-            },
-            metadata: {
-              filename: fileToUpload.name,
-              filetype: fileToUpload.type,
-              title: title || fileToUpload.name,
-            },
-            onProgress: (bytesUploaded, bytesTotal) => {
-              const percent = Math.round((bytesUploaded / bytesTotal) * 100);
-              setFileProgress(percent);
-            },
-            onSuccess: () => {
-              console.log("Bunny Stream upload complete!");
-              resolve();
-            },
-            onError: (error) => {
-              console.error("Bunny Stream upload error:", error);
-              reject(error);
-            },
+        if (target.method === "TUS") {
+          await new Promise<void>((resolve, reject) => {
+            const upload = new tus.Upload(fileToUpload, {
+              endpoint: target.uploadUrl, retryDelays: [0, 3000, 5000, 10000], headers: target.headers,
+              metadata: { filename: fileToUpload.name, filetype: fileToUpload.type, title: title || fileToUpload.name },
+              onProgress: (sent, total) => setFileProgress(Math.round((sent / total) * 100)),
+              onSuccess: () => resolve(), onError: reject,
+            });
+            upload.start();
           });
-          upload.start();
-        });
+        } else if (target.method === "PUT") {
+          await new Promise<void>((resolve, reject) => {
+            const xhr = new XMLHttpRequest();
+            xhrRef.current = xhr;
+            xhr.upload.onprogress = event => event.lengthComputable && setFileProgress(Math.round((event.loaded / event.total) * 100));
+            xhr.onload = () => xhr.status >= 200 && xhr.status < 300 ? resolve() : reject(new Error(`Upload failed with status ${xhr.status}`));
+            xhr.onerror = () => reject(new Error("Upload failed"));
+            xhr.onabort = () => reject(new Error("Upload aborted"));
+            xhr.open("PUT", target.uploadUrl);
+            Object.entries(target.headers ?? {}).forEach(([name, value]) => xhr.setRequestHeader(name, value));
+            xhr.setRequestHeader("Content-Type", fileToUpload.type || "application/octet-stream");
+            xhr.send(fileToUpload);
+          });
+        }
 
         setUploadState("processing");
         setFileProgress(100);
         setUploadState("complete");
-        toast.success("Vídeo enviado com sucesso para a Bunny Stream!");
+        toast.success("Vídeo enviado! O processamento continuará em segundo plano.");
       } else {
         setUploadState("uploading");
         setFileProgress(0);
@@ -678,7 +650,7 @@ export default function StudioUpload() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!title || !fileUrl) {
+    if (!title || (!fileUrl && !mediaAssetId)) {
       toast.error("Preencha todos os campos obrigatórios");
       return;
     }
@@ -705,6 +677,7 @@ export default function StudioUpload() {
         price: visibility === 'paid' ? parseFloat(price) : 0,
         discount: visibility === 'paid' ? parseFloat(discount) : 0,
         tags: tags.length > 0 ? tags : null,
+        media_asset_id: mediaAssetId,
         video_provider: videoProvider,
         bunny_library_id: bunnyLibraryId,
         bunny_video_id: bunnyVideoId,

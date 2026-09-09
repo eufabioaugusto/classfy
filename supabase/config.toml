@@ -45,6 +45,21 @@ verify_jwt = false
 [functions.stripe-webhook]
 verify_jwt = false
 
+[functions.video-create-upload]
+verify_jwt = true
+
+[functions.video-playback]
+verify_jwt = true
+
+[functions.mux-webhook]
+verify_jwt = false
+
+[functions.bunny-webhook]
+verify_jwt = false
+
+[functions.bunny-video-sign]
+verify_jwt = true
+
 [functions.process-video]
 verify_jwt = true
 

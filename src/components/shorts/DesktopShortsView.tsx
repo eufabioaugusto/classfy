@@ -21,6 +21,7 @@ import { FeaturedBadge } from "@/components/FeaturedBadge";
 import { ShareViaDMModal } from "@/components/direct-messages/ShareViaDMModal";
 import { useAuth } from "@/contexts/AuthContext";
 import { cn } from "@/lib/utils";
+import { usePlaybackSource } from "@/hooks/usePlaybackSource";
 
 interface ShortContent {
   id: string;
@@ -39,6 +40,7 @@ interface ShortContent {
   bunny_video_id?: string | null;
   bunny_library_id?: string | null;
   bunny_hls_url?: string | null;
+  media_asset_id?: string | null;
   creator: {
     id: string;
     display_name: string;
@@ -97,14 +99,15 @@ export function DesktopShortsView({
   const hideControlsTimeout = useRef<NodeJS.Timeout | null>(null);
 
   const currentShort = shorts[currentIndex];
+  const playback = usePlaybackSource(currentShort ?? {});
 
   useEffect(() => {
     const video = videoRef.current;
     if (!video || !currentShort) return;
 
     let hls: Hls | null = null;
-    const url = currentShort.video_url || currentShort.file_url || "";
-    const isHls = url.includes(".m3u8") || currentShort.video_provider === "bunny";
+    const url = playback.url || currentShort.video_url || currentShort.file_url || "";
+    const isHls = url.includes(".m3u8") || Boolean(currentShort.media_asset_id) || currentShort.video_provider === "bunny";
 
     if (isHls && Hls.isSupported()) {
       hls = new Hls({
@@ -130,7 +133,7 @@ export function DesktopShortsView({
       }
       video.src = "";
     };
-  }, [currentShort, isPlaying, hasAccess]);
+  }, [currentShort, playback.url, isPlaying, hasAccess]);
 
   const formatCount = (count: number) => {
     if (count >= 1000000) return `${(count / 1000000).toFixed(1)}M`;

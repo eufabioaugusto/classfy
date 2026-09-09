@@ -30,6 +30,7 @@ interface ShortContent {
   bunny_video_id?: string | null;
   bunny_library_id?: string | null;
   bunny_hls_url?: string | null;
+  media_asset_id?: string | null;
   creator: {
     id: string;
     display_name: string;
@@ -128,6 +129,7 @@ export default function Shorts() {
              bunny_video_id,
              bunny_library_id,
              bunny_hls_url,
+             media_asset_id,
              creator:profiles!contents_creator_id_fkey(
                id,
                display_name,
@@ -171,6 +173,7 @@ export default function Shorts() {
           bunny_video_id,
           bunny_library_id,
           bunny_hls_url,
+          media_asset_id,
           creator:profiles!contents_creator_id_fkey(
             id,
             display_name,

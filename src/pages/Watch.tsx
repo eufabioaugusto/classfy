@@ -71,6 +71,10 @@ interface Content {
   attribution_text?: string | null;
   license_type?: string | null;
   source_url?: string | null;
+  media_asset_id?: string | null;
+  video_provider?: string | null;
+  bunny_video_id?: string | null;
+  bunny_library_id?: string | null;
   creator?: {
     id: string;
     display_name: string;
@@ -256,7 +260,7 @@ function WatchContent() {
             visibility, price, duration_seconds, views_count, likes_count,
             status, creator_id, category_id, tags, created_at,
             is_curated, attribution_text, license_type, source_url,
-            video_provider, bunny_library_id, bunny_video_id,
+            video_provider, bunny_library_id, bunny_video_id, media_asset_id,
             creator:profiles!creator_id(id, display_name, avatar_url, creator_channel_name)
           `)
           .eq("id", id)
@@ -316,7 +320,7 @@ function WatchContent() {
         // Fetch modules (needed for course display)
         const { data: modules } = await supabase
           .from("course_modules")
-          .select(`*, lessons:course_lessons(*, content:contents(video_provider, bunny_video_id, bunny_library_id))`)
+          .select(`*, lessons:course_lessons(*, content:contents(file_url, thumbnail_url, duration_seconds, video_provider, bunny_video_id, bunny_library_id, media_asset_id))`)
           .eq("course_id", id)
           .order("order_index", { ascending: true });
 
@@ -1074,6 +1078,7 @@ function WatchContent() {
                         video_provider: currentLesson.content?.video_provider,
                         bunny_video_id: currentLesson.content?.bunny_video_id,
                         bunny_library_id: currentLesson.content?.bunny_library_id,
+                        media_asset_id: currentLesson.content?.media_asset_id,
                       }}
                       mode="watch"
                       onTimeUpdate={handleTimeUpdate}
@@ -1106,6 +1111,7 @@ function WatchContent() {
                           video_provider: content.video_provider,
                           bunny_video_id: content.bunny_video_id,
                           bunny_library_id: content.bunny_library_id,
+                          media_asset_id: content.media_asset_id,
                         }}
                         mode="watch"
                         onTimeUpdate={handleTimeUpdate}

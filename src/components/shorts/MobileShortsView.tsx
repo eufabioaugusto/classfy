@@ -8,6 +8,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useUnreadMessages } from "@/hooks/useUnreadMessages";
 import { FeaturedBadge } from "@/components/FeaturedBadge";
 import { ShareViaDMModal } from "@/components/direct-messages/ShareViaDMModal";
+import { usePlaybackSource } from "@/hooks/usePlaybackSource";
 
 interface ShortContent {
   id: string;
@@ -26,6 +27,7 @@ interface ShortContent {
   bunny_video_id?: string | null;
   bunny_library_id?: string | null;
   bunny_hls_url?: string | null;
+  media_asset_id?: string | null;
   creator: {
     id: string;
     display_name: string;
@@ -83,6 +85,7 @@ export function MobileShortsView({
   const activeHlsRef = useRef<Hls | null>(null);
 
   const currentShort = shorts[currentIndex];
+  const playback = usePlaybackSource(currentShort ?? {});
 
   // Nav height constant for positioning info above nav
   const NAV_HEIGHT = 80;
@@ -142,8 +145,8 @@ export function MobileShortsView({
     if (!activeVideo || !activeShort) return;
 
     let hls: Hls | null = null;
-    const url = activeShort.video_url || activeShort.file_url || "";
-    const isHls = url.includes(".m3u8") || activeShort.video_provider === "bunny";
+    const url = playback.url || activeShort.video_url || activeShort.file_url || "";
+    const isHls = url.includes(".m3u8") || Boolean(activeShort.media_asset_id) || activeShort.video_provider === "bunny";
 
     if (isHls && Hls.isSupported()) {
       hls = new Hls({
@@ -170,7 +173,7 @@ export function MobileShortsView({
         }
       }
     };
-  }, [currentIndex, shorts, hasAccess]);
+  }, [currentIndex, shorts, playback.url, hasAccess]);
 
   // Scroll to index when it changes externally
   useEffect(() => {

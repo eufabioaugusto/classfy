@@ -445,6 +445,11 @@ export type Database = {
       contents: {
         Row: {
           attribution_text: string | null
+          bunny_hls_url: string | null
+          bunny_library_id: string | null
+          bunny_status: string | null
+          bunny_thumbnail_url: string | null
+          bunny_video_id: string | null
           category_id: string | null
           content_type: Database["public"]["Enums"]["content_type"]
           created_at: string
@@ -460,6 +465,7 @@ export type Database = {
           lesson_count: number | null
           license_type: string | null
           likes_count: number | null
+          media_asset_id: string | null
           price: number | null
           published_at: string | null
           required_plan: Database["public"]["Enums"]["plan_type"] | null
@@ -470,11 +476,17 @@ export type Database = {
           title: string
           updated_at: string
           video_url: string | null
+          video_provider: string | null
           views_count: number | null
           visibility: Database["public"]["Enums"]["content_visibility"] | null
         }
         Insert: {
           attribution_text?: string | null
+          bunny_hls_url?: string | null
+          bunny_library_id?: string | null
+          bunny_status?: string | null
+          bunny_thumbnail_url?: string | null
+          bunny_video_id?: string | null
           category_id?: string | null
           content_type: Database["public"]["Enums"]["content_type"]
           created_at?: string
@@ -490,6 +502,7 @@ export type Database = {
           lesson_count?: number | null
           license_type?: string | null
           likes_count?: number | null
+          media_asset_id?: string | null
           price?: number | null
           published_at?: string | null
           required_plan?: Database["public"]["Enums"]["plan_type"] | null
@@ -500,11 +513,17 @@ export type Database = {
           title: string
           updated_at?: string
           video_url?: string | null
+          video_provider?: string | null
           views_count?: number | null
           visibility?: Database["public"]["Enums"]["content_visibility"] | null
         }
         Update: {
           attribution_text?: string | null
+          bunny_hls_url?: string | null
+          bunny_library_id?: string | null
+          bunny_status?: string | null
+          bunny_thumbnail_url?: string | null
+          bunny_video_id?: string | null
           category_id?: string | null
           content_type?: Database["public"]["Enums"]["content_type"]
           created_at?: string
@@ -520,6 +539,7 @@ export type Database = {
           lesson_count?: number | null
           license_type?: string | null
           likes_count?: number | null
+          media_asset_id?: string | null
           price?: number | null
           published_at?: string | null
           required_plan?: Database["public"]["Enums"]["plan_type"] | null
@@ -530,6 +550,7 @@ export type Database = {
           title?: string
           updated_at?: string
           video_url?: string | null
+          video_provider?: string | null
           views_count?: number | null
           visibility?: Database["public"]["Enums"]["content_visibility"] | null
         }

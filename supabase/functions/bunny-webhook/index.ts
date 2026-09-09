@@ -70,7 +70,8 @@ Deno.serve(async (req) => {
       bunnyStatus = 'failed';
     }
 
-    const cdnHostname = Deno.env.get('BUNNY_STREAM_CDN_HOSTNAME') || 'vz-42560f79-6f8.b-cdn.net';
+    const cdnHostname = Deno.env.get('BUNNY_STREAM_CDN_HOSTNAME');
+    if (!cdnHostname) throw new Error('BUNNY_STREAM_CDN_HOSTNAME not configured');
     const hlsUrl = `https://${cdnHostname}/${videoGuid}/playlist.m3u8`;
     const thumbnailUrl = `https://${cdnHostname}/${videoGuid}/thumbnail.jpg`;
 
@@ -102,6 +103,40 @@ Deno.serve(async (req) => {
       } catch (err: any) {
         console.error('Error fetching video metadata from Bunny:', err.message);
       }
+    }
+
+    // Provider-neutral path used by new uploads. Legacy contents updates below are kept
+    // temporarily so existing Bunny rows continue to work during the migration.
+    const { data: providerBinding, error: bindingLookupError } = await supabase
+      .from('media_provider_assets')
+      .select('id, media_asset_id, provider_metadata, media_assets(content_id)')
+      .eq('provider', 'bunny')
+      .eq('provider_asset_id', videoGuid)
+      .maybeSingle();
+    if (bindingLookupError && bindingLookupError.code !== '42P01') throw bindingLookupError;
+    if (providerBinding) {
+      const eventTime = new Date().toISOString();
+      const { error: bindingUpdateError } = await supabase
+        .from('media_provider_assets')
+        .update({
+          status: bunnyStatus,
+          provider_playback_id: videoGuid,
+          provider_metadata: {
+            ...(providerBinding.provider_metadata || {}),
+            library_id: libraryId,
+            hls_url: hlsUrl,
+            thumbnail_url: thumbnailUrl,
+          },
+          last_event_at: eventTime,
+          updated_at: eventTime,
+        })
+        .eq('id', providerBinding.id);
+      if (bindingUpdateError) throw bindingUpdateError;
+      const { error: assetUpdateError } = await supabase
+        .from('media_assets')
+        .update({ status: bunnyStatus, duration_seconds: durationSeconds, updated_at: eventTime })
+        .eq('id', providerBinding.media_asset_id);
+      if (assetUpdateError) throw assetUpdateError;
     }
 
     // Fetch current content to avoid overwriting custom uploaded thumbnails

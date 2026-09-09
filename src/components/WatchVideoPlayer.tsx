@@ -11,6 +11,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
 import { useMediaSession } from "@/hooks/useMediaSession";
 import Hls from "hls.js";
+import { usePlaybackSource } from "@/hooks/usePlaybackSource";
 
 interface WatchVideoPlayerProps {
   content: {
@@ -28,6 +29,7 @@ interface WatchVideoPlayerProps {
     video_provider?: string;
     bunny_video_id?: string | null;
     bunny_library_id?: string | null;
+    media_asset_id?: string | null;
   };
   onTimeUpdate?: (currentTime: number) => void;
   onCreateNote?: () => void;
@@ -57,6 +59,7 @@ export const WatchVideoPlayer = ({ content, onTimeUpdate, onCreateNote, seekToTi
 
   const mediaRef = content.content_type === "podcast" ? audioRef : videoRef;
   const isVideo = content.content_type !== "podcast";
+  const playback = usePlaybackSource(content);
 
   // Setup Media Session for lock screen controls
   useEffect(() => {
@@ -180,10 +183,10 @@ export const WatchVideoPlayer = ({ content, onTimeUpdate, onCreateNote, seekToTi
   // ── HLS Stream Loading ──────────────────────────────────────────────────────
   useEffect(() => {
     const video = videoRef.current;
-    if (!video || !content.file_url) return;
+    if (!video || !playback.url) return;
 
     let hls: Hls | null = null;
-    const isHls = content.file_url.includes(".m3u8") || content.video_provider === "bunny";
+    const isHls = playback.url.includes(".m3u8") || Boolean(content.media_asset_id) || content.video_provider === "bunny";
 
     if (isHls && Hls.isSupported()) {
       hls = new Hls({
@@ -192,7 +195,7 @@ export const WatchVideoPlayer = ({ content, onTimeUpdate, onCreateNote, seekToTi
         lowLatencyMode: true,
       });
 
-      hls.loadSource(content.file_url);
+      hls.loadSource(playback.url);
       hls.attachMedia(video);
 
       hls.on(Hls.Events.ERROR, (event, data) => {
@@ -212,10 +215,10 @@ export const WatchVideoPlayer = ({ content, onTimeUpdate, onCreateNote, seekToTi
       });
     } else if (isHls && video.canPlayType("application/vnd.apple.mpegurl")) {
       // Native HLS fallback (Safari/iOS)
-      video.src = content.file_url;
+      video.src = playback.url;
     } else {
       // Standard MP4 fallback
-      video.src = content.file_url;
+      video.src = playback.url;
     }
 
     return () => {
@@ -223,7 +226,7 @@ export const WatchVideoPlayer = ({ content, onTimeUpdate, onCreateNote, seekToTi
         hls.destroy();
       }
     };
-  }, [content.file_url, content.video_provider]);
+  }, [playback.url, content.media_asset_id, content.video_provider]);
 
   useEffect(() => {
     const media = mediaRef.current;
@@ -599,6 +602,7 @@ export const WatchVideoPlayer = ({ content, onTimeUpdate, onCreateNote, seekToTi
               )}
             </div>
           </div>
+        </div>
       </Card>
 
       {/* Note Modal */}

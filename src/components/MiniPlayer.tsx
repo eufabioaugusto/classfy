@@ -126,10 +126,10 @@ function DesktopMiniPlayer() {
     >
       {/* Video Container */}
       <div className="relative aspect-video bg-black cursor-pointer" onClick={handleGoToWatch}>
-        {state.content.video_provider === "bunny" && state.content.bunny_video_id ? (
+        {state.content.video_provider === "bunny" ? (
           <div className="w-full h-full relative pointer-events-none">
             <img 
-              src={state.content.thumbnail_url || `https://vz-42560f79-6f8.b-cdn.net/${state.content.bunny_video_id}/thumbnail.jpg`}
+              src={state.content.thumbnail_url || ""}
               className="w-full h-full object-cover"
               alt={state.content.title}
             />
