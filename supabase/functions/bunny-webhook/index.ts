@@ -109,7 +109,7 @@ Deno.serve(async (req) => {
     // temporarily so existing Bunny rows continue to work during the migration.
     const { data: providerBinding, error: bindingLookupError } = await supabase
       .from('media_provider_assets')
-      .select('id, media_asset_id, provider_metadata, media_assets(content_id)')
+      .select('id, media_asset_id, provider_metadata, media_assets!media_provider_assets_media_asset_id_fkey(content_id)')
       .eq('provider', 'bunny')
       .eq('provider_asset_id', videoGuid)
       .maybeSingle();
