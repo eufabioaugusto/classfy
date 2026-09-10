@@ -74,7 +74,8 @@ async function createMuxPlaybackToken(playbackId: string, duration?: number) {
   const signingInput = `${header}.${payload}`;
   const pem = new TextDecoder().decode(Uint8Array.from(atob(encodedPrivateKey), c => c.charCodeAt(0)));
   const der = Uint8Array.from(atob(pem.replace(/-----[^-]+-----|\s/g, '')), c => c.charCodeAt(0));
-  const key = await crypto.subtle.importKey('pkcs8', der, { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' }, false, ['sign']);
+  const pkcs8 = pem.includes('BEGIN RSA PRIVATE KEY') ? wrapPkcs1AsPkcs8(der) : der;
+  const key = await crypto.subtle.importKey('pkcs8', pkcs8.buffer as ArrayBuffer, { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' }, false, ['sign']);
   const signature = await crypto.subtle.sign('RSASSA-PKCS1-v1_5', key, new TextEncoder().encode(signingInput));
   return `${signingInput}.${base64url(new Uint8Array(signature))}`;
 }
@@ -84,4 +85,36 @@ function base64url(value: string | Uint8Array) {
   let binary = '';
   bytes.forEach(byte => binary += String.fromCharCode(byte));
   return btoa(binary).replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_');
+}
+
+// Mux currently returns a base64-encoded PKCS#1 PEM. WebCrypto imports RSA
+// private keys as PKCS#8, so wrap the unchanged PKCS#1 DER in PrivateKeyInfo.
+function wrapPkcs1AsPkcs8(pkcs1: Uint8Array) {
+  const version = Uint8Array.of(0x02, 0x01, 0x00);
+  const rsaAlgorithmIdentifier = Uint8Array.of(
+    0x30, 0x0d, 0x06, 0x09, 0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x01, 0x01, 0x05, 0x00,
+  );
+  const privateKey = derElement(0x04, pkcs1);
+  return derElement(0x30, concat(version, rsaAlgorithmIdentifier, privateKey));
+}
+
+function derElement(tag: number, value: Uint8Array) {
+  return concat(Uint8Array.of(tag), derLength(value.length), value);
+}
+
+function derLength(length: number) {
+  if (length < 128) return Uint8Array.of(length);
+  const bytes: number[] = [];
+  for (let remaining = length; remaining > 0; remaining >>= 8) bytes.unshift(remaining & 0xff);
+  return Uint8Array.of(0x80 | bytes.length, ...bytes);
+}
+
+function concat(...arrays: Uint8Array[]) {
+  const result = new Uint8Array(arrays.reduce((total, item) => total + item.length, 0));
+  let offset = 0;
+  for (const item of arrays) {
+    result.set(item, offset);
+    offset += item.length;
+  }
+  return result;
 }
