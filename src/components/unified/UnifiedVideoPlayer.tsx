@@ -28,6 +28,7 @@ import { useContentMetrics } from "@/hooks/useContentMetrics";
 import { cn } from "@/lib/utils";
 import Hls from "hls.js";
 import { usePlaybackSource } from "@/hooks/usePlaybackSource";
+import { releaseMediaElement, standardHlsConfig } from "@/lib/video/hlsConfig";
 
 export interface UnifiedVideoPlayerProps {
   content: {
@@ -85,6 +86,7 @@ export function UnifiedVideoPlayer({
   const progressRef = useRef<HTMLDivElement>(null);
 
   const [isPlaying, setIsPlaying] = useState(false);
+  const [playbackRequested, setPlaybackRequested] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
   const [volume, setVolume] = useState(1);
   const [showVolumeSlider, setShowVolumeSlider] = useState(false);
@@ -124,7 +126,12 @@ export function UnifiedVideoPlayer({
 
   const mediaRef = content.content_type === "podcast" ? audioRef : videoRef;
   const isVideo = content.content_type !== "podcast";
-  const playback = usePlaybackSource(content);
+  const playback = usePlaybackSource(content, !isVideo || playbackRequested);
+
+  useEffect(() => {
+    setPlaybackRequested(false);
+    setIsPlaying(false);
+  }, [content.id]);
 
   // ── Keyboard shortcuts ─────────────────────────────────────────────────────
   useEffect(() => {
@@ -199,11 +206,7 @@ export function UnifiedVideoPlayer({
     const isHls = playback.url.includes(".m3u8") || Boolean(content.media_asset_id) || content.video_provider === "bunny";
 
     if (isHls && Hls.isSupported()) {
-      hls = new Hls({
-        maxMaxBufferLength: 10,
-        enableWorker: true,
-        lowLatencyMode: true,
-      });
+      hls = new Hls(standardHlsConfig);
 
       hls.loadSource(playback.url);
       hls.attachMedia(video);
@@ -217,6 +220,7 @@ export function UnifiedVideoPlayer({
           })).reverse();
           setAvailableQualities(qualities);
         }
+        if (isPlaying) video.play().catch(() => setIsPlaying(false));
       });
 
       hls.on(Hls.Events.LEVEL_SWITCHED, (event, data) => {
@@ -247,11 +251,13 @@ export function UnifiedVideoPlayer({
     } else if (isHls && video.canPlayType("application/vnd.apple.mpegurl")) {
       // Native HLS fallback (Safari/iOS)
       video.src = playback.url;
+      if (isPlaying) video.play().catch(() => setIsPlaying(false));
       setAvailableQualities([]);
       setCurrentQualityLabel("Auto");
     } else {
       // Standard MP4 fallback
       video.src = playback.url;
+      if (isPlaying) video.play().catch(() => setIsPlaying(false));
       setAvailableQualities([]);
       setCurrentQualityLabel("Padrão");
     }
@@ -261,6 +267,7 @@ export function UnifiedVideoPlayer({
         hls.destroy();
         hlsRef.current = null;
       }
+      releaseMediaElement(video);
     };
   }, [playback.url, content.media_asset_id, content.video_provider]);
 
@@ -430,6 +437,11 @@ export function UnifiedVideoPlayer({
       setIsPlaying(false);
       triggerClickAnim("pause");
     } else {
+      if (isVideo && !playbackRequested) {
+        setPlaybackRequested(true);
+        setIsPlaying(true);
+        return;
+      }
       const playPromise = media.play();
       if (playPromise !== undefined) {
         playPromise
@@ -446,7 +458,7 @@ export function UnifiedVideoPlayer({
         triggerClickAnim("play");
       }
     }
-  }, [isPlaying]);
+  }, [isPlaying, isVideo, playbackRequested]);
 
   const skip = useCallback((seconds: number) => {
     const media = mediaRef.current;
@@ -666,7 +678,7 @@ export function UnifiedVideoPlayer({
             poster={content.thumbnail_url}
             onClick={togglePlay}
             onDoubleClick={toggleFullscreen}
-            preload="metadata"
+            preload="none"
           />
         ) : (
           <>

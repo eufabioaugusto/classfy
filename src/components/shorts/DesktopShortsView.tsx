@@ -22,6 +22,7 @@ import { ShareViaDMModal } from "@/components/direct-messages/ShareViaDMModal";
 import { useAuth } from "@/contexts/AuthContext";
 import { cn } from "@/lib/utils";
 import { usePlaybackSource } from "@/hooks/usePlaybackSource";
+import { releaseMediaElement, shortsHlsConfig } from "@/lib/video/hlsConfig";
 
 interface ShortContent {
   id: string;
@@ -110,11 +111,7 @@ export function DesktopShortsView({
     const isHls = url.includes(".m3u8") || Boolean(currentShort.media_asset_id) || currentShort.video_provider === "bunny";
 
     if (isHls && Hls.isSupported()) {
-      hls = new Hls({
-        maxMaxBufferLength: 5,
-        enableWorker: true,
-        lowLatencyMode: true,
-      });
+      hls = new Hls(shortsHlsConfig);
       hls.loadSource(url);
       hls.attachMedia(video);
     } else if (isHls && video.canPlayType("application/vnd.apple.mpegurl")) {
@@ -131,7 +128,7 @@ export function DesktopShortsView({
       if (hls) {
         hls.destroy();
       }
-      video.src = "";
+      releaseMediaElement(video);
     };
   }, [currentShort, playback.url, isPlaying, hasAccess]);
 
@@ -242,6 +239,7 @@ export function DesktopShortsView({
               playsInline
               muted={isMuted}
               autoPlay
+              preload="none"
               onTimeUpdate={onTimeUpdate}
               onClick={togglePlayPause}
               poster={currentShort.thumbnail_url}

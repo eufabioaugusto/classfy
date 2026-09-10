@@ -12,6 +12,7 @@ import { toast } from "sonner";
 import { useMediaSession } from "@/hooks/useMediaSession";
 import Hls from "hls.js";
 import { usePlaybackSource } from "@/hooks/usePlaybackSource";
+import { releaseMediaElement, standardHlsConfig } from "@/lib/video/hlsConfig";
 
 interface WatchVideoPlayerProps {
   content: {
@@ -43,6 +44,7 @@ export const WatchVideoPlayer = ({ content, onTimeUpdate, onCreateNote, seekToTi
   const videoRef = useRef<HTMLVideoElement>(null);
   const audioRef = useRef<HTMLAudioElement>(null);
   const [isPlaying, setIsPlaying] = useState(false);
+  const [playbackRequested, setPlaybackRequested] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
@@ -59,7 +61,12 @@ export const WatchVideoPlayer = ({ content, onTimeUpdate, onCreateNote, seekToTi
 
   const mediaRef = content.content_type === "podcast" ? audioRef : videoRef;
   const isVideo = content.content_type !== "podcast";
-  const playback = usePlaybackSource(content);
+  const playback = usePlaybackSource(content, !isVideo || playbackRequested);
+
+  useEffect(() => {
+    setPlaybackRequested(false);
+    setIsPlaying(false);
+  }, [content.id]);
 
   // Setup Media Session for lock screen controls
   useEffect(() => {
@@ -189,14 +196,14 @@ export const WatchVideoPlayer = ({ content, onTimeUpdate, onCreateNote, seekToTi
     const isHls = playback.url.includes(".m3u8") || Boolean(content.media_asset_id) || content.video_provider === "bunny";
 
     if (isHls && Hls.isSupported()) {
-      hls = new Hls({
-        maxMaxBufferLength: 10,
-        enableWorker: true,
-        lowLatencyMode: true,
-      });
+      hls = new Hls(standardHlsConfig);
 
       hls.loadSource(playback.url);
       hls.attachMedia(video);
+
+      hls.on(Hls.Events.MANIFEST_PARSED, () => {
+        if (isPlaying) video.play().catch(() => setIsPlaying(false));
+      });
 
       hls.on(Hls.Events.ERROR, (event, data) => {
         if (data.fatal) {
@@ -216,15 +223,18 @@ export const WatchVideoPlayer = ({ content, onTimeUpdate, onCreateNote, seekToTi
     } else if (isHls && video.canPlayType("application/vnd.apple.mpegurl")) {
       // Native HLS fallback (Safari/iOS)
       video.src = playback.url;
+      if (isPlaying) video.play().catch(() => setIsPlaying(false));
     } else {
       // Standard MP4 fallback
       video.src = playback.url;
+      if (isPlaying) video.play().catch(() => setIsPlaying(false));
     }
 
     return () => {
       if (hls) {
         hls.destroy();
       }
+      releaseMediaElement(video);
     };
   }, [playback.url, content.media_asset_id, content.video_provider]);
 
@@ -303,6 +313,11 @@ export const WatchVideoPlayer = ({ content, onTimeUpdate, onCreateNote, seekToTi
     if (isPlaying) {
       media.pause();
     } else {
+      if (isVideo && !playbackRequested) {
+        setPlaybackRequested(true);
+        setIsPlaying(true);
+        return;
+      }
       media.play();
     }
     setIsPlaying(!isPlaying);
@@ -443,7 +458,7 @@ export const WatchVideoPlayer = ({ content, onTimeUpdate, onCreateNote, seekToTi
             ref={videoRef}
             className="w-full aspect-video"
             poster={content.thumbnail_url}
-            preload="metadata"
+            preload="none"
           />
         ) : (
           <>

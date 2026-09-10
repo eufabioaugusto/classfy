@@ -9,6 +9,7 @@ import { useUnreadMessages } from "@/hooks/useUnreadMessages";
 import { FeaturedBadge } from "@/components/FeaturedBadge";
 import { ShareViaDMModal } from "@/components/direct-messages/ShareViaDMModal";
 import { usePlaybackSource } from "@/hooks/usePlaybackSource";
+import { releaseMediaElement, shortsHlsConfig } from "@/lib/video/hlsConfig";
 
 interface ShortContent {
   id: string;
@@ -136,7 +137,7 @@ export function MobileShortsView({
     // 2. Set src of all inactive video elements to empty to save bandwidth
     videoRefs.current.forEach((video, idx) => {
       if (video && idx !== currentIndex) {
-        video.src = "";
+        releaseMediaElement(video);
       }
     });
 
@@ -149,11 +150,7 @@ export function MobileShortsView({
     const isHls = url.includes(".m3u8") || Boolean(activeShort.media_asset_id) || activeShort.video_provider === "bunny";
 
     if (isHls && Hls.isSupported()) {
-      hls = new Hls({
-        maxMaxBufferLength: 5,
-        enableWorker: true,
-        lowLatencyMode: true,
-      });
+      hls = new Hls(shortsHlsConfig);
       hls.loadSource(url);
       hls.attachMedia(activeVideo);
       activeHlsRef.current = hls;
@@ -172,6 +169,7 @@ export function MobileShortsView({
           activeHlsRef.current = null;
         }
       }
+      releaseMediaElement(activeVideo);
     };
   }, [currentIndex, shorts, playback.url, hasAccess]);
 
@@ -226,6 +224,7 @@ export function MobileShortsView({
                 }
               }}
               poster={short.thumbnail_url}
+              preload="none"
             />
 
             {/* Access overlay */}

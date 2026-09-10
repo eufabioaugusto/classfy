@@ -877,6 +877,8 @@ function WatchContent() {
               onMinimize={handleMinimize}
               seekToTime={seekToTime}
               isPodcast={content.content_type === "podcast"}
+              mediaAssetId={isCourse && currentLesson ? currentLesson.content?.media_asset_id : content.media_asset_id}
+              videoProvider={isCourse && currentLesson ? currentLesson.content?.video_provider : content.video_provider}
             />
           )}
         </div>

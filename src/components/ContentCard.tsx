@@ -127,15 +127,6 @@ export const ContentCard = ({
     checkBoost();
   }, [id, propIsBoosted]);
 
-  // Random autoplay for mobile shorts
-  useEffect(() => {
-    if (isShort && isMobile && videoUrl && canPreview) {
-      const randomDelay = Math.random() * 3000;
-      const timer = setTimeout(() => setShouldAutoplay(true), randomDelay);
-      return () => clearTimeout(timer);
-    }
-  }, [isShort, isMobile, videoUrl]);
-
   // Handle hover autoplay for desktop (only if user has access)
   useEffect(() => {
     if (!hasPreviewableVideo || isMobile) return;
@@ -255,7 +246,7 @@ export const ContentCard = ({
         {hasPreviewableVideo && (
           <video
             ref={videoRef}
-            src={videoUrl}
+            src={!isMobile && isHovered ? videoUrl : undefined}
             className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-500 ease-out ${
               videoReady && (isHovered || shouldAutoplay) ? "opacity-100" : "opacity-0"
             }`}

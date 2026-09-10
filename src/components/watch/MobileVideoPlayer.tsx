@@ -12,6 +12,9 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useMediaSession } from "@/hooks/useMediaSession";
+import Hls from "hls.js";
+import { usePlaybackSource } from "@/hooks/usePlaybackSource";
+import { releaseMediaElement, standardHlsConfig } from "@/lib/video/hlsConfig";
 
 interface MobileVideoPlayerProps {
   src: string;
@@ -23,6 +26,8 @@ interface MobileVideoPlayerProps {
   onMinimize?: () => void;
   seekToTime?: number | null;
   isPodcast?: boolean;
+  mediaAssetId?: string | null;
+  videoProvider?: string | null;
 }
 
 export function MobileVideoPlayer({
@@ -35,11 +40,14 @@ export function MobileVideoPlayer({
   onMinimize,
   seekToTime,
   isPodcast = false,
+  mediaAssetId,
+  videoProvider,
 }: MobileVideoPlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const audioRef = useRef<HTMLAudioElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [isPlaying, setIsPlaying] = useState(false);
+  const [playbackRequested, setPlaybackRequested] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
@@ -52,6 +60,43 @@ export function MobileVideoPlayer({
   const { setMetadata, setPlaybackState, setPositionState, clearSession } = useMediaSession();
 
   const mediaRef = isPodcast ? audioRef : videoRef;
+  const playback = usePlaybackSource({
+    file_url: src,
+    thumbnail_url: poster,
+    media_asset_id: mediaAssetId,
+    video_provider: videoProvider ?? undefined,
+  }, isPodcast || playbackRequested);
+
+  useEffect(() => {
+    setPlaybackRequested(false);
+    setIsPlaying(false);
+  }, [src, mediaAssetId]);
+
+  useEffect(() => {
+    const video = videoRef.current;
+    if (isPodcast || !video || !playback.url) return;
+
+    let hls: Hls | null = null;
+    const isHls = playback.url.includes(".m3u8") || Boolean(mediaAssetId) || videoProvider === "bunny";
+    const startRequestedPlayback = () => {
+      if (isPlaying) video.play().catch(() => setIsPlaying(false));
+    };
+
+    if (isHls && Hls.isSupported()) {
+      hls = new Hls(standardHlsConfig);
+      hls.loadSource(playback.url);
+      hls.attachMedia(video);
+      hls.on(Hls.Events.MANIFEST_PARSED, startRequestedPlayback);
+    } else {
+      video.src = playback.url;
+      startRequestedPlayback();
+    }
+
+    return () => {
+      hls?.destroy();
+      releaseMediaElement(video);
+    };
+  }, [isPodcast, playback.url, mediaAssetId, videoProvider]);
 
   // Setup Media Session for lock screen controls
   useEffect(() => {
@@ -169,6 +214,11 @@ export function MobileVideoPlayer({
     if (isPlaying) {
       media.pause();
     } else {
+      if (!isPodcast && !playbackRequested) {
+        setPlaybackRequested(true);
+        setIsPlaying(true);
+        return;
+      }
       media.play();
     }
     setIsPlaying(!isPlaying);
@@ -287,9 +337,9 @@ export function MobileVideoPlayer({
         <video
           ref={videoRef}
           className="w-full h-full object-contain"
-          src={src}
           poster={poster}
           playsInline
+          preload="none"
         />
       )}
 
