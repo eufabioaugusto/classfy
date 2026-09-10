@@ -2,8 +2,12 @@ import { useEffect, useState } from "react";
 import { videoService } from "@/lib/video/service";
 import type { VideoContentReference } from "@/lib/video/types";
 
+function playableFallback(url?: string | null) {
+  return url?.startsWith("media:") ? "" : (url ?? "");
+}
+
 export function usePlaybackSource(content: VideoContentReference) {
-  const [url, setUrl] = useState(content.file_url ?? "");
+  const [url, setUrl] = useState(playableFallback(content.file_url));
   const [poster, setPoster] = useState(content.thumbnail_url ?? "");
   const [loading, setLoading] = useState(Boolean(content.media_asset_id));
   const [error, setError] = useState<string | null>(null);
@@ -12,7 +16,7 @@ export function usePlaybackSource(content: VideoContentReference) {
     let active = true;
     setError(null);
     if (!content.media_asset_id) {
-      setUrl(content.file_url ?? "");
+      setUrl(playableFallback(content.file_url));
       setPoster(content.thumbnail_url ?? "");
       setLoading(false);
       return () => { active = false; };

@@ -10,7 +10,10 @@ Deno.serve(async (req) => {
     const event = normalizeMuxEvent(JSON.parse(rawBody));
     if (!event) return json({ received: true, ignored: true });
     const client = serviceClient();
-    let query = client.from('media_provider_assets').select('*, media_assets(*)').eq('provider', 'mux');
+    let query = client
+      .from('media_provider_assets')
+      .select('*, media_assets!media_provider_assets_media_asset_id_fkey(*)')
+      .eq('provider', 'mux');
     query = event.providerUploadId ? query.eq('provider_upload_id', event.providerUploadId) : query.eq('provider_asset_id', event.providerAssetId!);
     const { data: binding, error } = await query.maybeSingle();
     if (error) throw error;

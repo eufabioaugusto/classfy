@@ -6,7 +6,11 @@ Deno.serve(async (req) => {
   try {
     const { user, client } = await requireUser(req);
     const { mediaAssetId } = await req.json();
-    const { data: asset, error } = await client.from('media_assets').select('*, media_provider_assets(*)').eq('id', mediaAssetId).single();
+    const { data: asset, error } = await client
+      .from('media_assets')
+      .select('*, media_provider_assets!media_provider_assets_media_asset_id_fkey(*)')
+      .eq('id', mediaAssetId)
+      .single();
     if (error || !asset) return json({ error: 'Media asset not found' }, 404);
 
     const { data: content } = asset.content_id
