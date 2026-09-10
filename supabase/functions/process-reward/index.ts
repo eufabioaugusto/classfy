@@ -46,6 +46,96 @@ const ONE_TIME_ACTIONS = [
   'FIRST_UPLOAD'
 ];
 
+const CLIENT_REWARD_ACTIONS = new Set([
+  'DAILY_LOGIN', 'WEEKLY_STREAK', 'FIRST_CONTENT_WEEK', 'BINGE_WATCH',
+  'LIKE_CONTENT', 'SAVE_CONTENT', 'FAVORITE_CONTENT', 'COMMENT_CONTENT',
+  'SUBSCRIBE_CREATOR', 'VIEW_15S', 'WATCH_50', 'WATCH_100',
+  'COMPLETE_COURSE', 'PROFILE_COMPLETE',
+]);
+
+async function hasRewardEvidence(
+  supabase: any,
+  actionKey: string,
+  userId: string,
+  contentId: string | undefined,
+  metadata: Record<string, any>,
+) {
+  const exists = async (table: string, filters: Array<[string, unknown]>) => {
+    let query = supabase.from(table).select('id', { count: 'exact', head: true });
+    for (const [column, value] of filters) query = query.eq(column, value);
+    const { count, error } = await query;
+    if (error) throw error;
+    return (count || 0) > 0;
+  };
+
+  switch (actionKey) {
+    case 'LIKE_CONTENT':
+      return !!contentId && exists('actions', [['user_id', userId], ['content_id', contentId], ['type', 'LIKE']]);
+    case 'SAVE_CONTENT':
+      return !!contentId && exists('saved_contents', [['user_id', userId], ['content_id', contentId]]);
+    case 'FAVORITE_CONTENT':
+      return !!contentId && exists('favorites', [['user_id', userId], ['content_id', contentId]]);
+    case 'COMMENT_CONTENT':
+      return !!contentId && exists('comments', [['user_id', userId], ['content_id', contentId]]);
+    case 'SUBSCRIBE_CREATOR':
+      return !!metadata.creatorId && exists('follows', [['follower_id', userId], ['following_id', metadata.creatorId]]);
+    case 'VIEW_15S': {
+      if (!contentId) return false;
+      const { data, error } = await supabase.from('content_views')
+        .select('id').eq('user_id', userId).eq('content_id', contentId)
+        .gte('total_watch_time_seconds', 15).limit(1);
+      if (error) throw error;
+      return !!data?.length;
+    }
+    case 'WATCH_50':
+    case 'WATCH_100': {
+      if (!contentId) return false;
+      const threshold = actionKey === 'WATCH_50' ? 50 : 90;
+      const { data, error } = await supabase.from('user_progress')
+        .select('id').eq('user_id', userId).eq('content_id', contentId)
+        .gte('progress_percent', threshold).limit(1);
+      if (error) throw error;
+      return !!data?.length;
+    }
+    case 'COMPLETE_COURSE': {
+      if (!contentId) return false;
+      const { data, error } = await supabase.from('course_enrollments')
+        .select('id').eq('user_id', userId).eq('course_id', contentId)
+        .gte('progress_percent', 100).limit(1);
+      if (error) throw error;
+      return !!data?.length;
+    }
+    case 'PROFILE_COMPLETE': {
+      const { data, error } = await supabase.from('profiles')
+        .select('display_name,avatar_url,bio').eq('id', userId).single();
+      if (error) throw error;
+      return !!data?.display_name && !!data?.avatar_url && !!data?.bio;
+    }
+    case 'DAILY_LOGIN': {
+      const brazilDate = new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString().split('T')[0];
+      return exists('user_login_streaks', [['user_id', userId], ['last_login_date', brazilDate]]);
+    }
+    case 'WEEKLY_STREAK': {
+      const { data, error } = await supabase.from('user_login_streaks')
+        .select('current_streak').eq('user_id', userId).single();
+      if (error) throw error;
+      return Number(data?.current_streak || 0) >= 7;
+    }
+    case 'FIRST_CONTENT_WEEK':
+      return !!contentId && exists('content_metrics', [['user_id', userId], ['content_id', contentId], ['event', 'start']]);
+    case 'BINGE_WATCH': {
+      const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+      const { count, error } = await supabase.from('content_metrics')
+        .select('id', { count: 'exact', head: true }).eq('user_id', userId)
+        .eq('event', 'complete').gte('created_at', oneHourAgo);
+      if (error) throw error;
+      return (count || 0) >= 3;
+    }
+    default:
+      return false;
+  }
+}
+
 // Actions that can only be rewarded once per content (regardless of user)
 const UNIQUE_PER_CONTENT_GLOBAL = [
   'CONTENT_APPROVED',
@@ -91,6 +181,7 @@ Deno.serve(async (req) => {
   try {
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
     const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+    const anonKey = Deno.env.get('SUPABASE_ANON_KEY')!;
     const supabase = createClient(supabaseUrl, supabaseKey);
 
     const { actionKey, userId, contentId, metadata = {} }: RewardPayload = await req.json();
@@ -101,6 +192,33 @@ Deno.serve(async (req) => {
         JSON.stringify({ error: 'Missing required fields: actionKey and userId' }),
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 400 }
       );
+    }
+
+    const authHeader = req.headers.get('Authorization') || '';
+    const isServiceRequest = authHeader === `Bearer ${supabaseKey}`;
+    if (!isServiceRequest) {
+      if (!CLIENT_REWARD_ACTIONS.has(actionKey)) {
+        return new Response(JSON.stringify({ error: 'Server-only reward action' }), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 403,
+        });
+      }
+      const authClient = createClient(supabaseUrl, anonKey);
+      const { data: { user }, error: authError } = await authClient.auth.getUser(authHeader.replace('Bearer ', ''));
+      if (authError || !user) {
+        return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 401,
+        });
+      }
+      if (user.id !== userId) {
+        return new Response(JSON.stringify({ error: 'User identity mismatch' }), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 403,
+        });
+      }
+      if (!await hasRewardEvidence(supabase, actionKey, userId, contentId, metadata)) {
+        return new Response(JSON.stringify({ error: 'Reward action is not backed by server evidence' }), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 409,
+        });
+      }
     }
 
     console.log('Processing reward request:', { actionKey, userId: userId.slice(0, 8) + '...', hasContent: !!contentId });
@@ -191,30 +309,6 @@ Deno.serve(async (req) => {
       );
     }
 
-    // Insert tracking record (atomic lock)
-    const { error: insertTrackingError } = await supabase
-      .from('reward_action_tracking')
-      .insert({
-        user_id: userId,
-        content_id: resolvedContentId,
-        action_key: trackingKey,
-        metadata: trackingMetadata,
-      });
-
-    if (insertTrackingError) {
-      console.log('Tracking insert failed:', insertTrackingError.message);
-      return new Response(
-        JSON.stringify({
-          success: false,
-          message: 'Action already being processed or was already rewarded',
-          alreadyTracked: true,
-        }),
-        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
-    }
-
-    console.log('Tracking record created, proceeding with reward:', { trackingKey });
-
     // ──────────────────────────────────────────
     // ANTI-FRAUD: Daily limit & diminishing returns check
     // ──────────────────────────────────────────
@@ -236,14 +330,8 @@ Deno.serve(async (req) => {
       const currentCount = dailyCount || 0;
       console.log('Daily action count:', { actionKey, currentCount, dailyLimit });
 
-      if (currentCount > dailyLimit) {
-        console.log('ANTI-FRAUD: Daily limit exceeded, rolling back tracking and blocking reward:', { actionKey, currentCount, dailyLimit });
-        // Rollback do tracking inserido — ação não deve ficar "consumida" sem recompensa
-        await supabase
-          .from('reward_action_tracking')
-          .delete()
-          .eq('user_id', userId)
-          .eq('action_key', trackingKey);
+      if (currentCount >= dailyLimit) {
+        console.log('ANTI-FRAUD: Daily limit exceeded, blocking reward:', { actionKey, currentCount, dailyLimit });
         return new Response(
           JSON.stringify({
             success: false,
@@ -327,146 +415,98 @@ Deno.serve(async (req) => {
       console.log('Consistency multiplier applied:', { userActiveDays, consistencyMultiplier });
     }
 
-    const rewards = [];
-    const notifications = [];
+    if (!cycleId) throw new Error('Current economic cycle is unavailable');
 
-    // STEP 5: Process user reward (viewer/actor)
-    // XP (points) still credited instantly for gamification
-    // Performance Points accumulated in economic_cycle_users (NO direct wallet credit)
-    if (config.points_user > 0) {
-      const userPoints = parseFloat((config.points_user * planMultiplier).toFixed(2));
-      // Performance points with diminishing returns AND consistency multiplier applied
-      const performancePoints = config.points_user * planMultiplier * diminishingMultiplier * consistencyMultiplier;
+    const userPoints = parseFloat((Number(config.points_user || 0) * planMultiplier).toFixed(2));
+    const userPP = Number(config.points_user || 0) * planMultiplier
+      * diminishingMultiplier * consistencyMultiplier;
+    const actorEvent = {
+      user_id: userId,
+      related_user_id: creatorId,
+      content_id: resolvedContentId,
+      action_key: actionKey,
+      points: userPoints,
+      performance_points: userPP,
+      metadata: {
+        ...trackingMetadata,
+        tracking_key: trackingKey,
+        consistency_multiplier: consistencyMultiplier,
+        active_days: userActiveDays,
+      },
+    };
 
-      const { data: userReward, error: rewardError } = await supabase
-        .from('reward_events')
-        .insert({
-          user_id: userId,
-          related_user_id: creatorId,
-          content_id: resolvedContentId,
-          action_key: actionKey,
-          points: userPoints,
-          value: 0, // No direct value anymore - pool distributes later
-          performance_points: performancePoints,
-          cycle_id: cycleId,
-          metadata: { ...trackingMetadata, tracking_key: trackingKey, consistency_multiplier: consistencyMultiplier, active_days: userActiveDays },
-        })
-        .select()
-        .single();
-
-      if (rewardError) {
-        console.error('Error inserting user reward:', rewardError);
-      } else if (userReward) {
-        rewards.push(userReward);
-
-        // Accumulate performance points in economic_cycle_users
-        if (cycleId) {
-          await upsertCycleUserPoints(supabase, cycleId, userId, performancePoints);
-        }
-
-        // Create notification (no R$ value shown - only points)
-        const notificationData = getNotificationText(actionKey, userPoints);
-        const { data: notification } = await supabase
-          .from('notifications')
-          .insert({
-            user_id: userId,
-            type: 'reward',
-            title: notificationData.title,
-            message: notificationData.message,
-            related_content_id: resolvedContentId,
-            related_reward_id: userReward.id,
-          })
-          .select()
-          .single();
-
-        if (notification) notifications.push(notification);
-      }
-    }
-
-    // STEP 6: Process creator reward (if applicable)
-    if (creatorId && creatorId !== userId && config.points_creator > 0) {
-      const { data: creatorProfile } = await supabase
-        .from('profiles')
-        .select('plan')
-        .eq('id', creatorId)
-        .single();
-
+    let creatorEvent: Record<string, unknown> | null = null;
+    if (creatorId && creatorId !== userId && Number(config.points_creator || 0) > 0) {
+      const { data: creatorProfile, error: creatorProfileError } = await supabase
+        .from('profiles').select('plan').eq('id', creatorId).single();
+      if (creatorProfileError) throw creatorProfileError;
       const creatorPlan = (creatorProfile?.plan || 'free') as keyof PlanMultipliers;
-      const creatorPlanConfig = economicSettings?.plan_config?.[creatorPlan];
-      const creatorMultiplier = creatorPlanConfig?.multiplier ?? DEFAULT_PLAN_MULTIPLIERS[creatorPlan] ?? 1.0;
-
-      const creatorPoints = parseFloat((config.points_creator * creatorMultiplier).toFixed(2));
-      // Creator gets their own consistency multiplier based on their active days
-      const { data: creatorActiveDays } = await supabase.rpc('get_user_active_days', {
+      const creatorMultiplier = economicSettings?.plan_config?.[creatorPlan]?.multiplier
+        ?? DEFAULT_PLAN_MULTIPLIERS[creatorPlan] ?? 1;
+      const { data: creatorActiveDays, error: creatorDaysError } = await supabase.rpc('get_user_active_days', {
         p_user_id: creatorId,
         p_cycle_start: cycleStartDate,
       });
-      const creatorConsistency = (creatorActiveDays as number || 0) >= 25 ? 1.3
-        : (creatorActiveDays as number || 0) >= 20 ? 1.2
-        : (creatorActiveDays as number || 0) >= 15 ? 1.1
-        : 1.0;
-      const creatorPP = config.points_creator * creatorMultiplier * diminishingMultiplier * creatorConsistency;
-
-      const { data: creatorReward, error: creatorRewardError } = await supabase
-        .from('reward_events')
-        .insert({
-          user_id: creatorId,
-          related_user_id: userId,
-          content_id: resolvedContentId,
-          action_key: actionKey,
-          points: creatorPoints,
-          value: 0, // No direct value - pool distributes
-          performance_points: creatorPP,
-          cycle_id: cycleId,
-          metadata: { ...trackingMetadata, as_creator: true, tracking_key: trackingKey, consistency_multiplier: creatorConsistency, active_days: creatorActiveDays },
-        })
-        .select()
-        .single();
-
-      if (creatorRewardError) {
-        console.error('Error inserting creator reward:', creatorRewardError);
-      } else if (creatorReward) {
-        rewards.push(creatorReward);
-
-        // Accumulate PP for creator
-        if (cycleId) {
-          await upsertCycleUserPoints(supabase, cycleId, creatorId, creatorPP);
-        }
-
-        const creatorNotification = getCreatorNotificationText(
-          actionKey,
-          creatorPoints,
-          resolvedTitle || 'seu conteúdo'
-        );
-
-        const { data: notification } = await supabase
-          .from('notifications')
-          .insert({
-            user_id: creatorId,
-            type: 'reward',
-            title: creatorNotification.title,
-            message: creatorNotification.message,
-            related_content_id: resolvedContentId,
-            related_reward_id: creatorReward.id,
-          })
-          .select()
-          .single();
-
-        if (notification) notifications.push(notification);
-      }
+      if (creatorDaysError) throw creatorDaysError;
+      const creatorDays = Number(creatorActiveDays || 0);
+      const creatorConsistency = creatorDays >= 25 ? 1.3 : creatorDays >= 20 ? 1.2 : creatorDays >= 15 ? 1.1 : 1;
+      const creatorPoints = parseFloat((Number(config.points_creator) * creatorMultiplier).toFixed(2));
+      creatorEvent = {
+        user_id: creatorId,
+        related_user_id: userId,
+        content_id: resolvedContentId,
+        action_key: actionKey,
+        points: creatorPoints,
+        performance_points: Number(config.points_creator) * creatorMultiplier * diminishingMultiplier * creatorConsistency,
+        metadata: {
+          ...trackingMetadata,
+          as_creator: true,
+          tracking_key: trackingKey,
+          consistency_multiplier: creatorConsistency,
+          active_days: creatorDays,
+        },
+      };
     }
 
-    console.log('Rewards processed successfully:', { 
-      actionKey, 
-      trackingKey,
-      rewardsCount: rewards.length, 
-      notificationsCount: notifications.length 
+    const { data: committed, error: commitError } = await supabase.rpc('commit_reward_award', {
+      p_tracking_user_id: userId,
+      p_tracking_action_key: trackingKey,
+      p_tracking_content_id: resolvedContentId,
+      p_tracking_metadata: trackingMetadata,
+      p_cycle_id: cycleId,
+      p_actor_event: actorEvent,
+      p_creator_event: creatorEvent,
     });
+    if (commitError) throw new Error(`Atomic reward commit failed: ${commitError.message}`);
+    if (committed?.already_tracked) {
+      return new Response(JSON.stringify({ success: false, alreadyTracked: true, rewards: [] }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
 
-    return new Response(
-      JSON.stringify({ success: true, rewards, notifications }),
-      { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-    );
+    const rewards = committed?.rewards || [];
+    const notifications: unknown[] = [];
+    for (const reward of rewards) {
+      const asCreator = reward?.metadata?.as_creator === true;
+      const text = asCreator
+        ? getCreatorNotificationText(actionKey, Number(reward.points || 0), resolvedTitle || 'seu conteúdo')
+        : getNotificationText(actionKey, Number(reward.points || 0));
+      const { data: notification, error: notificationError } = await supabase.from('notifications').insert({
+        user_id: reward.user_id,
+        type: 'reward',
+        title: text.title,
+        message: text.message,
+        related_content_id: resolvedContentId,
+        related_reward_id: reward.id,
+      }).select().single();
+      if (notificationError) console.error('Reward notification failed:', notificationError);
+      if (notification) notifications.push(notification);
+    }
+
+    console.log('Rewards processed atomically:', { actionKey, trackingKey, rewardsCount: rewards.length });
+    return new Response(JSON.stringify({ success: true, rewards, notifications }), {
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
   } catch (error) {
     console.error('Error processing reward:', error);
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
@@ -476,28 +516,6 @@ Deno.serve(async (req) => {
     );
   }
 });
-
-// Atomic increment of performance points using RPC
-async function upsertCycleUserPoints(
-  supabase: ReturnType<typeof createClient>,
-  cycleId: string,
-  userId: string,
-  points: number
-) {
-  try {
-    const { error } = await supabase.rpc('increment_cycle_user_points', {
-      p_cycle_id: cycleId,
-      p_user_id: userId,
-      p_points: points,
-    });
-
-    if (error) {
-      console.error('Error calling increment_cycle_user_points RPC:', error);
-    }
-  } catch (err) {
-    console.error('Error upserting cycle user points:', err);
-  }
-}
 
 // Notification text - NO R$ values (pool distributes monthly)
 function formatPoints(points: number): string {

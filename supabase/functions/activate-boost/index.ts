@@ -11,16 +11,22 @@ serve(async (req) => {
     return new Response(null, { headers: corsHeaders });
   }
 
-  const supabaseClient = createClient(
-    Deno.env.get("SUPABASE_URL") ?? "",
-    Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? ""
-  );
+  const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+  const authHeader = req.headers.get("Authorization") ?? "";
+  if (!serviceKey || authHeader !== `Bearer ${serviceKey}`) {
+    return new Response(JSON.stringify({ error: "Service authorization required" }), {
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+      status: 401,
+    });
+  }
+
+  const supabaseClient = createClient(Deno.env.get("SUPABASE_URL") ?? "", serviceKey);
 
   try {
     const { boostId, paymentIntentId } = await req.json();
 
-    if (!boostId) {
-      throw new Error("Missing boost ID");
+    if (!boostId || !paymentIntentId) {
+      throw new Error("Missing boost ID or payment intent ID");
     }
 
     const now = new Date();
@@ -33,6 +39,16 @@ serve(async (req) => {
       .single();
 
     if (boostError) throw boostError;
+
+    if (boost.status === 'active') {
+      if (boost.stripe_payment_intent_id === paymentIntentId) {
+        return new Response(JSON.stringify({ success: true, idempotent: true }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      throw new Error("Boost already activated by a different payment");
+    }
+    if (boost.status !== 'pending') throw new Error("Boost is not pending activation");
 
     // Calculate end date
     const endDate = new Date(now);
@@ -47,7 +63,8 @@ serve(async (req) => {
         end_date: endDate.toISOString(),
         stripe_payment_intent_id: paymentIntentId
       })
-      .eq('id', boostId);
+      .eq('id', boostId)
+      .eq('status', 'pending');
 
     if (updateError) throw updateError;
 

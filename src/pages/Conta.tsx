@@ -278,12 +278,9 @@ export default function Conta() {
     }
 
     try {
-      const { error } = await supabase.from("withdraw_requests").insert({
-        user_id: user?.id,
-        wallet_id: wallet.id,
-        amount,
-        pix_key: pixKey,
-        status: "pending",
+      const { error } = await supabase.rpc("request_withdrawal", {
+        p_amount: amount,
+        p_pix_key: pixKey,
       });
 
       if (error) throw error;

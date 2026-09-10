@@ -24,6 +24,11 @@ export function useContentAccess() {
       contentId,
       isPurchased = false,
     }: ContentAccessParams): Promise<boolean> => {
+      // A Classfy nao oferece playback anonimo, nem para conteudo Free.
+      if (!user) {
+        return false;
+      }
+
       // Admins always have access
       if (role === "admin") {
         return true;
@@ -35,7 +40,7 @@ export function useContentAccess() {
         if (isPurchased) return true;
 
         // If user is logged in, check purchase in database
-        if (user && contentId) {
+        if (contentId) {
           const { data: purchase } = await supabase
             .from("purchased_contents")
             .select("id")

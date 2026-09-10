@@ -112,7 +112,8 @@ export function useStudies() {
       })) as Study[];
 
       setStudies(mappedStudies);
-      setActiveCount(mappedStudies.filter(s => s.status === 'active').length);
+      // O limite comercial e de estudos totais, nao apenas dos ativos.
+      setActiveCount(mappedStudies.length);
     } catch (error) {
       console.error("Error fetching studies:", error);
     } finally {

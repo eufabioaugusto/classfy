@@ -3417,6 +3417,10 @@ export type Database = {
         }
         Returns: Json
       }
+      request_withdrawal: {
+        Args: { p_amount: number; p_pix_key: string }
+        Returns: Json
+      }
       carryover_cycle_points: {
         Args: {
           p_from_cycle_id: string

@@ -44,6 +44,15 @@ Deno.serve(async (req) => {
         { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
     }
 
+    const [{ data: creatorRole }, { data: creatorProfile }] = await Promise.all([
+      supabase.from('user_roles').select('role').eq('user_id', creatorId).eq('role', 'creator').maybeSingle(),
+      supabase.from('profiles').select('creator_status').eq('id', creatorId).single(),
+    ]);
+    if (!creatorRole || creatorProfile?.creator_status !== 'approved') {
+      return new Response(JSON.stringify({ error: 'Creator aprovado obrigatório' }),
+        { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+    }
+
     // Buscar o milestone e verificar que está elegível
     const { data: milestone, error: msError } = await supabase
       .from('creator_milestones')
@@ -56,62 +65,61 @@ Deno.serve(async (req) => {
         { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
     }
 
-    // Idempotência: verificar se já foi resgatado
-    const { data: alreadyClaimed } = await supabase
-      .from('reward_action_tracking')
-      .select('id')
-      .eq('user_id', creatorId)
-      .eq('action_key', `CREATOR_MILESTONE_CLAIM_${milestoneId}`)
+
+    const { data: progress, error: progressError } = await supabase
+      .from('creator_milestone_progress')
+      .select('id, completed_at, claimed')
+      .eq('creator_id', creatorId)
+      .eq('milestone_id', milestoneId)
       .maybeSingle();
-
-    if (alreadyClaimed) {
-      return new Response(JSON.stringify({ success: false, alreadyClaimed: true }),
-        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+    if (progressError || !progress?.completed_at) {
+      return new Response(JSON.stringify({ error: 'Milestone ainda não concluído' }),
+        { status: 409, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
     }
-
-    // Inserir tracking PRIMEIRO (UNIQUE garante atomicidade contra concorrência)
-    const { error: trackingError } = await supabase
-      .from('reward_action_tracking')
-      .insert({
-        user_id:    creatorId,
-        action_key: `CREATOR_MILESTONE_CLAIM_${milestoneId}`,
-        metadata:   { milestoneId, milestoneTitle: milestone.title },
-      });
-
-    if (trackingError) {
-      // UNIQUE violation = outro request chegou ao mesmo tempo
+    if (progress.claimed) {
       return new Response(JSON.stringify({ success: false, alreadyClaimed: true }),
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
     }
 
     // Obter ciclo atual
-    const { data: cycleId } = await supabase.rpc('get_or_create_current_cycle');
+    const { data: cycleId, error: cycleError } = await supabase.rpc('get_or_create_current_cycle');
+    if (cycleError || !cycleId) throw cycleError || new Error('Ciclo econômico indisponível');
     const ppAmount = milestone.points_reward;
-
-    // Acumular PP atomicamente
-    if (cycleId) {
-      await supabase.rpc('increment_cycle_user_points', {
-        p_cycle_id: cycleId,
-        p_user_id:  creatorId,
-        p_points:   ppAmount,
-      });
+    const trackingKey = `CREATOR_MILESTONE_CLAIM_${milestoneId}`;
+    const rewardMetadata = {
+      milestoneId,
+      milestoneTitle: milestone.title,
+      milestoneType: milestone.milestone_type,
+      milestoneValue: milestone.milestone_value,
+      tracking_key: trackingKey,
+    };
+    const { data: committed, error: commitError } = await supabase.rpc('commit_reward_award', {
+      p_tracking_user_id: creatorId,
+      p_tracking_action_key: trackingKey,
+      p_tracking_content_id: null,
+      p_tracking_metadata: rewardMetadata,
+      p_cycle_id: cycleId,
+      p_actor_event: {
+        user_id: creatorId,
+        action_key: 'CREATOR_MILESTONE_CLAIM',
+        points: ppAmount,
+        performance_points: ppAmount,
+        metadata: rewardMetadata,
+      },
+      p_creator_event: null,
+    });
+    if (commitError) throw commitError;
+    if (committed?.already_tracked) {
+      return new Response(JSON.stringify({ success: false, alreadyClaimed: true }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
     }
 
-    // Registrar reward_event
-    await supabase.from('reward_events').insert({
-      user_id:            creatorId,
-      action_key:         'CREATOR_MILESTONE_CLAIM',
-      points:             ppAmount,
-      value:              0,
-      performance_points: ppAmount,
-      cycle_id:           cycleId,
-      metadata: {
-        milestoneId,
-        milestoneTitle: milestone.title,
-        milestoneType:  milestone.milestone_type,
-        milestoneValue: milestone.milestone_value,
-      },
-    });
+    const { error: claimedError } = await supabase
+      .from('creator_milestone_progress')
+      .update({ claimed: true, claimed_at: new Date().toISOString() })
+      .eq('id', progress.id)
+      .eq('claimed', false);
+    if (claimedError) throw claimedError;
 
     // Notificação
     await supabase.from('notifications').insert({

@@ -20,10 +20,11 @@ Deno.serve(async (req) => {
     const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     const supabaseAnonKey = Deno.env.get('SUPABASE_ANON_KEY')!;
 
-    // Auth: exige JWT de admin válido OU Authorization ausente (CRON interno via service_role)
-    // Rejeita qualquer token que não seja de admin — anon key não passa mais
+    // Auth: exige service_role para automacao ou JWT de admin para acionamento manual.
     const authHeader = req.headers.get('Authorization');
-    if (authHeader) {
+    if (authHeader === `Bearer ${supabaseServiceKey}`) {
+      console.log('Service trigger authorized');
+    } else if (authHeader) {
       const authClient = createClient(supabaseUrl, supabaseAnonKey);
       const { data: { user }, error: authError } = await authClient.auth.getUser(
         authHeader.replace('Bearer ', '')
@@ -49,7 +50,10 @@ Deno.serve(async (req) => {
       }
       console.log('Manual trigger by admin:', user.id);
     } else {
-      console.log('CRON trigger (no Authorization header)');
+      return new Response(
+        JSON.stringify({ error: 'Unauthorized' }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 401 }
+      );
     }
 
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
@@ -211,16 +215,17 @@ Deno.serve(async (req) => {
         p_cycle_id: cycle.id,
       });
       if (qualErr) {
-        console.error('Error evaluating qualifications:', qualErr.message);
+        throw new Error(`Error evaluating qualifications: ${qualErr.message}`);
       }
 
       // Re-buscar após qualificação para ter o campo qualified_for_pool atualizado
-      const { data: qualifiedUsers } = await supabase
+      const { data: qualifiedUsers, error: qualifiedUsersError } = await supabase
         .from('economic_cycle_users')
         .select('*')
         .eq('cycle_id', cycle.id)
         .gt('performance_points', 0);
 
+      if (qualifiedUsersError) throw new Error(`Error loading qualifications: ${qualifiedUsersError.message}`);
       const qualifiedList = qualifiedUsers || [];
       const qualifiedPP = qualifiedList
         .filter((u: any) => u.qualified_for_pool)
@@ -237,56 +242,24 @@ Deno.serve(async (req) => {
       for (const cycleUser of qualifiedList) {
         const userPP = parseFloat(String(cycleUser.performance_points));
 
-        // Usuário não qualificado: carry-over de PP (não perde pontos, mas não recebe pool)
+        const userShare = cycleUser.qualified_for_pool && qualifiedPP > 0
+          ? (userPP / qualifiedPP) * effectivePRM
+          : 0;
+        const roundedShare = parseFloat(userShare.toFixed(2));
+        const { error: shareError } = await supabase
+          .from('economic_cycle_users')
+          .update({ calculated_share: roundedShare })
+          .eq('cycle_id', cycle.id)
+          .eq('user_id', cycleUser.user_id);
+        if (shareError) throw new Error(`Failed to persist calculated share: ${shareError.message}`);
+
+        // Usuário não qualificado: sera transferido uma unica vez apos os pagamentos.
         if (!cycleUser.qualified_for_pool) {
-          if (nextCycleId === null) {
-            const { data: nextCycle } = await supabase
-              .from('economic_cycles').select('id').eq('year_month', nextYearMonth).maybeSingle();
-            if (nextCycle) {
-              nextCycleId = nextCycle.id;
-            } else {
-              const { data: newNextCycle } = await supabase
-                .from('economic_cycles')
-                .insert({ year_month: nextYearMonth, pool_percentage: poolPercentage })
-                .select('id').single();
-              nextCycleId = newNextCycle?.id ?? null;
-            }
-          }
-          if (nextCycleId) {
-            await supabase.rpc('carryover_cycle_points', {
-              p_from_cycle_id: cycle.id,
-              p_to_cycle_id: nextCycleId,
-              p_min_payout: minPayout,
-            }).then(() => { usersCarriedOver++; });
-          }
           continue;
         }
 
-        // Calcular share usando somente PP qualificados como base
-        const userShare = qualifiedPP > 0 ? (userPP / qualifiedPP) * effectivePRM : 0;
-        const roundedShare = parseFloat(userShare.toFixed(2));
-
         // Abaixo do mínimo: carry-over mesmo qualificado (aguarda acumular mais)
         if (roundedShare < minPayout) {
-          if (nextCycleId === null) {
-            const { data: nextCycle } = await supabase
-              .from('economic_cycles').select('id').eq('year_month', nextYearMonth).maybeSingle();
-            if (nextCycle) { nextCycleId = nextCycle.id; }
-            else {
-              const { data: newNextCycle } = await supabase
-                .from('economic_cycles')
-                .insert({ year_month: nextYearMonth, pool_percentage: poolPercentage })
-                .select('id').single();
-              nextCycleId = newNextCycle?.id ?? null;
-            }
-          }
-          if (nextCycleId) {
-            await supabase.rpc('carryover_cycle_points', {
-              p_from_cycle_id: cycle.id,
-              p_to_cycle_id: nextCycleId,
-              p_min_payout: minPayout,
-            }).then(() => { usersCarriedOver++; });
-          }
           continue;
         }
 
@@ -308,10 +281,48 @@ Deno.serve(async (req) => {
           usersPaid++;
         }
       }
+
+      const needsCarryover = qualifiedList.some((cycleUser: any) => {
+        if (!cycleUser.qualified_for_pool) return true;
+        const share = qualifiedPP > 0
+          ? (parseFloat(String(cycleUser.performance_points)) / qualifiedPP) * effectivePRM
+          : 0;
+        return parseFloat(share.toFixed(2)) < minPayout;
+      });
+
+      if (needsCarryover) {
+        const { data: nextCycle, error: nextCycleLookupError } = await supabase
+          .from('economic_cycles').select('id').eq('year_month', nextYearMonth).maybeSingle();
+        if (nextCycleLookupError) throw new Error(`Failed to load next cycle: ${nextCycleLookupError.message}`);
+        if (nextCycle) {
+          nextCycleId = nextCycle.id;
+        } else {
+          const { data: newNextCycle, error: nextCycleCreateError } = await supabase
+            .from('economic_cycles')
+            .insert({ year_month: nextYearMonth, pool_percentage: poolPercentage })
+            .select('id').single();
+          if (nextCycleCreateError || !newNextCycle) {
+            throw new Error(`Failed to create next cycle: ${nextCycleCreateError?.message || 'unknown'}`);
+          }
+          nextCycleId = newNextCycle.id;
+        }
+
+        const { data: carryCount, error: carryError } = await supabase.rpc('carryover_cycle_points', {
+          p_from_cycle_id: cycle.id,
+          p_to_cycle_id: nextCycleId,
+          p_min_payout: minPayout,
+        });
+        if (carryError) throw new Error(`Failed to carry over points: ${carryError.message}`);
+        usersCarriedOver = Number(carryCount || 0);
+      }
+    }
+
+    if (errors.length > 0) {
+      throw new Error(`Cycle distribution failed for ${errors.length} user(s): ${errors.join('; ')}`);
     }
 
     // 5. Close the cycle
-    await supabase
+    const { error: closeError } = await supabase
       .from('economic_cycles')
       .update({
         rbm,
@@ -323,6 +334,7 @@ Deno.serve(async (req) => {
         closed_at: new Date().toISOString(),
       })
       .eq('id', cycle.id);
+    if (closeError) throw new Error(`Failed to close cycle: ${closeError.message}`);
 
     // 6. Reconciliation: via cycle_id FK (não mais frágil ILIKE)
     const { data: txSumData } = await supabase

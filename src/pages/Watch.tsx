@@ -828,9 +828,9 @@ function WatchContent() {
     );
   }
 
-  // If no user and content is not free, redirect to auth
-  if (!user && content.visibility !== "free") {
-    console.log("🚪 Redirecting to /auth - restricted content requires login");
+  // Toda reproducao na Classfy exige sessao, inclusive conteudo Free.
+  if (!user) {
+    console.log("🚪 Redirecting to /auth - Classfy content requires login");
     return <Navigate to="/auth" replace />;
   }
   // Mobile layout - with swipe-to-minimize overlay

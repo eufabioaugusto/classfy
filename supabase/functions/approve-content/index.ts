@@ -99,14 +99,13 @@ Deno.serve(async (req) => {
       .eq('active', true)
       .single();
 
-    const pointsAmount = rewardConfig?.points_creator || 50;
-    const valueAmount = rewardConfig?.value_creator || 5.00;
+    const pointsAmount = rewardConfig?.points_user ?? 0;
 
     // ALWAYS create notification for content approval (independent of reward)
     const itemLabel = itemType === 'course' ? 'curso' : 'conteúdo';
     const notificationMessage = alreadyRewarded
       ? `Seu ${itemLabel} "${content.title}" foi aprovado e publicado!`
-      : `Seu ${itemLabel} "${content.title}" foi aprovado e publicado! Você ganhou ${pointsAmount} pontos e R$ ${valueAmount.toFixed(2)}!`;
+      : `Seu ${itemLabel} "${content.title}" foi aprovado e publicado! Você ganhou ${pointsAmount} pontos de performance.`;
 
     const { error: notificationError } = await supabase
       .from('notifications')
@@ -138,9 +137,9 @@ Deno.serve(async (req) => {
           <p style="margin:0 0 4px;font-size:15px;color:#52525b;line-height:1.6;">
             Olá, <strong>${name}</strong>! Seu ${itemLabel} <strong>"${content.title}"</strong> foi aprovado e já está disponível na plataforma.
           </p>
-          ${alreadyRewarded ? '' : rewardBox(pointsAmount, valueAmount)}
+          ${alreadyRewarded ? '' : rewardBox(pointsAmount, 0)}
           ${ctaButton('Ver meu conteúdo', `${APP_URL}/studio/contents`)}
-          ${alreadyRewarded ? '' : '<p style="margin:0;font-size:13px;color:#71717a;">Continue criando! Cada conteúdo aprovado gera pontos e saldo na sua carteira.</p>'}
+          ${alreadyRewarded ? '' : '<p style="margin:0;font-size:13px;color:#71717a;">Continue criando! Os pontos elegíveis participam do pool mensal.</p>'}
         `);
         await sendEmail(RESEND_API_KEY, creatorAuth.user.email, subject, html);
       }

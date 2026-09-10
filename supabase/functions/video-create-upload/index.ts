@@ -5,6 +5,15 @@ Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response(null, { headers: corsHeaders });
   try {
     const { user, client } = await requireUser(req);
+    const [{ data: roles }, { data: profile }] = await Promise.all([
+      client.from('user_roles').select('role').eq('user_id', user.id).in('role', ['creator', 'admin']),
+      client.from('profiles').select('creator_status').eq('id', user.id).single(),
+    ]);
+    const isAdmin = roles?.some(item => item.role === 'admin');
+    const isApprovedCreator = roles?.some(item => item.role === 'creator')
+      && profile?.creator_status === 'approved';
+    if (!isAdmin && !isApprovedCreator) return json({ error: 'Approved creator access required' }, 403);
+
     const { title, corsOrigin } = await req.json();
     if (!title) return json({ error: 'title is required' }, 400);
     const provider = getVideoProvider();

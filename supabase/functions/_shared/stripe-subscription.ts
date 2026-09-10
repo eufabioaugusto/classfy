@@ -73,7 +73,8 @@ export function isSubscriptionPlan(plan: unknown): plan is SubscriptionPlan {
 
 export function getPlanFromProduct(productId?: string | null, fallback?: string | null): SubscriptionPlan {
   if (productId && PRODUCT_TO_PLAN[productId]) return PRODUCT_TO_PLAN[productId];
-  return isSubscriptionPlan(fallback) ? fallback : "pro";
+  if (isSubscriptionPlan(fallback)) return fallback;
+  throw new Error(`Unknown Stripe product: ${productId || "missing"}`);
 }
 
 export function getSubscriptionPeriodEnd(subscription: StripeSubscription | null | undefined): string | null {

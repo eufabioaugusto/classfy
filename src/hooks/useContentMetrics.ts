@@ -167,6 +167,9 @@ export function useContentMetrics({ contentId, duration, onMilestone }: UseConte
 
     // 15 second view reward - based on REAL accumulated watch time
     if (!metricsRecorded.view15s && realWatchTime >= 15) {
+      // Persistir a evidencia antes de pedir a recompensa. O servidor nao confia
+      // no tempo informado pelo cliente sem um registro de progresso associado.
+      await updateWatchTime(realWatchTime);
       await processReward({
         actionKey: "VIEW_15S",
         userId: user.id,

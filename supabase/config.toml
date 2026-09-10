@@ -78,6 +78,21 @@ verify_jwt = true
 [functions.close-economic-cycle]
 verify_jwt = false
 
+[functions.process-reward]
+verify_jwt = true
+
+[functions.reverse-reward]
+verify_jwt = true
+
+[functions.claim-creator-milestone]
+verify_jwt = true
+
+[functions.check-creator-milestones]
+verify_jwt = true
+
+[functions.approve-content]
+verify_jwt = true
+
 [functions.verify-turnstile]
 verify_jwt = false
 

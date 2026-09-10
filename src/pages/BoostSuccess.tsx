@@ -10,10 +10,11 @@ const BoostSuccess = () => {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
+  const [isActive, setIsActive] = useState(false);
   const boostId = searchParams.get('boost_id');
 
   useEffect(() => {
-    const activateBoost = async () => {
+    const verifyBoost = async () => {
       if (!boostId) {
         toast.error('ID do boost não encontrado');
         navigate('/');
@@ -21,13 +22,19 @@ const BoostSuccess = () => {
       }
 
       try {
-        const { error } = await supabase.functions.invoke('activate-boost', {
-          body: { boostId }
-        });
+        const { data, error } = await supabase
+          .from('boosts')
+          .select('status')
+          .eq('id', boostId)
+          .maybeSingle();
 
         if (error) throw error;
-
-        toast.success('Boost ativado com sucesso!');
+        if (data?.status === 'active') {
+          setIsActive(true);
+          toast.success('Boost ativado com sucesso!');
+        } else {
+          toast.info('Pagamento recebido. A ativação será concluída pela Stripe.');
+        }
       } catch (error: any) {
         console.error('Error activating boost:', error);
         toast.error('Erro ao ativar boost');
@@ -36,7 +43,7 @@ const BoostSuccess = () => {
       }
     };
 
-    activateBoost();
+    verifyBoost();
   }, [boostId, navigate]);
 
   return (
@@ -53,9 +60,13 @@ const BoostSuccess = () => {
         ) : (
           <>
             <CheckCircle2 className="w-16 h-16 mx-auto mb-4 text-green-500" />
-            <h1 className="text-2xl font-bold mb-2">Boost Ativado! 🚀</h1>
+            <h1 className="text-2xl font-bold mb-2">
+              {isActive ? 'Boost Ativado! 🚀' : 'Pagamento confirmado'}
+            </h1>
             <p className="text-muted-foreground mb-6">
-              Seu conteúdo agora está sendo impulsionado e aparecerá nas primeiras posições.
+              {isActive
+                ? 'Seu conteúdo agora está sendo impulsionado e aparecerá nas primeiras posições.'
+                : 'A Stripe confirmou o retorno. O boost será ativado automaticamente pelo webhook.'}
             </p>
             <div className="flex gap-3 justify-center">
               <Button onClick={() => navigate('/')}>

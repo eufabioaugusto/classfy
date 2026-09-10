@@ -35,12 +35,38 @@ serve(async (req) => {
   try {
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+    const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
     const { creatorId } = await req.json();
 
     if (!creatorId) {
       throw new Error("creatorId is required");
+    }
+
+    const authHeader = req.headers.get('Authorization') || '';
+    if (authHeader !== `Bearer ${supabaseServiceKey}`) {
+      const authClient = createClient(supabaseUrl, supabaseAnonKey);
+      const { data: { user }, error: authError } = await authClient.auth.getUser(authHeader.replace('Bearer ', ''));
+      if (authError || !user) {
+        return new Response(JSON.stringify({ error: 'Unauthorized' }),
+          { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      }
+      const { data: adminRole } = await supabase.from('user_roles')
+        .select('role').eq('user_id', user.id).eq('role', 'admin').maybeSingle();
+      if (user.id !== creatorId && !adminRole) {
+        return new Response(JSON.stringify({ error: 'Forbidden' }),
+          { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      }
+    }
+
+    const [{ data: creatorRole }, { data: creatorProfile }] = await Promise.all([
+      supabase.from('user_roles').select('role').eq('user_id', creatorId).eq('role', 'creator').maybeSingle(),
+      supabase.from('profiles').select('creator_status').eq('id', creatorId).single(),
+    ]);
+    if (!creatorRole || creatorProfile?.creator_status !== 'approved') {
+      return new Response(JSON.stringify({ error: 'Approved creator required' }),
+        { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
     }
 
     console.log(`Checking milestones for creator: ${creatorId}`);
@@ -204,7 +230,7 @@ async function createNotification(supabase: any, creatorId: string, milestone: C
         user_id: creatorId,
         type: "milestone_completed",
         title: "🎯 Meta Alcançada!",
-        message: `Parabéns! Você completou a meta "${milestone.title}". Resgate sua recompensa de ${milestone.points_reward} pontos e R$ ${milestone.value_reward.toFixed(2)}!`,
+        message: `Parabéns! Você completou a meta "${milestone.title}". Resgate ${milestone.points_reward} pontos de performance!`,
         is_read: false
       });
 
@@ -221,7 +247,7 @@ async function createNotification(supabase: any, creatorId: string, milestone: C
           <p style="margin:0 0 4px;font-size:15px;color:#52525b;line-height:1.6;">
             Parabéns, <strong>${name}</strong>! Você completou a meta <strong>"${milestone.title}"</strong>.
           </p>
-          ${rewardBox(milestone.points_reward, milestone.value_reward)}
+          ${rewardBox(milestone.points_reward, 0)}
           <p style="margin:0 0 16px;font-size:14px;color:#52525b;line-height:1.6;">
             Resgate sua recompensa na plataforma e continue crescendo!
           </p>

@@ -58,11 +58,10 @@ serve(async (req) => {
   try {
     const body = await req.text();
     
-    if (webhookSecret && signature) {
-      event = stripe.webhooks.constructEvent(body, signature, webhookSecret);
-    } else {
-      event = JSON.parse(body);
+    if (!webhookSecret || !signature) {
+      throw new Error("Stripe webhook signature configuration is missing");
     }
+    event = stripe.webhooks.constructEvent(body, signature, webhookSecret);
 
     if (!event) throw new Error("Invalid Stripe event payload");
 
@@ -80,7 +79,7 @@ serve(async (req) => {
         return new Response(JSON.stringify({ received: true, skipped: true }),
           { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
       }
-      console.error('Error recording stripe event:', dedupError);
+      throw new Error(`Failed to reserve Stripe event: ${dedupError.message}`);
     } else {
       eventRecorded = true;
     }
@@ -97,17 +96,14 @@ serve(async (req) => {
           console.log("[WEBHOOK] Boost payment completed:", { boostId, totalBudget });
 
           // Activate boost
-          try {
-            await supabaseClient.functions.invoke('activate-boost', {
-              body: {
-                boostId,
-                paymentIntentId: session.payment_intent as string,
-              }
-            });
-            console.log("Boost activated successfully");
-          } catch (activateErr) {
-            console.error("Error activating boost:", activateErr);
-          }
+          const { error: activateError } = await supabaseClient.functions.invoke('activate-boost', {
+            body: {
+              boostId,
+              paymentIntentId: session.payment_intent as string,
+            }
+          });
+          if (activateError) throw new Error(`Boost activation failed: ${activateError.message}`);
+          console.log("Boost activated successfully");
 
           // Record boost revenue
           if (totalBudget > 0) {
@@ -123,10 +119,7 @@ serve(async (req) => {
         
         // Handle content purchase
         if (session.mode === "payment" && session.metadata?.content_id) {
-          const pricePaid = parseFloat(session.metadata.price_paid || "");
-          const safePricePaid = Number.isFinite(pricePaid)
-            ? pricePaid
-            : (session.amount_total ? session.amount_total / 100 : 0);
+          const safePricePaid = session.amount_total ? session.amount_total / 100 : 0;
           const discountApplied = parseFloat(session.metadata.discount_applied || "0");
           
           const { error } = await supabaseClient
@@ -141,7 +134,7 @@ serve(async (req) => {
             });
 
           if (error) {
-            console.error("Error recording purchase:", error);
+            throw new Error(`Error recording purchase: ${error.message}`);
           } else {
             console.log("Purchase recorded successfully");
 
@@ -196,7 +189,7 @@ serve(async (req) => {
             .eq("id", session.metadata.user_id);
 
           if (error) {
-            console.error("Error updating subscription:", error);
+            throw new Error(`Error updating subscription: ${error.message}`);
           } else {
             console.log("Subscription activated successfully");
           }
@@ -265,7 +258,7 @@ serve(async (req) => {
             .eq("id", profile.id);
 
           if (error) {
-            console.error("Error updating subscription status:", error);
+            throw new Error(`Error updating subscription status: ${error.message}`);
           } else {
             console.log(`Subscription ${event.type} processed successfully`);
           }
@@ -300,7 +293,7 @@ serve(async (req) => {
               .eq("id", profile.id);
 
             if (error) {
-              console.error("Error updating subscription period:", error);
+              throw new Error(`Error updating subscription period: ${error.message}`);
             } else {
               console.log("Subscription renewed successfully");
               
@@ -382,7 +375,7 @@ serve(async (req) => {
 
 // Helper to record revenue in revenue_entries table (idempotente por source_id)
 async function recordRevenue(
-  supabase: ReturnType<typeof createClient>,
+  supabase: any,
   params: {
     revenue_type: string;
     amount: number;
@@ -412,11 +405,12 @@ async function recordRevenue(
         console.log('Revenue already recorded for source_id:', params.source_id, '— skipping.');
         return;
       }
-      console.error('Error recording revenue:', error);
+      throw new Error(`Error recording revenue: ${error.message}`);
     } else {
       console.log('Revenue recorded:', { type: params.revenue_type, amount: params.amount, year_month });
     }
   } catch (err) {
     console.error('Failed to record revenue:', err);
+    throw err;
   }
 }

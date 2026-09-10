@@ -11,16 +11,28 @@ Deno.serve(async (req) => {
   }
 
   try {
+    const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+    if (!serviceKey || req.headers.get('Authorization') !== `Bearer ${serviceKey}`) {
+      return new Response(
+        JSON.stringify({ error: 'Service authorization required' }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 401 }
+      );
+    }
+
     const supabase = createClient(
       Deno.env.get('SUPABASE_URL')!,
-      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
+      serviceKey
     );
 
     const { revenue_type, amount, source_id, user_id, metadata } = await req.json();
 
-    if (!revenue_type || amount === undefined) {
+    const numericAmount = Number(amount);
+    const allowedRevenueTypes = new Set([
+      'subscription_pro', 'subscription_premium', 'content_purchase', 'boost', 'other',
+    ]);
+    if (!allowedRevenueTypes.has(revenue_type) || !Number.isFinite(numericAmount) || numericAmount <= 0) {
       return new Response(
-        JSON.stringify({ error: 'revenue_type and amount are required' }),
+        JSON.stringify({ error: 'Valid revenue_type and positive amount are required' }),
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 400 }
       );
     }
@@ -50,7 +62,7 @@ Deno.serve(async (req) => {
       .insert({
         year_month,
         revenue_type,
-        amount,
+        amount: numericAmount,
         source_id: source_id || null,
         user_id: user_id || null,
         metadata: metadata || {},
@@ -74,7 +86,7 @@ Deno.serve(async (req) => {
       );
     }
 
-    console.log('Revenue recorded:', { revenue_type, amount, year_month, source_id });
+    console.log('Revenue recorded:', { revenue_type, amount: numericAmount, year_month, source_id });
 
     return new Response(
       JSON.stringify({ success: true, data }),

@@ -74,9 +74,7 @@ export function useAccessControl() {
 
       // Not logged in
       if (!user || !profile) {
-        if (visibility === "free") {
-          newState = { hasAccess: true, blockReason: null, requiredPlan: "pro", isPurchased: false };
-        } else if (visibility === "paid") {
+        if (visibility === "paid") {
           newState = { hasAccess: false, blockReason: "purchase", requiredPlan: "pro", isPurchased: false };
         } else {
           const requiredPlan = visibility === "premium" ? "premium" : "pro";
