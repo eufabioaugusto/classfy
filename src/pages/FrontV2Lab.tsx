@@ -18,9 +18,11 @@ import {
   GraduationCap,
   Home,
   Library,
+  Maximize,
   Menu,
   Moon,
   MoreHorizontal,
+  Pause,
   Play,
   Plus,
   Search,
@@ -29,13 +31,15 @@ import {
   TrendingUp,
   Upload,
   Users,
+  Volume2,
   WalletCards,
   X,
   Zap,
 } from "lucide-react";
-import plansHero from "@/assets/plans-hero-bg.jpg";
-import offlineStudy from "@/assets/plans-offline-study.jpg";
-import plansFeatureAi from "@/assets/plans-feature-ai.png";
+import heroEducadora from "@/assets/front-v2/hero-educadora.jpg";
+import creatorCaio from "@/assets/front-v2/creator-caio.jpg";
+import creatorLia from "@/assets/front-v2/creator-lia.jpg";
+import creatorMarina from "@/assets/front-v2/creator-marina.jpg";
 import "./front-v2-lab.css";
 
 type LabTheme = "dark" | "light";
@@ -55,9 +59,9 @@ const themeTokens = [
 const lessons = [
   {
     title: "Como construir uma marca que permanece",
-    creator: "Marina Salles",
+    creator: "Helena Costa",
     meta: "18 min · Estratégia",
-    image: plansHero,
+    image: heroEducadora,
     badge: "NOVA AULA",
     className: "cfv2-thumb-brand",
   },
@@ -65,7 +69,7 @@ const lessons = [
     title: "Decisões melhores em ambientes incertos",
     creator: "André Ferraz",
     meta: "24 min · Negócios",
-    image: offlineStudy,
+    image: creatorCaio,
     badge: "PRO",
     className: "cfv2-thumb-thinking",
   },
@@ -73,10 +77,17 @@ const lessons = [
     title: "IA prática: do repertório à execução",
     creator: "Lia Martins",
     meta: "32 min · Tecnologia",
-    image: plansFeatureAi,
+    image: creatorLia,
     badge: "PREMIUM",
     className: "cfv2-thumb-ai",
   },
+];
+
+const featuredCreators = [
+  { name: "Helena Costa", field: "Liderança & cultura", lesson: "Liderar sem perder a humanidade", image: heroEducadora, className: "hero" },
+  { name: "Caio Moura", field: "Negócios & estratégia", lesson: "A clareza que move empresas", image: creatorCaio, className: "" },
+  { name: "Lia Kim", field: "Tecnologia & futuro", lesson: "Pensar melhor com inteligência artificial", image: creatorLia, className: "" },
+  { name: "Marina Reis", field: "Comunicação & presença", lesson: "Ideias que as pessoas lembram", image: creatorMarina, className: "" },
 ];
 
 function ClassfyMark({ compact = false }: { compact?: boolean }) {
@@ -195,6 +206,89 @@ function MetricCard({
       <strong>{value}</strong>
       <p>{label}</p>
     </article>
+  );
+}
+
+function PeopleShowcase() {
+  return (
+    <div className="cfv2-people-showcase">
+      <div className="cfv2-people-heading">
+        <div>
+          <span>CREATORS EM DESTAQUE</span>
+          <h3>Aprenda com quem vive o que ensina.</h3>
+        </div>
+        <div className="cfv2-carousel-actions">
+          <button type="button" aria-label="Voltar"><ChevronRight size={18} /></button>
+          <button type="button" aria-label="Avançar"><ChevronRight size={18} /></button>
+        </div>
+      </div>
+      <div className="cfv2-people-track">
+        {featuredCreators.map((creator, index) => (
+          <article className="cfv2-person-card" key={creator.name}>
+            <img className={creator.className} src={creator.image} alt={`Retrato editorial de ${creator.name}`} />
+            <div className="cfv2-person-shade" />
+            <span className="cfv2-person-index">0{index + 1}</span>
+            <div className="cfv2-person-copy">
+              <small>{creator.field}</small>
+              <h4>{creator.name}</h4>
+              <i />
+              <p>{creator.lesson}</p>
+              <button type="button">Conhecer creator <ArrowRight size={14} /></button>
+            </div>
+          </article>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function PlayerShowcase() {
+  return (
+    <div className="cfv2-player-layout">
+      <div className="cfv2-player-stage">
+        <img src={heroEducadora} alt="Helena Costa em seu ambiente de trabalho" />
+        <div className="cfv2-player-vignette" />
+        <div className="cfv2-player-brand"><ClassfyMark compact /><span>ORIGINAL</span></div>
+        <div className="cfv2-player-center">
+          <button type="button" aria-label="Reproduzir"><Play size={26} fill="currentColor" /></button>
+        </div>
+        <div className="cfv2-player-controls">
+          <div className="cfv2-player-progress"><span /><i /></div>
+          <div className="cfv2-player-control-row">
+            <div>
+              <button type="button" aria-label="Pausar"><Pause size={19} fill="currentColor" /></button>
+              <button type="button" aria-label="Volume"><Volume2 size={20} /></button>
+              <span>08:42 / 24:18</span>
+            </div>
+            <div>
+              <button className="cfv2-speed" type="button">1×</button>
+              <button type="button" aria-label="Configurações"><Gauge size={20} /></button>
+              <button type="button" aria-label="Tela cheia"><Maximize size={20} /></button>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div className="cfv2-player-meta">
+        <div className="cfv2-player-title">
+          <div>
+            <Eyebrow>EPISÓDIO 03 · LIDERANÇA</Eyebrow>
+            <h3>A cultura aparece nas decisões difíceis.</h3>
+          </div>
+          <LabBadge tone="premium"><Crown size={11} /> PREMIUM</LabBadge>
+        </div>
+        <p>Helena mostra como líderes consistentes transformam valores abstratos em escolhas que o time consegue enxergar.</p>
+        <div className="cfv2-player-creator">
+          <img src={heroEducadora} alt="" />
+          <div><strong>Helena Costa</strong><span>Especialista em cultura e liderança</span></div>
+          <button type="button">Ver perfil</button>
+        </div>
+        <div className="cfv2-player-chapters">
+          <span>PRÓXIMOS CAPÍTULOS</span>
+          <button type="button"><i>04</i><div><strong>Rituais que criam confiança</strong><small>12 min</small></div><Play size={15} /></button>
+          <button type="button"><i>05</i><div><strong>Quando a cultura é testada</strong><small>16 min</small></div><Play size={15} /></button>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -499,39 +593,40 @@ export default function FrontV2Lab() {
 
       <main>
         <section className="cfv2-hero">
-          <div className="cfv2-hero-orbit" aria-hidden="true" />
+          <img className="cfv2-hero-photo" src={heroEducadora} alt="Helena Costa, creator da Classfy, em seu ambiente de trabalho" />
+          <div className="cfv2-hero-shade" />
           <div className="cfv2-hero-copy">
-            <Eyebrow>CLASSFY DESIGN LANGUAGE · 2026</Eyebrow>
-            <h1>Clareza para aprender.<br /><em>Presença para inspirar.</em></h1>
-            <p>Uma experiência direta para consumir conhecimento, elevada por uma atmosfera editorial, humana e cinematográfica.</p>
-            <div className="cfv2-principles">
-              <span>01 <strong>Útil antes de ornamental</strong></span>
-              <span>02 <strong>Premium sem distância</strong></span>
-              <span>03 <strong>Conteúdo em primeiro plano</strong></span>
+            <LabBadge tone="premium"><Crown size={11} /> CLASSFY ORIGINAL</LabBadge>
+            <Eyebrow>NOVA SÉRIE · 8 EPISÓDIOS</Eyebrow>
+            <h1>Liderança é o que<br />você faz <em>quando importa.</em></h1>
+            <p>Helena Costa mostra como transformar cultura em decisões claras, times fortes e trabalho que permanece.</p>
+            <div className="cfv2-hero-actions">
+              <LabButton icon={<Play size={15} fill="currentColor" />}>Assistir primeiro episódio</LabButton>
+              <LabButton tone="secondary" icon={<Plus size={16} />}>Minha lista</LabButton>
+            </div>
+            <div className="cfv2-hero-byline">
+              <span>COM</span>
+              <strong>Helena Costa</strong>
+              <i />
+              <small>Especialista em cultura e liderança</small>
             </div>
           </div>
-          <div className="cfv2-hero-visual">
-            <div className="cfv2-hero-card cfv2-hero-card-back">
-              <span>PROGRESSO DA SEMANA</span>
-              <strong>4h 28min</strong>
-              <div><i /><i /><i /><i /><i /><i /><i /></div>
-            </div>
-            <div className="cfv2-hero-card cfv2-hero-card-front">
-              <img src={plansHero} alt="" />
-              <div className="cfv2-hero-card-shade" />
-              <div className="cfv2-hero-card-content">
-                <LabBadge tone="premium">MASTERCLASS</LabBadge>
-                <h3>O futuro pertence a quem sabe aprender.</h3>
-                <p>Com Paula Monteiro · 8 episódios</p>
-                <button type="button"><Play size={17} fill="currentColor" /> Continuar assistindo</button>
-              </div>
-              <span className="cfv2-hero-card-progress" />
-            </div>
-          </div>
+          <div className="cfv2-hero-counter"><span>01</span><i /><small>04</small></div>
+        </section>
+
+        <section className="cfv2-human-principles">
+          <div><span>01</span><strong>Pessoas em primeiro plano</strong><p>Rostos, repertório e presença tornam o conhecimento desejável.</p></div>
+          <div><span>02</span><strong>Produto fora do caminho</strong><p>A interface organiza o consumo sem competir com o conteúdo.</p></div>
+          <div><span>03</span><strong>Premium é acabamento</strong><p>Tipografia, imagem e ritmo — não efeitos gratuitos ou iconografia colorida.</p></div>
+        </section>
+
+        <section className="cfv2-section cfv2-people-section">
+          <SectionIntro number="01" eyebrow="IDENTIDADE HUMANA" title="A Classfy tem rostos, não avatares genéricos." description="Creators são parte da marca. A fotografia editorial recebe protagonismo e a interface assume um papel silencioso." />
+          <PeopleShowcase />
         </section>
 
         <section className="cfv2-section cfv2-foundations">
-          <SectionIntro number="01" eyebrow="FUNDAÇÃO" title="Uma base silenciosa. Uma identidade reconhecível." description="Contraste confortável, hierarquia precisa e cor usada como significado — não decoração." />
+          <SectionIntro number="02" eyebrow="FUNDAÇÃO" title="Uma base silenciosa. Uma identidade reconhecível." description="Contraste confortável, hierarquia precisa e cor usada como significado — não decoração." />
 
           <div className="cfv2-foundation-grid">
             <article className="cfv2-token-card cfv2-colors-card">
@@ -587,22 +682,27 @@ export default function FrontV2Lab() {
         </section>
 
         <section className="cfv2-section cfv2-components-section">
-          <SectionIntro number="02" eyebrow="SISTEMA" title="Componentes que se explicam sozinhos." description="Estados claros, ações previsíveis e uma interface que permanece familiar em qualquer contexto." />
+          <SectionIntro number="03" eyebrow="SISTEMA" title="Componentes que se explicam sozinhos." description="Estados claros, ações previsíveis e uma interface que permanece familiar em qualquer contexto." />
           <ComponentSystem onOpenModal={() => setModalOpen(true)} onOpenSheet={() => setSheetOpen(true)} />
         </section>
 
         <section className="cfv2-section cfv2-experience-section">
-          <SectionIntro number="03" eyebrow="EXPERIÊNCIA DE CONSUMO" title="O conteúdo conduz a interface." description="Navegação familiar, busca sempre acessível e thumbnails com prioridade visual — informação suficiente, sem ruído." action={<LabButton tone="quiet">Ver anatomia <ArrowRight size={15} /></LabButton>} />
+          <SectionIntro number="04" eyebrow="EXPERIÊNCIA DE CONSUMO" title="Mais conteúdo por tela. Menos esforço para encontrar." description="Shell completo, busca sempre acessível e três colunas reais de conteúdo — inspirado na praticidade do YouTube, preservando a identidade Classfy." action={<LabButton tone="quiet">Ver anatomia <ArrowRight size={15} /></LabButton>} />
           <AppShellPreview />
         </section>
 
+        <section className="cfv2-section cfv2-player-section">
+          <SectionIntro number="05" eyebrow="PLAYER CLASSFY" title="O momento de assistir também precisa ter identidade." description="A imagem permanece soberana; controles são precisos e familiares, enquanto creator, contexto e próximos capítulos formam uma experiência própria." />
+          <PlayerShowcase />
+        </section>
+
         <section className="cfv2-section cfv2-value-section">
-          <SectionIntro number="04" eyebrow="VALOR E PROGRESSO" title="Economia clara. Conquista com significado." description="Rewards, saldo e evolução apresentados de forma transparente, humana e fácil de compreender." />
+          <SectionIntro number="06" eyebrow="VALOR E PROGRESSO" title="Economia clara. Conquista com significado." description="Rewards, saldo e evolução apresentados de forma transparente, humana e fácil de compreender." />
           <WalletPreview />
         </section>
 
         <section className="cfv2-section cfv2-business-section">
-          <SectionIntro number="05" eyebrow="ECOSSISTEMA" title="Criar, crescer e evoluir — na mesma linguagem." description="A interface muda de densidade conforme a tarefa, mas mantém a identidade e a hierarquia da Classfy." />
+          <SectionIntro number="07" eyebrow="ECOSSISTEMA" title="Criar, crescer e evoluir — na mesma linguagem." description="A interface muda de densidade conforme a tarefa, mas mantém a identidade e a hierarquia da Classfy." />
           <CreatorAndPlans />
         </section>
 
