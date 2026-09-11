@@ -22,6 +22,7 @@ import { CreatorApprovedBanner } from "@/components/CreatorApprovedBanner";
 import { ContentCardSkeleton } from "@/components/ContentCardSkeleton";
 import { boostContentList, getTopInterests, trackUserInteraction } from "@/lib/personalization/interests";
 import { AppShell } from "@/components/layout";
+import { HomeHero, PremiumCollection, type HomeHeroContent } from "@/components/home";
 import "@/styles/home-v2.css";
 
 export default function Index() {
@@ -210,6 +211,41 @@ export default function Index() {
 
   const currentPlan = profile?.plan || "free";
   const limitText = limits.studies === Infinity ? "ilimitados" : `${activeCount}/${limits.studies}`;
+  const heroCandidates = [
+    ...personalizedContents,
+    ...trendingClasses,
+    ...premiumContents,
+    ...proContents,
+    ...courses,
+  ].filter((content, index, candidates) => candidates.findIndex((candidate) => candidate.id === content.id) === index);
+  const canAccessHero = (content: any) => {
+    const visibility = content.visibility || "free";
+    if (visibility === "free") return true;
+    if (visibility === "pro") return currentPlan === "pro" || currentPlan === "premium";
+    if (visibility === "premium") return currentPlan === "premium";
+    return false;
+  };
+  const featuredHeroCreator = featuredCreators[0];
+  const featuredContentHero = heroCandidates.find(
+    (content) => content.thumbnail_url && canAccessHero(content),
+  ) || null;
+  const heroContent: HomeHeroContent | null = featuredHeroCreator
+    ? {
+        id: `creator-${featuredHeroCreator.id}`,
+        title: featuredHeroCreator.description || featuredHeroCreator.creator_name,
+        thumbnail_url: featuredHeroCreator.background_image_url,
+        content_type: "Creator em destaque",
+        visibility: "free",
+        duration_minutes: null,
+        profiles: { display_name: featuredHeroCreator.creator_name },
+        identity_image_url: featuredHeroCreator.featured_image_url,
+        context_label: "Seleção Classfy",
+      }
+    : (featuredContentHero as HomeHeroContent | null);
+  const withoutHero = (contents: any[]) => contents.filter((content) => content.id !== featuredContentHero?.id);
+  const personalizedHomeContents = withoutHero(personalizedContents);
+  const trendingHomeContents = withoutHero(trendingClasses);
+  const premiumHomeContents = withoutHero(premiumContents);
   const handleSearchResults = (results: any[]) => {
     setSearchResults(results);
     setHasSearched(true);
@@ -400,11 +436,9 @@ export default function Index() {
             {/* Modo Explorar (YouTube-style feed) */}
             {isExploreMode && (
               <div className="cf2-home-feed">
-                {/* Creator Approved Banner - Always show first if applicable */}
-                <CreatorApprovedBanner />
-
                 {exploreLoading ? (
-                  <div className="space-y-12">
+                  <div className="cf2-home-loading">
+                    <div className="cf2-home-loading__hero animate-pulse" />
                     {/* Skeleton for Featured Creators */}
                     <div className="space-y-4">
                       <div className="h-6 w-48 bg-muted rounded animate-pulse" />
@@ -428,35 +462,59 @@ export default function Index() {
                   </div>
                 ) : (
                   <>
-                    <ModeBridgeCard
-                      variant="explore-to-focus"
-                      isLoggedIn={Boolean(user)}
-                      plan={currentPlan as "free" | "pro" | "premium"}
-                      onAction={() => setMode(false)}
+                    <HomeHero
+                      content={heroContent}
+                      onPlay={() => {
+                        if (featuredHeroCreator) {
+                          navigate(
+                            featuredHeroCreator.slug
+                              ? `/creators/destaque/${featuredHeroCreator.slug}`
+                              : featuredHeroCreator.link_url,
+                          );
+                          return;
+                        }
+
+                        if (featuredContentHero) handleContentClick(featuredContentHero);
+                      }}
+                      onOpenFocus={() => setMode(false)}
+                      primaryLabel={featuredHeroCreator ? "Conhecer creator" : "Assistir agora"}
                     />
 
                     {/* Featured Creators Section */}
                     <FeaturedCreators creators={featuredCreators} />
 
+                    {/* Creator Approved Banner - contextual status after the editorial opening */}
+                    <CreatorApprovedBanner />
+
                     {/* Continue Watching Section */}
                     {user && <ContinueWatching userId={user.id} />}
 
-                    {user && personalizedContents.length > 0 && (
+                    {user && personalizedHomeContents.length > 0 && (
                       <ContentSection
                         title="Para você"
-                        contents={personalizedContents}
+                        contents={personalizedHomeContents}
                         onContentClick={handleContentClick}
                         userPlan={currentPlan}
                         onUpgradeClick={handleUpgradeClick}
                         onPurchaseClick={handlePurchaseClick}
                       />
                     )}
+
+                    <div className="cf2-home-focus-entry">
+                      <ModeBridgeCard
+                        variant="explore-to-focus"
+                        isLoggedIn={Boolean(user)}
+                        plan={currentPlan as "free" | "pro" | "premium"}
+                        onAction={() => setMode(false)}
+                        className="cf2-home-mode-bridge"
+                      />
+                    </div>
 
                     {/* 1. Em Alta - 4 cards (Apenas Aulas) */}
-                    {trendingClasses.length > 0 && (
+                    {trendingHomeContents.length > 0 && (
                       <ContentSection
                         title="Em Alta"
-                        contents={trendingClasses}
+                        contents={trendingHomeContents}
                         onContentClick={handleContentClick}
                         userPlan={currentPlan}
                         onUpgradeClick={handleUpgradeClick}
@@ -464,19 +522,15 @@ export default function Index() {
                       />
                     )}
 
-                    {/* 2. Itens PRO - 4 cards */}
-                    {proContents.length > 0 && (
-                      <ContentSection
-                        title="Itens PRO"
-                        contents={proContents}
-                        onContentClick={handleContentClick}
-                        userPlan={currentPlan}
-                        onUpgradeClick={handleUpgradeClick}
-                        onPurchaseClick={handlePurchaseClick}
-                      />
-                    )}
+                    <PremiumCollection
+                      contents={premiumHomeContents}
+                      userPlan={currentPlan as "free" | "pro" | "premium"}
+                      onContentClick={handleContentClick}
+                      onUpgradeClick={handleUpgradeClick}
+                      onPurchaseClick={handlePurchaseClick}
+                    />
 
-                    {/* 3. Podcasts em Alta - 6 itens (cards square) */}
+                    {/* Podcasts em Alta - 6 itens (cards square) */}
                     {trendingPodcasts.length > 0 && (
                       <ContentSection
                         title="Podcasts em Alta"
@@ -489,7 +543,7 @@ export default function Index() {
                       />
                     )}
 
-                    {/* 4. Shorts - 6 itens (cards verticais 9:16) */}
+                    {/* Shorts - 6 itens (cards verticais 9:16) */}
                     {shorts.length > 0 && (
                       <ContentSection
                         title="Shorts"
@@ -502,24 +556,24 @@ export default function Index() {
                       />
                     )}
 
-                    {/* 5. Itens Premium - 4 cards */}
-                    {premiumContents.length > 0 && (
+                    {/* Cursos - 4 cards */}
+                    {courses.length > 0 && (
                       <ContentSection
-                        title="Itens Premium"
-                        contents={premiumContents}
-                        onContentClick={handleContentClick}
+                        title="Cursos para aprofundar"
+                        contents={courses}
+                        onContentClick={(course) => navigate(`/watch/${course.id}`)}
                         userPlan={currentPlan}
                         onUpgradeClick={handleUpgradeClick}
                         onPurchaseClick={handlePurchaseClick}
                       />
                     )}
 
-                    {/* 6. Cursos - 4 cards */}
-                    {courses.length > 0 && (
+                    {/* PRO closes the feed as a subtle membership discovery moment. */}
+                    {proContents.length > 0 && (
                       <ContentSection
-                        title="Cursos"
-                        contents={courses}
-                        onContentClick={(course) => navigate(`/watch/${course.id}`)}
+                        title="Mais para membros PRO"
+                        contents={proContents}
+                        onContentClick={handleContentClick}
                         userPlan={currentPlan}
                         onUpgradeClick={handleUpgradeClick}
                         onPurchaseClick={handlePurchaseClick}

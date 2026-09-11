@@ -238,6 +238,7 @@ export const ContentCard = ({
         <img
           src={thumbnail}
           alt={title}
+          loading={visualVariant === "v2" ? "lazy" : undefined}
           className={`w-full h-full object-cover transition-all duration-500 ease-out ${
             hasPreviewableVideo && videoReady && (isHovered || shouldAutoplay) 
               ? "opacity-0 scale-105" 
