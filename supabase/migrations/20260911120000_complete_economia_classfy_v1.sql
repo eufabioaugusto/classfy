@@ -9,6 +9,12 @@ UPDATE public.platform_settings
 SET value = value - 'approved_content_monthly_limit', updated_at = now()
 WHERE key = 'economic_v1';
 
+-- CONTENT_APPROVED sempre recompensa por conteudo aprovado. A curadoria e o
+-- limite operacional; nao existe teto mensal configuravel para essa acao.
+UPDATE public.reward_actions_config
+SET monthly_creator_limit = NULL, updated_at = now()
+WHERE action_key = 'CONTENT_APPROVED';
+
 -- ----------------------------------------------------------------------------
 -- 1. Estado de assinatura ordenado e origem explicita do entitlement
 -- ----------------------------------------------------------------------------
@@ -991,7 +997,7 @@ RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
 DECLARE v_creator uuid; v_title text; v_content_type text; v_old_status text;
   v_creator_status public.creator_status; v_has_role boolean; v_cycle uuid;
   v_cfg public.reward_actions_config%ROWTYPE; v_first_cfg public.reward_actions_config%ROWTYPE;
-  v_approved_count integer; v_reward_count integer; v_reward jsonb; v_first_reward jsonb;
+  v_approved_count integer; v_reward jsonb; v_first_reward jsonb;
   v_tracking_content uuid;
 BEGIN
   IF NOT public.has_role(auth.uid(), 'admin'::public.app_role) THEN RAISE EXCEPTION 'admin_required'; END IF;
@@ -1025,22 +1031,13 @@ BEGIN
   SELECT public.get_or_create_current_cycle() INTO v_cycle;
   SELECT * INTO v_cfg FROM public.reward_actions_config WHERE action_key='CONTENT_APPROVED' AND active;
   IF FOUND THEN
-    PERFORM pg_advisory_xact_lock(hashtextextended(
-      v_creator::text || ':CONTENT_APPROVED:' ||
-      to_char(now() AT TIME ZONE 'America/Sao_Paulo','YYYY-MM'), 0));
-    SELECT count(*) INTO v_reward_count FROM public.reward_events
-    WHERE user_id=v_creator AND action_key='CONTENT_APPROVED' AND point_type='creator'
-      AND to_char(created_at AT TIME ZONE 'America/Sao_Paulo','YYYY-MM')=
-        to_char(now() AT TIME ZONE 'America/Sao_Paulo','YYYY-MM');
-    IF v_cfg.monthly_creator_limit IS NULL OR v_reward_count<v_cfg.monthly_creator_limit THEN
-      SELECT public.commit_reward_award(v_creator,'CONTENT_APPROVED_'||p_item_type||'_'||p_item_id::text,
-        v_tracking_content,jsonb_build_object('source','admin_approval','item_type',p_item_type),v_cycle,
-        jsonb_build_object('user_id',v_creator,'content_id',v_tracking_content,
-          'action_key','CONTENT_APPROVED','points',v_cfg.points_creator,
-          'cycle_points',v_cfg.points_creator,'point_type','creator',
-          'metadata',jsonb_build_object('activation',true,'item_type',p_item_type,
-            'item_id',p_item_id,'title',v_title)),NULL) INTO v_reward;
-    END IF;
+    SELECT public.commit_reward_award(v_creator,'CONTENT_APPROVED_'||p_item_type||'_'||p_item_id::text,
+      v_tracking_content,jsonb_build_object('source','admin_approval','item_type',p_item_type),v_cycle,
+      jsonb_build_object('user_id',v_creator,'content_id',v_tracking_content,
+        'action_key','CONTENT_APPROVED','points',v_cfg.points_creator,
+        'cycle_points',v_cfg.points_creator,'point_type','creator',
+        'metadata',jsonb_build_object('activation',true,'item_type',p_item_type,
+          'item_id',p_item_id,'title',v_title)),NULL) INTO v_reward;
   END IF;
 
   SELECT count(*) INTO v_approved_count FROM (
@@ -1070,7 +1067,7 @@ BEGIN
     'title',v_title,'content_type',v_content_type,
     'points',CASE WHEN COALESCE((v_reward->>'already_tracked')::boolean,false) THEN 0 ELSE COALESCE(v_cfg.points_creator,0) END,
     'first_upload_points',CASE WHEN COALESCE((v_first_reward->>'already_tracked')::boolean,false) THEN 0 ELSE COALESCE(v_first_cfg.points_creator,0) END,
-    'monthly_limit_reached',v_cfg.monthly_creator_limit IS NOT NULL AND v_reward_count>=v_cfg.monthly_creator_limit);
+    'monthly_limit_reached',false);
 END;
 $$;
 REVOKE ALL ON FUNCTION public.approve_content_v1(uuid,text,text) FROM PUBLIC, anon;
@@ -1437,6 +1434,41 @@ END;
 $$;
 REVOKE ALL ON FUNCTION public.update_economic_v1_settings(jsonb, text) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.update_economic_v1_settings(jsonb, text) TO authenticated;
+
+-- Mantem a tabela oficial editavel, mas torna a ausencia de teto para
+-- CONTENT_APPROVED uma regra de backend, nao uma convencao da interface.
+CREATE OR REPLACE FUNCTION public.update_reward_action_config_v1(
+  p_action_key text, p_points_user numeric, p_points_creator numeric,
+  p_daily_limit integer, p_monthly_creator_limit integer,
+  p_active boolean, p_description text, p_reason text
+)
+RETURNS public.reward_actions_config LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+DECLARE v_old public.reward_actions_config%ROWTYPE; v_new public.reward_actions_config%ROWTYPE;
+BEGIN
+  IF NOT public.has_role(auth.uid(), 'admin'::public.app_role) THEN RAISE EXCEPTION 'admin_required'; END IF;
+  IF NULLIF(btrim(p_reason), '') IS NULL THEN RAISE EXCEPTION 'reason_required'; END IF;
+  IF p_points_user < 0 OR p_points_creator < 0 THEN RAISE EXCEPTION 'negative_points'; END IF;
+  IF p_daily_limit IS NOT NULL AND p_daily_limit <= 0 THEN RAISE EXCEPTION 'invalid_daily_limit'; END IF;
+  IF p_monthly_creator_limit IS NOT NULL AND p_monthly_creator_limit <= 0 THEN RAISE EXCEPTION 'invalid_monthly_limit'; END IF;
+  SELECT * INTO v_old FROM public.reward_actions_config WHERE action_key = p_action_key FOR UPDATE;
+  IF NOT FOUND THEN RAISE EXCEPTION 'reward_action_not_found'; END IF;
+  UPDATE public.reward_actions_config SET
+    points_user = p_points_user, points_creator = p_points_creator,
+    daily_limit = p_daily_limit,
+    monthly_creator_limit = CASE WHEN p_action_key = 'CONTENT_APPROVED'
+      THEN NULL ELSE p_monthly_creator_limit END,
+    active = p_active, description = p_description,
+    value_user = 0, value_creator = 0, updated_at = now()
+  WHERE action_key = p_action_key RETURNING * INTO v_new;
+  INSERT INTO public.economic_admin_audit(admin_id, action, entity_type, entity_id, reason, old_value, new_value)
+  VALUES (auth.uid(), 'update', 'reward_action', p_action_key, btrim(p_reason), to_jsonb(v_old), to_jsonb(v_new));
+  RETURN v_new;
+END;
+$$;
+REVOKE ALL ON FUNCTION public.update_reward_action_config_v1(text, numeric, numeric, integer, integer, boolean, text, text)
+FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.update_reward_action_config_v1(text, numeric, numeric, integer, integer, boolean, text, text)
+TO authenticated;
 
 COMMENT ON COLUMN public.wallets.balance IS
   'Saldo contabil disponivel antes de reservas; pode ficar negativo por reversoes.';

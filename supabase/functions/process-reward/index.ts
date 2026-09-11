@@ -284,7 +284,8 @@ Deno.serve(async (req) => {
     }
 
     if (
-      CREATOR_ACTIVATION_ACTIONS.has(actionKey) && config.monthly_creator_limit
+      CREATOR_ACTIVATION_ACTIONS.has(actionKey) &&
+      actionKey !== "CONTENT_APPROVED" && config.monthly_creator_limit
     ) {
       const monthStart = new Date();
       monthStart.setUTCDate(1);

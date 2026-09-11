@@ -434,6 +434,7 @@ export default function AdminRewards() {
         p_active: editingReward.active,
         p_daily_limit: editingReward.daily_limit ?? null,
         p_monthly_creator_limit: editingReward.monthly_creator_limit ?? null,
+        p_description: editingReward.description,
         p_reason: rewardEditReason.trim(),
       } as any);
 
@@ -1334,16 +1335,22 @@ export default function AdminRewards() {
                   </div>
                   <div>
                     <label className="text-sm font-medium">Limite mensal Creator</label>
-                    <Input
-                      type="number"
-                      min="0"
-                      value={editingReward.monthly_creator_limit ?? ''}
-                      onChange={(e) => setEditingReward({
-                        ...editingReward,
-                        monthly_creator_limit: e.target.value === '' ? null : Number(e.target.value),
-                      })}
-                      placeholder="Sem limite"
-                    />
+                    {editingReward.action_key === 'CONTENT_APPROVED' ? (
+                      <p className="text-sm text-muted-foreground pt-2">
+                        Sem teto mensal. Cada conteúdo aprovado pela curadoria gera 4 Creator Points uma única vez.
+                      </p>
+                    ) : (
+                      <Input
+                        type="number"
+                        min="0"
+                        value={editingReward.monthly_creator_limit ?? ''}
+                        onChange={(e) => setEditingReward({
+                          ...editingReward,
+                          monthly_creator_limit: e.target.value === '' ? null : Number(e.target.value),
+                        })}
+                        placeholder="Sem limite"
+                      />
+                    )}
                   </div>
                 </div>
 

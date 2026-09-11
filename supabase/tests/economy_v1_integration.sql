@@ -341,6 +341,12 @@ BEGIN
            AND action_key = 'CONTENT_APPROVED') <> 1 THEN
     RAISE EXCEPTION 'content_rejection_changed_reward_history';
   END IF;
+  PERFORM public.approve_content_v1(v_pending_content, 'content', 'reaprovacao idempotente');
+  IF (SELECT count(*) FROM public.reward_events
+      WHERE user_id = v_applicant AND content_id = v_pending_content
+        AND action_key = 'CONTENT_APPROVED') <> 1 THEN
+    RAISE EXCEPTION 'content_reapproval_generated_duplicate_reward';
+  END IF;
 
   -- QP, carry-over, milestones economicos e crons legados estao inativos.
   IF EXISTS (SELECT 1 FROM public.creator_milestones
@@ -362,9 +368,15 @@ BEGIN
     RAISE EXCEPTION 'economic_settings_source_is_duplicated';
   END IF;
 
+  PERFORM public.update_reward_action_config_v1(
+    'CONTENT_APPROVED', 0, 4, NULL, 3, true,
+    'Conteudo aprovado e publicado', 'teste de ausencia de teto mensal');
+
   IF (SELECT count(*) FROM public.reward_actions_config WHERE active) <> 17
      OR EXISTS (SELECT 1 FROM public.reward_actions_config WHERE active
-       AND (value_user <> 0 OR value_creator <> 0)) THEN
+       AND (value_user <> 0 OR value_creator <> 0))
+     OR (SELECT monthly_creator_limit FROM public.reward_actions_config
+         WHERE action_key = 'CONTENT_APPROVED') IS NOT NULL THEN
     RAISE EXCEPTION 'official_points_table_is_inconsistent';
   END IF;
 
