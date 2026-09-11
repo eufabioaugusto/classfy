@@ -2,10 +2,8 @@ import { useEffect, useState } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
-import { Header } from "@/components/Header";
 import { GlobalLoader } from "@/components/GlobalLoader";
-import { SidebarProvider } from "@/components/ui/sidebar";
-import { AppSidebar } from "@/components/AppSidebar";
+import { AppShell } from "@/components/layout";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
@@ -215,13 +213,11 @@ export default function Recompensas() {
   const isCreator = role === 'creator' || role === 'admin';
 
   return (
-    <SidebarProvider>
-      <div className="min-h-screen flex w-full bg-background">
-        <AppSidebar />
-        <div className="flex-1 flex flex-col">
-          <Header variant="home" title="Minhas Recompensas" />
-
-          <main className="container mx-auto px-4 py-5 pb-24 md:pb-6 space-y-4">
+    <AppShell
+      variant="home"
+      title="Minhas Recompensas"
+      contentClassName="container mx-auto px-4 py-5 pb-24 md:pb-6 space-y-4"
+    >
             {/* Points do ciclo + ranking */}
             <div className="grid grid-cols-1 md:grid-cols-2 items-stretch gap-4">
               <Card>
@@ -518,9 +514,6 @@ export default function Recompensas() {
                 </div>
               );
             })()}
-          </main>
-        </div>
-      </div>
-    </SidebarProvider>
+    </AppShell>
   );
 }

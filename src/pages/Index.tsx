@@ -11,9 +11,6 @@ import { ContinueWatching } from "@/components/ContinueWatching";
 import { ContentSection } from "@/components/ContentSection";
 import { FeaturedCreators } from "@/components/FeaturedCreators";
 import { ModeBridgeCard } from "@/components/ModeBridgeCard";
-import { SidebarProvider } from "@/components/ui/sidebar";
-import { AppSidebar } from "@/components/AppSidebar";
-import { Header } from "@/components/Header";
 import { AlertCircle, BookOpen } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useStudies } from "@/hooks/useStudies";
@@ -24,7 +21,7 @@ import { PurchaseModal } from "@/components/PurchaseModal";
 import { CreatorApprovedBanner } from "@/components/CreatorApprovedBanner";
 import { ContentCardSkeleton } from "@/components/ContentCardSkeleton";
 import { boostContentList, getTopInterests, trackUserInteraction } from "@/lib/personalization/interests";
-import { ClassfyV2Scope } from "@/components/v2";
+import { AppShell } from "@/components/layout";
 import "@/styles/home-v2.css";
 
 export default function Index() {
@@ -259,19 +256,13 @@ export default function Index() {
     return <GlobalLoader />;
   }
   return (
-    <SidebarProvider defaultOpen={true}>
-      <ClassfyV2Scope className="min-h-screen flex w-full">
-        {/* Sidebar */}
-        <AppSidebar />
-
-        {/* Main Content */}
-        <div className="flex-1 flex flex-col">
-          <Header 
-            variant="home" 
-            showSearch={true}
-            isExploreMode={isExploreMode}
-            onModeChange={setMode}
-          />
+    <AppShell
+      variant="home"
+      showSearch={true}
+      isExploreMode={isExploreMode}
+      onModeChange={setMode}
+      contentClassName={`cf2-home-main flex flex-1 flex-col items-center justify-start ${isExploreMode ? "cf2-home-main--explore" : "cf2-home-main--focus"}`}
+    >
 
           {/* Modals */}
           <ConversionModal open={modalOpen} onOpenChange={setModalOpen} reason={modalReason} />
@@ -297,8 +288,6 @@ export default function Index() {
           )}
 
           {/* Content Area */}
-          <main className={`cf2-home-main flex flex-1 flex-col items-center justify-start ${isExploreMode ? "cf2-home-main--explore" : "cf2-home-main--focus"}`}>
-
             {/* Modo Foco (Original) */}
             {!isExploreMode && (
               <>
@@ -556,9 +545,6 @@ export default function Index() {
                 )}
               </div>
             )}
-          </main>
-        </div>
-      </ClassfyV2Scope>
-    </SidebarProvider>
+    </AppShell>
   );
 }

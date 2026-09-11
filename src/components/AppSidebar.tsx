@@ -12,36 +12,17 @@ import { CreatorStatsCard } from "@/components/CreatorStatsCard";
 import { Badge } from "@/components/ui/badge";
 import { useEffect, useMemo, useState } from "react";
 import {
-  Home,
-  Clock,
-  Star,
-  Bookmark,
   User,
   LogOut,
   Sparkles,
-  Code,
-  Megaphone,
-  Languages,
-  DollarSign,
-  Palette,
-  Cpu,
-  Video,
-  BarChart,
-  Upload,
   Settings,
-  Users,
-  CheckSquare,
   BookOpen,
   Plus,
-  Trophy,
   ChevronRight,
-  FileText,
-  TrendingUp,
   AlertTriangle,
   Zap,
   Crown,
   Circle,
-  Layers,
   MoreHorizontal,
   Pencil,
   Archive,
@@ -69,6 +50,7 @@ import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { toast } from "sonner";
+import { adminNavigation, mainNavigation, studioNavigation } from "@/config/navigation";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -98,40 +80,6 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-
-const mainItems = [
-  { title: "Início", url: "/", icon: Home },
-  { title: "Shorts", url: "/shorts", icon: Zap },
-  { title: "Histórico", url: "/historico", icon: Clock },
-  { title: "Favoritos", url: "/favoritos", icon: Star },
-  { title: "Salvos", url: "/salvos", icon: Bookmark },
-  { title: "Recompensas", url: "/recompensas", icon: Trophy },
-  { title: "Carteira", url: "/carteira", icon: DollarSign },
-  { title: "Classfy Premium", url: "/planos", icon: Crown, highlight: true },
-];
-
-const studioItems = [
-  { title: "Dashboard", url: "/studio", icon: BarChart },
-  { title: "Analytics", url: "/studio/analytics", icon: TrendingUp },
-  { title: "Meus Conteúdos", url: "/studio/contents", icon: Video },
-  { title: "Meus Boosts", url: "/studio/boosts", icon: Megaphone },
-  // { title: "Publicar Novo", url: "/studio/upload", icon: Upload },
-];
-
-const adminItems = [
-  { title: "Dashboard", url: "/admin", icon: BarChart, countKey: null },
-  { title: "Aprovar Creators", url: "/admin/creators", icon: CheckSquare, countKey: "creators" as const },
-  { title: "Aprovar Conteúdos", url: "/admin/contents", icon: Video, countKey: "contents" as const },
-  { title: "Transcrições", url: "/admin/transcriptions", icon: FileText, countKey: null },
-  { title: "Creators em Destaque", url: "/admin/featured-creators", icon: Users, countKey: null },
-  { title: "Recompensas", url: "/admin/rewards", icon: Trophy, countKey: null },
-  { title: "Saques", url: "/admin/withdrawals", icon: DollarSign, countKey: "withdrawals" as const },
-  { title: "Gerenciar Usuários", url: "/admin/users", icon: Users, countKey: null },
-  { title: "Prospecção", url: "/admin/prospects", icon: TrendingUp, countKey: null },
-  { title: "Curadoria", url: "/admin/curadoria", icon: Layers, countKey: null },
-  { title: "Materiais Afiliados", url: "/admin/marketing", icon: Megaphone, countKey: null },
-  { title: "Configurações", url: "/admin/settings", icon: Settings, countKey: null },
-];
 
 const PINNED_STUDIES_STORAGE_KEY = "classfy:pinned-studies";
 
@@ -326,7 +274,7 @@ export function AppSidebar() {
   return (
     <TooltipProvider delayDuration={0}>
       <Sidebar
-        className={`border-r border-border/20 bg-background transition-all duration-300 ${collapsed ? "w-16" : "w-60"}`}
+        className={`cf2-app-sidebar border-r border-sidebar-border bg-sidebar text-sidebar-foreground transition-all duration-300 ${collapsed ? "w-16" : "w-60"}`}
         collapsible="icon"
       >
         <SidebarContent>
@@ -395,7 +343,7 @@ export function AppSidebar() {
             {!collapsed && <SidebarGroupLabel className="text-muted-foreground">Menu</SidebarGroupLabel>}
             <SidebarGroupContent>
               <SidebarMenu className={collapsedMenuClass}>
-                {mainItems.map((item) => (
+                {mainNavigation.map((item) => (
                   <SidebarMenuItem key={item.title}>
                     {collapsed ? (
                       <Tooltip>
@@ -690,7 +638,7 @@ export function AppSidebar() {
                 {!collapsed && <SidebarGroupLabel className="text-muted-foreground">Studio Classfy</SidebarGroupLabel>}
                 <SidebarGroupContent>
                   <SidebarMenu className={collapsedMenuClass}>
-                    {studioItems.map((item) => (
+                    {studioNavigation.map((item) => (
                       <SidebarMenuItem key={item.title}>
                         {collapsed ? (
                           <Tooltip>
@@ -737,7 +685,7 @@ export function AppSidebar() {
                 {!collapsed && <SidebarGroupLabel className="text-muted-foreground">Administração</SidebarGroupLabel>}
                 <SidebarGroupContent>
                   <SidebarMenu className={collapsedMenuClass}>
-                    {adminItems.map((item) => {
+                    {adminNavigation.map((item) => {
                       const pendingCount = item.countKey ? adminCounts[item.countKey] : 0;
                       return (
                         <SidebarMenuItem key={item.title}>

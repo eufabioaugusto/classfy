@@ -1,8 +1,6 @@
 import { useAuth } from "@/contexts/AuthContext";
 import { Navigate, useNavigate } from "react-router-dom";
-import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
-import { AppSidebar } from "@/components/AppSidebar";
-import { Header } from "@/components/Header";
+import { AppShell } from "@/components/layout";
 import { useState, useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -256,14 +254,7 @@ export default function StudioContents() {
   if (!user || role !== 'creator' && role !== 'admin') {
     return <Navigate to="/" replace />;
   }
-  return <SidebarProvider defaultOpen={true}>
-      <div className="min-h-screen flex w-full bg-background">
-        <AppSidebar />
-        
-        <div className="flex-1 flex flex-col">
-          <Header variant="studio" title="Meus Conteúdos" />
-
-          <main className="flex-1 p-6">
+  return <AppShell variant="studio" title="Meus Conteúdos" contentClassName="flex-1 p-6">
             <div className="max-w-full space-y-4">
               {/* Filtros */}
               <div className="flex items-center justify-between">
@@ -411,10 +402,6 @@ export default function StudioContents() {
                    </Table>
                  </div>}
             </div>
-          </main>
-        </div>
-      </div>
-
       <BoostModal 
         open={isBoostModalOpen}
         onOpenChange={closeBoostModal}
@@ -422,5 +409,5 @@ export default function StudioContents() {
         contentTitle={selectedContent?.title}
         itemType={selectedContent?.itemType}
       />
-    </SidebarProvider>;
+    </AppShell>;
 }

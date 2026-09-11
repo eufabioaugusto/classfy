@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useNavigate, useLocation } from "react-router-dom";
 import { useIsMobile } from "@/hooks/use-mobile";
-import { AdminLayout } from "@/components/AdminLayout";
+import { AppShell } from "@/components/layout";
 import { supabase } from "@/integrations/supabase/client";
 import { FeaturedBadge } from "@/components/FeaturedBadge";
 import { History, AlertCircle, Search, Trash2, MoreVertical, Bookmark, Share2, Clock, X, Play, Music, Video, Zap, Filter } from "lucide-react";
@@ -342,7 +342,7 @@ export default function Historico() {
   };
 
   return (
-    <AdminLayout title="Histórico">
+    <AppShell title="Histórico">
       <div className="flex gap-6 max-w-7xl mx-auto px-4 py-8">
         {/* Main Content */}
         <div className="flex-1 min-w-0">
@@ -643,6 +643,6 @@ export default function Historico() {
           }}
         />
       )}
-    </AdminLayout>
+    </AppShell>
   );
 }

@@ -1,9 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { Navigate, useNavigate, useSearchParams } from "react-router-dom";
-import { SidebarProvider } from "@/components/ui/sidebar";
-import { AppSidebar } from "@/components/AppSidebar";
-import { Header } from "@/components/Header";
+import { AppShell } from "@/components/layout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -243,12 +241,11 @@ export default function StudioUpload() {
 
   if (profile?.creator_status !== 'approved' && role !== 'admin') {
     return (
-      <SidebarProvider defaultOpen={true}>
-        <div className="min-h-screen flex w-full bg-background">
-          <AppSidebar />
-          <div className="flex-1 flex flex-col">
-            <Header variant="studio" title="Publicar Conteúdo" />
-            <main className="flex-1 p-6 md:p-12 flex items-center justify-center">
+      <AppShell
+        variant="studio"
+        title="Publicar Conteúdo"
+        contentClassName="flex-1 p-6 md:p-12 flex items-center justify-center"
+      >
               <Card className="p-8 text-center max-w-md border-0 bg-gradient-to-b from-card to-card/50">
                 <div className="w-16 h-16 mx-auto mb-6 rounded-2xl bg-accent/10 flex items-center justify-center">
                   <Lock className="w-8 h-8 text-accent" />
@@ -258,10 +255,7 @@ export default function StudioUpload() {
                   Você precisa ser um Creator aprovado para publicar conteúdos.
                 </p>
               </Card>
-            </main>
-          </div>
-        </div>
-      </SidebarProvider>
+      </AppShell>
     );
   }
 
@@ -735,24 +729,17 @@ export default function StudioUpload() {
   const selectedVisibility = visibilityOptions.find(v => v.id === visibility);
 
   return (
-    <>
-    <SidebarProvider defaultOpen={true}>
-      <div className="min-h-screen flex w-full bg-background">
-        <AppSidebar />
-        
-        <div className="flex-1 flex flex-col">
-          <Header
-            variant="studio"
-            title={
-              isEditMode ? "Editar Conteúdo" :
-              contentType === "aula" ? "Publicar Aula" :
-              contentType === "curso" ? "Criar Curso" :
-              contentType === "podcast" ? "Enviar Podcast" :
-              "Postar Short"
-            }
-          />
-
-          <main className="flex-1 overflow-auto">
+    <AppShell
+      variant="studio"
+      title={
+        isEditMode ? "Editar Conteúdo" :
+        contentType === "aula" ? "Publicar Aula" :
+        contentType === "curso" ? "Criar Curso" :
+        contentType === "podcast" ? "Enviar Podcast" :
+        "Postar Short"
+      }
+      contentClassName="flex-1 overflow-auto"
+    >
             {/* Hero Section */}
             <div className="relative overflow-hidden border-b bg-gradient-to-br from-accent/5 via-background to-background">
               <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-accent/10 via-transparent to-transparent" />
@@ -1301,11 +1288,6 @@ export default function StudioUpload() {
                 </motion.div>
               </form>
             </div>
-          </main>
-        </div>
-      </div>
-    </SidebarProvider>
-
       {/* Video Preparation Lobby */}
       <VideoPreparationLobby
         videoSrc={lobbyVideoSrc}
@@ -1314,6 +1296,6 @@ export default function StudioUpload() {
         onClose={handleLobbyClose}
         open={lobbyOpen}
       />
-    </>
+    </AppShell>
   );
 }

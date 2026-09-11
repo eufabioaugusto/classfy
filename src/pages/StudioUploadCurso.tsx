@@ -1,9 +1,7 @@
 import { useState } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { Navigate, useNavigate } from "react-router-dom";
-import { SidebarProvider } from "@/components/ui/sidebar";
-import { AppSidebar } from "@/components/AppSidebar";
-import { Header } from "@/components/Header";
+import { AppShell } from "@/components/layout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -197,12 +195,11 @@ export default function StudioUploadCurso() {
 
   if (profile?.creator_status !== 'approved' && role !== 'admin') {
     return (
-      <SidebarProvider defaultOpen={true}>
-        <div className="min-h-screen flex w-full bg-background">
-          <AppSidebar />
-          <div className="flex-1 flex flex-col">
-            <Header variant="studio" title="Criar Curso" />
-            <main className="flex-1 p-6 md:p-12 flex items-center justify-center">
+      <AppShell
+        variant="studio"
+        title="Criar Curso"
+        contentClassName="flex-1 p-6 md:p-12 flex items-center justify-center"
+      >
               <Card className="p-8 text-center max-w-md">
                 <GraduationCap className="w-12 h-12 mx-auto mb-4 text-muted-foreground" />
                 <h2 className="text-xl font-bold mb-2">Apenas Creators podem criar cursos</h2>
@@ -210,10 +207,7 @@ export default function StudioUploadCurso() {
                   Você precisa ser um Creator aprovado para criar cursos na Classfy.
                 </p>
               </Card>
-            </main>
-          </div>
-        </div>
-      </SidebarProvider>
+      </AppShell>
     );
   }
 
@@ -743,14 +737,7 @@ export default function StudioUploadCurso() {
   };
 
   return (
-    <SidebarProvider defaultOpen={true}>
-      <div className="min-h-screen flex w-full bg-background">
-        <AppSidebar />
-        
-        <div className="flex-1 flex flex-col">
-          <Header variant="studio" title="Criar Curso" />
-
-          <main className="flex-1 p-6 md:p-12">
+    <AppShell variant="studio" title="Criar Curso" contentClassName="flex-1 p-6 md:p-12">
             <form onSubmit={handleSubmit} className="max-w-5xl mx-auto space-y-6">
               <Tabs defaultValue="info" className="w-full">
                 <TabsList className="grid w-full grid-cols-4">
@@ -1478,10 +1465,6 @@ export default function StudioUploadCurso() {
                 </Button>
               </div>
             </form>
-          </main>
-        </div>
-      </div>
-
       {/* Quiz Editor Modal */}
       {editingQuiz && (() => {
         const module = modules.find(m => m.id === editingQuiz.moduleId);
@@ -1497,6 +1480,6 @@ export default function StudioUploadCurso() {
           />
         ) : null;
       })()}
-    </SidebarProvider>
+    </AppShell>
   );
 }

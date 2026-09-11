@@ -8,7 +8,7 @@ import { DirectMessagesButton } from "@/components/DirectMessagesButton";
 import { AffiliateModal } from "@/components/AffiliateModal";
 import { GlobalSearch } from "@/components/GlobalSearch";
 import { useState } from "react";
-import { Moon, Sun, Plus, BookOpen, Podcast, Zap, Radio, GraduationCap, LogIn, LogOut, Settings, Gift, User } from "lucide-react";
+import { Moon, Sun, Plus, BookOpen, LogIn, LogOut, Settings, Gift, User } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
   DropdownMenu,
@@ -19,8 +19,9 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { useStudies } from "@/hooks/useStudies";
 import { useNotificationToasts } from "@/hooks/useNotificationToasts";
+import { creatorActions } from "@/config/navigation";
 
-interface HeaderProps {
+export interface HeaderProps {
   variant?: "home" | "studio";
   title?: string;
   showSearch?: boolean;
@@ -45,7 +46,7 @@ export function Header({ variant = "home", title, showSearch = false, isExploreM
   };
 
   return (
-    <header className="sticky top-0 z-50 border-b border-border/20 bg-background/95 backdrop-blur-xl">
+    <header className="cf2-app-header sticky top-0 z-50 border-b border-border/20 bg-background/95 backdrop-blur-xl">
       <div className="flex items-center justify-between gap-2 px-3 sm:px-6 py-3 sm:py-4">
         <div className="flex items-center gap-2 sm:gap-4 flex-shrink-0">
           <SidebarTrigger />
@@ -69,6 +70,7 @@ export function Header({ variant = "home", title, showSearch = false, isExploreM
             variant="ghost"
             size="icon"
             onClick={toggleTheme}
+            aria-label={theme === "dark" ? "Ativar modo claro" : "Ativar modo escuro"}
             className="text-foreground hidden sm:flex"
           >
             {theme === "dark" ? (
@@ -113,41 +115,15 @@ export function Header({ variant = "home", title, showSearch = false, isExploreM
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-56 bg-background border-border z-50">
-                <DropdownMenuItem onClick={() => navigate('/studio/upload/curso')} className="gap-3 cursor-pointer">
-                  <GraduationCap className="w-4 h-4" />
-                  <div>
-                    <div className="font-medium">Curso</div>
-                    <div className="text-xs text-muted-foreground">Série de aulas</div>
-                  </div>
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => navigate('/studio/upload?type=aula')} className="gap-3 cursor-pointer">
-                  <BookOpen className="w-4 h-4" />
-                  <div>
-                    <div className="font-medium">Aula</div>
-                    <div className="text-xs text-muted-foreground">Vídeo educacional</div>
-                  </div>
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => navigate('/studio/upload?type=podcast')} className="gap-3 cursor-pointer">
-                  <Podcast className="w-4 h-4" />
-                  <div>
-                    <div className="font-medium">Podcast</div>
-                    <div className="text-xs text-muted-foreground">Áudio longo</div>
-                  </div>
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => navigate('/studio/upload?type=short')} className="gap-3 cursor-pointer">
-                  <Zap className="w-4 h-4" />
-                  <div>
-                    <div className="font-medium">Short</div>
-                    <div className="text-xs text-muted-foreground">Vídeo curto</div>
-                  </div>
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => navigate('/studio/upload?type=live')} className="gap-3 cursor-pointer">
-                  <Radio className="w-4 h-4" />
-                  <div>
-                    <div className="font-medium">Live</div>
-                    <div className="text-xs text-muted-foreground">Transmissão ao vivo</div>
-                  </div>
-                </DropdownMenuItem>
+                {creatorActions.map((action) => (
+                  <DropdownMenuItem key={action.url} onClick={() => navigate(action.url)} className="gap-3 cursor-pointer">
+                    <action.icon className="w-4 h-4" />
+                    <div>
+                      <div className="font-medium">{action.title}</div>
+                      <div className="text-xs text-muted-foreground">{action.description}</div>
+                    </div>
+                  </DropdownMenuItem>
+                ))}
               </DropdownMenuContent>
             </DropdownMenu>
           )}

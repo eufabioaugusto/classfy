@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useNavigate } from "react-router-dom";
-import { AdminLayout } from "@/components/AdminLayout";
+import { AppShell } from "@/components/layout";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -269,7 +269,7 @@ export default function Carteira() {
   }
 
   return (
-    <AdminLayout title="Carteira">
+    <AppShell title="Carteira">
       <div className="container mx-auto p-4 sm:p-6 max-w-7xl space-y-6">
         
         {/* Withdraw Card - Hero Section */}
@@ -595,6 +595,6 @@ export default function Carteira() {
           </TabsContent>
         </Tabs>
       </div>
-    </AdminLayout>
+    </AppShell>
   );
 }

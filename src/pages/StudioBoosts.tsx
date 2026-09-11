@@ -5,9 +5,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { AppSidebar } from "@/components/AppSidebar";
-import { SidebarProvider } from "@/components/ui/sidebar";
-import { Header } from "@/components/Header";
+import { AppShell } from "@/components/layout";
 import { Zap, TrendingUp, Users, Calendar, DollarSign, Eye, MousePointerClick, CreditCard, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { format } from "date-fns";
@@ -110,12 +108,7 @@ const StudioBoosts = () => {
   };
 
   return (
-    <SidebarProvider defaultOpen={true}>
-      <div className="min-h-screen flex w-full bg-background">
-        <AppSidebar />
-        <div className="flex-1 flex flex-col">
-          <Header variant="studio" />
-          <main className="flex-1 p-6 space-y-6">
+    <AppShell variant="studio" contentClassName="flex-1 p-6 space-y-6">
             <div className="flex items-center justify-between">
               <div>
                 <h1 className="text-3xl font-bold flex items-center gap-2">
@@ -246,10 +239,7 @@ const StudioBoosts = () => {
                 ))}
               </div>
             )}
-          </main>
-        </div>
-      </div>
-    </SidebarProvider>
+    </AppShell>
   );
 };
 

@@ -2,10 +2,8 @@ import { useState, useEffect } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
-import { Header } from "@/components/Header";
 import { GlobalLoader } from "@/components/GlobalLoader";
-import { SidebarProvider } from "@/components/ui/sidebar";
-import { AppSidebar } from "@/components/AppSidebar";
+import { AppShell } from "@/components/layout";
 import {
   Table,
   TableBody,
@@ -267,13 +265,11 @@ export default function RewardsHistory() {
   }
 
   return (
-    <SidebarProvider>
-      <div className="min-h-screen flex w-full">
-        <AppSidebar />
-        <div className="flex-1 flex flex-col">
-          <Header variant="home" title="Histórico de Recompensas" />
-
-          <main className="container mx-auto px-4 py-8 space-y-6">
+    <AppShell
+      variant="home"
+      title="Histórico de Recompensas"
+      contentClassName="container mx-auto px-4 py-8 space-y-6"
+    >
         {/* Stats Cards */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <Card>
@@ -620,9 +616,6 @@ export default function RewardsHistory() {
             )}
           </DialogContent>
         </Dialog>
-          </main>
-        </div>
-      </div>
-    </SidebarProvider>
+    </AppShell>
   );
 }

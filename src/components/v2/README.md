@@ -6,6 +6,8 @@ Esta pasta contém a fundação visual aprovada da Classfy Web. A adoção é pr
 
 - Tokens semânticos, temas, espaçamento, tipografia e estilos-base: `src/styles/classfy-v2.css`.
 - Componentes reutilizáveis: `src/components/v2/ClassfyV2.tsx`.
+- Shell e ritmo de página: `src/components/layout/AppShell.tsx` e `src/components/layout/Page.tsx`.
+- Navegação compartilhada entre Header e Sidebar: `src/config/navigation.ts`.
 - Referência visual viva: `/lab/front-v2`.
 
 Não duplicar cores ou decisões visuais em páginas. Quando uma necessidade recorrente não estiver representada, ela deve entrar primeiro na fundação e depois ser consumida pela tela.
@@ -18,6 +20,15 @@ Não duplicar cores ou decisões visuais em páginas. Quando uma necessidade rec
 4. Áreas de consumo podem ser densas e práticas; páginas de decisão recebem mais respiro.
 5. Dark e light devem ser tratados como experiências completas, não como simples inversão.
 6. Comportamento acessível de dialog, sheet, menu e tooltip continua apoiado nos primitives Radix existentes; a V2 fornece a superfície visual.
+
+## Estrutura oficial
+
+- Páginas comuns usam `AppShell`, que centraliza `SidebarProvider`, `AppSidebar`, `Header` e o escopo V2.
+- `PageContainer` controla largura e respiro; `PageHeader` e `SectionHeader` controlam hierarquia.
+- Estados recorrentes usam `LoadingState`, `ErrorState` e `EmptyState`.
+- Cards, métricas, badges, tabelas, dialogs e sheets devem ser importados de `@/components/v2` quando a página for migrada.
+- Watch, Shorts, Study, Auth e Lives mantêm shells próprios por serem experiências imersivas.
+- `AdminLayout` existe apenas como adaptador temporário para páginas administrativas antigas; não deve ser usado em novas páginas.
 
 ## Identidade dos creators
 

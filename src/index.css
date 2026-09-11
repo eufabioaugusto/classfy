@@ -72,6 +72,21 @@ All colors MUST be HSL.
     --badge-free: 142 76% 36%;
     --badge-pro: 262 83% 58%;
     --badge-premium: 45 93% 47%;
+
+    /* Official navigation surface tokens. */
+    --sidebar-background: 40 11% 96%;
+    --sidebar-foreground: 225 8% 19%;
+    --sidebar-primary: 347 77% 50%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 40 8% 90%;
+    --sidebar-accent-foreground: 225 8% 13%;
+    --sidebar-border: 225 8% 84%;
+    --sidebar-ring: 347 77% 50%;
+
+    /* Plans are semantic states, not decorative colors. */
+    --plan-free: 155 48% 34%;
+    --plan-pro: 224 36% 50%;
+    --plan-premium: 39 56% 42%;
   }
 
   .dark {
@@ -117,6 +132,19 @@ All colors MUST be HSL.
     --badge-free: 142 76% 46%;
     --badge-pro: 262 83% 68%;
     --badge-premium: 45 93% 57%;
+
+    --sidebar-background: 225 12% 6%;
+    --sidebar-foreground: 220 9% 92%;
+    --sidebar-primary: 352 84% 63%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 220 9% 13%;
+    --sidebar-accent-foreground: 220 9% 96%;
+    --sidebar-border: 220 8% 18%;
+    --sidebar-ring: 352 84% 63%;
+
+    --plan-free: 155 46% 58%;
+    --plan-pro: 224 69% 75%;
+    --plan-premium: 39 56% 66%;
   }
 }
 
@@ -133,7 +161,7 @@ All colors MUST be HSL.
   }
   
   body {
-    @apply bg-cinematic-black text-foreground antialiased;
+    @apply bg-background text-foreground antialiased;
     font-feature-settings: "cv02", "cv03", "cv04", "cv11";
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
   }
@@ -177,16 +205,6 @@ All colors MUST be HSL.
   /* Text shadow for better readability on images */
   .text-shadow {
     text-shadow: 0 2px 8px rgba(0,0,0,0.8);
-  }
-}
-
-@layer base {
-  * {
-    @apply border-border;
-  }
-
-  body {
-    @apply bg-background text-foreground;
   }
 }
 

@@ -40,7 +40,7 @@ import { BecomeCreatorModal } from "@/components/BecomeCreatorModal";
 import { EditableAvatar } from "@/components/EditableAvatar";
 import { useProfileComplete } from "@/hooks/useProfileComplete";
 import { CoverUpload } from "@/components/CoverUpload";
-import { AdminLayout } from "@/components/AdminLayout";
+import { AppShell } from "@/components/layout";
 import { Separator } from "@/components/ui/separator";
 import { MessagePrivacySettings } from "@/components/settings/MessagePrivacySettings";
 import { useCreatorMilestones } from "@/hooks/useCreatorMilestones";
@@ -307,18 +307,18 @@ export default function Conta() {
 
   if (authLoading || loading || !user) {
     return (
-      <AdminLayout title="Configurações">
+      <AppShell title="Configurações">
         <div className="flex items-center justify-center h-96">
           <Loader2 className="w-8 h-8 animate-spin text-primary" />
         </div>
-      </AdminLayout>
+      </AppShell>
     );
   }
 
   const isCreator = profile?.creator_status === "approved";
 
   return (
-    <AdminLayout title="Configurações">
+    <AppShell title="Configurações">
       <div className="container mx-auto p-6 max-w-7xl space-y-6">
         {/* Page Header */}
         <div className="space-y-1">
@@ -1268,7 +1268,7 @@ export default function Conta() {
         open={creatorModalOpen} 
         onOpenChange={setCreatorModalOpen} 
       />
-    </AdminLayout>
+    </AppShell>
   );
 }
 

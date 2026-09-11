@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useNavigate, useLocation } from "react-router-dom";
 import { useIsMobile } from "@/hooks/use-mobile";
-import { AdminLayout } from "@/components/AdminLayout";
+import { AppShell } from "@/components/layout";
 import { ContentCard } from "@/components/ContentCard";
 import { supabase } from "@/integrations/supabase/client";
 import { Heart, AlertCircle } from "lucide-react";
@@ -86,7 +86,7 @@ export default function Favoritos() {
   };
 
   return (
-    <AdminLayout title="Favoritos">
+    <AppShell title="Favoritos">
       <div className="container mx-auto px-4 py-8">
         <div className="mb-8">
           <div className="flex items-center gap-3 mb-2">
@@ -169,6 +169,6 @@ export default function Favoritos() {
           }}
         />
       )}
-    </AdminLayout>
+    </AppShell>
   );
 }

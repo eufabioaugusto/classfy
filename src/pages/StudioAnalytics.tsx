@@ -1,8 +1,6 @@
 import { useAuth } from "@/contexts/AuthContext";
 import { Navigate } from "react-router-dom";
-import { SidebarProvider } from "@/components/ui/sidebar";
-import { AppSidebar } from "@/components/AppSidebar";
-import { Header } from "@/components/Header";
+import { AppShell } from "@/components/layout";
 import { Card } from "@/components/ui/card";
 import { useState, useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
@@ -284,14 +282,11 @@ export default function StudioAnalytics() {
   ];
 
   return (
-    <SidebarProvider defaultOpen={true}>
-      <div className="min-h-screen flex w-full bg-background">
-        <AppSidebar />
-        
-        <div className="flex-1 flex flex-col">
-          <Header variant="studio" title="Analytics" />
-
-          <main className="flex-1 p-4 sm:p-6 md:p-12 overflow-x-hidden">
+    <AppShell
+      variant="studio"
+      title="Analytics"
+      contentClassName="flex-1 p-4 sm:p-6 md:p-12 overflow-x-hidden"
+    >
             <div className="max-w-7xl mx-auto space-y-6 sm:space-y-8">
               {/* Header with filters */}
               <div className="flex flex-col gap-4">
@@ -632,9 +627,6 @@ export default function StudioAnalytics() {
                 </TabsContent>
               </Tabs>
             </div>
-          </main>
-        </div>
-      </div>
-    </SidebarProvider>
+    </AppShell>
   );
 }

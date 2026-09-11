@@ -1,9 +1,7 @@
 import { useAuth } from "@/contexts/AuthContext";
 import { Navigate, useNavigate, useLocation } from "react-router-dom";
 import { useIsMobile } from "@/hooks/use-mobile";
-import { SidebarProvider } from "@/components/ui/sidebar";
-import { AppSidebar } from "@/components/AppSidebar";
-import { Header } from "@/components/Header";
+import { AppShell } from "@/components/layout";
 import { 
   Video, 
   Eye, 
@@ -202,14 +200,7 @@ export default function Studio() {
   };
 
   return (
-    <SidebarProvider defaultOpen={true}>
-      <div className="min-h-screen flex w-full bg-background">
-        <AppSidebar />
-        
-        <div className="flex-1 flex flex-col">
-          <Header variant="studio" title="Studio Classfy" />
-
-          <main className="flex-1 p-4 md:p-6">
+    <AppShell variant="studio" title="Studio Classfy" contentClassName="flex-1 p-4 md:p-6">
             <div className="max-w-[1600px] mx-auto space-y-4">
               {/* Welcome Section */}
               <div>
@@ -583,9 +574,6 @@ export default function Studio() {
                 </Card>
               </div>
             </div>
-          </main>
-        </div>
-      </div>
-    </SidebarProvider>
+    </AppShell>
   );
 }

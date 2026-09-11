@@ -2,9 +2,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
-import { Header } from "@/components/Header";
-import { AppSidebar } from "@/components/AppSidebar";
-import { SidebarProvider } from "@/components/ui/sidebar";
+import { AppShell } from "@/components/layout";
 import { PlansHero } from "@/components/plans/PlansHero";
 import { PlanCards } from "@/components/plans/PlanCards";
 import { PlansFeatures } from "@/components/plans/PlansFeatures";
@@ -50,21 +48,13 @@ export default function Planos() {
   };
 
   return (
-    <SidebarProvider>
-      <div className="min-h-screen flex w-full bg-background">
-        <AppSidebar />
-        <div className="flex-1 flex flex-col">
-          <Header variant="home" title="Planos" />
-          <main className="flex-1">
+    <AppShell variant="home" title="Planos">
             <PlansHero />
             <PlanCards onSubscribe={handleSubscribe} currentPlan={currentPlan} />
             <PlansFeatures />
             <PlansComparison onSubscribe={handleSubscribe} />
             <PlansFAQ />
             <PlansCTA />
-          </main>
-        </div>
-      </div>
-    </SidebarProvider>
+    </AppShell>
   );
 }

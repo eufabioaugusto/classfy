@@ -2,9 +2,7 @@ import { useState, useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
-import { SidebarProvider } from "@/components/ui/sidebar";
-import { AppSidebar } from "@/components/AppSidebar";
-import { Header } from "@/components/Header";
+import { AppShell } from "@/components/layout";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card } from "@/components/ui/card";
@@ -210,20 +208,14 @@ export default function CreatorProfile() {
 
   if (loading) {
     return (
-      <SidebarProvider>
-        <AppSidebar />
-        <div className="flex-1 flex flex-col w-full">
-          <Header />
-          <main className="flex-1 overflow-y-auto">
+      <AppShell contentClassName="flex-1 overflow-y-auto">
             <div className="container mx-auto px-4 py-6">
               <Skeleton className="w-full h-48 rounded-lg mb-4" />
               <Skeleton className="w-32 h-32 rounded-full mx-auto -mt-16 mb-4" />
               <Skeleton className="w-48 h-6 mx-auto mb-2" />
               <Skeleton className="w-64 h-4 mx-auto mb-6" />
             </div>
-          </main>
-        </div>
-      </SidebarProvider>
+      </AppShell>
     );
   }
 
@@ -232,11 +224,7 @@ export default function CreatorProfile() {
   }
 
   return (
-    <SidebarProvider>
-      <AppSidebar />
-      <div className="flex-1 flex flex-col w-full">
-        <Header />
-        <main className="flex-1 overflow-y-auto">
+    <AppShell contentClassName="flex-1 overflow-y-auto">
           {/* Cover Image */}
           <div className="w-full h-48 bg-gradient-to-r from-primary/20 via-primary/10 to-background relative overflow-hidden">
             {creator?.cover_image_url ? (
@@ -392,8 +380,6 @@ export default function CreatorProfile() {
               </TabsContent>
             </Tabs>
           </div>
-        </main>
-      </div>
-    </SidebarProvider>
+    </AppShell>
   );
 }
