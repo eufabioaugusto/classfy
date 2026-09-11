@@ -14,7 +14,8 @@ export interface AppShellProps extends HeaderProps {
 }
 
 /**
- * Official shell for standard Classfy Web pages.
+ * Shared infrastructure for experiences that use the standard navigation.
+ * Visual composition belongs to the page's family template, not to this shell.
  *
  * Immersive routes (Watch, Shorts, Study, Auth and Lives) intentionally own
  * their layout and should not be forced into this shell.

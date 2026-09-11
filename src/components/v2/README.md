@@ -6,8 +6,11 @@ Esta pasta contém a fundação visual aprovada da Classfy Web. A adoção é pr
 
 - Tokens semânticos, temas, espaçamento, tipografia e estilos-base: `src/styles/classfy-v2.css`.
 - Componentes reutilizáveis: `src/components/v2/ClassfyV2.tsx`.
-- Shell e ritmo de página: `src/components/layout/AppShell.tsx` e `src/components/layout/Page.tsx`.
+- Linguagem transversal e famílias: `src/components/v2/VISUAL_LANGUAGE.md`.
+- Templates de experiência: `src/components/templates/ExperienceTemplate.tsx`.
+- Shell e ritmo básico de página: `src/components/layout/AppShell.tsx` e `src/components/layout/Page.tsx`.
 - Navegação compartilhada entre Header e Sidebar: `src/config/navigation.ts`.
+- Mapa página/família/template: `src/config/experienceFamilies.ts`.
 - Referência visual viva: `/lab/front-v2`.
 
 Não duplicar cores ou decisões visuais em páginas. Quando uma necessidade recorrente não estiver representada, ela deve entrar primeiro na fundação e depois ser consumida pela tela.
@@ -23,7 +26,8 @@ Não duplicar cores ou decisões visuais em páginas. Quando uma necessidade rec
 
 ## Estrutura oficial
 
-- Páginas comuns usam `AppShell`, que centraliza `SidebarProvider`, `AppSidebar`, `Header` e o escopo V2.
+- `AppShell` é infraestrutura compartilhada, não um layout visual obrigatório. Ele centraliza `SidebarProvider`, `AppSidebar`, `Header` e o escopo V2 quando a experiência precisa desses elementos.
+- A família da página determina o template e a composição. Home, Watch, Wallet, Upload e Admin não devem ser forçados a parecer a mesma tela.
 - `PageContainer` controla largura e respiro; `PageHeader` e `SectionHeader` controlam hierarquia.
 - Estados recorrentes usam `LoadingState`, `ErrorState` e `EmptyState`.
 - Cards, métricas, badges, tabelas, dialogs e sheets devem ser importados de `@/components/v2` quando a página for migrada.
@@ -38,9 +42,10 @@ Nos cards, heroes e páginas editoriais, a identidade cadastrada pelo Admin cont
 
 Cada tela deve ser revisada antes da migração. O processo esperado é:
 
-1. preservar regras e interações funcionais;
-2. envolver a superfície em `ClassfyV2Scope`;
-3. substituir padrões locais por primitives V2;
-4. remover hardcodes visuais apenas daquela tela;
-5. validar dark, light e responsividade;
-6. manter o laboratório atualizado quando surgir um padrão realmente reutilizável.
+1. identificar família, template e shell em `experienceFamilies.ts`;
+2. preservar regras e interações funcionais;
+3. envolver a superfície em `ClassfyV2Scope`;
+4. compor o template da família com primitives V2;
+5. remover hardcodes visuais apenas daquela tela;
+6. validar dark, light e responsividade;
+7. manter o laboratório atualizado quando surgir um padrão realmente reutilizável.

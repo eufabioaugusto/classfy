@@ -193,6 +193,56 @@
 .cf2-page-header__description { max-width: 44rem; margin: var(--cf2-space-3) 0 0; color: var(--cf2-ink-muted); font: 450 var(--cf2-type-body)/1.6 var(--cf2-font-sans); }
 .cf2-page-header__action { flex: 0 0 auto; }
 
+/*
+ * Experience templates define composition without changing the transversal
+ * visual language. They are opt-in and intentionally contain no page styling.
+ */
+.cf2-template {
+  --cf2-template-max: 80rem;
+  --cf2-template-gutter: clamp(1rem, 2.25vw, 2rem);
+  --cf2-template-gap: var(--cf2-space-6);
+  --cf2-template-aside: 20rem;
+  width: 100%;
+  max-width: var(--cf2-template-max);
+  min-width: 0;
+  margin-inline: auto;
+  padding: var(--cf2-template-gutter);
+}
+.cf2-template[data-width="wide"] { --cf2-template-max: 120rem; }
+.cf2-template[data-width="full"] { --cf2-template-max: none; }
+.cf2-template[data-density="immersive"] { --cf2-template-gap: var(--cf2-space-4); }
+.cf2-template[data-density="relaxed"] { --cf2-template-gap: var(--cf2-space-8); }
+.cf2-template[data-density="comfortable"] { --cf2-template-gap: var(--cf2-space-6); }
+.cf2-template[data-density="compact"] { --cf2-template-gap: var(--cf2-space-4); }
+.cf2-template__header,
+.cf2-template__lead,
+.cf2-template__toolbar,
+.cf2-template__body,
+.cf2-template__footer { min-width: 0; }
+.cf2-template__lead,
+.cf2-template__toolbar,
+.cf2-template__body,
+.cf2-template__footer { margin-top: var(--cf2-template-gap); }
+.cf2-template__body { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--cf2-template-gap); }
+.cf2-template--with-aside .cf2-template__body { grid-template-columns: minmax(0, 1fr) minmax(16rem, var(--cf2-template-aside)); }
+.cf2-template__content,
+.cf2-template__aside { min-width: 0; }
+
+.cf2-template[data-experience="exploration"] {
+  --cf2-template-max: 120rem;
+  --cf2-template-aside: 22rem;
+}
+.cf2-template[data-experience="consumption"] {
+  --cf2-template-max: none;
+  --cf2-template-gutter: 0;
+  --cf2-template-aside: clamp(18rem, 26vw, 26rem);
+  background: #050607;
+}
+.cf2-template[data-experience="library"] { --cf2-template-max: 100rem; }
+.cf2-template[data-experience="economy"] { --cf2-template-max: 80rem; --cf2-template-aside: 22rem; }
+.cf2-template[data-experience="creator"] { --cf2-template-max: 120rem; --cf2-template-aside: 22rem; }
+.cf2-template[data-experience="admin"] { --cf2-template-max: none; --cf2-template-aside: 24rem; }
+
 /* Actions */
 .cf2-button {
   display: inline-flex;
@@ -371,6 +421,10 @@ textarea.cf2-input { min-height: 7rem; padding-top: var(--cf2-space-3); resize: 
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
   }
+}
+
+@media (max-width: 1024px) {
+  .cf2-template--with-aside .cf2-template__body { grid-template-columns: minmax(0, 1fr); }
 }
 
 @media (max-width: 640px) {
