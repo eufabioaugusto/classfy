@@ -256,6 +256,38 @@ textarea.cf2-input { min-height: 7rem; padding-top: var(--cf2-space-3); resize: 
 .cf2-media::after { position: absolute; inset: 0; content: ""; pointer-events: none; background: var(--cf2-media-shade); }
 .cf2-creator-identity { position: relative; z-index: 1; max-width: min(72%, 19rem); max-height: 5.5rem; object-fit: contain; object-position: left center; }
 
+/* Persistent user evolution card — compact enough for the sidebar, legible at a glance. */
+.cf2-sidebar-progress {
+  overflow: hidden;
+  border: 1px solid var(--cf2-border);
+  border-radius: var(--cf2-radius-card);
+  color: var(--cf2-ink);
+  background: var(--cf2-surface);
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.12);
+}
+.cf2-sidebar-progress__level { display: grid; grid-template-columns: 2rem minmax(0, 1fr) auto; padding: 0.75rem; align-items: center; gap: 0.55rem; }
+.cf2-sidebar-progress__badge { display: grid; width: 2rem; height: 2rem; place-items: center; border: 1px solid color-mix(in srgb, var(--cf2-accent) 28%, transparent); border-radius: 0.55rem; color: var(--cf2-accent); background: var(--cf2-accent-soft); font-size: 0.65rem; font-weight: 800; }
+.cf2-sidebar-progress__level-copy { min-width: 0; }
+.cf2-sidebar-progress__level-copy strong,
+.cf2-sidebar-progress__level-copy span { display: block; white-space: nowrap; }
+.cf2-sidebar-progress__level-copy strong { font-size: 0.75rem; font-weight: 680; line-height: 1.15; }
+.cf2-sidebar-progress__level-copy span { margin-top: 0.2rem; color: var(--cf2-ink-muted); font-size: 0.57rem; line-height: 1; }
+.cf2-sidebar-progress__points { display: grid; justify-items: end; font-size: 0.77rem; font-weight: 720; font-variant-numeric: tabular-nums; line-height: 1; white-space: nowrap; }
+.cf2-sidebar-progress__points small { margin-top: 0.2rem; color: var(--cf2-ink-subtle); font-size: 0.48rem; font-weight: 650; letter-spacing: 0.07em; text-transform: uppercase; }
+.cf2-sidebar-progress__track { height: 2px; margin: 0 0.75rem 0.72rem; background: var(--cf2-surface-strong); overflow: hidden; }
+.cf2-sidebar-progress__track span { display: block; height: 100%; border-radius: inherit; background: var(--cf2-accent); transition: width 700ms var(--cf2-ease); }
+.cf2-sidebar-progress__metrics { display: grid; grid-template-columns: 1fr 1fr; border-top: 1px solid var(--cf2-border); }
+.cf2-sidebar-progress__metrics > div { min-width: 0; padding: 0.65rem 0.72rem; }
+.cf2-sidebar-progress__metrics > div + div { border-left: 1px solid var(--cf2-border); }
+.cf2-sidebar-progress__metrics span,
+.cf2-sidebar-progress__footer span { display: flex; align-items: center; gap: 0.3rem; color: var(--cf2-ink-muted); font-size: 0.48rem; font-weight: 680; letter-spacing: 0.055em; text-transform: uppercase; white-space: nowrap; }
+.cf2-sidebar-progress__metrics svg,
+.cf2-sidebar-progress__footer svg { width: 0.65rem; height: 0.65rem; flex: 0 0 auto; color: var(--cf2-ink-subtle); }
+.cf2-sidebar-progress__metrics > div:first-child svg { color: var(--cf2-accent); }
+.cf2-sidebar-progress__metrics strong { display: block; margin-top: 0.35rem; font-size: 0.78rem; font-weight: 710; font-variant-numeric: tabular-nums; line-height: 1; white-space: nowrap; }
+.cf2-sidebar-progress__footer { display: flex; padding: 0.58rem 0.72rem; justify-content: space-between; align-items: center; border-top: 1px solid var(--cf2-border); }
+.cf2-sidebar-progress__footer strong { font-size: 0.68rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+
 @media (prefers-reduced-motion: reduce) {
   .cf-v2 *, .cf-v2 *::before, .cf-v2 *::after {
     scroll-behavior: auto !important;

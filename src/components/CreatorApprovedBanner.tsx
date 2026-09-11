@@ -2,9 +2,7 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
-import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
-import { Sparkles, Upload, X, PartyPopper } from "lucide-react";
+import { ArrowRight, Check, X } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
 export function CreatorApprovedBanner() {
@@ -72,59 +70,29 @@ export function CreatorApprovedBanner() {
         initial={{ opacity: 0, y: -20 }}
         animate={{ opacity: 1, y: 0 }}
         exit={{ opacity: 0, y: -20 }}
-        className="w-full max-w-7xl mb-6"
+        className="cf-v2 cf2-creator-approved"
       >
-        <Card className="relative overflow-hidden border-0 bg-gradient-to-r from-[#e21d48] via-[#ff4d6d] to-[#e21d48] p-6 md:p-8">
-          {/* Background decoration */}
-          <div className="absolute inset-0 opacity-20">
-            <div className="absolute top-0 left-0 w-32 h-32 bg-white rounded-full blur-3xl" />
-            <div className="absolute bottom-0 right-0 w-40 h-40 bg-white rounded-full blur-3xl" />
+        <div className="cf2-creator-approved__surface">
+          <span className="cf2-creator-approved__status" aria-hidden="true"><Check /></span>
+          <div className="cf2-creator-approved__copy">
+            <span>Perfil aprovado</span>
+            <h2>Seu Studio está pronto.</h2>
+            <p>Publique seu primeiro conteúdo e comece sua jornada como Creator Classfy.</p>
           </div>
 
-          {/* Dismiss button */}
-          <button
-            onClick={handleDismiss}
-            className="absolute top-4 right-4 text-white/70 hover:text-white transition-colors"
-          >
-            <X className="w-5 h-5" />
+          <button type="button" onClick={handleGoToStudio} className="cf2-creator-approved__action">
+            Acessar Studio <ArrowRight aria-hidden="true" />
           </button>
 
-          <div className="relative flex flex-col md:flex-row items-center gap-6">
-            {/* Icon */}
-            <div className="flex-shrink-0">
-              <div className="w-20 h-20 rounded-full bg-white/20 backdrop-blur-sm flex items-center justify-center">
-                <PartyPopper className="w-10 h-10 text-white" />
-              </div>
-            </div>
-
-            {/* Content */}
-            <div className="flex-1 text-center md:text-left">
-              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/20 text-white text-xs font-medium mb-3">
-                <Sparkles className="w-3 h-3" />
-                <span>Novidade</span>
-              </div>
-              <h2 className="text-2xl md:text-3xl font-bold text-white mb-2">
-                Parabéns! Você agora é Creator! 🎉
-              </h2>
-              <p className="text-white/90 text-sm md:text-base max-w-xl">
-                Sua solicitação foi aprovada! Acesse o Studio para começar a enviar seus conteúdos e
-                ganhar dinheiro com suas criações.
-              </p>
-            </div>
-
-            {/* CTA */}
-            <div className="flex-shrink-0">
-              <Button
-                onClick={handleGoToStudio}
-                size="lg"
-                className="bg-white text-[#e21d48] hover:bg-white/90 font-semibold shadow-lg"
-              >
-                <Upload className="w-4 h-4 mr-2" />
-                Acessar Studio
-              </Button>
-            </div>
-          </div>
-        </Card>
+          <button
+            type="button"
+            onClick={handleDismiss}
+            className="cf2-creator-approved__dismiss"
+            aria-label="Fechar aviso"
+          >
+            <X />
+          </button>
+        </div>
       </motion.div>
     </AnimatePresence>
   );

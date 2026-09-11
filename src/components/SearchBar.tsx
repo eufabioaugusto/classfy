@@ -1,6 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { Search, Loader2, Mic, Sparkles, TrendingUp, BookOpen } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { Search, Loader2, Mic, Sparkles, BookOpen } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
 import { useNavigate } from "react-router-dom";
@@ -191,115 +190,74 @@ export function SearchBar({ onResults, onLoading, onError, onLimitReached }: Sea
   };
 
   return (
-    <div className="w-full max-w-4xl mx-auto">
-      <form onSubmit={handleSearch} className="relative">
-        {/* Glow effect on hover */}
-        <div className="absolute -inset-1 bg-gradient-to-r from-cinematic-accent/30 via-primary/30 to-cinematic-accent/30 rounded-[28px] blur-2xl opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
-        
-        <div className="relative group">
-          {/* Main container with glass morphism */}
-          <div className="relative bg-background/95 backdrop-blur-xl border border-border/50 rounded-3xl shadow-2xl hover:shadow-cinematic-accent/10 transition-all duration-300 overflow-hidden">
-            {/* Subtle gradient overlay */}
-            <div className="absolute inset-0 bg-gradient-to-br from-cinematic-accent/5 via-transparent to-primary/5 pointer-events-none" />
-            
-            {/* Main Input Area */}
-            <div className="relative flex items-center gap-4 p-6 min-h-[72px]">
-              <div className="flex items-center justify-center w-10 h-10 rounded-xl bg-cinematic-accent/10 text-cinematic-accent flex-shrink-0">
-                <Search className="w-5 h-5" />
-              </div>
-              
+    <div className="cf-v2 cf2-study-search">
+      <form onSubmit={handleSearch}>
+        <div className="cf2-study-search__surface">
+          <label className="cf2-study-search__input-row">
+            <Search aria-hidden="true" />
               <input
                 type="text"
+                aria-label="Tema do novo estudo"
                 placeholder={placeholders[placeholderIndex]}
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 disabled={isSearching}
-                className={cn(
-                  "flex-1 bg-transparent border-none outline-none text-lg font-medium text-foreground placeholder:text-muted-foreground/60 disabled:opacity-50",
-                  "transition-all duration-300"
-                )}
               />
-            </div>
+          </label>
 
-            {/* Divider */}
-            <div className="h-px bg-gradient-to-r from-transparent via-border/50 to-transparent" />
-
-            {/* Bottom Actions Bar */}
-            <div className="flex items-center justify-between gap-4 px-6 py-4">
-              {/* Left side - Study counter + Suggestions */}
-              <div className="flex items-center gap-3 flex-1 min-w-0">
-                {/* Study counter */}
+          <div className="cf2-study-search__actions">
+            <div className="cf2-study-search__suggestions">
                 {user && (
-                  <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-muted/50 border border-border/30 flex-shrink-0 animate-fade-in">
-                    <BookOpen className="w-3.5 h-3.5 text-cinematic-accent" />
-                    <span className="text-xs font-medium text-foreground">
-                      {limitText}
-                    </span>
+                  <div className="cf2-study-search__counter">
+                    <BookOpen aria-hidden="true" />
+                    <span>{limitText}</span>
                     {!canCreateMore && currentPlan !== 'premium' && (
-                      <span className="text-xs text-cinematic-accent">• limite</span>
+                      <em>limite</em>
                     )}
                   </div>
                 )}
 
-                {/* Suggestion chips */}
-                <div className="hidden md:flex items-center gap-2 overflow-x-auto scrollbar-none">
+                <div className="cf2-study-search__chips">
                   {suggestions.map((suggestion, index) => (
                     <button
                       key={index}
                       type="button"
                       onClick={() => setQuery(suggestion)}
-                      className="px-3 py-1.5 rounded-full text-xs font-medium bg-muted/30 hover:bg-muted/60 text-muted-foreground hover:text-foreground border border-border/20 hover:border-border/40 transition-all duration-200 whitespace-nowrap flex-shrink-0"
                     >
                       {suggestion}
                     </button>
                   ))}
                 </div>
-              </div>
+            </div>
 
-              {/* Right side - Action buttons */}
-              <div className="flex items-center gap-2 flex-shrink-0">
-                <Button
+            <div className="cf2-study-search__buttons">
+                <button
                   type="button"
-                  size="sm"
-                  variant={isRecording ? "default" : "ghost"}
                   onClick={toggleVoiceRecording}
-                  className={cn(
-                    "h-9 w-9 p-0 rounded-xl transition-all",
-                    isRecording 
-                      ? "bg-destructive hover:bg-destructive/90 text-destructive-foreground animate-pulse" 
-                      : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
-                  )}
+                  className={cn("cf2-study-search__voice", isRecording && "is-recording")}
                   disabled={isSearching}
                   title={isRecording ? "Parar gravação" : "Busca por voz"}
                 >
-                  <Mic className="w-4 h-4" />
-                </Button>
+                  <Mic aria-hidden="true" />
+                </button>
                 
-                <Button
+                <button
                   type="submit"
-                  size="sm"
                   disabled={isSearching || !query.trim() || isRecording}
-                  className={cn(
-                    "h-9 px-5 rounded-xl font-medium shadow-lg shadow-cinematic-accent/20",
-                    "bg-gradient-to-r from-cinematic-accent to-cinematic-accent/90",
-                    "hover:shadow-xl hover:shadow-cinematic-accent/30",
-                    "transition-all duration-300",
-                    "disabled:opacity-50 disabled:shadow-none"
-                  )}
+                  className="cf2-study-search__submit"
                 >
                   {isSearching ? (
                     <>
-                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      <Loader2 className="animate-spin" />
                       <span>Buscando</span>
                     </>
                   ) : (
                     <>
-                      <Sparkles className="w-4 h-4 mr-2" />
+                      <Sparkles />
                       <span>Buscar</span>
                     </>
                   )}
-                </Button>
-              </div>
+                </button>
             </div>
           </div>
         </div>

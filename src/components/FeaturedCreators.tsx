@@ -36,9 +36,12 @@ export const FeaturedCreators = ({ creators }: FeaturedCreatorsProps) => {
   if (creators.length === 0) return null;
 
   return (
-    <section className="space-y-3 sm:space-y-4">
-      <div className="flex items-center justify-between">
-        <h2 className="text-lg sm:text-2xl font-bold text-foreground">Creators em Destaque</h2>
+    <section className="cf2-home-section cf2-featured-creators">
+      <div className="cf2-home-section__header">
+        <div>
+          <span className="cf2-home-section__eyebrow">Seleção Classfy</span>
+          <h2>Creators em Destaque</h2>
+        </div>
       </div>
 
       <Carousel className="w-full">
@@ -46,7 +49,7 @@ export const FeaturedCreators = ({ creators }: FeaturedCreatorsProps) => {
           {creators.map((creator) => (
             <CarouselItem
               key={creator.id}
-              className="pl-2 sm:pl-4 basis-[54%] sm:basis-1/3 md:basis-1/4 lg:basis-1/5 xl:basis-1/5"
+              className="pl-2 sm:pl-4 basis-[78%] sm:basis-1/2 lg:basis-1/3"
             >
               <CreatorCard creator={creator} onClick={() => handleClick(creator)} />
             </CarouselItem>
@@ -68,7 +71,7 @@ const CreatorCard = ({ creator, onClick }: CreatorCardProps) => {
   return (
     <div
       onClick={onClick}
-      className="group relative rounded-xl overflow-hidden cursor-pointer transition-all duration-300 hover:shadow-2xl h-[380px] sm:h-[400px] md:h-[480px] w-auto text-center"
+      className="cf2-featured-creator-card group relative h-[420px] w-auto cursor-pointer overflow-hidden rounded-xl text-center sm:h-[500px] xl:h-[570px]"
     >
       {/* Background Image */}
       <div

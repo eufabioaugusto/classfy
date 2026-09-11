@@ -9,6 +9,7 @@ import { CreatorLink } from "@/components/CreatorLink";
 import { FeaturedBadge } from "@/components/FeaturedBadge";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useAuth } from "@/contexts/AuthContext";
+import { cn } from "@/lib/utils";
 
 interface ContentCardProps {
   id?: string;
@@ -34,6 +35,7 @@ interface ContentCardProps {
   userPlan?: "free" | "pro" | "premium";
   onUpgradeClick?: (plan: "pro" | "premium") => void;
   isBoosted?: boolean;
+  visualVariant?: "legacy" | "v2";
 }
 
 export const ContentCard = ({
@@ -60,6 +62,7 @@ export const ContentCard = ({
   userPlan = "free",
   onUpgradeClick,
   isBoosted: propIsBoosted,
+  visualVariant = "legacy",
 }: ContentCardProps) => {
   // Support both formats: direct props or content object
   const id = propId || content?.id;
@@ -221,14 +224,14 @@ export const ContentCard = ({
 
   return (
     <div
-      className="group cursor-pointer flex flex-col"
+      className={cn("group flex cursor-pointer flex-col", visualVariant === "v2" && "cf2-home-content-card")}
       onClick={handleClick}
       onMouseEnter={() => !isMobile && setIsHovered(true)}
       onMouseLeave={() => !isMobile && setIsHovered(false)}
     >
       {/* Thumbnail with dynamic aspect ratio - 12px radius like YouTube */}
       <div
-        className={`relative overflow-hidden bg-muted rounded-[12px] ${
+        className={`relative overflow-hidden bg-muted rounded-[12px] ${visualVariant === "v2" ? "cf2-home-content-card__media" : ""} ${
           aspectRatio === "square" ? "aspect-square" : aspectRatio === "vertical" ? "aspect-[9/16]" : "aspect-[16/9]"
         }`}
       >
@@ -320,7 +323,7 @@ export const ContentCard = ({
       </div>
 
       {/* Content Info - YouTube style */}
-      <div className="flex gap-3 pt-3">
+      <div className={cn("flex gap-3 pt-3", visualVariant === "v2" && "cf2-home-content-card__info")}>
         {/* Avatar */}
         <div className="flex-shrink-0">
           <CreatorLink

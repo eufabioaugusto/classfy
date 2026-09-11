@@ -24,6 +24,8 @@ import { PurchaseModal } from "@/components/PurchaseModal";
 import { CreatorApprovedBanner } from "@/components/CreatorApprovedBanner";
 import { ContentCardSkeleton } from "@/components/ContentCardSkeleton";
 import { boostContentList, getTopInterests, trackUserInteraction } from "@/lib/personalization/interests";
+import { ClassfyV2Scope } from "@/components/v2";
+import "@/styles/home-v2.css";
 
 export default function Index() {
   const { user, loading: authLoading, profile } = useAuth();
@@ -258,7 +260,7 @@ export default function Index() {
   }
   return (
     <SidebarProvider defaultOpen={true}>
-      <div className="min-h-screen flex w-full bg-background">
+      <ClassfyV2Scope className="min-h-screen flex w-full">
         {/* Sidebar */}
         <AppSidebar />
 
@@ -295,7 +297,7 @@ export default function Index() {
           )}
 
           {/* Content Area */}
-          <main className="flex-1 flex flex-col items-center justify-start p-3 sm:p-6 md:p-12 pb-24 md:pb-12">
+          <main className={`cf2-home-main flex flex-1 flex-col items-center justify-start ${isExploreMode ? "cf2-home-main--explore" : "cf2-home-main--focus"}`}>
 
             {/* Modo Foco (Original) */}
             {!isExploreMode && (
@@ -397,6 +399,7 @@ export default function Index() {
                           userPlan={currentPlan}
                           onUpgradeClick={(plan) => handleUpgradeClick(plan, content)}
                           onPurchaseClick={() => handlePurchaseClick(content)}
+                          visualVariant="v2"
                         />
                       ))}
                     </div>
@@ -407,7 +410,7 @@ export default function Index() {
 
             {/* Modo Explorar (YouTube-style feed) */}
             {isExploreMode && (
-              <div className="w-full max-w-7xl space-y-6 sm:space-y-12">
+              <div className="cf2-home-feed">
                 {/* Creator Approved Banner - Always show first if applicable */}
                 <CreatorApprovedBanner />
 
@@ -541,10 +544,12 @@ export default function Index() {
                       shorts.length === 0 &&
                       premiumContents.length === 0 &&
                       courses.length === 0 && (
-                        <div className="text-center py-20">
-                          <BookOpen className="w-16 h-16 mx-auto mb-4 text-muted-foreground" />
-                          <h3 className="text-2xl font-bold text-foreground mb-2">Nenhum conteúdo disponível</h3>
-                          <p className="text-muted-foreground">Conteúdos serão exibidos aqui quando disponíveis.</p>
+                        <div className="cf2-home-empty">
+                          <BookOpen aria-hidden="true" />
+                          <div>
+                            <h3>Nenhum conteúdo disponível</h3>
+                            <p>Conteúdos serão exibidos aqui quando disponíveis.</p>
+                          </div>
                         </div>
                       )}
                   </>
@@ -553,7 +558,7 @@ export default function Index() {
             )}
           </main>
         </div>
-      </div>
+      </ClassfyV2Scope>
     </SidebarProvider>
   );
 }

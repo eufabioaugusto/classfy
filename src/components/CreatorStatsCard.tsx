@@ -1,8 +1,6 @@
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
-import { Play, Wallet, Zap, TrendingUp } from "lucide-react";
-import { Progress } from "@/components/ui/progress";
-import { cn } from "@/lib/utils";
+import { Play, Wallet, Zap } from "lucide-react";
 
 interface CreatorStatsCardProps {
   userId: string;
@@ -53,7 +51,7 @@ export const CreatorStatsCard = ({ userId, collapsed }: CreatorStatsCardProps) =
   }, [userId]);
 
   if (!stats) return (
-    <div className="mx-0.5 rounded-xl bg-muted/30 animate-pulse h-[108px]" />
+    <div className="cf-v2 mx-0.5 h-[148px] animate-pulse rounded-[var(--cf2-radius-card)] bg-[var(--cf2-surface)]" />
   );
 
   const pointsAtCurrentLevel = getPointsForLevel(stats.level);
@@ -64,78 +62,52 @@ export const CreatorStatsCard = ({ userId, collapsed }: CreatorStatsCardProps) =
 
   if (collapsed) {
     return (
-      <div className="flex flex-col items-center gap-1.5 px-1">
-        <div className="w-8 h-8 rounded-lg bg-red-500/10 flex items-center justify-center">
-          <span className="text-[11px] font-bold text-red-500">N{stats.level}</span>
+      <div className="cf-v2 flex flex-col items-center gap-1.5 px-1">
+        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-[var(--cf2-accent-soft)]">
+          <span className="text-[11px] font-bold text-[var(--cf2-accent)]">N{stats.level}</span>
         </div>
-        <div className="w-8 h-8 rounded-lg bg-muted/60 flex items-center justify-center">
-          <Wallet className="h-3.5 w-3.5 text-muted-foreground" />
+        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-[var(--cf2-surface-raised)]">
+          <Wallet className="h-3.5 w-3.5 text-[var(--cf2-ink-muted)]" />
         </div>
       </div>
     );
   }
 
   return (
-    <div className="rounded-xl bg-muted/30 border border-border/30 overflow-hidden">
-      {/* Level row */}
-      <div className="px-3 pt-3 pb-2">
-        <div className="flex items-center justify-between mb-2">
-          <div className="flex items-center gap-2">
-            <div className="w-7 h-7 rounded-lg bg-red-500/10 flex items-center justify-center shrink-0">
-              <span className="text-[11px] font-bold text-red-500 leading-none">N{stats.level}</span>
-            </div>
-            <div>
-              <p className="text-xs font-semibold text-foreground leading-none">Nível {stats.level}</p>
-              <p className="text-[10px] text-muted-foreground mt-0.5 tabular-nums">
-                {remaining.toLocaleString("pt-BR")} Points para N{stats.level + 1}
-              </p>
-            </div>
-          </div>
-          <span className="text-[10px] font-medium text-muted-foreground tabular-nums">
-            {stats.totalPoints.toLocaleString("pt-BR", { maximumFractionDigits: 0 })} Points
-          </span>
+    <section className="cf-v2 cf2-sidebar-progress" aria-label={`Nível ${stats.level}, evolução e saldo`}>
+      <div className="cf2-sidebar-progress__level">
+        <span className="cf2-sidebar-progress__badge">N{stats.level}</span>
+        <div className="cf2-sidebar-progress__level-copy">
+          <strong>Nível {stats.level}</strong>
+          <span>{remaining.toLocaleString("pt-BR")} para N{stats.level + 1}</span>
         </div>
-        <div className="h-1 bg-muted rounded-full overflow-hidden">
-          <div
-            className="h-full bg-red-500 rounded-full transition-all duration-700"
-            style={{ width: `${progress}%` }}
-          />
-        </div>
+        <strong className="cf2-sidebar-progress__points">
+          {stats.totalPoints.toLocaleString("pt-BR", { maximumFractionDigits: 0 })}
+          <small>Points</small>
+        </strong>
       </div>
 
-      {/* Stats grid */}
-      <div className="grid grid-cols-2 divide-x divide-border/30 border-t border-border/30">
-        {/* Points com origem Creator */}
-        <div className="px-3 py-2">
-          <div className="flex items-center gap-1.5 mb-0.5">
-            <Zap className="h-3 w-3 text-red-500" />
-            <span className="text-[10px] text-muted-foreground uppercase tracking-wide font-medium">Points por criação</span>
-          </div>
-          <span className="text-sm font-bold text-foreground tabular-nums">
-            {stats.creatorPoints.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}
-          </span>
-        </div>
+      <div className="cf2-sidebar-progress__track" aria-hidden="true">
+        <span style={{ width: `${progress}%` }} />
+      </div>
 
-        {/* Saldo */}
-        <div className="px-3 py-2 min-w-0">
-          <div className="flex items-center gap-1.5 mb-0.5">
-            <Wallet className="h-3 w-3 text-muted-foreground" />
-            <span className="text-[10px] text-muted-foreground uppercase tracking-wide font-medium">Saldo</span>
-          </div>
-          <span className="text-sm font-bold text-foreground tabular-nums whitespace-nowrap">
+      <div className="cf2-sidebar-progress__metrics">
+        <div>
+          <span><Zap aria-hidden="true" /> Creator Points</span>
+          <strong>{stats.creatorPoints.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}</strong>
+        </div>
+        <div>
+          <span><Wallet aria-hidden="true" /> Saldo</span>
+          <strong>
             R$&nbsp;{stats.balance.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-          </span>
+          </strong>
         </div>
       </div>
 
-      {/* Conteúdos — linha fina abaixo */}
-      <div className="px-3 py-2 border-t border-border/30 flex items-center justify-between">
-        <div className="flex items-center gap-1.5">
-          <Play className="h-3 w-3 text-muted-foreground" />
-          <span className="text-[10px] text-muted-foreground uppercase tracking-wide font-medium">Conteúdos</span>
-        </div>
-        <span className="text-xs font-semibold text-foreground tabular-nums">{stats.contentCount}</span>
+      <div className="cf2-sidebar-progress__footer">
+        <span><Play aria-hidden="true" /> Conteúdos publicados</span>
+        <strong>{stats.contentCount}</strong>
       </div>
-    </div>
+    </section>
   );
 };

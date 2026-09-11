@@ -1,31 +1,51 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Clock, PlayCircle } from "lucide-react";
+import { ArrowRight, Clock, PlayCircle } from "lucide-react";
 
 import { supabase } from "@/integrations/supabase/client";
 import { cn } from "@/lib/utils";
+
+interface ContentSummary {
+  id: string;
+  title: string;
+  thumbnail_url: string | null;
+  content_type: string | null;
+  duration_seconds: number | null;
+  status?: string | null;
+  profiles:
+    | {
+        display_name: string | null;
+        creator_channel_name: string | null;
+      }
+    | {
+        display_name: string | null;
+        creator_channel_name: string | null;
+      }[]
+    | null;
+}
 
 interface ContinueWatchingItem {
   content_id: string;
   progress_percent: number;
   last_position_seconds: number | null;
-  contents: {
-    id: string;
-    title: string;
-    thumbnail_url: string | null;
-    content_type: string | null;
-    duration_seconds: number | null;
-    profiles:
-      | {
-          display_name: string | null;
-          creator_channel_name: string | null;
-        }
-      | {
-          display_name: string | null;
-          creator_channel_name: string | null;
-        }[]
-      | null;
-  } | null;
+  last_activity_at: string | null;
+  contents: ContentSummary | null;
+}
+
+interface ProgressRow {
+  content_id: string;
+  progress_percent: number;
+  last_position_seconds: number | null;
+  completed: boolean | null;
+  updated_at: string;
+  contents: ContentSummary | null;
+}
+
+interface ViewRow {
+  content_id: string | null;
+  last_viewed_at: string | null;
+  total_watch_time_seconds: number | null;
+  contents: ContentSummary | null;
 }
 
 interface ContinueWatchingProps {
@@ -49,11 +69,8 @@ const formatDuration = (seconds?: number | null) => {
   return remainingMinutes > 0 ? `${hours}h ${remainingMinutes}min` : `${hours}h`;
 };
 
-const getCreatorName = (profiles: ContinueWatchingItem["contents"] extends infer T ? T : never) => {
-  if (!profiles || typeof profiles !== "object" || !("profiles" in profiles)) return "Creator Classfy";
-
-  const profileValue = profiles.profiles;
-  const profile = Array.isArray(profileValue) ? profileValue[0] : profileValue;
+const getCreatorName = (content: ContentSummary) => {
+  const profile = Array.isArray(content.profiles) ? content.profiles[0] : content.profiles;
   return profile?.creator_channel_name || profile?.display_name || "Creator Classfy";
 };
 
@@ -70,8 +87,14 @@ const getContentTypeLabel = (contentType?: string | null) => {
     case "aula":
       return "Aula";
     default:
-      return "Conteudo";
+      return "Conteúdo";
   }
+};
+
+const isNewer = (candidate: string | null, current: string | null) => {
+  if (!candidate) return false;
+  if (!current) return true;
+  return new Date(candidate).getTime() > new Date(current).getTime();
 };
 
 export function ContinueWatching({ userId, className }: ContinueWatchingProps) {
@@ -88,35 +111,113 @@ export function ContinueWatching({ userId, className }: ContinueWatchingProps) {
 
     let mounted = true;
 
-    const fetchProgress = async () => {
+    const fetchContinueWatching = async () => {
       try {
         setLoading(true);
-        const { data, error } = await supabase
-          .from("user_progress")
-          .select(`
-            content_id,
-            progress_percent,
-            last_position_seconds,
-            contents:content_id (
-              id,
-              title,
-              thumbnail_url,
-              content_type,
-              duration_seconds,
-              profiles:creator_id (
-                display_name,
-                creator_channel_name
+        const [progressResult, viewsResult] = await Promise.all([
+          supabase
+            .from("user_progress")
+            .select(`
+              content_id,
+              progress_percent,
+              last_position_seconds,
+              completed,
+              updated_at,
+              contents (
+                id,
+                title,
+                thumbnail_url,
+                content_type,
+                duration_seconds,
+                status,
+                profiles:creator_id (
+                  display_name,
+                  creator_channel_name
+                )
               )
-            )
-          `)
-          .eq("user_id", userId)
-          .eq("completed", false)
-          .gt("progress_percent", 0)
-          .order("updated_at", { ascending: false })
-          .limit(4);
+            `)
+            .eq("user_id", userId)
+            .order("updated_at", { ascending: false })
+            .limit(100),
+          supabase
+            .from("content_views")
+            .select(`
+              content_id,
+              last_viewed_at,
+              total_watch_time_seconds,
+              contents (
+                id,
+                title,
+                thumbnail_url,
+                content_type,
+                duration_seconds,
+                status,
+                profiles:creator_id (
+                  display_name,
+                  creator_channel_name
+                )
+              )
+            `)
+            .eq("user_id", userId)
+            .not("content_id", "is", null)
+            .order("last_viewed_at", { ascending: false })
+            .limit(20),
+        ]);
 
-        if (error) throw error;
-        if (mounted) setItems((data || []) as unknown as ContinueWatchingItem[]);
+        if (progressResult.error) throw progressResult.error;
+        if (viewsResult.error) throw viewsResult.error;
+
+        const progressRows = (progressResult.data || []) as unknown as ProgressRow[];
+        const viewRows = (viewsResult.data || []) as unknown as ViewRow[];
+        const completedContentIds = new Set(
+          progressRows.filter((row) => row.completed === true).map((row) => row.content_id),
+        );
+        const mergedItems = new Map<string, ContinueWatchingItem>();
+
+        progressRows.forEach((row) => {
+          if (!row.contents || (row.contents.status && row.contents.status !== "approved") || row.completed === true) return;
+          if (clampPercent(row.progress_percent) === 0 && !row.last_position_seconds) return;
+
+          mergedItems.set(row.content_id, {
+            content_id: row.content_id,
+            progress_percent: clampPercent(row.progress_percent),
+            last_position_seconds: row.last_position_seconds,
+            last_activity_at: row.updated_at,
+            contents: row.contents,
+          });
+        });
+
+        viewRows.forEach((row) => {
+          if (!row.content_id || !row.contents || (row.contents.status && row.contents.status !== "approved")) return;
+          if (completedContentIds.has(row.content_id)) return;
+
+          const existing = mergedItems.get(row.content_id);
+          if (existing) {
+            if (isNewer(row.last_viewed_at, existing.last_activity_at)) {
+              existing.last_activity_at = row.last_viewed_at;
+            }
+            return;
+          }
+
+          const duration = row.contents.duration_seconds || 0;
+          const watchedSeconds = row.total_watch_time_seconds || 0;
+          mergedItems.set(row.content_id, {
+            content_id: row.content_id,
+            progress_percent: duration > 0 ? clampPercent((watchedSeconds / duration) * 100) : 0,
+            last_position_seconds: watchedSeconds,
+            last_activity_at: row.last_viewed_at,
+            contents: row.contents,
+          });
+        });
+
+        const nextItems = Array.from(mergedItems.values())
+          .sort(
+            (a, b) =>
+              new Date(b.last_activity_at || 0).getTime() - new Date(a.last_activity_at || 0).getTime(),
+          )
+          .slice(0, 3);
+
+        if (mounted) setItems(nextItems);
       } catch (error) {
         console.error("Error fetching continue watching progress:", error);
         if (mounted) setItems([]);
@@ -125,7 +226,7 @@ export function ContinueWatching({ userId, className }: ContinueWatchingProps) {
       }
     };
 
-    fetchProgress();
+    fetchContinueWatching();
 
     return () => {
       mounted = false;
@@ -147,22 +248,18 @@ export function ContinueWatching({ userId, className }: ContinueWatchingProps) {
   if (loading || items.length === 0) return null;
 
   return (
-    <section className={cn("space-y-3 sm:space-y-4", className)}>
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <Clock className="h-5 w-5 text-foreground" />
-          <h2 className="text-lg sm:text-2xl font-bold text-foreground">Continue assistindo</h2>
+    <section className={cn("cf2-home-section cf2-continue", className)}>
+      <div className="cf2-home-section__header">
+        <div>
+          <span className="cf2-home-section__eyebrow">Retome de onde parou</span>
+          <h2><Clock aria-hidden="true" /> Continue assistindo</h2>
         </div>
-        <button
-          type="button"
-          onClick={() => navigate("/historico")}
-          className="text-xs sm:text-sm font-semibold text-muted-foreground transition-colors hover:text-foreground"
-        >
-          Ver tudo
+        <button type="button" onClick={() => navigate("/historico")}>
+          Histórico <ArrowRight aria-hidden="true" />
         </button>
       </div>
 
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-4">
+      <div className="cf2-home-grid cf2-home-grid--three">
         {items.map((item) => {
           const content = item.contents;
           if (!content) return null;
@@ -176,45 +273,27 @@ export function ContinueWatching({ userId, className }: ContinueWatchingProps) {
               key={item.content_id}
               type="button"
               onClick={() => handlePress(item)}
-              className="group w-full overflow-hidden rounded-xl border border-border/70 bg-card text-left shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-lg"
+              className="cf2-continue-card"
             >
-              <div className="relative aspect-video overflow-hidden bg-muted">
+              <span className="cf2-continue-card__media">
                 {content.thumbnail_url ? (
-                  <img
-                    src={content.thumbnail_url}
-                    alt={content.title}
-                    className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
-                    loading="lazy"
-                  />
+                  <img src={content.thumbnail_url} alt={content.title} loading="lazy" />
                 ) : (
-                  <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-muted to-muted/40">
-                    <PlayCircle className="h-8 w-8 text-muted-foreground" />
-                  </div>
+                  <span className="cf2-continue-card__placeholder">
+                    <PlayCircle aria-hidden="true" />
+                  </span>
                 )}
-                <div className="absolute inset-0 bg-gradient-to-t from-black/55 via-black/10 to-transparent" />
-                <div className="absolute left-2 top-2 bg-black/50 text-white font-bold text-[10px] px-2 py-0.5 rounded shadow-md transition-colors duration-300 group-hover:bg-black/75">
-                  {getContentTypeLabel(content.content_type)}
-                </div>
-                {duration && (
-                  <div className="absolute bottom-2 right-2 rounded-md bg-black/75 px-2 py-1 text-[11px] font-semibold text-white">
-                    {duration}
-                  </div>
-                )}
-              </div>
+                <span className="cf2-continue-card__shade" />
+                <span className="cf2-continue-card__type">{getContentTypeLabel(content.content_type)}</span>
+                {duration && <span className="cf2-continue-card__duration">{duration}</span>}
+                <span className="cf2-continue-card__progress" style={{ width: `${percent}%` }} />
+              </span>
 
-              <div className="space-y-2 p-3">
-                <div>
-                  <p className="line-clamp-1 text-sm font-semibold text-foreground">{content.title}</p>
-                  <p className="mt-0.5 line-clamp-1 text-xs text-muted-foreground">{creatorName}</p>
-                </div>
-
-                <div className="flex items-center gap-2">
-                  <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-muted">
-                    <div className="h-full rounded-full bg-cinematic-accent" style={{ width: `${percent}%` }} />
-                  </div>
-                  <span className="w-8 text-right text-[11px] font-semibold text-muted-foreground">{percent}%</span>
-                </div>
-              </div>
+              <span className="cf2-continue-card__copy">
+                <strong>{content.title}</strong>
+                <small>{creatorName}</small>
+                <span>{percent > 0 ? `${percent}% assistido` : "Começou agora"}</span>
+              </span>
             </button>
           );
         })}

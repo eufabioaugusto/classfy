@@ -1,8 +1,7 @@
 import { ContentCard } from "@/components/ContentCard";
 import { Card } from "@/components/ui/card";
 import { useIsMobile } from "@/hooks/use-mobile";
-import { Button } from "@/components/ui/button";
-import { ChevronRight } from "lucide-react";
+import { ArrowRight } from "lucide-react";
 import { useState } from "react";
 
 interface ContentSectionProps {
@@ -62,7 +61,7 @@ export const ContentSection = ({
 
   if (loading) {
     return (
-      <section className="space-y-3 sm:space-y-4">
+      <section className="cf2-home-section">
         {title && (
           <div className="flex items-center gap-2">
             {icon}
@@ -86,27 +85,25 @@ export const ContentSection = ({
   }
 
   return (
-    <section className="space-y-3 sm:space-y-4">
+    <section className="cf2-home-section">
       {title && (
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
+        <div className="cf2-home-section__header">
+          <div>
             {icon}
-            <h3 className="text-lg sm:text-xl font-bold text-foreground">{title}</h3>
+            <h2>{title}</h2>
           </div>
           {hasMore && !showAll && (
-            <Button
-              variant="ghost"
-              size="sm"
+            <button
+              type="button"
               onClick={() => setShowAll(true)}
-              className="text-muted-foreground hover:text-foreground gap-1"
             >
               Ver todos
-              <ChevronRight className="w-4 h-4" />
-            </Button>
+              <ArrowRight aria-hidden="true" />
+            </button>
           )}
         </div>
       )}
-      <div className={`grid ${getGridCols()} gap-3 sm:gap-4`}>
+      <div className={`cf2-home-grid grid ${getGridCols()}`}>
         {displayContents.map((content) => (
           <ContentCard
             key={content.id}
@@ -116,6 +113,7 @@ export const ContentSection = ({
             userPlan={userPlan}
             onUpgradeClick={(plan) => onUpgradeClick?.(plan, content)}
             onPurchaseClick={() => onPurchaseClick?.(content)}
+            visualVariant="v2"
           />
         ))}
       </div>
