@@ -2,6 +2,7 @@ import React from "react";
 import { createRoot } from "react-dom/client";
 import App from "./App.tsx";
 import "./index.css";
+import "./styles/classfy-v2.css";
 
 if (import.meta.env.DEV) {
   import("./lib/mediaMonitor").then(({ initMediaMonitor }) => {

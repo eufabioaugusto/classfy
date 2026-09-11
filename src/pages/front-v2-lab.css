@@ -1,26 +1,27 @@
 .cfv2-lab {
-  --cf-canvas: #08090b;
-  --cf-canvas-soft: #0c0e11;
-  --cf-surface: #111317;
-  --cf-surface-2: #181b20;
-  --cf-surface-3: #20242a;
-  --cf-ink: #f5f6f7;
-  --cf-muted: #969ca6;
-  --cf-subtle: #686f79;
-  --cf-line: rgba(255, 255, 255, 0.1);
-  --cf-line-strong: rgba(255, 255, 255, 0.16);
-  --cf-accent: #f04f64;
-  --cf-accent-soft: rgba(240, 79, 100, 0.14);
-  --cf-accent-ink: #fff7f8;
-  --cf-premium: #d9b878;
-  --cf-premium-soft: rgba(217, 184, 120, 0.13);
-  --cf-success: #63c79b;
-  --cf-shadow: 0 24px 70px rgba(0, 0, 0, 0.34);
-  --cf-shadow-soft: 0 14px 38px rgba(0, 0, 0, 0.2);
-  --cf-radius-control: 8px;
-  --cf-radius-card: 14px;
-  --cf-radius-panel: 20px;
-  --cf-font: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  /* Compatibility aliases: the lab consumes the official V2 foundation. */
+  --cf-canvas: var(--cf2-canvas);
+  --cf-canvas-soft: var(--cf2-canvas-soft);
+  --cf-surface: var(--cf2-surface);
+  --cf-surface-2: var(--cf2-surface-raised);
+  --cf-surface-3: var(--cf2-surface-strong);
+  --cf-ink: var(--cf2-ink);
+  --cf-muted: var(--cf2-ink-muted);
+  --cf-subtle: var(--cf2-ink-subtle);
+  --cf-line: var(--cf2-border);
+  --cf-line-strong: var(--cf2-border-strong);
+  --cf-accent: var(--cf2-accent);
+  --cf-accent-soft: var(--cf2-accent-soft);
+  --cf-accent-ink: var(--cf2-accent-contrast);
+  --cf-premium: var(--cf2-premium);
+  --cf-premium-soft: var(--cf2-premium-soft);
+  --cf-success: var(--cf2-success);
+  --cf-shadow: var(--cf2-shadow-panel);
+  --cf-shadow-soft: var(--cf2-shadow-soft);
+  --cf-radius-control: var(--cf2-radius-control);
+  --cf-radius-card: var(--cf2-radius-card);
+  --cf-radius-panel: var(--cf2-radius-panel);
+  --cf-font: var(--cf2-font-sans);
   position: fixed;
   inset: 0;
   z-index: 1000;
@@ -31,30 +32,7 @@
   font-family: var(--cf-font);
   font-size: 16px;
   line-height: 1.5;
-  color-scheme: dark;
   transition: color 220ms ease, background-color 220ms ease;
-}
-
-.cfv2-lab[data-theme="light"] {
-  --cf-canvas: #f5f4f1;
-  --cf-canvas-soft: #eceae6;
-  --cf-surface: #ffffff;
-  --cf-surface-2: #f0efec;
-  --cf-surface-3: #e6e4df;
-  --cf-ink: #17181b;
-  --cf-muted: #686c73;
-  --cf-subtle: #898d93;
-  --cf-line: rgba(23, 24, 27, 0.11);
-  --cf-line-strong: rgba(23, 24, 27, 0.18);
-  --cf-accent: #d93e55;
-  --cf-accent-soft: rgba(217, 62, 85, 0.1);
-  --cf-accent-ink: #ffffff;
-  --cf-premium: #a77a2f;
-  --cf-premium-soft: rgba(167, 122, 47, 0.11);
-  --cf-success: #238a62;
-  --cf-shadow: 0 24px 70px rgba(27, 25, 20, 0.13);
-  --cf-shadow-soft: 0 12px 34px rgba(27, 25, 20, 0.09);
-  color-scheme: light;
 }
 
 .cfv2-lab *,

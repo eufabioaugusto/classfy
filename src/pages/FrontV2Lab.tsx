@@ -40,6 +40,7 @@ import heroEducadora from "@/assets/front-v2/hero-educadora.jpg";
 import creatorCaio from "@/assets/front-v2/creator-caio.jpg";
 import creatorLia from "@/assets/front-v2/creator-lia.jpg";
 import creatorMarina from "@/assets/front-v2/creator-marina.jpg";
+import { ClassfyV2Scope, V2Badge, V2Button } from "@/components/v2";
 import "./front-v2-lab.css";
 
 type LabTheme = "dark" | "light";
@@ -114,15 +115,15 @@ function LabButton({
   onClick?: () => void;
 }) {
   return (
-    <button className={`cfv2-button cfv2-button-${tone}`} type="button" onClick={onClick}>
+    <V2Button className={`cfv2-button cfv2-button-${tone}`} variant={tone} onClick={onClick}>
       {icon}
       <span>{children}</span>
-    </button>
+    </V2Button>
   );
 }
 
 function LabBadge({ children, tone = "neutral" }: { children: ReactNode; tone?: BadgeTone }) {
-  return <span className={`cfv2-badge cfv2-badge-${tone}`}>{children}</span>;
+  return <V2Badge className={`cfv2-badge cfv2-badge-${tone}`} variant={tone}>{children}</V2Badge>;
 }
 
 function Eyebrow({ children }: { children: ReactNode }) {
@@ -574,7 +575,7 @@ export default function FrontV2Lab() {
   }, []);
 
   return (
-    <div className="cfv2-lab" data-theme={theme}>
+    <ClassfyV2Scope className="cfv2-lab" theme={theme}>
       <header className="cfv2-lab-topbar">
         <ClassfyMark />
         <div className="cfv2-lab-context">
@@ -715,6 +716,6 @@ export default function FrontV2Lab() {
 
       {modalOpen && <DialogPreview onClose={() => setModalOpen(false)} />}
       {sheetOpen && <SheetPreview onClose={() => setSheetOpen(false)} />}
-    </div>
+    </ClassfyV2Scope>
   );
 }
