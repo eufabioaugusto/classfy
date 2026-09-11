@@ -63,7 +63,7 @@ export function HomeHero({ content, onPlay, onOpenFocus, primaryLabel = "Assisti
   return (
     <section className="cf2-home-hero" aria-labelledby="home-hero-title">
       <div className="cf2-home-hero__media" aria-hidden="true">
-        {content.media_asset_id || content.file_url ? (
+        {content.media_asset_id || content.file_url || !content.id.startsWith("creator-") ? (
           <HomeHeroPreview
             content={content}
             maxDurationSeconds={HOME_EDITORIAL.heroPreviewSeconds}

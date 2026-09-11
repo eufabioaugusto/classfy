@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import type Hls from "hls.js";
 import { usePlaybackSource } from "@/hooks/usePlaybackSource";
 import { heroPreviewHlsConfig, releaseMediaElement } from "@/lib/video/hlsConfig";
+import { videoService } from "@/lib/video/service";
+import type { PreviewSource } from "@/lib/video/types";
 import type { HomeHeroContent } from "./HomeHero";
 
 interface HomeHeroPreviewProps {
@@ -22,11 +24,13 @@ export function HomeHeroPreview({ content, maxDurationSeconds }: HomeHeroPreview
   const [previewFinished, setPreviewFinished] = useState(false);
   const [previewActive, setPreviewActive] = useState(false);
   const [motionAllowed, setMotionAllowed] = useState(false);
+  const [publicPreview, setPublicPreview] = useState<PreviewSource | null>(null);
 
   useEffect(() => {
     startedRef.current = false;
     setPreviewFinished(false);
     setPreviewActive(false);
+    setPublicPreview(null);
   }, [content.id]);
 
   useEffect(() => {
@@ -68,7 +72,25 @@ export function HomeHeroPreview({ content, maxDurationSeconds }: HomeHeroPreview
   }, [motionAllowed, previewFinished]);
 
   const previewEnabled = motionAllowed && pageVisible && isVisible && !previewFinished;
-  const playback = usePlaybackSource(content, previewEnabled);
+  const hasProtectedSource = Boolean(content.media_asset_id || content.file_url);
+  const playback = usePlaybackSource(content, previewEnabled && hasProtectedSource);
+
+  useEffect(() => {
+    if (!previewEnabled || hasProtectedSource || publicPreview) return;
+
+    let active = true;
+    videoService.getHeroPreviewSource(content.id)
+      .then((source) => {
+        if (!active) return;
+        startedRef.current = true;
+        setPublicPreview(source);
+      })
+      .catch(() => undefined);
+
+    return () => {
+      active = false;
+    };
+  }, [content.id, hasProtectedSource, previewEnabled, publicPreview]);
 
   useEffect(() => {
     const video = videoRef.current;
@@ -131,8 +153,21 @@ export function HomeHeroPreview({ content, maxDurationSeconds }: HomeHeroPreview
   return (
     <div ref={rootRef} className="cf2-home-hero__preview" aria-hidden="true">
       {playback.poster || content.thumbnail_url ? (
-        <img src={playback.poster || content.thumbnail_url || ""} alt="" loading="eager" />
+        <img
+          className="cf2-home-hero__poster"
+          src={playback.poster || content.thumbnail_url || ""}
+          alt=""
+          loading="eager"
+        />
       ) : null}
+      {previewEnabled && publicPreview?.type === "animated-image" && (
+        <img
+          className={`cf2-home-hero__motion ${previewActive ? "is-active" : ""}`}
+          src={publicPreview.url}
+          alt=""
+          onLoad={() => setPreviewActive(true)}
+        />
+      )}
       <video
         ref={videoRef}
         className={previewActive ? "is-active" : undefined}

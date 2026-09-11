@@ -41,8 +41,10 @@
 .cf2-home-hero__preview { position: absolute; inset: 0; overflow: hidden; background: #090a0c; }
 .cf2-home-hero__preview img,
 .cf2-home-hero__preview video { position: absolute; inset: 0; }
-.cf2-home-hero__preview img { z-index: 0; }
+.cf2-home-hero__poster { z-index: 0; }
+.cf2-home-hero__motion,
 .cf2-home-hero__preview video { z-index: 1; opacity: 0; transition: opacity 700ms var(--cf2-ease); }
+.cf2-home-hero__motion.is-active,
 .cf2-home-hero__preview video.is-active { opacity: 1; }
 .cf2-home-hero__shade {
   z-index: -2;
@@ -67,8 +69,8 @@
 .cf2-home-hero__actions button:hover { transform: translateY(-1px); }
 .cf2-home-hero__actions button:focus-visible { outline: none; box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.32); }
 .cf2-home-hero__actions svg { width: 0.9rem; height: 0.9rem; }
-.cf2-home-hero__primary { border: 1px solid #fff; color: #111216; background: #fff; }
-.cf2-home-hero__primary:hover { background: rgba(255, 255, 255, 0.86); }
+.cf2-home-hero__primary { border: 1px solid var(--cf2-accent); color: var(--cf2-accent-contrast); background: var(--cf2-accent); box-shadow: 0 10px 26px rgba(240, 79, 100, 0.22); }
+.cf2-home-hero__primary:hover { border-color: var(--cf2-accent-hover); background: var(--cf2-accent-hover); }
 .cf2-home-hero__secondary { border: 1px solid rgba(255, 255, 255, 0.22); color: #fff; background: rgba(8, 9, 11, 0.46); backdrop-filter: blur(10px); }
 .cf2-home-hero__secondary:hover { border-color: rgba(255, 255, 255, 0.38); background: rgba(8, 9, 11, 0.68); }
 .cf2-home-hero__secondary svg:last-child { margin-left: 0.2rem; }

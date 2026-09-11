@@ -51,6 +51,9 @@ verify_jwt = true
 [functions.video-playback]
 verify_jwt = true
 
+[functions.video-hero-preview]
+verify_jwt = false
+
 [functions.mux-webhook]
 verify_jwt = false
 

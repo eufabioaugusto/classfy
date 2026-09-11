@@ -1,4 +1,4 @@
-import type { CreateUploadInput, PlaybackSource, UploadTarget, VideoProvider } from './types.ts';
+import type { CreateUploadInput, PlaybackSource, PreviewOptions, PreviewSource, UploadTarget, VideoProvider } from './types.ts';
 
 const apiBase = 'https://api.mux.com/video/v1';
 
@@ -55,6 +55,33 @@ export class MuxVideoProvider implements VideoProvider {
     };
   }
 
+  async getPreviewSource(binding: Record<string, any>, asset: Record<string, any>, options: PreviewOptions = {}): Promise<PreviewSource> {
+    if (!binding.provider_playback_id) throw new Error('Video is not ready for preview');
+
+    const start = Math.max(0, Math.floor(options.startSeconds ?? 0));
+    const availableDuration = Math.max(1, Math.floor(Number(asset.duration_seconds ?? 10)) - start);
+    const duration = Math.min(10, Math.max(1, Math.floor(options.durationSeconds ?? 10)), availableDuration);
+    const end = start + duration;
+    const fps = Math.min(10, Math.max(1, Math.floor(options.fps ?? 5)));
+    const width = Math.min(640, Math.max(320, Math.floor(options.width ?? 640)));
+    const expiresIn = 300;
+    const params = {
+      start: String(start),
+      end: String(end),
+      fps: String(fps),
+      width: String(width),
+    };
+    const token = await createMuxSignedToken(binding.provider_playback_id, 'g', expiresIn, params);
+    const query = new URLSearchParams({ ...params, token });
+
+    return {
+      type: 'animated-image',
+      url: `https://image.mux.com/${binding.provider_playback_id}/animated.gif?${query}`,
+      duration,
+      expiresAt: new Date(Date.now() + expiresIn * 1000).toISOString(),
+    };
+  }
+
   async deleteAsset(providerAssetId: string) {
     await muxRequest(`/assets/${providerAssetId}`, { method: 'DELETE' });
   }
@@ -65,12 +92,21 @@ function tokenLifetime(duration?: number) {
 }
 
 async function createMuxPlaybackToken(playbackId: string, duration?: number) {
+  return createMuxSignedToken(playbackId, 'v', tokenLifetime(duration));
+}
+
+async function createMuxSignedToken(
+  playbackId: string,
+  audience: 'v' | 'g',
+  lifetimeSeconds: number,
+  params: Record<string, string> = {},
+) {
   const keyId = Deno.env.get('MUX_SIGNING_KEY_ID');
   const encodedPrivateKey = Deno.env.get('MUX_SIGNING_PRIVATE_KEY');
   if (!keyId || !encodedPrivateKey) throw new Error('Mux playback signing key is not configured');
   const now = Math.floor(Date.now() / 1000);
   const header = base64url(JSON.stringify({ alg: 'RS256', typ: 'JWT', kid: keyId }));
-  const payload = base64url(JSON.stringify({ sub: playbackId, aud: 'v', exp: now + tokenLifetime(duration), iat: now }));
+  const payload = base64url(JSON.stringify({ sub: playbackId, aud: audience, exp: now + lifetimeSeconds, iat: now, ...params }));
   const signingInput = `${header}.${payload}`;
   const pem = new TextDecoder().decode(Uint8Array.from(atob(encodedPrivateKey), c => c.charCodeAt(0)));
   const der = Uint8Array.from(atob(pem.replace(/-----[^-]+-----|\s/g, '')), c => c.charCodeAt(0));

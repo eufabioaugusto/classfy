@@ -8,6 +8,13 @@ export interface PlaybackSource {
   expiresAt?: string;
 }
 
+export interface PreviewSource {
+  type: "animated-image" | "hls" | "mp4";
+  url: string;
+  duration: number;
+  expiresAt?: string;
+}
+
 export interface VideoUploadTarget {
   mediaAssetId: string;
   provider: "mux" | "bunny" | "mock";

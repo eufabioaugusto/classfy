@@ -25,6 +25,20 @@ export interface PlaybackSource {
   expiresAt?: string;
 }
 
+export interface PreviewSource {
+  type: 'animated-image' | 'hls' | 'mp4';
+  url: string;
+  duration: number;
+  expiresAt?: string;
+}
+
+export interface PreviewOptions {
+  startSeconds?: number;
+  durationSeconds?: number;
+  width?: number;
+  fps?: number;
+}
+
 export interface NormalizedVideoEvent {
   id: string;
   provider: VideoProviderName;
@@ -44,5 +58,6 @@ export interface VideoProvider {
   readonly name: VideoProviderName;
   createUpload(input: CreateUploadInput): Promise<UploadTarget>;
   getPlaybackSource(binding: Record<string, any>, asset: Record<string, any>): Promise<PlaybackSource>;
+  getPreviewSource?(binding: Record<string, any>, asset: Record<string, any>, options?: PreviewOptions): Promise<PreviewSource>;
   deleteAsset(providerAssetId: string): Promise<void>;
 }
