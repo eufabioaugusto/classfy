@@ -44,12 +44,15 @@ export const FeaturedCreators = ({ creators }: FeaturedCreatorsProps) => {
         </div>
       </div>
 
-      <Carousel className="w-full">
+      <Carousel
+        className="w-full"
+        opts={{ align: "start", containScroll: "trimSnaps" }}
+      >
         <CarouselContent className="-ml-2 sm:-ml-4">
           {creators.map((creator) => (
             <CarouselItem
               key={creator.id}
-              className="pl-2 sm:pl-4 basis-[78%] sm:basis-1/2 lg:basis-1/3"
+              className="pl-2 sm:pl-4 basis-[82%] sm:basis-[48%] md:basis-[34%] lg:basis-[26%] xl:basis-[21%] 2xl:basis-[18%]"
             >
               <CreatorCard creator={creator} onClick={() => handleClick(creator)} />
             </CarouselItem>
@@ -71,7 +74,7 @@ const CreatorCard = ({ creator, onClick }: CreatorCardProps) => {
   return (
     <div
       onClick={onClick}
-      className="cf2-featured-creator-card group relative h-[420px] w-auto cursor-pointer overflow-hidden rounded-xl text-center sm:h-[500px] xl:h-[570px]"
+      className="cf2-featured-creator-card group relative aspect-[3/5] w-full cursor-pointer overflow-hidden rounded-xl text-center"
     >
       {/* Background Image */}
       <div

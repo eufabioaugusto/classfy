@@ -420,8 +420,8 @@ export default function Index() {
                     <div className="space-y-4">
                       <div className="h-6 w-48 bg-muted rounded animate-pulse" />
                       <div className="flex gap-4 overflow-hidden">
-                        {[1, 2, 3].map((i) => (
-                          <div key={i} className="w-72 h-40 bg-muted rounded-xl animate-pulse flex-shrink-0" />
+                        {[1, 2, 3, 4, 5].map((i) => (
+                          <div key={i} className="aspect-[3/5] w-64 bg-muted rounded-xl animate-pulse flex-shrink-0" />
                         ))}
                       </div>
                     </div>
