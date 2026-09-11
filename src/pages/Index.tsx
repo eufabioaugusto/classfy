@@ -23,7 +23,55 @@ import { ContentCardSkeleton } from "@/components/ContentCardSkeleton";
 import { boostContentList, getTopInterests, trackUserInteraction } from "@/lib/personalization/interests";
 import { AppShell } from "@/components/layout";
 import { HomeHero, PremiumCollection, type HomeHeroContent } from "@/components/home";
+import { isConfiguredHomeHero } from "@/config/home";
+import type { Database } from "@/integrations/supabase/types";
 import "@/styles/home-v2.css";
+
+type ContentRow = Database["public"]["Tables"]["contents"]["Row"];
+type CourseRow = Database["public"]["Tables"]["courses"]["Row"];
+type CatalogProfile = { display_name: string | null; avatar_url: string | null };
+type CatalogContent = ContentRow & { profiles?: CatalogProfile | null };
+type CatalogCourse = CourseRow & {
+  content_type?: "curso";
+  duration_seconds?: number | null;
+  lesson_count?: number | null;
+  profiles?: CatalogProfile | null;
+};
+type HomeCatalog = { contents: CatalogContent[]; courses: CatalogCourse[] };
+
+async function loadHomeCatalog(authenticated: boolean): Promise<HomeCatalog> {
+  if (!authenticated) {
+    const { data, error } = await supabase.rpc("get_public_home_catalog");
+    if (error) throw error;
+
+    const catalog = data as unknown as Partial<HomeCatalog> | null;
+    return {
+      contents: Array.isArray(catalog?.contents) ? catalog.contents : [],
+      courses: Array.isArray(catalog?.courses) ? catalog.courses : [],
+    };
+  }
+
+  const [contentsResult, coursesResult] = await Promise.all([
+    supabase
+      .from("contents")
+      .select(`*, profiles:creator_id (display_name, avatar_url)`)
+      .eq("status", "approved")
+      .order("created_at", { ascending: false }),
+    supabase
+      .from("courses")
+      .select(`*, profiles:creator_id (display_name, avatar_url)`)
+      .eq("status", "approved")
+      .order("created_at", { ascending: false }),
+  ]);
+
+  if (contentsResult.error) throw contentsResult.error;
+  if (coursesResult.error) throw coursesResult.error;
+
+  return {
+    contents: (contentsResult.data || []) as CatalogContent[],
+    courses: (coursesResult.data || []) as CatalogCourse[],
+  };
+}
 
 export default function Index() {
   const { user, loading: authLoading, profile } = useAuth();
@@ -87,12 +135,7 @@ export default function Index() {
     queryFn: async () => {
       const [
         featuredCreatorsResult,
-        trendingResult,
-        proResult,
-        podcastResult,
-        shortsResult,
-        premiumResult,
-        coursesResult
+        catalog,
       ] = await Promise.all([
         // Featured creators fetch (must load first visually)
         supabase
@@ -100,49 +143,10 @@ export default function Index() {
           .select(`*, profiles:creator_id (display_name, creator_channel_name)`)
           .eq("show_on_home", true)
           .order("order_index", { ascending: true }),
-        supabase
-          .from("contents")
-          .select(`*, profiles:creator_id (display_name, avatar_url)`)
-          .eq("content_type", "aula")
-          .eq("status", "approved")
-          .order("views_count", { ascending: false })
-          .limit(6),
-        supabase
-          .from("contents")
-          .select(`*, profiles:creator_id (display_name, avatar_url)`)
-          .eq("visibility", "pro")
-          .eq("status", "approved")
-          .in("content_type", ["aula"])
-          .order("created_at", { ascending: false })
-          .limit(4),
-        supabase
-          .from("contents")
-          .select(`*, profiles:creator_id (display_name, avatar_url)`)
-          .eq("content_type", "podcast")
-          .eq("status", "approved")
-          .order("views_count", { ascending: false })
-          .limit(6),
-        supabase
-          .from("contents")
-          .select(`*, profiles:creator_id (display_name, avatar_url)`)
-          .eq("content_type", "short")
-          .eq("status", "approved")
-          .order("created_at", { ascending: false })
-          .limit(6),
-        supabase
-          .from("contents")
-          .select(`*, profiles:creator_id (display_name, avatar_url)`)
-          .eq("visibility", "premium")
-          .eq("status", "approved")
-          .order("created_at", { ascending: false })
-          .limit(4),
-        supabase
-          .from("courses")
-          .select(`*, profiles:creator_id (display_name, avatar_url)`)
-          .eq("status", "approved")
-          .order("created_at", { ascending: false })
-          .limit(4)
+        loadHomeCatalog(Boolean(user)),
       ]);
+
+      if (featuredCreatorsResult.error) throw featuredCreatorsResult.error;
 
       // Process featured creators with duration calculation
       const featuredCreatorsData = featuredCreatorsResult.data || [];
@@ -167,22 +171,27 @@ export default function Index() {
       );
 
       const topInterests = await getTopInterests(user?.id);
+      const allContents = catalog.contents;
+      const byViews = (items: typeof allContents) => [...items].sort(
+        (a, b) => (b.views_count || 0) - (a.views_count || 0),
+      );
+      const trendingClassesData = byViews(allContents.filter((content) => content.content_type === "aula"));
+      const proContentsData = allContents.filter((content) => content.visibility === "pro");
+      const podcastsData = byViews(allContents.filter((content) => content.content_type === "podcast"));
+      const shortsData = allContents.filter((content) => content.content_type === "short");
+      const premiumContentsData = allContents.filter((content) => content.visibility === "premium");
+      const paidContentsData = allContents.filter((content) => content.visibility === "paid");
 
       return {
         featuredCreators: creatorsWithDuration,
-        trendingClasses: boostContentList(trendingResult.data || [], topInterests),
-        proContents: boostContentList(proResult.data || [], topInterests),
-        trendingPodcasts: boostContentList(podcastResult.data || [], topInterests),
-        shorts: boostContentList(shortsResult.data || [], topInterests),
-        premiumContents: boostContentList(premiumResult.data || [], topInterests),
-        courses: boostContentList(coursesResult.data || [], topInterests),
-        personalizedContents: boostContentList([
-          ...(trendingResult.data || []),
-          ...(proResult.data || []),
-          ...(podcastResult.data || []),
-          ...(shortsResult.data || []),
-          ...(premiumResult.data || []),
-        ], topInterests).slice(0, 8),
+        trendingClasses: boostContentList(trendingClassesData, topInterests),
+        proContents: boostContentList(proContentsData, topInterests),
+        trendingPodcasts: boostContentList(podcastsData, topInterests),
+        shorts: boostContentList(shortsData, topInterests),
+        premiumContents: boostContentList(premiumContentsData, topInterests),
+        paidContents: boostContentList(paidContentsData, topInterests),
+        courses: boostContentList(catalog.courses, topInterests),
+        personalizedContents: boostContentList(allContents, topInterests).slice(0, 8),
       };
     },
     enabled: isExploreMode,
@@ -196,6 +205,7 @@ export default function Index() {
   const trendingPodcasts = exploreData?.trendingPodcasts || [];
   const shorts = exploreData?.shorts || [];
   const premiumContents = exploreData?.premiumContents || [];
+  const paidContents = exploreData?.paidContents || [];
   const courses = exploreData?.courses || [];
   const personalizedContents = exploreData?.personalizedContents || [];
 
@@ -226,10 +236,14 @@ export default function Index() {
     return false;
   };
   const featuredHeroCreator = featuredCreators[0];
-  const featuredContentHero = heroCandidates.find(
+  const configuredContentHero = heroCandidates.find(isConfiguredHomeHero) || null;
+  const fallbackContentHero = heroCandidates.find(
     (content) => content.thumbnail_url && canAccessHero(content),
   ) || null;
-  const heroContent: HomeHeroContent | null = featuredHeroCreator
+  const featuredContentHero = configuredContentHero || fallbackContentHero;
+  const heroContent: HomeHeroContent | null = featuredContentHero
+    ? (featuredContentHero as HomeHeroContent)
+    : featuredHeroCreator
     ? {
         id: `creator-${featuredHeroCreator.id}`,
         title: featuredHeroCreator.description || featuredHeroCreator.creator_name,
@@ -241,11 +255,10 @@ export default function Index() {
         identity_image_url: featuredHeroCreator.featured_image_url,
         context_label: "Seleção Classfy",
       }
-    : (featuredContentHero as HomeHeroContent | null);
-  const withoutHero = (contents: any[]) => contents.filter((content) => content.id !== featuredContentHero?.id);
-  const personalizedHomeContents = withoutHero(personalizedContents);
-  const trendingHomeContents = withoutHero(trendingClasses);
-  const premiumHomeContents = withoutHero(premiumContents);
+    : null;
+  const personalizedHomeContents = personalizedContents;
+  const trendingHomeContents = trendingClasses;
+  const premiumHomeContents = premiumContents;
   const handleSearchResults = (results: any[]) => {
     setSearchResults(results);
     setHasSearched(true);
@@ -261,9 +274,8 @@ export default function Index() {
   };
 
   const handleContentClick = (content: any) => {
-    const isFreeContent = content.visibility === "free" || (!content.visibility);
-    if (!user && !isFreeContent) {
-      navigate("/auth");
+    if (!user) {
+      navigate("/auth", { state: { from: `${location.pathname}${location.search}` } });
       return;
     }
     if (user) {
@@ -465,6 +477,11 @@ export default function Index() {
                     <HomeHero
                       content={heroContent}
                       onPlay={() => {
+                        if (featuredContentHero) {
+                          handleContentClick(featuredContentHero);
+                          return;
+                        }
+
                         if (featuredHeroCreator) {
                           navigate(
                             featuredHeroCreator.slug
@@ -474,10 +491,9 @@ export default function Index() {
                           return;
                         }
 
-                        if (featuredContentHero) handleContentClick(featuredContentHero);
                       }}
                       onOpenFocus={() => setMode(false)}
-                      primaryLabel={featuredHeroCreator ? "Conhecer creator" : "Assistir agora"}
+                      primaryLabel={featuredContentHero ? "Assistir agora" : "Conhecer creator"}
                     />
 
                     {/* Featured Creators Section */}
@@ -568,6 +584,17 @@ export default function Index() {
                       />
                     )}
 
+                    {paidContents.length > 0 && (
+                      <ContentSection
+                        title="Conteúdos exclusivos"
+                        contents={paidContents}
+                        onContentClick={handleContentClick}
+                        userPlan={currentPlan}
+                        onUpgradeClick={handleUpgradeClick}
+                        onPurchaseClick={handlePurchaseClick}
+                      />
+                    )}
+
                     {/* PRO closes the feed as a subtle membership discovery moment. */}
                     {proContents.length > 0 && (
                       <ContentSection
@@ -586,6 +613,7 @@ export default function Index() {
                       trendingPodcasts.length === 0 &&
                       shorts.length === 0 &&
                       premiumContents.length === 0 &&
+                      paidContents.length === 0 &&
                       courses.length === 0 && (
                         <div className="cf2-home-empty">
                           <BookOpen aria-hidden="true" />

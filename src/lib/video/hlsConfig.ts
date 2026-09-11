@@ -21,6 +21,15 @@ export const shortsHlsConfig: Partial<HlsConfig> = {
   maxBufferSize: 15 * 1000 * 1000,
 };
 
+// Preview editorial da Home: uma unica janela curta e buffer deliberadamente menor.
+export const heroPreviewHlsConfig: Partial<HlsConfig> = {
+  ...standardHlsConfig,
+  maxBufferLength: 6,
+  maxMaxBufferLength: 10,
+  backBufferLength: 0,
+  maxBufferSize: 10 * 1000 * 1000,
+};
+
 export function releaseMediaElement(media: HTMLMediaElement) {
   media.pause();
   media.removeAttribute("src");

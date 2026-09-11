@@ -4097,6 +4097,7 @@ export type Database = {
         Returns: Json
       }
       get_economic_v1_settings: { Args: never; Returns: Json }
+      get_public_home_catalog: { Args: never; Returns: Json }
       get_growth_checkpoint_status_v1: { Args: never; Returns: Json }
       get_or_create_current_cycle: { Args: never; Returns: string }
       get_or_create_referral_link: {

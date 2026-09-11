@@ -170,8 +170,7 @@ export const ContentCard = ({
       return true;
     }
 
-    // Allow visitors to view free content without login (for conversion)
-    // Views/rewards will only count after they sign up
+    // A autenticacao ja foi exigida no inicio do clique.
     if (visibility === "free") {
       return true;
     }
@@ -197,6 +196,12 @@ export const ContentCard = ({
   };
 
   const handleClick = () => {
+    // O catalogo e publico; qualquer reproducao ou compra exige uma sessao.
+    if (!user) {
+      navigate("/auth", { state: { from: `${location.pathname}${location.search}` } });
+      return;
+    }
+
     const hasAccess = checkAccess();
 
     if (!hasAccess) {
