@@ -199,22 +199,26 @@ export function useWatchProgress({ contentId, durationSeconds = 0, enabled = fal
       if (!milestoneRef.current.start && watched > 0.5) {
         updateMilestone('start');
         await recordMetric('start');
+        await processReward('FIRST_CONTENT_WEEK');
       }
 
       if (!milestoneRef.current.view15s && watched >= 15) {
         updateMilestone('view15s');
+        await updateWatchTime(watched);
         await processReward('VIEW_15S', { watch_time: watched });
       }
 
       if (!milestoneRef.current.half && percent >= 50) {
         updateMilestone('half');
         await recordMetric('half');
+        await trackProgress(percent, watched);
         await processReward('WATCH_50', { progress: 50 });
       }
 
       if (!milestoneRef.current.complete && percent >= 90) {
         updateMilestone('complete');
         await recordMetric('complete');
+        await trackProgress(percent, watched);
         await processReward('WATCH_100', { progress: 100 });
       }
 

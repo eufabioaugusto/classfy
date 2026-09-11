@@ -31,7 +31,7 @@ export const ConversionModal = ({ open, onOpenChange, reason = "premium" }: Conv
     },
     save: {
       title: "Salve seus Favoritos",
-      description: "Crie sua conta para salvar conteúdos, acompanhar seu progresso e ganhar pontos por tudo que você aprende.",
+      description: "Crie sua conta para salvar conteúdos, acompanhar seu progresso e ganhar Points por tudo que você aprende.",
       icon: Sparkles,
     },
     progress: {

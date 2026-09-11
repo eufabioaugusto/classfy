@@ -64,7 +64,7 @@ function buildNudges(
     const pts = actionPoints['WATCH_50'] || 0;
     nudges.push({
       icon: 'trending-up-outline',
-      text: pts > 0 ? `Chegue em 50% e ganhe ${fmt(pts)}` : 'Continue assistindo — 50% vale pontos!',
+      text: pts > 0 ? `Chegue em 50% e ganhe ${fmt(pts)}` : 'Continue assistindo — 50% vale Points!',
       iconColor: '#FBBF24',
     });
   }
@@ -82,7 +82,7 @@ function buildNudges(
     const pts = actionPoints.LIKE || 0;
     nudges.push({
       icon: 'heart-outline',
-      text: pts > 0 ? `Curtiu? Deixe o like e ganhe ${fmt(pts)}` : 'Curta e ganhe pontos!',
+      text: pts > 0 ? `Curtiu? Deixe o like e ganhe ${fmt(pts)}` : 'Curta e ganhe Points!',
       iconColor: '#F87171',
     });
   }
@@ -109,7 +109,7 @@ function buildNudges(
   if (nudges.length === 0 && earnedPoints > 0) {
     nudges.push({
       icon: 'trophy-outline',
-      text: 'Parabéns! Você desbloqueou todos os pontos 🎉',
+      text: 'Parabéns! Você desbloqueou todos os Points 🎉',
       iconColor: '#FBBF24',
     });
   }

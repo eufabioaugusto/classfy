@@ -1,257 +1,129 @@
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.81.1'
-import { emailCard, ctaButton, rewardBox, sendEmail, APP_URL } from '../_shared/email-template.ts'
-
-const RESEND_API_KEY = Deno.env.get('RESEND_API_KEY')!;
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.81.1";
+import {
+  APP_URL,
+  ctaButton,
+  emailCard,
+  rewardBox,
+  sendEmail,
+} from "../_shared/email-template.ts";
 
 const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-}
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers":
+    "authorization, x-client-info, apikey, content-type",
+};
 
 Deno.serve(async (req) => {
-  if (req.method === 'OPTIONS') {
+  if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
   }
 
   try {
-    const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
-    const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
-    const supabase = createClient(supabaseUrl, supabaseServiceKey);
-
-    // Get user from auth header
-    const authHeader = req.headers.get('Authorization');
-    if (!authHeader) {
-      throw new Error('No authorization header');
+    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+    const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+    const anonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
+    const authorization = req.headers.get("Authorization") || "";
+    if (!authorization.startsWith("Bearer ")) {
+      return json({ error: "Unauthorized" }, 401);
     }
 
-    const token = authHeader.replace('Bearer ', '');
-    const { data: { user }, error: userError } = await supabase.auth.getUser(token);
-    
-    if (userError || !user) {
-      throw new Error('Unauthorized');
+    const service = createClient(supabaseUrl, serviceKey);
+    const token = authorization.slice(7);
+    const { data: { user }, error: authError } = await service.auth.getUser(
+      token,
+    );
+    if (authError || !user) return json({ error: "Unauthorized" }, 401);
+
+    const { contentId, itemType = "content", reason } = await req.json();
+    if (
+      !contentId || !["content", "course"].includes(itemType) || !reason?.trim()
+    ) {
+      return json(
+        { error: "Content ID, valid item type and reason are required" },
+        400,
+      );
     }
 
-    // Check if user is admin
-    const { data: roles } = await supabase
-      .from('user_roles')
-      .select('role')
-      .eq('user_id', user.id)
-      .eq('role', 'admin')
+    const userClient = createClient(supabaseUrl, anonKey, {
+      global: { headers: { Authorization: authorization } },
+      auth: { persistSession: false },
+    });
+    const { data: result, error } = await userClient.rpc("approve_content_v1", {
+      p_item_id: contentId,
+      p_item_type: itemType,
+      p_reason: reason.trim(),
+    });
+    if (error) throw error;
+
+    const approval = Array.isArray(result) ? result[0] : result;
+    const table = itemType === "course" ? "courses" : "contents";
+    const { data: content } = await service.from(table)
+      .select("creator_id, title, content_type")
+      .eq("id", contentId)
       .single();
 
-    if (!roles) {
-      throw new Error('User is not admin');
-    }
-
-    const { contentId, itemType = 'content' } = await req.json();
-
-    if (!contentId) {
-      throw new Error('Content ID is required');
-    }
-
-    console.log('Approving item:', contentId, 'type:', itemType);
-
-    const tableName = itemType === 'course' ? 'courses' : 'contents';
-
-    // Get item details
-    const { data: content, error: contentError } = await supabase
-      .from(tableName)
-      .select('*, creator_id, title')
-      .eq('id', contentId)
-      .single();
-
-    if (contentError || !content) {
-      throw new Error(`${itemType} not found`);
-    }
-
-    const { data: creatorProfile } = await supabase
-      .from('profiles')
-      .select('creator_status')
-      .eq('id', content.creator_id)
-      .single();
-    const { data: creatorRole } = await supabase
-      .from('user_roles')
-      .select('role')
-      .eq('user_id', content.creator_id)
-      .eq('role', 'creator')
-      .maybeSingle();
-    if (creatorProfile?.creator_status !== 'approved' || !creatorRole) {
-      throw new Error('Creator aprovado é obrigatório para publicar conteúdo');
-    }
-
-    // Update item status to approved using service role
-    const { error: updateError } = await supabase
-      .from(tableName)
-      .update({ 
-        status: 'approved',
-        published_at: new Date().toISOString()
-      })
-      .eq('id', contentId);
-
-    if (updateError) {
-      console.error('Error updating item:', updateError);
-      throw updateError;
-    }
-
-    console.log(`${itemType} approved successfully`);
-
-    // Check if this content was already approved (and thus rewarded) in the past
-    const trackingKey = `CONTENT_APPROVED_${contentId}`;
-    const { data: existingTracking } = await supabase
-      .from('reward_action_tracking')
-      .select('id')
-      .eq('user_id', content.creator_id)
-      .eq('action_key', trackingKey)
-      .maybeSingle();
-
-    const alreadyRewarded = !!existingTracking;
-
-    // Get reward config to calculate points and value
-    const { data: rewardConfig } = await supabase
-      .from('reward_actions_config')
-      .select('*')
-      .eq('action_key', 'CONTENT_APPROVED')
-      .eq('active', true)
-      .single();
-
-    const pointsAmount = rewardConfig?.points_creator ?? 0;
-
-    // ALWAYS create notification for content approval (independent of reward)
-    const itemLabel = itemType === 'course' ? 'curso' : 'conteúdo';
-    const notificationMessage = alreadyRewarded
-      ? `Seu ${itemLabel} "${content.title}" foi aprovado e publicado!`
-      : `Seu ${itemLabel} "${content.title}" foi aprovado e publicado! Você ganhou ${pointsAmount} Creator Points.`;
-
-    const { error: notificationError } = await supabase
-      .from('notifications')
-      .insert({
-        user_id: content.creator_id,
-        type: 'admin',
-        title: itemType === 'course' ? 'Curso aprovado! ✅' : 'Conteúdo aprovado! ✅',
-        message: notificationMessage,
-        related_content_id: contentId,
-        is_read: false
-      });
-
-    if (notificationError) {
-      console.error('Error creating notification:', notificationError);
-    } else {
-      console.log('Approval notification created successfully');
-    }
-
-    // Send email notification to creator
-    try {
-      const { data: creatorAuth } = await supabase.auth.admin.getUserById(content.creator_id);
-      const { data: creatorProfile } = await supabase.from('profiles').select('display_name').eq('id', content.creator_id).single();
-      if (creatorAuth?.user?.email) {
-        const name = creatorProfile?.display_name || creatorAuth.user.email.split('@')[0];
-        const itemLabel = itemType === 'course' ? 'curso' : 'conteúdo';
-        const subject = `Seu ${itemLabel} foi aprovado! — Classfy`;
-        const html = emailCard(subject, `"${content.title}" está publicado e gerando recompensas`, `
-          <h1 style="margin:0 0 8px;font-size:22px;font-weight:700;color:#09090b;">Conteúdo aprovado! ✅</h1>
-          <p style="margin:0 0 4px;font-size:15px;color:#52525b;line-height:1.6;">
-            Olá, <strong>${name}</strong>! Seu ${itemLabel} <strong>"${content.title}"</strong> foi aprovado e já está disponível na plataforma.
-          </p>
-          ${alreadyRewarded ? '' : rewardBox(pointsAmount, 0)}
-          ${ctaButton('Ver meu conteúdo', `${APP_URL}/studio/contents`)}
-          ${alreadyRewarded ? '' : '<p style="margin:0;font-size:13px;color:#71717a;">Continue criando! Os pontos elegíveis participam do pool mensal.</p>'}
-        `);
-        await sendEmail(RESEND_API_KEY, creatorAuth.user.email, subject, html);
-      }
-    } catch (emailErr) {
-      console.error('Error sending approval email:', emailErr);
-    }
-
-    // Process reward (don't block response if it fails)
-    try {
-      if (!alreadyRewarded) {
-        // Process CONTENT_APPROVED reward
-        const { data: rewardData, error: rewardError } = await supabase.functions.invoke('process-reward', {
-          body: {
-            actionKey: 'CONTENT_APPROVED',
-            userId: content.creator_id,
-            contentId: contentId,
-            metadata: { content_title: content.title }
-          }
-        });
-
-        if (rewardError) {
-          console.error('Error processing reward:', rewardError);
-        } else {
-          console.log('Reward processed:', rewardData);
-        }
-
-        // Check if this is the first approved content
-        const [{ count: approvedContents }, { count: approvedCourses }] = await Promise.all([
-          supabase.from('contents').select('*', { count: 'exact', head: true })
-            .eq('creator_id', content.creator_id).eq('status', 'approved'),
-          supabase.from('courses').select('*', { count: 'exact', head: true })
-            .eq('creator_id', content.creator_id).eq('status', 'approved'),
-        ]);
-
-        const isFirstApproval = (approvedContents || 0) + (approvedCourses || 0) === 1;
-
-        // Process FIRST_UPLOAD reward if this is the first approval
-        if (isFirstApproval) {
-          console.log('First upload detected for creator:', content.creator_id);
-          const { error: firstUploadError } = await supabase.functions.invoke('process-reward', {
-            body: {
-              actionKey: 'FIRST_UPLOAD',
-              userId: content.creator_id,
-              contentId: contentId,
-              metadata: { first_content_title: content.title }
-            }
-          });
-
-          if (firstUploadError) {
-            console.error('Error processing first upload reward:', firstUploadError);
-          } else {
-            console.log('First upload reward processed');
-          }
-        }
-      } else {
-        console.log('Content already approved and rewarded previously, skipping payouts.');
-      }
-    } catch (err) {
-      console.error('Exception processing reward:', err);
-    }
-
-    // Auto-generate transcription for video/audio content (don't block response)
-    if (content.content_type === 'aula' || content.content_type === 'podcast') {
-      console.log('Starting auto-transcription for content:', contentId);
-      
-      // Use EdgeRuntime.waitUntil to run transcription in background
+    if (content?.creator_id) {
       try {
-        supabase.functions.invoke('transcribe-content', {
-          body: { contentId: contentId }
-        }).then(({ data, error }) => {
-          if (error) {
-            console.error('Error auto-generating transcription:', error);
-          } else {
-            console.log('Auto-transcription completed:', data);
-          }
-        }).catch(err => {
-          console.error('Exception in auto-transcription:', err);
-        });
-      } catch (err) {
-        console.error('Failed to start auto-transcription:', err);
+        const [{ data: creatorAuth }, { data: profile }] = await Promise.all([
+          service.auth.admin.getUserById(content.creator_id),
+          service.from("profiles").select("display_name").eq(
+            "id",
+            content.creator_id,
+          ).single(),
+        ]);
+        if (creatorAuth?.user?.email) {
+          const points = Number(approval?.content_points || 0) +
+            Number(approval?.first_upload_points || 0);
+          const itemLabel = itemType === "course" ? "curso" : "conteúdo";
+          const name = profile?.display_name ||
+            creatorAuth.user.email.split("@")[0];
+          const subject = `Seu ${itemLabel} foi aprovado! — Classfy`;
+          const html = emailCard(
+            subject,
+            `"${content.title}" está publicado`,
+            `
+            <h1 style="margin:0 0 8px;font-size:22px;font-weight:700;color:#09090b;">Conteúdo aprovado! ✅</h1>
+            <p style="margin:0 0 4px;font-size:15px;color:#52525b;line-height:1.6;">
+              Olá, <strong>${name}</strong>! Seu ${itemLabel} <strong>"${content.title}"</strong> foi aprovado e já está disponível na plataforma.
+            </p>
+            ${points > 0 ? rewardBox(points, 0) : ""}
+            ${ctaButton("Ver meu conteúdo", `${APP_URL}/studio/contents`)}
+          `,
+          );
+          await sendEmail(
+            Deno.env.get("RESEND_API_KEY")!,
+            creatorAuth.user.email,
+            subject,
+            html,
+          );
+        }
+      } catch (emailError) {
+        console.error("Approval email failed", emailError);
+      }
+
+      if (
+        itemType === "content" &&
+        ["aula", "podcast"].includes(content.content_type)
+      ) {
+        service.functions.invoke("transcribe-content", { body: { contentId } })
+          .then(({ error }) =>
+            error && console.error("Auto-transcription failed", error)
+          );
       }
     }
 
-    return new Response(
-      JSON.stringify({ success: true, message: 'Content approved successfully' }),
-      { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-    );
-
+    return json({ success: true, ...approval });
   } catch (error) {
-    console.error('Error:', error);
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    return new Response(
-      JSON.stringify({ error: errorMessage }),
-      { 
-        status: 400, 
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
-      }
-    );
+    console.error("approve-content V1 error", error);
+    return json({
+      error: error instanceof Error ? error.message : "Unknown error",
+    }, 400);
   }
 });
+
+function json(body: unknown, status = 200) {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { ...corsHeaders, "Content-Type": "application/json" },
+  });
+}

@@ -635,9 +635,13 @@ export default function ShortsScreen() {
       if (isFollowing) {
         await supabase.from('follows').delete().eq('follower_id', user.id).eq('following_id', creatorId);
       } else {
-        await supabase.from('follows').insert({
+        const { error } = await supabase.from('follows').insert({
           follower_id: user.id,
           following_id: creatorId,
+        });
+        if (error) throw error;
+        await supabase.functions.invoke('process-reward', {
+          body: { actionKey: 'SUBSCRIBE_CREATOR', userId: user.id, metadata: { creatorId } },
         });
       }
     } catch (e) {

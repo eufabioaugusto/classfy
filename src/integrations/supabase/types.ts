@@ -1358,6 +1358,7 @@ export type Database = {
           pool_percentage: number
           prm: number
           rbm: number
+          settings_snapshot: Json
           status: string
           total_creator_points: number
           total_performance_points: number
@@ -1376,6 +1377,7 @@ export type Database = {
           pool_percentage?: number
           prm?: number
           rbm?: number
+          settings_snapshot?: Json
           status?: string
           total_creator_points?: number
           total_performance_points?: number
@@ -1394,6 +1396,7 @@ export type Database = {
           pool_percentage?: number
           prm?: number
           rbm?: number
+          settings_snapshot?: Json
           status?: string
           total_creator_points?: number
           total_performance_points?: number
@@ -1402,6 +1405,41 @@ export type Database = {
           year_month?: string
         }
         Relationships: []
+      }
+      economic_growth_checkpoints: {
+        Row: {
+          created_at: string
+          paid_users_at_reach: number | null
+          reached_at: string | null
+          reason: string | null
+          recorded_by: string | null
+          threshold: number
+        }
+        Insert: {
+          created_at?: string
+          paid_users_at_reach?: number | null
+          reached_at?: string | null
+          reason?: string | null
+          recorded_by?: string | null
+          threshold: number
+        }
+        Update: {
+          created_at?: string
+          paid_users_at_reach?: number | null
+          reached_at?: string | null
+          reason?: string | null
+          recorded_by?: string | null
+          threshold?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "economic_growth_checkpoints_recorded_by_fkey"
+            columns: ["recorded_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       favorites: {
         Row: {
@@ -2177,6 +2215,7 @@ export type Database = {
           creator_status: Database["public"]["Enums"]["creator_status"]
           difficulties: Json | null
           display_name: string
+          entitlement_source: string
           expo_push_token: string | null
           id: string
           interests: Json | null
@@ -2187,6 +2226,7 @@ export type Database = {
           stripe_subscription_id: string | null
           subscription_grace_until: string | null
           subscription_plan: Database["public"]["Enums"]["plan_type"] | null
+          subscription_state_event_at: string | null
           subscription_status: string
           updated_at: string
         }
@@ -2201,6 +2241,7 @@ export type Database = {
           creator_status?: Database["public"]["Enums"]["creator_status"]
           difficulties?: Json | null
           display_name: string
+          entitlement_source?: string
           expo_push_token?: string | null
           id: string
           interests?: Json | null
@@ -2211,6 +2252,7 @@ export type Database = {
           stripe_subscription_id?: string | null
           subscription_grace_until?: string | null
           subscription_plan?: Database["public"]["Enums"]["plan_type"] | null
+          subscription_state_event_at?: string | null
           subscription_status?: string
           updated_at?: string
         }
@@ -2225,6 +2267,7 @@ export type Database = {
           creator_status?: Database["public"]["Enums"]["creator_status"]
           difficulties?: Json | null
           display_name?: string
+          entitlement_source?: string
           expo_push_token?: string | null
           id?: string
           interests?: Json | null
@@ -2235,6 +2278,7 @@ export type Database = {
           stripe_subscription_id?: string | null
           subscription_grace_until?: string | null
           subscription_plan?: Database["public"]["Enums"]["plan_type"] | null
+          subscription_state_event_at?: string | null
           subscription_status?: string
           updated_at?: string
         }
@@ -2601,6 +2645,44 @@ export type Database = {
           year_month?: string
         }
         Relationships: []
+      }
+      revenue_reversals: {
+        Row: {
+          classfy_amount: number
+          created_at: string
+          gross_amount: number
+          id: string
+          revenue_entry_id: string
+          reversal_type: string
+          stripe_event_id: string
+        }
+        Insert: {
+          classfy_amount: number
+          created_at?: string
+          gross_amount: number
+          id?: string
+          revenue_entry_id: string
+          reversal_type: string
+          stripe_event_id: string
+        }
+        Update: {
+          classfy_amount?: number
+          created_at?: string
+          gross_amount?: number
+          id?: string
+          revenue_entry_id?: string
+          reversal_type?: string
+          stripe_event_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "revenue_reversals_revenue_entry_id_fkey"
+            columns: ["revenue_entry_id"]
+            isOneToOne: false
+            referencedRelation: "revenue_entries"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       reward_action_tracking: {
         Row: {
@@ -3920,6 +4002,24 @@ export type Database = {
       }
     }
     Functions: {
+      adjust_wallet_v1: {
+        Args: { p_amount: number; p_reason: string; p_user_id: string }
+        Returns: Json
+      }
+      admin_update_user_access_v1: {
+        Args: {
+          p_plan: Database["public"]["Enums"]["plan_type"]
+          p_plan_expires_at: string
+          p_reason: string
+          p_role: Database["public"]["Enums"]["app_role"]
+          p_user_id: string
+        }
+        Returns: Json
+      }
+      approve_content_v1: {
+        Args: { p_item_id: string; p_item_type: string; p_reason: string }
+        Returns: Json
+      }
       approve_withdrawal: {
         Args: {
           p_admin_id: string
@@ -3992,7 +4092,12 @@ export type Database = {
         Args: { p_action_key: string }
         Returns: string
       }
+      get_economic_cycle_preview_v1: {
+        Args: { p_year_month: string }
+        Returns: Json
+      }
       get_economic_v1_settings: { Args: never; Returns: Json }
+      get_growth_checkpoint_status_v1: { Args: never; Returns: Json }
       get_or_create_current_cycle: { Args: never; Returns: string }
       get_or_create_referral_link: {
         Args: { p_user_id: string }
@@ -4066,6 +4171,15 @@ export type Database = {
         Args: { p_admin_notes: string; p_reason: string; p_request_id: string }
         Returns: Json
       }
+      process_referral_commission_v1: {
+        Args: {
+          p_conversion_id: string
+          p_purchase_amount: number
+          p_purchase_type: string
+          p_stripe_charge_id: string
+        }
+        Returns: Json
+      }
       record_app_log: {
         Args: {
           p_context?: Json
@@ -4092,6 +4206,11 @@ export type Database = {
         }
         Returns: Json
       }
+      record_growth_checkpoint_v1: {
+        Args: { p_reason: string; p_threshold: number }
+        Returns: Json
+      }
+      record_login_streak_v1: { Args: { p_user_id: string }; Returns: Json }
       record_manual_eligible_revenue_v1: {
         Args: { p_amount: number; p_description: string; p_reason: string }
         Returns: {
@@ -4164,6 +4283,10 @@ export type Database = {
           isSetofReturn: false
         }
       }
+      reject_content_v1: {
+        Args: { p_item_id: string; p_item_type: string; p_reason: string }
+        Returns: Json
+      }
       reject_withdrawal_v1: {
         Args: { p_admin_notes: string; p_reason: string; p_request_id: string }
         Returns: Json
@@ -4185,11 +4308,25 @@ export type Database = {
         }
         Returns: Json
       }
+      reverse_revenue_entry_v1: {
+        Args: {
+          p_reversal_type: string
+          p_reversed_gross_amount: number
+          p_source_id: string
+          p_stripe_event_id: string
+        }
+        Returns: Json
+      }
       reverse_reward_award: {
         Args: { p_action_key: string; p_content_id: string; p_user_id: string }
         Returns: Json
       }
+      review_creator_request_v1: {
+        Args: { p_approved: boolean; p_reason: string; p_request_id: string }
+        Returns: Json
+      }
       run_reconciliation: { Args: { p_period?: string }; Returns: Json }
+      run_reconciliation_v1: { Args: { p_period?: string }; Returns: Json }
       search_platform_content: {
         Args: { p_exclude_id?: string; p_limit?: number; p_query: string }
         Returns: {
@@ -4210,6 +4347,7 @@ export type Database = {
       sync_subscription_state_v1: {
         Args: {
           p_customer_id: string
+          p_event_created_at?: string
           p_pending_effective_at?: string
           p_pending_plan?: Database["public"]["Enums"]["plan_type"]
           p_period_end: string

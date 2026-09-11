@@ -77,14 +77,17 @@ export default function AdminContents() {
   };
 
   const handleApprove = async (contentId: string) => {
-    setProcessingId(contentId);
     const content = contents.find((c) => c.id === contentId);
     if (!content) return;
+    const reason = window.prompt("Motivo da aprovação (obrigatório):");
+    if (!reason?.trim()) return;
+    setProcessingId(contentId);
     try {
       const { data, error } = await supabase.functions.invoke('approve-content', {
         body: { 
           contentId,
-          itemType: content.item_type 
+          itemType: content.item_type,
+          reason: reason.trim(),
         },
       });
       if (error) throw error;
@@ -98,14 +101,17 @@ export default function AdminContents() {
     }
   };
   const handleReject = async (contentId: string) => {
-    setProcessingId(contentId);
     const content = contents.find((c) => c.id === contentId);
     if (!content) return;
+    const reason = window.prompt("Motivo da reprovação (obrigatório):");
+    if (!reason?.trim()) return;
+    setProcessingId(contentId);
     try {
       const { data, error } = await supabase.functions.invoke('reject-content', {
         body: { 
           contentId,
-          itemType: content.item_type 
+          itemType: content.item_type,
+          reason: reason.trim(),
         },
       });
       if (error) throw error;
@@ -120,6 +126,8 @@ export default function AdminContents() {
   };
   const handleBulkApprove = async () => {
     if (selectedContents.size === 0) return;
+    const reason = window.prompt("Motivo da aprovação em lote (obrigatório):");
+    if (!reason?.trim()) return;
     try {
       for (const contentId of Array.from(selectedContents)) {
         const content = contents.find(c => c.id === contentId);
@@ -127,7 +135,8 @@ export default function AdminContents() {
         await supabase.functions.invoke('approve-content', {
           body: { 
             contentId,
-            itemType: content.item_type 
+            itemType: content.item_type,
+            reason: reason.trim(),
           },
         });
       }
@@ -141,9 +150,17 @@ export default function AdminContents() {
   };
   const handleBulkReject = async () => {
     if (selectedContents.size === 0) return;
+    const reason = window.prompt("Motivo da reprovação em lote (obrigatório):");
+    if (!reason?.trim()) return;
     try {
-      const { error } = await supabase.from('contents').update({ status: 'rejected' }).in('id', Array.from(selectedContents));
-      if (error) throw error;
+      for (const contentId of Array.from(selectedContents)) {
+        const content = contents.find(c => c.id === contentId);
+        if (!content) continue;
+        const { error } = await supabase.functions.invoke('reject-content', {
+          body: { contentId, itemType: content.item_type, reason: reason.trim() },
+        });
+        if (error) throw error;
+      }
       toast.success(`${selectedContents.size} conteúdos reprovados`);
       setContents(prev => prev.filter(c => !selectedContents.has(c.id)));
       setSelectedContents(new Set());

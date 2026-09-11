@@ -105,11 +105,11 @@ export const CreatorStatsCard = ({ userId, collapsed }: CreatorStatsCardProps) =
 
       {/* Stats grid */}
       <div className="grid grid-cols-2 divide-x divide-border/30 border-t border-border/30">
-        {/* Creator Points */}
+        {/* Points com origem Creator */}
         <div className="px-3 py-2">
           <div className="flex items-center gap-1.5 mb-0.5">
             <Zap className="h-3 w-3 text-red-500" />
-            <span className="text-[10px] text-muted-foreground uppercase tracking-wide font-medium">Creator Points</span>
+            <span className="text-[10px] text-muted-foreground uppercase tracking-wide font-medium">Points por criação</span>
           </div>
           <span className="text-sm font-bold text-foreground tabular-nums">
             {stats.creatorPoints.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}

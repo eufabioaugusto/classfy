@@ -130,8 +130,11 @@ export function AppSidebar() {
     try {
       setLoadingData(true);
       
-      // Parallel fetch for profile, stats tables, active studies
-      const [profileRes, walletRes, eventsRes, contentsRes, studiesRes] = await Promise.all([
+      const now = new Date();
+      const yearMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+
+      // Parallel fetch for profile, stats tables, active studies and current cycle
+      const [profileRes, walletRes, eventsRes, contentsRes, studiesRes, cycleRes] = await Promise.all([
         supabase
           .from('profiles')
           .select('display_name, creator_channel_name, avatar_url, plan')
@@ -156,7 +159,12 @@ export function AppSidebar() {
           .eq('user_id', user.id)
           .eq('status', 'active')
           .order('last_activity_at', { ascending: false })
-          .limit(5)
+          .limit(5),
+        supabase
+          .from('economic_cycles')
+          .select('id')
+          .eq('year_month', yearMonth)
+          .maybeSingle(),
       ]);
 
       // 1. Process profile
@@ -190,7 +198,16 @@ export function AppSidebar() {
 
       // 3. Process gamification points & levels
       const totalPoints = eventsRes.data?.reduce((s, e) => s + (e.point_type === 'creator' ? 0 : Number(e.points || 0)), 0) || 0;
-      const cyclePoints = eventsRes.data?.reduce((s, e) => s + Number(e.points || 0), 0) || 0;
+      let cyclePoints = 0;
+      if (cycleRes.data) {
+        const { data: cycleUser } = await supabase
+          .from('economic_cycle_users')
+          .select('cycle_points')
+          .eq('cycle_id', cycleRes.data.id)
+          .eq('user_id', user.id)
+          .maybeSingle();
+        cyclePoints = Number(cycleUser?.cycle_points || 0);
+      }
 
       let level = 1;
       const getPointsForLevel = (n: number) => (500 * n * (n - 1)) / 2;

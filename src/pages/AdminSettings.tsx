@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Navigate } from "react-router-dom";
-import { CalendarClock, DollarSign, Play, Save, Settings } from "lucide-react";
+import { CalendarClock, DollarSign, Play, Save, Settings, Target } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
@@ -19,7 +19,6 @@ interface EconomySettings {
   creator_sales_hold_days: number;
   subscription_grace_period_days: number;
   referral_commission_percent: number;
-  approved_content_monthly_limit: number | null;
 }
 
 const defaults: EconomySettings = {
@@ -31,7 +30,6 @@ const defaults: EconomySettings = {
   creator_sales_hold_days: 7,
   subscription_grace_period_days: 3,
   referral_commission_percent: 10,
-  approved_content_monthly_limit: null,
 };
 
 export default function AdminSettings() {
@@ -44,6 +42,7 @@ export default function AdminSettings() {
   const [reason, setReason] = useState("");
   const [lastCycle, setLastCycle] = useState<Record<string, any> | null>(null);
   const [cycleYearMonth, setCycleYearMonth] = useState(previousMonth());
+  const [checkpointStatus, setCheckpointStatus] = useState<{ paid_users: number; checkpoints: Array<{ threshold: number; reached_at: string | null }> }>({ paid_users: 0, checkpoints: [] });
 
   useEffect(() => {
     if (role === "admin") void fetchData();
@@ -51,9 +50,10 @@ export default function AdminSettings() {
 
   const fetchData = async () => {
     try {
-      const [settingsResult, cycleResult] = await Promise.all([
+      const [settingsResult, cycleResult, checkpointResult] = await Promise.all([
         supabase.rpc("get_economic_v1_settings"),
         supabase.from("economic_cycles").select("*").order("year_month", { ascending: false }).limit(1).maybeSingle(),
+        supabase.rpc("get_growth_checkpoint_status_v1"),
       ]);
       if (settingsResult.error) throw settingsResult.error;
       const value = settingsResult.data as unknown as Partial<EconomySettings>;
@@ -64,6 +64,8 @@ export default function AdminSettings() {
         reward_maturation_days: { ...defaults.reward_maturation_days, ...(value?.reward_maturation_days || {}) },
       });
       setLastCycle(cycleResult.data as Record<string, any> | null);
+      if (checkpointResult.error) throw checkpointResult.error;
+      setCheckpointStatus(checkpointResult.data as unknown as typeof checkpointStatus);
     } catch (error: any) {
       toast({ title: "Erro ao carregar configurações", description: error.message, variant: "destructive" });
     } finally {
@@ -117,6 +119,22 @@ export default function AdminSettings() {
     }
   };
 
+  const handleCheckpoint = async (threshold: number) => {
+    const checkpointReason = window.prompt(`Motivo para registrar o checkpoint de ${threshold.toLocaleString("pt-BR")} pagantes:`);
+    if (!checkpointReason?.trim()) return;
+    try {
+      const { error } = await supabase.rpc("record_growth_checkpoint_v1", {
+        p_threshold: threshold,
+        p_reason: checkpointReason.trim(),
+      });
+      if (error) throw error;
+      toast({ title: "Checkpoint registrado", description: "O marco foi salvo sem alterar a fórmula econômica." });
+      await fetchData();
+    } catch (error: any) {
+      toast({ title: "Não foi possível registrar", description: error.message, variant: "destructive" });
+    }
+  };
+
   if (role !== "admin") return <Navigate to="/" replace />;
   if (loading) return <div className="min-h-screen grid place-items-center"><Settings className="w-10 h-10 animate-spin text-accent" /></div>;
 
@@ -146,20 +164,33 @@ export default function AdminSettings() {
           </div>
         </Card>
 
+        <Card className="p-6 space-y-4">
+          <div className="flex items-center gap-3"><Target className="w-6 h-6 text-accent" /><div><h2 className="text-2xl font-bold">Checkpoints de crescimento</h2><p className="text-sm text-muted-foreground">Marcos internos de revisão. Não alteram Points, pool ou pagamentos.</p></div></div>
+          <p className="text-sm"><strong>{checkpointStatus.paid_users.toLocaleString("pt-BR")}</strong> usuários pagantes válidos hoje.</p>
+          <div className="flex flex-wrap gap-3">
+            {checkpointStatus.checkpoints.map((checkpoint) => (
+              <Button key={checkpoint.threshold} variant={checkpoint.reached_at ? "secondary" : "outline"}
+                disabled={Boolean(checkpoint.reached_at) || checkpointStatus.paid_users < checkpoint.threshold}
+                onClick={() => handleCheckpoint(checkpoint.threshold)}>
+                {checkpoint.threshold.toLocaleString("pt-BR")} {checkpoint.reached_at ? "✓" : ""}
+              </Button>
+            ))}
+          </div>
+        </Card>
+
         <Card className="p-6 space-y-6">
           <div className="flex items-center gap-3"><DollarSign className="w-6 h-6 text-accent" /><div><h2 className="text-2xl font-bold">Economia Classfy V1</h2><p className="text-sm text-muted-foreground">Fonte única usada pelo backend e pela interface.</p></div></div>
 
           <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-5">
             <NumberField label="Pool da receita líquida (%)" value={settings.pool_percentage} min={0} max={100} onChange={(value) => setNumber("pool_percentage", value)} />
-            <NumberField label="Saque mínimo (R$)" value={settings.minimum_withdrawal_amount} min={0} step={0.01} onChange={(value) => setNumber("minimum_withdrawal_amount", value)} />
+            <NumberField label="Saque mínimo (R$)" value={settings.minimum_withdrawal_amount} min={0.01} step={0.01} onChange={(value) => setNumber("minimum_withdrawal_amount", value)} />
             <NumberField label="Comissão Classfy nas vendas (%)" value={settings.sales_commission_percent} min={0} max={100} onChange={(value) => setNumber("sales_commission_percent", value)} />
             <NumberField label="Hold de venda do Creator (dias)" value={settings.creator_sales_hold_days} min={0} max={365} onChange={(value) => setNumber("creator_sales_hold_days", value)} />
             <NumberField label="Carência da assinatura (dias)" value={settings.subscription_grace_period_days} min={0} max={30} onChange={(value) => setNumber("subscription_grace_period_days", value)} />
             <NumberField label="Comissão de indicação (%)" value={settings.referral_commission_percent} min={0} max={50} onChange={(value) => setNumber("referral_commission_percent", value)} />
-            <NumberField label="Teto mensal de conteúdos aprovados" value={settings.approved_content_monthly_limit ?? ""} min={1} placeholder="Sem teto definido" onChange={(value) => setNumber("approved_content_monthly_limit", value === "" ? null : value)} />
           </div>
 
-          <section className="space-y-3"><h3 className="font-semibold">Multiplicador de User Points</h3><div className="grid md:grid-cols-3 gap-4">{(["free", "pro", "premium"] as const).map((plan) => <NumberField key={plan} label={plan.toUpperCase()} value={settings.user_points_multipliers[plan]} min={0} max={10} step={0.1} onChange={(value) => setSettings((current) => ({ ...current, user_points_multipliers: { ...current.user_points_multipliers, [plan]: Number(value) } }))} />)}</div></section>
+          <section className="space-y-3"><h3 className="font-semibold">Multiplicador de User Points</h3><div className="grid md:grid-cols-3 gap-4">{(["free", "pro", "premium"] as const).map((plan) => <NumberField key={plan} label={plan.toUpperCase()} value={settings.user_points_multipliers[plan]} min={0.01} max={10} step={0.1} onChange={(value) => setSettings((current) => ({ ...current, user_points_multipliers: { ...current.user_points_multipliers, [plan]: Number(value) } }))} />)}</div></section>
           <section className="space-y-3"><h3 className="font-semibold">Maturação das recompensas</h3><div className="grid md:grid-cols-3 gap-4">{(["free", "pro", "premium"] as const).map((plan) => <NumberField key={plan} label={`${plan.toUpperCase()} (dias)`} value={settings.reward_maturation_days[plan]} min={0} max={365} onChange={(value) => setSettings((current) => ({ ...current, reward_maturation_days: { ...current.reward_maturation_days, [plan]: Number(value) } }))} />)}</div></section>
 
           <Field label="Motivo da alteração (obrigatório)"><Input value={reason} onChange={(event) => setReason(event.target.value)} placeholder="Ex.: ajuste aprovado para o beta" /></Field>

@@ -9,15 +9,62 @@ import {
 function assertEquals(actual: unknown, expected: unknown, message?: string) {
   const left = JSON.stringify(actual);
   const right = JSON.stringify(expected);
-  if (left !== right) throw new Error(message ?? `Esperado ${right}, recebido ${left}`);
+  if (left !== right) {
+    throw new Error(message ?? `Esperado ${right}, recebido ${left}`);
+  }
 }
 
 Deno.test("Points de usuario respeitam o plano e Creator Points nao recebem multiplicador", () => {
-  assertEquals(calculatePoints({ basePoints: 10, pointType: "user", actorPlan: "free" }), 10);
-  assertEquals(calculatePoints({ basePoints: 10, pointType: "user", actorPlan: "pro" }), 15);
-  assertEquals(calculatePoints({ basePoints: 10, pointType: "user", actorPlan: "premium" }), 20);
-  assertEquals(calculatePoints({ basePoints: 10, pointType: "creator", actorPlan: "premium" }), 10);
-  assertEquals(calculatePoints({ basePoints: 10, pointType: "user", actorPlan: "premium", isOwnContent: true }), 0);
+  assertEquals(
+    calculatePoints({ basePoints: 10, pointType: "user", actorPlan: "free" }),
+    10,
+  );
+  assertEquals(
+    calculatePoints({ basePoints: 10, pointType: "user", actorPlan: "pro" }),
+    15,
+  );
+  assertEquals(
+    calculatePoints({
+      basePoints: 10,
+      pointType: "user",
+      actorPlan: "premium",
+    }),
+    20,
+  );
+  assertEquals(
+    calculatePoints({
+      basePoints: 10,
+      pointType: "creator",
+      actorPlan: "premium",
+    }),
+    10,
+  );
+  assertEquals(
+    calculatePoints({
+      basePoints: 10,
+      pointType: "creator",
+      actorPlan: "free",
+    }),
+    10,
+  );
+  assertEquals(
+    calculatePoints({
+      basePoints: 10,
+      pointType: "user",
+      actorPlan: "premium",
+      isOwnContent: true,
+    }),
+    0,
+  );
+  assertEquals(
+    calculatePoints({
+      basePoints: 10,
+      pointType: "creator",
+      actorPlan: "free",
+      isOwnContent: true,
+    }),
+    0,
+  );
 });
 
 Deno.test("pool usa 40 por cento da receita liquida elegivel", () => {
@@ -48,10 +95,103 @@ Deno.test("entitlement cobre ativo, grace, cancelado e expirado", () => {
   const now = new Date("2026-09-10T12:00:00Z");
   const future = new Date("2026-09-13T12:00:00Z");
   const past = new Date("2026-09-09T12:00:00Z");
-  assertEquals(resolveSubscriptionPlan({ status: "active", stripePlan: "pro", currentPlan: "free", periodEnd: future, graceUntil: null, now }), "pro");
-  assertEquals(resolveSubscriptionPlan({ status: "past_due", stripePlan: "premium", currentPlan: "premium", periodEnd: future, graceUntil: future, now }), "premium");
-  assertEquals(resolveSubscriptionPlan({ status: "past_due", stripePlan: "premium", currentPlan: "premium", periodEnd: future, graceUntil: past, now }), "free");
-  assertEquals(resolveSubscriptionPlan({ status: "canceled", stripePlan: "pro", currentPlan: "pro", periodEnd: future, graceUntil: null, now }), "pro");
-  assertEquals(resolveSubscriptionPlan({ status: "canceled", stripePlan: "pro", currentPlan: "pro", periodEnd: past, graceUntil: null, now }), "free");
-  assertEquals(resolveSubscriptionPlan({ status: "expired", stripePlan: "premium", currentPlan: "premium", periodEnd: future, graceUntil: future, now }), "free");
+  assertEquals(
+    resolveSubscriptionPlan({
+      status: "active",
+      stripePlan: "pro",
+      currentPlan: "free",
+      periodEnd: future,
+      graceUntil: null,
+      now,
+    }),
+    "pro",
+  );
+  assertEquals(
+    resolveSubscriptionPlan({
+      status: "trialing",
+      stripePlan: "premium",
+      currentPlan: "free",
+      periodEnd: future,
+      graceUntil: null,
+      now,
+    }),
+    "premium",
+  );
+  assertEquals(
+    resolveSubscriptionPlan({
+      status: "past_due",
+      stripePlan: "premium",
+      currentPlan: "premium",
+      periodEnd: future,
+      graceUntil: future,
+      now,
+    }),
+    "premium",
+  );
+  assertEquals(
+    resolveSubscriptionPlan({
+      status: "past_due",
+      stripePlan: "premium",
+      currentPlan: "premium",
+      periodEnd: future,
+      graceUntil: past,
+      now,
+    }),
+    "free",
+  );
+  assertEquals(
+    resolveSubscriptionPlan({
+      status: "canceled",
+      stripePlan: "pro",
+      currentPlan: "pro",
+      periodEnd: future,
+      graceUntil: null,
+      now,
+    }),
+    "pro",
+  );
+  assertEquals(
+    resolveSubscriptionPlan({
+      status: "canceled",
+      stripePlan: "pro",
+      currentPlan: "pro",
+      periodEnd: past,
+      graceUntil: null,
+      now,
+    }),
+    "free",
+  );
+  assertEquals(
+    resolveSubscriptionPlan({
+      status: "expired",
+      stripePlan: "premium",
+      currentPlan: "premium",
+      periodEnd: future,
+      graceUntil: future,
+      now,
+    }),
+    "free",
+  );
+  assertEquals(
+    resolveSubscriptionPlan({
+      status: "unpaid",
+      stripePlan: "premium",
+      currentPlan: "premium",
+      periodEnd: future,
+      graceUntil: future,
+      now,
+    }),
+    "free",
+  );
+  assertEquals(
+    resolveSubscriptionPlan({
+      status: "incomplete_expired",
+      stripePlan: "pro",
+      currentPlan: "pro",
+      periodEnd: future,
+      graceUntil: future,
+      now,
+    }),
+    "free",
+  );
 });

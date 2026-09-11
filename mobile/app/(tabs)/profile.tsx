@@ -383,13 +383,13 @@ export default function ProfileScreen() {
         </View>
 
         {/* Nivel usa somente Points de usuario */}
-        <View style={styles.xpCard}>
-          <View style={styles.xpCardHeader}>
+        <View style={styles.pointsCard}>
+          <View style={styles.pointsCardHeader}>
             <View style={styles.levelBadge}>
               <Trophy size={18} color="#000" />
               <Text style={styles.levelText}>Nível {level}</Text>
             </View>
-            <Text style={styles.xpTotalPoints}>{totalPoints.toLocaleString('pt-BR')} Points</Text>
+            <Text style={styles.pointsTotal}>{totalPoints.toLocaleString('pt-BR')} Points</Text>
           </View>
           <View style={styles.progressBarTrack}>
             <View style={[styles.progressBarFill, { width: `${progressPercent}%` }]} />
@@ -730,7 +730,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  xpCard: {
+  pointsCard: {
     backgroundColor: 'rgba(255, 255, 255, 0.02)',
     borderColor: 'rgba(255, 255, 255, 0.05)',
     borderWidth: 1,
@@ -739,7 +739,7 @@ const styles = StyleSheet.create({
     marginTop: spacing.lg,
     marginBottom: spacing.xl,
   },
-  xpCardHeader: {
+  pointsCardHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
@@ -759,7 +759,7 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: 'bold',
   },
-  xpTotalPoints: {
+  pointsTotal: {
     color: colors.textSecondary,
     fontSize: 12,
     fontWeight: 'bold',

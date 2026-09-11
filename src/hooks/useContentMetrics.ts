@@ -55,50 +55,15 @@ export function useContentMetrics({ contentId, duration, onMilestone }: UseConte
     }
   }, [contentId, user, metricsRecorded]);
 
-  const checkBingeWatch = useCallback(async () => {
-    if (!user) return;
-
-    const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
-    const { data: recentCompletions } = await supabase
-      .from("content_metrics")
-      .select("content_id")
-      .eq("user_id", user.id)
-      .eq("event", "complete")
-      .gte("created_at", oneHourAgo)
-      .order("created_at", { ascending: false })
-      .limit(3);
-
-    if (recentCompletions && recentCompletions.length >= 3) {
-      await processReward({
-        actionKey: "BINGE_WATCH",
-        userId: user.id,
-        metadata: { contentCount: recentCompletions.length },
-      });
-    }
-  }, [user, processReward]);
-
   const checkFirstContentWeek = useCallback(async () => {
     if (!user || !contentId) return;
-
-    const startOfWeek = new Date();
-    startOfWeek.setDate(startOfWeek.getDate() - startOfWeek.getDay());
-    startOfWeek.setHours(0, 0, 0, 0);
-
-    const { data: weeklyViews } = await supabase
-      .from("content_metrics")
-      .select("id")
-      .eq("user_id", user.id)
-      .eq("event", "start")
-      .gte("created_at", startOfWeek.toISOString())
-      .limit(1);
-
-    if (!weeklyViews || weeklyViews.length === 0) {
-      await processReward({
-        actionKey: "FIRST_CONTENT_WEEK",
-        userId: user.id,
-        contentId: contentId,
-      });
-    }
+    // A evidência de start já foi persistida. A decisão de primeira ação da
+    // semana e a idempotência pertencem exclusivamente ao servidor.
+    await processReward({
+      actionKey: "FIRST_CONTENT_WEEK",
+      userId: user.id,
+      contentId,
+    });
   }, [user, contentId, processReward]);
 
   const updateWatchTime = useCallback(async (watchedSeconds: number) => {
@@ -197,7 +162,6 @@ export function useContentMetrics({ contentId, duration, onMilestone }: UseConte
         interestMilestonesRef.current.complete = true;
         await trackContentInterest("watch_100");
       }
-      await checkBingeWatch();
       onMilestone?.();
     }
 
@@ -214,7 +178,7 @@ export function useContentMetrics({ contentId, duration, onMilestone }: UseConte
       lastWatchTimeUpdateRef.current = floorRealTime;
       await updateWatchTime(realWatchTime);
     }
-  }, [contentId, user, duration, metricsRecorded, recordMetric, processReward, trackProgress, checkFirstContentWeek, checkBingeWatch, updateWatchTime, trackContentInterest]);
+  }, [contentId, user, duration, metricsRecorded, recordMetric, processReward, trackProgress, checkFirstContentWeek, updateWatchTime, trackContentInterest]);
 
   const registerView = useCallback(async () => {
     if (!user || !contentId) return;

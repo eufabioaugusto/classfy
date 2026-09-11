@@ -55,6 +55,8 @@ export default function AdminUsers() {
   const [selectedUser, setSelectedUser] = useState<UserData | null>(null);
   const [newRole, setNewRole] = useState<string>("");
   const [newPlan, setNewPlan] = useState<string>("");
+  const [changeReason, setChangeReason] = useState("");
+  const [walletAdjustment, setWalletAdjustment] = useState("");
   const [processing, setProcessing] = useState(false);
 
   useEffect(() => {
@@ -88,40 +90,26 @@ export default function AdminUsers() {
   };
 
   const handleSaveChanges = async () => {
-    if (!selectedUser) return;
+    if (!selectedUser || !changeReason.trim()) {
+      toast({ title: "Informe o motivo da alteração", variant: "destructive" });
+      return;
+    }
     setProcessing(true);
 
     try {
-      // Update role if changed
-      const currentRole = selectedUser.user_roles[0]?.role || "user";
-      if (newRole && newRole !== currentRole) {
-        await supabase
-          .from("user_roles")
-          .delete()
-          .eq("user_id", selectedUser.id);
-
-        const { error: roleError } = await supabase
-          .from("user_roles")
-          .insert({
-            user_id: selectedUser.id,
-            role: newRole as "user" | "creator" | "admin",
-          });
-
-        if (roleError) throw roleError;
+      if (!newRole && !newPlan) {
+        toast({ title: "Selecione uma nova função ou plano", variant: "destructive" });
+        return;
       }
-
-      // Update plan if changed
-      if (newPlan && newPlan !== selectedUser.plan) {
-        const { error: planError } = await supabase
-          .from("profiles")
-          .update({ 
-            plan: newPlan as "free" | "pro" | "premium",
-            plan_expires_at: newPlan === "free" ? null : new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString()
-          })
-          .eq("id", selectedUser.id);
-
-        if (planError) throw planError;
-      }
+      const effectivePlan = newPlan as "free" | "pro" | "premium" | "";
+      const { error: accessError } = await supabase.rpc("admin_update_user_access_v1", {
+        p_user_id: selectedUser.id,
+        p_role: (newRole || null) as "user" | "creator" | "admin" | null,
+        p_plan: effectivePlan || null,
+        p_plan_expires_at: !effectivePlan || effectivePlan === "free" ? null : new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString(),
+        p_reason: changeReason.trim(),
+      });
+      if (accessError) throw accessError;
 
       toast({
         title: "Usuário atualizado!",
@@ -131,6 +119,7 @@ export default function AdminUsers() {
       setSelectedUser(null);
       setNewRole("");
       setNewPlan("");
+      setChangeReason("");
       fetchUsers();
     } catch (error: any) {
       toast({
@@ -138,6 +127,33 @@ export default function AdminUsers() {
         description: error.message,
         variant: "destructive",
       });
+    } finally {
+      setProcessing(false);
+    }
+  };
+
+  const handleWalletAdjustment = async () => {
+    if (!selectedUser || !changeReason.trim()) return;
+    const amount = Number(walletAdjustment.replace(",", "."));
+    if (!Number.isFinite(amount) || amount === 0) {
+      toast({ title: "Informe um ajuste diferente de zero", variant: "destructive" });
+      return;
+    }
+    setProcessing(true);
+    try {
+      const { data, error } = await supabase.rpc("adjust_wallet_v1", {
+        p_user_id: selectedUser.id,
+        p_amount: amount,
+        p_reason: changeReason.trim(),
+      });
+      if (error) throw error;
+      toast({ title: "Carteira ajustada", description: `Novo saldo: R$ ${Number((data as any)?.new_balance || 0).toFixed(2)}` });
+      setWalletAdjustment("");
+      setChangeReason("");
+      setSelectedUser(null);
+      await fetchUsers();
+    } catch (error: any) {
+      toast({ title: "Erro ao ajustar carteira", description: error.message, variant: "destructive" });
     } finally {
       setProcessing(false);
     }
@@ -368,6 +384,10 @@ export default function AdminUsers() {
               <Label>Função Atual</Label>
               <div>{getRoleBadge(selectedUser?.user_roles || [])}</div>
             </div>
+            <div className="space-y-2">
+              <Label htmlFor="change-reason">Motivo da alteração</Label>
+              <Input id="change-reason" value={changeReason} onChange={(event) => setChangeReason(event.target.value)} placeholder="Obrigatório para auditoria" />
+            </div>
 
             <div className="space-y-2">
               <Label htmlFor="role">Nova Função</Label>
@@ -404,6 +424,17 @@ export default function AdminUsers() {
                 Planos Pro/Premium terão validade de 1 ano a partir de agora.
               </p>
             </div>
+
+            <div className="space-y-2 border-t pt-4">
+              <Label htmlFor="wallet-adjustment">Ajuste manual da carteira (R$)</Label>
+              <div className="flex gap-2">
+                <Input id="wallet-adjustment" type="number" step="0.01" value={walletAdjustment}
+                  onChange={(event) => setWalletAdjustment(event.target.value)} placeholder="Ex.: 25 ou -10" />
+                <Button type="button" variant="outline" onClick={handleWalletAdjustment}
+                  disabled={processing || !changeReason.trim() || !walletAdjustment}>Aplicar ajuste</Button>
+              </div>
+              <p className="text-xs text-muted-foreground">Cria lançamento no ledger e exige o motivo informado acima.</p>
+            </div>
           </div>
 
           <DialogFooter>
@@ -413,12 +444,14 @@ export default function AdminUsers() {
                 setSelectedUser(null);
                 setNewRole("");
                 setNewPlan("");
+                setChangeReason("");
+                setWalletAdjustment("");
               }}
               disabled={processing}
             >
               Cancelar
             </Button>
-            <Button onClick={handleSaveChanges} disabled={processing}>
+            <Button onClick={handleSaveChanges} disabled={processing || !changeReason.trim() || (!newRole && !newPlan)}>
               Salvar Alterações
             </Button>
           </DialogFooter>

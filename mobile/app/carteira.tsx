@@ -90,7 +90,7 @@ export default function CarteiraScreen() {
 
       if (configRes.data?.value) {
         const economicSettings = configRes.data.value as Record<string, any>;
-        if (economicSettings.minimum_withdrawal_amount) {
+        if (typeof economicSettings.minimum_withdrawal_amount === 'number') {
           setMinWithdrawalAmount(economicSettings.minimum_withdrawal_amount);
         }
       }

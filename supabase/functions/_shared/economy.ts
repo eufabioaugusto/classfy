@@ -11,7 +11,6 @@ export interface EconomySettings {
   creator_sales_hold_days: number;
   subscription_grace_period_days: number;
   referral_commission_percent: number;
-  approved_content_monthly_limit: number | null;
 }
 
 export const DEFAULT_ECONOMY_SETTINGS: EconomySettings = {
@@ -24,7 +23,6 @@ export const DEFAULT_ECONOMY_SETTINGS: EconomySettings = {
   creator_sales_hold_days: 7,
   subscription_grace_period_days: 3,
   referral_commission_percent: 10,
-  approved_content_monthly_limit: null,
 };
 
 export function normalizePlan(value: unknown): Plan {
@@ -32,7 +30,9 @@ export function normalizePlan(value: unknown): Plan {
 }
 
 export function mergeEconomySettings(value: unknown): EconomySettings {
-  const raw = value && typeof value === "object" ? value as Partial<EconomySettings> : {};
+  const raw = value && typeof value === "object"
+    ? value as Partial<EconomySettings>
+    : {};
   return {
     ...DEFAULT_ECONOMY_SETTINGS,
     ...raw,
@@ -75,7 +75,10 @@ export function calculatePointsWithSettings(options: {
   return roundPoints(Math.max(0, options.basePoints) * multiplier);
 }
 
-export function calculateSaleSplit(grossAmount: number, commissionPercent: number) {
+export function calculateSaleSplit(
+  grossAmount: number,
+  commissionPercent: number,
+) {
   const gross = roundMoney(Math.max(0, grossAmount));
   const safePercent = Math.min(100, Math.max(0, commissionPercent));
   const classfyAmount = roundMoney(gross * safePercent / 100);
@@ -88,15 +91,24 @@ export function calculateSaleSplit(grossAmount: number, commissionPercent: numbe
   };
 }
 
-export function calculatePoolAmount(eligibleNetRevenue: number, poolPercentage: number) {
+export function calculatePoolAmount(
+  eligibleNetRevenue: number,
+  poolPercentage: number,
+) {
   const safeRevenue = Math.max(0, eligibleNetRevenue);
   const safePercentage = Math.min(100, Math.max(0, poolPercentage));
   return roundMoney(safeRevenue * safePercentage / 100);
 }
 
-export function allocatePool<T extends { id: string; points: number }>(poolAmount: number, participants: T[]) {
+export function allocatePool<T extends { id: string; points: number }>(
+  poolAmount: number,
+  participants: T[],
+) {
   const valid = participants.filter((participant) => participant.points > 0);
-  const totalPoints = valid.reduce((sum, participant) => sum + participant.points, 0);
+  const totalPoints = valid.reduce(
+    (sum, participant) => sum + participant.points,
+    0,
+  );
   const poolCents = Math.round(Math.max(0, poolAmount) * 100);
   if (totalPoints === 0 || poolCents === 0) {
     return valid.map((participant) => ({ ...participant, amount: 0 }));
@@ -107,14 +119,19 @@ export function allocatePool<T extends { id: string; points: number }>(poolAmoun
     const cents = Math.floor(rawCents);
     return { ...participant, cents, remainder: rawCents - cents };
   });
-  let remaining = poolCents - allocations.reduce((sum, allocation) => sum + allocation.cents, 0);
-  allocations.sort((a, b) => b.remainder - a.remainder || a.id.localeCompare(b.id));
+  let remaining = poolCents -
+    allocations.reduce((sum, allocation) => sum + allocation.cents, 0);
+  allocations.sort((a, b) =>
+    b.remainder - a.remainder || a.id.localeCompare(b.id)
+  );
   for (const allocation of allocations) {
     if (remaining <= 0) break;
     allocation.cents += 1;
     remaining -= 1;
   }
-  return allocations.map(({ cents, remainder: _remainder, ...participant }) => ({
+  return allocations.map((
+    { cents, remainder: _remainder, ...participant },
+  ) => ({
     ...participant,
     amount: cents / 100,
   }));
@@ -132,10 +149,16 @@ export function resolveSubscriptionPlan(options: {
   if (options.status === "active" || options.status === "trialing") {
     return options.stripePlan ?? "free";
   }
-  if (options.status === "past_due" && options.graceUntil && options.graceUntil > now) {
+  if (
+    options.status === "past_due" && options.graceUntil &&
+    options.graceUntil > now
+  ) {
     return options.stripePlan ?? options.currentPlan;
   }
-  if (options.status === "canceled" && options.periodEnd && options.periodEnd > now) {
+  if (
+    options.status === "canceled" && options.periodEnd &&
+    options.periodEnd > now
+  ) {
     return options.stripePlan ?? options.currentPlan;
   }
   return "free";

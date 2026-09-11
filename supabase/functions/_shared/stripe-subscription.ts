@@ -1,6 +1,9 @@
 export type SubscriptionPlan = "pro" | "premium";
 
-export const STRIPE_PLANS: Record<SubscriptionPlan, { name: string; priceId: string; productId: string }> = {
+export const STRIPE_PLANS: Record<
+  SubscriptionPlan,
+  { name: string; priceId: string; productId: string }
+> = {
   pro: {
     name: "Classfy Pro",
     priceId: "price_1SWKSDBW0e1s8a6ZRbWZI6Fm",
@@ -14,10 +17,16 @@ export const STRIPE_PLANS: Record<SubscriptionPlan, { name: string; priceId: str
 };
 
 const PRODUCT_TO_PLAN: Record<string, SubscriptionPlan> = Object.fromEntries(
-  Object.entries(STRIPE_PLANS).map(([plan, config]) => [config.productId, plan])
+  Object.entries(STRIPE_PLANS).map((
+    [plan, config],
+  ) => [config.productId, plan]),
 ) as Record<string, SubscriptionPlan>;
 
-const BILLABLE_SUBSCRIPTION_STATUSES = new Set(["active", "trialing", "past_due"]);
+const BILLABLE_SUBSCRIPTION_STATUSES = new Set([
+  "active",
+  "trialing",
+  "past_due",
+]);
 
 interface StripeCustomer {
   id: string;
@@ -42,11 +51,17 @@ interface StripeSubscription {
 interface StripeClient {
   customers: {
     retrieve: (customerId: string) => Promise<StripeCustomer>;
-    list: (params: { email: string; limit: number }) => Promise<{ data: StripeCustomer[] }>;
-    create: (params: { email: string; metadata: Record<string, string> }) => Promise<StripeCustomer>;
+    list: (
+      params: { email: string; limit: number },
+    ) => Promise<{ data: StripeCustomer[] }>;
+    create: (
+      params: { email: string; metadata: Record<string, string> },
+    ) => Promise<StripeCustomer>;
   };
   subscriptions: {
-    list: (params: { customer: string; status: string; limit: number }) => Promise<{ data: StripeSubscription[] }>;
+    list: (
+      params: { customer: string; status: string; limit: number },
+    ) => Promise<{ data: StripeSubscription[] }>;
   };
 }
 
@@ -54,6 +69,7 @@ interface ProfileBillingState {
   billing_id: string | null;
   plan?: string | null;
   plan_expires_at?: string | null;
+  entitlement_source?: string | null;
 }
 
 interface SupabaseAdminClient {
@@ -67,13 +83,20 @@ export function isSubscriptionPlan(plan: unknown): plan is SubscriptionPlan {
   return plan === "pro" || plan === "premium";
 }
 
-export function getPlanFromProduct(productId?: string | null, fallback?: string | null): SubscriptionPlan {
-  if (productId && PRODUCT_TO_PLAN[productId]) return PRODUCT_TO_PLAN[productId];
+export function getPlanFromProduct(
+  productId?: string | null,
+  fallback?: string | null,
+): SubscriptionPlan {
+  if (productId && PRODUCT_TO_PLAN[productId]) {
+    return PRODUCT_TO_PLAN[productId];
+  }
   if (isSubscriptionPlan(fallback)) return fallback;
   throw new Error(`Unknown Stripe product: ${productId || "missing"}`);
 }
 
-export function getSubscriptionPeriodEnd(subscription: StripeSubscription | null | undefined): string | null {
+export function getSubscriptionPeriodEnd(
+  subscription: StripeSubscription | null | undefined,
+): string | null {
   const currentPeriodEnd = subscription?.current_period_end;
   return typeof currentPeriodEnd === "number"
     ? new Date(currentPeriodEnd * 1000).toISOString()
@@ -81,17 +104,18 @@ export function getSubscriptionPeriodEnd(subscription: StripeSubscription | null
 }
 
 export function getRequestOrigin(req: Request): string {
-  return req.headers.get("origin") || Deno.env.get("APP_URL") || "https://classfy.com.br";
+  return req.headers.get("origin") || Deno.env.get("APP_URL") ||
+    "https://classfy.com.br";
 }
 
 export async function getOrCreateStripeCustomer(
   stripe: StripeClient,
   supabase: SupabaseAdminClient,
-  user: { id: string; email: string }
+  user: { id: string; email: string },
 ) {
   const { data: profile } = await supabase
     .from("profiles")
-    .select("billing_id, plan, plan_expires_at")
+    .select("billing_id, plan, plan_expires_at, entitlement_source")
     .eq("id", user.id)
     .maybeSingle();
 
@@ -100,11 +124,17 @@ export async function getOrCreateStripeCustomer(
       const customer = await stripe.customers.retrieve(profile.billing_id);
       if (!customer?.deleted) return customer.id;
     } catch (error) {
-      console.warn("[STRIPE] Stored billing_id is invalid, searching by email:", error);
+      console.warn(
+        "[STRIPE] Stored billing_id is invalid, searching by email:",
+        error,
+      );
     }
   }
 
-  const customers = await stripe.customers.list({ email: user.email, limit: 1 });
+  const customers = await stripe.customers.list({
+    email: user.email,
+    limit: 1,
+  });
   let customerId = customers.data[0]?.id;
 
   if (!customerId) {
@@ -126,11 +156,11 @@ export async function getOrCreateStripeCustomer(
 export async function findStripeCustomer(
   stripe: StripeClient,
   supabase: SupabaseAdminClient,
-  user: { id: string; email: string }
+  user: { id: string; email: string },
 ) {
   const { data: profile } = await supabase
     .from("profiles")
-    .select("billing_id, plan, plan_expires_at")
+    .select("billing_id, plan, plan_expires_at, entitlement_source")
     .eq("id", user.id)
     .maybeSingle();
 
@@ -139,11 +169,17 @@ export async function findStripeCustomer(
       const customer = await stripe.customers.retrieve(profile.billing_id);
       if (!customer?.deleted) return { customerId: customer.id, profile };
     } catch (error) {
-      console.warn("[STRIPE] Stored billing_id is invalid, searching by email:", error);
+      console.warn(
+        "[STRIPE] Stored billing_id is invalid, searching by email:",
+        error,
+      );
     }
   }
 
-  const customers = await stripe.customers.list({ email: user.email, limit: 1 });
+  const customers = await stripe.customers.list({
+    email: user.email,
+    limit: 1,
+  });
   const customerId = customers.data[0]?.id ?? null;
 
   if (customerId && customerId !== profile?.billing_id) {
@@ -156,7 +192,10 @@ export async function findStripeCustomer(
   return { customerId, profile };
 }
 
-export async function findBillableSubscription(stripe: StripeClient, customerId: string) {
+export async function findBillableSubscription(
+  stripe: StripeClient,
+  customerId: string,
+) {
   const subscriptions = await stripe.subscriptions.list({
     customer: customerId,
     status: "all",

@@ -711,10 +711,12 @@ function WatchContent() {
         toast.error("Apenas administradores podem aprovar conteúdo.");
         return;
       }
+      const reason = window.prompt("Motivo da aprovação (obrigatório):");
+      if (!reason?.trim()) return;
 
       // Update content status using service role through edge function
       const { data: updateData, error: updateError } = await supabase.functions.invoke("approve-content", {
-        body: { contentId: id },
+        body: { contentId: id, itemType: "content", reason: reason.trim() },
       });
 
       if (updateError) throw updateError;
@@ -736,10 +738,12 @@ function WatchContent() {
         toast.error("Apenas administradores podem reprovar conteúdo.");
         return;
       }
+      const reason = window.prompt("Motivo da reprovação (obrigatório):");
+      if (!reason?.trim()) return;
 
       // Update content status using service role through edge function
       const { data: updateData, error: updateError } = await supabase.functions.invoke("reject-content", {
-        body: { contentId: id },
+        body: { contentId: id, itemType: "content", reason: reason.trim() },
       });
 
       if (updateError) throw updateError;

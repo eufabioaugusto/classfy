@@ -77,52 +77,18 @@ export default function AdminCreators() {
   };
 
   const handleApprove = async (request: CreatorRequest) => {
+    const reason = window.prompt("Motivo da aprovação (obrigatório):");
+    if (!reason?.trim()) return;
     setProcessingId(request.id);
     setError(null);
 
     try {
-      // Update creator request
-      const { error: requestError } = await supabase
-        .from('creator_requests')
-        .update({ 
-          status: 'approved',
-          reviewed_at: new Date().toISOString(),
-          reviewed_by: user?.id
-        })
-        .eq('id', request.id);
-
+      const { error: requestError } = await supabase.rpc('review_creator_request_v1', {
+        p_request_id: request.id,
+        p_approved: true,
+        p_reason: reason.trim(),
+      });
       if (requestError) throw requestError;
-
-      // Update profile
-      const { error: profileError } = await supabase
-        .from('profiles')
-        .update({ creator_status: 'approved' })
-        .eq('id', request.user_id);
-
-      if (profileError) throw profileError;
-
-      // Add creator role
-      const { error: roleError } = await supabase
-        .from('user_roles')
-        .insert({ user_id: request.user_id, role: 'creator' });
-
-      if (roleError && !roleError.message.includes('duplicate')) {
-        throw roleError;
-      }
-
-      // Create notification for the user
-      const { error: notificationError } = await supabase
-        .from('notifications')
-        .insert({
-          user_id: request.user_id,
-          type: 'creator_approved',
-          title: '🎉 Parabéns! Você agora é Creator!',
-          message: `Sua solicitação para o canal "${request.channel_name}" foi aprovada! Agora você pode enviar conteúdos e começar a ganhar com suas criações.`,
-        });
-
-      if (notificationError) {
-        console.error('Error creating notification:', notificationError);
-      }
 
       // Send email
       supabase.functions.invoke('send-transactional-email', {
@@ -139,29 +105,18 @@ export default function AdminCreators() {
   };
 
   const handleReject = async (request: CreatorRequest) => {
+    const reason = window.prompt("Motivo da rejeição (obrigatório):");
+    if (!reason?.trim()) return;
     setProcessingId(request.id);
     setError(null);
 
     try {
-      // Update creator request
-      const { error: requestError } = await supabase
-        .from('creator_requests')
-        .update({ 
-          status: 'rejected',
-          reviewed_at: new Date().toISOString(),
-          reviewed_by: user?.id
-        })
-        .eq('id', request.id);
-
+      const { error: requestError } = await supabase.rpc('review_creator_request_v1', {
+        p_request_id: request.id,
+        p_approved: false,
+        p_reason: reason.trim(),
+      });
       if (requestError) throw requestError;
-
-      // Update profile
-      const { error: profileError } = await supabase
-        .from('profiles')
-        .update({ creator_status: 'rejected' })
-        .eq('id', request.user_id);
-
-      if (profileError) throw profileError;
 
       await fetchRequests();
     } catch (error: any) {

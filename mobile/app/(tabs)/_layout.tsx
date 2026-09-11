@@ -247,7 +247,7 @@ function CustomTabBar({ state, descriptors, navigation }: any) {
                     paddingHorizontal: 4,
                   }}
                 >
-                  <Text style={{ color: '#FFF', fontSize: 9, fontWeight: '950' }}>
+                  <Text style={{ color: '#FFF', fontSize: 9, fontWeight: '900' }}>
                     {totalUnread}
                   </Text>
                 </View>

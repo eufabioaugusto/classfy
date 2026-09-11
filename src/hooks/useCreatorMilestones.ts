@@ -192,50 +192,20 @@ export function useCreatorMilestones(creatorId?: string) {
         throw new Error('Milestone não pode ser resgatada');
       }
 
-      // Check if progress exists, create if not
-      const { data: existingProgress } = await supabase
-        .from('creator_milestone_progress')
-        .select('id')
-        .eq('creator_id', creatorId)
-        .eq('milestone_id', milestoneId)
-        .single();
+      // A elegibilidade e o progresso são calculados no servidor. O cliente não
+      // grava milestones e elas não participam da economia ativa.
+      const { error: checkError } = await supabase.functions.invoke('check-creator-milestones', {
+        body: { creatorId },
+      });
+      if (checkError) throw checkError;
 
-      if (existingProgress) {
-        // Update existing progress
-        await supabase
-          .from('creator_milestone_progress')
-          .update({
-            claimed: true,
-            claimed_at: new Date().toISOString(),
-            completed_at: new Date().toISOString(),
-            current_value: milestone.currentValue
-          })
-          .eq('id', existingProgress.id);
-      } else {
-        // Insert new progress
-        await supabase
-          .from('creator_milestone_progress')
-          .insert({
-            creator_id: creatorId,
-            milestone_id: milestoneId,
-            current_value: milestone.currentValue,
-            completed_at: new Date().toISOString(),
-            claimed: true,
-            claimed_at: new Date().toISOString()
-          });
-      }
-
-      // Registrar apenas o reconhecimento; milestones não têm efeito econômico.
-      const { error: rewardError } = await supabase.functions.invoke('claim-creator-milestone', {
+      const { error: claimError } = await supabase.functions.invoke('claim-creator-milestone', {
         body: {
           milestoneId: milestone.id,
           creatorId,
         },
       });
-
-      if (rewardError) {
-        console.error('Erro ao registrar reconhecimento de milestone:', rewardError);
-      }
+      if (claimError) throw claimError;
 
       toast({
         title: '🎉 Meta alcançada!',

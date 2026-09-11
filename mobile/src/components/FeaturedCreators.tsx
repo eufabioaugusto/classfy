@@ -80,12 +80,16 @@ export function FeaturedCreators({ creators }: FeaturedCreatorsProps) {
       // Optimistic state update
       setFollowedIds((prev) => [...prev, creatorId]);
       try {
-        await supabase
+        const { error } = await supabase
           .from('follows')
           .insert({
             follower_id: user.id,
             following_id: creatorId,
           });
+        if (error) throw error;
+        await supabase.functions.invoke('process-reward', {
+          body: { actionKey: 'SUBSCRIBE_CREATOR', userId: user.id, metadata: { creatorId } },
+        });
       } catch (e) {
         console.error('Failed to follow:', e);
       }

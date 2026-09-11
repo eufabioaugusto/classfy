@@ -1,5 +1,5 @@
 import { Session } from '@supabase/supabase-js';
-import { PropsWithChildren, useCallback, useEffect, useMemo, useState } from 'react';
+import { PropsWithChildren, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { isSupabaseConfigured, supabase } from '@/lib/supabase';
 import { registerForPushNotificationsAsync } from '@/lib/notifications';
@@ -9,13 +9,14 @@ export function AuthProvider({ children }: PropsWithChildren) {
   const [session, setSession] = useState<Session | null>(null);
   const [profile, setProfile] = useState<MobileProfile | null>(null);
   const [loading, setLoading] = useState(isSupabaseConfigured);
+  const loginRewardUserRef = useRef<string | null>(null);
 
   const user = session?.user ?? null;
 
   const loadProfile = useCallback(async (userId: string) => {
     const { data, error } = await supabase
       .from('profiles')
-      .select('id,display_name,avatar_url,creator_channel_name,plan,bio,interests,difficulties,cover_image_url,expo_push_token')
+      .select('id,display_name,avatar_url,creator_channel_name,creator_status,plan,bio,interests,difficulties,cover_image_url,expo_push_token')
       .eq('id', userId)
       .maybeSingle();
 
@@ -47,6 +48,24 @@ export function AuthProvider({ children }: PropsWithChildren) {
     setProfile(null);
   }, []);
 
+  const registerLoginRewards = useCallback(async (userId: string) => {
+    if (loginRewardUserRef.current === userId) return;
+    loginRewardUserRef.current = userId;
+    const daily = await supabase.functions.invoke('process-reward', {
+      body: { actionKey: 'DAILY_LOGIN', userId },
+    });
+    if (daily.error) {
+      loginRewardUserRef.current = null;
+      return;
+    }
+    if (Number(daily.data?.currentStreak || 0) >= 7) {
+      const weekly = await supabase.functions.invoke('process-reward', {
+        body: { actionKey: 'WEEKLY_STREAK', userId },
+      });
+      if (weekly.error) loginRewardUserRef.current = null;
+    }
+  }, []);
+
   useEffect(() => {
     if (!isSupabaseConfigured) {
       setLoading(false);
@@ -60,6 +79,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
       setSession(data.session);
       if (data.session?.user.id) {
         await loadProfile(data.session.user.id);
+        void registerLoginRewards(data.session.user.id);
       }
       if (mounted) setLoading(false);
     });
@@ -68,8 +88,10 @@ export function AuthProvider({ children }: PropsWithChildren) {
       setSession(nextSession);
       if (nextSession?.user.id) {
         loadProfile(nextSession.user.id);
+        void registerLoginRewards(nextSession.user.id);
       } else {
         setProfile(null);
+        loginRewardUserRef.current = null;
       }
     });
 
@@ -77,7 +99,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
       mounted = false;
       listener.subscription.unsubscribe();
     };
-  }, [loadProfile]);
+  }, [loadProfile, registerLoginRewards]);
 
   const value = useMemo<AuthContextValue>(
     () => ({

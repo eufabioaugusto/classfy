@@ -86,7 +86,7 @@ interface RewardStats {
 }
 
 export default function RewardsScreen() {
-  const { user, role } = useAuth();
+  const { user, profile } = useAuth();
   const router = useRouter();
   const insets = useSafeAreaInsets();
 
@@ -278,7 +278,7 @@ export default function RewardsScreen() {
 
   const unlockedMilestones = milestones.filter(m => m.isClaimed);
   const lockedMilestones = milestones.filter(m => !m.isClaimed);
-  const isCreator = role === 'creator' || role === 'admin';
+  const isCreator = profile?.creator_status === 'approved';
 
   return (
     <AppScreen>
@@ -396,15 +396,15 @@ export default function RewardsScreen() {
                     <Trophy size={18} color={colors.accent} style={{ marginRight: 8 }} />
                     <Text style={styles.cardTitle}>Nível {stats.level}</Text>
                   </View>
-                  <Text style={styles.xpLabel}>
+                  <Text style={styles.pointsLabel}>
                     {stats.totalPoints.toLocaleString()} Points
                   </Text>
                 </View>
 
-                <View style={styles.xpProgressBg}>
-                  <View style={[styles.xpProgressFill, { width: `${stats.progressPercent}%` }]} />
+                <View style={styles.pointsProgressBg}>
+                  <View style={[styles.pointsProgressFill, { width: `${stats.progressPercent}%` }]} />
                 </View>
-                <Text style={styles.xpSubtext}>
+                <Text style={styles.pointsSubtext}>
                   Faltam {stats.pointsToNextLevel.toLocaleString('pt-BR')} Points para o Nível {stats.level + 1}
                 </Text>
               </View>
@@ -692,23 +692,23 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: typography.weightBold,
   },
-  xpLabel: {
+  pointsLabel: {
     color: colors.muted,
     fontSize: 12,
     fontWeight: typography.weightBold,
   },
-  xpProgressBg: {
+  pointsProgressBg: {
     backgroundColor: 'rgba(255, 255, 255, 0.08)',
     borderRadius: radius.pill,
     height: 8,
     marginBottom: spacing.sm,
     overflow: 'hidden',
   },
-  xpProgressFill: {
+  pointsProgressFill: {
     backgroundColor: colors.accent,
     height: '100%',
   },
-  xpSubtext: {
+  pointsSubtext: {
     color: colors.muted,
     fontSize: 11,
   },

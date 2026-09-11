@@ -172,7 +172,7 @@ export default function CreatorProfileScreen() {
 
       // Fetch stats & content
       const [pointsRes, followersRes, contentsRes, coursesRes, viewsRes] = await Promise.all([
-        supabase.from('reward_events').select('points').eq('user_id', profileData.id),
+        supabase.from('reward_events').select('points, point_type').eq('user_id', profileData.id).eq('point_type', 'user'),
         supabase.from('follows').select('id', { count: 'exact' }).eq('following_id', profileData.id),
         supabase.from('contents').select('*').eq('creator_id', profileData.id).eq('status', 'approved').order('published_at', { ascending: false }),
         supabase.from('courses').select('*').eq('creator_id', profileData.id).eq('status', 'approved').order('created_at', { ascending: false }),
@@ -180,7 +180,9 @@ export default function CreatorProfileScreen() {
       ]);
 
       const totalPoints = pointsRes.data?.reduce((sum, e) => sum + (e.points || 0), 0) || 0;
-      const level = Math.floor(totalPoints / 1000) + 1;
+      const getPointsForLevel = (n: number) => (500 * n * (n - 1)) / 2;
+      let level = 1;
+      while (getPointsForLevel(level + 1) <= totalPoints) level++;
       const totalViews = viewsRes.data?.reduce((sum, c) => sum + (c.views_count || 0), 0) || 0;
 
       const coursesAsContents = (coursesRes.data || []).map((course: any) => ({

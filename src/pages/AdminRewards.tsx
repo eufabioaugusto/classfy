@@ -71,7 +71,6 @@ interface RewardStats {
   action_key: string;
   total_events: number;
   total_points: number;
-  total_value: number;
   last_used: string | null;
 }
 
@@ -159,7 +158,7 @@ export default function AdminRewards() {
   const [poolPercentage, setPoolPercentage] = useState(40);
   const [rbm, setRbm] = useState(0);
   const [prm, setPrm] = useState(0);
-  const [totalPP, setTotalPP] = useState(0);
+  const [totalCyclePoints, setTotalCyclePoints] = useState(0);
   const [cycleUsersCount, setCycleUsersCount] = useState(0);
   const [manualBonus, setManualBonus] = useState("");
   const [bonusDescription, setBonusDescription] = useState("");
@@ -177,7 +176,6 @@ export default function AdminRewards() {
     totalRewards: 0,
     activeRewards: 0,
     totalPointsDistributed: 0,
-    totalValueDistributed: 0,
   });
 
   const [milestoneGlobalStats, setMilestoneGlobalStats] = useState({
@@ -234,24 +232,21 @@ export default function AdminRewards() {
       // Fetch statistics for each reward
       const { data: eventsData, error: eventsError } = await supabase
         .from('reward_events')
-        .select('action_key, points, value, created_at');
+        .select('action_key, points, created_at');
 
       if (eventsError) throw eventsError;
 
       // Calculate stats per action
       const statsMap = new Map<string, RewardStats>();
       let totalPoints = 0;
-      let totalValue = 0;
 
       eventsData?.forEach((event) => {
         const existing = statsMap.get(event.action_key);
         totalPoints += event.points || 0;
-        totalValue += event.value || 0;
 
         if (existing) {
           existing.total_events += 1;
           existing.total_points += event.points || 0;
-          existing.total_value += event.value || 0;
           if (!existing.last_used || event.created_at > existing.last_used) {
             existing.last_used = event.created_at;
           }
@@ -260,7 +255,6 @@ export default function AdminRewards() {
             action_key: event.action_key,
             total_events: 1,
             total_points: event.points || 0,
-            total_value: event.value || 0,
             last_used: event.created_at,
           });
         }
@@ -273,7 +267,6 @@ export default function AdminRewards() {
         totalRewards: rewardsData?.length || 0,
         activeRewards: rewardsData?.filter(r => r.active).length || 0,
         totalPointsDistributed: totalPoints,
-        totalValueDistributed: totalValue,
       });
 
     } catch (error) {
@@ -343,53 +336,23 @@ export default function AdminRewards() {
 
   const fetchEconomyData = async () => {
     try {
-      // Get pool percentage from platform_settings
-      const { data: settings } = await supabase
-        .from('platform_settings')
-        .select('value')
-        .eq('key', 'economic_v1')
-        .single();
-
-      if (settings?.value) {
-        const pct = (settings.value as any).pool_percentage;
-        if (pct) setPoolPercentage(pct);
-      }
-
-      // Get current month's revenue
       const now = new Date();
       const yearMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-
-      const { data: revenueData } = await supabase
-        .from('revenue_entries')
-        .select('*')
-        .eq('year_month', yearMonth)
-        .order('created_at', { ascending: false });
-
+      const [previewResult, revenueResult] = await Promise.all([
+        supabase.rpc('get_economic_cycle_preview_v1', { p_year_month: yearMonth }),
+        supabase.from('revenue_entries').select('*').eq('year_month', yearMonth)
+          .order('created_at', { ascending: false }),
+      ]);
+      if (previewResult.error) throw previewResult.error;
+      if (revenueResult.error) throw revenueResult.error;
+      const preview = previewResult.data as any;
+      const revenueData = revenueResult.data;
       setRevenueHistory(revenueData || []);
-      const currentRbm = revenueData?.reduce((sum, entry: any) => {
-        if (entry.status !== 'confirmed' || !entry.is_pool_eligible) return sum;
-        return sum + parseFloat(String(entry.net_eligible_amount || 0));
-      }, 0) || 0;
-      setRbm(currentRbm);
-      setPrm(currentRbm * (poolPercentage / 100));
-
-      // Get current cycle users
-      const { data: cycle } = await supabase
-        .from('economic_cycles')
-        .select('id')
-        .eq('year_month', yearMonth)
-        .maybeSingle();
-
-      if (cycle) {
-        const { data: cycleUsers } = await supabase
-          .from('economic_cycle_users')
-          .select('cycle_points')
-          .eq('cycle_id', cycle.id);
-
-        const total = cycleUsers?.reduce((sum, user: any) => sum + parseFloat(String(user.cycle_points || 0)), 0) || 0;
-        setTotalPP(total);
-        setCycleUsersCount(cycleUsers?.length || 0);
-      }
+      setPoolPercentage(Number(preview?.pool_percentage || 40));
+      setRbm(Number(preview?.eligible_net_revenue || 0));
+      setPrm(Number(preview?.pool_amount || 0));
+      setTotalCyclePoints(Number(preview?.total_points || 0));
+      setCycleUsersCount(Number(preview?.participants || 0));
     } catch (error) {
       console.error('Error fetching economy data:', error);
     }
@@ -418,7 +381,7 @@ export default function AdminRewards() {
   const handleRunReconciliation = async () => {
     setRunningReconciliation(true);
     try {
-      const { data, error } = await supabase.rpc('run_reconciliation');
+      const { data, error } = await supabase.rpc('run_reconciliation_v1', { p_period: null });
       if (error) throw error;
       toast.success(`Reconciliação concluída: ${data.status === 'ok' ? '✅ OK' : data.status === 'warning' ? '⚠️ Warning' : '🔴 Erro'}`);
       await fetchAuditData();
@@ -437,11 +400,7 @@ export default function AdminRewards() {
     }
     setAddingBonus(true);
     try {
-      const now = new Date();
-      const yearMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-
       const { error } = await supabase.rpc('record_manual_eligible_revenue_v1' as any, {
-        p_year_month: yearMonth,
         p_amount: amount,
         p_description: bonusDescription.trim(),
         p_reason: bonusDescription.trim(),
@@ -624,7 +583,7 @@ export default function AdminRewards() {
           {/* User Rewards Tab */}
           <TabsContent value="rewards" className="space-y-6">
             {/* Global Stats */}
-            <div className="grid gap-4 md:grid-cols-4">
+            <div className="grid gap-4 md:grid-cols-3">
               <Card className="p-6">
                 <div className="flex items-center gap-3">
                   <div className="p-3 bg-primary/10 rounded-lg">
@@ -658,25 +617,12 @@ export default function AdminRewards() {
                     <Coins className="h-6 w-6 text-purple-500" />
                   </div>
                   <div>
-                    <p className="text-sm text-muted-foreground">Pontos Distribuídos</p>
+                    <p className="text-sm text-muted-foreground">Points Distribuídos</p>
                     <h3 className="text-2xl font-bold">{globalStats.totalPointsDistributed.toLocaleString('pt-BR')}</h3>
                   </div>
                 </div>
               </Card>
 
-              <Card className="p-6">
-                <div className="flex items-center gap-3">
-                  <div className="p-3 bg-green-500/10 rounded-lg">
-                    <DollarSign className="h-6 w-6 text-green-500" />
-                  </div>
-                  <div>
-                    <p className="text-sm text-muted-foreground">Valor Distribuído</p>
-                    <h3 className="text-2xl font-bold">
-                      R$ {globalStats.totalValueDistributed.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-                    </h3>
-                  </div>
-                </div>
-              </Card>
             </div>
 
             {/* Search */}
@@ -700,8 +646,8 @@ export default function AdminRewards() {
                     <TableRow>
                       <TableHead>Ação</TableHead>
                       <TableHead>Status</TableHead>
-                       <TableHead className="text-center">Pontos Usuário</TableHead>
-                       <TableHead className="text-center">Pontos Criador</TableHead>
+                       <TableHead className="text-center">Points (origem usuário)</TableHead>
+                       <TableHead className="text-center">Points (origem Creator)</TableHead>
                       <TableHead className="text-center">Uso Total</TableHead>
                       <TableHead className="text-center">Último Uso</TableHead>
                       <TableHead className="text-right">Ações</TableHead>
@@ -733,7 +679,7 @@ export default function AdminRewards() {
                               <div>
                                 <p className="font-medium">{stats.total_events.toLocaleString('pt-BR')}</p>
                                 <p className="text-xs text-muted-foreground">
-                                  {stats.total_points} pts / R$ {stats.total_value.toFixed(2)}
+                                  {stats.total_points} Points
                                 </p>
                               </div>
                             ) : (
@@ -946,7 +892,7 @@ export default function AdminRewards() {
                     <Coins className="h-6 w-6 text-accent" />
                   </div>
                   <div>
-                    <p className="text-sm text-muted-foreground">PRM (Pool)</p>
+                    <p className="text-sm text-muted-foreground">Pool estimado</p>
                     <h3 className="text-2xl font-bold">
                       R$ {prm.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
                     </h3>
@@ -962,7 +908,7 @@ export default function AdminRewards() {
                   </div>
                   <div>
                     <p className="text-sm text-muted-foreground">Points</p>
-                    <h3 className="text-2xl font-bold">{totalPP.toLocaleString('pt-BR')}</h3>
+                    <h3 className="text-2xl font-bold">{totalCyclePoints.toLocaleString('pt-BR')}</h3>
                     <p className="text-xs text-muted-foreground">Total no ciclo</p>
                   </div>
                 </div>
@@ -976,7 +922,7 @@ export default function AdminRewards() {
                   <div>
                     <p className="text-sm text-muted-foreground">Usuários no Pool</p>
                     <h3 className="text-2xl font-bold">{cycleUsersCount}</h3>
-                    <p className="text-xs text-muted-foreground">Com pontos este mês</p>
+                    <p className="text-xs text-muted-foreground">Com Points este mês</p>
                   </div>
                 </div>
               </Card>
@@ -1005,16 +951,16 @@ export default function AdminRewards() {
                   </p>
                 </div>
                 <div>
-                  <label className="text-sm font-medium">PRM Estimado</label>
+                  <label className="text-sm font-medium">Pool estimado pelo servidor</label>
                   <p className="text-2xl font-bold mt-1">
-                    R$ {(rbm * (poolPercentage / 100)).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                    R$ {prm.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
                   </p>
                 </div>
                 <div>
                   <label className="text-sm font-medium">Payout Médio Estimado</label>
                   <p className="text-2xl font-bold mt-1">
                     R$ {cycleUsersCount > 0 
-                      ? ((rbm * (poolPercentage / 100)) / cycleUsersCount).toLocaleString('pt-BR', { minimumFractionDigits: 2 }) 
+                      ? (prm / cycleUsersCount).toLocaleString('pt-BR', { minimumFractionDigits: 2 })
                       : '0,00'}
                   </p>
                   <p className="text-xs text-muted-foreground mt-1">
@@ -1095,36 +1041,6 @@ export default function AdminRewards() {
               </Card>
             )}
 
-            {/* Simulator */}
-            <Card className="p-6">
-              <h3 className="text-lg font-semibold mb-4">Simulador de Distribuição</h3>
-              <div className="space-y-3 text-sm">
-                <div className="flex justify-between py-2 border-b border-border">
-                  <span className="text-muted-foreground">Receita Líquida Elegível</span>
-                  <span className="font-semibold">R$ {rbm.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
-                </div>
-                <div className="flex justify-between py-2 border-b border-border">
-                  <span className="text-muted-foreground">Pool ({poolPercentage}%)</span>
-                  <span className="font-semibold text-primary">R$ {(rbm * (poolPercentage / 100)).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
-                </div>
-                <div className="flex justify-between py-2 border-b border-border">
-                  <span className="text-muted-foreground">Fora do pool ({100 - poolPercentage}%)</span>
-                  <span className="font-semibold">R$ {(rbm * ((100 - poolPercentage) / 100)).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
-                </div>
-                <div className="flex justify-between py-2 border-b border-border">
-                  <span className="text-muted-foreground">Total de Points</span>
-                  <span className="font-semibold">{totalPP.toLocaleString('pt-BR')}</span>
-                </div>
-                <div className="flex justify-between py-2">
-                  <span className="text-muted-foreground">Valor por Ponto</span>
-                  <span className="font-semibold">
-                    R$ {totalPP > 0 
-                      ? ((rbm * (poolPercentage / 100)) / totalPP).toLocaleString('pt-BR', { minimumFractionDigits: 4 }) 
-                      : '—'}
-                  </span>
-                </div>
-              </div>
-            </Card>
           </TabsContent>
 
           {/* ── AUDITORIA ──────────────────────────────────────── */}
@@ -1348,7 +1264,7 @@ export default function AdminRewards() {
             <DialogHeader>
               <DialogTitle>Editar Recompensa</DialogTitle>
               <DialogDescription>
-                Ajuste os valores de pontos e recompensas para esta ação
+                Ajuste os valores de Points e os limites para esta ação
               </DialogDescription>
             </DialogHeader>
 
@@ -1373,11 +1289,11 @@ export default function AdminRewards() {
 
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="text-sm font-medium">Pontos Usuário</label>
+                    <label className="text-sm font-medium">User Points</label>
                     <Input
                       type="number"
                       step="0.01"
-                      min="0"
+                      min="1"
                       value={editingReward.points_user}
                       onChange={(e) =>
                         setEditingReward({ ...editingReward, points_user: parseFloat(e.target.value) || 0 })
@@ -1385,11 +1301,11 @@ export default function AdminRewards() {
                     />
                   </div>
                   <div>
-                    <label className="text-sm font-medium">Pontos Criador</label>
+                    <label className="text-sm font-medium">Creator Points</label>
                     <Input
                       type="number"
                       step="0.01"
-                      min="0"
+                      min="1"
                       value={editingReward.points_creator}
                       onChange={(e) =>
                         setEditingReward({ ...editingReward, points_creator: parseFloat(e.target.value) || 0 })
@@ -1399,7 +1315,7 @@ export default function AdminRewards() {
                 </div>
 
                 <p className="text-xs text-muted-foreground bg-muted/50 p-3 rounded-lg">
-                  💡 Os pontos definem o peso de performance. O valor em R$ é calculado proporcionalmente ao pool no fechamento mensal do ciclo econômico.
+                  💡 Os Points definem o peso de performance. O valor em R$ é calculado proporcionalmente ao pool no fechamento mensal do ciclo econômico.
                 </p>
 
                 <div className="grid grid-cols-2 gap-4">

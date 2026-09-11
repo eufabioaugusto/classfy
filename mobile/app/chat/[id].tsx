@@ -150,8 +150,9 @@ export default function ChatThreadScreen() {
         .single();
 
       if (error) throw error;
-      setOtherUser(data?.profiles);
-      checkMessagePrivacy(data?.profiles?.id);
+      const recipient = Array.isArray(data?.profiles) ? data.profiles[0] : data?.profiles;
+      setOtherUser(recipient ?? null);
+      checkMessagePrivacy(recipient?.id);
     } catch (e) {
       console.error('Error loading recipient info:', e);
     }

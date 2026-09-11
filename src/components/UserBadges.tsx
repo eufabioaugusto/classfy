@@ -35,11 +35,14 @@ export function UserBadges({ userId }: UserBadgesProps) {
       // Fetch points from reward_events (source of truth)
       const { data: rewardEvents } = await supabase
         .from('reward_events')
-        .select('points')
-        .eq('user_id', userId);
+        .select('points, point_type')
+        .eq('user_id', userId)
+        .eq('point_type' as any, 'user');
 
       const totalPoints = rewardEvents?.reduce((sum, event) => sum + event.points, 0) || 0;
-      const level = Math.floor(totalPoints / 1000) + 1;
+      const getPointsForLevel = (n: number) => 500 * n * (n - 1) / 2;
+      let level = 1;
+      while (getPointsForLevel(level + 1) <= totalPoints) level++;
 
       setStats({ level, totalPoints });
 
@@ -84,9 +87,12 @@ export function UserBadges({ userId }: UserBadgesProps) {
 
   const currentPoints = stats?.totalPoints || 0;
   const currentLevel = stats?.level || 1;
-  const pointsInCurrentLevel = currentPoints % 1000;
-  const pointsToNextLevel = 1000 - pointsInCurrentLevel;
-  const progressPercent = (pointsInCurrentLevel / 1000) * 100;
+  const getPointsForLevel = (n: number) => 500 * n * (n - 1) / 2;
+  const pointsAtCurrentLevel = getPointsForLevel(currentLevel);
+  const pointsNeededForNext = getPointsForLevel(currentLevel + 1) - pointsAtCurrentLevel;
+  const pointsInCurrentLevel = currentPoints - pointsAtCurrentLevel;
+  const pointsToNextLevel = Math.ceil(pointsNeededForNext - pointsInCurrentLevel);
+  const progressPercent = (pointsInCurrentLevel / pointsNeededForNext) * 100;
 
   return (
     <div className="space-y-6">
@@ -99,7 +105,7 @@ export function UserBadges({ userId }: UserBadgesProps) {
           <div>
             <h3 className="text-xl font-bold">Nível {currentLevel}</h3>
             <p className="text-sm text-muted-foreground">
-              {currentPoints.toLocaleString('pt-BR')} pontos totais
+              {currentPoints.toLocaleString('pt-BR')} Points totais
             </p>
           </div>
         </div>
@@ -116,7 +122,7 @@ export function UserBadges({ userId }: UserBadgesProps) {
             />
           </div>
           <p className="text-xs text-muted-foreground text-right">
-            {pointsToNextLevel} pontos para o próximo nível
+            {pointsToNextLevel} Points para o próximo nível
           </p>
         </div>
       </Card>

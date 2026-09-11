@@ -96,8 +96,9 @@ export default function CreatorProfile() {
       const [pointsData, followersData, contentsData, coursesData, totalViewsData] = await Promise.all([
         supabase
           .from("reward_events")
-          .select("points")
-          .eq("user_id", profileData.id),
+          .select("points, point_type")
+          .eq("user_id", profileData.id)
+          .eq("point_type" as any, "user"),
         supabase
           .from("follows")
           .select("id", { count: "exact" })
@@ -135,7 +136,9 @@ export default function CreatorProfile() {
       ]);
 
       const totalPoints = pointsData.data?.reduce((sum, event) => sum + event.points, 0) || 0;
-      const level = Math.floor(totalPoints / 1000) + 1;
+      const getPointsForLevel = (n: number) => 500 * n * (n - 1) / 2;
+      let level = 1;
+      while (getPointsForLevel(level + 1) <= totalPoints) level++;
       const totalViews = totalViewsData.data?.reduce((sum, c) => sum + (c.views_count || 0), 0) || 0;
 
       // Merge contents and courses (courses get a virtual content_type for filtering)

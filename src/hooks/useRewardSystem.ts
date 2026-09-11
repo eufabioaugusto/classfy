@@ -94,7 +94,7 @@ export function useRewardSystem() {
       // If already tracked on server, keep in session tracker
       if (data?.alreadyTracked) {
         console.log('Reward already tracked on server:', rewardKey);
-        return null;
+        return data;
       }
 
       if (data?.rewards && data.rewards.length > 0) {
@@ -192,87 +192,15 @@ export function useRewardSystem() {
   };
 
   const checkDailyLogin = async (userId: string) => {
-    // Server-side validation handles duplicate prevention via reward_action_tracking table
     const today = getBrazilDateString();
-    
-    // Update streak (server will handle if already done today)
-    const { data: streak, error: streakError } = await supabase
-      .from('user_login_streaks')
-      .select('*')
-      .eq('user_id', userId)
-      .maybeSingle();
-
-    if (streakError) {
-      console.error('Error fetching login streak:', streakError);
-      return false;
-    }
-
-    const yesterday = new Date();
-    yesterday.setDate(yesterday.getDate() - 1);
-    const yesterdayStr = getBrazilDateString(yesterday);
-
-    let currentStreak = 1;
-
-    if (streak) {
-      // Only update if not already logged in today
-      if (streak.last_login_date !== today) {
-        const isConsecutive = streak.last_login_date === yesterdayStr;
-        currentStreak = isConsecutive ? (streak.current_streak || 0) + 1 : 1;
-        const newLongest = Math.max(currentStreak, streak.longest_streak || 0);
-
-        const { error: updateError } = await supabase
-          .from('user_login_streaks')
-          .update({
-            current_streak: currentStreak,
-            longest_streak: newLongest,
-            last_login_date: today,
-          })
-          .eq('user_id', userId);
-
-        if (updateError) {
-          console.error('Error updating login streak:', updateError);
-          return false;
-        }
-      } else {
-        currentStreak = streak.current_streak || 1;
-      }
-    } else {
-      const { error: insertError } = await supabase
-        .from('user_login_streaks')
-        .insert({
-          user_id: userId,
-          current_streak: 1,
-          longest_streak: 1,
-          last_login_date: today,
-        });
-
-      if (insertError) {
-        console.error('Error creating login streak:', insertError);
-        return false;
-      }
-    }
-
-    // Server validates via reward_action_tracking - will skip if already rewarded today
-    const dailyLoginResult = await processReward({
+    const dailyResult = await processReward({
       actionKey: 'DAILY_LOGIN',
       userId,
       metadata: { date: today },
     });
-
-    if (dailyLoginResult === null) {
-      console.warn('Daily login reward was not confirmed for user:', userId);
-      return false;
+    if (Number(dailyResult?.currentStreak || 0) >= 7) {
+      await processReward({ actionKey: 'WEEKLY_STREAK', userId, metadata: { date: today } });
     }
-
-    // Check WEEKLY_STREAK: reward when streak reaches 7 (or multiples)
-    if (currentStreak >= 7 && currentStreak % 7 === 0) {
-      await processReward({
-        actionKey: 'WEEKLY_STREAK',
-        userId,
-        metadata: { streak: currentStreak, date: today },
-      });
-    }
-
     return true;
   };
 

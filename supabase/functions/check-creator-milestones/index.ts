@@ -1,12 +1,19 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { emailCard, ctaButton, redBadge, sendEmail, APP_URL } from "../_shared/email-template.ts";
+import {
+  APP_URL,
+  ctaButton,
+  emailCard,
+  redBadge,
+  sendEmail,
+} from "../_shared/email-template.ts";
 
 const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY")!;
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Headers":
+    "authorization, x-client-info, apikey, content-type",
 };
 
 interface CreatorMilestone {
@@ -44,29 +51,46 @@ serve(async (req) => {
       throw new Error("creatorId is required");
     }
 
-    const authHeader = req.headers.get('Authorization') || '';
+    const authHeader = req.headers.get("Authorization") || "";
     if (authHeader !== `Bearer ${supabaseServiceKey}`) {
       const authClient = createClient(supabaseUrl, supabaseAnonKey);
-      const { data: { user }, error: authError } = await authClient.auth.getUser(authHeader.replace('Bearer ', ''));
+      const { data: { user }, error: authError } = await authClient.auth
+        .getUser(authHeader.replace("Bearer ", ""));
       if (authError || !user) {
-        return new Response(JSON.stringify({ error: 'Unauthorized' }),
-          { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+        return new Response(JSON.stringify({ error: "Unauthorized" }), {
+          status: 401,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
       }
-      const { data: adminRole } = await supabase.from('user_roles')
-        .select('role').eq('user_id', user.id).eq('role', 'admin').maybeSingle();
+      const { data: adminRole } = await supabase.from("user_roles")
+        .select("role").eq("user_id", user.id).eq("role", "admin")
+        .maybeSingle();
       if (user.id !== creatorId && !adminRole) {
-        return new Response(JSON.stringify({ error: 'Forbidden' }),
-          { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+        return new Response(JSON.stringify({ error: "Forbidden" }), {
+          status: 403,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
       }
     }
 
-    const [{ data: creatorRole }, { data: creatorProfile }] = await Promise.all([
-      supabase.from('user_roles').select('role').eq('user_id', creatorId).eq('role', 'creator').maybeSingle(),
-      supabase.from('profiles').select('creator_status').eq('id', creatorId).single(),
-    ]);
-    if (!creatorRole || creatorProfile?.creator_status !== 'approved') {
-      return new Response(JSON.stringify({ error: 'Approved creator required' }),
-        { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+    const [{ data: creatorRole }, { data: creatorProfile }] = await Promise.all(
+      [
+        supabase.from("user_roles").select("role").eq("user_id", creatorId).eq(
+          "role",
+          "creator",
+        ).maybeSingle(),
+        supabase.from("profiles").select("creator_status").eq("id", creatorId)
+          .single(),
+      ],
+    );
+    if (!creatorRole || creatorProfile?.creator_status !== "approved") {
+      return new Response(
+        JSON.stringify({ error: "Approved creator required" }),
+        {
+          status: 403,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        },
+      );
     }
 
     console.log(`Checking milestones for creator: ${creatorId}`);
@@ -92,7 +116,9 @@ serve(async (req) => {
 
     if (progressError) throw progressError;
 
-    const progressMap = new Map(existingProgress?.map(p => [p.milestone_id, p]) || []);
+    const progressMap = new Map(
+      existingProgress?.map((p) => [p.milestone_id, p]) || [],
+    );
     const newlyCompleted: string[] = [];
 
     // Check each milestone
@@ -108,8 +134,10 @@ serve(async (req) => {
             .from("creator_milestone_progress")
             .update({
               current_value: currentValue,
-              completed_at: isCompleted && !existingRecord.completed_at ? new Date().toISOString() : existingRecord.completed_at,
-              updated_at: new Date().toISOString()
+              completed_at: isCompleted && !existingRecord.completed_at
+                ? new Date().toISOString()
+                : existingRecord.completed_at,
+              updated_at: new Date().toISOString(),
             })
             .eq("id", existingRecord.id);
 
@@ -128,7 +156,7 @@ serve(async (req) => {
             milestone_id: milestone.id,
             current_value: currentValue,
             completed_at: isCompleted ? new Date().toISOString() : null,
-            claimed: false
+            claimed: false,
           });
 
         if (insertError) {
@@ -148,22 +176,29 @@ serve(async (req) => {
         success: true,
         stats,
         milestonesChecked: milestones?.length || 0,
-        newlyCompleted
+        newlyCompleted,
       }),
-      { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      { headers: { ...corsHeaders, "Content-Type": "application/json" } },
     );
-
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : "Unknown error";
+    const errorMessage = error instanceof Error
+      ? error.message
+      : "Unknown error";
     console.error("Error checking milestones:", error);
     return new Response(
       JSON.stringify({ error: errorMessage }),
-      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      {
+        status: 500,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      },
     );
   }
 });
 
-async function getCreatorStats(supabase: any, creatorId: string): Promise<CreatorStats> {
+async function getCreatorStats(
+  supabase: any,
+  creatorId: string,
+): Promise<CreatorStats> {
   // Get total approved contents
   const { count: contentsCount } = await supabase
     .from("contents")
@@ -183,8 +218,14 @@ async function getCreatorStats(supabase: any, creatorId: string): Promise<Creato
     .select("views_count, likes_count")
     .eq("creator_id", creatorId);
 
-  const totalViews = contentsData?.reduce((sum: number, c: any) => sum + (c.views_count || 0), 0) || 0;
-  const totalLikes = contentsData?.reduce((sum: number, c: any) => sum + (c.likes_count || 0), 0) || 0;
+  const totalViews = contentsData?.reduce(
+    (sum: number, c: any) => sum + (c.views_count || 0),
+    0,
+  ) || 0;
+  const totalLikes = contentsData?.reduce(
+    (sum: number, c: any) => sum + (c.likes_count || 0),
+    0,
+  ) || 0;
 
   // Get total earnings from wallet
   const { data: walletData } = await supabase
@@ -194,14 +235,16 @@ async function getCreatorStats(supabase: any, creatorId: string): Promise<Creato
     .single();
 
   // Calculate engagement rate
-  const engagementRate = totalViews > 0 ? Math.round((totalLikes / totalViews) * 100) : 0;
+  const engagementRate = totalViews > 0
+    ? Math.round((totalLikes / totalViews) * 100)
+    : 0;
 
   return {
     totalContents: contentsCount || 0,
     totalFollowers: followersCount || 0,
     totalEarnings: walletData?.total_earned || 0,
     totalViews,
-    engagementRate
+    engagementRate,
   };
 }
 
@@ -222,7 +265,11 @@ function getCurrentValue(stats: CreatorStats, milestoneType: string): number {
   }
 }
 
-async function createNotification(supabase: any, creatorId: string, milestone: CreatorMilestone) {
+async function createNotification(
+  supabase: any,
+  creatorId: string,
+  milestone: CreatorMilestone,
+) {
   try {
     await supabase
       .from("notifications")
@@ -230,18 +277,27 @@ async function createNotification(supabase: any, creatorId: string, milestone: C
         user_id: creatorId,
         type: "milestone_completed",
         title: "🎯 Meta Alcançada!",
-        message: `Parabéns! Você completou a meta "${milestone.title}" e desbloqueou uma nova conquista!`,
-        is_read: false
+        message:
+          `Parabéns! Você completou a meta "${milestone.title}" e desbloqueou uma nova conquista!`,
+        is_read: false,
       });
 
     // Send email
     try {
-      const { data: creatorAuth } = await supabase.auth.admin.getUserById(creatorId);
-      const { data: creatorProfile } = await supabase.from("profiles").select("display_name").eq("id", creatorId).single();
+      const { data: creatorAuth } = await supabase.auth.admin.getUserById(
+        creatorId,
+      );
+      const { data: creatorProfile } = await supabase.from("profiles").select(
+        "display_name",
+      ).eq("id", creatorId).single();
       if (creatorAuth?.user?.email) {
-        const name = creatorProfile?.display_name || creatorAuth.user.email.split("@")[0];
+        const name = creatorProfile?.display_name ||
+          creatorAuth.user.email.split("@")[0];
         const subject = `Meta alcançada: ${milestone.title} — Classfy`;
-        const html = emailCard(subject, `Você desbloqueou a conquista "${milestone.title}"!`, `
+        const html = emailCard(
+          subject,
+          `Você desbloqueou a conquista "${milestone.title}"!`,
+          `
           <p style="margin:0 0 12px;">${redBadge("Conquista desbloqueada")}</p>
           <h1 style="margin:8px 0;font-size:22px;font-weight:700;color:#09090b;">Meta alcançada! 🎯</h1>
           <p style="margin:0 0 4px;font-size:15px;color:#52525b;line-height:1.6;">
@@ -251,7 +307,8 @@ async function createNotification(supabase: any, creatorId: string, milestone: C
             Resgate sua recompensa na plataforma e continue crescendo!
           </p>
           ${ctaButton("Ver minhas metas", `${APP_URL}/studio/goals`)}
-        `);
+        `,
+        );
         await sendEmail(RESEND_API_KEY, creatorAuth.user.email, subject, html);
       }
     } catch (emailErr) {

@@ -104,7 +104,7 @@ export default function Conta() {
 
       if (configRes.data?.value) {
         const configValue = configRes.data.value as { minimum_withdrawal_amount?: number };
-        if (configValue.minimum_withdrawal_amount) {
+        if (typeof configValue.minimum_withdrawal_amount === "number") {
           setMinWithdrawalAmount(configValue.minimum_withdrawal_amount);
         }
       }
