@@ -49,7 +49,7 @@ serve(async (req) => {
       apiVersion: "2025-08-27.basil",
     });
 
-    const { customerId } = await findStripeCustomer(stripe, supabaseClient, {
+    const { customerId, profile } = await findStripeCustomer(stripe, supabaseClient, {
       id: user.id,
       email: user.email,
     });
@@ -88,6 +88,7 @@ serve(async (req) => {
     const targetPlan = STRIPE_PLANS[newPlan];
 
     // Update subscription
+    const isDowngrade = profile?.plan === "premium" && newPlan === "pro";
     const updatedSubscription = await stripe.subscriptions.update(subscription.id, {
       items: [
         {
@@ -95,10 +96,12 @@ serve(async (req) => {
           price: targetPlan.priceId,
         },
       ],
-      proration_behavior: "create_prorations",
+      proration_behavior: isDowngrade ? "none" : "create_prorations",
+      payment_behavior: isDowngrade ? "allow_incomplete" : "pending_if_incomplete",
       metadata: {
         plan_type: newPlan,
         product_id: targetPlan.productId,
+        pending_plan: newPlan,
       },
     });
 
@@ -108,21 +111,24 @@ serve(async (req) => {
       productId: targetPlan.productId,
     });
 
-    // Update profile
-    await supabaseClient
-      .from("profiles")
-      .update({
-        plan: newPlan,
-        plan_expires_at: getSubscriptionPeriodEnd(updatedSubscription),
-        billing_id: customerId,
-      })
-      .eq("id", user.id);
+    const effectiveAt = isDowngrade ? getSubscriptionPeriodEnd(subscription) : getSubscriptionPeriodEnd(updatedSubscription);
+    const { error: syncError } = await supabaseClient.rpc("sync_subscription_state_v1", {
+      p_user_id: user.id,
+      p_status: updatedSubscription.status,
+      p_plan: newPlan,
+      p_period_end: getSubscriptionPeriodEnd(updatedSubscription),
+      p_subscription_id: updatedSubscription.id,
+      p_customer_id: customerId,
+      p_pending_plan: newPlan,
+      p_pending_effective_at: effectiveAt,
+    });
+    if (syncError) throw syncError;
 
     return new Response(JSON.stringify({ 
       success: true,
-      message: action === "upgrade" 
-        ? "Plano atualizado com sucesso! As mudanças são imediatas."
-        : "Plano alterado com sucesso! O valor será ajustado na próxima cobrança."
+      message: action === "upgrade"
+        ? "Upgrade solicitado. O novo plano entra após a confirmação do pagamento."
+        : "Downgrade agendado para o fim do período já pago."
     }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
       status: 200,

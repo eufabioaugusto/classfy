@@ -129,12 +129,13 @@ serve(async (req) => {
 
     // Get commission rate from config
     const { data: config } = await supabaseClient
-      .from("system_config")
-      .select("config_value")
-      .eq("config_key", "referral_commission_rate")
+      .from("platform_settings")
+      .select("value")
+      .eq("key", "economic_v1")
       .single();
 
-    const commissionRate = parseCommissionRate(config?.config_value, 0.10);
+    const configuredPercent = Number(config?.value?.referral_commission_percent);
+    const commissionRate = Number.isFinite(configuredPercent) ? configuredPercent / 100 : 0.10;
     
     // Cap commission rate at 50% for safety
     const safeCommissionRate = Math.min(commissionRate, 0.5);

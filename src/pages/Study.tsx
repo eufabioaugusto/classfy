@@ -1429,8 +1429,7 @@ function StudyContent() {
   const studyVideosCount = studyJourneySummary?.videosCount ?? 0;
   const studyPlaylistsCount = studyJourneySummary?.playlistsCount ?? savedPlaylists.size;
   const studyNotesCount = studyJourneySummary?.notesCount ?? 0;
-  const studyRewardValue = studyJourneySummary?.rewardValue ?? 0;
-  const studyPerformancePoints = studyJourneySummary?.performancePoints ?? 0;
+  const studyRewardPoints = studyJourneySummary?.rewardPoints ?? 0;
   const studyEngagedContentsCount = studyJourneySummary?.engagedContentsCount ?? 0;
   const studyCompletedContentsCount = studyJourneySummary?.completedContentsCount ?? 0;
   const studyRecommendedContentsCount = studyJourneySummary?.totalRecommendedContents ?? 0;
@@ -1497,10 +1496,10 @@ function StudyContent() {
             <span className="truncate">{compactStageLabel}</span>
           </span>
 
-          {studyRewardValue > 0 && (
+          {studyRewardPoints > 0 && (
             <span className="hidden shrink-0 items-center gap-1.5 rounded-full bg-background/92 px-2.5 py-1 text-sm font-semibold text-foreground min-[760px]:inline-flex dark:bg-white/10 dark:text-white">
               <Coins className="h-4 w-4 text-muted-foreground dark:text-white/55" />
-              R$ {studyRewardValue.toFixed(2)}
+              {studyRewardPoints.toLocaleString('pt-BR')} Points
             </span>
           )}
         </div>
@@ -1564,8 +1563,8 @@ function StudyContent() {
               </div>
               <div className="rounded-2xl border border-border/60 bg-muted/35 p-4">
                 <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Ganhos</p>
-                <p className="mt-2 text-lg font-semibold text-foreground">R$ {studyRewardValue.toFixed(2)}</p>
-                <p className="mt-1 text-xs text-muted-foreground">{studyPerformancePoints} pontos de performance</p>
+                <p className="mt-2 text-lg font-semibold text-foreground">{studyRewardPoints.toLocaleString('pt-BR')} Points</p>
+                <p className="mt-1 text-xs text-muted-foreground">Acumulados ao estudar</p>
               </div>
               <div className="rounded-2xl border border-border/60 bg-muted/35 p-4">
                 <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Ritmo</p>

@@ -46,7 +46,7 @@ function buildNudges(
   milestones: WatchMilestones | undefined,
   liveStates: LiveStates | undefined,
   actionPoints: Record<string, number>,
-  earnedPP: number,
+  earnedPoints: number,
 ): NudgeMessage[] {
   const nudges: NudgeMessage[] = [];
   const fmt = (pts: number) => pts > 0 ? `+${pts} pts` : '';
@@ -79,7 +79,7 @@ function buildNudges(
 
   // Social actions
   if (!liveStates?.isLiked) {
-    const pts = actionPoints['LIKE_CONTENT'] || 0;
+    const pts = actionPoints.LIKE || 0;
     nudges.push({
       icon: 'heart-outline',
       text: pts > 0 ? `Curtiu? Deixe o like e ganhe ${fmt(pts)}` : 'Curta e ganhe pontos!',
@@ -87,7 +87,7 @@ function buildNudges(
     });
   }
   if (!liveStates?.isSaved) {
-    const pts = actionPoints['SAVE_CONTENT'] || 0;
+    const pts = actionPoints.SAVE || 0;
     nudges.push({
       icon: 'bookmark-outline',
       text: pts > 0 ? `Salve para depois e ganhe ${fmt(pts)}` : 'Salve este conteúdo!',
@@ -96,7 +96,7 @@ function buildNudges(
   }
 
   // Comment
-  const commentPts = actionPoints['COMMENT_CONTENT'] || 0;
+  const commentPts = actionPoints.COMMENT || 0;
   if (commentPts > 0) {
     nudges.push({
       icon: 'chatbubble-outline',
@@ -106,7 +106,7 @@ function buildNudges(
   }
 
   // All done
-  if (nudges.length === 0 && earnedPP > 0) {
+  if (nudges.length === 0 && earnedPoints > 0) {
     nudges.push({
       icon: 'trophy-outline',
       text: 'Parabéns! Você desbloqueou todos os pontos 🎉',
@@ -195,7 +195,7 @@ function StudyModeBar({
   const displayTitle = summary?.shortTitle || toShortTitle(studyTitle || contentTitle || 'Estudo');
   const progressPercent = summary?.progressPercent ?? 0;
   const stageLabel = summary?.stageLabel || 'Em andamento';
-  const rewardValue = summary?.rewardValue ?? 0;
+  const rewardPoints = summary?.rewardPoints ?? 0;
 
   return (
     <Pressable
@@ -215,11 +215,11 @@ function StudyModeBar({
             <View style={styles.studyDot} />
             <Ionicons name="bulb-outline" size={13} color="rgba(255,255,255,0.7)" style={{ marginRight: 3 }} />
             <Text style={styles.studyStage}>{stageLabel}</Text>
-            {rewardValue > 0 && (
+            {rewardPoints > 0 && (
               <>
                 <View style={styles.studyDot} />
                 <Ionicons name="cash-outline" size={13} color="rgba(255,255,255,0.6)" style={{ marginRight: 3 }} />
-                <Text style={styles.studyReward}>R$ {rewardValue.toFixed(2)}</Text>
+                <Text style={styles.studyReward}>{rewardPoints.toFixed(0)} Points</Text>
               </>
             )}
           </>
@@ -253,7 +253,7 @@ function PointsModeBar({
   milestones?: WatchMilestones;
   watchPercent?: number;
 }) {
-  const [earnedPP, setEarnedPP] = useState(0);
+  const [earnedPoints, setEarnedPoints] = useState(0);
   const [actionPoints, setActionPoints] = useState<Record<string, number>>({});
   const [earned, setEarned] = useState<Record<string, boolean>>({});
   const [loaded, setLoaded] = useState(false);
@@ -263,7 +263,7 @@ function PointsModeBar({
   const fadeAnim = useRef(new Animated.Value(1)).current;
   const slideAnim = useRef(new Animated.Value(0)).current;
 
-  // Earned PP pulse
+  // Animacao dos Points conquistados
   const ppPulse = useRef(new Animated.Value(1)).current;
   const prevEarnedRef = useRef(0);
 
@@ -285,8 +285,8 @@ function PointsModeBar({
     if (!liveStates || !loaded) return;
     setEarned(prev => ({
       ...prev,
-      LIKE_CONTENT: liveStates.isLiked,
-      SAVE_CONTENT: liveStates.isSaved,
+      LIKE: liveStates.isLiked,
+      SAVE: liveStates.isSaved,
     }));
     // Reload to get updated points
     if (userId && contentId) {
@@ -295,19 +295,19 @@ function PointsModeBar({
     }
   }, [liveStates?.isLiked, liveStates?.isSaved]);
 
-  // Animate PP pulse when points change
+  // Animate Points pulse when points change
   useEffect(() => {
-    if (earnedPP > prevEarnedRef.current && prevEarnedRef.current > 0) {
+    if (earnedPoints > prevEarnedRef.current && prevEarnedRef.current > 0) {
       Animated.sequence([
         Animated.timing(ppPulse, { toValue: 1.25, duration: 200, useNativeDriver: true }),
         Animated.timing(ppPulse, { toValue: 1, duration: 300, easing: Easing.bounce, useNativeDriver: true }),
       ]).start();
     }
-    prevEarnedRef.current = earnedPP;
-  }, [earnedPP]);
+    prevEarnedRef.current = earnedPoints;
+  }, [earnedPoints]);
 
   // Build nudges
-  const nudges = buildNudges(milestones, liveStates, actionPoints, earnedPP);
+  const nudges = buildNudges(milestones, liveStates, actionPoints, earnedPoints);
 
   // Rotate nudges every 4s
   useEffect(() => {
@@ -346,7 +346,7 @@ function PointsModeBar({
         supabase
           .from('reward_actions_config')
           .select('action_key, points_user')
-          .in('action_key', ['VIEW_15S', 'WATCH_50', 'WATCH_100', 'LIKE_CONTENT', 'SAVE_CONTENT', 'COMMENT_CONTENT'])
+          .in('action_key', ['VIEW_15S', 'WATCH_50', 'WATCH_100', 'LIKE', 'SAVE', 'COMMENT'])
           .eq('active', true),
         supabase
           .from('reward_events')
@@ -376,19 +376,19 @@ function PointsModeBar({
         VIEW_15S:        permanentKeys.has('VIEW_15S'),
         WATCH_50:        permanentKeys.has('WATCH_50'),
         WATCH_100:       permanentKeys.has('WATCH_100'),
-        LIKE_CONTENT:    !!likeResult.data,
-        SAVE_CONTENT:    !!saveResult.data,
-        COMMENT_CONTENT: (commentResult.data?.length ?? 0) > 0,
+        LIKE:    !!likeResult.data,
+        SAVE:    !!saveResult.data,
+        COMMENT: (commentResult.data?.length ?? 0) > 0,
       };
       setEarned(earnedMap);
 
       const activeEvents = (eventsResult.data || []).filter((e: any) => {
-        if (e.action_key === 'LIKE_CONTENT') return earnedMap.LIKE_CONTENT;
-        if (e.action_key === 'SAVE_CONTENT') return earnedMap.SAVE_CONTENT;
+        if (e.action_key === 'LIKE') return earnedMap.LIKE;
+        if (e.action_key === 'SAVE') return earnedMap.SAVE;
         return true;
       });
-      const totalPP = activeEvents.reduce((sum: number, e: any) => sum + (e.points || 0), 0);
-      setEarnedPP(Math.round(totalPP * 10) / 10);
+      const totalPoints = activeEvents.reduce((sum: number, e: any) => sum + (e.points || 0), 0);
+      setEarnedPoints(Math.round(totalPoints * 10) / 10);
     } catch (e) {
       console.error('WatchRewardBar load error:', e);
     } finally {
@@ -404,15 +404,15 @@ function PointsModeBar({
   return (
     <View style={styles.container}>
       <View style={styles.pointsRow}>
-        {/* Earned PP badge */}
+        {/* Points conquistados */}
         <Animated.View style={[styles.ppBadge, { transform: [{ scale: ppPulse }] }]}>
           <Ionicons
             name="flash"
             size={13}
-            color={earnedPP > 0 ? '#FFF' : 'rgba(255,255,255,0.6)'}
+            color={earnedPoints > 0 ? '#FFF' : 'rgba(255,255,255,0.6)'}
           />
-          <Text style={[styles.ppText, earnedPP > 0 && styles.ppTextActive]}>
-            +{earnedPP}
+          <Text style={[styles.ppText, earnedPoints > 0 && styles.ppTextActive]}>
+            +{earnedPoints}
           </Text>
         </Animated.View>
 

@@ -43,7 +43,7 @@ Deno.serve(async (req) => {
           headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 401,
         });
       }
-      if (user.id !== userId || actionKey !== "LIKE_CONTENT") {
+      if (user.id !== userId || actionKey !== "LIKE") {
         return new Response(JSON.stringify({ error: "Forbidden" }), {
           headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 403,
         });

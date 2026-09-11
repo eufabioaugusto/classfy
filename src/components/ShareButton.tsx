@@ -49,7 +49,7 @@ export function ShareButton({
       // Trigger reward
       if (user) {
         await processReward({
-          actionKey: 'SHARE_CONTENT',
+          actionKey: 'SHARE',
           userId: user.id,
           contentId,
         });
@@ -79,7 +79,7 @@ export function ShareButton({
         // Trigger reward
         if (user) {
           await processReward({
-            actionKey: 'SHARE_CONTENT',
+            actionKey: 'SHARE',
             userId: user.id,
             contentId,
           });

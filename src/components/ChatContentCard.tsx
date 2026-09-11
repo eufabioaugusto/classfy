@@ -62,6 +62,7 @@ export const ChatContentCard = ({
           .select("id")
           .eq("user_id", user.id)
           .eq("content_id", id)
+          .in("status", ["confirmed", "legacy_confirmed"])
           .maybeSingle();
         setIsPurchased(!!data);
       }

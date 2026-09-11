@@ -1,6 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { emailCard, ctaButton, rewardBox, redBadge, sendEmail, APP_URL } from "../_shared/email-template.ts";
+import { emailCard, ctaButton, redBadge, sendEmail, APP_URL } from "../_shared/email-template.ts";
 
 const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY")!;
 
@@ -230,7 +230,7 @@ async function createNotification(supabase: any, creatorId: string, milestone: C
         user_id: creatorId,
         type: "milestone_completed",
         title: "🎯 Meta Alcançada!",
-        message: `Parabéns! Você completou a meta "${milestone.title}". Resgate ${milestone.points_reward} pontos de performance!`,
+        message: `Parabéns! Você completou a meta "${milestone.title}" e desbloqueou uma nova conquista!`,
         is_read: false
       });
 
@@ -241,13 +241,12 @@ async function createNotification(supabase: any, creatorId: string, milestone: C
       if (creatorAuth?.user?.email) {
         const name = creatorProfile?.display_name || creatorAuth.user.email.split("@")[0];
         const subject = `Meta alcançada: ${milestone.title} — Classfy`;
-        const html = emailCard(subject, `Você desbloqueou "${milestone.title}" e ganhou recompensas!`, `
+        const html = emailCard(subject, `Você desbloqueou a conquista "${milestone.title}"!`, `
           <p style="margin:0 0 12px;">${redBadge("Conquista desbloqueada")}</p>
           <h1 style="margin:8px 0;font-size:22px;font-weight:700;color:#09090b;">Meta alcançada! 🎯</h1>
           <p style="margin:0 0 4px;font-size:15px;color:#52525b;line-height:1.6;">
             Parabéns, <strong>${name}</strong>! Você completou a meta <strong>"${milestone.title}"</strong>.
           </p>
-          ${rewardBox(milestone.points_reward, 0)}
           <p style="margin:0 0 16px;font-size:14px;color:#52525b;line-height:1.6;">
             Resgate sua recompensa na plataforma e continue crescendo!
           </p>

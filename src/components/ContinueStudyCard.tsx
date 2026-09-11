@@ -99,7 +99,7 @@ export function ContinueStudyCard({ userId }: ContinueStudyCardProps) {
             videosWatchedCount: summary.videosCount,
             notesCount: summary.notesCount,
             totalStudyTime: summary.estimatedMinutes,
-            totalRewards: summary.rewardValue,
+            totalRewards: summary.rewardPoints,
             progressPercent: summary.progressPercent,
             thumbnailUrl,
             videoUrl,
@@ -207,7 +207,7 @@ export function ContinueStudyCard({ userId }: ContinueStudyCardProps) {
             {/* Rewards - separated on mobile */}
             <div className="flex items-center gap-1.5 mb-4 text-white/90">
               <Coins className="w-3.5 h-3.5 md:w-4 md:h-4" />
-              <span className="text-xs md:text-sm font-medium">R$ {study.totalRewards.toFixed(2)}</span>
+              <span className="text-xs md:text-sm font-medium">{study.totalRewards.toLocaleString('pt-BR')} Points</span>
             </div>
 
             {/* Action Buttons */}

@@ -319,6 +319,7 @@ export default function Shorts() {
         .select("id")
         .eq("user_id", user.id)
         .eq("content_id", short.id)
+        .in("status", ["confirmed", "legacy_confirmed"])
         .maybeSingle();
 
       if (data) {
@@ -409,7 +410,7 @@ export default function Shorts() {
         setLocalLikesCount(prev => prev + 1);
         setIsLiked(true);
         await processReward({
-          actionKey: 'LIKE_CONTENT',
+          actionKey: 'LIKE',
           userId: user.id,
           contentId,
         });
@@ -442,7 +443,7 @@ export default function Shorts() {
         setIsSaved(true);
         toast.success("Salvo com sucesso");
         await processReward({
-          actionKey: 'SAVE_CONTENT',
+          actionKey: 'SAVE',
           userId: user.id,
           contentId,
         });

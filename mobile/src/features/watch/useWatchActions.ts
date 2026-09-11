@@ -78,7 +78,7 @@ export function useWatchActions({ contentId, isCourse = false, initialLikes = 0,
 
     if (hasAccess && !isCourse && !error) {
       supabase.functions.invoke('process-reward', {
-        body: { actionKey: 'LIKE_CONTENT', userId: user.id, contentId },
+        body: { actionKey: 'LIKE', userId: user.id, contentId },
       }).then(() => {});
     }
   }, [contentId, hasAccess, isCourse, isLiked, requireUser, user]);
@@ -101,9 +101,15 @@ export function useWatchActions({ contentId, isCourse = false, initialLikes = 0,
 
       if (!error || error.code === '23505') {
         setter(true);
+        if (!error && hasAccess && !isCourse) {
+          const actionKey = table === 'saved_contents' ? 'SAVE' : 'FAVORITE';
+          supabase.functions.invoke('process-reward', {
+            body: { actionKey, userId: user.id, contentId },
+          }).then(() => {});
+        }
       }
     },
-    [contentId, isCourse, requireUser, user],
+    [contentId, hasAccess, isCourse, requireUser, user],
   );
 
   return {

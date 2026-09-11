@@ -6,7 +6,7 @@ import { Crown, Medal, Trophy, User } from "lucide-react";
 
 interface LeaderboardEntry {
   user_id: string;
-  performance_points: number;
+  cycle_points: number;
   display_name: string;
   avatar_url: string | null;
   rank?: number;
@@ -45,9 +45,9 @@ export function LeaderboardSection({ userId }: LeaderboardSectionProps) {
       // Fetch all users to find current user's rank even if outside top 10
       const { data: cycleUsers } = await supabase
         .from('economic_cycle_users')
-        .select('user_id, performance_points')
+        .select('user_id, cycle_points')
         .eq('cycle_id', cycle.id)
-        .order('performance_points', { ascending: false })
+        .order('cycle_points', { ascending: false })
         .limit(100);
 
       if (!cycleUsers || cycleUsers.length === 0) {
@@ -66,7 +66,7 @@ export function LeaderboardSection({ userId }: LeaderboardSectionProps) {
 
       const leaderboard: LeaderboardEntry[] = cycleUsers.map(u => ({
         user_id: u.user_id,
-        performance_points: parseFloat(String(u.performance_points)),
+        cycle_points: parseFloat(String((u as any).cycle_points || 0)),
         display_name: profileMap.get(u.user_id)?.display_name || 'Usuário',
         avatar_url: profileMap.get(u.user_id)?.avatar_url || null,
       }));
@@ -83,7 +83,7 @@ export function LeaderboardSection({ userId }: LeaderboardSectionProps) {
         const profile = profileMap.get(userId);
         setUserOutsideTop({
           user_id: userId,
-          performance_points: parseFloat(String(userEntry.performance_points)),
+          cycle_points: parseFloat(String((userEntry as any).cycle_points || 0)),
           display_name: profile?.display_name || 'Você',
           avatar_url: profile?.avatar_url || null,
           rank: userEntry.rank,
@@ -122,7 +122,7 @@ export function LeaderboardSection({ userId }: LeaderboardSectionProps) {
             </Badge>
           )}
         </div>
-        <CardDescription>Top performers por Performance Points este mês</CardDescription>
+        <CardDescription>Ranking por Points no ciclo atual</CardDescription>
       </CardHeader>
       <CardContent className="flex-1">
         <div className="space-y-2">
@@ -154,8 +154,8 @@ export function LeaderboardSection({ userId }: LeaderboardSectionProps) {
                   </p>
                 </div>
                 <div className="text-right flex-shrink-0">
-                  <p className="text-sm font-bold">{Math.floor(entry.performance_points).toLocaleString()}</p>
-                  <p className="text-xs text-muted-foreground">pts</p>
+                  <p className="text-sm font-bold">{Math.floor(entry.cycle_points).toLocaleString()}</p>
+                  <p className="text-xs text-muted-foreground">Points</p>
                 </div>
               </div>
             );
@@ -189,8 +189,8 @@ export function LeaderboardSection({ userId }: LeaderboardSectionProps) {
                   </p>
                 </div>
                 <div className="text-right flex-shrink-0">
-                  <p className="text-sm font-bold">{Math.floor(userOutsideTop.performance_points).toLocaleString()}</p>
-                  <p className="text-xs text-muted-foreground">pts</p>
+                  <p className="text-sm font-bold">{Math.floor(userOutsideTop.cycle_points).toLocaleString()}</p>
+                  <p className="text-xs text-muted-foreground">Points</p>
                 </div>
               </div>
             </>

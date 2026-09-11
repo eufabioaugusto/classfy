@@ -102,7 +102,7 @@ export default function Studio() {
         supabase.from('contents').select('id, title, status, created_at, views_count, thumbnail_url, content_type').eq('creator_id', user.id).order('created_at', { ascending: false }).limit(5),
         supabase.from('courses').select('id, title, status, created_at, views_count, thumbnail_url').eq('creator_id', user.id).order('created_at', { ascending: false }).limit(3),
         supabase.from('comments').select(`id, text, created_at, profiles:user_id (display_name, avatar_url), contents!inner(id, title, creator_id)`).eq('contents.creator_id', user.id).order('created_at', { ascending: false }).limit(5),
-        supabase.from('reward_events').select('id, action_key, points, performance_points, created_at, metadata').eq('user_id', user.id).order('created_at', { ascending: false }).limit(5),
+        supabase.from('reward_events').select('id, action_key, points, point_type, created_at, metadata').eq('user_id', user.id).eq('point_type' as any, 'creator').order('created_at', { ascending: false }).limit(5),
       ]);
 
       const totalContentViews = contentsViewsRes.data?.reduce((sum, c) => sum + (c.views_count || 0), 0) || 0;
@@ -181,11 +181,11 @@ export default function Studio() {
       'VIEW_15S': 'Visualização (+15s)',
       'WATCH_50': 'Assistiu 50%',
       'WATCH_100': 'Assistiu 100%',
-      'LIKE_CONTENT': 'Curtiu Conteúdo',
-      'SAVE_CONTENT': 'Salvou Conteúdo',
-      'FAVORITE_CONTENT': 'Favoritou Conteúdo',
-      'COMMENT_CONTENT': 'Comentou',
-      'SHARE_CONTENT': 'Compartilhou',
+      'LIKE': 'Curtiu Conteúdo',
+      'SAVE': 'Salvou Conteúdo',
+      'FAVORITE': 'Favoritou Conteúdo',
+      'COMMENT': 'Comentou',
+      'SHARE': 'Compartilhou',
       'SUBSCRIBE_CREATOR': 'Seguiu Creator',
       'DAILY_LOGIN': 'Login Diário',
       'WEEKLY_STREAK': 'Sequência Semanal',
@@ -573,7 +573,7 @@ export default function Studio() {
                           </div>
                           <div className="text-right">
                             <p className="text-sm font-semibold text-accent">
-                              +{reward.performance_points || reward.points} pts
+                              +{reward.points} Points
                             </p>
                           </div>
                         </div>

@@ -20,12 +20,12 @@ const TRACKED_ACTIONS = [
   { key: "VIEW_15S",       label: "Assistiu",      icon: Eye },
   { key: "WATCH_50",       label: "50% concluído", icon: PlayCircle },
   { key: "WATCH_100",      label: "Completou",     icon: CheckCircle2 },
-  { key: "LIKE_CONTENT",   label: "Curtiu",        icon: Heart },
-  { key: "SAVE_CONTENT",   label: "Salvou",        icon: Bookmark },
-  { key: "COMMENT_CONTENT",label: "Comentou",      icon: MessageCircle },
+  { key: "LIKE",           label: "Curtiu",        icon: Heart },
+  { key: "SAVE",           label: "Salvou",        icon: Bookmark },
+  { key: "COMMENT",        label: "Comentou",      icon: MessageCircle },
 ];
 
-const WATCH_KEYS = new Set(["VIEW_15S", "WATCH_50", "WATCH_100", "COMMENT_CONTENT"]);
+const WATCH_KEYS = new Set(["VIEW_15S", "WATCH_50", "WATCH_100", "COMMENT"]);
 
 interface LiveStates {
   isLiked: boolean;
@@ -94,7 +94,7 @@ export function ContentRewardProgress({ contentId, refreshTrigger, liveStates, s
   const { user } = useAuth();
   const navigate = useNavigate();
   const [actions, setActions] = useState<ActionState[]>([]);
-  const [earnedPP, setEarnedPP] = useState(0);
+  const [earnedPoints, setEarnedPoints] = useState(0);
   const [initialLoading, setInitialLoading] = useState(true);
   const [burstKeys, setBurstKeys] = useState<Set<string>>(new Set());
   const [resolvedStudyTitle, setResolvedStudyTitle] = useState(studyTitle?.trim() || "");
@@ -202,15 +202,15 @@ export function ContentRewardProgress({ contentId, refreshTrigger, liveStates, s
     const prev = actionsRef.current;
     const toTrigger: string[] = [];
 
-    const wasLiked = prev.find(a => a.key === "LIKE_CONTENT")?.earned ?? false;
-    const wasSaved = prev.find(a => a.key === "SAVE_CONTENT")?.earned ?? false;
+    const wasLiked = prev.find(a => a.key === "LIKE")?.earned ?? false;
+    const wasSaved = prev.find(a => a.key === "SAVE")?.earned ?? false;
 
-    if (!wasLiked && liveStates.isLiked) toTrigger.push("LIKE_CONTENT");
-    if (!wasSaved && liveStates.isSaved) toTrigger.push("SAVE_CONTENT");
+    if (!wasLiked && liveStates.isLiked) toTrigger.push("LIKE");
+    if (!wasSaved && liveStates.isSaved) toTrigger.push("SAVE");
 
     setActions(current => current.map(a => {
-      if (a.key === "LIKE_CONTENT") return { ...a, earned: liveStates.isLiked };
-      if (a.key === "SAVE_CONTENT") return { ...a, earned: liveStates.isSaved };
+      if (a.key === "LIKE") return { ...a, earned: liveStates.isLiked };
+      if (a.key === "SAVE") return { ...a, earned: liveStates.isSaved };
       return a;
     }));
 
@@ -253,17 +253,17 @@ export function ContentRewardProgress({ contentId, refreshTrigger, liveStates, s
         VIEW_15S:        permanentKeys.has("VIEW_15S"),
         WATCH_50:        permanentKeys.has("WATCH_50"),
         WATCH_100:       permanentKeys.has("WATCH_100"),
-        LIKE_CONTENT:    !!likeResult.data,
-        SAVE_CONTENT:    !!saveResult.data,
-        COMMENT_CONTENT: (commentResult.data?.length ?? 0) > 0,
+        LIKE:            !!likeResult.data,
+        SAVE:            !!saveResult.data,
+        COMMENT:         (commentResult.data?.length ?? 0) > 0,
       };
 
       const activeEvents = (eventsResult.data || []).filter(e => {
-        if (e.action_key === "LIKE_CONTENT") return earnedMap.LIKE_CONTENT;
-        if (e.action_key === "SAVE_CONTENT") return earnedMap.SAVE_CONTENT;
+        if (e.action_key === "LIKE") return earnedMap.LIKE;
+        if (e.action_key === "SAVE") return earnedMap.SAVE;
         return true;
       });
-      const totalPP = activeEvents.reduce((sum, e) => sum + (e.points || 0), 0);
+      const totalPoints = activeEvents.reduce((sum, e) => sum + (e.points || 0), 0);
 
       const built: ActionState[] = TRACKED_ACTIONS.map(a => ({
         ...a,
@@ -282,7 +282,7 @@ export function ContentRewardProgress({ contentId, refreshTrigger, liveStates, s
       }
 
       setActions(built);
-      setEarnedPP(Math.round(totalPP * 10) / 10);
+      setEarnedPoints(Math.round(totalPoints * 10) / 10);
     } finally {
       if (isInitial) setInitialLoading(false);
     }
@@ -292,7 +292,7 @@ export function ContentRewardProgress({ contentId, refreshTrigger, liveStates, s
     const title = studySummary?.shortTitle || toShortTitle(resolvedStudyTitle) || "Estudo";
     const progressPercent = studySummary?.progressPercent ?? 0;
     const stageLabel = studySummary?.stageLabel || "Em andamento";
-    const rewardValue = studySummary?.rewardValue ?? 0;
+    const rewardPoints = studySummary?.rewardPoints ?? 0;
 
     return (
       <button
@@ -317,7 +317,7 @@ export function ContentRewardProgress({ contentId, refreshTrigger, liveStates, s
                 <span className="hidden h-1 w-1 shrink-0 rounded-full bg-white/35 min-[560px]:block" />
                 <span className="hidden shrink-0 items-center gap-1 font-semibold text-white min-[560px]:inline-flex">
                   <Coins className="h-3.5 w-3.5 text-white/60" />
-                  R$ {rewardValue.toFixed(2)}
+                  {rewardPoints.toLocaleString('pt-BR')} Points
                 </span>
               </>
             )}
@@ -342,28 +342,28 @@ export function ContentRewardProgress({ contentId, refreshTrigger, liveStates, s
   if (initialLoading) return null;
   if (actions.length === 0) return null;
 
-  const availablePP = Math.round(
+  const availablePoints = Math.round(
     actions.filter(a => !a.earned && a.points > 0).reduce((sum, a) => sum + a.points, 0) * 10
   ) / 10;
 
-  const allDone = availablePP === 0;
+  const allDone = availablePoints === 0;
 
   return (
     <div
       className="flex items-center gap-3 px-3 py-2 rounded-lg bg-card/60 border border-border/40 backdrop-blur-sm"
       style={{ overflow: "visible" }}
     >
-      {/* PP earned */}
+      {/* Points ganhos */}
       <div className="flex items-center gap-1.5 shrink-0">
-        <Zap className={cn("w-3.5 h-3.5", earnedPP > 0 ? "text-red-500" : "text-muted-foreground")} />
+        <Zap className={cn("w-3.5 h-3.5", earnedPoints > 0 ? "text-red-500" : "text-muted-foreground")} />
         <motion.span
-          key={earnedPP}
-          initial={{ scale: earnedPP > 0 ? 1.35 : 1 }}
+          key={earnedPoints}
+          initial={{ scale: earnedPoints > 0 ? 1.35 : 1 }}
           animate={{ scale: 1 }}
           transition={{ duration: 0.3, ease: "easeOut" }}
-          className={cn("text-sm font-semibold tabular-nums", earnedPP > 0 ? "text-red-500" : "text-muted-foreground")}
+          className={cn("text-sm font-semibold tabular-nums", earnedPoints > 0 ? "text-red-500" : "text-muted-foreground")}
         >
-          +{earnedPP} pts
+          +{earnedPoints} Points
         </motion.span>
       </div>
 
@@ -412,17 +412,17 @@ export function ContentRewardProgress({ contentId, refreshTrigger, liveStates, s
         })}
       </div>
 
-      {/* Available PP hint */}
+      {/* Points ainda disponíveis */}
       {!allDone && (
         <>
           <div className="w-px h-4 bg-border/60 shrink-0" />
           <span className="text-xs text-muted-foreground shrink-0">
-            Ganhe até +{availablePP} pts
+            Ganhe até +{availablePoints} Points
           </span>
         </>
       )}
 
-      {allDone && earnedPP > 0 && (
+      {allDone && earnedPoints > 0 && (
         <>
           <div className="w-px h-4 bg-border/60 shrink-0" />
           <span className="text-xs text-emerald-500 shrink-0 font-medium">

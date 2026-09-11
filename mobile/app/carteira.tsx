@@ -70,7 +70,7 @@ export default function CarteiraScreen() {
         supabase
           .from('platform_settings')
           .select('value')
-          .eq('key', 'economic')
+          .eq('key', 'economic_v1')
           .maybeSingle(),
         supabase
           .from('withdraw_requests')
@@ -110,15 +110,15 @@ export default function CarteiraScreen() {
 
         const last7DaysSum = rewardsRes.data
           .filter((r: any) => new Date(r.created_at) >= last7Days)
-          .reduce((acc: number, r: any) => acc + Number(r.performance_points || 0), 0);
+          .reduce((acc: number, r: any) => acc + Number(r.points || 0), 0);
 
         const last30DaysSum = rewardsRes.data
           .filter((r: any) => new Date(r.created_at) >= last30Days)
-          .reduce((acc: number, r: any) => acc + Number(r.performance_points || 0), 0);
+          .reduce((acc: number, r: any) => acc + Number(r.points || 0), 0);
 
         const thisMonthSum = rewardsRes.data
           .filter((r: any) => new Date(r.created_at) >= monthStart)
-          .reduce((acc: number, r: any) => acc + Number(r.performance_points || 0), 0);
+          .reduce((acc: number, r: any) => acc + Number(r.points || 0), 0);
 
         setStats({
           last7Days: last7DaysSum,
@@ -150,7 +150,7 @@ export default function CarteiraScreen() {
       return;
     }
 
-    if (amount > wallet.balance) {
+    if (amount > Number(wallet.balance || 0) - Number(wallet.reserved_balance || 0)) {
       Alert.alert('Erro', 'Você não possui saldo suficiente para este saque.');
       setSubmitting(false);
       return;
@@ -184,6 +184,7 @@ export default function CarteiraScreen() {
 
   const getStatusIcon = (status: string) => {
     switch (status) {
+      case 'paid':
       case 'approved':
         return <CheckCircle size={14} color="#22c55e" />;
       case 'pending':
@@ -197,8 +198,10 @@ export default function CarteiraScreen() {
 
   const getStatusText = (status: string) => {
     switch (status) {
+      case 'paid':
+        return 'Pago';
       case 'approved':
-        return 'Aprovado';
+        return 'Aprovado (legado)';
       case 'pending':
         return 'Pendente';
       case 'rejected':
@@ -211,6 +214,12 @@ export default function CarteiraScreen() {
   const getActionLabel = (actionKey: string) => {
     const labels: Record<string, string> = {
       VIEW_15S: 'Visualização (15s)',
+      LIKE: 'Curtida',
+      COMMENT: 'Comentário',
+      SAVE: 'Salvamento',
+      FAVORITE: 'Favorito',
+      SHARE: 'Compartilhamento',
+      // Alias historicos preservados somente para leitura do extrato antigo.
       LIKE_CONTENT: 'Curtida',
       COMMENT_CONTENT: 'Comentário',
       SAVE_CONTENT: 'Salvamento',
@@ -310,7 +319,7 @@ export default function CarteiraScreen() {
               <View style={[styles.balanceItem, { borderColor: 'rgba(34,197,94,0.3)' }]}>
                 <Text style={styles.balanceLabel}>Saldo Disponível</Text>
                 <Text style={[styles.balanceValue, { color: '#22c55e' }]}>
-                  R$ {wallet?.balance?.toFixed(2) || '0.00'}
+                  R$ {(Number(wallet?.balance || 0) - Number(wallet?.reserved_balance || 0)).toFixed(2)}
                 </Text>
                 <Text style={styles.balanceSub}>Para saque</Text>
               </View>
@@ -344,7 +353,7 @@ export default function CarteiraScreen() {
                 <Text style={[styles.balanceValue, { color: colors.accent }]}>
                   {Math.floor(stats.thisMonth)} pts
                 </Text>
-                <Text style={styles.balanceSub}>Pontos de pool</Text>
+                <Text style={styles.balanceSub}>Points acumulados</Text>
               </View>
             </ScrollView>
 
@@ -424,8 +433,7 @@ export default function CarteiraScreen() {
                         </View>
                       </View>
                       <View style={styles.earningRight}>
-                        <Text style={styles.earningPoints}>+{Math.floor(item.performance_points || 0)} pts</Text>
-                        <Text style={styles.earningXp}>{item.points} XP</Text>
+                        <Text style={styles.earningPoints}>+{Number(item.points || 0).toFixed(1)} Points</Text>
                       </View>
                     </View>
                   ))

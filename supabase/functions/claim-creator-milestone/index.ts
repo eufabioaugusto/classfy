@@ -81,39 +81,6 @@ Deno.serve(async (req) => {
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
     }
 
-    // Obter ciclo atual
-    const { data: cycleId, error: cycleError } = await supabase.rpc('get_or_create_current_cycle');
-    if (cycleError || !cycleId) throw cycleError || new Error('Ciclo econômico indisponível');
-    const ppAmount = milestone.points_reward;
-    const trackingKey = `CREATOR_MILESTONE_CLAIM_${milestoneId}`;
-    const rewardMetadata = {
-      milestoneId,
-      milestoneTitle: milestone.title,
-      milestoneType: milestone.milestone_type,
-      milestoneValue: milestone.milestone_value,
-      tracking_key: trackingKey,
-    };
-    const { data: committed, error: commitError } = await supabase.rpc('commit_reward_award', {
-      p_tracking_user_id: creatorId,
-      p_tracking_action_key: trackingKey,
-      p_tracking_content_id: null,
-      p_tracking_metadata: rewardMetadata,
-      p_cycle_id: cycleId,
-      p_actor_event: {
-        user_id: creatorId,
-        action_key: 'CREATOR_MILESTONE_CLAIM',
-        points: ppAmount,
-        performance_points: ppAmount,
-        metadata: rewardMetadata,
-      },
-      p_creator_event: null,
-    });
-    if (commitError) throw commitError;
-    if (committed?.already_tracked) {
-      return new Response(JSON.stringify({ success: false, alreadyClaimed: true }),
-        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
-    }
-
     const { error: claimedError } = await supabase
       .from('creator_milestone_progress')
       .update({ claimed: true, claimed_at: new Date().toISOString() })
@@ -124,15 +91,15 @@ Deno.serve(async (req) => {
     // Notificação
     await supabase.from('notifications').insert({
       user_id: creatorId,
-      type:    'reward',
+      type:    'milestone_completed',
       title:   '🎉 Meta alcançada!',
-      message: `Você resgatou "${milestone.title}" e ganhou +${ppAmount} PP no pool mensal!`,
+      message: `Você concluiu a meta "${milestone.title}" e desbloqueou essa conquista.`,
     });
 
-    console.log(`Milestone claimed: ${milestoneId} by creator ${creatorId.slice(0, 8)}, PP: ${ppAmount}`);
+    console.log(`Milestone recognized: ${milestoneId} by creator ${creatorId.slice(0, 8)}`);
 
     return new Response(
-      JSON.stringify({ success: true, performance_points: ppAmount }),
+      JSON.stringify({ success: true, points: 0, recognitionOnly: true }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   } catch (err) {

@@ -168,7 +168,7 @@ export function ContinueStudyCard({ userId }: ContinueStudyCardProps) {
               </View>
               <View style={styles.metricItem}>
                 <Ionicons name="cash-outline" size={14} color="#fff" />
-                <Text style={styles.metricLabel}>R$ {study.rewardValue.toFixed(2)}</Text>
+                <Text style={styles.metricLabel}>{study.rewardPoints.toFixed(0)} Points</Text>
               </View>
             </View>
 

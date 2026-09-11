@@ -84,7 +84,7 @@ serve(async (req) => {
     }
 
     const subscription = await findBillableSubscription(stripe, customerId);
-    const hasActiveSub = Boolean(subscription);
+    let hasActiveSub = Boolean(subscription);
     let planType = 'free';
     let subscriptionEnd = null;
 
@@ -102,24 +102,31 @@ serve(async (req) => {
         endDate: subscriptionEnd,
       });
 
-      // Update profile with subscription info
-      await supabaseClient
-        .from('profiles')
-        .update({
-          plan: planType,
-          plan_expires_at: subscriptionEnd,
-          billing_id: customerId,
-        })
-        .eq('id', user.id);
+      const { data: synced, error: syncError } = await supabaseClient.rpc('sync_subscription_state_v1', {
+        p_user_id: user.id,
+        p_status: subscription.status,
+        p_plan: planType,
+        p_period_end: subscriptionEnd,
+        p_subscription_id: subscription.id,
+        p_customer_id: customerId,
+        p_pending_plan: subscription.metadata?.pending_plan || null,
+        p_pending_effective_at: subscription.metadata?.pending_plan ? subscriptionEnd : null,
+      });
+      if (syncError) throw syncError;
+      planType = synced?.plan || 'free';
+      hasActiveSub = planType !== 'free';
     } else {
-      await supabaseClient
-        .from("profiles")
-        .update({
-          plan: "free",
-          plan_expires_at: null,
-          billing_id: customerId,
-        })
-        .eq("id", user.id);
+      const { error: syncError } = await supabaseClient.rpc('sync_subscription_state_v1', {
+        p_user_id: user.id,
+        p_status: 'free',
+        p_plan: null,
+        p_period_end: null,
+        p_subscription_id: null,
+        p_customer_id: customerId,
+        p_pending_plan: null,
+        p_pending_effective_at: null,
+      });
+      if (syncError) throw syncError;
     }
 
     return new Response(JSON.stringify({

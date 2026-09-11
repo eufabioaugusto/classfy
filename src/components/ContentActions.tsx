@@ -157,7 +157,7 @@ export function ContentActions({
           <AlertDialogHeader>
             <AlertDialogTitle>Tem certeza disso?</AlertDialogTitle>
             <AlertDialogDescription>
-              Ao remover o like, você perderá <span className="font-bold text-destructive">{Math.floor(unlikeConfirmation.rewardValue)} pontos de performance</span>.
+              Ao remover o like, você perderá <span className="font-bold text-destructive">{Math.floor(unlikeConfirmation.rewardValue)} Points</span>.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

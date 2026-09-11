@@ -93,7 +93,7 @@ export function CreatorMilestoneItem({
             className="shrink-0"
           >
             <Gift className="w-4 h-4 mr-1" />
-            Resgatar
+            Reconhecer
           </Button>
         )}
       </div>
@@ -169,17 +169,12 @@ export function CreatorMilestoneItem({
           </div>
 
           <div className="flex items-center justify-between mt-4">
-            <div className="flex items-center gap-3">
-              <div className="flex items-center gap-1.5 text-sm">
-                <span className="text-muted-foreground">Pontos:</span>
-                <span className="font-semibold text-accent">+{milestone.points_reward} XP</span>
-              </div>
-            </div>
+            <span className="text-sm text-muted-foreground">Conquista sem prêmio econômico</span>
 
             {milestone.isClaimed ? (
               <span className="text-sm text-muted-foreground flex items-center gap-1">
                 <Check className="w-4 h-4" />
-                Resgatado
+                Reconhecido
               </span>
             ) : milestone.isCompleted ? (
               <Button 
@@ -188,7 +183,7 @@ export function CreatorMilestoneItem({
                 className="gap-2"
               >
                 <Gift className="w-4 h-4" />
-                Resgatar Recompensa
+                Reconhecer Conquista
               </Button>
             ) : (
               <span className="text-sm text-muted-foreground flex items-center gap-1">

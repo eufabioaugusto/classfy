@@ -1,394 +1,51 @@
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.81.1';
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.81.1";
 
 const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-const BATCH_SIZE = 500;
-const DEFAULT_MIN_PAYOUT = 0.10; // R$ 0.10 minimum to avoid micro-payments
-const BUFFER_PERCENTAGE = 5; // 5% of PRM reserved as transition buffer
-const SHARP_DROP_THRESHOLD = 0.40; // 40% drop in value-per-point triggers buffer usage
-
 Deno.serve(async (req) => {
-  if (req.method === 'OPTIONS') {
-    return new Response(null, { headers: corsHeaders });
-  }
+  if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   try {
-    const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
-    const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
-    const supabaseAnonKey = Deno.env.get('SUPABASE_ANON_KEY')!;
+    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+    const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+    const anonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
+    const authorization = req.headers.get("Authorization") || "";
 
-    // Auth: exige service_role para automacao ou JWT de admin para acionamento manual.
-    const authHeader = req.headers.get('Authorization');
-    if (authHeader === `Bearer ${supabaseServiceKey}`) {
-      console.log('Service trigger authorized');
-    } else if (authHeader) {
-      const authClient = createClient(supabaseUrl, supabaseAnonKey);
-      const { data: { user }, error: authError } = await authClient.auth.getUser(
-        authHeader.replace('Bearer ', '')
-      );
-      if (authError || !user) {
-        return new Response(
-          JSON.stringify({ error: 'Unauthorized' }),
-          { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 401 }
-        );
-      }
-      const adminClient = createClient(supabaseUrl, supabaseServiceKey);
-      const { data: roleData } = await adminClient
-        .from('user_roles')
-        .select('role')
-        .eq('user_id', user.id)
-        .eq('role', 'admin')
-        .maybeSingle();
-      if (!roleData) {
-        return new Response(
-          JSON.stringify({ error: 'Admin access required' }),
-          { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 403 }
-        );
-      }
-      console.log('Manual trigger by admin:', user.id);
-    } else {
-      return new Response(
-        JSON.stringify({ error: 'Unauthorized' }),
-        { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 401 }
-      );
+    if (authorization !== `Bearer ${serviceKey}`) {
+      const auth = createClient(supabaseUrl, anonKey);
+      const { data: { user }, error } = await auth.auth.getUser(authorization.replace("Bearer ", ""));
+      if (error || !user) return json({ error: "Unauthorized" }, 401);
+      const admin = createClient(supabaseUrl, serviceKey);
+      const { data: role } = await admin.from("user_roles").select("role")
+        .eq("user_id", user.id).eq("role", "admin").maybeSingle();
+      if (!role) return json({ error: "Admin access required" }, 403);
     }
 
-    const supabase = createClient(supabaseUrl, supabaseServiceKey);
-
-    // Determine which month to close (default: previous month)
     const body = await req.json().catch(() => ({}));
-    let targetYearMonth = body.year_month;
-
-    if (!targetYearMonth) {
-      const now = new Date();
-      const prevMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-      targetYearMonth = `${prevMonth.getFullYear()}-${String(prevMonth.getMonth() + 1).padStart(2, '0')}`;
-    }
-
-    console.log(`Closing economic cycle for: ${targetYearMonth}`);
-
-    // 1. Get or create the cycle
-    let { data: cycle } = await supabase
-      .from('economic_cycles')
-      .select('*')
-      .eq('year_month', targetYearMonth)
-      .maybeSingle();
-
-    if (!cycle) {
-      console.log('No cycle found for', targetYearMonth, '- creating one...');
-      const { data: newCycle, error: createError } = await supabase
-        .from('economic_cycles')
-        .insert({ year_month: targetYearMonth, pool_percentage: 40 })
-        .select()
-        .single();
-      if (createError || !newCycle) {
-        return new Response(
-          JSON.stringify({ error: 'Failed to create cycle: ' + (createError?.message || 'unknown') }),
-          { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 500 }
-        );
-      }
-      cycle = newCycle;
-    }
-
-    // 2. Status transition atômico: open → distributing
-    //    UPDATE WHERE status='open' retorna 0 rows se outro processo já pegou o lock → aborta
-    const { data: lockedCycle, error: lockError } = await supabase
-      .from('economic_cycles')
-      .update({ status: 'distributing' })
-      .eq('id', cycle.id)
-      .eq('status', 'open')      // só avança se ainda 'open' — previne duplo run
-      .select()
-      .maybeSingle();
-
-    if (lockError) {
-      return new Response(
-        JSON.stringify({ error: 'Failed to lock cycle: ' + lockError.message }),
-        { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 500 }
-      );
-    }
-
-    if (!lockedCycle) {
-      // Outro processo chegou primeiro (distributing ou closed)
-      return new Response(
-        JSON.stringify({ error: `Cycle is already in status '${cycle.status}'. Aborting to prevent double-run.` }),
-        { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 409 }
-      );
-    }
-
-    console.log(`Cycle ${cycle.id} locked for distribution.`);
-
-    // 3. Fetch RBM and pool_percentage in parallel
-    const [revenueResult, settingsResult] = await Promise.all([
-      supabase.from('revenue_entries').select('amount').eq('year_month', targetYearMonth),
-      supabase.from('platform_settings').select('value').eq('key', 'economic').single(),
-    ]);
-
-    const rbm = revenueResult.data?.reduce((sum, entry) => sum + parseFloat(String(entry.amount)), 0) || 0;
-    const poolPercentage = settingsResult.data?.value?.pool_percentage || cycle.pool_percentage || 40;
-    const minPayout: number = settingsResult.data?.value?.min_payout || DEFAULT_MIN_PAYOUT;
-    const prm = rbm * (poolPercentage / 100);
-
-    // 4. Count total PP across ALL users (paginated)
-    let totalPP = 0;
-    let offset = 0;
-    let allCycleUsers: any[] = [];
-
-    while (true) {
-      const { data: batch, error: batchErr } = await supabase
-        .from('economic_cycle_users')
-        .select('*')
-        .eq('cycle_id', cycle.id)
-        .gt('performance_points', 0)
-        .order('user_id')          // ORDER BY estável garante paginação sem duplicatas
-        .range(offset, offset + BATCH_SIZE - 1);
-
-      if (batchErr) {
-        console.error('Error fetching cycle users batch:', batchErr);
-        break;
-      }
-      if (!batch || batch.length === 0) break;
-
-      allCycleUsers = allCycleUsers.concat(batch);
-      totalPP += batch.reduce((sum, u) => sum + parseFloat(String(u.performance_points)), 0);
-
-      if (batch.length < BATCH_SIZE) break;
-      offset += BATCH_SIZE;
-    }
-
-    console.log(`RBM: ${rbm}, Pool%: ${poolPercentage}, PRM: ${prm}, Total PP: ${totalPP}, Users: ${allCycleUsers.length}, Min payout: ${minPayout}`);
-
-    // 4.5. Buffer & smoothing: separate 5% of PRM as transition buffer
-    const bufferAmount = prm * (BUFFER_PERCENTAGE / 100);
-    let effectivePRM = prm - bufferAmount;
-    let bufferUsed = 0;
-
-    // Check previous cycle for value-per-point comparison
-    const cycleDate = new Date(`${targetYearMonth}-01`);
-    const prevCycleDate = new Date(cycleDate.getFullYear(), cycleDate.getMonth() - 1, 1);
-    const prevYearMonth = `${prevCycleDate.getFullYear()}-${String(prevCycleDate.getMonth() + 1).padStart(2, '0')}`;
-
-    const { data: prevCycle } = await supabase
-      .from('economic_cycles')
-      .select('prm, total_performance_points')
-      .eq('year_month', prevYearMonth)
-      .eq('status', 'closed')
-      .maybeSingle();
-
-    if (prevCycle && prevCycle.total_performance_points > 0 && totalPP > 0) {
-      const prevValuePerPoint = prevCycle.prm / prevCycle.total_performance_points;
-      const currentValuePerPoint = effectivePRM / totalPP;
-      const dropRatio = 1 - (currentValuePerPoint / prevValuePerPoint);
-
-      console.log(`Value-per-point: prev=${prevValuePerPoint.toFixed(4)}, current=${currentValuePerPoint.toFixed(4)}, drop=${(dropRatio * 100).toFixed(1)}%`);
-
-      if (dropRatio > SHARP_DROP_THRESHOLD) {
-        // Use buffer to compensate up to 20% of the difference
-        const deficit = (prevValuePerPoint - currentValuePerPoint) * totalPP;
-        const maxCompensation = deficit * 0.20;
-        bufferUsed = Math.min(bufferAmount, maxCompensation);
-        effectivePRM += bufferUsed;
-        console.log(`⚡ Sharp drop detected (${(dropRatio * 100).toFixed(1)}%), using buffer: R$ ${bufferUsed.toFixed(2)} of R$ ${bufferAmount.toFixed(2)}`);
-      } else {
-        // No sharp drop: redistribute buffer normally
-        effectivePRM += bufferAmount;
-        console.log('No sharp drop, buffer redistributed normally');
-      }
-    } else {
-      // No previous cycle to compare: redistribute buffer normally
-      effectivePRM += bufferAmount;
-      console.log('No previous cycle for comparison, buffer redistributed normally');
-    }
-
-    let distributedAmount = 0;
-    let usersPaid = 0;
-    let usersCarriedOver = 0;
-    let usersDisqualified = 0;
-    const errors: string[] = [];
-
-    if (totalPP > 0 && effectivePRM > 0 && allCycleUsers.length > 0) {
-      // 4.6: Avaliar qualificação de todos os usuários do ciclo antes de distribuir
-      console.log(`Evaluating pool qualification for ${allCycleUsers.length} users...`);
-      const { error: qualErr } = await supabase.rpc('batch_evaluate_qualifications', {
-        p_cycle_id: cycle.id,
-      });
-      if (qualErr) {
-        throw new Error(`Error evaluating qualifications: ${qualErr.message}`);
-      }
-
-      // Re-buscar após qualificação para ter o campo qualified_for_pool atualizado
-      const { data: qualifiedUsers, error: qualifiedUsersError } = await supabase
-        .from('economic_cycle_users')
-        .select('*')
-        .eq('cycle_id', cycle.id)
-        .gt('performance_points', 0);
-
-      if (qualifiedUsersError) throw new Error(`Error loading qualifications: ${qualifiedUsersError.message}`);
-      const qualifiedList = qualifiedUsers || [];
-      const qualifiedPP = qualifiedList
-        .filter((u: any) => u.qualified_for_pool)
-        .reduce((sum: number, u: any) => sum + parseFloat(String(u.performance_points)), 0);
-
-      usersDisqualified = qualifiedList.filter((u: any) => !u.qualified_for_pool).length;
-      console.log(`Qualified: ${qualifiedList.filter((u: any) => u.qualified_for_pool).length}, Disqualified: ${usersDisqualified}, Qualified PP: ${qualifiedPP}`);
-
-      // Determine next cycle for carry-over
-      const nextCycleDate = new Date(cycleDate.getFullYear(), cycleDate.getMonth() + 1, 1);
-      const nextYearMonth = `${nextCycleDate.getFullYear()}-${String(nextCycleDate.getMonth() + 1).padStart(2, '0')}`;
-      let nextCycleId: string | null = null;
-
-      for (const cycleUser of qualifiedList) {
-        const userPP = parseFloat(String(cycleUser.performance_points));
-
-        const userShare = cycleUser.qualified_for_pool && qualifiedPP > 0
-          ? (userPP / qualifiedPP) * effectivePRM
-          : 0;
-        const roundedShare = parseFloat(userShare.toFixed(2));
-        const { error: shareError } = await supabase
-          .from('economic_cycle_users')
-          .update({ calculated_share: roundedShare })
-          .eq('cycle_id', cycle.id)
-          .eq('user_id', cycleUser.user_id);
-        if (shareError) throw new Error(`Failed to persist calculated share: ${shareError.message}`);
-
-        // Usuário não qualificado: sera transferido uma unica vez apos os pagamentos.
-        if (!cycleUser.qualified_for_pool) {
-          continue;
-        }
-
-        // Abaixo do mínimo: carry-over mesmo qualificado (aguarda acumular mais)
-        if (roundedShare < minPayout) {
-          continue;
-        }
-
-        // Distribuir (agora com maturação — vai para wallet_pending)
-        const { error: distErr } = await supabase.rpc('distribute_cycle_payout', {
-          p_cycle_id: cycle.id,
-          p_user_id: cycleUser.user_id,
-          p_amount: roundedShare,
-          p_year_month: targetYearMonth,
-          p_user_pp: userPP,
-          p_total_pp: qualifiedPP,
-        });
-
-        if (distErr) {
-          console.error(`Failed to distribute to user ${cycleUser.user_id}:`, distErr.message);
-          errors.push(`${cycleUser.user_id}: ${distErr.message}`);
-        } else {
-          distributedAmount += roundedShare;
-          usersPaid++;
-        }
-      }
-
-      const needsCarryover = qualifiedList.some((cycleUser: any) => {
-        if (!cycleUser.qualified_for_pool) return true;
-        const share = qualifiedPP > 0
-          ? (parseFloat(String(cycleUser.performance_points)) / qualifiedPP) * effectivePRM
-          : 0;
-        return parseFloat(share.toFixed(2)) < minPayout;
-      });
-
-      if (needsCarryover) {
-        const { data: nextCycle, error: nextCycleLookupError } = await supabase
-          .from('economic_cycles').select('id').eq('year_month', nextYearMonth).maybeSingle();
-        if (nextCycleLookupError) throw new Error(`Failed to load next cycle: ${nextCycleLookupError.message}`);
-        if (nextCycle) {
-          nextCycleId = nextCycle.id;
-        } else {
-          const { data: newNextCycle, error: nextCycleCreateError } = await supabase
-            .from('economic_cycles')
-            .insert({ year_month: nextYearMonth, pool_percentage: poolPercentage })
-            .select('id').single();
-          if (nextCycleCreateError || !newNextCycle) {
-            throw new Error(`Failed to create next cycle: ${nextCycleCreateError?.message || 'unknown'}`);
-          }
-          nextCycleId = newNextCycle.id;
-        }
-
-        const { data: carryCount, error: carryError } = await supabase.rpc('carryover_cycle_points', {
-          p_from_cycle_id: cycle.id,
-          p_to_cycle_id: nextCycleId,
-          p_min_payout: minPayout,
-        });
-        if (carryError) throw new Error(`Failed to carry over points: ${carryError.message}`);
-        usersCarriedOver = Number(carryCount || 0);
-      }
-    }
-
-    if (errors.length > 0) {
-      throw new Error(`Cycle distribution failed for ${errors.length} user(s): ${errors.join('; ')}`);
-    }
-
-    // 5. Close the cycle
-    const { error: closeError } = await supabase
-      .from('economic_cycles')
-      .update({
-        rbm,
-        pool_percentage: poolPercentage,
-        prm,
-        total_performance_points: totalPP,
-        distributed_amount: distributedAmount,
-        status: 'closed',
-        closed_at: new Date().toISOString(),
-      })
-      .eq('id', cycle.id);
-    if (closeError) throw new Error(`Failed to close cycle: ${closeError.message}`);
-
-    // 6. Reconciliation: via cycle_id FK (não mais frágil ILIKE)
-    const { data: txSumData } = await supabase
-      .from('wallet_transactions')
-      .select('amount')
-      .eq('type', 'pool_distribution')
-      .eq('cycle_id', cycle.id);
-
-    const actualDistributed = txSumData?.reduce((sum, tx) => sum + parseFloat(String(tx.amount)), 0) || 0;
-    const discrepancy = Math.abs(actualDistributed - distributedAmount);
-
-    if (discrepancy > 0.01) {
-      console.warn(`⚠️ RECONCILIATION DISCREPANCY: Expected ${distributedAmount}, actual tx sum ${actualDistributed}, diff ${discrepancy}`);
-    } else {
-      console.log(`✅ Reconciliation OK: distributed ${distributedAmount}, tx sum ${actualDistributed}`);
-    }
-
-    const result = {
-      success: true,
-      year_month: targetYearMonth,
-      rbm,
-      pool_percentage: poolPercentage,
-      prm,
-      effective_prm: effectivePRM,
-      buffer: {
-        reserved: bufferAmount,
-        used_for_smoothing: bufferUsed,
-        redistributed: bufferAmount - bufferUsed,
-      },
-      total_performance_points: totalPP,
-      users_paid: usersPaid,
-      users_disqualified: usersDisqualified,
-      users_carried_over: usersCarriedOver,
-      distributed_amount: distributedAmount,
-      reconciliation: {
-        expected: distributedAmount,
-        actual_tx_sum: actualDistributed,
-        discrepancy,
-        ok: discrepancy <= 0.01,
-      },
-      errors: errors.length > 0 ? errors : undefined,
-    };
-
-    console.log('Cycle closed successfully:', result);
-
-    return new Response(
-      JSON.stringify(result),
-      { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-    );
+    const yearMonth = body.year_month || previousMonth();
+    const supabase = createClient(supabaseUrl, serviceKey);
+    const { data, error } = await supabase.rpc("close_economic_cycle_v1", {
+      p_year_month: yearMonth,
+    });
+    if (error) throw error;
+    return json(data);
   } catch (error) {
-    console.error('Error closing cycle:', error);
-    return new Response(
-      JSON.stringify({ error: error instanceof Error ? error.message : 'Unknown error' }),
-      { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 500 }
-    );
+    console.error("close-economic-cycle V1 error", error);
+    return json({ error: error instanceof Error ? error.message : "Unknown error" }, 500);
   }
 });
+
+function previousMonth() {
+  const now = new Date();
+  const previous = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1));
+  return `${previous.getUTCFullYear()}-${String(previous.getUTCMonth() + 1).padStart(2, "0")}`;
+}
+
+function json(body: unknown, status = 200) {
+  return new Response(JSON.stringify(body), {
+    status, headers: { ...corsHeaders, "Content-Type": "application/json" },
+  });
+}

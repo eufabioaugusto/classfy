@@ -7,10 +7,30 @@ export type Json =
   | Json[]
 
 export type Database = {
-  // Allows to automatically instantiate createClient with right options
-  // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
-  __InternalSupabase: {
-    PostgrestVersion: "14.5"
+  graphql_public: {
+    Tables: {
+      [_ in never]: never
+    }
+    Views: {
+      [_ in never]: never
+    }
+    Functions: {
+      graphql: {
+        Args: {
+          extensions?: Json
+          operationName?: string
+          query?: string
+          variables?: Json
+        }
+        Returns: Json
+      }
+    }
+    Enums: {
+      [_ in never]: never
+    }
+    CompositeTypes: {
+      [_ in never]: never
+    }
   }
   public: {
     Tables: {
@@ -96,6 +116,48 @@ export type Database = {
           base_value?: number
           created_at?: string
           id?: string
+        }
+        Relationships: []
+      }
+      app_logs: {
+        Row: {
+          context: Json
+          created_at: string
+          event: string
+          id: string
+          level: string
+          message: string | null
+          metadata: Json
+          request_id: string | null
+          session_id: string | null
+          source: string
+          user_id: string | null
+        }
+        Insert: {
+          context?: Json
+          created_at?: string
+          event: string
+          id?: string
+          level?: string
+          message?: string | null
+          metadata?: Json
+          request_id?: string | null
+          session_id?: string | null
+          source: string
+          user_id?: string | null
+        }
+        Update: {
+          context?: Json
+          created_at?: string
+          event?: string
+          id?: string
+          level?: string
+          message?: string | null
+          metadata?: Json
+          request_id?: string | null
+          session_id?: string | null
+          source?: string
+          user_id?: string | null
         }
         Relationships: []
       }
@@ -475,8 +537,8 @@ export type Database = {
           thumbnail_url: string | null
           title: string
           updated_at: string
-          video_url: string | null
           video_provider: string | null
+          video_url: string | null
           views_count: number | null
           visibility: Database["public"]["Enums"]["content_visibility"] | null
         }
@@ -512,8 +574,8 @@ export type Database = {
           thumbnail_url?: string | null
           title: string
           updated_at?: string
-          video_url?: string | null
           video_provider?: string | null
+          video_url?: string | null
           views_count?: number | null
           visibility?: Database["public"]["Enums"]["content_visibility"] | null
         }
@@ -549,8 +611,8 @@ export type Database = {
           thumbnail_url?: string | null
           title?: string
           updated_at?: string
-          video_url?: string | null
           video_provider?: string | null
+          video_url?: string | null
           views_count?: number | null
           visibility?: Database["public"]["Enums"]["content_visibility"] | null
         }
@@ -567,6 +629,13 @@ export type Database = {
             columns: ["creator_id"]
             isOneToOne: false
             referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "contents_media_asset_id_fkey"
+            columns: ["media_asset_id"]
+            isOneToOne: false
+            referencedRelation: "media_assets"
             referencedColumns: ["id"]
           },
         ]
@@ -1049,11 +1118,14 @@ export type Database = {
       creator_milestones: {
         Row: {
           active: boolean
+          awards_points: boolean
           badge_id: string | null
           created_at: string
           description: string | null
           icon: string | null
           id: string
+          legacy_points_reward: number | null
+          legacy_value_reward: number | null
           milestone_type: string
           milestone_value: number
           order_index: number
@@ -1064,11 +1136,14 @@ export type Database = {
         }
         Insert: {
           active?: boolean
+          awards_points?: boolean
           badge_id?: string | null
           created_at?: string
           description?: string | null
           icon?: string | null
           id?: string
+          legacy_points_reward?: number | null
+          legacy_value_reward?: number | null
           milestone_type: string
           milestone_value: number
           order_index?: number
@@ -1079,11 +1154,14 @@ export type Database = {
         }
         Update: {
           active?: boolean
+          awards_points?: boolean
           badge_id?: string | null
           created_at?: string
           description?: string | null
           icon?: string | null
           id?: string
+          legacy_points_reward?: number | null
+          legacy_value_reward?: number | null
           milestone_type?: string
           milestone_value?: number
           order_index?: number
@@ -1153,36 +1231,110 @@ export type Database = {
           },
         ]
       }
+      economic_admin_audit: {
+        Row: {
+          action: string
+          admin_id: string | null
+          created_at: string
+          entity_id: string | null
+          entity_type: string
+          id: string
+          new_value: Json | null
+          old_value: Json | null
+          reason: string
+        }
+        Insert: {
+          action: string
+          admin_id?: string | null
+          created_at?: string
+          entity_id?: string | null
+          entity_type: string
+          id?: string
+          new_value?: Json | null
+          old_value?: Json | null
+          reason: string
+        }
+        Update: {
+          action?: string
+          admin_id?: string | null
+          created_at?: string
+          entity_id?: string | null
+          entity_type?: string
+          id?: string
+          new_value?: Json | null
+          old_value?: Json | null
+          reason?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "economic_admin_audit_admin_id_fkey"
+            columns: ["admin_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       economic_cycle_users: {
         Row: {
           calculated_share: number | null
           created_at: string
+          creator_points: number
           cycle_id: string
+          cycle_points: number
           id: string
+          maturation_days: number | null
           payout_status: string | null
           performance_points: number
+          plan_at_close: Database["public"]["Enums"]["plan_type"] | null
+          points_liquidated_at: string | null
+          qualification_details: Json
+          qualification_evaluated_at: string | null
+          qualification_points: number
+          qualified_for_pool: boolean
           updated_at: string
           user_id: string
+          user_points: number
         }
         Insert: {
           calculated_share?: number | null
           created_at?: string
+          creator_points?: number
           cycle_id: string
+          cycle_points?: number
           id?: string
+          maturation_days?: number | null
           payout_status?: string | null
           performance_points?: number
+          plan_at_close?: Database["public"]["Enums"]["plan_type"] | null
+          points_liquidated_at?: string | null
+          qualification_details?: Json
+          qualification_evaluated_at?: string | null
+          qualification_points?: number
+          qualified_for_pool?: boolean
           updated_at?: string
           user_id: string
+          user_points?: number
         }
         Update: {
           calculated_share?: number | null
           created_at?: string
+          creator_points?: number
           cycle_id?: string
+          cycle_points?: number
           id?: string
+          maturation_days?: number | null
           payout_status?: string | null
           performance_points?: number
+          plan_at_close?: Database["public"]["Enums"]["plan_type"] | null
+          points_liquidated_at?: string | null
+          qualification_details?: Json
+          qualification_evaluated_at?: string | null
+          qualification_points?: number
+          qualified_for_pool?: boolean
           updated_at?: string
           user_id?: string
+          user_points?: number
         }
         Relationships: [
           {
@@ -1199,12 +1351,17 @@ export type Database = {
           closed_at: string | null
           created_at: string
           distributed_amount: number
+          economy_version: number
+          eligible_net_revenue: number
+          gross_revenue: number
           id: string
           pool_percentage: number
           prm: number
           rbm: number
           status: string
+          total_creator_points: number
           total_performance_points: number
+          total_user_points: number
           updated_at: string
           year_month: string
         }
@@ -1212,12 +1369,17 @@ export type Database = {
           closed_at?: string | null
           created_at?: string
           distributed_amount?: number
+          economy_version?: number
+          eligible_net_revenue?: number
+          gross_revenue?: number
           id?: string
           pool_percentage?: number
           prm?: number
           rbm?: number
           status?: string
+          total_creator_points?: number
           total_performance_points?: number
+          total_user_points?: number
           updated_at?: string
           year_month: string
         }
@@ -1225,12 +1387,17 @@ export type Database = {
           closed_at?: string | null
           created_at?: string
           distributed_amount?: number
+          economy_version?: number
+          eligible_net_revenue?: number
+          gross_revenue?: number
           id?: string
           pool_percentage?: number
           prm?: number
           rbm?: number
           status?: string
+          total_creator_points?: number
           total_performance_points?: number
+          total_user_points?: number
           updated_at?: string
           year_month?: string
         }
@@ -1676,6 +1843,170 @@ export type Database = {
           },
         ]
       }
+      marketing_materials: {
+        Row: {
+          active: boolean
+          category: string
+          created_at: string
+          description: string | null
+          file_url: string | null
+          id: string
+          thumbnail_url: string | null
+          title: string
+          type: string
+          updated_at: string
+        }
+        Insert: {
+          active?: boolean
+          category?: string
+          created_at?: string
+          description?: string | null
+          file_url?: string | null
+          id?: string
+          thumbnail_url?: string | null
+          title: string
+          type: string
+          updated_at?: string
+        }
+        Update: {
+          active?: boolean
+          category?: string
+          created_at?: string
+          description?: string | null
+          file_url?: string | null
+          id?: string
+          thumbnail_url?: string | null
+          title?: string
+          type?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      media_assets: {
+        Row: {
+          active_provider_binding_id: string | null
+          aspect_ratio: string | null
+          content_id: string | null
+          created_at: string
+          duration_seconds: number | null
+          height: number | null
+          id: string
+          ingest_mode: Database["public"]["Enums"]["media_ingest_mode"]
+          master_storage_key: string | null
+          master_storage_provider: string | null
+          media_type: string
+          owner_id: string
+          status: Database["public"]["Enums"]["media_asset_status"]
+          updated_at: string
+          width: number | null
+        }
+        Insert: {
+          active_provider_binding_id?: string | null
+          aspect_ratio?: string | null
+          content_id?: string | null
+          created_at?: string
+          duration_seconds?: number | null
+          height?: number | null
+          id?: string
+          ingest_mode?: Database["public"]["Enums"]["media_ingest_mode"]
+          master_storage_key?: string | null
+          master_storage_provider?: string | null
+          media_type?: string
+          owner_id: string
+          status?: Database["public"]["Enums"]["media_asset_status"]
+          updated_at?: string
+          width?: number | null
+        }
+        Update: {
+          active_provider_binding_id?: string | null
+          aspect_ratio?: string | null
+          content_id?: string | null
+          created_at?: string
+          duration_seconds?: number | null
+          height?: number | null
+          id?: string
+          ingest_mode?: Database["public"]["Enums"]["media_ingest_mode"]
+          master_storage_key?: string | null
+          master_storage_provider?: string | null
+          media_type?: string
+          owner_id?: string
+          status?: Database["public"]["Enums"]["media_asset_status"]
+          updated_at?: string
+          width?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "media_assets_active_binding_fkey"
+            columns: ["active_provider_binding_id"]
+            isOneToOne: false
+            referencedRelation: "media_provider_assets"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "media_assets_content_id_fkey"
+            columns: ["content_id"]
+            isOneToOne: true
+            referencedRelation: "contents"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      media_provider_assets: {
+        Row: {
+          created_at: string
+          id: string
+          last_event_at: string | null
+          last_event_id: string | null
+          media_asset_id: string
+          playback_policy: string
+          provider: string
+          provider_asset_id: string | null
+          provider_metadata: Json
+          provider_playback_id: string | null
+          provider_upload_id: string | null
+          status: Database["public"]["Enums"]["media_asset_status"]
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          last_event_at?: string | null
+          last_event_id?: string | null
+          media_asset_id: string
+          playback_policy?: string
+          provider: string
+          provider_asset_id?: string | null
+          provider_metadata?: Json
+          provider_playback_id?: string | null
+          provider_upload_id?: string | null
+          status?: Database["public"]["Enums"]["media_asset_status"]
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          last_event_at?: string | null
+          last_event_id?: string | null
+          media_asset_id?: string
+          playback_policy?: string
+          provider?: string
+          provider_asset_id?: string | null
+          provider_metadata?: Json
+          provider_playback_id?: string | null
+          provider_upload_id?: string | null
+          status?: Database["public"]["Enums"]["media_asset_status"]
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "media_provider_assets_media_asset_id_fkey"
+            columns: ["media_asset_id"]
+            isOneToOne: false
+            referencedRelation: "media_assets"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       message_settings: {
         Row: {
           created_at: string
@@ -1844,14 +2175,20 @@ export type Database = {
           creator_bio: string | null
           creator_channel_name: string | null
           creator_status: Database["public"]["Enums"]["creator_status"]
-          display_name: string
           difficulties: Json | null
+          display_name: string
+          expo_push_token: string | null
           id: string
           interests: Json | null
+          pending_plan: Database["public"]["Enums"]["plan_type"] | null
+          pending_plan_effective_at: string | null
           plan: Database["public"]["Enums"]["plan_type"]
           plan_expires_at: string | null
+          stripe_subscription_id: string | null
+          subscription_grace_until: string | null
+          subscription_plan: Database["public"]["Enums"]["plan_type"] | null
+          subscription_status: string
           updated_at: string
-          expo_push_token: string | null
         }
         Insert: {
           avatar_url?: string | null
@@ -1862,14 +2199,20 @@ export type Database = {
           creator_bio?: string | null
           creator_channel_name?: string | null
           creator_status?: Database["public"]["Enums"]["creator_status"]
+          difficulties?: Json | null
           display_name: string
-          difficulties?: Json | null
+          expo_push_token?: string | null
           id: string
           interests?: Json | null
+          pending_plan?: Database["public"]["Enums"]["plan_type"] | null
+          pending_plan_effective_at?: string | null
           plan?: Database["public"]["Enums"]["plan_type"]
           plan_expires_at?: string | null
+          stripe_subscription_id?: string | null
+          subscription_grace_until?: string | null
+          subscription_plan?: Database["public"]["Enums"]["plan_type"] | null
+          subscription_status?: string
           updated_at?: string
-          expo_push_token?: string | null
         }
         Update: {
           avatar_url?: string | null
@@ -1880,106 +2223,88 @@ export type Database = {
           creator_bio?: string | null
           creator_channel_name?: string | null
           creator_status?: Database["public"]["Enums"]["creator_status"]
-          display_name?: string
           difficulties?: Json | null
+          display_name?: string
+          expo_push_token?: string | null
           id?: string
           interests?: Json | null
+          pending_plan?: Database["public"]["Enums"]["plan_type"] | null
+          pending_plan_effective_at?: string | null
           plan?: Database["public"]["Enums"]["plan_type"]
           plan_expires_at?: string | null
+          stripe_subscription_id?: string | null
+          subscription_grace_until?: string | null
+          subscription_plan?: Database["public"]["Enums"]["plan_type"] | null
+          subscription_status?: string
           updated_at?: string
-          expo_push_token?: string | null
-        }
-        Relationships: []
-      }
-      prospects: {
-        Row: {
-          channel_id: string
-          channel_name: string
-          channel_url: string | null
-          contact_email: string | null
-          contacted_at: string | null
-          created_at: string
-          id: string
-          instagram_handle: string | null
-          niche: string | null
-          notes: string | null
-          outreach_channel: string | null
-          score: number | null
-          size_tier: string | null
-          status: string
-          subscriber_count: number | null
-          template_used: string | null
-          updated_at: string
-          video_count: number | null
-          view_count: number | null
-        }
-        Insert: {
-          channel_id: string
-          channel_name: string
-          channel_url?: string | null
-          contact_email?: string | null
-          contacted_at?: string | null
-          created_at?: string
-          id?: string
-          instagram_handle?: string | null
-          niche?: string | null
-          notes?: string | null
-          outreach_channel?: string | null
-          score?: number | null
-          size_tier?: string | null
-          status?: string
-          subscriber_count?: number | null
-          template_used?: string | null
-          updated_at?: string
-          video_count?: number | null
-          view_count?: number | null
-        }
-        Update: {
-          channel_id?: string
-          channel_name?: string
-          channel_url?: string | null
-          contact_email?: string | null
-          contacted_at?: string | null
-          created_at?: string
-          id?: string
-          instagram_handle?: string | null
-          niche?: string | null
-          notes?: string | null
-          outreach_channel?: string | null
-          score?: number | null
-          size_tier?: string | null
-          status?: string
-          subscriber_count?: number | null
-          template_used?: string | null
-          updated_at?: string
-          video_count?: number | null
-          view_count?: number | null
         }
         Relationships: []
       }
       purchased_contents: {
         Row: {
+          chargeback_amount: number
+          classfy_amount: number
+          classfy_percent: number
           content_id: string
+          creator_amount: number
+          creator_id: string | null
+          creator_percent: number
           discount_applied: number | null
+          gross_amount: number
           id: string
+          payment_fee_amount: number
           price_paid: number
+          processed_at: string | null
           purchased_at: string | null
+          refunded_amount: number
+          status: string
+          stripe_checkout_session_id: string | null
+          stripe_payment_intent_id: string | null
+          tax_amount: number
           user_id: string
         }
         Insert: {
+          chargeback_amount?: number
+          classfy_amount?: number
+          classfy_percent?: number
           content_id: string
+          creator_amount?: number
+          creator_id?: string | null
+          creator_percent?: number
           discount_applied?: number | null
+          gross_amount?: number
           id?: string
+          payment_fee_amount?: number
           price_paid: number
+          processed_at?: string | null
           purchased_at?: string | null
+          refunded_amount?: number
+          status?: string
+          stripe_checkout_session_id?: string | null
+          stripe_payment_intent_id?: string | null
+          tax_amount?: number
           user_id: string
         }
         Update: {
+          chargeback_amount?: number
+          classfy_amount?: number
+          classfy_percent?: number
           content_id?: string
+          creator_amount?: number
+          creator_id?: string | null
+          creator_percent?: number
           discount_applied?: number | null
+          gross_amount?: number
           id?: string
+          payment_fee_amount?: number
           price_paid?: number
+          processed_at?: string | null
           purchased_at?: string | null
+          refunded_amount?: number
+          status?: string
+          stripe_checkout_session_id?: string | null
+          stripe_payment_intent_id?: string | null
+          tax_amount?: number
           user_id?: string
         }
         Relationships: [
@@ -1988,6 +2313,13 @@ export type Database = {
             columns: ["content_id"]
             isOneToOne: false
             referencedRelation: "contents"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "purchased_contents_creator_id_fkey"
+            columns: ["creator_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
             referencedColumns: ["id"]
           },
         ]
@@ -2203,32 +2535,68 @@ export type Database = {
       }
       revenue_entries: {
         Row: {
+          affiliate_amount: number
           amount: number
+          chargeback_amount: number
+          classfy_amount: number
+          confirmed_at: string | null
           created_at: string
+          creator_amount: number
+          gross_amount: number
           id: string
+          is_pool_eligible: boolean
           metadata: Json | null
+          net_eligible_amount: number
+          payment_fee_amount: number
+          refund_amount: number
           revenue_type: string
           source_id: string | null
+          status: string
+          tax_amount: number
           user_id: string | null
           year_month: string
         }
         Insert: {
+          affiliate_amount?: number
           amount?: number
+          chargeback_amount?: number
+          classfy_amount?: number
+          confirmed_at?: string | null
           created_at?: string
+          creator_amount?: number
+          gross_amount?: number
           id?: string
+          is_pool_eligible?: boolean
           metadata?: Json | null
+          net_eligible_amount?: number
+          payment_fee_amount?: number
+          refund_amount?: number
           revenue_type: string
           source_id?: string | null
+          status?: string
+          tax_amount?: number
           user_id?: string | null
           year_month: string
         }
         Update: {
+          affiliate_amount?: number
           amount?: number
+          chargeback_amount?: number
+          classfy_amount?: number
+          confirmed_at?: string | null
           created_at?: string
+          creator_amount?: number
+          gross_amount?: number
           id?: string
+          is_pool_eligible?: boolean
           metadata?: Json | null
+          net_eligible_amount?: number
+          payment_fee_amount?: number
+          refund_amount?: number
           revenue_type?: string
           source_id?: string | null
+          status?: string
+          tax_amount?: number
           user_id?: string | null
           year_month?: string
         }
@@ -2273,11 +2641,16 @@ export type Database = {
         Row: {
           action_key: string
           active: boolean
+          canonical_name: string | null
           created_at: string
+          daily_limit: number | null
+          dedupe_scope: string
           description: string | null
           id: string
+          monthly_creator_limit: number | null
           points_creator: number
           points_user: number
+          requires_evidence: boolean
           updated_at: string
           value_creator: number
           value_user: number
@@ -2285,11 +2658,16 @@ export type Database = {
         Insert: {
           action_key: string
           active?: boolean
+          canonical_name?: string | null
           created_at?: string
+          daily_limit?: number | null
+          dedupe_scope?: string
           description?: string | null
           id?: string
+          monthly_creator_limit?: number | null
           points_creator?: number
           points_user?: number
+          requires_evidence?: boolean
           updated_at?: string
           value_creator?: number
           value_user?: number
@@ -2297,11 +2675,16 @@ export type Database = {
         Update: {
           action_key?: string
           active?: boolean
+          canonical_name?: string | null
           created_at?: string
+          daily_limit?: number | null
+          dedupe_scope?: string
           description?: string | null
           id?: string
+          monthly_creator_limit?: number | null
           points_creator?: number
           points_user?: number
+          requires_evidence?: boolean
           updated_at?: string
           value_creator?: number
           value_user?: number
@@ -2315,9 +2698,11 @@ export type Database = {
           content_id: string | null
           created_at: string
           cycle_id: string | null
+          cycle_points: number
           id: string
           metadata: Json | null
           performance_points: number | null
+          point_type: string
           points: number
           related_user_id: string | null
           user_id: string
@@ -2329,9 +2714,11 @@ export type Database = {
           content_id?: string | null
           created_at?: string
           cycle_id?: string | null
+          cycle_points?: number
           id?: string
           metadata?: Json | null
           performance_points?: number | null
+          point_type?: string
           points?: number
           related_user_id?: string | null
           user_id: string
@@ -2343,9 +2730,11 @@ export type Database = {
           content_id?: string | null
           created_at?: string
           cycle_id?: string | null
+          cycle_points?: number
           id?: string
           metadata?: Json | null
           performance_points?: number | null
+          point_type?: string
           points?: number
           related_user_id?: string | null
           user_id?: string
@@ -2477,6 +2866,51 @@ export type Database = {
         }
         Relationships: []
       }
+      study_ai_events: {
+        Row: {
+          assistant_message_id: string | null
+          created_at: string
+          event_key: string
+          id: string
+          payload: Json
+          study_id: string
+          user_id: string
+        }
+        Insert: {
+          assistant_message_id?: string | null
+          created_at?: string
+          event_key: string
+          id?: string
+          payload?: Json
+          study_id: string
+          user_id: string
+        }
+        Update: {
+          assistant_message_id?: string | null
+          created_at?: string
+          event_key?: string
+          id?: string
+          payload?: Json
+          study_id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "study_ai_events_assistant_message_id_fkey"
+            columns: ["assistant_message_id"]
+            isOneToOne: false
+            referencedRelation: "study_messages"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "study_ai_events_study_id_fkey"
+            columns: ["study_id"]
+            isOneToOne: false
+            referencedRelation: "studies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       study_ai_state: {
         Row: {
           active_mode: string
@@ -2559,51 +2993,6 @@ export type Database = {
             foreignKeyName: "study_ai_state_study_id_fkey"
             columns: ["study_id"]
             isOneToOne: true
-            referencedRelation: "studies"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      study_ai_events: {
-        Row: {
-          assistant_message_id: string | null
-          created_at: string
-          event_key: string
-          id: string
-          payload: Json
-          study_id: string
-          user_id: string
-        }
-        Insert: {
-          assistant_message_id?: string | null
-          created_at?: string
-          event_key: string
-          id?: string
-          payload?: Json
-          study_id: string
-          user_id: string
-        }
-        Update: {
-          assistant_message_id?: string | null
-          created_at?: string
-          event_key?: string
-          id?: string
-          payload?: Json
-          study_id?: string
-          user_id?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "study_ai_events_assistant_message_id_fkey"
-            columns: ["assistant_message_id"]
-            isOneToOne: false
-            referencedRelation: "study_messages"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "study_ai_events_study_id_fkey"
-            columns: ["study_id"]
-            isOneToOne: false
             referencedRelation: "studies"
             referencedColumns: ["id"]
           },
@@ -3184,9 +3573,100 @@ export type Database = {
         }
         Relationships: []
       }
+      wallet_pending: {
+        Row: {
+          amount: number
+          created_at: string
+          cycle_id: string | null
+          id: string
+          idempotency_key: string | null
+          mature_at: string
+          matured_at: string | null
+          metadata: Json
+          purchase_id: string | null
+          reversed_amount: number
+          source_type: string
+          status: string
+          transaction_id: string | null
+          user_id: string
+          wallet_id: string
+        }
+        Insert: {
+          amount: number
+          created_at?: string
+          cycle_id?: string | null
+          id?: string
+          idempotency_key?: string | null
+          mature_at: string
+          matured_at?: string | null
+          metadata?: Json
+          purchase_id?: string | null
+          reversed_amount?: number
+          source_type: string
+          status?: string
+          transaction_id?: string | null
+          user_id: string
+          wallet_id: string
+        }
+        Update: {
+          amount?: number
+          created_at?: string
+          cycle_id?: string | null
+          id?: string
+          idempotency_key?: string | null
+          mature_at?: string
+          matured_at?: string | null
+          metadata?: Json
+          purchase_id?: string | null
+          reversed_amount?: number
+          source_type?: string
+          status?: string
+          transaction_id?: string | null
+          user_id?: string
+          wallet_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "wallet_pending_cycle_id_fkey"
+            columns: ["cycle_id"]
+            isOneToOne: false
+            referencedRelation: "economic_cycles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "wallet_pending_purchase_id_fkey"
+            columns: ["purchase_id"]
+            isOneToOne: false
+            referencedRelation: "purchased_contents"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "wallet_pending_transaction_id_fkey"
+            columns: ["transaction_id"]
+            isOneToOne: false
+            referencedRelation: "wallet_transactions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "wallet_pending_wallet_id_fkey"
+            columns: ["wallet_id"]
+            isOneToOne: false
+            referencedRelation: "v_wallet_ledger"
+            referencedColumns: ["wallet_id"]
+          },
+          {
+            foreignKeyName: "wallet_pending_wallet_id_fkey"
+            columns: ["wallet_id"]
+            isOneToOne: false
+            referencedRelation: "wallets"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       wallet_transactions: {
         Row: {
           action_id: string | null
+          admin_id: string | null
           amount: number
           commission_id: string | null
           created_at: string
@@ -3195,6 +3675,9 @@ export type Database = {
           direction: string | null
           id: string
           idempotency_key: string | null
+          metadata: Json
+          purchase_id: string | null
+          status: string
           stripe_event_id: string | null
           type: string
           wallet_id: string
@@ -3202,6 +3685,7 @@ export type Database = {
         }
         Insert: {
           action_id?: string | null
+          admin_id?: string | null
           amount: number
           commission_id?: string | null
           created_at?: string
@@ -3210,6 +3694,9 @@ export type Database = {
           direction?: string | null
           id?: string
           idempotency_key?: string | null
+          metadata?: Json
+          purchase_id?: string | null
+          status?: string
           stripe_event_id?: string | null
           type: string
           wallet_id: string
@@ -3217,6 +3704,7 @@ export type Database = {
         }
         Update: {
           action_id?: string | null
+          admin_id?: string | null
           amount?: number
           commission_id?: string | null
           created_at?: string
@@ -3225,6 +3713,9 @@ export type Database = {
           direction?: string | null
           id?: string
           idempotency_key?: string | null
+          metadata?: Json
+          purchase_id?: string | null
+          status?: string
           stripe_event_id?: string | null
           type?: string
           wallet_id?: string
@@ -3239,6 +3730,13 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "wallet_transactions_admin_id_fkey"
+            columns: ["admin_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "wallet_transactions_commission_id_fkey"
             columns: ["commission_id"]
             isOneToOne: false
@@ -3250,6 +3748,13 @@ export type Database = {
             columns: ["cycle_id"]
             isOneToOne: false
             referencedRelation: "economic_cycles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "wallet_transactions_purchase_id_fkey"
+            columns: ["purchase_id"]
+            isOneToOne: false
+            referencedRelation: "purchased_contents"
             referencedColumns: ["id"]
           },
           {
@@ -3280,6 +3785,8 @@ export type Database = {
           balance: number
           created_at: string
           id: string
+          pending_balance: number
+          reserved_balance: number
           total_earned: number
           total_withdrawn: number
           updated_at: string
@@ -3289,6 +3796,8 @@ export type Database = {
           balance?: number
           created_at?: string
           id?: string
+          pending_balance?: number
+          reserved_balance?: number
           total_earned?: number
           total_withdrawn?: number
           updated_at?: string
@@ -3298,6 +3807,8 @@ export type Database = {
           balance?: number
           created_at?: string
           id?: string
+          pending_balance?: number
+          reserved_balance?: number
           total_earned?: number
           total_withdrawn?: number
           updated_at?: string
@@ -3417,8 +3928,13 @@ export type Database = {
         }
         Returns: Json
       }
-      request_withdrawal: {
-        Args: { p_amount: number; p_pix_key: string }
+      batch_evaluate_qualifications: {
+        Args: { p_cycle_id: string }
+        Returns: number
+      }
+      batch_mature_pending: { Args: never; Returns: Json }
+      calculate_eligible_revenue_v1: {
+        Args: { p_year_month: string }
         Returns: Json
       }
       carryover_cycle_points: {
@@ -3430,6 +3946,19 @@ export type Database = {
         Returns: number
       }
       check_can_message: { Args: { target_user_id: string }; Returns: string }
+      close_economic_cycle_v1: { Args: { p_year_month: string }; Returns: Json }
+      commit_reward_award: {
+        Args: {
+          p_actor_event: Json
+          p_creator_event?: Json
+          p_cycle_id: string
+          p_tracking_action_key: string
+          p_tracking_content_id: string
+          p_tracking_metadata: Json
+          p_tracking_user_id: string
+        }
+        Returns: Json
+      }
       count_active_studies: { Args: { p_user_id: string }; Returns: number }
       create_or_get_conversation: {
         Args: { p_user1_id: string; p_user2_id: string }
@@ -3450,6 +3979,11 @@ export type Database = {
         }
         Returns: undefined
       }
+      evaluate_pool_qualification: {
+        Args: { p_cycle_id: string; p_user_id: string }
+        Returns: Json
+      }
+      expire_subscription_entitlements_v1: { Args: never; Returns: number }
       get_consistency_multiplier: {
         Args: { p_active_days: number }
         Returns: number
@@ -3458,7 +3992,12 @@ export type Database = {
         Args: { p_action_key: string }
         Returns: string
       }
+      get_economic_v1_settings: { Args: never; Returns: Json }
       get_or_create_current_cycle: { Args: never; Returns: string }
+      get_or_create_referral_link: {
+        Args: { p_user_id: string }
+        Returns: string
+      }
       get_public_profile: {
         Args: { profile_id: string }
         Returns: {
@@ -3518,15 +4057,137 @@ export type Database = {
         Args: { p_amount: number; p_user_id: string }
         Returns: undefined
       }
-      is_admin: { Args: never; Returns: boolean }
       is_content_boosted: { Args: { p_content_id: string }; Returns: boolean }
       is_conversation_participant: {
         Args: { p_conversation_id: string; p_user_id: string }
         Returns: boolean
       }
+      mark_withdrawal_paid: {
+        Args: { p_admin_notes: string; p_reason: string; p_request_id: string }
+        Returns: Json
+      }
+      record_app_log: {
+        Args: {
+          p_context?: Json
+          p_event: string
+          p_level: string
+          p_message?: string
+          p_metadata?: Json
+          p_request_id?: string
+          p_session_id?: string
+          p_source: string
+        }
+        Returns: string
+      }
+      record_content_sale_v1: {
+        Args: {
+          p_checkout_session_id: string
+          p_content_id: string
+          p_discount_applied: number
+          p_gross_amount: number
+          p_payment_fee_amount?: number
+          p_payment_intent_id: string
+          p_tax_amount?: number
+          p_user_id: string
+        }
+        Returns: Json
+      }
+      record_manual_eligible_revenue_v1: {
+        Args: { p_amount: number; p_description: string; p_reason: string }
+        Returns: {
+          affiliate_amount: number
+          amount: number
+          chargeback_amount: number
+          classfy_amount: number
+          confirmed_at: string | null
+          created_at: string
+          creator_amount: number
+          gross_amount: number
+          id: string
+          is_pool_eligible: boolean
+          metadata: Json | null
+          net_eligible_amount: number
+          payment_fee_amount: number
+          refund_amount: number
+          revenue_type: string
+          source_id: string | null
+          status: string
+          tax_amount: number
+          user_id: string | null
+          year_month: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "revenue_entries"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      record_revenue_entry_v1: {
+        Args: {
+          p_creator_amount?: number
+          p_gross_amount: number
+          p_is_pool_eligible: boolean
+          p_metadata: Json
+          p_payment_fee_amount?: number
+          p_revenue_type: string
+          p_source_id: string
+          p_tax_amount?: number
+          p_user_id: string
+        }
+        Returns: {
+          affiliate_amount: number
+          amount: number
+          chargeback_amount: number
+          classfy_amount: number
+          confirmed_at: string | null
+          created_at: string
+          creator_amount: number
+          gross_amount: number
+          id: string
+          is_pool_eligible: boolean
+          metadata: Json | null
+          net_eligible_amount: number
+          payment_fee_amount: number
+          refund_amount: number
+          revenue_type: string
+          source_id: string | null
+          status: string
+          tax_amount: number
+          user_id: string | null
+          year_month: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "revenue_entries"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      reject_withdrawal_v1: {
+        Args: { p_admin_notes: string; p_reason: string; p_request_id: string }
+        Returns: Json
+      }
+      request_withdrawal: {
+        Args: { p_amount: number; p_pix_key: string }
+        Returns: Json
+      }
       respond_message_request: {
         Args: { p_approved: boolean; p_conversation_id: string }
         Returns: undefined
+      }
+      reverse_content_sale_v1: {
+        Args: {
+          p_payment_intent_id: string
+          p_reversal_type: string
+          p_reversed_gross_amount: number
+          p_stripe_event_id: string
+        }
+        Returns: Json
+      }
+      reverse_reward_award: {
+        Args: { p_action_key: string; p_content_id: string; p_user_id: string }
+        Returns: Json
       }
       run_reconciliation: { Args: { p_period?: string }; Returns: Json }
       search_platform_content: {
@@ -3546,22 +4207,58 @@ export type Database = {
           visibility: string
         }[]
       }
-      uuid_generate_v1: { Args: never; Returns: string }
-      uuid_generate_v1mc: { Args: never; Returns: string }
-      uuid_generate_v3: {
-        Args: { name: string; namespace: string }
-        Returns: string
+      sync_subscription_state_v1: {
+        Args: {
+          p_customer_id: string
+          p_pending_effective_at?: string
+          p_pending_plan?: Database["public"]["Enums"]["plan_type"]
+          p_period_end: string
+          p_plan: Database["public"]["Enums"]["plan_type"]
+          p_status: string
+          p_subscription_id: string
+          p_user_id: string
+        }
+        Returns: Json
       }
-      uuid_generate_v4: { Args: never; Returns: string }
-      uuid_generate_v5: {
-        Args: { name: string; namespace: string }
-        Returns: string
+      update_economic_v1_settings: {
+        Args: { p_reason: string; p_value: Json }
+        Returns: Json
       }
-      uuid_nil: { Args: never; Returns: string }
-      uuid_ns_dns: { Args: never; Returns: string }
-      uuid_ns_oid: { Args: never; Returns: string }
-      uuid_ns_url: { Args: never; Returns: string }
-      uuid_ns_x500: { Args: never; Returns: string }
+      update_reward_action_config_v1: {
+        Args: {
+          p_action_key: string
+          p_active: boolean
+          p_daily_limit: number
+          p_description: string
+          p_monthly_creator_limit: number
+          p_points_creator: number
+          p_points_user: number
+          p_reason: string
+        }
+        Returns: {
+          action_key: string
+          active: boolean
+          canonical_name: string | null
+          created_at: string
+          daily_limit: number | null
+          dedupe_scope: string
+          description: string | null
+          id: string
+          monthly_creator_limit: number | null
+          points_creator: number
+          points_user: number
+          requires_evidence: boolean
+          updated_at: string
+          value_creator: number
+          value_user: number
+        }
+        SetofOptions: {
+          from: "*"
+          to: "reward_actions_config"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
     }
     Enums: {
       action_type:
@@ -3587,8 +4284,17 @@ export type Database = {
       creator_status: "none" | "pending" | "approved" | "rejected"
       live_message_type: "text" | "gift" | "system" | "pinned"
       live_status: "scheduled" | "waiting" | "live" | "ended" | "cancelled"
+      media_asset_status:
+        | "created"
+        | "uploading"
+        | "processing"
+        | "ready"
+        | "failed"
+        | "deleted"
+        | "missing"
+      media_ingest_mode: "direct_provider" | "master_first"
       plan_type: "free" | "pro" | "premium"
-      withdraw_status: "pending" | "approved" | "rejected"
+      withdraw_status: "pending" | "approved" | "paid" | "rejected"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -3714,6 +4420,9 @@ export type CompositeTypes<
     : never
 
 export const Constants = {
+  graphql_public: {
+    Enums: {},
+  },
   public: {
     Enums: {
       action_type: [
@@ -3741,8 +4450,18 @@ export const Constants = {
       creator_status: ["none", "pending", "approved", "rejected"],
       live_message_type: ["text", "gift", "system", "pinned"],
       live_status: ["scheduled", "waiting", "live", "ended", "cancelled"],
+      media_asset_status: [
+        "created",
+        "uploading",
+        "processing",
+        "ready",
+        "failed",
+        "deleted",
+        "missing",
+      ],
+      media_ingest_mode: ["direct_provider", "master_first"],
       plan_type: ["free", "pro", "premium"],
-      withdraw_status: ["pending", "approved", "rejected"],
+      withdraw_status: ["pending", "approved", "paid", "rejected"],
     },
   },
 } as const

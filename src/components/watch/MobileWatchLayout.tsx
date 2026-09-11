@@ -425,7 +425,7 @@ export function MobileWatchLayout({
           <AlertDialogDescription>
             Ao remover o like, você perderá{" "}
             <span className="font-bold text-destructive">
-              {unlikeConfirmation.rewardValue} Performance Points
+              {unlikeConfirmation.rewardValue} Points
             </span>{" "}
             conquistados.
           </AlertDialogDescription>

@@ -445,16 +445,16 @@ function WatchContent() {
 
     const { data, error } = await supabase
       .from("reward_events")
-      .select("performance_points, created_at")
+      .select("points, created_at")
       .eq("user_id", user.id)
       .eq("content_id", content.id)
-      .eq("action_key", "LIKE_CONTENT")
+      .eq("action_key", "LIKE")
       .order("created_at", { ascending: false })
       .limit(1)
       .maybeSingle();
 
     if (error) return 0;
-    return data?.performance_points || 0;
+    return data?.points || 0;
   };
 
   const performUnlike = async () => {
@@ -482,10 +482,10 @@ function WatchContent() {
     if (!user || !content || !unlikeConfirmation.pending) return;
 
     try {
-      await reverseReward(user.id, content.id, "LIKE_CONTENT");
+      await reverseReward(user.id, content.id, "LIKE");
       await performUnlike();
 
-      toast.success("Like removido. Performance Points deduzidos.");
+      toast.success("Like removido. Points deduzidos.");
     } finally {
       setUnlikeConfirmation({ pending: false, rewardValue: 0 });
     }
@@ -626,6 +626,7 @@ function WatchContent() {
           .select("id")
           .eq("user_id", user.id)
           .eq("content_id", content.id)
+          .in("status", ["confirmed", "legacy_confirmed"])
           .maybeSingle();
 
         if (purchase) {

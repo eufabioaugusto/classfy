@@ -55,7 +55,7 @@ type MenuItem = {
 
 interface StatsData {
   totalPoints: number;
-  performancePoints: number;
+  cyclePoints: number;
   level: number;
   contentCount: number;
   balance: number;
@@ -144,7 +144,7 @@ export function AppSidebar() {
           .maybeSingle(),
         supabase
           .from('reward_events')
-          .select('points, performance_points')
+          .select('points, point_type')
           .eq('user_id', user.id),
         supabase
           .from('contents')
@@ -189,8 +189,8 @@ export function AppSidebar() {
       setStudiesLimit(limit);
 
       // 3. Process gamification points & levels
-      const totalPoints = eventsRes.data?.reduce((s, e) => s + (e.points || 0), 0) || 0;
-      const performancePoints = eventsRes.data?.reduce((s, e) => s + (Number(e.performance_points) || 0), 0) || 0;
+      const totalPoints = eventsRes.data?.reduce((s, e) => s + (e.point_type === 'creator' ? 0 : Number(e.points || 0)), 0) || 0;
+      const cyclePoints = eventsRes.data?.reduce((s, e) => s + Number(e.points || 0), 0) || 0;
 
       let level = 1;
       const getPointsForLevel = (n: number) => (500 * n * (n - 1)) / 2;
@@ -204,7 +204,7 @@ export function AppSidebar() {
 
       setStats({
         totalPoints,
-        performancePoints,
+        cyclePoints,
         level,
         contentCount: contentsRes.count || 0,
         balance: walletRes.data?.balance || 0,
@@ -348,12 +348,12 @@ export function AppSidebar() {
                 <View>
                   <Text style={styles.levelTitle}>Nível {stats.level}</Text>
                   <Text style={styles.levelRemaining}>
-                    {stats.remaining.toLocaleString('pt-BR')} XP para N{stats.level + 1}
+                    {stats.remaining.toLocaleString('pt-BR')} Points para N{stats.level + 1}
                   </Text>
                 </View>
               </View>
               <Text style={styles.levelPoints}>
-                {Math.round(stats.totalPoints).toLocaleString('pt-BR')} XP
+                {Math.round(stats.totalPoints).toLocaleString('pt-BR')} Points
               </Text>
             </View>
             
@@ -370,7 +370,7 @@ export function AppSidebar() {
                   <Text style={styles.gridLabel}>Foco</Text>
                 </View>
                 <Text style={styles.gridValue}>
-                  {stats.performancePoints.toLocaleString('pt-BR', { maximumFractionDigits: 1 })}
+                  {stats.cyclePoints.toLocaleString('pt-BR', { maximumFractionDigits: 1 })}
                 </Text>
               </View>
               <View style={styles.gridItem}>

@@ -87,7 +87,7 @@ export default function Conta() {
         supabase
           .from("platform_settings")
           .select("*")
-          .eq("key", "minimum_withdrawal_amount")
+          .eq("key", "economic_v1")
           .maybeSingle(),
         supabase
           .from("withdraw_requests")
@@ -103,9 +103,9 @@ export default function Conta() {
       setProfile(profileRes.data);
 
       if (configRes.data?.value) {
-        const configValue = configRes.data.value as { amount?: number };
-        if (configValue.amount) {
-          setMinWithdrawalAmount(configValue.amount);
+        const configValue = configRes.data.value as { minimum_withdrawal_amount?: number };
+        if (configValue.minimum_withdrawal_amount) {
+          setMinWithdrawalAmount(configValue.minimum_withdrawal_amount);
         }
       }
 
@@ -257,7 +257,8 @@ export default function Conta() {
       return;
     }
 
-    if (amount > wallet.balance) {
+    const availableBalance = Number(wallet.balance || 0) - Number(wallet.reserved_balance || 0);
+    if (amount > availableBalance) {
       toast({
         title: "Saldo insuficiente",
         description: "Você não tem saldo suficiente para este saque.",
@@ -628,7 +629,7 @@ export default function Conta() {
                             <span className="text-xs font-medium uppercase tracking-wider">Saldo Disponível</span>
                           </div>
                           <p className="text-3xl font-bold text-primary">
-                            R$ {wallet?.balance?.toFixed(2) || "0.00"}
+                            R$ {(Number(wallet?.balance || 0) - Number(wallet?.reserved_balance || 0)).toFixed(2)}
                           </p>
                         </CardContent>
                       </Card>
@@ -670,7 +671,7 @@ export default function Conta() {
                             >
                               <div className="flex items-center gap-3">
                                 {withdrawal.status === "pending" && <Clock className="w-5 h-5 text-yellow-500" />}
-                                {withdrawal.status === "approved" && <CheckCircle className="w-5 h-5 text-green-500" />}
+                                {withdrawal.status === "paid" && <CheckCircle className="w-5 h-5 text-green-500" />}
                                 {withdrawal.status === "rejected" && <XCircle className="w-5 h-5 text-red-500" />}
                                 <div>
                                   <p className="font-semibold">R$ {withdrawal.amount.toFixed(2)}</p>
@@ -685,7 +686,7 @@ export default function Conta() {
                               </div>
                               <Badge
                                 variant={
-                                  withdrawal.status === "approved"
+                                  withdrawal.status === "paid"
                                     ? "default"
                                     : withdrawal.status === "rejected"
                                     ? "destructive"
@@ -693,7 +694,7 @@ export default function Conta() {
                                 }
                               >
                                 {withdrawal.status === "pending" && "Pendente"}
-                                {withdrawal.status === "approved" && "Aprovado"}
+                                {withdrawal.status === "paid" && "Pago"}
                                 {withdrawal.status === "rejected" && "Recusado"}
                               </Badge>
                             </div>
@@ -710,7 +711,7 @@ export default function Conta() {
                         <div className="flex items-center justify-between mb-2">
                           <span className="text-sm text-muted-foreground">Saldo disponível</span>
                           <span className="text-lg font-bold text-primary">
-                            R$ {wallet?.balance?.toFixed(2) || "0.00"}
+                            R$ {(Number(wallet?.balance || 0) - Number(wallet?.reserved_balance || 0)).toFixed(2)}
                           </span>
                         </div>
                         <p className="text-xs text-muted-foreground">
@@ -754,7 +755,7 @@ export default function Conta() {
                         type="submit"
                         className="w-full"
                         size="lg"
-                        disabled={submitting || !wallet?.balance || wallet.balance <= 0}
+                        disabled={submitting || (Number(wallet?.balance || 0) - Number(wallet?.reserved_balance || 0)) <= 0}
                       >
                         {submitting ? (
                           <>
@@ -813,7 +814,7 @@ export default function Conta() {
                                 <TableCell>
                                   <Badge
                                     variant={
-                                      withdrawal.status === "approved"
+                                      withdrawal.status === "paid"
                                         ? "default"
                                         : withdrawal.status === "rejected"
                                         ? "destructive"
@@ -827,10 +828,10 @@ export default function Conta() {
                                         Pendente
                                       </>
                                     )}
-                                    {withdrawal.status === "approved" && (
+                                    {withdrawal.status === "paid" && (
                                       <>
                                         <CheckCircle className="w-3 h-3" />
-                                        Aprovado
+                                        Pago
                                       </>
                                     )}
                                     {withdrawal.status === "rejected" && (

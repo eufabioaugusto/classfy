@@ -184,10 +184,13 @@ export default function ProfileScreen() {
       // 1. Fetch points from reward_events
       const { data: eventsData } = await supabase
         .from('reward_events')
-        .select('points')
+        .select('points, point_type')
         .eq('user_id', user!.id);
 
-      const points = Math.round(eventsData?.reduce((sum, e) => sum + (e.points || 0), 0) || 0);
+      const points = Math.round(eventsData?.reduce(
+        (sum, e) => sum + (e.point_type === 'creator' ? 0 : Number(e.points || 0)),
+        0,
+      ) || 0);
       setTotalPoints(points);
 
       // 2. Fetch Creator Stats for FOMO progress trackers
@@ -379,21 +382,21 @@ export default function ProfileScreen() {
           </Pressable>
         </View>
 
-        {/* Level & XP Progress Card */}
+        {/* Nivel usa somente Points de usuario */}
         <View style={styles.xpCard}>
           <View style={styles.xpCardHeader}>
             <View style={styles.levelBadge}>
               <Trophy size={18} color="#000" />
               <Text style={styles.levelText}>Nível {level}</Text>
             </View>
-            <Text style={styles.xpTotalPoints}>{totalPoints.toLocaleString('pt-BR')} XP Total</Text>
+            <Text style={styles.xpTotalPoints}>{totalPoints.toLocaleString('pt-BR')} Points</Text>
           </View>
           <View style={styles.progressBarTrack}>
             <View style={[styles.progressBarFill, { width: `${progressPercent}%` }]} />
           </View>
           <View style={styles.progressFooter}>
-            <Text style={styles.progressFooterText}>XP para nível {level + 1}</Text>
-            <Text style={styles.progressFooterVal}>{pointsToNextLevel} XP restantes</Text>
+            <Text style={styles.progressFooterText}>Points para nível {level + 1}</Text>
+            <Text style={styles.progressFooterVal}>{pointsToNextLevel} Points restantes</Text>
           </View>
         </View>
 

@@ -96,7 +96,7 @@ export function useWatchComments({ contentId, enabled = false }: UseWatchComment
 
       await supabase.functions.invoke('process-reward', {
         body: {
-          actionKey: 'COMMENT_CONTENT',
+          actionKey: 'COMMENT',
           userId: user.id,
           contentId,
           metadata: { commentLength: trimmed.length },

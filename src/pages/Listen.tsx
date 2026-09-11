@@ -104,6 +104,7 @@ export default function Listen() {
         .select('id')
         .eq('user_id', user.id)
         .eq('content_id', content.id)
+        .in('status', ['confirmed', 'legacy_confirmed'])
         .maybeSingle();
 
       if (purchase) {

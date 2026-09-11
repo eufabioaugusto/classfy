@@ -225,7 +225,7 @@ export function useCreatorMilestones(creatorId?: string) {
           });
       }
 
-      // Acumular PP e registrar reward via edge function (service_role server-side)
+      // Registrar apenas o reconhecimento; milestones não têm efeito econômico.
       const { error: rewardError } = await supabase.functions.invoke('claim-creator-milestone', {
         body: {
           milestoneId: milestone.id,
@@ -234,12 +234,12 @@ export function useCreatorMilestones(creatorId?: string) {
       });
 
       if (rewardError) {
-        console.error('Erro ao processar recompensa de milestone:', rewardError);
+        console.error('Erro ao registrar reconhecimento de milestone:', rewardError);
       }
 
       toast({
         title: '🎉 Meta alcançada!',
-        description: `+${milestone.points_reward} pontos de nível · +${ppAmount} PP acumulados no pool mensal`,
+        description: 'Conquista reconhecida no seu perfil.',
       });
 
       // Refresh milestones
@@ -248,7 +248,7 @@ export function useCreatorMilestones(creatorId?: string) {
       console.error('Error claiming milestone:', error);
       toast({
         title: 'Erro',
-        description: 'Não foi possível resgatar a recompensa',
+        description: 'Não foi possível registrar a conquista',
         variant: 'destructive'
       });
     } finally {

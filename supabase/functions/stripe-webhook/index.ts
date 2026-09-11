@@ -8,33 +8,6 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, stripe-signature",
 };
 
-function parseCommissionRate(configValue: unknown, fallback: number) {
-  if (typeof configValue === "number" && Number.isFinite(configValue)) {
-    return configValue <= 1 ? configValue : configValue / 100;
-  }
-
-  if (typeof configValue === "string") {
-    const parsedValue = Number(configValue);
-    if (Number.isFinite(parsedValue)) {
-      return parsedValue <= 1 ? parsedValue : parsedValue / 100;
-    }
-  }
-
-  if (configValue && typeof configValue === "object") {
-    const percentage = Number((configValue as { percentage?: unknown }).percentage);
-    if (Number.isFinite(percentage)) {
-      return percentage / 100;
-    }
-
-    const rate = Number((configValue as { rate?: unknown }).rate);
-    if (Number.isFinite(rate)) {
-      return rate <= 1 ? rate : rate / 100;
-    }
-  }
-
-  return fallback;
-}
-
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -92,6 +65,7 @@ serve(async (req) => {
         if (session.mode === "payment" && session.metadata?.boost_id) {
           const boostId = session.metadata.boost_id;
           const totalBudget = session.amount_total ? session.amount_total / 100 : 0;
+          const costs = await getPaymentCosts(stripe, session.payment_intent as string | null);
           
           console.log("[WEBHOOK] Boost payment completed:", { boostId, totalBudget });
 
@@ -113,6 +87,8 @@ serve(async (req) => {
               source_id: session.payment_intent as string,
               user_id: session.metadata.user_id,
               metadata: { boost_id: boostId, total_budget: totalBudget },
+              payment_fee_amount: costs.paymentFee,
+              tax_amount: (session.total_details?.amount_tax || 0) / 100,
             });
           }
         }
@@ -121,47 +97,20 @@ serve(async (req) => {
         if (session.mode === "payment" && session.metadata?.content_id) {
           const safePricePaid = session.amount_total ? session.amount_total / 100 : 0;
           const discountApplied = parseFloat(session.metadata.discount_applied || "0");
-          
-          const { error } = await supabaseClient
-            .from("purchased_contents")
-            .upsert({
-              user_id: session.metadata.user_id,
-              content_id: session.metadata.content_id,
-              price_paid: safePricePaid,
-              discount_applied: Number.isFinite(discountApplied) ? discountApplied : 0,
-            }, {
-              onConflict: "user_id,content_id"
-            });
-
-          if (error) {
-            throw new Error(`Error recording purchase: ${error.message}`);
-          } else {
-            console.log("Purchase recorded successfully");
-
-            const { data: commissionConfig } = await supabaseClient
-              .from("system_config")
-              .select("config_value")
-              .eq("config_key", "direct_sale_platform_commission_rate")
-              .maybeSingle();
-
-            const commissionRate = Math.min(
-              parseCommissionRate(commissionConfig?.config_value, 0.20),
-              1
-            );
-            const platformCommission = safePricePaid * commissionRate;
-
-            await recordRevenue(supabaseClient, {
-              revenue_type: 'content_purchase',
-              amount: platformCommission,
-              source_id: session.payment_intent as string,
-              user_id: session.metadata.user_id,
-              metadata: { 
-                content_id: session.metadata.content_id,
-                total_price: safePricePaid,
-                commission_rate: commissionRate,
-              },
-            });
-          }
+          const paymentIntentId = session.payment_intent as string;
+          const costs = await getPaymentCosts(stripe, paymentIntentId);
+          const { data, error } = await supabaseClient.rpc("record_content_sale_v1", {
+            p_user_id: session.metadata.user_id,
+            p_content_id: session.metadata.content_id,
+            p_gross_amount: safePricePaid,
+            p_discount_applied: Number.isFinite(discountApplied) ? discountApplied : 0,
+            p_payment_intent_id: paymentIntentId,
+            p_checkout_session_id: session.id,
+            p_payment_fee_amount: costs.paymentFee,
+            p_tax_amount: (session.total_details?.amount_tax || 0) / 100,
+          });
+          if (error) throw new Error(`Error recording content sale: ${error.message}`);
+          console.log("Content sale recorded atomically", data);
         }
         
         // Handle subscription
@@ -179,20 +128,17 @@ serve(async (req) => {
             subscriptionEnd,
           });
 
-          const { error } = await supabaseClient
-            .from("profiles")
-            .update({
-              plan: planType,
-              plan_expires_at: subscriptionEnd,
-              billing_id: session.customer as string,
-            })
-            .eq("id", session.metadata.user_id);
-
-          if (error) {
-            throw new Error(`Error updating subscription: ${error.message}`);
-          } else {
-            console.log("Subscription activated successfully");
-          }
+          const { error } = await supabaseClient.rpc("sync_subscription_state_v1", {
+            p_user_id: session.metadata.user_id,
+            p_status: subscription.status,
+            p_plan: planType,
+            p_period_end: subscriptionEnd,
+            p_subscription_id: subscription.id,
+            p_customer_id: session.customer as string,
+            p_pending_plan: null,
+            p_pending_effective_at: null,
+          });
+          if (error) throw new Error(`Error updating subscription: ${error.message}`);
         }
 
         // Check for referral commission
@@ -235,27 +181,29 @@ serve(async (req) => {
           .single();
 
         if (profile) {
-          const isActive = ["active", "trialing", "past_due"].includes(subscription.status);
-          
           const productId = subscription.items.data[0]?.price?.product as string | undefined;
-          const planType = isActive ? getPlanFromProduct(productId, subscription.metadata?.plan_type) : "free";
-          const subscriptionEnd = isActive ? getSubscriptionPeriodEnd(subscription) : null;
+          const planType = getPlanFromProduct(productId, subscription.metadata?.plan_type);
+          const subscriptionEnd = getSubscriptionPeriodEnd(subscription);
+          const pendingPlan = subscription.metadata?.pending_plan;
 
           console.log("[WEBHOOK] Subscription updated/deleted:", {
             userId: profile.id,
             productId,
             planType,
-            isActive,
+            status: subscription.status,
             subscriptionEnd,
           });
 
-          const { error } = await supabaseClient
-            .from("profiles")
-            .update({
-              plan: planType,
-              plan_expires_at: subscriptionEnd,
-            })
-            .eq("id", profile.id);
+          const { error } = await supabaseClient.rpc("sync_subscription_state_v1", {
+            p_user_id: profile.id,
+            p_status: subscription.status,
+            p_plan: planType,
+            p_period_end: subscriptionEnd,
+            p_subscription_id: subscription.id,
+            p_customer_id: customerId,
+            p_pending_plan: pendingPlan === "pro" || pendingPlan === "premium" ? pendingPlan : null,
+            p_pending_effective_at: pendingPlan ? subscriptionEnd : null,
+          });
 
           if (error) {
             throw new Error(`Error updating subscription status: ${error.message}`);
@@ -284,13 +232,16 @@ serve(async (req) => {
             const productId = subscription.items.data[0]?.price?.product as string | undefined;
             const planType = getPlanFromProduct(productId, subscription.metadata?.plan_type);
 
-            const { error } = await supabaseClient
-              .from("profiles")
-              .update({
-                plan: planType,
-                plan_expires_at: subscriptionEnd,
-              })
-              .eq("id", profile.id);
+            const { error } = await supabaseClient.rpc("sync_subscription_state_v1", {
+              p_user_id: profile.id,
+              p_status: subscription.status,
+              p_plan: planType,
+              p_period_end: subscriptionEnd,
+              p_subscription_id: subscription.id,
+              p_customer_id: customerId,
+              p_pending_plan: null,
+              p_pending_effective_at: null,
+            });
 
             if (error) {
               throw new Error(`Error updating subscription period: ${error.message}`);
@@ -300,6 +251,10 @@ serve(async (req) => {
               // Record renewal revenue
               const invoiceAmount = invoice.amount_paid ? invoice.amount_paid / 100 : 0;
               if (invoiceAmount > 0) {
+                const paymentIntentId = typeof invoice.payment_intent === "string"
+                  ? invoice.payment_intent
+                  : invoice.payment_intent?.id;
+                const costs = await getPaymentCosts(stripe, paymentIntentId || null);
                 const revenueType = planType === "premium" ? 'subscription_premium' : 'subscription_pro';
                 await recordRevenue(supabaseClient, {
                   revenue_type: revenueType,
@@ -307,6 +262,11 @@ serve(async (req) => {
                   source_id: invoice.id,
                   user_id: profile.id,
                   metadata: { invoice_id: invoice.id, plan_type: planType, product_id: productId },
+                  payment_fee_amount: costs.paymentFee,
+                  tax_amount: (invoice.total_tax_amounts || []).reduce(
+                    (sum: number, tax: { amount: number }) => sum + tax.amount,
+                    0,
+                  ) / 100,
                 });
               }
             }
@@ -329,6 +289,19 @@ serve(async (req) => {
             .single();
 
           if (profile) {
+            const productId = subscription.items.data[0]?.price?.product as string | undefined;
+            const planType = getPlanFromProduct(productId, subscription.metadata?.plan_type);
+            const { error: stateError } = await supabaseClient.rpc("sync_subscription_state_v1", {
+              p_user_id: profile.id,
+              p_status: "past_due",
+              p_plan: planType,
+              p_period_end: getSubscriptionPeriodEnd(subscription),
+              p_subscription_id: subscription.id,
+              p_customer_id: customerId,
+              p_pending_plan: null,
+              p_pending_effective_at: null,
+            });
+            if (stateError) throw new Error(`Error starting subscription grace period: ${stateError.message}`);
             await supabaseClient
               .from("notifications")
               .insert({
@@ -340,6 +313,43 @@ serve(async (req) => {
 
             console.log("Payment failure notification sent");
           }
+        }
+        break;
+      }
+
+      case "charge.refunded": {
+        const charge = event.data.object as Stripe.Charge;
+        const paymentIntentId = typeof charge.payment_intent === "string"
+          ? charge.payment_intent
+          : charge.payment_intent?.id;
+        if (paymentIntentId && charge.amount_refunded > 0) {
+          const { error } = await supabaseClient.rpc("reverse_content_sale_v1", {
+            p_payment_intent_id: paymentIntentId,
+            p_reversal_type: "refund",
+            p_reversed_gross_amount: charge.amount_refunded / 100,
+            p_stripe_event_id: event.id,
+          });
+          if (error) throw new Error(`Content refund failed: ${error.message}`);
+        }
+        break;
+      }
+
+      case "charge.dispute.created": {
+        const dispute = event.data.object as Stripe.Dispute;
+        const charge = typeof dispute.charge === "string"
+          ? await stripe.charges.retrieve(dispute.charge)
+          : dispute.charge;
+        const paymentIntentId = typeof charge?.payment_intent === "string"
+          ? charge.payment_intent
+          : charge?.payment_intent?.id;
+        if (paymentIntentId) {
+          const { error } = await supabaseClient.rpc("reverse_content_sale_v1", {
+            p_payment_intent_id: paymentIntentId,
+            p_reversal_type: "chargeback",
+            p_reversed_gross_amount: dispute.amount / 100,
+            p_stripe_event_id: event.id,
+          });
+          if (error) throw new Error(`Content chargeback failed: ${error.message}`);
         }
         break;
       }
@@ -382,35 +392,38 @@ async function recordRevenue(
     source_id?: string;
     user_id?: string;
     metadata?: Record<string, unknown>;
+    payment_fee_amount?: number;
+    tax_amount?: number;
+    creator_amount?: number;
   }
 ) {
+  const { error } = await supabase.rpc("record_revenue_entry_v1", {
+    p_revenue_type: params.revenue_type,
+    p_gross_amount: params.amount,
+    p_source_id: params.source_id || null,
+    p_user_id: params.user_id || null,
+    p_metadata: params.metadata || {},
+    p_is_pool_eligible: true,
+    p_payment_fee_amount: params.payment_fee_amount || 0,
+    p_tax_amount: params.tax_amount || 0,
+    p_creator_amount: params.creator_amount || 0,
+  });
+  if (error) throw new Error(`Error recording revenue: ${error.message}`);
+}
+
+async function getPaymentCosts(stripe: Stripe, paymentIntentId: string | null) {
+  if (!paymentIntentId) return { paymentFee: 0 };
   try {
-    const now = new Date();
-    const year_month = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-
-    const { error } = await supabase
-      .from('revenue_entries')
-      .insert({
-        year_month,
-        revenue_type: params.revenue_type,
-        amount: params.amount,
-        source_id: params.source_id || null,
-        user_id: params.user_id || null,
-        metadata: params.metadata || {},
-      });
-
-    if (error) {
-      // unique_violation = source_id já registrado (retry do webhook) — ignorar silenciosamente
-      if (typeof error === "object" && error !== null && "code" in error && error.code === '23505') {
-        console.log('Revenue already recorded for source_id:', params.source_id, '— skipping.');
-        return;
-      }
-      throw new Error(`Error recording revenue: ${error.message}`);
-    } else {
-      console.log('Revenue recorded:', { type: params.revenue_type, amount: params.amount, year_month });
-    }
-  } catch (err) {
-    console.error('Failed to record revenue:', err);
-    throw err;
+    const intent = await stripe.paymentIntents.retrieve(paymentIntentId, {
+      expand: ["latest_charge.balance_transaction"],
+    });
+    const charge = typeof intent.latest_charge === "object" ? intent.latest_charge : null;
+    const balanceTransaction = charge && typeof charge.balance_transaction === "object"
+      ? charge.balance_transaction
+      : null;
+    return { paymentFee: balanceTransaction?.fee ? balanceTransaction.fee / 100 : 0 };
+  } catch (error) {
+    console.warn("Could not resolve Stripe fee; revenue remains explicit with zero fee", error);
+    return { paymentFee: 0 };
   }
 }

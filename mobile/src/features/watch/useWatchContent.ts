@@ -175,12 +175,15 @@ export function useWatchContent(contentId?: string) {
       if (nextContent.visibility === 'paid') {
         const table = nextContent.isCourse ? 'course_enrollments' : 'purchased_contents';
         const foreignKey = nextContent.isCourse ? 'course_id' : 'content_id';
-        const { data } = await supabase
+        let query = supabase
           .from(table)
           .select('id')
           .eq('user_id', user.id)
-          .eq(foreignKey, nextContent.id)
-          .maybeSingle();
+          .eq(foreignKey, nextContent.id);
+        if (!nextContent.isCourse) {
+          query = query.in('status', ['confirmed', 'legacy_confirmed']);
+        }
+        const { data } = await query.maybeSingle();
 
         return {
           hasAccess: Boolean(data),

@@ -103,16 +103,16 @@ export function useContentActions({ contentId, isCourse = false, hasAccess = tru
     await refreshLikesCount();
   }, [refreshLikesCount]);
 
-  // Get reward PP for this like (if any)
+  // Get Points for this like (if any)
   const getLikeRewardPoints = useCallback(async (): Promise<number> => {
     if (!user) return 0;
 
     const { data, error } = await supabase
       .from("reward_events")
-      .select("performance_points, created_at")
+      .select("points, created_at")
       .eq("user_id", user.id)
       .eq("content_id", contentId)
-      .eq("action_key", "LIKE_CONTENT")
+      .eq("action_key", "LIKE")
       .order("created_at", { ascending: false })
       .limit(1)
       .maybeSingle();
@@ -122,7 +122,7 @@ export function useContentActions({ contentId, isCourse = false, hasAccess = tru
       return 0;
     }
 
-    return data?.performance_points || 0;
+    return data?.points || 0;
   }, [user, contentId]);
 
   const trackContentInterest = useCallback(async (action: "like" | "save" | "favorite") => {
@@ -226,14 +226,14 @@ export function useContentActions({ contentId, isCourse = false, hasAccess = tru
     
     try {
       // Reverse the reward
-      await reverseReward(user.id, contentId, "LIKE_CONTENT");
+      await reverseReward(user.id, contentId, "LIKE");
       
       // Perform the unlike
       await performUnlike();
       
       toast({
         title: "Like removido",
-        description: `${Math.floor(unlikeConfirmation.rewardValue)} pontos de performance deduzidos`,
+        description: `${Math.floor(unlikeConfirmation.rewardValue)} Points deduzidos`,
       });
     } catch (error) {
       console.error("Error confirming unlike:", error);

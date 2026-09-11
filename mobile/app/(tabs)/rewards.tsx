@@ -45,7 +45,7 @@ import { typography } from '@/theme/typography';
 
 interface LeaderboardEntry {
   user_id: string;
-  performance_points: number;
+  cycle_points: number;
   display_name: string;
   avatar_url: string | null;
   rank?: number;
@@ -82,10 +82,7 @@ interface RewardStats {
     comments: number;
     completedContents: number;
   };
-  performancePoints: number;
-  estimatedPoolShare: number;
-  prm: number;
-  totalPP: number;
+  cyclePoints: number;
 }
 
 export default function RewardsScreen() {
@@ -117,17 +114,15 @@ export default function RewardsScreen() {
       const yearMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
 
       // 1. Parallel Fetch basic stats
-      const [rewardEventsRes, walletRes, streaksRes, platformSettingsRes, revenueRes, cycleRes] = await Promise.all([
-        supabase.from('reward_events').select('points, action_key').eq('user_id', user!.id),
+      const [rewardEventsRes, walletRes, streaksRes, cycleRes] = await Promise.all([
+        supabase.from('reward_events').select('points, point_type, action_key').eq('user_id', user!.id),
         supabase.from('wallets').select('balance, total_earned').eq('user_id', user!.id).single(),
         supabase.from('user_login_streaks').select('current_streak, longest_streak').eq('user_id', user!.id).maybeSingle(),
-        supabase.from('platform_settings').select('value').eq('key', 'economic').single(),
-        supabase.from('revenue_entries').select('amount').eq('year_month', yearMonth),
         supabase.from('economic_cycles').select('id').eq('year_month', yearMonth).maybeSingle(),
       ]);
 
       const events = rewardEventsRes.data || [];
-      const totalPoints = events.reduce((sum, e) => sum + (e.points || 0), 0);
+      const totalPoints = events.reduce((sum, e) => sum + (e.point_type === 'creator' ? 0 : Number(e.points || 0)), 0);
 
       // Level logic
       const getPointsForLevel = (n: number) => (500 * n * (n - 1)) / 2;
@@ -143,34 +138,21 @@ export default function RewardsScreen() {
       const progressPercent = Math.min((pointsInCurrentLevel / pointsNeededForNext) * 100, 100);
 
       const engagementStats = {
-        likes: events.filter(e => e.action_key === 'LIKE_CONTENT').length,
-        saves: events.filter(e => e.action_key === 'SAVE_CONTENT').length,
-        comments: events.filter(e => e.action_key === 'COMMENT_CONTENT').length,
+        likes: events.filter(e => e.action_key === 'LIKE').length,
+        saves: events.filter(e => e.action_key === 'SAVE').length,
+        comments: events.filter(e => e.action_key === 'COMMENT').length,
         completedContents: events.filter(e => e.action_key === 'WATCH_100').length,
       };
 
-      // Pool calculation
-      let poolPct = 40;
-      if (platformSettingsRes.data?.value) {
-        poolPct = (platformSettingsRes.data.value as any).pool_percentage || 40;
-      }
-      const currentRbm = revenueRes.data?.reduce((sum, e) => sum + parseFloat(String(e.amount)), 0) || 0;
-      const prm = currentRbm * (poolPct / 100);
-
-      let performancePoints = 0;
-      let totalPP = 0;
-      let estimatedPoolShare = 0;
+      let cyclePoints = 0;
 
       if (cycleRes.data) {
-        const [userCycleRes, allUsersRes, cycleUsersRes] = await Promise.all([
-          supabase.from('economic_cycle_users').select('performance_points').eq('cycle_id', cycleRes.data.id).eq('user_id', user!.id).maybeSingle(),
-          supabase.from('economic_cycle_users').select('user_id, performance_points').eq('cycle_id', cycleRes.data.id).order('performance_points', { ascending: false }).limit(100),
-          supabase.from('economic_cycle_users').select('performance_points').eq('cycle_id', cycleRes.data.id),
+        const [userCycleRes, allUsersRes] = await Promise.all([
+          supabase.from('economic_cycle_users').select('cycle_points').eq('cycle_id', cycleRes.data.id).eq('user_id', user!.id).maybeSingle(),
+          supabase.from('economic_cycle_users').select('user_id, cycle_points').eq('cycle_id', cycleRes.data.id).order('cycle_points', { ascending: false }).limit(100),
         ]);
 
-        performancePoints = userCycleRes.data ? parseFloat(String(userCycleRes.data.performance_points)) : 0;
-        totalPP = cycleUsersRes.data?.reduce((sum, u) => sum + parseFloat(String(u.performance_points)), 0) || 0;
-        estimatedPoolShare = totalPP > 0 ? (performancePoints / totalPP) * prm : 0;
+        cyclePoints = userCycleRes.data ? parseFloat(String(userCycleRes.data.cycle_points)) : 0;
 
         // Leaderboard calculation
         const cycleUsers = allUsersRes.data || [];
@@ -181,7 +163,7 @@ export default function RewardsScreen() {
 
           const leaderboard: LeaderboardEntry[] = cycleUsers.map(u => ({
             user_id: u.user_id,
-            performance_points: parseFloat(String(u.performance_points)),
+            cycle_points: parseFloat(String(u.cycle_points)),
             display_name: profileMap.get(u.user_id)?.display_name || 'Usuário',
             avatar_url: profileMap.get(u.user_id)?.avatar_url || null,
           }));
@@ -196,7 +178,7 @@ export default function RewardsScreen() {
             const profile = profileMap.get(user!.id);
             setUserOutsideTop({
               user_id: user!.id,
-              performance_points: parseFloat(String(userEntry.performance_points)),
+              cycle_points: parseFloat(String(userEntry.cycle_points)),
               display_name: profile?.display_name || 'Você',
               avatar_url: profile?.avatar_url || null,
               rank: userEntry.rank,
@@ -217,10 +199,7 @@ export default function RewardsScreen() {
         currentStreak: streaksRes.data?.current_streak || 0,
         longestStreak: streaksRes.data?.longest_streak || 0,
         engagementStats,
-        performancePoints,
-        estimatedPoolShare,
-        prm,
-        totalPP,
+        cyclePoints,
       });
 
       // 2. Fetch Creator Milestones / Achievements
@@ -309,7 +288,7 @@ export default function RewardsScreen() {
         <Text style={styles.kicker}>Classfy Diferencial</Text>
         <Text style={styles.welcomeTitle}>Minhas Recompensas</Text>
         <Text style={styles.welcomeSubtitle}>
-          Acompanhe seu nível de engajamento, conquistas de XP e saldo econômico.
+          Acompanhe seus Points, conquistas e saldo econômico.
         </Text>
       </View>
 
@@ -320,17 +299,17 @@ export default function RewardsScreen() {
             </View>
           ) : stats ? (
             <>
-              {/* Pool Est Share + performance points */}
+              {/* Pontos do ciclo; o valor em reais so existe apos o fechamento */}
               <View style={styles.poolCard}>
                 <View style={styles.poolHeader}>
                   <Zap size={16} color={colors.accent} />
                   <Text style={styles.poolLabel}>Pool de Participação Mensal</Text>
                 </View>
                 <Text style={styles.poolShare}>
-                  R$ {stats.estimatedPoolShare.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  {stats.cyclePoints.toLocaleString('pt-BR', { maximumFractionDigits: 1 })} Points
                 </Text>
                 <Text style={styles.poolDescription}>
-                  Sua fatia estimada do faturamento da plataforma com base em {stats.performancePoints.toFixed(1)} PP acumulados neste mês.
+                  O valor em reais será confirmado no fechamento mensal do ciclo.
                 </Text>
               </View>
 
@@ -374,8 +353,8 @@ export default function RewardsScreen() {
                           </Text>
                         </View>
                         <View style={styles.leaderRight}>
-                          <Text style={styles.leaderPoints}>{Math.floor(entry.performance_points)}</Text>
-                          <Text style={styles.leaderPointsUnit}>pts</Text>
+                          <Text style={styles.leaderPoints}>{Math.floor(entry.cycle_points)}</Text>
+                          <Text style={styles.leaderPointsUnit}>Points</Text>
                         </View>
                       </View>
                     );
@@ -401,8 +380,8 @@ export default function RewardsScreen() {
                           </Text>
                         </View>
                         <View style={styles.leaderRight}>
-                          <Text style={styles.leaderPoints}>{Math.floor(userOutsideTop.performance_points)}</Text>
-                          <Text style={styles.leaderPointsUnit}>pts</Text>
+                          <Text style={styles.leaderPoints}>{Math.floor(userOutsideTop.cycle_points)}</Text>
+                          <Text style={styles.leaderPointsUnit}>Points</Text>
                         </View>
                       </View>
                     </>
@@ -410,7 +389,7 @@ export default function RewardsScreen() {
                 </View>
               </View>
 
-              {/* Level & XP progression */}
+              {/* Progressao de nivel pelos Points de usuario */}
               <View style={styles.metricCard}>
                 <View style={styles.cardHeaderRow}>
                   <View style={styles.cardHeaderLeft}>
@@ -418,7 +397,7 @@ export default function RewardsScreen() {
                     <Text style={styles.cardTitle}>Nível {stats.level}</Text>
                   </View>
                   <Text style={styles.xpLabel}>
-                    {stats.totalPoints.toLocaleString()} XP Total
+                    {stats.totalPoints.toLocaleString()} Points
                   </Text>
                 </View>
 
@@ -426,7 +405,7 @@ export default function RewardsScreen() {
                   <View style={[styles.xpProgressFill, { width: `${stats.progressPercent}%` }]} />
                 </View>
                 <Text style={styles.xpSubtext}>
-                  Faltam {stats.pointsToNextLevel.toLocaleString('pt-BR')} XP para o Nível {stats.level + 1}
+                  Faltam {stats.pointsToNextLevel.toLocaleString('pt-BR')} Points para o Nível {stats.level + 1}
                 </Text>
               </View>
 

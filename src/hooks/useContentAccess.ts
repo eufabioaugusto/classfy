@@ -46,6 +46,7 @@ export function useContentAccess() {
             .select("id")
             .eq("user_id", user.id)
             .eq("content_id", contentId)
+            .in("status", ["confirmed", "legacy_confirmed"])
             .maybeSingle();
 
           if (purchase) return true;

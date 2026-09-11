@@ -595,7 +595,7 @@ export default function ShortsScreen() {
 
         // Trigger reward function
         supabase.functions.invoke('process-reward', {
-          body: { actionKey: 'LIKE_CONTENT', userId: user.id, contentId: itemId },
+          body: { actionKey: 'LIKE', userId: user.id, contentId: itemId },
         }).then(() => {});
       }
     } catch (e) {
@@ -648,10 +648,15 @@ export default function ShortsScreen() {
   const handleSharePress = async (item: ShortItem) => {
     try {
       const shareUrl = `https://classfy.app/shorts/${item.id}`;
-      await Share.share({
+      const result = await Share.share({
         title: item.title,
         message: `Olhe este short na Classfy: "${item.title}"\n${shareUrl}`,
       });
+      if (user && result.action === Share.sharedAction) {
+        await supabase.functions.invoke('process-reward', {
+          body: { actionKey: 'SHARE', userId: user.id, contentId: item.id },
+        });
+      }
     } catch (e) {
       console.error('Error sharing:', e);
     }

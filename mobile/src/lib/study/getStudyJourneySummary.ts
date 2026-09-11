@@ -21,8 +21,7 @@ export interface StudyJourneySummary {
   engagedContentsCount: number;
   totalRecommendedContents: number;
   estimatedMinutes: number;
-  rewardValue: number;
-  performancePoints: number;
+  rewardPoints: number;
   hasRealProgress: boolean;
   statusTone: StudyJourneyStatusTone;
   summaryLine: string;
@@ -239,7 +238,7 @@ export async function fetchStudyJourneySummary(input: {
         .in('content_id', recommendedContentIds),
       supabase
         .from('reward_events')
-        .select('content_id, value, performance_points')
+        .select('content_id, points')
         .eq('user_id', userId)
         .in('content_id', recommendedContentIds),
       supabase
@@ -280,12 +279,8 @@ export async function fetchStudyJourneySummary(input: {
     engagedContentIds.add(contentId);
   }
 
-  const rewardValue = rewardRows.reduce(
-    (sum, row) => sum + Number(row.value || 0),
-    0
-  );
-  const performancePoints = rewardRows.reduce(
-    (sum, row) => sum + Number(row.performance_points || 0),
+  const rewardPoints = rewardRows.reduce(
+    (sum, row) => sum + Number(row.points || 0),
     0
   );
 
@@ -360,8 +355,7 @@ export async function fetchStudyJourneySummary(input: {
     engagedContentsCount: engagedContentIds.size,
     totalRecommendedContents,
     estimatedMinutes,
-    rewardValue,
-    performancePoints,
+    rewardPoints,
     hasRealProgress,
     statusTone,
     summaryLine,

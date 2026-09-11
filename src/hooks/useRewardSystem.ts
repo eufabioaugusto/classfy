@@ -42,11 +42,17 @@ export function useRewardSystem() {
     let rewardKey: string;
     
     // Match the server-side tracking key logic
-    const dailyActions = ['DAILY_LOGIN', 'FIRST_CONTENT_WEEK', 'BINGE_WATCH', 'WEEKLY_STREAK'];
-    const uniquePerContentActions = ['LIKE_CONTENT', 'SAVE_CONTENT', 'FAVORITE_CONTENT', 'WATCH_50', 'WATCH_100', 'COMMENT_CONTENT', 'VIEW_15S', 'SHARE_CONTENT'];
+    const dailyActions = ['DAILY_LOGIN'];
+    const weeklyActions = ['FIRST_CONTENT_WEEK', 'WEEKLY_STREAK'];
+    const uniquePerContentActions = ['LIKE', 'SAVE', 'FAVORITE', 'WATCH_50', 'WATCH_100', 'COMMENT', 'VIEW_15S', 'SHARE'];
     
     if (dailyActions.includes(actionKey)) {
       rewardKey = `${actionKey}_${userId}_${today}`;
+    } else if (weeklyActions.includes(actionKey)) {
+      const day = new Date(`${today}T12:00:00-03:00`);
+      const weekday = day.getDay();
+      day.setDate(day.getDate() - (weekday === 0 ? 6 : weekday - 1));
+      rewardKey = `${actionKey}_${userId}_${getBrazilDateString(day)}`;
     } else if (uniquePerContentActions.includes(actionKey) && contentId) {
       rewardKey = `${actionKey}_${userId}_${contentId}`;
     } else if (metadata?.creatorId) {
@@ -93,12 +99,12 @@ export function useRewardSystem() {
 
       if (data?.rewards && data.rewards.length > 0) {
         const userReward = data.rewards.find((r: any) => r.user_id === userId);
-        if (userReward && (userReward.points > 0 || userReward.performance_points > 0)) {
+        if (userReward && userReward.points > 0) {
           const pts = Number(userReward.points);
           const ptsDisplay = pts % 1 === 0 ? pts.toString() : pts.toFixed(2);
           toast({
             title: "🎉 Recompensa recebida!",
-            description: `+${ptsDisplay} pontos de performance`,
+            description: `+${ptsDisplay} Points`,
           });
         }
       }
@@ -142,7 +148,7 @@ export function useRewardSystem() {
     if (!isLiking) return; // Only reward on like, not unlike
     
     await processReward({
-      actionKey: 'LIKE_CONTENT',
+      actionKey: 'LIKE',
       userId,
       contentId,
       metadata: { action: 'like' },
@@ -151,7 +157,7 @@ export function useRewardSystem() {
 
   const handleSave = async (userId: string, contentId: string) => {
     await processReward({
-      actionKey: 'SAVE_CONTENT',
+      actionKey: 'SAVE',
       userId,
       contentId,
       metadata: { action: 'save' },
@@ -160,7 +166,7 @@ export function useRewardSystem() {
 
   const handleFavorite = async (userId: string, contentId: string) => {
     await processReward({
-      actionKey: 'FAVORITE_CONTENT',
+      actionKey: 'FAVORITE',
       userId,
       contentId,
       metadata: { action: 'favorite' },
@@ -169,7 +175,7 @@ export function useRewardSystem() {
 
   const handleComment = async (userId: string, contentId: string, commentText: string) => {
     await processReward({
-      actionKey: 'COMMENT_CONTENT',
+      actionKey: 'COMMENT',
       userId,
       contentId,
       metadata: { commentLength: commentText.length },

@@ -56,15 +56,11 @@ interface ProfileBillingState {
   plan_expires_at?: string | null;
 }
 
-interface SupabaseQueryBuilder {
-  select: (columns: string) => SupabaseQueryBuilder;
-  update: (values: Record<string, unknown>) => SupabaseQueryBuilder;
-  eq: (column: string, value: string) => SupabaseQueryBuilder;
-  maybeSingle: () => Promise<{ data: ProfileBillingState | null }>;
-}
-
 interface SupabaseAdminClient {
-  from: (table: string) => SupabaseQueryBuilder;
+  // Edge Functions historicas usam versoes diferentes do supabase-js. O contrato
+  // de runtime e o query builder real; manter um tipo estrutural aqui gera
+  // incompatibilidade artificial entre versoes do SDK.
+  from: (table: string) => any;
 }
 
 export function isSubscriptionPlan(plan: unknown): plan is SubscriptionPlan {

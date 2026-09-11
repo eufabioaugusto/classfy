@@ -64,6 +64,21 @@ Deno.serve(async (req) => {
       throw new Error(`${itemType} not found`);
     }
 
+    const { data: creatorProfile } = await supabase
+      .from('profiles')
+      .select('creator_status')
+      .eq('id', content.creator_id)
+      .single();
+    const { data: creatorRole } = await supabase
+      .from('user_roles')
+      .select('role')
+      .eq('user_id', content.creator_id)
+      .eq('role', 'creator')
+      .maybeSingle();
+    if (creatorProfile?.creator_status !== 'approved' || !creatorRole) {
+      throw new Error('Creator aprovado é obrigatório para publicar conteúdo');
+    }
+
     // Update item status to approved using service role
     const { error: updateError } = await supabase
       .from(tableName)
@@ -99,13 +114,13 @@ Deno.serve(async (req) => {
       .eq('active', true)
       .single();
 
-    const pointsAmount = rewardConfig?.points_user ?? 0;
+    const pointsAmount = rewardConfig?.points_creator ?? 0;
 
     // ALWAYS create notification for content approval (independent of reward)
     const itemLabel = itemType === 'course' ? 'curso' : 'conteúdo';
     const notificationMessage = alreadyRewarded
       ? `Seu ${itemLabel} "${content.title}" foi aprovado e publicado!`
-      : `Seu ${itemLabel} "${content.title}" foi aprovado e publicado! Você ganhou ${pointsAmount} pontos de performance.`;
+      : `Seu ${itemLabel} "${content.title}" foi aprovado e publicado! Você ganhou ${pointsAmount} Creator Points.`;
 
     const { error: notificationError } = await supabase
       .from('notifications')
@@ -167,13 +182,14 @@ Deno.serve(async (req) => {
         }
 
         // Check if this is the first approved content
-        const { count: approvedCount } = await supabase
-          .from('contents')
-          .select('*', { count: 'exact', head: true })
-          .eq('creator_id', content.creator_id)
-          .eq('status', 'approved');
+        const [{ count: approvedContents }, { count: approvedCourses }] = await Promise.all([
+          supabase.from('contents').select('*', { count: 'exact', head: true })
+            .eq('creator_id', content.creator_id).eq('status', 'approved'),
+          supabase.from('courses').select('*', { count: 'exact', head: true })
+            .eq('creator_id', content.creator_id).eq('status', 'approved'),
+        ]);
 
-        const isFirstApproval = approvedCount === 1; // Including the one we just approved
+        const isFirstApproval = (approvedContents || 0) + (approvedCourses || 0) === 1;
 
         // Process FIRST_UPLOAD reward if this is the first approval
         if (isFirstApproval) {

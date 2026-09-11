@@ -45,26 +45,21 @@ serve(async (req) => {
       throw new Error("User mismatch");
     }
 
-    // Check if purchase already exists
+    // O webhook e a unica autoridade para gravar a compra e congelar o split.
+    // Este endpoint apenas confirma que o processamento server-side terminou.
     const { data: existingPurchase } = await supabaseClient
       .from("purchased_contents")
       .select("id")
       .eq("user_id", user.id)
       .eq("content_id", session.metadata.content_id)
-      .single();
+      .in("status", ["confirmed", "legacy_confirmed"])
+      .maybeSingle();
 
     if (!existingPurchase) {
-      // Record the purchase
-      const { error } = await supabaseClient
-        .from("purchased_contents")
-        .insert({
-          user_id: user.id,
-          content_id: session.metadata.content_id,
-          price_paid: parseFloat(session.metadata.price_paid),
-          discount_applied: parseFloat(session.metadata.discount_applied),
-        });
-
-      if (error) throw error;
+      return new Response(JSON.stringify({ success: false, processing: true }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+        status: 202,
+      });
     }
 
     return new Response(JSON.stringify({ success: true }), {

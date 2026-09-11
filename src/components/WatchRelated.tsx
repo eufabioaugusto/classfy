@@ -76,7 +76,8 @@ export const WatchRelated = ({ contentId, categoryId, tags, contentType, current
     const { data } = await supabase
       .from('purchased_contents')
       .select('content_id')
-      .eq('user_id', user.id);
+      .eq('user_id', user.id)
+      .in('status', ['confirmed', 'legacy_confirmed']);
     
     if (data) {
       setPurchasedContentIds(data.map(p => p.content_id));

@@ -25,7 +25,7 @@ import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Calendar, Coins, DollarSign, TrendingUp, Download, Filter, Eye } from "lucide-react";
+import { Calendar, Coins, TrendingUp, Download, Filter, Eye } from "lucide-react";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import {
@@ -41,7 +41,7 @@ interface RewardEvent {
   action_key: string;
   points: number;
   value: number;
-  performance_points: number;
+  point_type?: 'user' | 'creator';
   content_id: string | null;
   created_at: string;
   metadata: any;
@@ -51,8 +51,8 @@ interface RewardEvent {
 }
 
 interface Stats {
-  totalPoints: number;
-  totalPP: number;
+  userPoints: number;
+  creatorPoints: number;
   totalEvents: number;
 }
 
@@ -65,8 +65,8 @@ export default function RewardsHistory() {
   const [events, setEvents] = useState<RewardEvent[]>([]);
   const [filteredEvents, setFilteredEvents] = useState<RewardEvent[]>([]);
   const [stats, setStats] = useState<Stats>({
-    totalPoints: 0,
-    totalPP: 0,
+    userPoints: 0,
+    creatorPoints: 0,
     totalEvents: 0,
   });
   const [actionFilter, setActionFilter] = useState<string>("all");
@@ -105,12 +105,12 @@ export default function RewardsHistory() {
       setFilteredEvents(data || []);
       
       // Calculate stats
-      const totalPoints = data?.reduce((sum, event) => sum + event.points, 0) || 0;
-      const totalPP = data?.reduce((sum, event) => sum + (event.performance_points || 0), 0) || 0;
+      const userPoints = data?.filter((event: any) => event.point_type !== 'creator').reduce((sum, event) => sum + event.points, 0) || 0;
+      const creatorPoints = data?.filter((event: any) => event.point_type === 'creator').reduce((sum, event) => sum + event.points, 0) || 0;
       
       setStats({
-        totalPoints,
-        totalPP,
+        userPoints,
+        creatorPoints,
         totalEvents: data?.length || 0,
       });
     } catch (error) {
@@ -143,26 +143,26 @@ export default function RewardsHistory() {
     setFilteredEvents(filtered);
 
     // Recalculate stats for filtered data
-    const totalPoints = filtered.reduce((sum, event) => sum + event.points, 0);
-    const totalPP = filtered.reduce((sum, event) => sum + (event.performance_points || 0), 0);
+    const userPoints = filtered.filter(event => event.point_type !== 'creator').reduce((sum, event) => sum + event.points, 0);
+    const creatorPoints = filtered.filter(event => event.point_type === 'creator').reduce((sum, event) => sum + event.points, 0);
     
     setStats({
-      totalPoints,
-      totalPP,
+      userPoints,
+      creatorPoints,
       totalEvents: filtered.length,
     });
   }, [actionFilter, startDate, endDate, events]);
 
   const getActionLabel = (actionKey: string) => {
     const labels: Record<string, string> = {
-      LIKE_CONTENT: "Curtir Conteúdo",
-      SAVE_CONTENT: "Salvar Conteúdo",
-      FAVORITE_CONTENT: "Favoritar Conteúdo",
-      COMMENT_CONTENT: "Comentar Conteúdo",
+      LIKE: "Curtir Conteúdo",
+      SAVE: "Salvar Conteúdo",
+      FAVORITE: "Favoritar Conteúdo",
+      COMMENT: "Comentar Conteúdo",
       WATCH_50: "Assistir 50%",
       WATCH_100: "Assistir 100%",
       VIEW_15S: "Visualização 15s",
-      SHARE_CONTENT: "Compartilhar",
+      SHARE: "Compartilhar",
       COMPLETE_COURSE: "Completar Curso",
       DAILY_LOGIN: "Login Diário",
       WEEKLY_STREAK: "Sequência Semanal",
@@ -170,8 +170,14 @@ export default function RewardsHistory() {
       BINGE_WATCH: "Maratona",
       PROFILE_COMPLETE: "Perfil Completo",
       SUBSCRIBE_CREATOR: "Seguir Criador",
-      FOLLOW_CREATOR: "Seguir Criador",
+      CREATOR_APPROVED: "Creator Aprovado",
+      FIRST_UPLOAD: "Primeiro Upload",
       CONTENT_APPROVED: "Conteúdo Aprovado",
+      LIKE_CONTENT: "Curtir Conteúdo (legado)",
+      SAVE_CONTENT: "Salvar Conteúdo (legado)",
+      FAVORITE_CONTENT: "Favoritar Conteúdo (legado)",
+      COMMENT_CONTENT: "Comentar Conteúdo (legado)",
+      SHARE_CONTENT: "Compartilhar (legado)",
       MILESTONE_100_VIEWS: "Marco: 100 Views",
       MILESTONE_500_VIEWS: "Marco: 500 Views",
       MILESTONE_1000_VIEWS: "Marco: 1.000 Views",
@@ -183,6 +189,11 @@ export default function RewardsHistory() {
 
   const getActionColor = (actionKey: string) => {
     const colors: Record<string, string> = {
+      LIKE: "bg-pink-500/10 text-pink-500 border-pink-500/20",
+      SAVE: "bg-blue-500/10 text-blue-500 border-blue-500/20",
+      FAVORITE: "bg-yellow-500/10 text-yellow-500 border-yellow-500/20",
+      COMMENT: "bg-purple-500/10 text-purple-500 border-purple-500/20",
+      SHARE: "bg-sky-500/10 text-sky-500 border-sky-500/20",
       LIKE_CONTENT: "bg-pink-500/10 text-pink-500 border-pink-500/20",
       SAVE_CONTENT: "bg-blue-500/10 text-blue-500 border-blue-500/20",
       FAVORITE_CONTENT: "bg-yellow-500/10 text-yellow-500 border-yellow-500/20",
@@ -210,13 +221,13 @@ export default function RewardsHistory() {
   };
 
   const exportToCSV = () => {
-    const headers = ["Data", "Ação", "Conteúdo", "XP", "Pts de pool"];
+    const headers = ["Data", "Ação", "Conteúdo", "Tipo", "Points"];
     const rows = filteredEvents.map(event => [
       format(new Date(event.created_at), "dd/MM/yyyy HH:mm", { locale: ptBR }),
       getActionLabel(event.action_key),
       event.contents?.title || "-",
-      event.points.toString(),
-      (event.performance_points || 0).toString()
+      event.point_type === 'creator' ? 'Creator' : 'Usuário',
+      event.points.toString()
     ]);
 
     const csvContent = [
@@ -267,22 +278,22 @@ export default function RewardsHistory() {
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Total de Pontos</CardTitle>
+              <CardTitle className="text-sm font-medium">Points de usuário</CardTitle>
               <Coins className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{stats.totalPoints.toLocaleString()}</div>
+              <div className="text-2xl font-bold">{stats.userPoints.toLocaleString()}</div>
             </CardContent>
           </Card>
 
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Pontos de pool</CardTitle>
+              <CardTitle className="text-sm font-medium">Creator Points</CardTitle>
               <TrendingUp className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">
-                {stats.totalPP.toLocaleString()} pts de pool
+                {stats.creatorPoints.toLocaleString()} Points
               </div>
             </CardContent>
           </Card>
@@ -381,7 +392,7 @@ export default function RewardsHistory() {
                     <TableHead>Ação</TableHead>
                     <TableHead>Conteúdo</TableHead>
                      <TableHead className="text-right">Pontos</TableHead>
-                    <TableHead className="text-right">Pool</TableHead>
+                    <TableHead>Origem</TableHead>
                     <TableHead className="text-right">Ações</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -419,13 +430,11 @@ export default function RewardsHistory() {
                         </TableCell>
                         <TableCell className="text-right">
                           <span className="font-semibold text-primary">
-                            +{event.points}
+                            +{event.points} Points
                           </span>
                         </TableCell>
                         <TableCell className="text-right">
-                          <span className="font-semibold text-green-600">
-                            {(event.performance_points || 0).toLocaleString()} pts
-                          </span>
+                          <Badge variant="secondary">{event.point_type === 'creator' ? 'Creator' : 'Usuário'}</Badge>
                         </TableCell>
                         <TableCell className="text-right">
                           <Button
@@ -510,12 +519,8 @@ export default function RewardsHistory() {
                   
                   <div className="flex items-center justify-between pt-1 border-t">
                     <div className="flex items-center gap-3">
-                      <span className="text-sm font-semibold text-primary">
-                        +{event.points} pts
-                      </span>
-                      <span className="text-sm font-semibold text-green-600">
-                        {(event.performance_points || 0).toLocaleString()} pts
-                      </span>
+                      <span className="text-sm font-semibold text-primary">+{event.points} Points</span>
+                      <Badge variant="secondary">{event.point_type === 'creator' ? 'Creator' : 'Usuário'}</Badge>
                     </div>
                     <Eye className="w-4 h-4 text-muted-foreground" />
                   </div>
@@ -582,14 +587,12 @@ export default function RewardsHistory() {
 
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <p className="text-sm font-medium text-muted-foreground">Pontos Ganhos</p>
-                    <p className="text-2xl font-bold text-primary">+{selectedEvent.points}</p>
+                    <p className="text-sm font-medium text-muted-foreground">Points ganhos</p>
+                    <p className="text-2xl font-bold text-primary">+{selectedEvent.points} Points</p>
                   </div>
                   <div>
-                    <p className="text-sm font-medium text-muted-foreground">Performance Points</p>
-                    <p className="text-2xl font-bold text-green-600">
-                      {(selectedEvent.performance_points || 0).toLocaleString()} pts
-                    </p>
+                    <p className="text-sm font-medium text-muted-foreground">Origem</p>
+                    <p className="text-lg font-semibold">{selectedEvent.point_type === 'creator' ? 'Creator' : 'Usuário'}</p>
                   </div>
                 </div>
 

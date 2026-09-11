@@ -67,7 +67,7 @@ export default function Carteira() {
         supabase
           .from("platform_settings")
           .select("value")
-          .eq("key", "economic")
+          .eq("key", "economic_v1")
           .maybeSingle(),
         supabase
           .from("withdraw_requests")
@@ -108,15 +108,15 @@ export default function Carteira() {
 
         const last7DaysSum = rewardsRes.data
           .filter((r: any) => new Date(r.created_at) >= last7Days)
-          .reduce((acc: number, r: any) => acc + Number(r.performance_points || 0), 0);
+          .reduce((acc: number, r: any) => acc + Number(r.points || 0), 0);
 
         const last30DaysSum = rewardsRes.data
           .filter((r: any) => new Date(r.created_at) >= last30Days)
-          .reduce((acc: number, r: any) => acc + Number(r.performance_points || 0), 0);
+          .reduce((acc: number, r: any) => acc + Number(r.points || 0), 0);
 
         const thisMonthSum = rewardsRes.data
           .filter((r: any) => new Date(r.created_at) >= monthStart)
-          .reduce((acc: number, r: any) => acc + Number(r.performance_points || 0), 0);
+          .reduce((acc: number, r: any) => acc + Number(r.points || 0), 0);
 
         setStats({
           last7Days: last7DaysSum,
@@ -161,7 +161,8 @@ export default function Carteira() {
       return;
     }
 
-    if (amount > wallet.balance) {
+    const availableBalance = Number(wallet.balance || 0) - Number(wallet.reserved_balance || 0);
+    if (amount > availableBalance) {
       toast({
         title: "Saldo insuficiente",
         description: "Você não possui saldo suficiente para este saque",
@@ -210,7 +211,7 @@ export default function Carteira() {
 
   const getStatusIcon = (status: string) => {
     switch (status) {
-      case "approved":
+      case "paid":
         return <CheckCircle className="h-4 w-4 text-green-500" />;
       case "pending":
         return <Clock className="h-4 w-4 text-yellow-500" />;
@@ -223,8 +224,8 @@ export default function Carteira() {
 
   const getStatusText = (status: string) => {
     switch (status) {
-      case "approved":
-        return "Aprovado";
+      case "paid":
+        return "Pago";
       case "pending":
         return "Pendente";
       case "rejected":
@@ -237,23 +238,24 @@ export default function Carteira() {
   const getActionLabel = (actionKey: string) => {
     const labels: Record<string, string> = {
       VIEW_15S: "Visualização (15s)",
-      LIKE_CONTENT: "Curtida",
-      COMMENT_CONTENT: "Comentário",
-      SAVE_CONTENT: "Salvamento",
-      SHARE_CONTENT: "Compartilhamento",
+      LIKE: "Curtida",
+      COMMENT: "Comentário",
+      SAVE: "Salvamento",
+      FAVORITE: "Favorito",
+      SHARE: "Compartilhamento",
       WATCH_50: "Assistiu 50%",
       WATCH_100: "Assistiu 100%",
       DAILY_LOGIN: "Login Diário",
       FIRST_CONTENT_WEEK: "Primeiro conteúdo da semana",
-      BINGE_WATCH: "Maratona",
+      WEEKLY_STREAK: "Sequência semanal",
       PROFILE_COMPLETE: "Perfil Completo",
       REFERRAL_SIGNUP: "Indicação",
       REFERRAL_PURCHASE: "Compra por indicação",
-      MILESTONE_100_VIEWS: "Marco: 100 views",
-      MILESTONE_500_VIEWS: "Marco: 500 views",
-      MILESTONE_1000_VIEWS: "Marco: 1000 views",
-      STREAK_7: "Sequência de 7 dias",
-      STREAK_30: "Sequência de 30 dias",
+      SUBSCRIBE_CREATOR: "Inscrição em Creator",
+      COMPLETE_COURSE: "Curso concluído",
+      CREATOR_APPROVED: "Creator aprovado",
+      FIRST_UPLOAD: "Primeiro upload",
+      CONTENT_APPROVED: "Conteúdo aprovado",
     };
     return labels[actionKey] || actionKey;
   };
@@ -287,7 +289,7 @@ export default function Carteira() {
               <div className="text-right">
                 <p className="text-xs text-zinc-400">Saldo disponível</p>
                 <p className="text-2xl sm:text-3xl font-bold text-green-400">
-                  R$ {wallet?.balance?.toFixed(2) || "0.00"}
+                  R$ {(Number(wallet?.balance || 0) - Number(wallet?.reserved_balance || 0)).toFixed(2)}
                 </p>
               </div>
             </div>
@@ -343,7 +345,7 @@ export default function Carteira() {
             </CardHeader>
             <CardContent className="p-3 pt-0 sm:p-6 sm:pt-0">
               <div className="text-lg sm:text-2xl font-bold text-green-600">
-                R$ {wallet?.balance?.toFixed(2) || "0.00"}
+                R$ {(Number(wallet?.balance || 0) - Number(wallet?.reserved_balance || 0)).toFixed(2)}
               </div>
               <p className="text-xs text-muted-foreground mt-1 hidden sm:block">
                 Disponível para saque
@@ -403,7 +405,7 @@ export default function Carteira() {
             </CardHeader>
             <CardContent className="p-3 pt-0 sm:p-6 sm:pt-0">
               <div className="text-lg sm:text-2xl font-bold text-blue-600">
-                {Math.floor(stats.thisMonth)} pts de pool
+                {Math.floor(stats.thisMonth)} Points
               </div>
               <p className="text-xs text-muted-foreground mt-1 hidden sm:block">
                 Ganhos do mês atual
@@ -420,7 +422,7 @@ export default function Carteira() {
             </CardHeader>
             <CardContent className="p-3 pt-0 sm:p-6 sm:pt-0">
               <div className="text-xl sm:text-3xl font-bold text-primary">
-                {Math.floor(stats.last7Days)} pts de pool
+                {Math.floor(stats.last7Days)} Points
               </div>
               <p className="text-xs sm:text-sm text-muted-foreground mt-1 sm:mt-2">
                 Ganhos na última semana
@@ -434,7 +436,7 @@ export default function Carteira() {
             </CardHeader>
             <CardContent className="p-3 pt-0 sm:p-6 sm:pt-0">
               <div className="text-xl sm:text-3xl font-bold text-primary">
-                {Math.floor(stats.last30Days)} pts de pool
+                {Math.floor(stats.last30Days)} Points
               </div>
               <p className="text-xs sm:text-sm text-muted-foreground mt-1 sm:mt-2">
                 Ganhos no último mês
@@ -578,10 +580,10 @@ export default function Carteira() {
                         </div>
                         <div className="text-right flex-shrink-0 ml-2">
                           <p className="font-bold text-green-600 text-sm sm:text-base">
-                            + {Math.floor(Number(reward.performance_points || 0))} pts de pool
+                            + {Math.floor(Number(reward.points || 0))} Points
                           </p>
                           <p className="text-xs sm:text-sm text-muted-foreground">
-                            {reward.points} XP
+                            {reward.point_type === 'creator' ? 'Creator' : 'Usuário'}
                           </p>
                         </div>
                       </div>

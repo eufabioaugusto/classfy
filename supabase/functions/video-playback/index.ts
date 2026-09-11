@@ -20,7 +20,7 @@ Deno.serve(async (req) => {
       if (asset.owner_id !== user.id) return json({ error: 'Forbidden' }, 403);
     } else if (content.creator_id !== user.id) {
       if (content.visibility === 'paid') {
-        const { data: purchase } = await client.from('purchased_contents').select('id').eq('user_id', user.id).eq('content_id', content.id).maybeSingle();
+        const { data: purchase } = await client.from('purchased_contents').select('id').eq('user_id', user.id).eq('content_id', content.id).in('status', ['confirmed', 'legacy_confirmed']).maybeSingle();
         if (!purchase) return json({ error: 'Purchase required' }, 403);
       } else if (content.visibility === 'pro' || content.visibility === 'premium') {
         const { data: profile } = await client.from('profiles').select('plan').eq('id', user.id).single();

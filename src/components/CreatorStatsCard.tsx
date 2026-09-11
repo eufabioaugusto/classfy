@@ -11,7 +11,7 @@ interface CreatorStatsCardProps {
 
 interface StatsData {
   totalPoints: number;
-  performancePoints: number;
+  creatorPoints: number;
   level: number;
   contentCount: number;
   balance: number;
@@ -28,19 +28,23 @@ export const CreatorStatsCard = ({ userId, collapsed }: CreatorStatsCardProps) =
     (async () => {
       const [walletRes, eventsRes, contentsRes] = await Promise.all([
         supabase.from("wallets").select("balance").eq("user_id", userId).single(),
-        supabase.from("reward_events").select("points, performance_points").eq("user_id", userId),
+        supabase.from("reward_events").select("points, point_type").eq("user_id", userId),
         supabase.from("contents").select("*", { count: "exact", head: true }).eq("creator_id", userId),
       ]);
 
-      const totalPoints = eventsRes.data?.reduce((s, e) => s + (e.points || 0), 0) || 0;
-      const performancePoints = eventsRes.data?.reduce((s, e) => s + (Number(e.performance_points) || 0), 0) || 0;
+      const totalPoints = eventsRes.data
+        ?.filter((event: any) => event.point_type === 'user')
+        .reduce((sum, event) => sum + (event.points || 0), 0) || 0;
+      const creatorPoints = eventsRes.data
+        ?.filter((event: any) => event.point_type === 'creator')
+        .reduce((sum, event) => sum + (event.points || 0), 0) || 0;
 
       let level = 1;
       while (getPointsForLevel(level + 1) <= totalPoints) level++;
 
       setStats({
         totalPoints,
-        performancePoints,
+        creatorPoints,
         level,
         contentCount: contentsRes.count || 0,
         balance: walletRes.data?.balance || 0,
@@ -83,12 +87,12 @@ export const CreatorStatsCard = ({ userId, collapsed }: CreatorStatsCardProps) =
             <div>
               <p className="text-xs font-semibold text-foreground leading-none">Nível {stats.level}</p>
               <p className="text-[10px] text-muted-foreground mt-0.5 tabular-nums">
-                {remaining.toLocaleString("pt-BR")} XP para N{stats.level + 1}
+                {remaining.toLocaleString("pt-BR")} Points para N{stats.level + 1}
               </p>
             </div>
           </div>
           <span className="text-[10px] font-medium text-muted-foreground tabular-nums">
-            {stats.totalPoints.toLocaleString("pt-BR", { maximumFractionDigits: 0 })} XP
+            {stats.totalPoints.toLocaleString("pt-BR", { maximumFractionDigits: 0 })} Points
           </span>
         </div>
         <div className="h-1 bg-muted rounded-full overflow-hidden">
@@ -101,14 +105,14 @@ export const CreatorStatsCard = ({ userId, collapsed }: CreatorStatsCardProps) =
 
       {/* Stats grid */}
       <div className="grid grid-cols-2 divide-x divide-border/30 border-t border-border/30">
-        {/* PP */}
+        {/* Creator Points */}
         <div className="px-3 py-2">
           <div className="flex items-center gap-1.5 mb-0.5">
             <Zap className="h-3 w-3 text-red-500" />
-            <span className="text-[10px] text-muted-foreground uppercase tracking-wide font-medium">Pool</span>
+            <span className="text-[10px] text-muted-foreground uppercase tracking-wide font-medium">Creator Points</span>
           </div>
           <span className="text-sm font-bold text-foreground tabular-nums">
-            {stats.performancePoints.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}
+            {stats.creatorPoints.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}
           </span>
         </div>
 

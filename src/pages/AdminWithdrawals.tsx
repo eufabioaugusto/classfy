@@ -43,7 +43,7 @@ interface WithdrawRequest {
 }
 
 export default function AdminWithdrawals() {
-  const { user, role } = useAuth();
+  const { role } = useAuth();
   const navigate = useNavigate();
   const { toast } = useToast();
   const [loading, setLoading] = useState(true);
@@ -51,9 +51,6 @@ export default function AdminWithdrawals() {
   const [selectedRequest, setSelectedRequest] = useState<WithdrawRequest | null>(null);
   const [adminNotes, setAdminNotes] = useState("");
   const [processing, setProcessing] = useState(false);
-  const [maturationDays, setMaturationDays] = useState(7);
-  const [showConfigModal, setShowConfigModal] = useState(false);
-  const [updatingConfig, setUpdatingConfig] = useState(false);
 
   useEffect(() => {
     if (role === "admin") {
@@ -63,25 +60,14 @@ export default function AdminWithdrawals() {
 
   const fetchData = async () => {
     try {
-      const [withdrawalsRes, configRes] = await Promise.all([
-        supabase
-          .from("withdraw_requests")
-          .select("*, profiles!withdraw_requests_user_id_fkey(display_name, avatar_url)")
-          .order("created_at", { ascending: false }),
-        supabase
-          .from("system_config")
-          .select("*")
-          .eq("config_key", "earnings_maturation_days")
-          .single(),
-      ]);
+      const withdrawalsRes = await supabase
+        .from("withdraw_requests")
+        .select("*, profiles!withdraw_requests_user_id_fkey(display_name, avatar_url)")
+        .order("created_at", { ascending: false });
 
       if (withdrawalsRes.error) throw withdrawalsRes.error;
       setWithdrawals(withdrawalsRes.data as any);
 
-      if (configRes.data) {
-        const configValue = configRes.data.config_value as { days: number };
-        setMaturationDays(configValue.days);
-      }
     } catch (error: any) {
       toast({
         title: "Erro ao carregar dados",
@@ -93,45 +79,19 @@ export default function AdminWithdrawals() {
     }
   };
 
-  const handleUpdateConfig = async () => {
-    setUpdatingConfig(true);
-    try {
-      const { error } = await supabase
-        .from("system_config")
-        .update({
-          config_value: { days: maturationDays },
-          updated_at: new Date().toISOString(),
-        })
-        .eq("config_key", "earnings_maturation_days");
-
-      if (error) throw error;
-
-      toast({
-        title: "Configuração atualizada!",
-        description: `Período de maturação alterado para ${maturationDays} dias.`,
-      });
-      setShowConfigModal(false);
-    } catch (error: any) {
-      toast({
-        title: "Erro ao atualizar configuração",
-        description: error.message,
-        variant: "destructive",
-      });
-    } finally {
-      setUpdatingConfig(false);
-    }
-  };
-
   const handleApprove = async () => {
-    if (!selectedRequest) return;
+    if (!selectedRequest || !adminNotes.trim()) {
+      toast({ title: "Justificativa obrigatória", description: "Confirme o pagamento externo e registre a justificativa.", variant: "destructive" });
+      return;
+    }
     setProcessing(true);
 
     try {
-      const { data, error } = await supabase.rpc("approve_withdrawal", {
-        p_request_id:  selectedRequest.id,
-        p_admin_id:    user?.id,
-        p_admin_notes: adminNotes || null,
-      });
+      const { data, error } = await supabase.rpc("mark_withdrawal_paid" as any, {
+        p_request_id: selectedRequest.id,
+        p_admin_notes: adminNotes.trim(),
+        p_reason: adminNotes.trim(),
+      } as any);
 
       if (error) {
         const hint = (error as any)?.hint || error.message;
@@ -148,8 +108,8 @@ export default function AdminWithdrawals() {
       }).catch(console.error);
 
       toast({
-        title: "Saque aprovado!",
-        description: `Pagamento de R$ ${selectedRequest.amount.toFixed(2)} processado. Carteira atualizada.`,
+        title: "Saque marcado como pago!",
+        description: `Pagamento externo de R$ ${selectedRequest.amount.toFixed(2)} confirmado e carteira atualizada.`,
       });
 
       setSelectedRequest(null);
@@ -168,29 +128,20 @@ export default function AdminWithdrawals() {
   };
 
   const handleReject = async () => {
-    if (!selectedRequest) return;
+    if (!selectedRequest || !adminNotes.trim()) {
+      toast({ title: "Justificativa obrigatória", description: "Informe o motivo da recusa.", variant: "destructive" });
+      return;
+    }
     setProcessing(true);
 
     try {
-      const { error } = await supabase
-        .from("withdraw_requests")
-        .update({
-          status: "rejected",
-          approved_by: user?.id,
-          approved_at: new Date().toISOString(),
-          admin_notes: adminNotes,
-        })
-        .eq("id", selectedRequest.id);
+      const { error } = await supabase.rpc("reject_withdrawal_v1" as any, {
+        p_request_id: selectedRequest.id,
+        p_admin_notes: adminNotes.trim(),
+        p_reason: adminNotes.trim(),
+      } as any);
 
       if (error) throw error;
-
-      // Create notification
-      await supabase.from("notifications").insert({
-        user_id: selectedRequest.user_id,
-        type: "withdraw",
-        title: "Saque Recusado",
-        message: `Seu saque de R$ ${selectedRequest.amount.toFixed(2)} foi recusado. ${adminNotes ? `Motivo: ${adminNotes}` : ""}`,
-      });
 
       // Send email
       supabase.functions.invoke("send-transactional-email", {
@@ -229,11 +180,11 @@ export default function AdminWithdrawals() {
             Pendente
           </Badge>
         );
-      case "approved":
+      case "paid":
         return (
           <Badge className="flex items-center gap-1 bg-green-500">
             <CheckCircle className="w-3 h-3" />
-            Aprovado
+            Pago
           </Badge>
         );
       case "rejected":
@@ -266,7 +217,7 @@ export default function AdminWithdrawals() {
         <div className="flex items-center justify-end">
           <Button
             variant="outline"
-            onClick={() => setShowConfigModal(true)}
+            onClick={() => navigate('/admin/settings')}
             className="flex items-center gap-2"
           >
             <Settings className="w-4 h-4" />
@@ -293,7 +244,7 @@ export default function AdminWithdrawals() {
             <div>
               <p className="text-sm text-muted-foreground">Aprovados</p>
               <p className="text-3xl font-bold">
-                {withdrawals.filter((w) => w.status === "approved").length}
+                {withdrawals.filter((w) => w.status === "paid").length}
               </p>
             </div>
             <CheckCircle className="w-10 h-10 text-green-500" />
@@ -408,7 +359,7 @@ export default function AdminWithdrawals() {
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="notes">Observações (opcional)</Label>
+                <Label htmlFor="notes">Comprovante/justificativa (obrigatório)</Label>
                 <Textarea
                   id="notes"
                   placeholder="Adicione observações sobre esta solicitação..."
@@ -441,49 +392,12 @@ export default function AdminWithdrawals() {
             </Button>
             <Button onClick={handleApprove} disabled={processing}>
               <CheckCircle className="w-4 h-4 mr-2" />
-              Aprovar
+              Confirmar pagamento
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* Config Dialog */}
-      <Dialog open={showConfigModal} onOpenChange={setShowConfigModal}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Configurações de Maturação</DialogTitle>
-            <DialogDescription>
-              Configure o tempo que os ganhos precisam maturar antes de poderem ser sacados
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="space-y-4 py-4">
-            <div className="space-y-2">
-              <Label htmlFor="maturation">Dias de Maturação</Label>
-              <Input
-                id="maturation"
-                type="number"
-                min="0"
-                max="365"
-                value={maturationDays}
-                onChange={(e) => setMaturationDays(parseInt(e.target.value))}
-              />
-              <p className="text-sm text-muted-foreground">
-                Os ganhos só poderão ser sacados após este período desde que foram ganhos.
-              </p>
-            </div>
-          </div>
-
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowConfigModal(false)}>
-              Cancelar
-            </Button>
-            <Button onClick={handleUpdateConfig} disabled={updatingConfig}>
-              Salvar Configuração
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
       </div>
     </AdminLayout>
   );

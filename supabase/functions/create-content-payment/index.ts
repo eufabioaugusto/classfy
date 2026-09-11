@@ -37,7 +37,7 @@ serve(async (req) => {
     // Get content details
     const { data: content, error: contentError } = await supabaseClient
       .from('contents')
-      .select('title, price, discount, visibility, status')
+      .select('title, price, discount, visibility, status, creator_id')
       .eq('id', contentId)
       .maybeSingle();
 
@@ -45,6 +45,16 @@ serve(async (req) => {
     if (!content) throw new Error('Content not found');
     if (content.status !== "approved") throw new Error("Content is not available for purchase");
     if (content.visibility !== "paid") throw new Error("Content is not configured as paid");
+    if (content.creator_id === user.id) throw new Error("Creators cannot buy their own content");
+
+    const { data: existingPurchase } = await supabaseClient
+      .from("purchased_contents")
+      .select("id,status")
+      .eq("user_id", user.id)
+      .eq("content_id", contentId)
+      .in("status", ["confirmed", "legacy_confirmed"])
+      .maybeSingle();
+    if (existingPurchase) throw new Error("Content already purchased");
 
     const price = Number(content.price || 0);
     const discount = Number(content.discount || 0);

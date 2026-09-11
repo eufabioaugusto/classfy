@@ -60,6 +60,11 @@ interface RewardConfig {
   description: string | null;
   created_at: string;
   updated_at: string;
+  canonical_name?: string | null;
+  dedupe_scope?: string | null;
+  daily_limit?: number | null;
+  monthly_creator_limit?: number | null;
+  requires_evidence?: boolean;
 }
 
 interface RewardStats {
@@ -156,22 +161,16 @@ export default function AdminRewards() {
   const [prm, setPrm] = useState(0);
   const [totalPP, setTotalPP] = useState(0);
   const [cycleUsersCount, setCycleUsersCount] = useState(0);
-  const [savingPool, setSavingPool] = useState(false);
   const [manualBonus, setManualBonus] = useState("");
   const [bonusDescription, setBonusDescription] = useState("");
   const [addingBonus, setAddingBonus] = useState(false);
   const [revenueHistory, setRevenueHistory] = useState<any[]>([]);
+  const [rewardEditReason, setRewardEditReason] = useState("");
 
   // Audit state
   const [reconciliationRuns, setReconciliationRuns] = useState<ReconciliationRun[]>([]);
   const [walletLedger, setWalletLedger] = useState<WalletLedgerEntry[]>([]);
   const [runningReconciliation, setRunningReconciliation] = useState(false);
-
-  // Qualification state
-  const [qualificationUsers, setQualificationUsers] = useState<any[]>([]);
-  const [planConfig, setPlanConfig] = useState<any>(null);
-  const [checkpoints, setCheckpoints] = useState<any>(null);
-  const [savingQualConfig, setSavingQualConfig] = useState(false);
 
   // Global stats
   const [globalStats, setGlobalStats] = useState({
@@ -194,7 +193,6 @@ export default function AdminRewards() {
       fetchMilestones();
       fetchEconomyData();
       fetchAuditData();
-      fetchQualificationData();
 
       // Realtime: alerta quando nova reconciliação detectar divergência
       const channel = supabase
@@ -349,7 +347,7 @@ export default function AdminRewards() {
       const { data: settings } = await supabase
         .from('platform_settings')
         .select('value')
-        .eq('key', 'economic')
+        .eq('key', 'economic_v1')
         .single();
 
       if (settings?.value) {
@@ -368,7 +366,10 @@ export default function AdminRewards() {
         .order('created_at', { ascending: false });
 
       setRevenueHistory(revenueData || []);
-      const currentRbm = revenueData?.reduce((sum, e) => sum + parseFloat(String(e.amount)), 0) || 0;
+      const currentRbm = revenueData?.reduce((sum, entry: any) => {
+        if (entry.status !== 'confirmed' || !entry.is_pool_eligible) return sum;
+        return sum + parseFloat(String(entry.net_eligible_amount || 0));
+      }, 0) || 0;
       setRbm(currentRbm);
       setPrm(currentRbm * (poolPercentage / 100));
 
@@ -382,57 +383,15 @@ export default function AdminRewards() {
       if (cycle) {
         const { data: cycleUsers } = await supabase
           .from('economic_cycle_users')
-          .select('performance_points')
+          .select('cycle_points')
           .eq('cycle_id', cycle.id);
 
-        const total = cycleUsers?.reduce((sum, u) => sum + parseFloat(String(u.performance_points)), 0) || 0;
+        const total = cycleUsers?.reduce((sum, user: any) => sum + parseFloat(String(user.cycle_points || 0)), 0) || 0;
         setTotalPP(total);
         setCycleUsersCount(cycleUsers?.length || 0);
       }
     } catch (error) {
       console.error('Error fetching economy data:', error);
-    }
-  };
-
-  const fetchQualificationData = async () => {
-    try {
-      const now = new Date();
-      const yearMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-      const [settingsRes, cycleRes] = await Promise.all([
-        supabase.from('platform_settings').select('value').eq('key', 'economic').single(),
-        supabase.from('economic_cycles').select('id').eq('year_month', yearMonth).maybeSingle(),
-      ]);
-      const settings = settingsRes.data?.value as any;
-      setPlanConfig(settings?.plan_config || null);
-      setCheckpoints(settings?.checkpoints || null);
-
-      if (cycleRes.data?.id) {
-        const { data: qualUsers } = await supabase
-          .from('economic_cycle_users')
-          .select('user_id, performance_points, qualified_for_pool, qualification_points, qualification_details, qualification_evaluated_at')
-          .eq('cycle_id', cycleRes.data.id)
-          .order('qualification_points', { ascending: false });
-        setQualificationUsers(qualUsers || []);
-      }
-    } catch (error) {
-      console.error('Error fetching qualification data:', error);
-    }
-  };
-
-  const handleSaveQualConfig = async (newPlanConfig: any, newCheckpoints: any) => {
-    setSavingQualConfig(true);
-    try {
-      const { data: current } = await supabase.from('platform_settings').select('value').eq('key', 'economic').single();
-      const updated = { ...(current?.value as any), plan_config: newPlanConfig, checkpoints: newCheckpoints };
-      const { error } = await supabase.from('platform_settings').update({ value: updated }).eq('key', 'economic');
-      if (error) throw error;
-      setPlanConfig(newPlanConfig);
-      setCheckpoints(newCheckpoints);
-      toast.success('Configurações de qualificação salvas!');
-    } catch (error: any) {
-      toast.error('Erro ao salvar: ' + error.message);
-    } finally {
-      setSavingQualConfig(false);
     }
   };
 
@@ -470,28 +429,9 @@ export default function AdminRewards() {
     }
   };
 
-  const handleSavePoolPercentage = async () => {
-    setSavingPool(true);
-    try {
-      const { error } = await supabase
-        .from('platform_settings')
-        .update({ value: { pool_percentage: poolPercentage } })
-        .eq('key', 'economic');
-
-      if (error) throw error;
-      setPrm(rbm * (poolPercentage / 100));
-      toast.success('Pool atualizado com sucesso!');
-    } catch (error) {
-      console.error('Error saving pool:', error);
-      toast.error('Erro ao salvar pool');
-    } finally {
-      setSavingPool(false);
-    }
-  };
-
   const handleAddManualBonus = async () => {
     const amount = parseFloat(manualBonus);
-    if (isNaN(amount) || amount <= 0) {
+    if (isNaN(amount) || amount <= 0 || !bonusDescription.trim()) {
       toast.error('Insira um valor válido maior que zero');
       return;
     }
@@ -500,14 +440,12 @@ export default function AdminRewards() {
       const now = new Date();
       const yearMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
 
-      const { error } = await supabase
-        .from('revenue_entries')
-        .insert({
-          year_month: yearMonth,
-          revenue_type: 'other',
-          amount,
-          metadata: { description: bonusDescription || 'Aporte manual no pool' },
-        });
+      const { error } = await supabase.rpc('record_manual_eligible_revenue_v1' as any, {
+        p_year_month: yearMonth,
+        p_amount: amount,
+        p_description: bonusDescription.trim(),
+        p_reason: bonusDescription.trim(),
+      } as any);
 
       if (error) throw error;
 
@@ -524,27 +462,28 @@ export default function AdminRewards() {
   };
 
   const handleUpdateReward = async () => {
-    if (!editingReward) return;
+    if (!editingReward || !rewardEditReason.trim()) {
+      toast.error('Informe o motivo da alteração');
+      return;
+    }
 
     try {
-      const { error } = await supabase
-        .from('reward_actions_config')
-        .update({
-          points_user: editingReward.points_user,
-          points_creator: editingReward.points_creator,
-          value_user: editingReward.value_user,
-          value_creator: editingReward.value_creator,
-          active: editingReward.active,
-          description: editingReward.description,
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', editingReward.id);
+      const { error } = await supabase.rpc('update_reward_action_config_v1' as any, {
+        p_action_key: editingReward.action_key,
+        p_points_user: editingReward.points_user,
+        p_points_creator: editingReward.points_creator,
+        p_active: editingReward.active,
+        p_daily_limit: editingReward.daily_limit ?? null,
+        p_monthly_creator_limit: editingReward.monthly_creator_limit ?? null,
+        p_reason: rewardEditReason.trim(),
+      } as any);
 
       if (error) throw error;
 
       toast.success('Recompensa atualizada com sucesso!');
       setIsDialogOpen(false);
       setEditingReward(null);
+      setRewardEditReason("");
       fetchData();
     } catch (error) {
       console.error('Error updating reward:', error);
@@ -559,8 +498,6 @@ export default function AdminRewards() {
       const { error } = await supabase
         .from('creator_milestones')
         .update({
-          points_reward: editingMilestone.points_reward,
-          value_reward: editingMilestone.value_reward,
           title: editingMilestone.title,
           description: editingMilestone.description,
           active: editingMilestone.active,
@@ -581,23 +518,9 @@ export default function AdminRewards() {
   };
 
   const handleToggleActive = async (reward: RewardConfig) => {
-    try {
-      const { error } = await supabase
-        .from('reward_actions_config')
-        .update({ 
-          active: !reward.active,
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', reward.id);
-
-      if (error) throw error;
-
-      toast.success(`Recompensa ${!reward.active ? 'ativada' : 'desativada'} com sucesso!`);
-      fetchData();
-    } catch (error) {
-      console.error('Error toggling reward:', error);
-      toast.error('Erro ao atualizar status');
-    }
+    setEditingReward({ ...reward, active: !reward.active });
+    setRewardEditReason("");
+    setIsDialogOpen(true);
   };
 
   const handleToggleMilestoneActive = async (milestone: CreatorMilestone) => {
@@ -622,6 +545,7 @@ export default function AdminRewards() {
 
   const openEditDialog = (reward: RewardConfig) => {
     setEditingReward({ ...reward });
+    setRewardEditReason("");
     setIsDialogOpen(true);
   };
 
@@ -684,10 +608,6 @@ export default function AdminRewards() {
             <TabsTrigger value="economy" className="gap-2">
               <DollarSign className="w-4 h-4" />
               Economia
-            </TabsTrigger>
-            <TabsTrigger value="qualificacao" className="gap-2">
-              <Target className="w-4 h-4" />
-              Qualificação
             </TabsTrigger>
             <TabsTrigger value="auditoria" className="gap-2">
               <ShieldCheck className="w-4 h-4" />
@@ -882,7 +802,7 @@ export default function AdminRewards() {
                     <DollarSign className="h-6 w-6 text-green-500" />
                   </div>
                   <div>
-                    <p className="text-sm text-muted-foreground">Resgatadas</p>
+                    <p className="text-sm text-muted-foreground">Reconhecimentos vistos</p>
                     <h3 className="text-2xl font-bold">{milestoneGlobalStats.totalClaimed}</h3>
                   </div>
                 </div>
@@ -927,9 +847,8 @@ export default function AdminRewards() {
                       <TableHead>Meta</TableHead>
                       <TableHead>Tipo</TableHead>
                       <TableHead className="text-center">Valor Alvo</TableHead>
-                      <TableHead className="text-center">Pontos Bônus</TableHead>
                       <TableHead className="text-center">Completaram</TableHead>
-                      <TableHead className="text-center">Resgataram</TableHead>
+                      <TableHead className="text-center">Reconhecidos</TableHead>
                       <TableHead>Status</TableHead>
                       <TableHead className="text-right">Ações</TableHead>
                     </TableRow>
@@ -964,9 +883,6 @@ export default function AdminRewards() {
                               : milestone.milestone_type === 'engagement'
                                 ? `${milestone.milestone_value}%`
                                 : milestone.milestone_value.toLocaleString('pt-BR')}
-                          </TableCell>
-                          <TableCell className="text-center">
-                            <span className="text-primary font-medium">+{milestone.points_reward} PP</span>
                           </TableCell>
                           <TableCell className="text-center">
                             {stats?.completed_count || 0}
@@ -1015,7 +931,7 @@ export default function AdminRewards() {
                     <DollarSign className="h-6 w-6 text-primary" />
                   </div>
                   <div>
-                    <p className="text-sm text-muted-foreground">RBM (Receita Bruta)</p>
+                    <p className="text-sm text-muted-foreground">Receita Líquida Elegível</p>
                     <h3 className="text-2xl font-bold">
                       R$ {rbm.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
                     </h3>
@@ -1045,7 +961,7 @@ export default function AdminRewards() {
                     <Activity className="h-6 w-6 text-muted-foreground" />
                   </div>
                   <div>
-                    <p className="text-sm text-muted-foreground">Performance Points</p>
+                    <p className="text-sm text-muted-foreground">Points</p>
                     <h3 className="text-2xl font-bold">{totalPP.toLocaleString('pt-BR')}</h3>
                     <p className="text-xs text-muted-foreground">Total no ciclo</p>
                   </div>
@@ -1068,7 +984,12 @@ export default function AdminRewards() {
 
             {/* Pool Configuration */}
             <Card className="p-6">
-              <h3 className="text-lg font-semibold mb-4">Configuração do Pool</h3>
+              <div className="flex items-center justify-between gap-4 mb-4">
+                <h3 className="text-lg font-semibold">Configuração do Pool</h3>
+                <Button variant="outline" onClick={() => navigate('/admin/settings')}>
+                  Editar com auditoria
+                </Button>
+              </div>
               <div className="grid gap-4 md:grid-cols-3">
                 <div>
                   <label className="text-sm font-medium">Percentual do Pool (%)</label>
@@ -1077,7 +998,7 @@ export default function AdminRewards() {
                     min={1}
                     max={100}
                     value={poolPercentage}
-                    onChange={(e) => setPoolPercentage(Number(e.target.value))}
+                    readOnly
                   />
                   <p className="text-xs text-muted-foreground mt-1">
                     % da receita distribuída como recompensa
@@ -1101,18 +1022,13 @@ export default function AdminRewards() {
                   </p>
                 </div>
               </div>
-              <div className="mt-4">
-                <Button onClick={handleSavePoolPercentage} disabled={savingPool}>
-                  {savingPool ? 'Salvando...' : 'Salvar Configuração'}
-                </Button>
-              </div>
             </Card>
 
             {/* Manual Bonus Injection */}
             <Card className="p-6">
               <h3 className="text-lg font-semibold mb-2">Aporte Manual no Pool</h3>
               <p className="text-sm text-muted-foreground mb-4">
-                Adicione um valor extra ao pool do mês atual. Esse valor será somado à receita bruta (RBM) para o cálculo do PRM.
+                Registre uma receita líquida elegível confirmada. A operação exige justificativa e fica auditada.
               </p>
               <div className="grid gap-4 md:grid-cols-3 items-end">
                 <div>
@@ -1127,7 +1043,7 @@ export default function AdminRewards() {
                   />
                 </div>
                 <div>
-                  <label className="text-sm font-medium">Descrição (opcional)</label>
+                  <label className="text-sm font-medium">Descrição e justificativa</label>
                   <Input
                     placeholder="Ex: Ação de marketing março"
                     value={bonusDescription}
@@ -1135,7 +1051,7 @@ export default function AdminRewards() {
                   />
                 </div>
                 <div>
-                  <Button onClick={handleAddManualBonus} disabled={addingBonus || !manualBonus}>
+                  <Button onClick={handleAddManualBonus} disabled={addingBonus || !manualBonus || !bonusDescription.trim()}>
                     {addingBonus ? 'Adicionando...' : 'Adicionar ao Pool'}
                   </Button>
                 </div>
@@ -1170,7 +1086,7 @@ export default function AdminRewards() {
                           {(entry.metadata as any)?.description || '—'}
                         </TableCell>
                         <TableCell className="text-right font-semibold">
-                          R$ {parseFloat(entry.amount).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                          R$ {parseFloat(String(entry.net_eligible_amount || 0)).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
                         </TableCell>
                       </TableRow>
                     ))}
@@ -1184,7 +1100,7 @@ export default function AdminRewards() {
               <h3 className="text-lg font-semibold mb-4">Simulador de Distribuição</h3>
               <div className="space-y-3 text-sm">
                 <div className="flex justify-between py-2 border-b border-border">
-                  <span className="text-muted-foreground">Receita Bruta Mensal</span>
+                  <span className="text-muted-foreground">Receita Líquida Elegível</span>
                   <span className="font-semibold">R$ {rbm.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
                 </div>
                 <div className="flex justify-between py-2 border-b border-border">
@@ -1192,11 +1108,11 @@ export default function AdminRewards() {
                   <span className="font-semibold text-primary">R$ {(rbm * (poolPercentage / 100)).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
                 </div>
                 <div className="flex justify-between py-2 border-b border-border">
-                  <span className="text-muted-foreground">Plataforma ({100 - poolPercentage}%)</span>
+                  <span className="text-muted-foreground">Fora do pool ({100 - poolPercentage}%)</span>
                   <span className="font-semibold">R$ {(rbm * ((100 - poolPercentage) / 100)).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
                 </div>
                 <div className="flex justify-between py-2 border-b border-border">
-                  <span className="text-muted-foreground">Total Performance Points</span>
+                  <span className="text-muted-foreground">Total de Points</span>
                   <span className="font-semibold">{totalPP.toLocaleString('pt-BR')}</span>
                 </div>
                 <div className="flex justify-between py-2">
@@ -1209,225 +1125,6 @@ export default function AdminRewards() {
                 </div>
               </div>
             </Card>
-          </TabsContent>
-
-          {/* ── QUALIFICAÇÃO ────────────────────────────────────── */}
-          <TabsContent value="qualificacao" className="space-y-6">
-
-            {/* Config por plano */}
-            {planConfig && (
-              <Card className="p-6">
-                <div className="flex items-center justify-between mb-4">
-                  <div>
-                    <h3 className="text-lg font-semibold">Configuração por Plano</h3>
-                    <p className="text-sm text-muted-foreground">Multiplier de PP, dias de maturação e pontos mínimos para qualificação</p>
-                  </div>
-                  <Button size="sm" disabled={savingQualConfig} onClick={() => handleSaveQualConfig(planConfig, checkpoints)}>
-                    {savingQualConfig ? 'Salvando...' : 'Salvar'}
-                  </Button>
-                </div>
-                <div className="grid gap-4 md:grid-cols-3">
-                  {(['free', 'pro', 'premium'] as const).map((plan) => {
-                    const cfg = planConfig[plan] || {};
-                    const colors = { free: 'border-gray-200', pro: 'border-blue-200 bg-blue-50/30', premium: 'border-yellow-200 bg-yellow-50/30' };
-                    return (
-                      <div key={plan} className={`p-4 border-2 rounded-lg ${colors[plan]} space-y-3`}>
-                        <h4 className="font-semibold capitalize text-base">{plan}</h4>
-                        <div>
-                          <label className="text-xs text-muted-foreground">Multiplier de PP</label>
-                          <Input type="number" step="0.1" min="0" max="10"
-                            defaultValue={cfg.multiplier ?? 1}
-                            onChange={(e) => { planConfig[plan].multiplier = parseFloat(e.target.value); setPlanConfig({...planConfig}); }}
-                            className="mt-1 h-8 text-sm" />
-                        </div>
-                        <div>
-                          <label className="text-xs text-muted-foreground">Dias de maturação</label>
-                          <Input type="number" min="0" max="365"
-                            defaultValue={cfg.maturation_days ?? 30}
-                            onChange={(e) => { planConfig[plan].maturation_days = parseInt(e.target.value); setPlanConfig({...planConfig}); }}
-                            className="mt-1 h-8 text-sm" />
-                        </div>
-                        <div>
-                          <label className="text-xs text-muted-foreground">Mín. QP para qualificar</label>
-                          <Input type="number" min="0" max="200"
-                            defaultValue={cfg.qualification_threshold ?? 60}
-                            onChange={(e) => { planConfig[plan].qualification_threshold = parseInt(e.target.value); setPlanConfig({...planConfig}); }}
-                            className="mt-1 h-8 text-sm" />
-                        </div>
-                        <div className="text-xs text-muted-foreground pt-1 border-t">
-                          {plan === 'free' && 'Ganha pouco, matura devagar, precisa se esforçar'}
-                          {plan === 'pro' && 'Ganha normal, matura médio, qualificação acessível'}
-                          {plan === 'premium' && 'Ganha mais, matura rápido, qualifica automaticamente'}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </Card>
-            )}
-
-            {/* Config de checkpoints */}
-            {checkpoints && (
-              <Card className="p-6">
-                <h3 className="text-lg font-semibold mb-1">Checkpoints de Qualificação</h3>
-                <p className="text-sm text-muted-foreground mb-4">
-                  Pontos de qualificação (QP) concedidos por ação. Premium qualifica com apenas subscription_paid.
-                </p>
-                <div className="grid gap-3 md:grid-cols-2">
-                  {[
-                    { key: 'referral_signup',   label: 'Indicação cadastrada',      tip: 'QP por cada novo indicado que se cadastrar' },
-                    { key: 'referral_upgrade',  label: 'Indicação convertida',       tip: 'QP por cada indicado que fez upgrade pago' },
-                    { key: 'share_content',     label: 'Compartilhou conteúdo',      tip: 'QP por share (com máximo mensal)' },
-                    { key: 'subscription_paid', label: 'Plano pago ativo',           tip: 'QP fixo para quem tem Pro ou Premium' },
-                    { key: 'boost_purchased',   label: 'Comprou boost no mês',       tip: 'QP fixo por ter comprado boost' },
-                    { key: 'content_purchased', label: 'Comprou conteúdo pago',      tip: 'QP fixo por ter comprado conteúdo' },
-                    { key: 'active_days',       label: 'Dias ativos (≥ min)',         tip: 'QP fixo ao atingir mínimo de dias ativos' },
-                    { key: 'content_completed', label: 'Conteúdos completados (≥ min)',tip: 'QP fixo ao atingir mínimo de WATCH_100' },
-                    { key: 'engagement',        label: 'Engajamento (≥ min)',         tip: 'QP fixo ao atingir mínimo de likes/saves/comments' },
-                  ].map(({ key, label, tip }) => {
-                    const cp = checkpoints[key] || {};
-                    return (
-                      <div key={key} className="p-3 bg-muted/30 rounded-lg space-y-2">
-                        <div className="flex items-start justify-between">
-                          <div>
-                            <p className="text-sm font-medium">{label}</p>
-                            <p className="text-xs text-muted-foreground">{tip}</p>
-                          </div>
-                        </div>
-                        <div className="flex gap-2 flex-wrap">
-                          {cp.qp !== undefined && (
-                            <div className="flex-1 min-w-[80px]">
-                              <label className="text-xs text-muted-foreground">QP</label>
-                              <Input type="number" min="0" defaultValue={cp.qp}
-                                onChange={(e) => { checkpoints[key].qp = parseInt(e.target.value); setCheckpoints({...checkpoints}); }}
-                                className="h-7 text-xs mt-0.5" />
-                            </div>
-                          )}
-                          {cp.qp_per_action !== undefined && (
-                            <div className="flex-1 min-w-[80px]">
-                              <label className="text-xs text-muted-foreground">QP/ação</label>
-                              <Input type="number" min="0" defaultValue={cp.qp_per_action}
-                                onChange={(e) => { checkpoints[key].qp_per_action = parseInt(e.target.value); setCheckpoints({...checkpoints}); }}
-                                className="h-7 text-xs mt-0.5" />
-                            </div>
-                          )}
-                          {cp.max_qp !== undefined && (
-                            <div className="flex-1 min-w-[80px]">
-                              <label className="text-xs text-muted-foreground">Máx QP</label>
-                              <Input type="number" min="0" defaultValue={cp.max_qp}
-                                onChange={(e) => { checkpoints[key].max_qp = parseInt(e.target.value); setCheckpoints({...checkpoints}); }}
-                                className="h-7 text-xs mt-0.5" />
-                            </div>
-                          )}
-                          {cp.required_days !== undefined && (
-                            <div className="flex-1 min-w-[80px]">
-                              <label className="text-xs text-muted-foreground">Dias mín.</label>
-                              <Input type="number" min="1" max="31" defaultValue={cp.required_days}
-                                onChange={(e) => { checkpoints[key].required_days = parseInt(e.target.value); setCheckpoints({...checkpoints}); }}
-                                className="h-7 text-xs mt-0.5" />
-                            </div>
-                          )}
-                          {cp.required_count !== undefined && (
-                            <div className="flex-1 min-w-[80px]">
-                              <label className="text-xs text-muted-foreground">Qtd mín.</label>
-                              <Input type="number" min="1" defaultValue={cp.required_count}
-                                onChange={(e) => { checkpoints[key].required_count = parseInt(e.target.value); setCheckpoints({...checkpoints}); }}
-                                className="h-7 text-xs mt-0.5" />
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-                <div className="mt-4 flex justify-end">
-                  <Button disabled={savingQualConfig} onClick={() => handleSaveQualConfig(planConfig, checkpoints)}>
-                    {savingQualConfig ? 'Salvando...' : 'Salvar Checkpoints'}
-                  </Button>
-                </div>
-              </Card>
-            )}
-
-            {/* Status de qualificação do ciclo atual */}
-            <Card className="p-6">
-              <div className="flex items-center justify-between mb-4">
-                <div>
-                  <h3 className="text-lg font-semibold">Status do Ciclo Atual</h3>
-                  <p className="text-sm text-muted-foreground">
-                    {qualificationUsers.filter(u => u.qualified_for_pool).length} qualificados ·{' '}
-                    {qualificationUsers.filter(u => !u.qualified_for_pool).length} não qualificados ·{' '}
-                    {qualificationUsers.length} total
-                  </p>
-                </div>
-              </div>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Usuário</TableHead>
-                    <TableHead className="text-right">PP Acumulados</TableHead>
-                    <TableHead className="text-right">QP</TableHead>
-                    <TableHead>Top checkpoints</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead className="text-right">Avaliado</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {qualificationUsers.length === 0 ? (
-                    <TableRow>
-                      <TableCell colSpan={6} className="text-center text-muted-foreground py-8">
-                        Nenhum usuário no ciclo atual ainda
-                      </TableCell>
-                    </TableRow>
-                  ) : (
-                    qualificationUsers.map((u) => {
-                      const details = u.qualification_details || {};
-                      const threshold = details.threshold || 60;
-                      const topCheckpoints = Object.entries(details)
-                        .filter(([k, v]: [string, any]) => v?.qp > 0 && k !== 'threshold' && k !== 'plan')
-                        .sort(([, a]: any, [, b]: any) => b.qp - a.qp)
-                        .slice(0, 3)
-                        .map(([k, v]: any) => `${k.replace(/_/g, ' ')} +${v.qp}`);
-                      return (
-                        <TableRow key={u.user_id}>
-                          <TableCell className="font-mono text-xs text-muted-foreground">
-                            {u.user_id.slice(0, 8)}…
-                          </TableCell>
-                          <TableCell className="text-right font-semibold">
-                            {Number(u.performance_points).toFixed(2)}
-                          </TableCell>
-                          <TableCell className="text-right">
-                            <span className={`font-semibold ${Number(u.qualification_points) >= threshold ? 'text-green-600' : 'text-muted-foreground'}`}>
-                              {Number(u.qualification_points).toFixed(0)}
-                              <span className="text-xs text-muted-foreground font-normal">/{threshold}</span>
-                            </span>
-                          </TableCell>
-                          <TableCell className="text-xs text-muted-foreground">
-                            {topCheckpoints.join(' · ') || '—'}
-                          </TableCell>
-                          <TableCell>
-                            {u.qualified_for_pool ? (
-                              <Badge variant="outline" className="text-green-700 border-green-300 gap-1">
-                                <CheckCircle2 className="w-3 h-3" /> Qualificado
-                              </Badge>
-                            ) : (
-                              <Badge variant="outline" className="text-muted-foreground gap-1">
-                                <XCircle className="w-3 h-3" /> Não qualificado
-                              </Badge>
-                            )}
-                          </TableCell>
-                          <TableCell className="text-right text-xs text-muted-foreground">
-                            {u.qualification_evaluated_at
-                              ? new Date(u.qualification_evaluated_at).toLocaleDateString('pt-BR')
-                              : '—'}
-                          </TableCell>
-                        </TableRow>
-                      );
-                    })
-                  )}
-                </TableBody>
-              </Table>
-            </Card>
-
           </TabsContent>
 
           {/* ── AUDITORIA ──────────────────────────────────────── */}
@@ -1705,6 +1402,45 @@ export default function AdminRewards() {
                   💡 Os pontos definem o peso de performance. O valor em R$ é calculado proporcionalmente ao pool no fechamento mensal do ciclo econômico.
                 </p>
 
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="text-sm font-medium">Limite diário</label>
+                    <Input
+                      type="number"
+                      min="0"
+                      value={editingReward.daily_limit ?? ''}
+                      onChange={(e) => setEditingReward({
+                        ...editingReward,
+                        daily_limit: e.target.value === '' ? null : Number(e.target.value),
+                      })}
+                      placeholder="Sem limite"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium">Limite mensal Creator</label>
+                    <Input
+                      type="number"
+                      min="0"
+                      value={editingReward.monthly_creator_limit ?? ''}
+                      onChange={(e) => setEditingReward({
+                        ...editingReward,
+                        monthly_creator_limit: e.target.value === '' ? null : Number(e.target.value),
+                      })}
+                      placeholder="Sem limite"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="text-sm font-medium">Motivo da alteração</label>
+                  <Textarea
+                    value={rewardEditReason}
+                    onChange={(e) => setRewardEditReason(e.target.value)}
+                    placeholder="Obrigatório para o histórico de auditoria"
+                    rows={2}
+                  />
+                </div>
+
                 <div className="flex items-center gap-2">
                   <Switch
                     checked={editingReward.active}
@@ -1736,7 +1472,7 @@ export default function AdminRewards() {
             <DialogHeader>
               <DialogTitle>Editar Meta de Creator</DialogTitle>
               <DialogDescription>
-                Ajuste os valores de recompensa para esta meta
+                Metas são apenas reconhecimento e não geram recompensa econômica.
               </DialogDescription>
             </DialogHeader>
 
@@ -1773,20 +1509,6 @@ export default function AdminRewards() {
                     placeholder="Descrição da meta..."
                     rows={2}
                   />
-                </div>
-
-                <div>
-                  <label className="text-sm font-medium">Pontos Bônus</label>
-                  <Input
-                    type="number"
-                    value={editingMilestone.points_reward}
-                    onChange={(e) =>
-                      setEditingMilestone({ ...editingMilestone, points_reward: Number(e.target.value) })
-                    }
-                  />
-                  <p className="text-xs text-muted-foreground mt-1">
-                    PP acumulados no pool mensal. O valor em R$ será calculado proporcionalmente no fechamento do ciclo.
-                  </p>
                 </div>
 
                 <div className="flex items-center gap-2">

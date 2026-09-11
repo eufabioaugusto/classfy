@@ -15,7 +15,6 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { CreatorAchievementBadge } from "@/components/CreatorAchievementBadge";
 import { useCreatorMilestones } from "@/hooks/useCreatorMilestones";
 import { LeaderboardSection } from "@/components/LeaderboardSection";
-import { QualificacaoCard } from "@/components/QualificacaoCard";
 import {
   Trophy,
   Zap,
@@ -43,12 +42,7 @@ interface UserStats {
   currentStreak: number;
   longestStreak: number;
   badges: any[];
-  performancePoints: number;
-  totalPP: number;
-  prm: number;
-  estimatedPoolShare: number;
-  poolPercentage: number;
-  rbm: number;
+  cyclePoints: number;
   engagementStats: {
     likes: number;
     saves: number;
@@ -98,12 +92,12 @@ export default function Recompensas() {
         badgesRes,
         engagementRes
       ] = await Promise.all([
-        supabase.from("reward_events").select("points").eq("user_id", user!.id),
+        supabase.from("reward_events").select("points, point_type").eq("user_id", user!.id).eq("point_type" as any, "user"),
         supabase.from("wallets").select("balance, total_earned").eq("user_id", user!.id).single(),
         supabase.from("user_login_streaks").select("current_streak, longest_streak").eq("user_id", user!.id).maybeSingle(),
         supabase.from("user_badges").select("*, badges(*)").eq("user_id", user!.id),
         // Engagement stats from reward events
-        supabase.from("reward_events").select("action_key").eq("user_id", user!.id)
+        supabase.from("reward_events").select("action_key").eq("user_id", user!.id).eq("point_type" as any, "user")
       ]);
 
       // Calculate level and points with progressive curve
@@ -127,9 +121,9 @@ export default function Recompensas() {
       // Calculate engagement stats
       const actions = engagementRes.data || [];
       const engagementStats = {
-        likes: actions.filter(a => a.action_key === 'LIKE_CONTENT').length,
-        saves: actions.filter(a => a.action_key === 'SAVE_CONTENT').length,
-        comments: actions.filter(a => a.action_key === 'COMMENT_CONTENT').length,
+        likes: actions.filter(a => a.action_key === 'LIKE').length,
+        saves: actions.filter(a => a.action_key === 'SAVE').length,
+        comments: actions.filter(a => a.action_key === 'COMMENT').length,
         completedContents: actions.filter(a => a.action_key === 'WATCH_100').length,
       };
 
@@ -155,14 +149,13 @@ export default function Recompensas() {
         const totalLikes = allItems.reduce((sum, c) => sum + (c.likes_count || 0), 0);
         const avgEngagement = allItems.length > 0 && totalViews > 0 ? (totalLikes / totalViews) * 100 : 0;
 
-        // Determine next milestone (PP-based, no fixed R$)
-        let nextMilestone = { target: 100, current: totalViews, reward: "+PP no pool mensal" };
+        let nextMilestone = { target: 100, current: totalViews, reward: "Reconhecimento" };
         if (totalViews >= 1000) {
-          nextMilestone = { target: 5000, current: totalViews, reward: "+PP no pool mensal" };
+          nextMilestone = { target: 5000, current: totalViews, reward: "Reconhecimento" };
         } else if (totalViews >= 500) {
-          nextMilestone = { target: 1000, current: totalViews, reward: "+PP no pool mensal" };
+          nextMilestone = { target: 1000, current: totalViews, reward: "Reconhecimento" };
         } else if (totalViews >= 100) {
-          nextMilestone = { target: 500, current: totalViews, reward: "+PP no pool mensal" };
+          nextMilestone = { target: 500, current: totalViews, reward: "Reconhecimento" };
         }
 
         creatorStats = {
@@ -174,39 +167,24 @@ export default function Recompensas() {
         };
       }
 
-      // Fetch pool data in parallel
+      // Points do ciclo atual; valores em reais só são definitivos após o fechamento.
       const now = new Date();
       const yearMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-      
-      let performancePoints = 0;
-      let estimatedPoolShare = 0;
-      let poolPct = 40;
-      let currentRbm = 0;
-      let totalPPCalc = 0;
-      let prmCalc = 0;
+      let cyclePoints = 0;
+      const { data: cycle } = await supabase
+        .from('economic_cycles')
+        .select('id')
+        .eq('year_month', yearMonth)
+        .maybeSingle();
 
-      const [settingsRes, revenueRes, cycleRes] = await Promise.all([
-        supabase.from('platform_settings').select('value').eq('key', 'economic').single(),
-        supabase.from('revenue_entries').select('amount').eq('year_month', yearMonth),
-        supabase.from('economic_cycles').select('id').eq('year_month', yearMonth).maybeSingle(),
-      ]);
-
-      if (settingsRes.data?.value) {
-        poolPct = (settingsRes.data.value as any).pool_percentage || 40;
-      }
-
-      currentRbm = revenueRes.data?.reduce((sum, e) => sum + parseFloat(String(e.amount)), 0) || 0;
-      prmCalc = currentRbm * (poolPct / 100);
-
-      if (cycleRes.data) {
-        const [userCycleRes, allUsersRes] = await Promise.all([
-          supabase.from('economic_cycle_users').select('performance_points').eq('cycle_id', cycleRes.data.id).eq('user_id', user!.id).maybeSingle(),
-          supabase.from('economic_cycle_users').select('performance_points').eq('cycle_id', cycleRes.data.id),
-        ]);
-
-        performancePoints = userCycleRes.data ? parseFloat(String(userCycleRes.data.performance_points)) : 0;
-        totalPPCalc = allUsersRes.data?.reduce((sum, u) => sum + parseFloat(String(u.performance_points)), 0) || 0;
-        estimatedPoolShare = totalPPCalc > 0 ? (performancePoints / totalPPCalc) * prmCalc : 0;
+      if (cycle) {
+        const { data: userCycle } = await supabase
+          .from('economic_cycle_users')
+          .select('cycle_points')
+          .eq('cycle_id', cycle.id)
+          .eq('user_id', user!.id)
+          .maybeSingle();
+        cyclePoints = Number((userCycle as any)?.cycle_points || 0);
       }
 
       setStats({
@@ -219,12 +197,7 @@ export default function Recompensas() {
         currentStreak: streaksRes.data?.current_streak || 0,
         longestStreak: streaksRes.data?.longest_streak || 0,
         badges: badgesRes.data || [],
-        performancePoints,
-        totalPP: totalPPCalc,
-        prm: prmCalc,
-        estimatedPoolShare,
-        poolPercentage: poolPct,
-        rbm: currentRbm,
+        cyclePoints,
         engagementStats,
         creatorStats
       });
@@ -249,14 +222,22 @@ export default function Recompensas() {
           <Header variant="home" title="Minhas Recompensas" />
 
           <main className="container mx-auto px-4 py-5 pb-24 md:pb-6 space-y-4">
-            {/* Pool Hero + Ranking — 2 colunas, mesma altura */}
+            {/* Points do ciclo + ranking */}
             <div className="grid grid-cols-1 md:grid-cols-2 items-stretch gap-4">
-              <QualificacaoCard
-                estimatedPoolShare={stats.estimatedPoolShare}
-                performancePoints={stats.performancePoints}
-                poolTotal={stats.prm}
-                totalPP={stats.totalPP}
-              />
+              <Card>
+                <CardHeader>
+                  <CardDescription>Points do ciclo atual</CardDescription>
+                  <CardTitle className="text-3xl font-bold flex items-center gap-2">
+                    <Zap className="w-7 h-7 text-primary" />
+                    {stats.cyclePoints.toLocaleString('pt-BR')}
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <p className="text-sm text-muted-foreground">
+                    Seus Points participam proporcionalmente do fechamento mensal. O valor em reais só aparece depois do fechamento.
+                  </p>
+                </CardContent>
+              </Card>
               <LeaderboardSection userId={user!.id} />
             </div>
 
@@ -273,7 +254,7 @@ export default function Recompensas() {
                       </CardTitle>
                     </div>
                     <div className="text-right">
-                      <p className="text-xs text-muted-foreground">XP acumulado</p>
+                      <p className="text-xs text-muted-foreground">Points acumulados</p>
                       <p className="text-2xl font-bold text-primary">{stats.totalPoints.toLocaleString()}</p>
                     </div>
                   </div>
@@ -281,7 +262,7 @@ export default function Recompensas() {
                 <CardContent className="space-y-2">
                   <div className="flex justify-between text-xs">
                     <span className="text-muted-foreground">Para o Nível {stats.level + 1}</span>
-                    <span className="font-medium">faltam {stats.pointsToNextLevel.toLocaleString('pt-BR')} XP</span>
+                    <span className="font-medium">faltam {stats.pointsToNextLevel.toLocaleString('pt-BR')} Points</span>
                   </div>
                   <Progress value={stats.progressPercent} className="h-2" indicatorClassName="bg-gradient-to-r from-primary to-accent" />
                 </CardContent>
@@ -502,10 +483,7 @@ export default function Recompensas() {
 
               const unit = typeLabel[nextMilestone.milestone_type] ?? '';
               const remaining = Math.max(0, nextMilestone.milestone_value - nextMilestone.currentValue);
-              const rewardParts = [
-                nextMilestone.points_reward > 0 ? `+${nextMilestone.points_reward} XP` : '',
-                nextMilestone.value_reward > 0 ? `+R$ ${nextMilestone.value_reward.toFixed(2)}` : '',
-              ].filter(Boolean).join(' · ') || '+recompensa';
+              const rewardParts = 'Reconhecimento';
 
               return (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
