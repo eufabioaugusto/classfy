@@ -1,18 +1,30 @@
 export type SubscriptionPlan = "pro" | "premium";
 
+const stripeId = (environmentKey: string, productionFallback: string) =>
+  Deno.env.get(environmentKey)?.trim() || productionFallback;
+
 export const STRIPE_PLANS: Record<
   SubscriptionPlan,
   { name: string; priceId: string; productId: string }
 > = {
   pro: {
     name: "Classfy Pro",
-    priceId: "price_1SWKSDBW0e1s8a6ZRbWZI6Fm",
-    productId: "prod_TTH0TCgKCJn5QS",
+    priceId: stripeId(
+      "STRIPE_PRO_PRICE_ID",
+      "price_1SWKSDBW0e1s8a6ZRbWZI6Fm",
+    ),
+    productId: stripeId("STRIPE_PRO_PRODUCT_ID", "prod_TTH0TCgKCJn5QS"),
   },
   premium: {
     name: "Classfy Premium",
-    priceId: "price_1SWKT6BW0e1s8a6ZGKTT7wTV",
-    productId: "prod_TTH12wU8lOauHD",
+    priceId: stripeId(
+      "STRIPE_PREMIUM_PRICE_ID",
+      "price_1SWKT6BW0e1s8a6ZGKTT7wTV",
+    ),
+    productId: stripeId(
+      "STRIPE_PREMIUM_PRODUCT_ID",
+      "prod_TTH12wU8lOauHD",
+    ),
   },
 };
 
@@ -41,6 +53,7 @@ interface StripeSubscription {
   items: {
     data: Array<{
       id?: string;
+      current_period_end?: number;
       price?: {
         product?: string;
       };
@@ -97,7 +110,11 @@ export function getPlanFromProduct(
 export function getSubscriptionPeriodEnd(
   subscription: StripeSubscription | null | undefined,
 ): string | null {
-  const currentPeriodEnd = subscription?.current_period_end;
+  const itemPeriodEnds = subscription?.items.data
+    .map((item) => item.current_period_end)
+    .filter((value): value is number => typeof value === "number") ?? [];
+  const currentPeriodEnd = subscription?.current_period_end ??
+    (itemPeriodEnds.length > 0 ? Math.max(...itemPeriodEnds) : undefined);
   return typeof currentPeriodEnd === "number"
     ? new Date(currentPeriodEnd * 1000).toISOString()
     : null;

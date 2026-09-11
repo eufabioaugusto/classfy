@@ -133,6 +133,9 @@ serve(async (req) => {
         productId,
         subscription.metadata?.plan_type,
       );
+      const pendingPlan = subscription.metadata?.pending_plan;
+      const isPendingDowngrade = profile?.plan === "premium" &&
+        planType === "pro" && pendingPlan === "pro";
 
       console.log("[VERIFY-SUBSCRIPTION] Active subscription found:", {
         subscriptionId: subscription.id,
@@ -150,10 +153,8 @@ serve(async (req) => {
           p_period_end: subscriptionEnd,
           p_subscription_id: subscription.id,
           p_customer_id: customerId,
-          p_pending_plan: subscription.metadata?.pending_plan || null,
-          p_pending_effective_at: subscription.metadata?.pending_plan
-            ? subscriptionEnd
-            : null,
+          p_pending_plan: isPendingDowngrade ? "pro" : null,
+          p_pending_effective_at: isPendingDowngrade ? subscriptionEnd : null,
           p_event_created_at: new Date().toISOString(),
         },
       );

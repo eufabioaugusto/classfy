@@ -106,7 +106,7 @@ serve(async (req) => {
             price: targetPlan.priceId,
           },
         ],
-        proration_behavior: isDowngrade ? "none" : "create_prorations",
+        proration_behavior: isDowngrade ? "none" : "always_invoice",
         payment_behavior: isDowngrade
           ? "allow_incomplete"
           : "pending_if_incomplete",
@@ -127,6 +127,8 @@ serve(async (req) => {
     const effectiveAt = isDowngrade
       ? getSubscriptionPeriodEnd(subscription)
       : getSubscriptionPeriodEnd(updatedSubscription);
+    const shouldKeepPendingPlan = isDowngrade ||
+      Boolean(updatedSubscription.pending_update);
     const { error: syncError } = await supabaseClient.rpc(
       "sync_subscription_state_v1",
       {
@@ -136,9 +138,13 @@ serve(async (req) => {
         p_period_end: getSubscriptionPeriodEnd(updatedSubscription),
         p_subscription_id: updatedSubscription.id,
         p_customer_id: customerId,
-        p_pending_plan: newPlan,
-        p_pending_effective_at: effectiveAt,
-        p_event_created_at: new Date().toISOString(),
+        p_pending_plan: shouldKeepPendingPlan ? newPlan : null,
+        p_pending_effective_at: shouldKeepPendingPlan ? effectiveAt : null,
+        // Stripe event timestamps have one-second precision. Avoid making the
+        // synchronous request appear newer than the authoritative webhook from
+        // the same API operation because of local milliseconds.
+        p_event_created_at: new Date(Math.floor(Date.now() / 1000) * 1000)
+          .toISOString(),
       },
     );
     if (syncError) throw syncError;

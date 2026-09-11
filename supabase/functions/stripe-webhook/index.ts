@@ -6,6 +6,49 @@ import {
   getSubscriptionPeriodEnd,
 } from "../_shared/stripe-subscription.ts";
 
+type LegacyInvoice = Stripe.Invoice & {
+  subscription?: string | Stripe.Subscription | null;
+  payment_intent?: string | Stripe.PaymentIntent | null;
+};
+
+function getInvoiceSubscriptionId(invoice: Stripe.Invoice): string | null {
+  const currentSubscription = invoice.parent?.subscription_details
+    ?.subscription;
+  const legacySubscription = (invoice as LegacyInvoice).subscription;
+  const subscription = currentSubscription ?? legacySubscription;
+  return typeof subscription === "string"
+    ? subscription
+    : subscription?.id ?? null;
+}
+
+async function getInvoicePaymentIntentId(
+  stripe: Stripe,
+  invoice: Stripe.Invoice,
+): Promise<string | null> {
+  const legacyPaymentIntent = (invoice as LegacyInvoice).payment_intent;
+  if (legacyPaymentIntent) {
+    return typeof legacyPaymentIntent === "string"
+      ? legacyPaymentIntent
+      : legacyPaymentIntent.id;
+  }
+
+  let invoicePayments = invoice.payments?.data ?? [];
+  if (invoicePayments.length === 0 && invoice.id) {
+    const listed = await stripe.invoicePayments.list({
+      invoice: invoice.id,
+      status: "paid",
+      limit: 10,
+    });
+    invoicePayments = listed.data;
+  }
+  const paymentIntent = invoicePayments.find((payment: Stripe.InvoicePayment) =>
+    payment.status === "paid" && payment.payment.type === "payment_intent"
+  )?.payment.payment_intent;
+  return typeof paymentIntent === "string"
+    ? paymentIntent
+    : paymentIntent?.id ?? null;
+}
+
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers":
@@ -38,7 +81,11 @@ serve(async (req) => {
     if (!webhookSecret || !signature) {
       throw new Error("Stripe webhook signature configuration is missing");
     }
-    event = stripe.webhooks.constructEvent(body, signature, webhookSecret);
+    event = await stripe.webhooks.constructEventAsync(
+      body,
+      signature,
+      webhookSecret,
+    );
 
     if (!event) throw new Error("Invalid Stripe event payload");
 
@@ -227,7 +274,7 @@ serve(async (req) => {
 
         const { data: profile } = await supabaseClient
           .from("profiles")
-          .select("id")
+          .select("id, plan")
           .eq("billing_id", customerId)
           .single();
 
@@ -241,6 +288,8 @@ serve(async (req) => {
           );
           const subscriptionEnd = getSubscriptionPeriodEnd(subscription);
           const pendingPlan = subscription.metadata?.pending_plan;
+          const isPendingDowngrade = profile.plan === "premium" &&
+            planType === "pro" && pendingPlan === "pro";
 
           console.log("[WEBHOOK] Subscription updated/deleted:", {
             userId: profile.id,
@@ -259,10 +308,10 @@ serve(async (req) => {
               p_period_end: subscriptionEnd,
               p_subscription_id: subscription.id,
               p_customer_id: customerId,
-              p_pending_plan: pendingPlan === "pro" || pendingPlan === "premium"
-                ? pendingPlan
+              p_pending_plan: isPendingDowngrade ? "pro" : null,
+              p_pending_effective_at: isPendingDowngrade
+                ? subscriptionEnd
                 : null,
-              p_pending_effective_at: pendingPlan ? subscriptionEnd : null,
               p_event_created_at: new Date(event.created * 1000).toISOString(),
             },
           );
@@ -280,10 +329,11 @@ serve(async (req) => {
 
       case "invoice.payment_succeeded": {
         const invoice = event.data.object as Stripe.Invoice;
+        const invoiceSubscriptionId = getInvoiceSubscriptionId(invoice);
 
-        if (invoice.subscription) {
+        if (invoiceSubscriptionId) {
           const subscription = await stripe.subscriptions.retrieve(
-            invoice.subscription as string,
+            invoiceSubscriptionId,
           );
           const customerId = subscription.customer as string;
 
@@ -331,10 +381,10 @@ serve(async (req) => {
                 ? invoice.amount_paid / 100
                 : 0;
               if (invoiceAmount > 0) {
-                const paymentIntentId =
-                  typeof invoice.payment_intent === "string"
-                    ? invoice.payment_intent
-                    : invoice.payment_intent?.id;
+                const paymentIntentId = await getInvoicePaymentIntentId(
+                  stripe,
+                  invoice,
+                );
                 const costs = await getPaymentCosts(
                   stripe,
                   paymentIntentId || null,
@@ -367,10 +417,11 @@ serve(async (req) => {
 
       case "invoice.payment_failed": {
         const invoice = event.data.object as Stripe.Invoice;
+        const invoiceSubscriptionId = getInvoiceSubscriptionId(invoice);
 
-        if (invoice.subscription) {
+        if (invoiceSubscriptionId) {
           const subscription = await stripe.subscriptions.retrieve(
-            invoice.subscription as string,
+            invoiceSubscriptionId,
           );
           const customerId = subscription.customer as string;
 
@@ -442,17 +493,21 @@ serve(async (req) => {
           if (error) throw new Error(`Content refund failed: ${error.message}`);
           if (purchaseReversal?.purchase_not_found) {
             const sourceId = getChargeRevenueSource(charge) || paymentIntentId;
-            const { error: revenueError } = await supabaseClient.rpc(
-              "reverse_revenue_entry_v1",
-              {
-                p_source_id: sourceId,
-                p_reversal_type: "refund",
-                p_reversed_gross_amount: charge.amount_refunded / 100,
-                p_stripe_event_id: event.id,
-              },
-            );
+            const { data: revenueReversal, error: revenueError } =
+              await supabaseClient.rpc(
+                "reverse_revenue_entry_v1",
+                {
+                  p_source_id: sourceId,
+                  p_reversal_type: "refund",
+                  p_reversed_gross_amount: charge.amount_refunded / 100,
+                  p_stripe_event_id: event.id,
+                },
+              );
             if (revenueError) {
               throw new Error(`Revenue refund failed: ${revenueError.message}`);
+            }
+            if (revenueReversal?.revenue_not_found) {
+              throw new Error("Refund target is not available yet");
             }
           }
         }
@@ -482,19 +537,23 @@ serve(async (req) => {
           }
           if (purchaseReversal?.purchase_not_found) {
             const sourceId = getChargeRevenueSource(charge) || paymentIntentId;
-            const { error: revenueError } = await supabaseClient.rpc(
-              "reverse_revenue_entry_v1",
-              {
-                p_source_id: sourceId,
-                p_reversal_type: "chargeback",
-                p_reversed_gross_amount: dispute.amount / 100,
-                p_stripe_event_id: event.id,
-              },
-            );
+            const { data: revenueReversal, error: revenueError } =
+              await supabaseClient.rpc(
+                "reverse_revenue_entry_v1",
+                {
+                  p_source_id: sourceId,
+                  p_reversal_type: "chargeback",
+                  p_reversed_gross_amount: dispute.amount / 100,
+                  p_stripe_event_id: event.id,
+                },
+              );
             if (revenueError) {
               throw new Error(
                 `Revenue chargeback failed: ${revenueError.message}`,
               );
+            }
+            if (revenueReversal?.revenue_not_found) {
+              throw new Error("Chargeback target is not available yet");
             }
           }
         }
@@ -565,22 +624,26 @@ async function recordRevenue(
 
 async function getPaymentCosts(stripe: Stripe, paymentIntentId: string | null) {
   if (!paymentIntentId) return { paymentFee: 0 };
-  const intent = await stripe.paymentIntents.retrieve(paymentIntentId, {
-    expand: ["latest_charge.balance_transaction"],
-  });
-  const charge = typeof intent.latest_charge === "object"
-    ? intent.latest_charge
-    : null;
-  const balanceTransaction =
-    charge && typeof charge.balance_transaction === "object"
-      ? charge.balance_transaction
+  const retryDelays = [0, 500, 1_000, 1_500, 2_000];
+  for (const delay of retryDelays) {
+    if (delay > 0) await new Promise((resolve) => setTimeout(resolve, delay));
+    const intent = await stripe.paymentIntents.retrieve(paymentIntentId, {
+      expand: ["latest_charge.balance_transaction"],
+    });
+    const charge = typeof intent.latest_charge === "object"
+      ? intent.latest_charge
       : null;
-  if (!balanceTransaction || typeof balanceTransaction.fee !== "number") {
-    throw new Error(
-      `Stripe fee is not available yet for payment intent ${paymentIntentId}`,
-    );
+    const balanceTransaction =
+      charge && typeof charge.balance_transaction === "object"
+        ? charge.balance_transaction
+        : null;
+    if (balanceTransaction && typeof balanceTransaction.fee === "number") {
+      return { paymentFee: balanceTransaction.fee / 100 };
+    }
   }
-  return { paymentFee: balanceTransaction.fee / 100 };
+  throw new Error(
+    `Stripe fee is not available yet for payment intent ${paymentIntentId}`,
+  );
 }
 
 function getChargeRevenueSource(charge: Stripe.Charge) {
