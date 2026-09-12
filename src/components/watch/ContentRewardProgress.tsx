@@ -7,6 +7,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { cn } from "@/lib/utils";
 import { Progress } from "@/components/ui/progress";
 import { fetchStudyJourneySummary, type StudyJourneySummary, toShortTitle } from "@/lib/study/getStudyJourneySummary";
+import { subscribeToRewardEarned } from "@/lib/rewards/events";
 
 interface ActionState {
   key: string;
@@ -100,6 +101,8 @@ export function ContentRewardProgress({ contentId, refreshTrigger, liveStates, s
   const [resolvedStudyTitle, setResolvedStudyTitle] = useState(studyTitle?.trim() || "");
   const [studySummary, setStudySummary] = useState<StudyJourneySummary | null>(null);
   const [studyLoading, setStudyLoading] = useState(false);
+  const [pointBurst, setPointBurst] = useState<{ id: number; points: number } | null>(null);
+  const pointBurstSequence = useRef(0);
 
   // Keep a ref to current actions for use inside async load
   const actionsRef = useRef<ActionState[]>([]);
@@ -136,6 +139,33 @@ export function ContentRewardProgress({ contentId, refreshTrigger, liveStates, s
     const t = setTimeout(() => load(false), 400);
     return () => clearTimeout(t);
   }, [refreshTrigger, studyId]);
+
+  // O retorno confirmado da Edge Function atualiza a barra imediatamente.
+  // A leitura posterior do banco continua sendo a reconciliacao definitiva.
+  useEffect(() => {
+    if (studyId || !user?.id || !contentId) return;
+
+    let animationTimer: number | undefined;
+    const unsubscribe = subscribeToRewardEarned((reward) => {
+      if (reward.userId !== user.id || reward.contentId !== contentId || reward.points <= 0) return;
+
+      pointBurstSequence.current += 1;
+      setPointBurst({ id: pointBurstSequence.current, points: reward.points });
+      setEarnedPoints((current) => Math.round((current + reward.points) * 10) / 10);
+      setActions((current) => current.map((action) => (
+        action.key === reward.actionKey ? { ...action, earned: true } : action
+      )));
+      triggerBurst([reward.actionKey]);
+
+      window.clearTimeout(animationTimer);
+      animationTimer = window.setTimeout(() => setPointBurst(null), 900);
+    });
+
+    return () => {
+      unsubscribe();
+      window.clearTimeout(animationTimer);
+    };
+  }, [contentId, studyId, triggerBurst, user?.id]);
 
   useEffect(() => {
     setResolvedStudyTitle(studyTitle?.trim() || "");
@@ -354,8 +384,14 @@ export function ContentRewardProgress({ contentId, refreshTrigger, liveStates, s
       style={{ overflow: "visible" }}
     >
       {/* Points ganhos */}
-      <div className="flex items-center gap-1.5 shrink-0">
-        <Zap className={cn("w-3.5 h-3.5", earnedPoints > 0 ? "text-red-500" : "text-muted-foreground")} />
+      <div className="relative flex items-center gap-1.5 shrink-0" style={{ overflow: "visible" }}>
+        <DotBurst isActive={Boolean(pointBurst)} />
+        <motion.div
+          animate={pointBurst ? { scale: [1, 1.55, 1], rotate: [0, -12, 8, 0] } : {}}
+          transition={{ duration: 0.48, ease: "easeOut" }}
+        >
+          <Zap className={cn("w-3.5 h-3.5", earnedPoints > 0 ? "text-red-500" : "text-muted-foreground")} />
+        </motion.div>
         <motion.span
           key={earnedPoints}
           initial={{ scale: earnedPoints > 0 ? 1.35 : 1 }}
@@ -365,6 +401,20 @@ export function ContentRewardProgress({ contentId, refreshTrigger, liveStates, s
         >
           +{earnedPoints} Points
         </motion.span>
+        <AnimatePresence>
+          {pointBurst && (
+            <motion.span
+              key={pointBurst.id}
+              className="pointer-events-none absolute left-5 top-1/2 z-30 whitespace-nowrap text-xs font-bold text-red-500"
+              initial={{ y: 2, scale: 0.7, opacity: 0 }}
+              animate={{ y: -24, scale: [0.7, 1.18, 1], opacity: [0, 1, 1] }}
+              exit={{ y: -34, opacity: 0 }}
+              transition={{ duration: 0.72, ease: "easeOut" }}
+            >
+              +{pointBurst.points} Point{pointBurst.points === 1 ? "" : "s"}
+            </motion.span>
+          )}
+        </AnimatePresence>
       </div>
 
       <div className="w-px h-4 bg-border/60 shrink-0" />

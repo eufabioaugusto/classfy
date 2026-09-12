@@ -1,6 +1,7 @@
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "@/hooks/use-toast";
 import { useRef } from "react";
+import { dispatchRewardEarned } from "@/lib/rewards/events";
 
 interface ProcessRewardParams {
   actionKey: string;
@@ -102,6 +103,12 @@ export function useRewardSystem() {
         if (userReward && userReward.points > 0) {
           const pts = Number(userReward.points);
           const ptsDisplay = pts % 1 === 0 ? pts.toString() : pts.toFixed(2);
+          dispatchRewardEarned({
+            actionKey,
+            userId,
+            contentId,
+            points: pts,
+          });
           toast({
             title: "🎉 Recompensa recebida!",
             description: `+${ptsDisplay} Points`,
