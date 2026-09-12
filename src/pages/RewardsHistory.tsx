@@ -114,6 +114,13 @@ export default function RewardsHistory() {
   const [selectedEvent, setSelectedEvent] = useState<RewardEvent | null>(null);
   const [detailsOpen, setDetailsOpen] = useState(false);
 
+  const selectedMetadataEntries = useMemo(() => {
+    const metadata = selectedEvent?.metadata;
+    if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) return [];
+
+    return Object.entries(metadata).filter(([, value]) => value !== null && value !== undefined && value !== "");
+  }, [selectedEvent]);
+
   const fetchRewardEvents = useCallback(async () => {
     if (!user) return;
     try {
@@ -317,25 +324,37 @@ export default function RewardsHistory() {
       </EconomyTemplate>
 
       <Dialog open={detailsOpen} onOpenChange={setDetailsOpen}>
-        <DialogContent className="max-w-2xl">
-          <DialogHeader>
+        <DialogContent className="economy-reward-dialog w-[calc(100vw-2rem)] max-w-xl">
+          <DialogHeader className="economy-reward-dialog__header">
             <DialogTitle>Detalhes da recompensa</DialogTitle>
             <DialogDescription>Confira como e quando estes Points foram registrados.</DialogDescription>
           </DialogHeader>
           {selectedEvent && (
-            <div className="economy-detail-grid">
-              <div className="economy-detail-item"><span className="economy-detail-label">Quando</span><strong className="economy-detail-value">{format(new Date(selectedEvent.created_at), "dd/MM/yyyy 'às' HH:mm", { locale: ptBR })}</strong></div>
-              <div className="economy-detail-item"><span className="economy-detail-label">Ação realizada</span><strong className="economy-detail-value">{getActionLabel(selectedEvent.action_key)}</strong></div>
-              <div className="economy-detail-item"><span className="economy-detail-label">Points recebidos</span><strong className="economy-detail-points">+{Math.floor(Number(selectedEvent.points || 0))} Points</strong></div>
-              <div className="economy-detail-item"><span className="economy-detail-label">Tipo de recompensa</span><V2Badge variant={selectedEvent.point_type === "creator" ? "accent" : "neutral"}>{getPointTypeLabel(selectedEvent.point_type)}</V2Badge></div>
-              <div className="economy-detail-item economy-detail-item--wide"><span className="economy-detail-label">Origem</span><strong className="economy-detail-value">{getRewardOrigin(selectedEvent)}</strong></div>
-              {selectedEvent.metadata && typeof selectedEvent.metadata === "object" && !Array.isArray(selectedEvent.metadata) && Object.keys(selectedEvent.metadata).length > 0 && (
-                <div className="economy-detail-item economy-detail-item--wide">
-                  <span className="economy-detail-label">Dados adicionais</span>
-                  <div className="economy-metadata-list">
-                    {Object.entries(selectedEvent.metadata).map(([key, value]) => (
-                      <div className="economy-metadata-row" key={key}><span>{metadataLabels[key] || key.replaceAll("_", " ")}</span><strong>{formatMetadataValue(value)}</strong></div>
-                    ))}
+            <div className="economy-reward-dialog__body">
+              <span className="economy-detail-section-label">Resumo</span>
+              <div className="economy-detail-table-wrap">
+                <table className="economy-detail-table">
+                  <tbody>
+                    <tr><th scope="row">Quando</th><td>{format(new Date(selectedEvent.created_at), "dd/MM/yyyy 'às' HH:mm", { locale: ptBR })}</td></tr>
+                    <tr><th scope="row">Ação realizada</th><td>{getActionLabel(selectedEvent.action_key)}</td></tr>
+                    <tr><th scope="row">Points recebidos</th><td><strong className="economy-detail-points">+{Math.floor(Number(selectedEvent.points || 0))} Points</strong></td></tr>
+                    <tr><th scope="row">Tipo</th><td><V2Badge variant={selectedEvent.point_type === "creator" ? "accent" : "neutral"}>{getPointTypeLabel(selectedEvent.point_type)}</V2Badge></td></tr>
+                    <tr><th scope="row">Origem</th><td>{getRewardOrigin(selectedEvent)}</td></tr>
+                  </tbody>
+                </table>
+              </div>
+
+              {selectedMetadataEntries.length > 0 && (
+                <div className="economy-detail-metadata">
+                  <span className="economy-detail-section-label">Dados do registro</span>
+                  <div className="economy-detail-table-wrap">
+                    <table className="economy-detail-table">
+                      <tbody>
+                        {selectedMetadataEntries.map(([key, value]) => (
+                          <tr key={key}><th scope="row">{metadataLabels[key] || key.replaceAll("_", " ")}</th><td>{formatMetadataValue(value)}</td></tr>
+                        ))}
+                      </tbody>
+                    </table>
                   </div>
                 </div>
               )}

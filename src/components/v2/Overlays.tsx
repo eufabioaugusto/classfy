@@ -28,7 +28,7 @@ export const DialogContent = React.forwardRef<
   React.ElementRef<typeof BaseDialogContent>,
   React.ComponentPropsWithoutRef<typeof BaseDialogContent>
 >(({ className, ...props }, ref) => (
-  <BaseDialogContent ref={ref} className={cn("cf2-dialog-surface", className)} {...props} />
+  <BaseDialogContent ref={ref} className={cn("cf-v2 cf2-dialog-surface", className)} {...props} />
 ));
 DialogContent.displayName = "DialogContent";
 
@@ -39,6 +39,6 @@ export const SheetContent = React.forwardRef<
   React.ElementRef<typeof BaseSheetContent>,
   React.ComponentPropsWithoutRef<typeof BaseSheetContent>
 >(({ className, ...props }, ref) => (
-  <BaseSheetContent ref={ref} className={cn("cf2-sheet-surface", className)} {...props} />
+  <BaseSheetContent ref={ref} className={cn("cf-v2 cf2-sheet-surface", className)} {...props} />
 ));
 SheetContent.displayName = "SheetContent";
