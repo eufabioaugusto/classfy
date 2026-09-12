@@ -16,6 +16,9 @@ import { ContentAnalysisModal } from "@/components/ContentAnalysisModal";
 
 interface Content {
   id: string;
+  source_id: string;
+  submission_id?: string;
+  is_revision?: boolean;
   content_type: "aula" | "short" | "podcast" | "curso" | "live";
   title: string;
   description: string | null;
@@ -57,15 +60,45 @@ export default function AdminContents() {
       
       if (coursesError) throw coursesError;
 
-      // Combine and format data
-      const formattedContents = (contentsData || []).map(c => ({ ...c, item_type: 'content' as const }));
+      const { data: submissionsData, error: submissionsError } = await (supabase as any)
+        .from('publication_submissions')
+        .select(`id, kind, source_type, source_id, snapshot, created_at, owner_id, creator:profiles!owner_id(display_name, avatar_url)`)
+        .eq('status', 'pending')
+        .order('created_at', { ascending: false });
+      if (submissionsError) throw submissionsError;
+
+      // Conteúdos novos já aparecem nas tabelas atuais. A submissão separada só
+      // entra na fila quando representa uma revisão de algo que continua publicado.
+      const pendingSourceIds = new Set([
+        ...(contentsData || []).map((item) => item.id),
+        ...(coursesData || []).map((item) => item.id),
+      ]);
+      const formattedContents = (contentsData || []).map(c => ({ ...c, source_id: c.id, item_type: 'content' as const }));
       const formattedCourses = (coursesData || []).map(c => ({ 
         ...c, 
+        source_id: c.id,
         content_type: 'curso' as const,
         item_type: 'course' as const 
       }));
+      const formattedRevisions = (submissionsData || [])
+        .filter((submission: any) => submission.source_id && !pendingSourceIds.has(submission.source_id))
+        .map((submission: any) => ({
+          id: submission.id,
+          source_id: submission.source_id,
+          submission_id: submission.id,
+          is_revision: true,
+          content_type: submission.kind,
+          title: submission.snapshot?.title || 'Revisão sem título',
+          description: submission.snapshot?.description || null,
+          thumbnail_url: submission.snapshot?.thumbnailUrl || '',
+          status: 'pending',
+          created_at: submission.created_at,
+          creator_id: submission.owner_id,
+          creator: submission.creator,
+          item_type: submission.source_type,
+        }));
       
-      const allItems = [...formattedContents, ...formattedCourses]
+      const allItems = [...formattedContents, ...formattedCourses, ...formattedRevisions]
         .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
 
       setContents(allItems);
@@ -85,7 +118,8 @@ export default function AdminContents() {
     try {
       const { data, error } = await supabase.functions.invoke('approve-content', {
         body: { 
-          contentId,
+          contentId: content.source_id,
+          submissionId: content.submission_id,
           itemType: content.item_type,
           reason: reason.trim(),
         },
@@ -109,7 +143,8 @@ export default function AdminContents() {
     try {
       const { data, error } = await supabase.functions.invoke('reject-content', {
         body: { 
-          contentId,
+          contentId: content.source_id,
+          submissionId: content.submission_id,
           itemType: content.item_type,
           reason: reason.trim(),
         },
@@ -134,7 +169,8 @@ export default function AdminContents() {
         if (!content) continue;
         await supabase.functions.invoke('approve-content', {
           body: { 
-            contentId,
+            contentId: content.source_id,
+            submissionId: content.submission_id,
             itemType: content.item_type,
             reason: reason.trim(),
           },
@@ -157,7 +193,7 @@ export default function AdminContents() {
         const content = contents.find(c => c.id === contentId);
         if (!content) continue;
         const { error } = await supabase.functions.invoke('reject-content', {
-          body: { contentId, itemType: content.item_type, reason: reason.trim() },
+          body: { contentId: content.source_id, submissionId: content.submission_id, itemType: content.item_type, reason: reason.trim() },
         });
         if (error) throw error;
       }
@@ -251,6 +287,7 @@ export default function AdminContents() {
                               {getContentTypeIcon(content.content_type)}
                               {content.content_type}
                             </Badge>
+                            {content.is_revision && <Badge variant="secondary">Nova versão</Badge>}
                           </div>
                         </div>
                       </div>
@@ -272,10 +309,10 @@ export default function AdminContents() {
                     </TableCell>
                     <TableCell className="text-right">
                       <div className="flex items-center justify-end gap-2">
-                        <Button variant="ghost" size="icon" onClick={() => window.open(`/watch/${content.id}`, '_blank')}>
+                        <Button variant="ghost" size="icon" onClick={() => window.open(`/watch/${content.source_id}${content.item_type === 'course' ? '?type=course' : ''}`, '_blank')}>
                           <Eye className="h-4 w-4" />
                         </Button>
-                        {content.item_type === 'content' && (
+                        {content.item_type === 'content' && !content.is_revision && (
                           <Button 
                             variant="outline" 
                             size="sm" 

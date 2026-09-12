@@ -30,9 +30,9 @@ Deno.serve(async (req) => {
     );
     if (authError || !user) return json({ error: "Unauthorized" }, 401);
 
-    const { contentId, itemType = "content", reason } = await req.json();
+    const { contentId, submissionId, itemType = "content", reason } = await req.json();
     if (
-      !contentId || !["content", "course"].includes(itemType) || !reason?.trim()
+      (!contentId && !submissionId) || !["content", "course"].includes(itemType) || !reason?.trim()
     ) {
       return json({
         error: "Content ID, valid item type and reason are required",
@@ -42,26 +42,41 @@ Deno.serve(async (req) => {
       global: { headers: { Authorization: authorization } },
       auth: { persistSession: false },
     });
-    const { data, error } = await userClient.rpc("reject_content_v1", {
-      p_item_id: contentId,
-      p_item_type: itemType,
-      p_reason: reason.trim(),
-    });
+    const { data, error } = submissionId
+      ? await userClient.rpc("reject_publication_submission_v1", {
+        p_submission_id: submissionId,
+        p_reason: reason.trim(),
+      })
+      : await userClient.rpc("reject_content_v1", {
+        p_item_id: contentId,
+        p_item_type: itemType,
+        p_reason: reason.trim(),
+      });
     if (error) throw error;
 
     const rejection = Array.isArray(data) ? data[0] : data;
+    const resolvedContentId = contentId || rejection?.sourceId;
+    const resolvedItemType = rejection?.sourceType || itemType;
+    let creatorId = rejection?.creator_id;
+    let itemTitle = rejection?.title;
+    if (submissionId && resolvedContentId) {
+      const table = resolvedItemType === "course" ? "courses" : "contents";
+      const { data: source } = await service.from(table).select("creator_id, title").eq("id", resolvedContentId).single();
+      creatorId = source?.creator_id;
+      itemTitle = source?.title;
+    }
     try {
       const { data: creatorAuth } = await service.auth.admin.getUserById(
-        rejection.creator_id,
+        creatorId,
       );
       if (creatorAuth?.user?.email) {
         const subject = "Conteúdo não aprovado — Classfy";
         const html = emailCard(
           subject,
-          `"${rejection.title}" precisa de ajustes`,
+          `"${itemTitle}" precisa de ajustes`,
           `
           <h1 style="margin:0 0 8px;font-size:22px;font-weight:700;color:#09090b;">Conteúdo não aprovado</h1>
-          <p style="margin:0 0 12px;font-size:15px;color:#52525b;line-height:1.6;">Seu conteúdo <strong>"${rejection.title}"</strong> precisa de ajustes.</p>
+          <p style="margin:0 0 12px;font-size:15px;color:#52525b;line-height:1.6;">Seu conteúdo <strong>"${itemTitle}"</strong> precisa de ajustes.</p>
           <p style="margin:0 0 12px;font-size:14px;color:#52525b;line-height:1.6;"><strong>Motivo:</strong> ${reason.trim()}</p>
           ${ctaButton("Ir para o Studio", `${APP_URL}/studio/contents`)}
         `,

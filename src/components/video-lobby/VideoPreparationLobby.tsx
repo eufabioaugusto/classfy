@@ -55,7 +55,7 @@ export function VideoPreparationLobby({
   const [pendingCoverFile, setPendingCoverFile] = useState<File | undefined>();
   const [pendingCoverPreview, setPendingCoverPreview] = useState<string | undefined>();
 
-  const maxTrimDuration = contentType === "short" ? 90 : undefined;
+  const maxTrimDuration = contentType === "short" ? 180 : undefined;
   const isVertical = aspectRatio < 1;
 
   // Load metadata on visible video

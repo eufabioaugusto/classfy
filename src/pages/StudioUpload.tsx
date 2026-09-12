@@ -1,550 +1,441 @@
-import { useState, useEffect, useRef } from "react";
-import { useAuth } from "@/contexts/AuthContext";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Navigate, useNavigate, useSearchParams } from "react-router-dom";
-import { AppShell } from "@/components/layout";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
-import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Card } from "@/components/ui/card";
+import {
+  Check,
+  CircleAlert,
+  Cloud,
+  CloudOff,
+  Eye,
+  FileAudio,
+  FileVideo,
+  ImagePlus,
+  LoaderCircle,
+  Lock,
+  RotateCcw,
+  Save,
+  Send,
+  Trash2,
+  UploadCloud,
+} from "lucide-react";
+import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
-import { toast } from "sonner";
-import { Upload, Video, Music, Film, BookOpen, Trash2, ImagePlus, Loader2, Zap, ArrowDown, Eye, Lock, Crown, DollarSign, CheckCircle2 } from "lucide-react";
-import { Progress } from "@/components/ui/progress";
+import { AppShell, PageHeader } from "@/components/layout";
+import { CreatorTemplate } from "@/components/templates";
+import { StudioNavigation } from "@/components/studio/StudioNavigation";
+import {
+  V2Badge,
+  V2Button,
+  V2Card,
+  V2CardContent,
+  V2CardHeader,
+  V2Input,
+  V2Textarea,
+} from "@/components/v2";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { TagsInput } from "@/components/TagsInput";
-import { useVideoCompression } from "@/hooks/useVideoCompression";
-import { Badge } from "@/components/ui/badge";
-import { cn } from "@/lib/utils";
-import { motion, AnimatePresence } from "framer-motion";
 import { StandaloneCoverSelector } from "@/components/StandaloneCoverSelector";
-import { useIsMobile } from "@/hooks/use-mobile";
-import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from "@/components/ui/drawer";
 import { VideoPreparationLobby } from "@/components/video-lobby/VideoPreparationLobby";
-import * as tus from "tus-js-client";
+import { useVideoCompression } from "@/hooks/useVideoCompression";
+import { useMediaUpload } from "@/hooks/useMediaUpload";
+import { usePublicationDraft } from "@/hooks/usePublicationDraft";
 import { compressImage } from "@/utils/imageCompression";
-import { videoService } from "@/lib/video/service";
+import {
+  getStandaloneDraftIssues,
+  isPersistedPublicationDraft,
+  publicationRules,
+  visibilityOptions,
+  type PublicationKind,
+  type PublicationVisibility,
+  type StandalonePublicationDraft,
+} from "@/lib/studio/publication";
+import { toast } from "sonner";
+import "@/styles/studio-v2.css";
+import "@/styles/studio-publish-v2.css";
 
+type StandaloneKind = Exclude<PublicationKind, "curso">;
 
-const DRAFT_KEY = "studio-upload-draft";
-const DRAFT_MAX_AGE = 24 * 60 * 60 * 1000; // 24h
+function requestedKind(params: URLSearchParams): StandaloneKind {
+  const value = params.get("type");
+  return value === "podcast" || value === "short" ? value : "aula";
+}
 
-type ContentType = "aula" | "short" | "podcast" | "curso";
-type Visibility = "free" | "pro" | "premium" | "paid";
-type UploadState = "idle" | "compressing" | "uploading" | "processing" | "complete";
-
-const contentTypes = [
-  { id: "aula" as const, label: "Aula", icon: Video, description: "Vídeo educacional completo" },
-  { id: "curso" as const, label: "Curso", icon: BookOpen, description: "Série de aulas estruturada" },
-  { id: "podcast" as const, label: "Podcast", icon: Music, description: "Conteúdo em áudio" },
-  { id: "short" as const, label: "Short", icon: Film, description: "Vídeo curto de até 3 min" },
-];
-
-const visibilityOptions = [
-  { id: "free" as const, label: "Gratuito", icon: Eye, description: "Acessível para todos", color: "text-green-500" },
-  { id: "pro" as const, label: "PRO", icon: Crown, description: "Assinantes PRO", color: "text-yellow-500" },
-  { id: "premium" as const, label: "Premium", icon: Crown, description: "Assinantes Premium", color: "text-red-500" },
-  { id: "paid" as const, label: "Pago", icon: DollarSign, description: "Venda avulsa", color: "text-accent" },
-];
+function mediaStatusCopy(
+  state: ReturnType<typeof useMediaUpload>["state"],
+  progress: number,
+) {
+  if (state === "preparing") return "Preparando o arquivo...";
+  if (state === "uploading") return `Enviando ${progress}%`;
+  if (state === "processing") return "Processando para reprodução...";
+  if (state === "ready") return "Mídia pronta";
+  if (state === "failed") return "O envio precisa de atenção";
+  if (state === "cancelled") return "Envio cancelado";
+  return "Nenhum arquivo enviado";
+}
 
 export default function StudioUpload() {
   const { user, role, profile, loading } = useAuth();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  
-  const editId = searchParams.get('edit');
-  const [isEditMode, setIsEditMode] = useState(false);
+  const editId = searchParams.get("edit");
+  const [contentType, setContentType] = useState<StandaloneKind>(() =>
+    requestedKind(searchParams),
+  );
+  const [sourceLoaded, setSourceLoaded] = useState(!editId);
+  const [isEditMode, setIsEditMode] = useState(Boolean(editId));
   const [originalStatus, setOriginalStatus] = useState<string | null>(null);
-  const [contentType, setContentType] = useState<ContentType>("aula");
-  
-  useEffect(() => {
-    const type = searchParams.get('type');
-    if (type === 'live') {
-      navigate('/studio/live');
-      return;
-    }
-    if (type && ["aula", "short", "podcast", "curso"].includes(type)) {
-      setContentType(type as ContentType);
-    }
-  }, [searchParams, navigate]);
-  
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
-  const [visibility, setVisibility] = useState<Visibility>("free");
+  const [visibility, setVisibility] = useState<PublicationVisibility>("free");
   const [price, setPrice] = useState("0");
   const [discount, setDiscount] = useState("0");
-  const [fileUploading, setFileUploading] = useState(false);
-  const [thumbnailUploading, setThumbnailUploading] = useState(false);
-  const [fileUrl, setFileUrl] = useState("");
-  const [thumbnailUrl, setThumbnailUrl] = useState("");
-  const [duration, setDuration] = useState(0);
-  const [submitting, setSubmitting] = useState(false);
-  const [fileProgress, setFileProgress] = useState(0);
-  const [thumbnailProgress, setThumbnailProgress] = useState(0);
-  const [filePreview, setFilePreview] = useState("");
-  const [thumbnailPreview, setThumbnailPreview] = useState("");
   const [tags, setTags] = useState<string[]>([]);
-  const [isGeneratingTags, setIsGeneratingTags] = useState(false);
-  const [uploadState, setUploadState] = useState<UploadState>("idle");
-  const [fileSize, setFileSize] = useState<number>(0);
-  const [originalFileSize, setOriginalFileSize] = useState<number>(0);
-  const xhrRef = useRef<XMLHttpRequest | null>(null);
+  const [fileUrl, setFileUrl] = useState("");
+  const [filePreview, setFilePreview] = useState("");
+  const [fileName, setFileName] = useState("");
+  const [duration, setDuration] = useState(0);
+  const [mediaAssetId, setMediaAssetId] = useState<string | null>(null);
+  const [videoProvider, setVideoProvider] = useState<string | null>(null);
+  const [thumbnailUrl, setThumbnailUrl] = useState("");
+  const [thumbnailPreview, setThumbnailPreview] = useState("");
+  const [thumbnailUploading, setThumbnailUploading] = useState(false);
   const [manualThumbnail, setManualThumbnail] = useState(false);
-  const [coverDrawerOpen, setCoverDrawerOpen] = useState(false);
   const [lobbyOpen, setLobbyOpen] = useState(false);
   const [lobbyVideoSrc, setLobbyVideoSrc] = useState("");
-  const isMobile = useIsMobile();
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const [discardOpen, setDiscardOpen] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [isGeneratingTags, setIsGeneratingTags] = useState(false);
   const pendingFileRef = useRef<File | null>(null);
-  const [videoProvider, setVideoProvider] = useState<string>("supabase");
-  const [mediaAssetId, setMediaAssetId] = useState<string | null>(null);
-  const [bunnyLibraryId, setBunnyLibraryId] = useState<string | null>(null);
-  const [bunnyVideoId, setBunnyVideoId] = useState<string | null>(null);
-  const [bunnyStatus, setBunnyStatus] = useState<string | null>(null);
-  const [bunnyHlsUrl, setBunnyHlsUrl] = useState<string | null>(null);
-  const [bunnyThumbnailUrl, setBunnyThumbnailUrl] = useState<string | null>(null);
-  // Session persistence: restore draft
+  const mediaUpload = useMediaUpload();
+  const compression = useVideoCompression();
+  const [rules, setRules] = useState(publicationRules[contentType]);
+  const newPublicationLabel =
+    contentType === "aula"
+      ? "uma nova aula"
+      : contentType === "podcast"
+        ? "um novo podcast"
+        : "um novo short";
+  const shellTitle =
+    contentType === "aula"
+      ? "Nova Aula"
+      : contentType === "podcast"
+        ? "Novo Podcast"
+        : "Novo Short";
+
   useEffect(() => {
-    if (editId) return; // Don't restore draft in edit mode
-    try {
-      const saved = sessionStorage.getItem(DRAFT_KEY);
-      if (!saved) return;
-      const draft = JSON.parse(saved);
-      if (Date.now() - draft.savedAt > DRAFT_MAX_AGE) {
-        sessionStorage.removeItem(DRAFT_KEY);
+    const fallback = publicationRules[contentType];
+    setRules(fallback);
+    void supabase
+      .from("publication_format_rules")
+      .select(
+        "media_type, allowed_mime_types, max_duration_seconds, cover_ratio",
+      )
+      .eq("kind", contentType)
+      .maybeSingle()
+      .then(({ data }) => {
+        if (!data) return;
+        setRules({
+          ...fallback,
+          accept: data.allowed_mime_types.join(","),
+          mediaType: data.media_type === "audio" ? "audio" : "video",
+          maxDurationSeconds: data.max_duration_seconds,
+          coverRatio: data.cover_ratio,
+        });
+      });
+  }, [contentType]);
+
+  useEffect(() => {
+    const type = searchParams.get("type");
+    if (type === "curso") navigate("/studio/upload/curso", { replace: true });
+    if (type === "live") navigate("/studio/live", { replace: true });
+  }, [navigate, searchParams]);
+
+  useEffect(() => {
+    if (!editId || !user) return;
+    let cancelled = false;
+    (async () => {
+      const { data, error } = await supabase
+        .from("contents")
+        .select("*")
+        .eq("id", editId)
+        .eq("creator_id", user.id)
+        .single();
+      if (cancelled) return;
+      if (error || !data) {
+        toast.error("Não foi possível abrir este conteúdo para edição.");
+        navigate("/studio/contents", { replace: true });
         return;
       }
-      if (draft.contentType) setContentType(draft.contentType);
-      if (draft.title) setTitle(draft.title);
-      if (draft.description) setDescription(draft.description);
-      if (draft.visibility) setVisibility(draft.visibility);
-      if (draft.price) setPrice(draft.price);
-      if (draft.discount) setDiscount(draft.discount);
-      if (draft.tags) setTags(draft.tags);
-      if (draft.fileUrl) {
-        setFileUrl(draft.fileUrl);
-        setFilePreview(draft.fileUrl);
-        setFileProgress(100);
-        setUploadState("complete");
+      const type = data.content_type as StandaloneKind;
+      setContentType(type);
+      setIsEditMode(true);
+      setOriginalStatus(data.status);
+      setTitle(data.title);
+      setDescription(data.description ?? "");
+      setVisibility((data.visibility ?? "free") as PublicationVisibility);
+      setPrice(String(data.price ?? 0));
+      setDiscount(String(data.discount ?? 0));
+      setTags(data.tags ?? []);
+      setFileUrl(data.file_url ?? "");
+      setMediaAssetId(data.media_asset_id ?? null);
+      setVideoProvider(data.video_provider ?? null);
+      setDuration(data.duration_seconds ?? 0);
+      setThumbnailUrl(data.thumbnail_url ?? "");
+      setThumbnailPreview(data.thumbnail_url ?? "");
+      setManualThumbnail(Boolean(data.thumbnail_url));
+      if (data.media_asset_id) {
+        const { data: asset } = await (supabase as any)
+          .from("media_assets")
+          .select("status")
+          .eq("id", data.media_asset_id)
+          .maybeSingle();
+        if (asset?.status === "ready") mediaUpload.setState("ready");
+        else mediaUpload.resumeProcessing(data.media_asset_id);
       }
-      if (draft.thumbnailUrl) {
-        setThumbnailUrl(draft.thumbnailUrl);
-        setThumbnailPreview(draft.thumbnailUrl);
-        setThumbnailProgress(100);
-        setManualThumbnail(true);
-      }
-      if (draft.duration) setDuration(draft.duration);
-      toast.success("Rascunho restaurado");
-    } catch (e) {
-      console.warn("Failed to restore draft:", e);
-    }
-  }, [editId]);
+      setSourceLoaded(true);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [editId, navigate, user]);
 
-  // Session persistence: save draft
+  const payload = useMemo<StandalonePublicationDraft>(
+    () => ({
+      title,
+      description,
+      visibility,
+      price,
+      discount,
+      tags,
+      fileUrl,
+      thumbnailUrl,
+      duration,
+      mediaAssetId,
+      videoProvider,
+      uploadState: mediaUpload.state,
+    }),
+    [
+      description,
+      discount,
+      duration,
+      fileUrl,
+      mediaAssetId,
+      mediaUpload.state,
+      price,
+      tags,
+      thumbnailUrl,
+      title,
+      videoProvider,
+      visibility,
+    ],
+  );
+
+  const restoreDraft = useCallback(
+    (restored: StandalonePublicationDraft) => {
+      setTitle(restored.title ?? "");
+      setDescription(restored.description ?? "");
+      setVisibility(restored.visibility ?? "free");
+      setPrice(restored.price ?? "0");
+      setDiscount(restored.discount ?? "0");
+      setTags(restored.tags ?? []);
+      setFileUrl(restored.fileUrl ?? "");
+      setThumbnailUrl(restored.thumbnailUrl ?? "");
+      setThumbnailPreview(restored.thumbnailUrl ?? "");
+      setDuration(restored.duration ?? 0);
+      setMediaAssetId(restored.mediaAssetId ?? null);
+      setVideoProvider(restored.videoProvider ?? null);
+      if (restored.mediaAssetId) {
+        if (restored.uploadState === "ready") mediaUpload.setState("ready");
+        else mediaUpload.resumeProcessing(restored.mediaAssetId);
+      }
+    },
+    [mediaUpload.resumeProcessing, mediaUpload.setState],
+  );
+
+  const draftKey = `${contentType}:${editId ? `edit:${editId}` : "new"}`;
+  const draft = usePublicationDraft({
+    userId: user?.id,
+    draftKey,
+    kind: contentType,
+    sourceType: editId ? "content" : null,
+    sourceId: editId,
+    payload,
+    enabled: sourceLoaded,
+    onRestore: restoreDraft,
+  });
+
   useEffect(() => {
-    if (editId) return;
-    const timer = setTimeout(() => {
-      if (!title && !fileUrl) return; // Nothing to save
-      try {
-        sessionStorage.setItem(DRAFT_KEY, JSON.stringify({
-          contentType, title, description, visibility, price, discount, tags,
-          fileUrl, thumbnailUrl, duration, savedAt: Date.now(),
-        }));
-      } catch (e) { /* quota exceeded, ignore */ }
-    }, 500);
-    return () => clearTimeout(timer);
-  }, [contentType, title, description, visibility, price, discount, tags, fileUrl, thumbnailUrl, duration, editId]);
-  
-  const {
-    isCompressing,
-    isLoading: compressionLoading,
-    progress: compressionProgress,
-    stage: compressionStage,
-    message: compressionMessage,
-    originalSize,
-    compressedSize,
-    compressionRatio,
-    compressVideo,
-    abort: abortCompression,
-    reset: resetCompression,
-  } = useVideoCompression();
-
-  // Auto-open cover drawer on mobile when video upload completes
-  useEffect(() => {
-    if (isMobile && uploadState === "complete" && contentType !== "podcast" && !manualThumbnail) {
-      setCoverDrawerOpen(true);
-    }
-  }, [uploadState, isMobile, contentType, manualThumbnail]);
-
-  useEffect(() => {
-    if (editId && user) {
-      loadContentForEdit();
-    }
-  }, [editId, user]);
-  
-  const loadContentForEdit = async () => {
-    if (!editId || !user) return;
-    
-    try {
-      const { data, error } = await supabase
-        .from('contents')
-        .select('*')
-        .eq('id', editId)
-        .eq('creator_id', user.id)
-        .single();
-      
-      if (error) throw error;
-      
-      if (data) {
-        setIsEditMode(true);
-        setOriginalStatus(data.status);
-        setTitle(data.title);
-        setDescription(data.description || "");
-        setContentType(data.content_type as ContentType);
-        setVisibility(data.visibility as Visibility);
-        setPrice(data.price?.toString() || "0");
-        setDiscount(data.discount?.toString() || "0");
-        setFileUrl(data.file_url || "");
-        setThumbnailUrl(data.thumbnail_url || "");
-        setDuration(data.duration_seconds || 0);
-        setTags(data.tags || []);
-        setFilePreview(data.file_url || "");
-        setThumbnailPreview(data.thumbnail_url || "");
-        setFileProgress(100);
-        setThumbnailProgress(100);
-        // Load bunny fields if editing
-        setVideoProvider(data.video_provider || "supabase");
-        setMediaAssetId(data.media_asset_id || null);
-        setBunnyLibraryId(data.bunny_library_id || null);
-        setBunnyVideoId(data.bunny_video_id || null);
-        setBunnyStatus(data.bunny_status || null);
-        setBunnyHlsUrl(data.bunny_hls_url || null);
-        setBunnyThumbnailUrl(data.bunny_thumbnail_url || null);
+    const guard = (event: BeforeUnloadEvent) => {
+      if (["preparing", "uploading"].includes(mediaUpload.state)) {
+        event.preventDefault();
+        event.returnValue = "";
       }
-    } catch (error: any) {
-      console.error("Erro ao carregar conteúdo:", error);
-      toast.error("Erro ao carregar conteúdo para edição");
-      navigate('/studio/contents');
-    }
-  };
+    };
+    window.addEventListener("beforeunload", guard);
+    return () => window.removeEventListener("beforeunload", guard);
+  }, [mediaUpload.state]);
 
-  if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-background">
-        <Loader2 className="w-8 h-8 animate-spin text-accent" />
-      </div>
-    );
-  }
-
-  if (!user || (role !== 'creator' && role !== 'admin')) {
-    return <Navigate to="/" replace />;
-  }
-
-  if (profile?.creator_status !== 'approved' && role !== 'admin') {
-    return (
-      <AppShell
-        variant="studio"
-        title="Publicar Conteúdo"
-        contentClassName="flex-1 p-6 md:p-12 flex items-center justify-center"
-      >
-              <Card className="p-8 text-center max-w-md border-0 bg-gradient-to-b from-card to-card/50">
-                <div className="w-16 h-16 mx-auto mb-6 rounded-2xl bg-accent/10 flex items-center justify-center">
-                  <Lock className="w-8 h-8 text-accent" />
-                </div>
-                <h2 className="text-xl font-bold mb-2">Acesso Exclusivo para Creators</h2>
-                <p className="text-muted-foreground">
-                  Você precisa ser um Creator aprovado para publicar conteúdos.
-                </p>
-              </Card>
-      </AppShell>
-    );
-  }
-
-  const formatFileSize = (bytes: number): string => {
-    if (bytes === 0) return '0 Bytes';
-    const k = 1024;
-    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
-  };
-
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    const previewUrl = URL.createObjectURL(file);
-    setFilePreview(previewUrl);
-    pendingFileRef.current = file;
-    setOriginalFileSize(file.size);
-    setFileSize(file.size);
-
-    if (contentType !== "podcast") {
-      // Open lobby instantly with local blob URL — upload happens AFTER lobby confirms
-      setLobbyVideoSrc(previewUrl);
-      setLobbyOpen(true);
-    } else {
-      // Podcast: no lobby, upload immediately
-      startFileUpload(file, previewUrl);
-    }
-  };
-
-  const startFileUpload = async (file: File, previewUrl: string, trimStart?: number, trimEnd?: number) => {
-    setFileProgress(0);
-    setFileUploading(true);
-    setOriginalFileSize(file.size);
-    setFileSize(file.size);
-
-    // Get duration for podcast (video types get duration from lobby)
-    if (contentType === "podcast") {
-      const audio = document.createElement("audio");
-      audio.src = previewUrl;
-      audio.onloadedmetadata = () => {
-        setDuration(Math.floor(audio.duration));
-      };
-    }
-
-    try {
-      let fileToUpload = file;
-      
-      if (contentType !== "podcast") {
-        setUploadState("compressing");
-        
-        try {
-          fileToUpload = await compressVideo(file, {
-            quality: 'balanced',
-            maxWidth: 1920,
-            maxHeight: 1080,
-            trimStart,
-            trimEnd,
-          });
-          
-          setFileSize(fileToUpload.size);
-          
-          if (fileToUpload !== file) {
-            URL.revokeObjectURL(previewUrl);
-            const newPreviewUrl = URL.createObjectURL(fileToUpload);
-            setFilePreview(newPreviewUrl);
-          }
-        } catch (compressionError) {
-          console.warn('Compression failed, using original file:', compressionError);
-        }
-      }
-      
-      setUploadState("uploading");
-      setFileProgress(0);
-      const target = await videoService.createUpload(title || fileToUpload.name);
-      setMediaAssetId(target.mediaAssetId);
-      setVideoProvider(target.provider);
-      setFileUrl(`media:${target.mediaAssetId}`);
-
-      if (target.method === "TUS") {
-        await new Promise<void>((resolve, reject) => {
-          const upload = new tus.Upload(fileToUpload, {
-            endpoint: target.uploadUrl, retryDelays: [0, 3000, 5000, 10000], headers: target.headers,
-            metadata: { filename: fileToUpload.name, filetype: fileToUpload.type, title: title || fileToUpload.name },
-            onProgress: (sent, total) => setFileProgress(Math.round((sent / total) * 100)),
-            onSuccess: () => resolve(), onError: reject,
-          });
-          upload.start();
-        });
-      } else if (target.method === "PUT") {
-        await new Promise<void>((resolve, reject) => {
-          const xhr = new XMLHttpRequest();
-          xhrRef.current = xhr;
-          xhr.upload.onprogress = event => event.lengthComputable && setFileProgress(Math.round((event.loaded / event.total) * 100));
-          xhr.onload = () => xhr.status >= 200 && xhr.status < 300 ? resolve() : reject(new Error(`Upload failed with status ${xhr.status}`));
-          xhr.onerror = () => reject(new Error("Upload failed"));
-          xhr.onabort = () => reject(new Error("Upload aborted"));
-          xhr.open("PUT", target.uploadUrl);
-          Object.entries(target.headers ?? {}).forEach(([name, value]) => xhr.setRequestHeader(name, value));
-          xhr.setRequestHeader("Content-Type", fileToUpload.type || "application/octet-stream");
-          xhr.send(fileToUpload);
-        });
-      }
-
-      setUploadState("processing");
-      setFileProgress(100);
-      setUploadState("complete");
-      toast.success(
-        contentType === "podcast"
-          ? "Áudio enviado! O processamento continuará em segundo plano."
-          : "Vídeo enviado! O processamento continuará em segundo plano.",
-      );
-    } catch (error: any) {
-      toast.error(error.message || "Erro ao enviar arquivo");
-      setFilePreview("");
-      setFileProgress(0);
-      setUploadState("idle");
-      resetCompression();
-    } finally {
-      setFileUploading(false);
-      xhrRef.current = null;
-    }
-  };
-
-  const handleRemoveFile = () => {
-    if (xhrRef.current) {
-      xhrRef.current.abort();
-      xhrRef.current = null;
-    }
-    if (isCompressing) {
-      abortCompression();
-    }
-    setFileUrl("");
-    setFilePreview("");
-    setFileProgress(0);
-    setUploadState("idle");
-    setFileSize(0);
-    setOriginalFileSize(0);
-    resetCompression();
-  };
-
-  const handleThumbnailUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    const previewUrl = URL.createObjectURL(file);
-    setThumbnailPreview(previewUrl);
-    setManualThumbnail(true);
-
+  const uploadCover = async (file: File) => {
+    if (!user) return;
     setThumbnailUploading(true);
-    setThumbnailProgress(0);
-
+    setThumbnailPreview(URL.createObjectURL(file));
+    setManualThumbnail(true);
     try {
-      const compressedFile = await compressImage(file, 1280, 720, 0.8);
-      const fileExt = compressedFile.name.split('.').pop();
-      const fileName = `thumbnails/${user.id}/${Date.now()}.${fileExt}`;
-      
-      const progressInterval = setInterval(() => {
-        setThumbnailProgress(prev => {
-          if (prev >= 90) {
-            clearInterval(progressInterval);
-            return prev;
-          }
-          return prev + 10;
-        });
-      }, 200);
-
+      const isShort = contentType === "short";
+      const compressed = await compressImage(
+        file,
+        isShort ? 1080 : 1280,
+        isShort ? 1920 : 720,
+        0.84,
+      );
+      const extension = compressed.name.split(".").pop() || "jpg";
+      const path = `thumbnails/${user.id}/${crypto.randomUUID()}.${extension}`;
       const { error } = await supabase.storage
-        .from('contents')
-        .upload(fileName, compressedFile, {
-          cacheControl: "31536000",
-          upsert: false
-        });
-
-      clearInterval(progressInterval);
-      setThumbnailProgress(100);
-
+        .from("contents")
+        .upload(path, compressed, { cacheControl: "31536000", upsert: false });
       if (error) throw error;
-
-      const { data: { publicUrl } } = supabase.storage
-        .from('contents')
-        .getPublicUrl(fileName);
-
-      setThumbnailUrl(publicUrl);
-      toast.success("Thumbnail enviada!");
-    } catch (error: any) {
-      toast.error(error.message || "Erro ao enviar thumbnail");
-      setThumbnailPreview("");
-      setThumbnailProgress(0);
+      const { data } = supabase.storage.from("contents").getPublicUrl(path);
+      setThumbnailUrl(data.publicUrl);
+      toast.success("Capa pronta.");
+    } catch (coverError) {
+      setThumbnailPreview(thumbnailUrl);
+      toast.error(
+        coverError instanceof Error
+          ? coverError.message
+          : "Não foi possível enviar a capa.",
+      );
     } finally {
       setThumbnailUploading(false);
     }
   };
-  const handleLobbyConfirm = async (data: {
-    thumbnailFile?: File;
-    thumbnailPreview?: string;
-    trimStart: number;
-    trimEnd: number;
-    duration: number;
-  }) => {
-    setLobbyOpen(false);
 
-    // Apply cover from lobby if provided
-    if (data.thumbnailFile && data.thumbnailPreview) {
-      setThumbnailPreview(data.thumbnailPreview);
-      setManualThumbnail(true);
-      try {
-        const compressedFile = await compressImage(data.thumbnailFile, 1280, 720, 0.8);
-        const fileName = `thumbnails/${user.id}/${Date.now()}.jpg`;
-        const { error } = await supabase.storage
-          .from('contents')
-          .upload(fileName, compressedFile, { 
-            contentType: 'image/jpeg', 
-            upsert: false,
-            cacheControl: "31536000"
-          });
-        if (!error) {
-          const { data: { publicUrl } } = supabase.storage
-            .from('contents')
-            .getPublicUrl(fileName);
-          setThumbnailUrl(publicUrl);
-        }
-      } catch (err) {
-        console.error("Lobby thumbnail upload error:", err);
-      }
-    }
-
-    // Set the trimmed duration
-    setDuration(Math.floor(data.duration));
-
-    // Now start upload with trim — this is where the real processing happens
-    const file = pendingFileRef.current;
-    if (file) {
-      pendingFileRef.current = null;
-      startFileUpload(file, filePreview, data.trimStart, data.trimEnd);
-    }
-  };
-
-  const handleLobbyClose = () => {
-    setLobbyOpen(false);
-    pendingFileRef.current = null;
-    setFilePreview("");
-    setOriginalFileSize(0);
-    setFileSize(0);
-  };
-
-
-  const handleRemoveThumbnail = () => {
-    setThumbnailUrl("");
-    setThumbnailPreview("");
-    setThumbnailProgress(0);
-    setManualThumbnail(false);
-  };
-
-  const handleCoverFrameSelect = async (file: File, previewUrl: string) => {
-    if (manualThumbnail) return; // Manual thumbnail takes priority
-    
-    setThumbnailPreview(previewUrl);
-    
+  const startUpload = async (
+    file: File,
+    trimStart?: number,
+    trimEnd?: number,
+  ) => {
     try {
-      const compressedFile = await compressImage(file, 1280, 720, 0.8);
-      const fileName = `thumbnails/${user.id}/${Date.now()}.jpg`;
-      const { error } = await supabase.storage
-        .from('contents')
-        .upload(fileName, compressedFile, { 
-          contentType: 'image/jpeg', 
-          upsert: false,
-          cacheControl: "31536000"
-        });
-
-      if (error) throw error;
-
-      const { data: { publicUrl } } = supabase.storage
-        .from('contents')
-        .getPublicUrl(fileName);
-
-      setThumbnailUrl(publicUrl);
-    } catch (error: any) {
-      console.error("Auto-thumbnail upload error:", error);
+      const savedDraft = await draft.saveNow();
+      if (!isPersistedPublicationDraft(savedDraft))
+        throw new Error(
+          "Conecte-se à internet para iniciar o envio. Seus dados continuam salvos neste dispositivo.",
+        );
+      let prepared = file;
+      if (contentType !== "podcast") {
+        try {
+          prepared = await compression.compressVideo(file, {
+            quality: "balanced",
+            maxWidth: contentType === "short" ? 1080 : 1920,
+            maxHeight: contentType === "short" ? 1920 : 1080,
+            trimStart,
+            trimEnd,
+          });
+          if (prepared !== file) setFilePreview(URL.createObjectURL(prepared));
+        } catch {
+          prepared = file;
+        }
+      }
+      const result = await mediaUpload.upload({
+        file: prepared,
+        title: title || prepared.name,
+        mediaType: rules.mediaType,
+        draftId: savedDraft?.id ?? draft.draftId,
+        slotKey: `${contentType}:primary`,
+        onTargetCreated: (target) => {
+          setFileUrl(target.fileUrl);
+          setMediaAssetId(target.mediaAssetId);
+          setVideoProvider(target.provider);
+        },
+      });
+      setFileUrl(result.fileUrl);
+      setMediaAssetId(result.mediaAssetId);
+      setVideoProvider(result.provider);
+      toast.success(
+        contentType === "podcast"
+          ? "Áudio enviado. Agora estamos preparando a reprodução."
+          : "Vídeo enviado. Agora estamos preparando a reprodução.",
+      );
+    } catch (uploadError) {
+      if (!(
+        uploadError instanceof DOMException && uploadError.name === "AbortError"
+      ))
+        toast.error(
+          uploadError instanceof Error
+            ? uploadError.message
+            : "Não foi possível enviar o arquivo.",
+        );
     }
   };
 
-  const handleGenerateTags = async () => {
-    if (!title.trim()) {
-      toast.error("Preencha o título primeiro para gerar tags");
+  const handleFileSelect = async (file?: File) => {
+    if (!file) return;
+    const isAudio = file.type.startsWith("audio/");
+    const isVideo = file.type.startsWith("video/");
+    if (
+      (contentType === "podcast" && !isAudio) ||
+      (contentType !== "podcast" && !isVideo)
+    ) {
+      toast.error(
+        contentType === "podcast"
+          ? "Escolha um arquivo de áudio válido."
+          : "Escolha um arquivo de vídeo válido.",
+      );
       return;
     }
+    const url = URL.createObjectURL(file);
+    setFileName(file.name);
+    setFilePreview(url);
+    pendingFileRef.current = file;
+    if (contentType === "podcast") {
+      const audio = document.createElement("audio");
+      audio.preload = "metadata";
+      audio.src = url;
+      audio.onloadedmetadata = () =>
+        setDuration(Math.floor(audio.duration || 0));
+      await startUpload(file);
+    } else {
+      setLobbyVideoSrc(url);
+      setLobbyOpen(true);
+    }
+  };
 
+  const removeMedia = () => {
+    if (mediaAssetId)
+      void (supabase as any).rpc("abandon_media_asset", {
+        p_media_asset_id: mediaAssetId,
+      });
+    mediaUpload.reset();
+    compression.abort();
+    compression.reset();
+    setFileUrl("");
+    setFilePreview("");
+    setFileName("");
+    setDuration(0);
+    setMediaAssetId(null);
+    setVideoProvider(null);
+  };
+
+  const discardDraft = async () => {
+    if (mediaAssetId)
+      void (supabase as any).rpc("abandon_media_asset", {
+        p_media_asset_id: mediaAssetId,
+      });
+    await draft.discard();
+    setDiscardOpen(false);
+    navigate("/studio/contents");
+  };
+
+  const generateTags = async () => {
+    if (!title.trim()) {
+      toast.error("Escreva o título antes de gerar tags.");
+      return;
+    }
     setIsGeneratingTags(true);
     try {
       const { data, error } = await supabase.functions.invoke("generate-tags", {
@@ -554,676 +445,562 @@ export default function StudioUpload() {
           contentType,
         },
       });
-
       if (error) throw error;
-
-      if (data?.tags) {
-        setTags(data.tags);
-        toast.success(`${data.tags.length} tags geradas!`);
-      }
-    } catch (error: any) {
-      console.error("Erro ao gerar tags:", error);
-      toast.error(error.message || "Erro ao gerar tags");
+      setTags(data?.tags ?? []);
+    } catch {
+      toast.error("Não foi possível sugerir tags agora.");
     } finally {
       setIsGeneratingTags(false);
     }
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const issues = useMemo(
+    () => getStandaloneDraftIssues(contentType, payload),
+    [contentType, payload],
+  );
 
-    if (!title || (!fileUrl && !mediaAssetId)) {
-      toast.error("Preencha todos os campos obrigatórios");
+  const submit = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (issues.length) {
+      toast.error(issues[0]);
       return;
     }
-
-    // Enforce Shorts duration limit (3 minutes = 180 seconds)
-    if (contentType === "short" && duration > 180) {
-      toast.error("Shorts devem ter no máximo 3 minutos. Corte o vídeo no lobby de preparação.");
-      return;
-    }
-
     setSubmitting(true);
     try {
-      // "curso" should use the dedicated StudioUploadCurso page, but if somehow submitted here, use "aula"
-      const dbContentType = contentType === "curso" ? "aula" : contentType;
-      
-      const contentData = {
-        content_type: dbContentType,
-        title,
-        description: description || null,
-        file_url: fileUrl,
-        thumbnail_url: thumbnailUrl,
-        duration_seconds: duration,
-        visibility,
-        price: visibility === 'paid' ? parseFloat(price) : 0,
-        discount: visibility === 'paid' ? parseFloat(discount) : 0,
-        tags: tags.length > 0 ? tags : null,
-        media_asset_id: mediaAssetId,
-        video_provider: videoProvider,
-        bunny_library_id: bunnyLibraryId,
-        bunny_video_id: bunnyVideoId,
-        bunny_status: bunnyStatus,
-        bunny_hls_url: bunnyHlsUrl,
-        bunny_thumbnail_url: bunnyThumbnailUrl,
-      };
-
-      if (isEditMode && editId) {
-        const newStatus = originalStatus === 'approved' ? 'pending' : originalStatus;
-        
-        const { error } = await supabase
-          .from('contents')
-          .update({
-            ...contentData,
-            status: newStatus,
-            updated_at: new Date().toISOString(),
-          })
-          .eq('id', editId)
-          .eq('creator_id', user.id);
-
-        if (error) throw error;
-
-        if (originalStatus === 'approved') {
-          toast.success("Conteúdo atualizado! Voltará para revisão.");
-        } else {
-          toast.success("Conteúdo atualizado!");
-        }
-      } else {
-        const { error } = await supabase
-          .from('contents')
-          .insert({
-            ...contentData,
-            creator_id: user.id,
-            status: 'pending',
-            views_count: 0,
-            likes_count: 0,
-          });
-
-        if (error) throw error;
-
-        toast.success("Conteúdo enviado para aprovação!");
-      }
-      
-      sessionStorage.removeItem(DRAFT_KEY);
-      navigate('/studio/contents');
-    } catch (error: any) {
-      toast.error(error.message || "Erro ao publicar conteúdo");
+      const saved = await draft.saveNow();
+      const activeDraftId = isPersistedPublicationDraft(saved)
+        ? saved!.id
+        : null;
+      if (!activeDraftId)
+        throw new Error(
+          "Conecte-se à internet para enviar o conteúdo para análise.",
+        );
+      const { data, error } = await (supabase as any).rpc(
+        "submit_standalone_publication",
+        { p_draft_id: activeDraftId },
+      );
+      if (error) throw error;
+      draft.clearLocal();
+      toast.success(
+        data?.isRevision
+          ? "Revisão enviada. A versão atual continua publicada."
+          : "Conteúdo enviado para análise.",
+      );
+      navigate("/studio/contents");
+    } catch (submitError) {
+      toast.error(
+        submitError instanceof Error
+          ? submitError.message
+          : "Não foi possível enviar para análise.",
+      );
     } finally {
       setSubmitting(false);
     }
   };
 
-  const selectedType = contentTypes.find(t => t.id === contentType);
-  const selectedVisibility = visibilityOptions.find(v => v.id === visibility);
+  if (loading || !sourceLoaded)
+    return (
+      <div className="cf-v2 studio-publish-loading">
+        <LoaderCircle className="animate-spin" />
+        <strong>Preparando seu editor...</strong>
+      </div>
+    );
+  if (!user || (role !== "creator" && role !== "admin"))
+    return <Navigate to="/" replace />;
+  if (profile?.creator_status !== "approved" && role !== "admin")
+    return (
+      <AppShell
+        variant="studio"
+        title="Publicação"
+        contentClassName="studio-page-shell"
+      >
+        <div className="studio-access-state">
+          <Lock />
+          <h1>Seu Studio ainda não está liberado</h1>
+          <p>
+            Quando seu perfil de creator for aprovado, você poderá publicar
+            materiais por aqui.
+          </p>
+        </div>
+      </AppShell>
+    );
+
+  const MediaIcon = contentType === "podcast" ? FileAudio : FileVideo;
+  const saveIcon =
+    draft.state === "offline" ? (
+      <CloudOff />
+    ) : draft.state === "saving" ? (
+      <LoaderCircle className="animate-spin" />
+    ) : (
+      <Cloud />
+    );
+  const hasPlayablePreview =
+    filePreview.startsWith("blob:") || filePreview.startsWith("http");
 
   return (
     <AppShell
       variant="studio"
-      title={
-        isEditMode ? "Editar Conteúdo" :
-        contentType === "aula" ? "Publicar Aula" :
-        contentType === "curso" ? "Criar Curso" :
-        contentType === "podcast" ? "Enviar Podcast" :
-        "Postar Short"
-      }
-      contentClassName="flex-1 overflow-auto"
+      title={isEditMode ? `Editar ${rules.label}` : shellTitle}
+      contentClassName="studio-page-shell"
     >
-            {/* Hero Section */}
-            <div className="relative overflow-hidden border-b bg-gradient-to-br from-accent/5 via-background to-background">
-              <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-accent/10 via-transparent to-transparent" />
-              <div className="relative max-w-5xl mx-auto px-6 py-8 md:py-12">
-                <motion.div
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  className="flex items-center gap-4"
-                >
-                  <div className="w-14 h-14 rounded-2xl bg-accent/10 border border-accent/20 flex items-center justify-center">
-                    {selectedType && <selectedType.icon className="w-7 h-7 text-accent" />}
-                  </div>
+      <CreatorTemplate
+        className="studio-template studio-publish-template"
+        width="wide"
+        density="comfortable"
+        header={
+          <PageHeader
+            title={
+              isEditMode
+                ? `Editar ${rules.label.toLowerCase()}`
+                : `Publique ${newPublicationLabel}.`
+            }
+            description={
+              isEditMode && originalStatus === "approved"
+                ? "A versão publicada continua no ar enquanto esta revisão é analisada."
+                : rules.description
+            }
+            action={
+              <span className="studio-draft-state" data-state={draft.state}>
+                {saveIcon}
+                {draft.label}
+              </span>
+            }
+          />
+        }
+        toolbar={<StudioNavigation />}
+      >
+        <form className="studio-publish-layout" onSubmit={submit}>
+          <div className="studio-publish-main">
+            <V2Card className="studio-publish-card" elevation="panel">
+              <V2CardHeader>
+                <div className="studio-publish-heading">
+                  <span className="studio-icon" data-tone="accent">
+                    <MediaIcon />
+                  </span>
                   <div>
-                    <h1 className="text-2xl md:text-3xl font-bold">
-                      {isEditMode ? "Editar" : "Novo"} {selectedType?.label}
-                    </h1>
-                    <p className="text-muted-foreground mt-0.5">
-                      {selectedType?.description}
+                    <h2>
+                      {contentType === "podcast"
+                        ? "Áudio do episódio"
+                        : "Vídeo do conteúdo"}
+                    </h2>
+                    <p>
+                      {contentType === "short"
+                        ? "Vídeo vertical com até 3 minutos."
+                        : contentType === "podcast"
+                          ? "MP3, M4A, WAV ou OGG."
+                          : "MP4, WebM ou MOV."}
                     </p>
                   </div>
-                </motion.div>
-              </div>
-            </div>
-
-            {/* Form Content */}
-            <div className="max-w-5xl mx-auto px-6 py-8">
-              <form onSubmit={handleSubmit} className="space-y-8">
-                {/* Content Type Selection */}
-                <motion.div
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: 0.1 }}
+                </div>
+                <V2Badge
+                  variant={
+                    mediaUpload.state === "ready"
+                      ? "success"
+                      : mediaUpload.state === "failed"
+                        ? "danger"
+                        : "neutral"
+                  }
                 >
-                  <div className="flex items-center justify-between mb-4">
-                    <div>
-                      <h2 className="text-lg font-semibold">Tipo de Conteúdo</h2>
-                      <p className="text-sm text-muted-foreground">Selecione o formato do seu conteúdo</p>
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                    {contentTypes.map((type) => {
-                      const isActive = contentType === type.id;
-                      return (
-                        <motion.button
-                          key={type.id}
-                          type="button"
-                          whileHover={{ scale: 1.02 }}
-                          whileTap={{ scale: 0.98 }}
-                          onClick={() => setContentType(type.id)}
-                          className={cn(
-                            "relative flex flex-col items-center gap-3 p-5 rounded-xl border-2 transition-all duration-200",
-                            isActive
-                              ? "border-accent bg-accent/5 shadow-lg shadow-accent/10"
-                              : "border-border hover:border-accent/50 hover:bg-accent/5"
-                          )}
-                        >
-                          <div className={cn(
-                            "w-12 h-12 rounded-xl flex items-center justify-center transition-colors",
-                            isActive ? "bg-accent text-accent-foreground" : "bg-secondary"
-                          )}>
-                            <type.icon className="w-6 h-6" />
-                          </div>
-                          <div className="text-center">
-                            <span className="font-medium text-sm">{type.label}</span>
-                            <p className="text-xs text-muted-foreground mt-0.5 line-clamp-1">
-                              {type.description}
-                            </p>
-                          </div>
-                          {isActive && (
-                            <motion.div
-                              initial={{ scale: 0 }}
-                              animate={{ scale: 1 }}
-                              className="absolute -top-1.5 -right-1.5 w-5 h-5 bg-accent rounded-full flex items-center justify-center"
-                            >
-                              <CheckCircle2 className="w-3.5 h-3.5 text-accent-foreground" />
-                            </motion.div>
-                          )}
-                        </motion.button>
-                      );
-                    })}
-                  </div>
-                </motion.div>
-
-                {/* Upload Section */}
-                <motion.div
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: 0.2 }}
-                >
-                  <div className="mb-4">
-                    <h2 className="text-lg font-semibold">Arquivos</h2>
-                    <p className="text-sm text-muted-foreground">Faça upload do conteúdo e da capa</p>
-                  </div>
-                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                    {/* Video/Audio Upload */}
-                    <div className="space-y-3">
-                      <Label className="text-sm font-medium flex items-center gap-2">
-                        {contentType === "podcast" ? <Music className="w-4 h-4" /> : <Video className="w-4 h-4" />}
-                        {contentType === "podcast" ? "Arquivo de Áudio" : "Arquivo de Vídeo"}
-                        <span className="text-accent">*</span>
-                      </Label>
-                      
-                      <div className="relative">
-                        <AnimatePresence mode="wait">
-                          {!filePreview ? (
-                            <motion.label
-                              key="upload"
-                              initial={{ opacity: 0, scale: 0.95 }}
-                              animate={{ opacity: 1, scale: 1 }}
-                              exit={{ opacity: 0, scale: 0.95 }}
-                              className="flex flex-col items-center justify-center w-full aspect-video rounded-xl border-2 border-dashed border-border cursor-pointer hover:border-accent hover:bg-accent/5 transition-all duration-200 group"
-                            >
-                              <div className="flex flex-col items-center justify-center py-8">
-                                <div className="w-16 h-16 rounded-2xl bg-secondary flex items-center justify-center mb-4 group-hover:bg-accent/10 transition-colors">
-                                  {contentType === "podcast" ? (
-                                    <Music className="w-8 h-8 text-muted-foreground group-hover:text-accent transition-colors" />
-                                  ) : (
-                                    <Video className="w-8 h-8 text-muted-foreground group-hover:text-accent transition-colors" />
-                                  )}
-                                </div>
-                                <p className="font-medium text-sm group-hover:text-accent transition-colors">
-                                  Clique para fazer upload
-                                </p>
-                                <p className="text-xs text-muted-foreground mt-1">
-                                  ou arraste e solte aqui
-                                </p>
-                                {contentType === "short" && (
-                                  <Badge variant="secondary" className="mt-3">Máx. 180 segundos</Badge>
-                                )}
-                              </div>
-                              <input
-                                type="file"
-                                className="hidden"
-                                accept={contentType === "podcast" ? "audio/*" : "video/*"}
-                                onChange={handleFileUpload}
-                                disabled={fileUploading}
-                              />
-                            </motion.label>
-                          ) : (
-                            <motion.div
-                              key="preview"
-                              initial={{ opacity: 0, scale: 0.95 }}
-                              animate={{ opacity: 1, scale: 1 }}
-                              exit={{ opacity: 0, scale: 0.95 }}
-                              className="relative w-full aspect-video rounded-xl overflow-hidden bg-black"
-                            >
-                              {contentType === "podcast" ? (
-                                <div className="flex items-center justify-center w-full h-full bg-gradient-to-br from-secondary to-background">
-                                  <div className="text-center">
-                                    <div className="w-20 h-20 mx-auto rounded-2xl bg-accent/10 flex items-center justify-center mb-3">
-                                      <Music className="w-10 h-10 text-accent" />
-                                    </div>
-                                    {uploadState === "complete" && (
-                                      <Badge className="bg-green-500/20 text-green-400 border-green-500/30">
-                                        <CheckCircle2 className="w-3 h-3 mr-1" />
-                                        Áudio pronto
-                                      </Badge>
-                                    )}
-                                  </div>
-                                </div>
-                              ) : (
-                               <>
-                                  <video
-                                    src={filePreview}
-                                    className="w-full h-full object-cover"
-                                    controls={uploadState === "complete" || uploadState === "idle"}
-                                    muted={uploadState !== "complete" && uploadState !== "idle"}
-                                    playsInline
-                                    preload="auto"
-                                    poster={thumbnailPreview || undefined}
-                                  />
-                                  
-                                  {/* Upload Overlay */}
-                                  {(uploadState === "compressing" || uploadState === "uploading" || uploadState === "processing") && (
-                                    <div className="absolute inset-0 bg-black/80 backdrop-blur-sm flex flex-col items-center justify-center gap-4 z-10">
-                                      {uploadState === "compressing" ? (
-                                        <>
-                                          <div className="w-16 h-16 rounded-2xl bg-yellow-500/20 flex items-center justify-center">
-                                            <Zap className="w-8 h-8 text-yellow-400 animate-pulse" />
-                                          </div>
-                                          <div className="text-white text-3xl font-bold tabular-nums">
-                                            {compressionProgress}%
-                                          </div>
-                                          <Progress 
-                                            value={compressionProgress} 
-                                            variant="gradient" 
-                                            className="w-2/3 h-2"
-                                          />
-                                          <p className="text-white/70 text-sm">
-                                            {compressionMessage || 'Otimizando vídeo...'}
-                                          </p>
-                                          {originalFileSize > 0 && (
-                                            <div className="flex items-center gap-2 text-white/50 text-xs">
-                                              <span>{formatFileSize(originalFileSize)}</span>
-                                              <ArrowDown className="w-3 h-3" />
-                                              <span className="text-green-400">Comprimindo...</span>
-                                            </div>
-                                          )}
-                                        </>
-                                      ) : uploadState === "uploading" ? (
-                                        <>
-                                          <div className="text-white text-5xl font-bold tabular-nums">
-                                            {fileProgress}%
-                                          </div>
-                                          <Progress 
-                                            value={fileProgress} 
-                                            variant="gradient" 
-                                            className="w-2/3 h-2"
-                                          />
-                                          <p className="text-white/70 text-sm">
-                                            Enviando {formatFileSize(fileSize)}...
-                                          </p>
-                                          {compressionRatio > 5 && (
-                                            <Badge className="bg-green-500/20 text-green-300 border-green-500/30">
-                                              <ArrowDown className="w-3 h-3 mr-1" />
-                                              {compressionRatio.toFixed(0)}% menor
-                                            </Badge>
-                                          )}
-                                        </>
-                                      ) : (
-                                        <>
-                                          <Loader2 className="w-12 h-12 text-white animate-spin" />
-                                          <p className="text-white text-sm">Finalizando...</p>
-                                        </>
-                                      )}
-                                    </div>
-                                  )}
-                                </>
-                              )}
-                              
-                              {/* Remove Button */}
-                              {uploadState !== "uploading" && uploadState !== "processing" && uploadState !== "compressing" && (
-                                <button
-                                  type="button"
-                                  onClick={handleRemoveFile}
-                                  className="absolute top-3 right-3 p-2.5 bg-black/60 backdrop-blur-sm text-white rounded-xl hover:bg-black/80 transition-colors z-20"
-                                >
-                                  <Trash2 className="w-4 h-4" />
-                                </button>
-                              )}
-                            </motion.div>
-                          )}
-                        </AnimatePresence>
-                      </div>
-                    </div>
-
-                    {/* Cover Frame Selector - shown for video content after upload */}
-                    {filePreview && uploadState === "complete" && contentType !== "podcast" && !manualThumbnail && (
-                      isMobile ? (
-                        <>
-                          <div className="lg:col-span-2">
-                            <Button
-                              type="button"
-                              variant="outline"
-                              className="w-full h-12 gap-2"
-                              onClick={() => setCoverDrawerOpen(true)}
-                            >
-                              <ImagePlus className="w-4 h-4" />
-                              {thumbnailPreview ? "Alterar capa do vídeo" : "Escolher capa do vídeo"}
-                            </Button>
-                            {thumbnailPreview && (
-                              <div className="mt-2 relative aspect-video rounded-xl overflow-hidden">
-                                <img src={thumbnailPreview} alt="Capa" className="w-full h-full object-cover" />
-                                <div className="absolute top-2 left-2 px-2 py-0.5 rounded-md bg-black/60 text-white text-xs flex items-center gap-1">
-                                  <ImagePlus className="w-3 h-3" />
-                                  Capa
-                                </div>
-                              </div>
-                            )}
-                          </div>
-                          <Drawer open={coverDrawerOpen} onOpenChange={setCoverDrawerOpen}>
-                            <DrawerContent className="max-h-[85vh]">
-                              <DrawerHeader>
-                                <DrawerTitle>Escolher capa do vídeo</DrawerTitle>
-                              </DrawerHeader>
-                              <div className="px-4 pb-6 overflow-auto">
-                                <StandaloneCoverSelector
-                                  videoSrc={filePreview}
-                                  onFrameSelect={(file, url) => {
-                                    handleCoverFrameSelect(file, url);
-                                  }}
-                                  className="border-0"
-                                />
-                                <Button
-                                  type="button"
-                                  className="w-full mt-4"
-                                  onClick={() => setCoverDrawerOpen(false)}
-                                >
-                                  Confirmar capa
-                                </Button>
-                              </div>
-                            </DrawerContent>
-                          </Drawer>
-                        </>
+                  {mediaStatusCopy(mediaUpload.state, mediaUpload.progress)}
+                </V2Badge>
+              </V2CardHeader>
+              <V2CardContent>
+                {!fileUrl && mediaUpload.state === "idle" ? (
+                  <label className="studio-upload-dropzone">
+                    <UploadCloud />
+                    <strong>Escolha um arquivo ou arraste para cá</strong>
+                    <span>
+                      Você poderá preencher o restante enquanto o envio
+                      acontece.
+                    </span>
+                    <input
+                      type="file"
+                      accept={rules.accept}
+                      onChange={(event) =>
+                        void handleFileSelect(event.target.files?.[0])
+                      }
+                    />
+                  </label>
+                ) : (
+                  <div className="studio-media-progress">
+                    <div
+                      className={`studio-media-preview studio-media-preview--${contentType}`}
+                    >
+                      {hasPlayablePreview && contentType === "podcast" ? (
+                        <audio src={filePreview} controls />
+                      ) : hasPlayablePreview && filePreview ? (
+                        <video src={filePreview} controls preload="metadata" />
                       ) : (
-                        <div className="lg:col-span-2">
-                          <StandaloneCoverSelector
-                            videoSrc={filePreview}
-                            onFrameSelect={handleCoverFrameSelect}
-                          />
-                        </div>
-                      )
-                    )}
-
-                    {/* Thumbnail Upload */}
-                    <div className="space-y-3">
-                       <Label className="text-sm font-medium flex items-center gap-2">
-                        <ImagePlus className="w-4 h-4" />
-                        Thumbnail (opcional)
-                      </Label>
-                      
-                      <div className="relative">
-                        <AnimatePresence mode="wait">
-                          {!thumbnailPreview ? (
-                            <motion.label
-                              key="upload"
-                              initial={{ opacity: 0, scale: 0.95 }}
-                              animate={{ opacity: 1, scale: 1 }}
-                              exit={{ opacity: 0, scale: 0.95 }}
-                              className="flex flex-col items-center justify-center w-full aspect-video rounded-xl border-2 border-dashed border-border cursor-pointer hover:border-accent hover:bg-accent/5 transition-all duration-200 group"
-                            >
-                              <div className="flex flex-col items-center justify-center py-8">
-                                <div className="w-16 h-16 rounded-2xl bg-secondary flex items-center justify-center mb-4 group-hover:bg-accent/10 transition-colors">
-                                  <ImagePlus className="w-8 h-8 text-muted-foreground group-hover:text-accent transition-colors" />
-                                </div>
-                                <p className="font-medium text-sm group-hover:text-accent transition-colors">
-                                  Clique para fazer upload
-                                </p>
-                                <p className="text-xs text-muted-foreground mt-1">
-                                  Imagem de capa do conteúdo
-                                </p>
-                                <Badge variant="secondary" className="mt-3">16:9 recomendado</Badge>
-                              </div>
-                              <input
-                                type="file"
-                                className="hidden"
-                                accept="image/*"
-                                onChange={handleThumbnailUpload}
-                                disabled={thumbnailUploading}
-                              />
-                            </motion.label>
-                          ) : (
-                            <motion.div
-                              key="preview"
-                              initial={{ opacity: 0, scale: 0.95 }}
-                              animate={{ opacity: 1, scale: 1 }}
-                              exit={{ opacity: 0, scale: 0.95 }}
-                              className="relative w-full aspect-video rounded-xl overflow-hidden"
-                            >
-                              {thumbnailUploading && (
-                                <Progress 
-                                  variant="gradient" 
-                                  indeterminate 
-                                  className="absolute top-0 left-0 right-0 z-10"
-                                />
-                              )}
-                              
-                              <img
-                                src={thumbnailPreview}
-                                alt="Thumbnail preview"
-                                className={cn(
-                                  "w-full h-full object-cover transition-opacity",
-                                  thumbnailUploading && "opacity-70"
-                                )}
-                              />
-                              
-                              {!thumbnailUploading && (
-                                <button
-                                  type="button"
-                                  onClick={handleRemoveThumbnail}
-                                  className="absolute top-3 right-3 p-2.5 bg-black/60 backdrop-blur-sm text-white rounded-xl hover:bg-black/80 transition-colors"
-                                >
-                                  <Trash2 className="w-4 h-4" />
-                                </button>
-                              )}
-                            </motion.div>
+                        <MediaIcon />
+                      )}
+                    </div>
+                    <div className="studio-media-progress__copy">
+                      <div>
+                        <strong>
+                          {fileName || `${rules.label} vinculada`}
+                        </strong>
+                        <span>
+                          {duration > 0
+                            ? `${Math.floor(duration / 60)}:${String(duration % 60).padStart(2, "0")} · `
+                            : ""}
+                          {mediaStatusCopy(
+                            mediaUpload.state,
+                            mediaUpload.progress,
                           )}
-                        </AnimatePresence>
+                        </span>
                       </div>
-                    </div>
-                  </div>
-                </motion.div>
-
-                {/* Details Section */}
-                <motion.div
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: 0.3 }}
-                  className="space-y-6"
-                >
-                  <div>
-                    <h2 className="text-lg font-semibold">Detalhes</h2>
-                    <p className="text-sm text-muted-foreground">Informações sobre o conteúdo</p>
-                  </div>
-                  
-                  <Card className="p-6 space-y-5 border-0 bg-gradient-to-b from-card to-card/50">
-                    <div className="space-y-2">
-                      <Label>Título <span className="text-accent">*</span></Label>
-                      <Input
-                        value={title}
-                        onChange={(e) => setTitle(e.target.value)}
-                        placeholder="Digite um título atrativo"
-                        className="h-12 text-base"
-                      />
-                    </div>
-
-                    {(contentType === "aula" || contentType === "podcast" || contentType === "curso") && (
-                      <div className="space-y-2">
-                        <Label>Descrição</Label>
-                        <Textarea
-                          value={description}
-                          onChange={(e) => setDescription(e.target.value)}
-                          placeholder="Descreva o conteúdo para engajar seu público..."
-                          rows={4}
-                          className="resize-none"
-                        />
-                      </div>
-                    )}
-
-                    <div className="space-y-2">
-                      <Label>Tags</Label>
-                      <TagsInput
-                        tags={tags}
-                        onChange={setTags}
-                        onGenerateTags={handleGenerateTags}
-                        isGenerating={isGeneratingTags}
-                        placeholder="Adicione tags para melhorar a descoberta..."
-                      />
-                    </div>
-                  </Card>
-                </motion.div>
-
-                {/* Visibility Section */}
-                <motion.div
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: 0.4 }}
-                  className="space-y-6"
-                >
-                  <div>
-                    <h2 className="text-lg font-semibold">Acesso</h2>
-                    <p className="text-sm text-muted-foreground">Defina quem pode visualizar</p>
-                  </div>
-                  
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                    {visibilityOptions.map((option) => {
-                      const isActive = visibility === option.id;
-                      return (
-                        <motion.button
-                          key={option.id}
-                          type="button"
-                          whileHover={{ scale: 1.02 }}
-                          whileTap={{ scale: 0.98 }}
-                          onClick={() => setVisibility(option.id)}
-                          className={cn(
-                            "relative flex flex-col items-center gap-2 p-4 rounded-xl border-2 transition-all duration-200",
-                            isActive
-                              ? "border-accent bg-accent/5 shadow-lg shadow-accent/10"
-                              : "border-border hover:border-accent/50 hover:bg-accent/5"
-                          )}
-                        >
-                          <option.icon className={cn("w-5 h-5", isActive ? "text-accent" : option.color)} />
-                          <span className="font-medium text-sm">{option.label}</span>
-                          <p className="text-xs text-muted-foreground text-center line-clamp-1">
-                            {option.description}
-                          </p>
-                          {isActive && (
-                            <motion.div
-                              initial={{ scale: 0 }}
-                              animate={{ scale: 1 }}
-                              className="absolute -top-1.5 -right-1.5 w-5 h-5 bg-accent rounded-full flex items-center justify-center"
-                            >
-                              <CheckCircle2 className="w-3.5 h-3.5 text-accent-foreground" />
-                            </motion.div>
-                          )}
-                        </motion.button>
-                      );
-                    })}
-                  </div>
-
-                  <AnimatePresence>
-                    {visibility === "paid" && (
-                      <motion.div
-                        initial={{ opacity: 0, height: 0 }}
-                        animate={{ opacity: 1, height: "auto" }}
-                        exit={{ opacity: 0, height: 0 }}
-                        className="overflow-hidden"
+                      <V2Button
+                        variant="quiet"
+                        size="sm"
+                        leadingIcon={<Trash2 />}
+                        onClick={removeMedia}
                       >
-                        <Card className="p-6 space-y-4 border-0 bg-gradient-to-b from-card to-card/50">
-                          <div className="grid grid-cols-2 gap-4">
-                            <div className="space-y-2">
-                              <Label>Preço (R$)</Label>
-                              <Input
-                                type="number"
-                                step="0.01"
-                                value={price}
-                                onChange={(e) => setPrice(e.target.value)}
-                                className="h-12"
-                              />
-                            </div>
-                            <div className="space-y-2">
-                              <Label>Desconto (%)</Label>
-                              <Input
-                                type="number"
-                                step="1"
-                                value={discount}
-                                onChange={(e) => setDiscount(e.target.value)}
-                                className="h-12"
-                              />
-                            </div>
-                          </div>
-                        </Card>
-                      </motion.div>
+                        Remover
+                      </V2Button>
+                    </div>
+                    {mediaUpload.state === "uploading" && (
+                      <div
+                        className="studio-upload-progress"
+                        aria-label={`Upload ${mediaUpload.progress}%`}
+                      >
+                        <span style={{ width: `${mediaUpload.progress}%` }} />
+                      </div>
                     )}
-                  </AnimatePresence>
-                </motion.div>
+                    {mediaUpload.error && (
+                      <p className="studio-inline-error">
+                        <CircleAlert />
+                        {mediaUpload.error}
+                        <V2Button
+                          variant="quiet"
+                          size="sm"
+                          leadingIcon={<RotateCcw />}
+                          onClick={removeMedia}
+                        >
+                          Tentar novamente
+                        </V2Button>
+                      </p>
+                    )}
+                  </div>
+                )}
+                {filePreview &&
+                  mediaUpload.state === "ready" &&
+                  contentType !== "podcast" &&
+                  !manualThumbnail && (
+                    <StandaloneCoverSelector
+                      videoSrc={filePreview}
+                      onFrameSelect={(file) => void uploadCover(file)}
+                      className="studio-cover-selector"
+                    />
+                  )}
+              </V2CardContent>
+            </V2Card>
 
-                {/* Submit Button */}
-                <motion.div
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: 0.5 }}
-                  className="pt-4"
+            <V2Card className="studio-publish-card" elevation="panel">
+              <V2CardHeader>
+                <div className="studio-publish-heading">
+                  <span className="studio-icon">
+                    <Save />
+                  </span>
+                  <div>
+                    <h2>Informações</h2>
+                    <p>Explique com clareza o que a pessoa encontrará.</p>
+                  </div>
+                </div>
+              </V2CardHeader>
+              <V2CardContent className="studio-publish-fields">
+                <V2Input
+                  label="Título"
+                  value={title}
+                  onChange={(event) => setTitle(event.target.value)}
+                  maxLength={120}
+                  placeholder="Um título direto e fácil de entender"
+                />
+                {contentType !== "short" && (
+                  <V2Textarea
+                    label="Descrição"
+                    value={description}
+                    onChange={(event) => setDescription(event.target.value)}
+                    rows={5}
+                    placeholder="Conte o que será aprendido e para quem este material é indicado"
+                  />
+                )}
+                <div className="cf2-field">
+                  <span className="cf2-field__label">Tags</span>
+                  <TagsInput
+                    tags={tags}
+                    onChange={setTags}
+                    onGenerateTags={generateTags}
+                    isGenerating={isGeneratingTags}
+                    placeholder="Ex.: produtividade, carreira, design"
+                  />
+                </div>
+              </V2CardContent>
+            </V2Card>
+
+            <V2Card className="studio-publish-card" elevation="panel">
+              <V2CardHeader>
+                <div className="studio-publish-heading">
+                  <span className="studio-icon">
+                    <ImagePlus />
+                  </span>
+                  <div>
+                    <h2>Capa</h2>
+                    <p>Use uma imagem nítida no formato {rules.coverRatio}.</p>
+                  </div>
+                </div>
+              </V2CardHeader>
+              <V2CardContent>
+                <label
+                  className={`studio-cover-upload ${thumbnailPreview ? "has-image" : ""}`}
                 >
-                  <Button 
-                    type="submit" 
-                    disabled={submitting || !title || !fileUrl} 
-                    size="lg"
-                    className="w-full h-14 text-base font-semibold"
+                  {thumbnailPreview ? (
+                    <img src={thumbnailPreview} alt="Prévia da capa" />
+                  ) : (
+                    <>
+                      <ImagePlus />
+                      <strong>Adicionar capa</strong>
+                      <span>Imagem JPG, PNG ou WebP.</span>
+                    </>
+                  )}
+                  {thumbnailUploading && (
+                    <span className="studio-cover-upload__loading">
+                      <LoaderCircle className="animate-spin" />
+                      Enviando...
+                    </span>
+                  )}
+                  <input
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp"
+                    onChange={(event) =>
+                      event.target.files?.[0] &&
+                      void uploadCover(event.target.files[0])
+                    }
+                  />
+                </label>
+              </V2CardContent>
+            </V2Card>
+
+            <V2Card className="studio-publish-card" elevation="panel">
+              <V2CardHeader>
+                <div className="studio-publish-heading">
+                  <span className="studio-icon">
+                    <Eye />
+                  </span>
+                  <div>
+                    <h2>Acesso</h2>
+                    <p>Defina quem poderá consumir este material.</p>
+                  </div>
+                </div>
+              </V2CardHeader>
+              <V2CardContent className="studio-access-options">
+                {visibilityOptions.map((option) => (
+                  <button
+                    key={option.id}
+                    type="button"
+                    data-selected={visibility === option.id || undefined}
+                    onClick={() => setVisibility(option.id)}
                   >
-                    {submitting ? (
-                      <>
-                        <Loader2 className="w-5 h-5 mr-2 animate-spin" />
-                        {isEditMode ? "Salvando..." : "Publicando..."}
-                      </>
+                    <span>{visibility === option.id && <Check />}</span>
+                    <div>
+                      <strong>{option.label}</strong>
+                      <small>{option.description}</small>
+                    </div>
+                  </button>
+                ))}
+                {visibility === "paid" && (
+                  <div className="studio-price-fields">
+                    <V2Input
+                      label="Preço em reais"
+                      type="number"
+                      min="0.01"
+                      step="0.01"
+                      value={price}
+                      onChange={(event) => setPrice(event.target.value)}
+                    />
+                    <V2Input
+                      label="Desconto (%)"
+                      type="number"
+                      min="0"
+                      max="100"
+                      step="1"
+                      value={discount}
+                      onChange={(event) => setDiscount(event.target.value)}
+                    />
+                  </div>
+                )}
+              </V2CardContent>
+            </V2Card>
+          </div>
+
+          <aside className="studio-publish-review">
+            <V2Card elevation="raised">
+              <V2CardHeader>
+                <div>
+                  <h2>Antes de enviar</h2>
+                  <p>Confira o que ainda precisa de atenção.</p>
+                </div>
+              </V2CardHeader>
+              <V2CardContent>
+                <div
+                  className="studio-review-status"
+                  data-complete={!issues.length || undefined}
+                >
+                  {issues.length ? <CircleAlert /> : <Check />}
+                  <strong>
+                    {issues.length
+                      ? `${issues.length} ${issues.length === 1 ? "pendência" : "pendências"}`
+                      : "Tudo pronto"}
+                  </strong>
+                </div>
+                <ul className="studio-review-list">
+                  {issues.length ? (
+                    issues.map((issue) => (
+                      <li key={issue}>
+                        <span />
+                        {issue}
+                      </li>
+                    ))
+                  ) : (
+                    <li>
+                      <Check />
+                      Seu material pode ser enviado para análise.
+                    </li>
+                  )}
+                </ul>
+                <dl className="studio-review-summary">
+                  <div>
+                    <dt>Formato</dt>
+                    <dd>{rules.label}</dd>
+                  </div>
+                  <div>
+                    <dt>Acesso</dt>
+                    <dd>
+                      {
+                        visibilityOptions.find((item) => item.id === visibility)
+                          ?.label
+                      }
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>Revisão</dt>
+                    <dd>
+                      {originalStatus === "approved"
+                        ? "Nova versão"
+                        : "Primeiro envio"}
+                    </dd>
+                  </div>
+                </dl>
+              </V2CardContent>
+              <div className="studio-review-actions">
+                <V2Button
+                  variant="secondary"
+                  leadingIcon={<Eye />}
+                  onClick={() => setPreviewOpen(true)}
+                  disabled={!title && !thumbnailPreview}
+                >
+                  Pré-visualizar
+                </V2Button>
+                <V2Button
+                  type="submit"
+                  leadingIcon={
+                    submitting ? (
+                      <LoaderCircle className="animate-spin" />
                     ) : (
-                      <>
-                        <Upload className="w-5 h-5 mr-2" />
-                        {isEditMode ? "Salvar Alterações" : "Publicar Conteúdo"}
-                      </>
-                    )}
-                  </Button>
-                  <p className="text-xs text-center text-muted-foreground mt-3">
-                    Seu conteúdo será revisado antes de ser publicado
-                  </p>
-                </motion.div>
-              </form>
-            </div>
-      {/* Video Preparation Lobby */}
+                      <Send />
+                    )
+                  }
+                  disabled={submitting || issues.length > 0}
+                >
+                  {submitting ? "Enviando..." : "Enviar para análise"}
+                </V2Button>
+                <V2Button
+                  variant="quiet"
+                  leadingIcon={<Save />}
+                  onClick={() => void draft.saveNow()}
+                >
+                  Salvar rascunho
+                </V2Button>
+                <V2Button
+                  variant="quiet"
+                  leadingIcon={<Trash2 />}
+                  onClick={() => setDiscardOpen(true)}
+                >
+                  Descartar rascunho
+                </V2Button>
+              </div>
+            </V2Card>
+          </aside>
+        </form>
+      </CreatorTemplate>
+
       <VideoPreparationLobby
         videoSrc={lobbyVideoSrc}
         contentType={contentType}
-        onConfirm={handleLobbyConfirm}
-        onClose={handleLobbyClose}
         open={lobbyOpen}
+        onClose={() => {
+          setLobbyOpen(false);
+          pendingFileRef.current = null;
+          setFilePreview("");
+        }}
+        onConfirm={(data) => {
+          setLobbyOpen(false);
+          setDuration(Math.floor(data.duration));
+          if (data.thumbnailFile) void uploadCover(data.thumbnailFile);
+          const file = pendingFileRef.current;
+          pendingFileRef.current = null;
+          if (file) void startUpload(file, data.trimStart, data.trimEnd);
+        }}
       />
+      <Dialog open={previewOpen} onOpenChange={setPreviewOpen}>
+        <DialogContent className="studio-preview-dialog">
+          <DialogHeader>
+            <DialogTitle>Prévia da publicação</DialogTitle>
+            <DialogDescription>
+              Esta é a apresentação básica que sua audiência verá.
+            </DialogDescription>
+          </DialogHeader>
+          <div
+            className={`studio-preview-card studio-preview-card--${contentType}`}
+          >
+            {thumbnailPreview ? (
+              <img src={thumbnailPreview} alt="" />
+            ) : (
+              <div className="studio-preview-placeholder">
+                <ImagePlus />
+              </div>
+            )}
+            <div>
+              <V2Badge>{rules.label}</V2Badge>
+              <h2>{title || "Título do conteúdo"}</h2>
+              <p>{description || "Sua descrição aparecerá aqui."}</p>
+              <span>
+                {
+                  visibilityOptions.find((item) => item.id === visibility)
+                    ?.label
+                }
+              </span>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+      <Dialog open={discardOpen} onOpenChange={setDiscardOpen}>
+        <DialogContent className="studio-preview-dialog studio-discard-dialog">
+          <DialogHeader>
+            <DialogTitle>Descartar este rascunho?</DialogTitle>
+            <DialogDescription>
+              Os dados que ainda não foram enviados para análise e a mídia vinculada serão removidos.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="studio-dialog-actions">
+            <V2Button variant="secondary" onClick={() => setDiscardOpen(false)}>
+              Continuar editando
+            </V2Button>
+            <V2Button leadingIcon={<Trash2 />} onClick={() => void discardDraft()}>
+              Descartar rascunho
+            </V2Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </AppShell>
   );
 }

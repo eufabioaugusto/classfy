@@ -42,6 +42,9 @@ verify_jwt = false
 [functions.video-create-upload]
 verify_jwt = true
 
+[functions.cleanup-abandoned-media]
+verify_jwt = true
+
 [functions.video-playback]
 verify_jwt = true
 

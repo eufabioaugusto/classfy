@@ -168,7 +168,7 @@ export default function StudioContents() {
       <DropdownMenuContent align="end">
         <DropdownMenuItem onClick={() => navigate(contentRoute(content))}><Eye className="mr-2 h-4 w-4" />Abrir</DropdownMenuItem>
         {content.status === "approved" && <DropdownMenuItem onClick={() => openBoostModal(content.id, content.title, boostItemType(content))}><Zap className="mr-2 h-4 w-4" />Impulsionar</DropdownMenuItem>}
-        <DropdownMenuItem onClick={() => navigate(`/studio/upload?edit=${content.id}`)}><Edit className="mr-2 h-4 w-4" />Editar</DropdownMenuItem>
+        <DropdownMenuItem onClick={() => navigate(content.content_type === "curso" ? `/studio/upload/curso?edit=${content.id}` : `/studio/upload?type=${content.content_type}&edit=${content.id}`)}><Edit className="mr-2 h-4 w-4" />Editar</DropdownMenuItem>
         <DropdownMenuSeparator />
         <DropdownMenuItem className="text-destructive focus:text-destructive" onClick={() => void handleDelete(content.id, content.content_type)}><Trash2 className="mr-2 h-4 w-4" />Excluir</DropdownMenuItem>
       </DropdownMenuContent>

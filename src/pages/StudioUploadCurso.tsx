@@ -1,1504 +1,1946 @@
-import { useState } from "react";
-import { useAuth } from "@/contexts/AuthContext";
-import { Navigate, useNavigate } from "react-router-dom";
-import { AppShell } from "@/components/layout";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
-import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Card } from "@/components/ui/card";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { supabase } from "@/integrations/supabase/client";
-import { toast } from "sonner";
-import { 
-  GraduationCap, Plus, Trash2, Video, FileText, 
-  HelpCircle, ImagePlus, X, GripVertical
-} from "lucide-react";
-import { Progress } from "@/components/ui/progress";
-import { TagsInput } from "@/components/TagsInput";
-import {
-  Accordion,
-  AccordionContent,
-  AccordionItem,
-  AccordionTrigger,
-} from "@/components/ui/accordion";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Navigate, useNavigate, useSearchParams } from "react-router-dom";
 import {
   DndContext,
-  closestCenter,
   KeyboardSensor,
   PointerSensor,
+  closestCenter,
+  type DragEndEvent,
   useSensor,
   useSensors,
-  DragEndEvent,
 } from "@dnd-kit/core";
 import {
-  arrayMove,
   SortableContext,
+  arrayMove,
   sortableKeyboardCoordinates,
+  useSortable,
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
-import { DraggableModuleWrapper } from "@/components/course-builder/DraggableModule";
-import { DraggableLesson } from "@/components/course-builder/DraggableLesson";
-import { CourseStructurePreview } from "@/components/course-builder/CourseStructurePreview";
+import { CSS } from "@dnd-kit/utilities";
+import {
+  Archive,
+  BookOpen,
+  Check,
+  CircleAlert,
+  Cloud,
+  CloudOff,
+  Eye,
+  File,
+  FileAudio,
+  FileText,
+  FileVideo,
+  GripVertical,
+  ImagePlus,
+  Layers3,
+  LoaderCircle,
+  Plus,
+  Save,
+  Send,
+  Settings2,
+  Trash2,
+  UploadCloud,
+} from "lucide-react";
+import { useAuth } from "@/contexts/AuthContext";
+import { supabase } from "@/integrations/supabase/client";
+import { AppShell, PageHeader } from "@/components/layout";
+import { CreatorTemplate } from "@/components/templates";
+import { StudioNavigation } from "@/components/studio/StudioNavigation";
+import {
+  V2Badge,
+  V2Button,
+  V2Card,
+  V2CardContent,
+  V2CardHeader,
+  V2Input,
+  V2Textarea,
+} from "@/components/v2";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Checkbox } from "@/components/ui/checkbox";
 import { QuizEditor } from "@/components/course-builder/QuizEditor";
-import * as tus from "tus-js-client";
-import { videoService } from "@/lib/video/service";
+import { TagsInput } from "@/components/TagsInput";
+import { useMediaUpload } from "@/hooks/useMediaUpload";
+import { usePublicationDraft } from "@/hooks/usePublicationDraft";
+import { useVideoCompression } from "@/hooks/useVideoCompression";
+import { compressImage } from "@/utils/imageCompression";
+import {
+  isPersistedPublicationDraft,
+  visibilityOptions,
+  type PublicationVisibility,
+} from "@/lib/studio/publication";
+import {
+  emptyCourseLesson,
+  emptyCourseMaterial,
+  emptyCourseModule,
+  emptyCourseQuiz,
+  getCourseDraftIssues,
+  type CourseLessonDraft,
+  type CourseModuleDraft,
+  type CoursePublicationDraft,
+  type CourseQuizDraft,
+} from "@/lib/studio/course";
+import { toast } from "sonner";
+import "@/styles/studio-v2.css";
+import "@/styles/studio-publish-v2.css";
 
-type Visibility = "free" | "pro" | "premium" | "paid";
-type CourseLevel = "beginner" | "intermediate" | "advanced";
-type QuestionType = "multiple" | "true-false" | "essay" | "fill-blank";
+type Selection =
+  | { type: "course" }
+  | { type: "module"; moduleId: string }
+  | { type: "lesson" | "quiz" | "material"; moduleId: string; itemId: string };
 
-interface Module {
+function SortableItem({
+  id,
+  active,
+  children,
+  onClick,
+}: {
   id: string;
-  title: string;
-  description: string;
-  lessons: Lesson[];
-  quizzes: Quiz[];
-  materials: Material[];
+  active?: boolean;
+  children: React.ReactNode;
+  onClick: () => void;
+}) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id });
+  return (
+    <button
+      ref={setNodeRef}
+      style={{ transform: CSS.Transform.toString(transform), transition }}
+      type="button"
+      className="course-outline-item"
+      data-active={active || undefined}
+      data-dragging={isDragging || undefined}
+      onClick={onClick}
+    >
+      <span className="course-outline-grip" {...attributes} {...listeners}>
+        <GripVertical />
+      </span>
+      {children}
+    </button>
+  );
 }
 
-interface Lesson {
-  id: string;
-  title: string;
-  description: string;
-  videoFile: File | null;
-  videoUrl: string;
-  videoPreviewUrl: string;
-  mediaAssetId: string | null;
-  videoProvider: string | null;
-  duration: number;
-  isPreview: boolean;
-  uploading: boolean;
-  progress: number;
-}
-
-interface Quiz {
-  id: string;
-  title: string;
-  description: string;
-  questions: QuizQuestion[];
-  passingScore: number;
-  maxAttempts: number;
-}
-
-interface QuizQuestion {
-  id: string;
-  question: string;
-  type: QuestionType;
-  options: string[];
-  correctAnswer: number | string;
-  explanation: string;
-  points: number;
-}
-
-interface Material {
-  id: string;
-  title: string;
-  description: string;
-  file: File | null;
-  fileUrl: string;
-  fileType: string;
-  uploading: boolean;
-  progress: number;
-}
+const formatDuration = (seconds: number) =>
+  seconds
+    ? `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`
+    : "Sem duração";
 
 export default function StudioUploadCurso() {
   const { user, role, profile, loading } = useAuth();
   const navigate = useNavigate();
-
-  // Course Info
+  const [searchParams] = useSearchParams();
+  const editId = searchParams.get("edit");
+  const [sourceLoaded, setSourceLoaded] = useState(!editId);
+  const [originalStatus, setOriginalStatus] = useState<string | null>(null);
+  const [selection, setSelection] = useState<Selection>({ type: "course" });
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const [discardOpen, setDiscardOpen] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [thumbnailUploading, setThumbnailUploading] = useState(false);
+  const [materialUploading, setMaterialUploading] = useState<string | null>(
+    null,
+  );
+  const [isGeneratingTags, setIsGeneratingTags] = useState(false);
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [thumbnailUrl, setThumbnailUrl] = useState("");
   const [thumbnailPreview, setThumbnailPreview] = useState("");
-  const [thumbnailUploading, setThumbnailUploading] = useState(false);
-  const [thumbnailProgress, setThumbnailProgress] = useState(0);
-  const [visibility, setVisibility] = useState<Visibility>("free");
+  const [visibility, setVisibility] = useState<PublicationVisibility>("free");
   const [price, setPrice] = useState("0");
   const [discount, setDiscount] = useState("0");
-  const [level, setLevel] = useState<CourseLevel>("beginner");
+  const [level, setLevel] =
+    useState<CoursePublicationDraft["level"]>("beginner");
   const [requirements, setRequirements] = useState("");
   const [whatYouLearn, setWhatYouLearn] = useState("");
   const [tags, setTags] = useState<string[]>([]);
-  const [isGeneratingTags, setIsGeneratingTags] = useState(false);
-
-  // Course Settings
   const [issueCertificate, setIssueCertificate] = useState(true);
-  const [accessType, setAccessType] = useState<"lifetime" | "limited">("lifetime");
+  const [accessType, setAccessType] =
+    useState<CoursePublicationDraft["accessType"]>("lifetime");
   const [accessDays, setAccessDays] = useState("365");
-  const [lessonOrder, setLessonOrder] = useState<"sequential" | "free">("free");
+  const [lessonOrder, setLessonOrder] =
+    useState<CoursePublicationDraft["lessonOrder"]>("free");
   const [allowComments, setAllowComments] = useState(true);
   const [allowReviews, setAllowReviews] = useState(true);
   const [allowDownloads, setAllowDownloads] = useState(true);
-
-  // Modules
-  const [modules, setModules] = useState<Module[]>([
-    {
-      id: crypto.randomUUID(),
-      title: "",
-      description: "",
-      lessons: [],
-      quizzes: [],
-      materials: []
-    }
+  const [modules, setModules] = useState<CourseModuleDraft[]>([
+    emptyCourseModule(),
   ]);
-
-  const [submitting, setSubmitting] = useState(false);
-  const [activeModule, setActiveModule] = useState<string | null>(null);
-  const [editingQuiz, setEditingQuiz] = useState<{ moduleId: string; quizIndex: number } | null>(null);
-
-  // Drag and Drop Sensors
+  const activeLessonUploadRef = useRef<{
+    moduleId: string;
+    lessonId: string;
+  } | null>(null);
+  const temporaryFileUrlsRef = useRef(new Set<string>());
+  const mediaUpload = useMediaUpload();
+  const compression = useVideoCompression();
   const sensors = useSensors(
-    useSensor(PointerSensor),
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
     useSensor(KeyboardSensor, {
       coordinateGetter: sortableKeyboardCoordinates,
-    })
+    }),
   );
 
-  const handleDragEndModules = (event: DragEndEvent) => {
-    const { active, over } = event;
+  const payload = useMemo<CoursePublicationDraft>(
+    () => ({
+      title,
+      description,
+      thumbnailUrl,
+      visibility,
+      price,
+      discount,
+      level,
+      requirements,
+      whatYouLearn,
+      tags,
+      issueCertificate,
+      accessType,
+      accessDays,
+      lessonOrder,
+      allowComments,
+      allowReviews,
+      allowDownloads,
+      modules,
+    }),
+    [
+      accessDays,
+      accessType,
+      allowComments,
+      allowDownloads,
+      allowReviews,
+      description,
+      discount,
+      issueCertificate,
+      lessonOrder,
+      level,
+      modules,
+      price,
+      requirements,
+      tags,
+      thumbnailUrl,
+      title,
+      visibility,
+      whatYouLearn,
+    ],
+  );
 
-    if (over && active.id !== over.id) {
-      setModules((items) => {
-        const oldIndex = items.findIndex((item) => item.id === active.id);
-        const newIndex = items.findIndex((item) => item.id === over.id);
-        return arrayMove(items, oldIndex, newIndex);
-      });
-      toast.success("Módulo reordenado!");
-    }
-  };
+  const restoreDraft = useCallback((saved: CoursePublicationDraft) => {
+    setTitle(saved.title ?? "");
+    setDescription(saved.description ?? "");
+    setThumbnailUrl(saved.thumbnailUrl ?? "");
+    setThumbnailPreview(saved.thumbnailUrl ?? "");
+    setVisibility(saved.visibility ?? "free");
+    setPrice(saved.price ?? "0");
+    setDiscount(saved.discount ?? "0");
+    setLevel(saved.level ?? "beginner");
+    setRequirements(saved.requirements ?? "");
+    setWhatYouLearn(saved.whatYouLearn ?? "");
+    setTags(saved.tags ?? []);
+    setIssueCertificate(saved.issueCertificate ?? true);
+    setAccessType(saved.accessType ?? "lifetime");
+    setAccessDays(saved.accessDays ?? "365");
+    setLessonOrder(saved.lessonOrder ?? "free");
+    setAllowComments(saved.allowComments ?? true);
+    setAllowReviews(saved.allowReviews ?? true);
+    setAllowDownloads(saved.allowDownloads ?? true);
+    setModules(saved.modules?.length ? saved.modules : [emptyCourseModule()]);
+  }, []);
 
-  const handleDragEndLessons = (moduleId: string) => (event: DragEndEvent) => {
-    const { active, over } = event;
+  const draftKey = `curso:${editId ? `edit:${editId}` : "new"}`;
+  const draft = usePublicationDraft({
+    userId: user?.id,
+    draftKey,
+    kind: "curso",
+    sourceType: editId ? "course" : null,
+    sourceId: editId,
+    payload,
+    enabled: sourceLoaded,
+    onRestore: restoreDraft,
+  });
 
-    if (over && active.id !== over.id) {
-      setModules((modules) =>
-        modules.map((module) => {
-          if (module.id === moduleId) {
-            const oldIndex = module.lessons.findIndex((l) => l.id === active.id);
-            const newIndex = module.lessons.findIndex((l) => l.id === over.id);
-            return {
-              ...module,
-              lessons: arrayMove(module.lessons, oldIndex, newIndex),
-            };
-          }
-          return module;
-        })
+  useEffect(() => {
+    if (!editId || !user) return;
+    let cancelled = false;
+    (async () => {
+      const client = supabase as any;
+      const { data: course, error } = await client
+        .from("courses")
+        .select("*")
+        .eq("id", editId)
+        .eq("creator_id", user.id)
+        .single();
+      if (cancelled) return;
+      if (error || !course) {
+        toast.error("Não foi possível abrir este curso.");
+        navigate("/studio/contents", { replace: true });
+        return;
+      }
+      const { data: moduleRows } = await client
+        .from("course_modules")
+        .select("*")
+        .eq("course_id", editId)
+        .order("order_index");
+      const moduleIds = (moduleRows ?? []).map((row: any) => row.id);
+      const [lessonsResult, quizzesResult, materialsResult] = moduleIds.length
+        ? await Promise.all([
+            client
+              .from("course_lessons")
+              .select("*")
+              .in("module_id", moduleIds)
+              .order("order_index"),
+            client
+              .from("course_quizzes")
+              .select("*")
+              .in("module_id", moduleIds)
+              .order("order_index"),
+            client
+              .from("course_materials")
+              .select("*")
+              .in("module_id", moduleIds)
+              .order("created_at"),
+          ])
+        : [{ data: [] }, { data: [] }, { data: [] }];
+      const mapped: CourseModuleDraft[] = (moduleRows ?? []).map(
+        (module: any) => ({
+          id: module.id,
+          title: module.title,
+          description: module.description ?? "",
+          lessons: (lessonsResult.data ?? [])
+            .filter((item: any) => item.module_id === module.id)
+            .map((item: any) => ({
+              id: item.id,
+              title: item.title,
+              description: item.description ?? "",
+              lessonType: item.lesson_type ?? "video",
+              body: item.body ?? "",
+              fileUrl: item.video_url ?? "",
+              mediaAssetId: item.media_asset_id ?? null,
+              videoProvider: null,
+              duration: item.duration_seconds ?? 0,
+              isPreview: item.is_preview ?? false,
+              uploadState:
+                item.lesson_type === "text" || item.media_asset_id
+                  ? "ready"
+                  : "idle",
+            })),
+          quizzes: (quizzesResult.data ?? [])
+            .filter((item: any) => item.module_id === module.id)
+            .map((item: any) => ({
+              id: item.id,
+              title: item.title,
+              description: item.description ?? "",
+              questions: item.questions ?? [],
+              passingScore: item.passing_score ?? 70,
+              maxAttempts: item.max_attempts ?? 3,
+            })),
+          materials: (materialsResult.data ?? [])
+            .filter((item: any) => item.module_id === module.id)
+            .map((item: any) => ({
+              id: item.id,
+              title: item.title,
+              description: item.description ?? "",
+              fileUrl: item.file_url,
+              fileType: item.file_type,
+              fileSize: item.file_size ?? 0,
+            })),
+        }),
       );
-      toast.success("Aula reordenada!");
-    }
+      const restored: CoursePublicationDraft = {
+        title: course.title,
+        description: course.description ?? "",
+        thumbnailUrl: course.thumbnail_url ?? "",
+        visibility: course.visibility ?? "free",
+        price: String(course.price ?? 0),
+        discount: String(course.discount ?? 0),
+        level: course.level ?? "beginner",
+        requirements: course.requirements ?? "",
+        whatYouLearn: course.what_you_learn ?? "",
+        tags: course.tags ?? [],
+        issueCertificate: course.issue_certificate ?? true,
+        accessType: course.access_type ?? "lifetime",
+        accessDays: String(course.access_days ?? 365),
+        lessonOrder: course.lesson_order ?? "free",
+        allowComments: course.allow_comments ?? true,
+        allowReviews: course.allow_reviews ?? true,
+        allowDownloads: course.allow_downloads ?? true,
+        modules: mapped.length ? mapped : [emptyCourseModule()],
+      };
+      setOriginalStatus(course.status);
+      restoreDraft(restored);
+      setSourceLoaded(true);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [editId, navigate, restoreDraft, user]);
+
+  useEffect(() => {
+    const target = activeLessonUploadRef.current;
+    if (!target) return;
+    setModules((current) =>
+      current.map((module) =>
+        module.id !== target.moduleId
+          ? module
+          : {
+              ...module,
+              lessons: module.lessons.map((lesson) =>
+                lesson.id === target.lessonId
+                  ? { ...lesson, uploadState: mediaUpload.state }
+                  : lesson,
+              ),
+            },
+      ),
+    );
+    if (["ready", "failed", "cancelled"].includes(mediaUpload.state))
+      activeLessonUploadRef.current = null;
+  }, [mediaUpload.state]);
+
+  const updateModule = (
+    moduleId: string,
+    updater: (module: CourseModuleDraft) => CourseModuleDraft,
+  ) =>
+    setModules((current) =>
+      current.map((module) =>
+        module.id === moduleId ? updater(module) : module,
+      ),
+    );
+  const selectedModule =
+    "moduleId" in selection
+      ? modules.find((module) => module.id === selection.moduleId)
+      : undefined;
+  const selectedLesson =
+    selection.type === "lesson"
+      ? selectedModule?.lessons.find((item) => item.id === selection.itemId)
+      : undefined;
+  const selectedQuiz =
+    selection.type === "quiz"
+      ? selectedModule?.quizzes.find((item) => item.id === selection.itemId)
+      : undefined;
+  const selectedMaterial =
+    selection.type === "material"
+      ? selectedModule?.materials.find((item) => item.id === selection.itemId)
+      : undefined;
+
+  const addModule = () => {
+    const module = emptyCourseModule();
+    setModules((items) => [...items, module]);
+    setSelection({ type: "module", moduleId: module.id });
+  };
+  const addLesson = (moduleId: string) => {
+    const lesson = emptyCourseLesson();
+    updateModule(moduleId, (module) => ({
+      ...module,
+      lessons: [...module.lessons, lesson],
+    }));
+    setSelection({ type: "lesson", moduleId, itemId: lesson.id });
+  };
+  const addQuiz = (moduleId: string) => {
+    const quiz = emptyCourseQuiz();
+    updateModule(moduleId, (module) => ({
+      ...module,
+      quizzes: [...module.quizzes, quiz],
+    }));
+    setSelection({ type: "quiz", moduleId, itemId: quiz.id });
+  };
+  const addMaterial = (moduleId: string) => {
+    const material = emptyCourseMaterial();
+    updateModule(moduleId, (module) => ({
+      ...module,
+      materials: [...module.materials, material],
+    }));
+    setSelection({ type: "material", moduleId, itemId: material.id });
+  };
+  const abandonAsset = (assetId?: string | null) => {
+    if (assetId)
+      void (supabase as any).rpc("abandon_media_asset", {
+        p_media_asset_id: assetId,
+      });
+  };
+  const removeStoredCourseFile = async (url?: string) => {
+    if (!url || !user) return;
+    const marker = "/storage/v1/object/public/courses/";
+    const index = url.indexOf(marker);
+    if (index < 0) return;
+    const objectPath = decodeURIComponent(url.slice(index + marker.length));
+    const { data: fileRecord } = await supabase
+      .from("publication_draft_files")
+      .select("id")
+      .eq("owner_id", user.id)
+      .eq("bucket", "courses")
+      .eq("object_path", objectPath)
+      .eq("state", "draft")
+      .maybeSingle();
+    if (!fileRecord && !temporaryFileUrlsRef.current.has(url)) return;
+    temporaryFileUrlsRef.current.delete(url);
+    await supabase.storage.from("courses").remove([objectPath]);
+    if (fileRecord)
+      await supabase
+        .from("publication_draft_files")
+        .update({ state: "deleted", updated_at: new Date().toISOString() })
+        .eq("id", fileRecord.id);
+  };
+  const removeModule = (moduleId: string) => {
+    const removed = modules.find((item) => item.id === moduleId);
+    removed?.lessons.forEach((lesson) => abandonAsset(lesson.mediaAssetId));
+    removed?.materials.forEach((material) =>
+      void removeStoredCourseFile(material.fileUrl),
+    );
+    setModules((items) => items.filter((item) => item.id !== moduleId));
+    setSelection({ type: "course" });
+  };
+  const removeItem = (
+    moduleId: string,
+    type: "lesson" | "quiz" | "material",
+    itemId: string,
+  ) => {
+    const module = modules.find((item) => item.id === moduleId);
+    if (type === "lesson")
+      abandonAsset(
+        module?.lessons.find((item) => item.id === itemId)?.mediaAssetId,
+      );
+    if (type === "material")
+      void removeStoredCourseFile(
+        module?.materials.find((item) => item.id === itemId)?.fileUrl,
+      );
+    updateModule(moduleId, (current) =>
+      type === "lesson"
+        ? {
+            ...current,
+            lessons: current.lessons.filter((item) => item.id !== itemId),
+          }
+        : type === "quiz"
+          ? {
+              ...current,
+              quizzes: current.quizzes.filter((item) => item.id !== itemId),
+            }
+          : {
+              ...current,
+              materials: current.materials.filter((item) => item.id !== itemId),
+            },
+    );
+    setSelection({ type: "module", moduleId });
   };
 
-  if (loading) {
-    return <div className="min-h-screen flex items-center justify-center">Carregando...</div>;
-  }
-
-  if (!user || (role !== 'creator' && role !== 'admin')) {
-    return <Navigate to="/" replace />;
-  }
-
-  if (profile?.creator_status !== 'approved' && role !== 'admin') {
-    return (
-      <AppShell
-        variant="studio"
-        title="Criar Curso"
-        contentClassName="flex-1 p-6 md:p-12 flex items-center justify-center"
-      >
-              <Card className="p-8 text-center max-w-md">
-                <GraduationCap className="w-12 h-12 mx-auto mb-4 text-muted-foreground" />
-                <h2 className="text-xl font-bold mb-2">Apenas Creators podem criar cursos</h2>
-                <p className="text-muted-foreground">
-                  Você precisa ser um Creator aprovado para criar cursos na Classfy.
-                </p>
-              </Card>
-      </AppShell>
+  const handleModuleDrag = ({ active, over }: DragEndEvent) => {
+    if (!over || active.id === over.id) return;
+    setModules((items) =>
+      arrayMove(
+        items,
+        items.findIndex((item) => item.id === active.id),
+        items.findIndex((item) => item.id === over.id),
+      ),
     );
-  }
+  };
+  const handleLessonDrag =
+    (moduleId: string) =>
+    ({ active, over }: DragEndEvent) => {
+      if (!over || active.id === over.id) return;
+      updateModule(moduleId, (module) => ({
+        ...module,
+        lessons: arrayMove(
+          module.lessons,
+          module.lessons.findIndex((item) => item.id === active.id),
+          module.lessons.findIndex((item) => item.id === over.id),
+        ),
+      }));
+    };
 
-  const handleThumbnailUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    const previewUrl = URL.createObjectURL(file);
-    setThumbnailPreview(previewUrl);
+  const uploadCover = async (file: File) => {
+    if (!user) return;
     setThumbnailUploading(true);
-    setThumbnailProgress(0);
-
+    setThumbnailPreview(URL.createObjectURL(file));
     try {
-      const fileExt = file.name.split('.').pop();
-      const fileName = `thumbnails/${user.id}/${Date.now()}.${fileExt}`;
-      
-      const progressInterval = setInterval(() => {
-        setThumbnailProgress(prev => {
-          if (prev >= 90) {
-            clearInterval(progressInterval);
-            return prev;
-          }
-          return prev + 10;
-        });
-      }, 200);
-
+      const compressed = await compressImage(file, 1600, 900, 0.85);
+      const extension = compressed.name.split(".").pop() || "jpg";
+      const path = `covers/${user.id}/${crypto.randomUUID()}.${extension}`;
       const { error } = await supabase.storage
-        .from('contents')
-        .upload(fileName, file, {
-          cacheControl: "31536000",
-          upsert: false
-        });
-
-      clearInterval(progressInterval);
-      setThumbnailProgress(100);
-
+        .from("courses")
+        .upload(path, compressed, { cacheControl: "31536000" });
       if (error) throw error;
-
-      const { data: { publicUrl } } = supabase.storage
-        .from('contents')
-        .getPublicUrl(fileName);
-
-      setThumbnailUrl(publicUrl);
-      toast.success("Thumbnail enviada com sucesso!");
-    } catch (error: any) {
-      toast.error(error.message || "Erro ao enviar thumbnail");
-      setThumbnailPreview("");
-      setThumbnailProgress(0);
+      const { data } = supabase.storage.from("courses").getPublicUrl(path);
+      setThumbnailUrl(data.publicUrl);
+      toast.success("Capa pronta.");
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Não foi possível enviar a capa.",
+      );
     } finally {
       setThumbnailUploading(false);
     }
   };
 
-  const handleRemoveThumbnail = () => {
-    setThumbnailUrl("");
-    setThumbnailPreview("");
-    setThumbnailProgress(0);
-  };
-
-  const addModule = () => {
-    const newModule: Module = {
-      id: crypto.randomUUID(),
-      title: "",
-      description: "",
-      lessons: [],
-      quizzes: [],
-      materials: []
-    };
-    setModules([...modules, newModule]);
-  };
-
-  const removeModule = (moduleId: string) => {
-    setModules(prevModules => prevModules.filter(m => m.id !== moduleId));
-  };
-
-  const updateModule = (moduleId: string, field: keyof Module, value: any) => {
-    setModules(prevModules => prevModules.map(m => 
-      m.id === moduleId ? { ...m, [field]: value } : m
-    ));
-  };
-
-  const addLesson = (moduleId: string) => {
-    const newLesson: Lesson = {
-      id: crypto.randomUUID(),
-      title: "",
-      description: "",
-      videoFile: null,
-      videoUrl: "",
-      videoPreviewUrl: "",
-      mediaAssetId: null,
-      videoProvider: null,
-      duration: 0,
-      isPreview: false,
-      uploading: false,
-      progress: 0
-    };
-    
-    setModules(prevModules => prevModules.map(m => 
-      m.id === moduleId ? { ...m, lessons: [...m.lessons, newLesson] } : m
-    ));
-  };
-
-  const removeLesson = (moduleId: string, lessonId: string) => {
-    setModules(prevModules => prevModules.map(m => 
-      m.id === moduleId 
-        ? { ...m, lessons: m.lessons.filter(l => l.id !== lessonId) }
-        : m
-    ));
-  };
-
-  const updateLesson = (moduleId: string, lessonId: string, field: keyof Lesson, value: any) => {
-    setModules(prevModules => prevModules.map(m => 
-      m.id === moduleId 
-        ? { 
-            ...m, 
-            lessons: m.lessons.map(l => 
-              l.id === lessonId ? { ...l, [field]: value } : l
-            )
-          }
-        : m
-    ));
-  };
-
-  const handleLessonVideoUpload = async (moduleId: string, lessonId: string, file: File) => {
-    try {
-      // Validate video size (max 500MB)
-      const maxSize = 500 * 1024 * 1024;
-      if (file.size > maxSize) {
-        throw new Error("O vídeo é muito grande. Tamanho máximo: 500MB");
-      }
-
-      // Validate video format
-      const allowedTypes = ['video/mp4', 'video/webm', 'video/quicktime'];
-      if (!allowedTypes.includes(file.type)) {
-        throw new Error("Formato inválido. Use MP4, WebM ou MOV");
-      }
-
-      updateLesson(moduleId, lessonId, 'uploading', true);
-      updateLesson(moduleId, lessonId, 'progress', 0);
-      const localPreviewUrl = URL.createObjectURL(file);
-      updateLesson(moduleId, lessonId, 'videoPreviewUrl', localPreviewUrl);
-
-      // Get video duration
-      const videoDurationPromise = new Promise<number>((resolve) => {
-        const video = document.createElement("video");
-        const videoUrl = URL.createObjectURL(file);
-        video.src = videoUrl;
-        video.onloadedmetadata = () => {
-          resolve(Math.floor(video.duration));
-          URL.revokeObjectURL(videoUrl);
-        };
-        video.onerror = () => {
-          URL.revokeObjectURL(videoUrl);
-          resolve(0);
-        };
-      });
-
-      // Compress video if needed (client-side FFmpeg.wasm)
-      let fileToUpload = file;
-      try {
-        const { shouldCompress: checkCompress } = await import('@/hooks/useVideoCompression').then(() => {
-          // We can't use the hook here directly, so do inline check
-          return { shouldCompress: file.size > 50 * 1024 * 1024 };
-        });
-
-        if (checkCompress) {
-          updateLesson(moduleId, lessonId, 'progress', 5);
-          // Use FFmpeg for large files - import dynamically
-          const { FFmpeg } = await import('@ffmpeg/ffmpeg');
-          const { fetchFile, toBlobURL } = await import('@ffmpeg/util');
-
-          const ffmpeg = new FFmpeg();
-          ffmpeg.on('progress', ({ progress }) => {
-            const percent = Math.min(Math.round(progress * 60), 60); // 0-60% for compression
-            updateLesson(moduleId, lessonId, 'progress', percent);
-          });
-
-          const baseURL = 'https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd';
-          await ffmpeg.load({
-            coreURL: await toBlobURL(`${baseURL}/ffmpeg-core.js`, 'text/javascript'),
-            wasmURL: await toBlobURL(`${baseURL}/ffmpeg-core.wasm`, 'application/wasm'),
-          });
-
-          const inputName = 'input' + file.name.substring(file.name.lastIndexOf('.'));
-          await ffmpeg.writeFile(inputName, await fetchFile(file));
-
-          await ffmpeg.exec([
-            '-i', inputName,
-            '-c:v', 'libx264', '-preset', 'medium', '-crf', '28',
-            '-vf', 'scale=min(1920\\,iw):min(1080\\,ih):force_original_aspect_ratio=decrease',
-            '-c:a', 'aac', '-b:a', '128k',
-            '-movflags', '+faststart', '-y', 'output.mp4'
-          ]);
-
-          const rawData = await ffmpeg.readFile('output.mp4');
-          const uint8 = rawData instanceof Uint8Array ? rawData : new TextEncoder().encode(rawData as string);
-          const copy = new Uint8Array(uint8.length);
-          copy.set(uint8);
-          const blob = new Blob([copy], { type: 'video/mp4' });
-          fileToUpload = new File([blob], file.name.replace(/\.[^/.]+$/, '.mp4'), { type: 'video/mp4' });
-
-          await ffmpeg.deleteFile(inputName);
-          await ffmpeg.deleteFile('output.mp4');
-
-          const ratio = ((file.size - fileToUpload.size) / file.size) * 100;
-          if (ratio > 5) {
-            toast.success(`Vídeo comprimido ${ratio.toFixed(0)}%`);
-          }
-        }
-      } catch (compressionError) {
-        console.warn('Compression failed, using original file:', compressionError);
-        fileToUpload = file;
-      }
-
-      // Aulas usam o mesmo pipeline privado e adaptativo dos conteúdos avulsos.
-      // O browser nunca recebe uma URL publica permanente do arquivo original.
-      const target = await videoService.createUpload(fileToUpload.name);
-      const reportUploadProgress = (sent: number, total: number) => {
-        const uploadPercent = total > 0 ? Math.round((sent / total) * 35) + 60 : 60;
-        updateLesson(moduleId, lessonId, 'progress', Math.min(uploadPercent, 95));
-      };
-
-      if (target.method === "TUS") {
-        await new Promise<void>((resolve, reject) => {
-          const upload = new tus.Upload(fileToUpload, {
-            endpoint: target.uploadUrl,
-            retryDelays: [0, 3000, 5000, 10000],
-            headers: target.headers,
-            metadata: {
-              filename: fileToUpload.name,
-              filetype: fileToUpload.type,
-              title: fileToUpload.name,
-            },
-            onProgress: reportUploadProgress,
-            onSuccess: resolve,
-            onError: reject,
-          });
-          upload.start();
-        });
-      } else if (target.method === "PUT") {
-        await new Promise<void>((resolve, reject) => {
-          const xhr = new XMLHttpRequest();
-          xhr.upload.onprogress = (event) => event.lengthComputable && reportUploadProgress(event.loaded, event.total);
-          xhr.onload = () => xhr.status >= 200 && xhr.status < 300
-            ? resolve()
-            : reject(new Error(`Upload failed with status ${xhr.status}`));
-          xhr.onerror = () => reject(new Error("Upload failed"));
-          xhr.onabort = () => reject(new Error("Upload aborted"));
-          xhr.open("PUT", target.uploadUrl);
-          Object.entries(target.headers ?? {}).forEach(([name, value]) => xhr.setRequestHeader(name, value));
-          xhr.setRequestHeader("Content-Type", fileToUpload.type || "application/octet-stream");
-          xhr.send(fileToUpload);
-        });
-      } else {
-        throw new Error("Método de upload de vídeo não suportado");
-      }
-
-      const videoDuration = await videoDurationPromise;
-      updateLesson(moduleId, lessonId, 'duration', videoDuration);
-      updateLesson(moduleId, lessonId, 'progress', 100);
-      updateLesson(moduleId, lessonId, 'videoUrl', `media:${target.mediaAssetId}`);
-      updateLesson(moduleId, lessonId, 'mediaAssetId', target.mediaAssetId);
-      updateLesson(moduleId, lessonId, 'videoProvider', target.provider);
-      updateLesson(moduleId, lessonId, 'videoFile', fileToUpload);
-      
-      toast.success("Vídeo da aula enviado com sucesso!");
-    } catch (error: any) {
-      console.error("Erro ao enviar vídeo:", error);
-      toast.error(error.message || "Erro ao enviar vídeo");
-      updateLesson(moduleId, lessonId, 'progress', 0);
-    } finally {
-      updateLesson(moduleId, lessonId, 'uploading', false);
-    }
-  };
-
-  const addQuiz = (moduleId: string) => {
-    const newQuiz: Quiz = {
-      id: crypto.randomUUID(),
-      title: "",
-      description: "",
-      questions: [],
-      passingScore: 70,
-      maxAttempts: 3
-    };
-    
-    setModules(prevModules => {
-      const updatedModules = prevModules.map(m => 
-        m.id === moduleId ? { ...m, quizzes: [...m.quizzes, newQuiz] } : m
+  const uploadLessonMedia = async (
+    moduleId: string,
+    lesson: CourseLessonDraft,
+    file: File,
+  ) => {
+    const expectsAudio = lesson.lessonType === "audio";
+    if (
+      (expectsAudio && !file.type.startsWith("audio/")) ||
+      (!expectsAudio && !file.type.startsWith("video/"))
+    ) {
+      toast.error(
+        expectsAudio
+          ? "Escolha um arquivo de áudio."
+          : "Escolha um arquivo de vídeo.",
       );
-      
-      // Encontra o módulo atualizado e abre o editor
-      const module = updatedModules.find(m => m.id === moduleId);
-      if (module) {
-        setEditingQuiz({ moduleId, quizIndex: module.quizzes.length - 1 });
-      }
-      
-      return updatedModules;
-    });
-  };
-
-  const updateQuiz = (moduleId: string, quizIndex: number, updatedQuiz: Quiz) => {
-    setModules(prevModules => prevModules.map(m => {
-      if (m.id === moduleId) {
-        const newQuizzes = [...m.quizzes];
-        newQuizzes[quizIndex] = updatedQuiz;
-        return { ...m, quizzes: newQuizzes };
-      }
-      return m;
-    }));
-  };
-
-  const removeQuiz = (moduleId: string, quizId: string) => {
-    setModules(prevModules => prevModules.map(m => 
-      m.id === moduleId 
-        ? { ...m, quizzes: m.quizzes.filter(q => q.id !== quizId) }
-        : m
-    ));
-  };
-
-  const addMaterial = (moduleId: string) => {
-    const newMaterial: Material = {
-      id: crypto.randomUUID(),
-      title: "",
-      description: "",
-      file: null,
-      fileUrl: "",
-      fileType: "",
-      uploading: false,
-      progress: 0
-    };
-    
-    setModules(prevModules => prevModules.map(m => 
-      m.id === moduleId ? { ...m, materials: [...m.materials, newMaterial] } : m
-    ));
-  };
-
-  const removeMaterial = (moduleId: string, materialId: string) => {
-    setModules(prevModules => prevModules.map(m => 
-      m.id === moduleId 
-        ? { ...m, materials: m.materials.filter(mat => mat.id !== materialId) }
-        : m
-    ));
-  };
-
-  const handleGenerateTags = async () => {
-    if (!title.trim()) {
-      toast.error("Preencha o título primeiro para gerar tags");
       return;
     }
+    try {
+      const saved = await draft.saveNow();
+      if (!isPersistedPublicationDraft(saved))
+        throw new Error(
+          "Conecte-se à internet para iniciar o envio. O curso continua salvo neste dispositivo.",
+        );
+      let prepared = file;
+      if (!expectsAudio) {
+        try {
+          prepared = await compression.compressVideo(file, {
+            quality: "balanced",
+            maxWidth: 1920,
+            maxHeight: 1080,
+          });
+        } catch {
+          prepared = file;
+        }
+      }
+      activeLessonUploadRef.current = { moduleId, lessonId: lesson.id };
+      const result = await mediaUpload.upload({
+        file: prepared,
+        title: lesson.title || file.name,
+        mediaType: expectsAudio ? "audio" : "video",
+        draftId: saved?.id ?? draft.draftId,
+        slotKey: `lesson:${lesson.id}`,
+        onTargetCreated: (target) => {
+          if (lesson.mediaAssetId && lesson.mediaAssetId !== target.mediaAssetId)
+            abandonAsset(lesson.mediaAssetId);
+          updateModule(moduleId, (module) => ({
+            ...module,
+            lessons: module.lessons.map((item) =>
+              item.id === lesson.id
+                ? {
+                    ...item,
+                    fileUrl: target.fileUrl,
+                    mediaAssetId: target.mediaAssetId,
+                    videoProvider: target.provider,
+                    uploadState: "uploading",
+                  }
+                : item,
+            ),
+          }));
+        },
+      });
+      if (lesson.mediaAssetId && lesson.mediaAssetId !== result.mediaAssetId)
+        abandonAsset(lesson.mediaAssetId);
+      const element = document.createElement(expectsAudio ? "audio" : "video");
+      element.preload = "metadata";
+      element.src = URL.createObjectURL(file);
+      element.onloadedmetadata = () =>
+        updateModule(moduleId, (module) => ({
+          ...module,
+          lessons: module.lessons.map((item) =>
+            item.id === lesson.id
+              ? { ...item, duration: Math.floor(element.duration || 0) }
+              : item,
+          ),
+        }));
+      updateModule(moduleId, (module) => ({
+        ...module,
+        lessons: module.lessons.map((item) =>
+          item.id === lesson.id
+            ? {
+                ...item,
+                fileUrl: result.fileUrl,
+                mediaAssetId: result.mediaAssetId,
+                videoProvider: result.provider,
+                uploadState: "processing",
+              }
+            : item,
+        ),
+      }));
+      toast.success(
+        "Arquivo enviado. A aula ficará pronta após o processamento.",
+      );
+    } catch (error) {
+      if (!(error instanceof DOMException && error.name === "AbortError"))
+        toast.error(
+          error instanceof Error
+            ? error.message
+            : "Não foi possível enviar a mídia.",
+        );
+    }
+  };
 
+  const uploadMaterial = async (
+    moduleId: string,
+    materialId: string,
+    file: File,
+  ) => {
+    if (!user) return;
+    setMaterialUploading(materialId);
+    try {
+      const saved = await draft.saveNow();
+      if (!isPersistedPublicationDraft(saved))
+        throw new Error(
+          "Conecte-se à internet para anexar o material. O restante do curso continua salvo neste dispositivo.",
+        );
+      const previousUrl = modules
+        .find((module) => module.id === moduleId)
+        ?.materials.find((item) => item.id === materialId)?.fileUrl;
+      const extension = file.name.split(".").pop() || "bin";
+      const path = `materials/${user.id}/${crypto.randomUUID()}.${extension}`;
+      const { error } = await supabase.storage
+        .from("courses")
+        .upload(path, file, { cacheControl: "31536000" });
+      if (error) throw error;
+      const { data } = supabase.storage.from("courses").getPublicUrl(path);
+      const { error: fileRecordError } = await supabase
+        .from("publication_draft_files")
+        .insert({
+          draft_id: saved!.id,
+          owner_id: user.id,
+          bucket: "courses",
+          object_path: path,
+          file_name: file.name,
+          mime_type: file.type || null,
+          size_bytes: file.size,
+        });
+      if (fileRecordError) {
+        await supabase.storage.from("courses").remove([path]);
+        throw fileRecordError;
+      }
+      temporaryFileUrlsRef.current.add(data.publicUrl);
+      updateModule(moduleId, (module) => ({
+        ...module,
+        materials: module.materials.map((item) =>
+          item.id === materialId
+            ? {
+                ...item,
+                title: item.title || file.name,
+                fileUrl: data.publicUrl,
+                fileType: file.type || "application/octet-stream",
+                fileSize: file.size,
+              }
+            : item,
+        ),
+      }));
+      if (previousUrl && previousUrl !== data.publicUrl)
+        void removeStoredCourseFile(previousUrl);
+      toast.success("Material anexado.");
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Não foi possível enviar o material.",
+      );
+    } finally {
+      setMaterialUploading(null);
+    }
+  };
+
+  const generateTags = async () => {
+    if (!title.trim()) {
+      toast.error("Escreva o título antes de gerar tags.");
+      return;
+    }
     setIsGeneratingTags(true);
     try {
       const { data, error } = await supabase.functions.invoke("generate-tags", {
-        body: {
-          title: title.trim(),
-          description: description.trim(),
-          contentType: "curso",
-        },
+        body: { title, description, contentType: "curso" },
       });
-
       if (error) throw error;
-
-      if (data?.tags) {
-        setTags(data.tags);
-        toast.success(`${data.tags.length} tags geradas com sucesso!`);
-      }
-    } catch (error: any) {
-      console.error("Erro ao gerar tags:", error);
-      toast.error(error.message || "Erro ao gerar tags");
+      setTags(data?.tags ?? []);
+    } catch {
+      toast.error("Não foi possível sugerir tags agora.");
     } finally {
       setIsGeneratingTags(false);
     }
   };
+  const issues = useMemo(() => getCourseDraftIssues(payload), [payload]);
+  const totalLessons = modules.reduce(
+    (total, module) => total + module.lessons.length,
+    0,
+  );
+  const totalUnits = modules.reduce(
+    (total, module) => total + module.lessons.length + module.quizzes.length,
+    0,
+  );
+  const totalDuration = modules
+    .flatMap((module) => module.lessons)
+    .reduce((total, lesson) => total + lesson.duration, 0);
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-
-    if (!title || !description || !thumbnailUrl) {
-      toast.error("Preencha os campos obrigatórios do curso");
+  const submit = async () => {
+    if (issues.length) {
+      toast.error(issues[0]);
       return;
     }
-
-    if (modules.length === 0 || !modules.some(m => m.title)) {
-      toast.error("Adicione pelo menos um módulo ao curso");
-      return;
-    }
-
     setSubmitting(true);
     try {
-      // Calculate totals
-      const totalLessons = modules.reduce((acc, m) => acc + m.lessons.length, 0);
-      const totalDuration = modules.reduce((acc, m) => 
-        acc + m.lessons.reduce((sum, l) => sum + l.duration, 0), 0
+      const saved = await draft.saveNow();
+      const activeId = isPersistedPublicationDraft(saved) ? saved!.id : null;
+      if (!activeId)
+        throw new Error(
+          "Conecte-se à internet para enviar o curso para análise.",
+        );
+      const { data, error } = await (supabase as any).rpc(
+        "submit_course_publication",
+        { p_draft_id: activeId },
       );
-
-      // Create course
-      const { data: courseData, error: courseError } = await supabase
-        .from('courses')
-        .insert({
-          creator_id: user.id,
-          title,
-          description,
-          thumbnail_url: thumbnailUrl,
-          status: 'pending',
-          visibility,
-          price: visibility === 'paid' ? parseFloat(price) : 0,
-          discount: visibility === 'paid' ? parseFloat(discount) : 0,
-          tags: tags.length > 0 ? tags : null,
-          level,
-          requirements,
-          what_you_learn: whatYouLearn,
-          total_lessons: totalLessons,
-          total_duration_seconds: totalDuration,
-          views_count: 0,
-          students_count: 0,
-        })
-        .select()
-        .single();
-
-      if (courseError) throw courseError;
-
-      // Create modules
-      for (let moduleIndex = 0; moduleIndex < modules.length; moduleIndex++) {
-        const module = modules[moduleIndex];
-        if (!module.title) continue;
-
-        const { data: moduleData, error: moduleError } = await supabase
-          .from('course_modules')
-          .insert({
-            course_id: courseData.id,
-            title: module.title,
-            description: module.description,
-            order_index: moduleIndex,
-          })
-          .select()
-          .single();
-
-        if (moduleError) throw moduleError;
-
-        // Create lessons
-        for (let lessonIndex = 0; lessonIndex < module.lessons.length; lessonIndex++) {
-          const lesson = module.lessons[lessonIndex];
-          if (!lesson.title || !lesson.videoUrl) continue;
-
-          const { error: lessonError } = await supabase
-            .from('course_lessons')
-            .insert({
-              module_id: moduleData.id,
-              course_id: courseData.id,
-              title: lesson.title,
-              description: lesson.description,
-              video_url: lesson.videoUrl,
-              media_asset_id: lesson.mediaAssetId,
-              duration_seconds: lesson.duration,
-              order_index: lessonIndex,
-              is_preview: lesson.isPreview,
-            } as any);
-
-          if (lessonError) throw lessonError;
-        }
-
-        // Create quizzes
-        for (let quizIndex = 0; quizIndex < module.quizzes.length; quizIndex++) {
-          const quiz = module.quizzes[quizIndex];
-          if (!quiz.title || quiz.questions.length === 0) continue;
-
-          const { error: quizError } = await supabase
-            .from('course_quizzes')
-            .insert({
-              course_id: courseData.id,
-              module_id: moduleData.id,
-              title: quiz.title,
-              description: quiz.description,
-              questions: quiz.questions as any,
-              passing_score: quiz.passingScore,
-              max_attempts: quiz.maxAttempts,
-              order_index: quizIndex,
-            } as any);
-
-          if (quizError) throw quizError;
-        }
-
-        // Create materials
-        for (const material of module.materials) {
-          if (!material.title || !material.fileUrl) continue;
-
-          const { error: materialError } = await supabase
-            .from('course_materials')
-            .insert({
-              course_id: courseData.id,
-              module_id: moduleData.id,
-              title: material.title,
-              description: material.description,
-              file_url: material.fileUrl,
-              file_type: material.fileType,
-            } as any);
-
-          if (materialError) throw materialError;
-        }
-      }
-
-      toast.success("Curso criado com sucesso e aguarda aprovação!");
-      navigate('/studio/contents');
-    } catch (error: any) {
-      console.error("Erro ao criar curso:", error);
-      toast.error(error.message || "Erro ao criar curso");
-
-      // Cleanup orphaned course if it was created but modules/lessons failed
-      if (error && modules.length > 0) {
-        try {
-          const { data: orphanCourse } = await supabase
-            .from('courses')
-            .select('id')
-            .eq('creator_id', user.id)
-            .eq('title', title)
-            .eq('status', 'pending')
-            .order('created_at', { ascending: false })
-            .limit(1)
-            .maybeSingle();
-
-          if (orphanCourse) {
-            // Delete cascade: lessons, modules, quizzes, materials reference course_id
-            await supabase.from('course_lessons').delete().eq('course_id', orphanCourse.id);
-            await supabase.from('course_quizzes').delete().eq('course_id', orphanCourse.id);
-            await supabase.from('course_materials').delete().eq('course_id', orphanCourse.id);
-            await supabase.from('course_modules').delete().eq('course_id', orphanCourse.id);
-            await supabase.from('courses').delete().eq('id', orphanCourse.id);
-            console.log('Cleaned up orphaned course:', orphanCourse.id);
-          }
-        } catch (cleanupError) {
-          console.error('Cleanup failed:', cleanupError);
-        }
-      }
+      if (error) throw error;
+      draft.clearLocal();
+      toast.success(
+        data?.isRevision
+          ? "Revisão enviada. O curso atual continua publicado."
+          : "Curso enviado para análise.",
+      );
+      navigate("/studio/contents");
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Não foi possível enviar o curso.",
+      );
     } finally {
       setSubmitting(false);
     }
   };
+  const discardCourseDraft = async () => {
+    modules
+      .flatMap((module) => module.lessons)
+      .forEach((lesson) => abandonAsset(lesson.mediaAssetId));
+    await Promise.all(
+      modules
+        .flatMap((module) => module.materials)
+        .map((material) => removeStoredCourseFile(material.fileUrl)),
+    );
+    await draft.discard();
+    setDiscardOpen(false);
+    navigate("/studio/contents");
+  };
+
+  if (loading || !sourceLoaded)
+    return (
+      <div className="cf-v2 studio-publish-loading">
+        <LoaderCircle className="animate-spin" />
+        <strong>Preparando o construtor...</strong>
+      </div>
+    );
+  if (!user || (role !== "creator" && role !== "admin"))
+    return <Navigate to="/" replace />;
+  if (profile?.creator_status !== "approved" && role !== "admin")
+    return (
+      <AppShell
+        variant="studio"
+        title="Criar curso"
+        contentClassName="studio-page-shell"
+      >
+        <div className="studio-access-state">
+          <BookOpen />
+          <h1>Seu Studio ainda não está liberado</h1>
+          <p>Quando seu perfil for aprovado, você poderá criar cursos.</p>
+        </div>
+      </AppShell>
+    );
+  const saveIcon =
+    draft.state === "offline" ? (
+      <CloudOff />
+    ) : draft.state === "saving" ? (
+      <LoaderCircle className="animate-spin" />
+    ) : (
+      <Cloud />
+    );
 
   return (
-    <AppShell variant="studio" title="Criar Curso" contentClassName="flex-1 p-6 md:p-12">
-            <form onSubmit={handleSubmit} className="max-w-5xl mx-auto space-y-6">
-              <Tabs defaultValue="info" className="w-full">
-                <TabsList className="grid w-full grid-cols-4">
-                  <TabsTrigger value="info">Informações</TabsTrigger>
-                  <TabsTrigger value="modules">Módulos</TabsTrigger>
-                  <TabsTrigger value="settings">Configurações</TabsTrigger>
-                  <TabsTrigger value="preview">Pré-visualizar</TabsTrigger>
-                </TabsList>
-
-                {/* TAB: Informações do Curso */}
-                <TabsContent value="info" className="space-y-6">
-                  <Card className="p-6">
-                    <h3 className="text-lg font-semibold mb-4">Informações Básicas</h3>
-                    
-                    <div className="space-y-4">
-                      <div>
-                        <Label htmlFor="title">Título do Curso *</Label>
-                        <Input
-                          id="title"
-                          value={title}
-                          onChange={(e) => setTitle(e.target.value)}
-                          placeholder="Ex: Desenvolvimento Web Completo"
-                          required
-                        />
-                      </div>
-
-                      <div>
-                        <Label htmlFor="description">Descrição *</Label>
-                        <Textarea
-                          id="description"
-                          value={description}
-                          onChange={(e) => setDescription(e.target.value)}
-                          placeholder="Descreva o que os alunos aprenderão neste curso..."
-                          rows={4}
-                          required
-                        />
-                      </div>
-
-                      <div>
-                        <Label>Thumbnail do Curso *</Label>
-                        <div className="mt-2">
-                          {!thumbnailPreview ? (
-                            <label className="flex flex-col items-center justify-center w-full h-48 border-2 border-dashed border-border rounded-lg cursor-pointer hover:border-primary transition-colors bg-muted/20">
-                              <div className="flex flex-col items-center justify-center pt-5 pb-6">
-                                <ImagePlus className="w-12 h-12 mb-4 text-muted-foreground" />
-                                <p className="mb-2 text-sm text-muted-foreground font-medium">
-                                  Enviar imagem de capa
-                                </p>
-                                <p className="text-xs text-muted-foreground">
-                                  Recomendado: 1280x720px (16:9)
-                                </p>
-                              </div>
-                              <input
-                                type="file"
-                                className="hidden"
-                                accept="image/*"
-                                onChange={handleThumbnailUpload}
-                                disabled={thumbnailUploading}
-                              />
-                            </label>
-                          ) : (
-                            <div className="relative w-full h-48 rounded-lg overflow-hidden">
-                              <img
-                                src={thumbnailPreview}
-                                alt="Thumbnail"
-                                className="w-full h-full object-cover"
-                              />
-                              <Button
-                                type="button"
-                                variant="destructive"
-                                size="icon"
-                                className="absolute top-2 right-2"
-                                onClick={handleRemoveThumbnail}
-                              >
-                                <X className="w-4 h-4" />
-                              </Button>
-                            </div>
-                          )}
-                          {thumbnailUploading && (
-                            <div className="mt-2">
-                              <Progress value={thumbnailProgress} />
-                              <p className="text-xs text-muted-foreground mt-1">
-                                Enviando: {thumbnailProgress}%
-                              </p>
-                            </div>
-                          )}
-                        </div>
-                      </div>
-
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div>
-                          <Label htmlFor="level">Nível do Curso</Label>
-                          <Select value={level} onValueChange={(v) => setLevel(v as CourseLevel)}>
-                            <SelectTrigger id="level">
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="beginner">Iniciante</SelectItem>
-                              <SelectItem value="intermediate">Intermediário</SelectItem>
-                              <SelectItem value="advanced">Avançado</SelectItem>
-                            </SelectContent>
-                          </Select>
-                        </div>
-
-                        <div>
-                          <Label htmlFor="visibility">Visibilidade</Label>
-                          <Select value={visibility} onValueChange={(v) => setVisibility(v as Visibility)}>
-                            <SelectTrigger id="visibility">
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="free">Grátis</SelectItem>
-                              <SelectItem value="pro">Pro</SelectItem>
-                              <SelectItem value="premium">Premium</SelectItem>
-                              <SelectItem value="paid">Pago</SelectItem>
-                            </SelectContent>
-                          </Select>
-                        </div>
-                      </div>
-
-                      {visibility === 'paid' && (
-                        <div className="grid grid-cols-2 gap-4">
-                          <div>
-                            <Label htmlFor="price">Preço (R$)</Label>
-                            <Input
-                              id="price"
-                              type="number"
-                              step="0.01"
-                              value={price}
-                              onChange={(e) => setPrice(e.target.value)}
-                            />
-                          </div>
-                          <div>
-                            <Label htmlFor="discount">Desconto (%)</Label>
-                            <Input
-                              id="discount"
-                              type="number"
-                              step="1"
-                              value={discount}
-                              onChange={(e) => setDiscount(e.target.value)}
-                            />
-                          </div>
-                        </div>
-                      )}
-
-                      <div>
-                        <Label htmlFor="requirements">Pré-requisitos</Label>
-                        <Textarea
-                          id="requirements"
-                          value={requirements}
-                          onChange={(e) => setRequirements(e.target.value)}
-                          placeholder="O que o aluno precisa saber antes de começar?"
-                          rows={3}
-                        />
-                      </div>
-
-                      <div>
-                        <Label htmlFor="whatYouLearn">O que você aprenderá</Label>
-                        <Textarea
-                          id="whatYouLearn"
-                          value={whatYouLearn}
-                          onChange={(e) => setWhatYouLearn(e.target.value)}
-                          placeholder="Liste os principais aprendizados do curso..."
-                          rows={3}
-                        />
-                      </div>
-
-                      <div>
-                        <div className="flex items-center justify-between mb-2">
-                          <Label>Tags</Label>
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            onClick={handleGenerateTags}
-                            disabled={isGeneratingTags || !title}
-                          >
-                            {isGeneratingTags ? "Gerando..." : "Gerar com IA"}
-                          </Button>
-                        </div>
-                        <TagsInput
-                          tags={tags}
-                          onChange={setTags}
-                          placeholder="Digite uma tag e pressione Enter"
-                        />
-                      </div>
-                    </div>
-                  </Card>
-                </TabsContent>
-
-                {/* TAB: Módulos e Conteúdo */}
-                <TabsContent value="modules" className="space-y-6">
-                  <div className="flex items-center justify-between">
-                    <h3 className="text-lg font-semibold">Estrutura do Curso</h3>
-                    <Button type="button" onClick={addModule}>
-                      <Plus className="w-4 h-4 mr-2" />
-                      Adicionar Módulo
-                    </Button>
-                  </div>
-
-                  <DndContext
-                    sensors={sensors}
-                    collisionDetection={closestCenter}
-                    onDragEnd={handleDragEndModules}
-                  >
-                    <SortableContext
-                      items={modules.map(m => m.id)}
-                      strategy={verticalListSortingStrategy}
-                    >
-                      <Accordion type="single" collapsible className="space-y-4">
-                        {modules.map((module, moduleIndex) => (
-                          <AccordionItem
-                            key={module.id}
-                            value={module.id}
-                            className="border rounded-lg border-none"
-                          >
-                            <DraggableModuleWrapper id={module.id}>
-                              {({ ref, style, isDragging, handleProps }) => (
-                                <Card
-                                  ref={ref}
-                                  style={{
-                                    ...style,
-                                    opacity: isDragging ? 0.5 : 1,
-                                  }}
-                                  className="p-0"
-                                >
-                                  <AccordionTrigger className="px-6 py-4 hover:no-underline">
-                                    <div className="flex items-center gap-3 w-full">
-                                      <div
-                                        {...handleProps}
-                                        className="cursor-grab active:cursor-grabbing p-1 hover:bg-accent rounded transition-colors"
-                                      >
-                                        <GripVertical className="w-5 h-5 text-muted-foreground" />
-                                      </div>
-                                      <div className="flex-1 text-left">
-                                        <h4 className="font-semibold">
-                                          {module.title || `Módulo ${moduleIndex + 1}`}
-                                        </h4>
-                                        <p className="text-sm text-muted-foreground">
-                                          {module.lessons.length} aulas • {module.quizzes.length} quizzes • {module.materials.length} materiais
-                                        </p>
-                                      </div>
-                                    </div>
-                                  </AccordionTrigger>
-
-                                  <AccordionContent className="px-6 pb-4">
-                                    <div className="space-y-4">
-                                      {/* Informações do Módulo */}
-                                      <div className="grid grid-cols-1 gap-4">
-                                        <div>
-                                          <Label>Título do Módulo *</Label>
-                                          <Input
-                                            value={module.title}
-                                            onChange={(e) => updateModule(module.id, 'title', e.target.value)}
-                                            placeholder="Ex: Introdução ao Desenvolvimento Web"
-                                          />
-                                        </div>
-                                        <div>
-                                          <Label>Descrição do Módulo</Label>
-                                          <Textarea
-                                            value={module.description}
-                                            onChange={(e) => updateModule(module.id, 'description', e.target.value)}
-                                            placeholder="Descreva o conteúdo deste módulo..."
-                                            rows={2}
-                                          />
-                                        </div>
-                                      </div>
-
-                                      {/* Aulas */}
-                                      <div className="border-t pt-4">
-                                        <div className="flex items-center justify-between mb-3">
-                                          <Label className="text-base">Aulas</Label>
-                                          <Button
-                                            type="button"
-                                            variant="outline"
-                                            size="sm"
-                                            onClick={() => addLesson(module.id)}
-                                          >
-                                            <Plus className="w-4 h-4 mr-2" />
-                                            Adicionar Aula
-                                          </Button>
-                                        </div>
-
-                                        {module.lessons.length === 0 ? (
-                                          <p className="text-sm text-muted-foreground text-center py-4">
-                                            Nenhuma aula adicionada ainda
-                                          </p>
-                                        ) : (
-                                          <DndContext
-                                            sensors={sensors}
-                                            collisionDetection={closestCenter}
-                                            onDragEnd={handleDragEndLessons(module.id)}
-                                          >
-                                            <SortableContext
-                                              items={module.lessons.map(l => l.id)}
-                                              strategy={verticalListSortingStrategy}
-                                            >
-                                              <div className="space-y-3">
-                                                {module.lessons.map((lesson, lessonIndex) => (
-                                                  <DraggableLesson key={lesson.id} id={lesson.id}>
-                                                     <Card className="p-4">
-                                                       <div className="space-y-3">
-                                                          <div className="flex items-start justify-between gap-4">
-                                                            {/* Coluna da esquerda: Campos de texto - 50% */}
-                                                            <div className="flex-1 space-y-3">
-                                                              <Input
-                                                                value={lesson.title}
-                                                                onChange={(e) => updateLesson(module.id, lesson.id, 'title', e.target.value)}
-                                                                placeholder={`Aula ${lessonIndex + 1} - Título`}
-                                                              />
-                                                              <Textarea
-                                                                value={lesson.description}
-                                                                onChange={(e) => updateLesson(module.id, lesson.id, 'description', e.target.value)}
-                                                                placeholder="Descrição da aula"
-                                                                rows={3}
-                                                              />
-                                                            </div>
-
-                                                            {/* Coluna da direita: Upload de vídeo - 50% */}
-                                                            <div className="flex-1 flex flex-col gap-2">
-                                                              {!lesson.videoUrl ? (
-                                                                <label className="flex flex-col items-center justify-center h-full min-h-[120px] border-2 border-dashed border-border rounded-lg cursor-pointer hover:border-primary transition-colors">
-                                                                  <Video className="w-8 h-8 text-muted-foreground mb-2" />
-                                                                  <span className="text-xs text-muted-foreground text-center px-2">
-                                                                    Enviar vídeo da aula
-                                                                  </span>
-                                                                  <input
-                                                                    type="file"
-                                                                    className="hidden"
-                                                                    accept="video/*"
-                                                                    onChange={(e) => {
-                                                                      const file = e.target.files?.[0];
-                                                                      if (file) handleLessonVideoUpload(module.id, lesson.id, file);
-                                                                    }}
-                                                                    disabled={lesson.uploading}
-                                                                  />
-                                                                </label>
-                                                              ) : (
-                                                                <div className="space-y-2">
-                                                                  <div className="border rounded-lg overflow-hidden bg-muted">
-                                                                    <video
-                                                                      src={lesson.videoPreviewUrl}
-                                                                      className="w-full aspect-video object-cover"
-                                                                      controls
-                                                                    />
-                                                                  </div>
-                                                                  <div className="flex items-center justify-between px-2">
-                                                                    <div className="flex items-center gap-2">
-                                                                      <Video className="w-4 h-4 text-primary" />
-                                                                      <span className="text-xs text-muted-foreground">
-                                                                        {lesson.duration ? `${lesson.duration}s` : 'Vídeo enviado'}
-                                                                      </span>
-                                                                    </div>
-                                                                    <Button
-                                                                      type="button"
-                                                                      variant="ghost"
-                                                                      size="sm"
-                                                                      onClick={() => {
-                                                                        updateLesson(module.id, lesson.id, 'videoUrl', '');
-                                                                        if (lesson.videoPreviewUrl) URL.revokeObjectURL(lesson.videoPreviewUrl);
-                                                                        updateLesson(module.id, lesson.id, 'videoPreviewUrl', '');
-                                                                        updateLesson(module.id, lesson.id, 'mediaAssetId', null);
-                                                                        updateLesson(module.id, lesson.id, 'videoProvider', null);
-                                                                        updateLesson(module.id, lesson.id, 'videoFile', null);
-                                                                      }}
-                                                                    >
-                                                                      <X className="w-4 h-4 mr-1" />
-                                                                      Trocar
-                                                                    </Button>
-                                                                  </div>
-                                                                </div>
-                                                              )}
-
-                                                              {lesson.uploading && (
-                                                                <div className="mt-2">
-                                                                  <Progress value={lesson.progress} />
-                                                                  <p className="text-xs text-muted-foreground mt-1 text-center">
-                                                                    {lesson.progress}%
-                                                                  </p>
-                                                                </div>
-                                                              )}
-                                                            </div>
-
-                                                            {/* Botão de remover aula */}
-                                                            <Button
-                                                              type="button"
-                                                              variant="ghost"
-                                                              size="icon"
-                                                              onClick={() => removeLesson(module.id, lesson.id)}
-                                                            >
-                                                              <Trash2 className="w-4 h-4" />
-                                                            </Button>
-                                                          </div>
-
-                                                         <div className="flex items-center gap-2">
-                                                           <input
-                                                             type="checkbox"
-                                                             id={`preview-${lesson.id}`}
-                                                             checked={lesson.isPreview}
-                                                             onChange={(e) => updateLesson(module.id, lesson.id, 'isPreview', e.target.checked)}
-                                                             className="rounded"
-                                                           />
-                                                           <Label htmlFor={`preview-${lesson.id}`} className="text-sm cursor-pointer">
-                                                             Aula de pré-visualização (gratuita para todos)
-                                                           </Label>
-                                                         </div>
-                                                       </div>
-                                                     </Card>
-                                                  </DraggableLesson>
-                                                ))}
-                                              </div>
-                                            </SortableContext>
-                                          </DndContext>
-                                        )}
-                                      </div>
-
-                                      {/* Quizzes */}
-                                      <div className="border-t pt-4">
-                                        <div className="flex items-center justify-between mb-3">
-                                          <Label className="text-base">Quizzes</Label>
-                                          <Button
-                                            type="button"
-                                            variant="outline"
-                                            size="sm"
-                                            onClick={() => addQuiz(module.id)}
-                                          >
-                                            <Plus className="w-4 h-4 mr-2" />
-                                            Adicionar Quiz
-                                          </Button>
-                                        </div>
-
-                                        {module.quizzes.length === 0 ? (
-                                          <p className="text-sm text-muted-foreground text-center py-4">
-                                            Nenhum quiz adicionado ainda
-                                          </p>
-                                        ) : (
-                                          <div className="space-y-3">
-                                            {module.quizzes.map((quiz, quizIndex) => (
-                                              <Card key={quiz.id} className="p-4 hover:border-primary transition-colors">
-                                                <div className="flex items-center justify-between">
-                                                  <div className="flex items-center gap-3 flex-1">
-                                                    <HelpCircle className="w-4 h-4 text-purple-500" />
-                                                    <div className="flex-1">
-                                                      <p className="text-sm font-medium">
-                                                        {quiz.title || "Quiz sem título"}
-                                                      </p>
-                                                      <p className="text-xs text-muted-foreground">
-                                                        {quiz.questions.length} questões • {quiz.passingScore}% para aprovação
-                                                      </p>
-                                                    </div>
-                                                  </div>
-                                                  <div className="flex items-center gap-2">
-                                                    <Button
-                                                      type="button"
-                                                      variant="outline"
-                                                      size="sm"
-                                                      onClick={() => setEditingQuiz({ moduleId: module.id, quizIndex })}
-                                                    >
-                                                      Editar
-                                                    </Button>
-                                                    <Button
-                                                      type="button"
-                                                      variant="ghost"
-                                                      size="icon"
-                                                      onClick={() => removeQuiz(module.id, quiz.id)}
-                                                    >
-                                                      <Trash2 className="w-4 h-4" />
-                                                    </Button>
-                                                  </div>
-                                                </div>
-                                              </Card>
-                                            ))}
-                                          </div>
-                                        )}
-                                      </div>
-
-                                      {/* Materiais */}
-                                      <div className="border-t pt-4">
-                                        <div className="flex items-center justify-between mb-3">
-                                          <Label className="text-base">Materiais de Apoio</Label>
-                                          <Button
-                                            type="button"
-                                            variant="outline"
-                                            size="sm"
-                                            onClick={() => addMaterial(module.id)}
-                                          >
-                                            <Plus className="w-4 h-4 mr-2" />
-                                            Adicionar Material
-                                          </Button>
-                                        </div>
-
-                                        {module.materials.length === 0 ? (
-                                          <p className="text-sm text-muted-foreground text-center py-4">
-                                            Nenhum material adicionado ainda
-                                          </p>
-                                        ) : (
-                                          <div className="space-y-3">
-                                            {module.materials.map((material) => (
-                                              <Card key={material.id} className="p-4">
-                                                <div className="flex items-center justify-between">
-                                                  <div className="flex items-center gap-2">
-                                                    <FileText className="w-4 h-4 text-primary" />
-                                                    <span className="text-sm">
-                                                      {material.title || "Material sem título"}
-                                                    </span>
-                                                  </div>
-                                                  <Button
-                                                    type="button"
-                                                    variant="ghost"
-                                                    size="icon"
-                                                    onClick={() => removeMaterial(module.id, material.id)}
-                                                  >
-                                                    <Trash2 className="w-4 h-4" />
-                                                  </Button>
-                                                </div>
-                                              </Card>
-                                            ))}
-                                          </div>
-                                        )}
-                                      </div>
-
-                                      {/* Botão Remover Módulo */}
-                                      <div className="flex justify-end pt-2">
-                                        <Button
-                                          type="button"
-                                          variant="destructive"
-                                          onClick={() => removeModule(module.id)}
-                                        >
-                                          <Trash2 className="w-4 h-4 mr-2" />
-                                          Remover Módulo
-                                        </Button>
-                                      </div>
-                                    </div>
-                                  </AccordionContent>
-                                </Card>
-                              )}
-                            </DraggableModuleWrapper>
-                          </AccordionItem>
-                        ))}
-                        </Accordion>
-                    </SortableContext>
-                  </DndContext>
-                </TabsContent>
-
-                {/* TAB: Configurações */}
-                <TabsContent value="settings" className="space-y-6">
-                  <Card className="p-6">
-                    <h3 className="text-lg font-semibold mb-6">Configurações do Curso</h3>
-                    
-                    <div className="space-y-6">
-                      {/* Certificado */}
-                      <div className="space-y-3">
-                        <Label className="text-base font-semibold">Certificado</Label>
-                        <div className="flex items-center justify-between p-4 border rounded-lg">
-                          <div>
-                            <p className="font-medium">Emitir certificado de conclusão</p>
-                            <p className="text-sm text-muted-foreground">
-                              Os alunos receberão um certificado ao completar o curso
-                            </p>
-                          </div>
-                          <input
-                            type="checkbox"
-                            checked={issueCertificate}
-                            onChange={(e) => setIssueCertificate(e.target.checked)}
-                            className="w-5 h-5 rounded"
-                          />
-                        </div>
-                      </div>
-
-                      {/* Tipo de Acesso */}
-                      <div className="space-y-3">
-                        <Label className="text-base font-semibold">Tipo de Acesso</Label>
-                        <Select value={accessType} onValueChange={(v: "lifetime" | "limited") => setAccessType(v)}>
-                          <SelectTrigger>
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="lifetime">Acesso Vitalício</SelectItem>
-                            <SelectItem value="limited">Acesso Limitado</SelectItem>
-                          </SelectContent>
-                        </Select>
-                        {accessType === "limited" && (
-                          <div className="mt-3">
-                            <Label htmlFor="accessDays">Dias de acesso após matrícula</Label>
-                            <Input
-                              id="accessDays"
-                              type="number"
-                              min="1"
-                              value={accessDays}
-                              onChange={(e) => setAccessDays(e.target.value)}
-                              placeholder="365"
-                            />
-                          </div>
-                        )}
-                      </div>
-
-                      {/* Ordem das Aulas */}
-                      <div className="space-y-3">
-                        <Label className="text-base font-semibold">Ordem das Aulas</Label>
-                        <Select value={lessonOrder} onValueChange={(v: "sequential" | "free") => setLessonOrder(v)}>
-                          <SelectTrigger>
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="free">Livre - Alunos podem assistir em qualquer ordem</SelectItem>
-                            <SelectItem value="sequential">Sequencial - Deve seguir a ordem do curso</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
-
-                      {/* Interações */}
-                      <div className="space-y-3">
-                        <Label className="text-base font-semibold">Interações</Label>
-                        
-                        <div className="flex items-center justify-between p-4 border rounded-lg">
-                          <div>
-                            <p className="font-medium">Permitir comentários</p>
-                            <p className="text-sm text-muted-foreground">
-                              Alunos podem comentar nas aulas
-                            </p>
-                          </div>
-                          <input
-                            type="checkbox"
-                            checked={allowComments}
-                            onChange={(e) => setAllowComments(e.target.checked)}
-                            className="w-5 h-5 rounded"
-                          />
-                        </div>
-
-                        <div className="flex items-center justify-between p-4 border rounded-lg">
-                          <div>
-                            <p className="font-medium">Permitir avaliações</p>
-                            <p className="text-sm text-muted-foreground">
-                              Alunos podem avaliar o curso
-                            </p>
-                          </div>
-                          <input
-                            type="checkbox"
-                            checked={allowReviews}
-                            onChange={(e) => setAllowReviews(e.target.checked)}
-                            className="w-5 h-5 rounded"
-                          />
-                        </div>
-                      </div>
-
-                      {/* Downloads */}
-                      <div className="space-y-3">
-                        <Label className="text-base font-semibold">Downloads</Label>
-                        <div className="flex items-center justify-between p-4 border rounded-lg">
-                          <div>
-                            <p className="font-medium">Permitir download de materiais</p>
-                            <p className="text-sm text-muted-foreground">
-                              Alunos podem baixar os materiais de apoio
-                            </p>
-                          </div>
-                          <input
-                            type="checkbox"
-                            checked={allowDownloads}
-                            onChange={(e) => setAllowDownloads(e.target.checked)}
-                            className="w-5 h-5 rounded"
-                          />
-                        </div>
-                      </div>
-                    </div>
-                  </Card>
-                </TabsContent>
-
-                {/* TAB: Pré-visualizar */}
-                <TabsContent value="preview" className="space-y-6">
-                  <Card className="p-6">
-                    <h3 className="text-lg font-semibold mb-4">Prévia do Curso</h3>
-                    <div className="space-y-4">
-                      {thumbnailPreview && (
-                        <img
-                          src={thumbnailPreview}
-                          alt={title}
-                          className="w-full h-64 object-cover rounded-lg"
-                        />
-                      )}
-                      <h2 className="text-2xl font-bold">{title || "Título do Curso"}</h2>
-                      <p className="text-muted-foreground">{description || "Descrição do curso..."}</p>
-                      
-                      {requirements && (
-                        <div>
-                          <h4 className="font-semibold mb-2">Pré-requisitos</h4>
-                          <p className="text-sm text-muted-foreground">{requirements}</p>
-                        </div>
-                      )}
-
-                      {whatYouLearn && (
-                        <div>
-                          <h4 className="font-semibold mb-2">O que você aprenderá</h4>
-                          <p className="text-sm text-muted-foreground">{whatYouLearn}</p>
-                        </div>
-                      )}
-
-                      {tags.length > 0 && (
-                        <div>
-                          <h4 className="font-semibold mb-2">Tags</h4>
-                          <div className="flex flex-wrap gap-2">
-                            {tags.map((tag, index) => (
-                              <span
-                                key={index}
-                                className="px-3 py-1 bg-primary/10 text-primary rounded-full text-sm"
-                              >
-                                {tag}
-                              </span>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  </Card>
-
-                  <CourseStructurePreview modules={modules} />
-                </TabsContent>
-              </Tabs>
-
-              <div className="flex items-center justify-between pt-6 border-t">
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => navigate('/studio/contents')}
-                >
-                  Cancelar
-                </Button>
-                <Button type="submit" disabled={submitting}>
-                  {submitting ? "Publicando..." : "Publicar Curso"}
-                </Button>
-              </div>
-            </form>
-      {/* Quiz Editor Modal */}
-      {editingQuiz && (() => {
-        const module = modules.find(m => m.id === editingQuiz.moduleId);
-        const quiz = module?.quizzes[editingQuiz.quizIndex];
-        return quiz ? (
-          <QuizEditor
-            quiz={quiz}
-            onUpdate={(updatedQuiz) => {
-              updateQuiz(editingQuiz.moduleId, editingQuiz.quizIndex, updatedQuiz);
-              setEditingQuiz(null);
-            }}
-            onClose={() => setEditingQuiz(null)}
+    <AppShell
+      variant="studio"
+      title={editId ? "Editar curso" : "Novo curso"}
+      contentClassName="studio-page-shell"
+    >
+      <CreatorTemplate
+        className="studio-template studio-publish-template"
+        width="full"
+        density="comfortable"
+        header={
+          <PageHeader
+            title={editId ? "Edite seu curso." : "Construa seu curso."}
+            description={
+              originalStatus === "approved"
+                ? "O curso publicado continua no ar enquanto esta revisão é analisada."
+                : "Organize módulos, aulas, quizzes e materiais sem perder o progresso."
+            }
+            action={
+              <span className="studio-draft-state" data-state={draft.state}>
+                {saveIcon}
+                {draft.label}
+              </span>
+            }
           />
-        ) : null;
-      })()}
+        }
+        toolbar={<StudioNavigation />}
+      >
+        <div className="course-builder-layout">
+          <aside className="course-outline">
+            <div className="course-outline-header">
+              <div>
+                <strong>Estrutura</strong>
+                <span>
+                  {modules.length} {modules.length === 1 ? "módulo" : "módulos"}
+                </span>
+              </div>
+              <V2Button
+                size="sm"
+                variant="quiet"
+                leadingIcon={<Plus />}
+                onClick={addModule}
+              >
+                Módulo
+              </V2Button>
+            </div>
+            <button
+              type="button"
+              className="course-outline-course"
+              data-active={selection.type === "course" || undefined}
+              onClick={() => setSelection({ type: "course" })}
+            >
+              <BookOpen />
+              <span>
+                <strong>Informações do curso</strong>
+                <small>Capa, acesso e configurações</small>
+              </span>
+            </button>
+            <DndContext
+              sensors={sensors}
+              collisionDetection={closestCenter}
+              onDragEnd={handleModuleDrag}
+            >
+              <SortableContext
+                items={modules.map((module) => module.id)}
+                strategy={verticalListSortingStrategy}
+              >
+                {modules.map((module, moduleIndex) => (
+                  <section className="course-outline-module" key={module.id}>
+                    <SortableItem
+                      id={module.id}
+                      active={
+                        selection.type === "module" &&
+                        selection.moduleId === module.id
+                      }
+                      onClick={() =>
+                        setSelection({ type: "module", moduleId: module.id })
+                      }
+                    >
+                      <Layers3 />
+                      <span>
+                        <strong>
+                          {module.title || `Módulo ${moduleIndex + 1}`}
+                        </strong>
+                        <small>
+                          {module.lessons.length + module.quizzes.length}{" "}
+                          unidades
+                        </small>
+                      </span>
+                    </SortableItem>
+                    <div className="course-outline-units">
+                      <DndContext
+                        sensors={sensors}
+                        collisionDetection={closestCenter}
+                        onDragEnd={handleLessonDrag(module.id)}
+                      >
+                        <SortableContext
+                          items={module.lessons.map((lesson) => lesson.id)}
+                          strategy={verticalListSortingStrategy}
+                        >
+                          {module.lessons.map((lesson) => (
+                            <SortableItem
+                              key={lesson.id}
+                              id={lesson.id}
+                              active={
+                                selection.type === "lesson" &&
+                                selection.itemId === lesson.id
+                              }
+                              onClick={() =>
+                                setSelection({
+                                  type: "lesson",
+                                  moduleId: module.id,
+                                  itemId: lesson.id,
+                                })
+                              }
+                            >
+                              {lesson.lessonType === "audio" ? (
+                                <FileAudio />
+                              ) : lesson.lessonType === "text" ? (
+                                <FileText />
+                              ) : (
+                                <FileVideo />
+                              )}
+                              <span>
+                                <strong>
+                                  {lesson.title || "Aula sem título"}
+                                </strong>
+                                <small>
+                                  {lesson.lessonType === "text"
+                                    ? "Texto"
+                                    : formatDuration(lesson.duration)}
+                                </small>
+                              </span>
+                            </SortableItem>
+                          ))}
+                        </SortableContext>
+                      </DndContext>
+                      {module.quizzes.map((quiz) => (
+                        <button
+                          key={quiz.id}
+                          type="button"
+                          className="course-outline-item course-outline-item--fixed"
+                          data-active={
+                            (selection.type === "quiz" &&
+                              selection.itemId === quiz.id) ||
+                            undefined
+                          }
+                          onClick={() =>
+                            setSelection({
+                              type: "quiz",
+                              moduleId: module.id,
+                              itemId: quiz.id,
+                            })
+                          }
+                        >
+                          <span className="course-outline-grip">
+                            <Archive />
+                          </span>
+                          <span>
+                            <strong>{quiz.title || "Quiz sem título"}</strong>
+                            <small>{quiz.questions.length} questões</small>
+                          </span>
+                        </button>
+                      ))}
+                      {module.materials.map((material) => (
+                        <button
+                          key={material.id}
+                          type="button"
+                          className="course-outline-item course-outline-item--fixed"
+                          data-active={
+                            (selection.type === "material" &&
+                              selection.itemId === material.id) ||
+                            undefined
+                          }
+                          onClick={() =>
+                            setSelection({
+                              type: "material",
+                              moduleId: module.id,
+                              itemId: material.id,
+                            })
+                          }
+                        >
+                          <span className="course-outline-grip">
+                            <File />
+                          </span>
+                          <span>
+                            <strong>
+                              {material.title || "Material sem título"}
+                            </strong>
+                            <small>
+                              {material.fileUrl ? "Anexado" : "Pendente"}
+                            </small>
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                    <div className="course-outline-add">
+                      <button
+                        type="button"
+                        onClick={() => addLesson(module.id)}
+                      >
+                        + Aula
+                      </button>
+                      <button type="button" onClick={() => addQuiz(module.id)}>
+                        + Quiz
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => addMaterial(module.id)}
+                      >
+                        + Material
+                      </button>
+                    </div>
+                  </section>
+                ))}
+              </SortableContext>
+            </DndContext>
+          </aside>
+
+          <section className="course-unit-editor">
+            {selection.type === "course" && (
+              <CourseInfoEditor
+                payload={payload}
+                setTitle={setTitle}
+                setDescription={setDescription}
+                setVisibility={setVisibility}
+                setPrice={setPrice}
+                setDiscount={setDiscount}
+                setLevel={setLevel}
+                setRequirements={setRequirements}
+                setWhatYouLearn={setWhatYouLearn}
+                setTags={setTags}
+                generateTags={generateTags}
+                generatingTags={isGeneratingTags}
+                thumbnailPreview={thumbnailPreview}
+                thumbnailUploading={thumbnailUploading}
+                uploadCover={uploadCover}
+                setIssueCertificate={setIssueCertificate}
+                setAccessType={setAccessType}
+                setAccessDays={setAccessDays}
+                setLessonOrder={setLessonOrder}
+                setAllowComments={setAllowComments}
+                setAllowReviews={setAllowReviews}
+                setAllowDownloads={setAllowDownloads}
+              />
+            )}
+            {selection.type === "module" && selectedModule && (
+              <V2Card elevation="panel">
+                <V2CardHeader>
+                  <div className="studio-publish-heading">
+                    <span className="studio-icon">
+                      <Layers3 />
+                    </span>
+                    <div>
+                      <h2>Dados do módulo</h2>
+                      <p>Um nome claro ajuda o aluno a entender a sequência.</p>
+                    </div>
+                  </div>
+                  <V2Button
+                    variant="quiet"
+                    size="sm"
+                    leadingIcon={<Trash2 />}
+                    onClick={() => removeModule(selectedModule.id)}
+                  >
+                    Remover
+                  </V2Button>
+                </V2CardHeader>
+                <V2CardContent className="studio-publish-fields">
+                  <V2Input
+                    label="Nome do módulo"
+                    value={selectedModule.title}
+                    onChange={(event) =>
+                      updateModule(selectedModule.id, (module) => ({
+                        ...module,
+                        title: event.target.value,
+                      }))
+                    }
+                    placeholder="Ex.: Fundamentos"
+                  />
+                  <V2Textarea
+                    label="Descrição"
+                    value={selectedModule.description}
+                    onChange={(event) =>
+                      updateModule(selectedModule.id, (module) => ({
+                        ...module,
+                        description: event.target.value,
+                      }))
+                    }
+                    placeholder="Explique o que será estudado neste módulo"
+                  />
+                  <div className="course-quick-add">
+                    <V2Button
+                      leadingIcon={<FileVideo />}
+                      onClick={() => addLesson(selectedModule.id)}
+                    >
+                      Adicionar aula
+                    </V2Button>
+                    <V2Button
+                      variant="secondary"
+                      leadingIcon={<Archive />}
+                      onClick={() => addQuiz(selectedModule.id)}
+                    >
+                      Adicionar quiz
+                    </V2Button>
+                    <V2Button
+                      variant="secondary"
+                      leadingIcon={<File />}
+                      onClick={() => addMaterial(selectedModule.id)}
+                    >
+                      Anexar material
+                    </V2Button>
+                  </div>
+                </V2CardContent>
+              </V2Card>
+            )}
+            {selection.type === "lesson" &&
+              selectedModule &&
+              selectedLesson && (
+                <LessonEditor
+                  lesson={selectedLesson}
+                  upload={uploadLessonMedia}
+                  progress={
+                    activeLessonUploadRef.current?.lessonId ===
+                    selectedLesson.id
+                      ? mediaUpload.progress
+                      : 0
+                  }
+                  error={
+                    activeLessonUploadRef.current?.lessonId ===
+                    selectedLesson.id
+                      ? mediaUpload.error
+                      : null
+                  }
+                  update={(changes) =>
+                    updateModule(selectedModule.id, (module) => ({
+                      ...module,
+                      lessons: module.lessons.map((item) =>
+                        item.id === selectedLesson.id
+                          ? { ...item, ...changes }
+                          : item,
+                      ),
+                    }))
+                  }
+                  changeType={(type) => {
+                    if (type === "text")
+                      abandonAsset(selectedLesson.mediaAssetId);
+                    updateModule(selectedModule.id, (module) => ({
+                      ...module,
+                      lessons: module.lessons.map((item) =>
+                        item.id === selectedLesson.id
+                          ? {
+                              ...item,
+                              lessonType: type,
+                              body: type === "text" ? item.body : "",
+                              fileUrl: type === "text" ? "" : item.fileUrl,
+                              mediaAssetId:
+                                type === "text" ? null : item.mediaAssetId,
+                              uploadState:
+                                type === "text" ? "ready" : item.uploadState,
+                            }
+                          : item,
+                      ),
+                    }));
+                  }}
+                  remove={() =>
+                    removeItem(selectedModule.id, "lesson", selectedLesson.id)
+                  }
+                  moduleId={selectedModule.id}
+                />
+              )}
+            {selection.type === "quiz" && selectedModule && selectedQuiz && (
+              <QuizEditor
+                quiz={selectedQuiz}
+                onUpdate={(quiz: CourseQuizDraft) =>
+                  updateModule(selectedModule.id, (module) => ({
+                    ...module,
+                    quizzes: module.quizzes.map((item) =>
+                      item.id === selectedQuiz.id ? quiz : item,
+                    ),
+                  }))
+                }
+                onClose={() =>
+                  setSelection({ type: "module", moduleId: selectedModule.id })
+                }
+              />
+            )}
+            {selection.type === "material" &&
+              selectedModule &&
+              selectedMaterial && (
+                <V2Card elevation="panel">
+                  <V2CardHeader>
+                    <div className="studio-publish-heading">
+                      <span className="studio-icon">
+                        <File />
+                      </span>
+                      <div>
+                        <h2>Material complementar</h2>
+                        <p>Anexe um arquivo real para acompanhar o módulo.</p>
+                      </div>
+                    </div>
+                    <V2Button
+                      variant="quiet"
+                      size="sm"
+                      leadingIcon={<Trash2 />}
+                      onClick={() =>
+                        removeItem(
+                          selectedModule.id,
+                          "material",
+                          selectedMaterial.id,
+                        )
+                      }
+                    >
+                      Remover
+                    </V2Button>
+                  </V2CardHeader>
+                  <V2CardContent className="studio-publish-fields">
+                    <V2Input
+                      label="Nome do material"
+                      value={selectedMaterial.title}
+                      onChange={(event) =>
+                        updateModule(selectedModule.id, (module) => ({
+                          ...module,
+                          materials: module.materials.map((item) =>
+                            item.id === selectedMaterial.id
+                              ? { ...item, title: event.target.value }
+                              : item,
+                          ),
+                        }))
+                      }
+                    />
+                    <V2Textarea
+                      label="Descrição"
+                      value={selectedMaterial.description}
+                      onChange={(event) =>
+                        updateModule(selectedModule.id, (module) => ({
+                          ...module,
+                          materials: module.materials.map((item) =>
+                            item.id === selectedMaterial.id
+                              ? { ...item, description: event.target.value }
+                              : item,
+                          ),
+                        }))
+                      }
+                    />
+                    {selectedMaterial.fileUrl ? (
+                      <div className="course-file-ready">
+                        <Check />
+                        <span>
+                          <strong>{selectedMaterial.title}</strong>
+                          <small>
+                            {selectedMaterial.fileType} ·{" "}
+                            {Math.ceil(selectedMaterial.fileSize / 1024)} KB
+                          </small>
+                        </span>
+                        <label>
+                          <span>Substituir</span>
+                          <input
+                            type="file"
+                            onChange={(event) =>
+                              event.target.files?.[0] &&
+                              void uploadMaterial(
+                                selectedModule.id,
+                                selectedMaterial.id,
+                                event.target.files[0],
+                              )
+                            }
+                          />
+                        </label>
+                      </div>
+                    ) : (
+                      <label className="studio-upload-dropzone studio-upload-dropzone--compact">
+                        <UploadCloud />
+                        <strong>
+                          {materialUploading === selectedMaterial.id
+                            ? "Enviando material..."
+                            : "Escolha o arquivo"}
+                        </strong>
+                        <span>
+                          PDF, planilha, apresentação, documento ou arquivo
+                          compactado.
+                        </span>
+                        <input
+                          type="file"
+                          disabled={materialUploading === selectedMaterial.id}
+                          onChange={(event) =>
+                            event.target.files?.[0] &&
+                            void uploadMaterial(
+                              selectedModule.id,
+                              selectedMaterial.id,
+                              event.target.files[0],
+                            )
+                          }
+                        />
+                      </label>
+                    )}
+                  </V2CardContent>
+                </V2Card>
+              )}
+          </section>
+
+          <aside className="course-publish-panel">
+            <V2Card elevation="raised">
+              <V2CardHeader>
+                <div>
+                  <h2>Publicação</h2>
+                  <p>
+                    O curso pode ficar incompleto enquanto estiver em rascunho.
+                  </p>
+                </div>
+              </V2CardHeader>
+              <V2CardContent>
+                <div
+                  className="studio-review-status"
+                  data-complete={!issues.length || undefined}
+                >
+                  {issues.length ? <CircleAlert /> : <Check />}
+                  <strong>
+                    {issues.length
+                      ? `${issues.length} ${issues.length === 1 ? "pendência" : "pendências"}`
+                      : "Pronto para análise"}
+                  </strong>
+                </div>
+                <ul className="studio-review-list">
+                  {issues.length ? (
+                    issues.slice(0, 6).map((issue) => (
+                      <li key={issue}>
+                        <span />
+                        {issue}
+                      </li>
+                    ))
+                  ) : (
+                    <li>
+                      <Check />
+                      Todo o curso será criado em uma única operação.
+                    </li>
+                  )}
+                </ul>
+                {issues.length > 6 && (
+                  <p className="course-more-issues">
+                    e mais {issues.length - 6}
+                  </p>
+                )}
+                <dl className="studio-review-summary">
+                  <div>
+                    <dt>Módulos</dt>
+                    <dd>{modules.length}</dd>
+                  </div>
+                  <div>
+                    <dt>Unidades</dt>
+                    <dd>{totalUnits}</dd>
+                  </div>
+                  <div>
+                    <dt>Duração em mídia</dt>
+                    <dd>{formatDuration(totalDuration)}</dd>
+                  </div>
+                  <div>
+                    <dt>Acesso</dt>
+                    <dd>
+                      {
+                        visibilityOptions.find((item) => item.id === visibility)
+                          ?.label
+                      }
+                    </dd>
+                  </div>
+                </dl>
+              </V2CardContent>
+              <div className="studio-review-actions">
+                <V2Button
+                  variant="secondary"
+                  leadingIcon={<Eye />}
+                  onClick={() => setPreviewOpen(true)}
+                >
+                  Pré-visualizar
+                </V2Button>
+                <V2Button
+                  leadingIcon={
+                    submitting ? (
+                      <LoaderCircle className="animate-spin" />
+                    ) : (
+                      <Send />
+                    )
+                  }
+                  disabled={submitting || issues.length > 0}
+                  onClick={() => void submit()}
+                >
+                  {submitting ? "Enviando..." : "Enviar para análise"}
+                </V2Button>
+                <V2Button
+                  variant="quiet"
+                  leadingIcon={<Save />}
+                  onClick={() => void draft.saveNow()}
+                >
+                  Salvar rascunho
+                </V2Button>
+                <V2Button
+                  variant="quiet"
+                  leadingIcon={<Trash2 />}
+                  onClick={() => setDiscardOpen(true)}
+                >
+                  Descartar rascunho
+                </V2Button>
+              </div>
+            </V2Card>
+          </aside>
+        </div>
+      </CreatorTemplate>
+      <Dialog open={previewOpen} onOpenChange={setPreviewOpen}>
+        <DialogContent className="studio-preview-dialog course-preview-dialog">
+          <DialogHeader>
+            <DialogTitle>Prévia do curso</DialogTitle>
+            <DialogDescription>
+              Confira a apresentação e a ordem que o aluno encontrará.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="course-preview">
+            <div className="course-preview-hero">
+              {thumbnailPreview ? (
+                <img src={thumbnailPreview} alt="" />
+              ) : (
+                <div className="studio-preview-placeholder">
+                  <ImagePlus />
+                </div>
+              )}
+              <div>
+                <V2Badge>Curso</V2Badge>
+                <h2>{title || "Título do curso"}</h2>
+                <p>{description || "A descrição do curso aparecerá aqui."}</p>
+                <span>
+                  {totalLessons} aulas · {formatDuration(totalDuration)}
+                </span>
+              </div>
+            </div>
+            <ol>
+              {modules.map((module, index) => (
+                <li key={module.id}>
+                  <strong>
+                    {index + 1}. {module.title || "Módulo sem título"}
+                  </strong>
+                  <span>
+                    {module.lessons.length} aulas · {module.quizzes.length}{" "}
+                    quizzes · {module.materials.length} materiais
+                  </span>
+                </li>
+              ))}
+            </ol>
+          </div>
+        </DialogContent>
+      </Dialog>
+      <Dialog open={discardOpen} onOpenChange={setDiscardOpen}>
+        <DialogContent className="studio-preview-dialog studio-discard-dialog">
+          <DialogHeader>
+            <DialogTitle>Descartar este curso?</DialogTitle>
+            <DialogDescription>
+              A estrutura que ainda não foi enviada e os arquivos vinculados ao rascunho serão removidos.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="studio-dialog-actions">
+            <V2Button variant="secondary" onClick={() => setDiscardOpen(false)}>
+              Continuar editando
+            </V2Button>
+            <V2Button leadingIcon={<Trash2 />} onClick={() => void discardCourseDraft()}>
+              Descartar rascunho
+            </V2Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </AppShell>
+  );
+}
+
+function CourseInfoEditor(props: {
+  payload: CoursePublicationDraft;
+  setTitle: (value: string) => void;
+  setDescription: (value: string) => void;
+  setVisibility: (value: PublicationVisibility) => void;
+  setPrice: (value: string) => void;
+  setDiscount: (value: string) => void;
+  setLevel: (value: CoursePublicationDraft["level"]) => void;
+  setRequirements: (value: string) => void;
+  setWhatYouLearn: (value: string) => void;
+  setTags: (value: string[]) => void;
+  generateTags: () => void;
+  generatingTags: boolean;
+  thumbnailPreview: string;
+  thumbnailUploading: boolean;
+  uploadCover: (file: File) => void;
+  setIssueCertificate: (value: boolean) => void;
+  setAccessType: (value: CoursePublicationDraft["accessType"]) => void;
+  setAccessDays: (value: string) => void;
+  setLessonOrder: (value: CoursePublicationDraft["lessonOrder"]) => void;
+  setAllowComments: (value: boolean) => void;
+  setAllowReviews: (value: boolean) => void;
+  setAllowDownloads: (value: boolean) => void;
+}) {
+  const { payload } = props;
+  return (
+    <>
+      <V2Card elevation="panel">
+        <V2CardHeader>
+          <div className="studio-publish-heading">
+            <span className="studio-icon">
+              <BookOpen />
+            </span>
+            <div>
+              <h2>Informações do curso</h2>
+              <p>Diga para quem é o curso e o que será aprendido.</p>
+            </div>
+          </div>
+        </V2CardHeader>
+        <V2CardContent className="studio-publish-fields">
+          <V2Input
+            label="Título"
+            value={payload.title}
+            onChange={(event) => props.setTitle(event.target.value)}
+          />
+          <V2Textarea
+            label="Descrição"
+            value={payload.description}
+            onChange={(event) => props.setDescription(event.target.value)}
+          />
+          <div className="course-two-fields">
+            <label className="cf2-field">
+              <span className="cf2-field__label">Nível</span>
+              <select
+                className="cf2-input"
+                value={payload.level}
+                onChange={(event) =>
+                  props.setLevel(
+                    event.target.value as CoursePublicationDraft["level"],
+                  )
+                }
+              >
+                <option value="beginner">Iniciante</option>
+                <option value="intermediate">Intermediário</option>
+                <option value="advanced">Avançado</option>
+              </select>
+            </label>
+            <div className="cf2-field">
+              <span className="cf2-field__label">Tags</span>
+              <TagsInput
+                tags={payload.tags}
+                onChange={props.setTags}
+                onGenerateTags={props.generateTags}
+                isGenerating={props.generatingTags}
+              />
+            </div>
+          </div>
+          <V2Textarea
+            label="O que a pessoa vai aprender"
+            value={payload.whatYouLearn}
+            onChange={(event) => props.setWhatYouLearn(event.target.value)}
+          />
+          <V2Textarea
+            label="O que é necessário antes de começar"
+            value={payload.requirements}
+            onChange={(event) => props.setRequirements(event.target.value)}
+          />
+        </V2CardContent>
+      </V2Card>
+      <V2Card elevation="panel">
+        <V2CardHeader>
+          <div className="studio-publish-heading">
+            <span className="studio-icon">
+              <ImagePlus />
+            </span>
+            <div>
+              <h2>Capa</h2>
+              <p>Use uma imagem horizontal e nítida.</p>
+            </div>
+          </div>
+        </V2CardHeader>
+        <V2CardContent>
+          <label
+            className={`studio-cover-upload ${props.thumbnailPreview ? "has-image" : ""}`}
+          >
+            {props.thumbnailPreview ? (
+              <img src={props.thumbnailPreview} alt="Prévia da capa" />
+            ) : (
+              <>
+                <ImagePlus />
+                <strong>Adicionar capa</strong>
+                <span>JPG, PNG ou WebP no formato 16:9.</span>
+              </>
+            )}
+            {props.thumbnailUploading && (
+              <span className="studio-cover-upload__loading">
+                <LoaderCircle className="animate-spin" />
+                Enviando...
+              </span>
+            )}
+            <input
+              type="file"
+              accept="image/jpeg,image/png,image/webp"
+              onChange={(event) =>
+                event.target.files?.[0] &&
+                props.uploadCover(event.target.files[0])
+              }
+            />
+          </label>
+        </V2CardContent>
+      </V2Card>
+      <V2Card elevation="panel">
+        <V2CardHeader>
+          <div className="studio-publish-heading">
+            <span className="studio-icon">
+              <Settings2 />
+            </span>
+            <div>
+              <h2>Acesso e experiência</h2>
+              <p>Estas opções serão aplicadas ao curso publicado.</p>
+            </div>
+          </div>
+        </V2CardHeader>
+        <V2CardContent className="studio-publish-fields">
+          <div className="studio-access-options">
+            {visibilityOptions.map((option) => (
+              <button
+                key={option.id}
+                type="button"
+                data-selected={payload.visibility === option.id || undefined}
+                onClick={() => props.setVisibility(option.id)}
+              >
+                <span>{payload.visibility === option.id && <Check />}</span>
+                <div>
+                  <strong>{option.label}</strong>
+                  <small>{option.description}</small>
+                </div>
+              </button>
+            ))}
+            {payload.visibility === "paid" && (
+              <div className="studio-price-fields">
+                <V2Input
+                  label="Preço em reais"
+                  type="number"
+                  min="0.01"
+                  step="0.01"
+                  value={payload.price}
+                  onChange={(event) => props.setPrice(event.target.value)}
+                />
+                <V2Input
+                  label="Desconto (%)"
+                  type="number"
+                  min="0"
+                  max="100"
+                  value={payload.discount}
+                  onChange={(event) => props.setDiscount(event.target.value)}
+                />
+              </div>
+            )}
+          </div>
+          <div className="course-settings-grid">
+            <Toggle
+              label="Emitir certificado"
+              checked={payload.issueCertificate}
+              onChange={props.setIssueCertificate}
+            />
+            <Toggle
+              label="Permitir comentários"
+              checked={payload.allowComments}
+              onChange={props.setAllowComments}
+            />
+            <Toggle
+              label="Permitir avaliações"
+              checked={payload.allowReviews}
+              onChange={props.setAllowReviews}
+            />
+            <Toggle
+              label="Permitir downloads"
+              checked={payload.allowDownloads}
+              onChange={props.setAllowDownloads}
+            />
+            <label className="cf2-field">
+              <span className="cf2-field__label">Prazo de acesso</span>
+              <select
+                className="cf2-input"
+                value={payload.accessType}
+                onChange={(event) =>
+                  props.setAccessType(
+                    event.target.value as CoursePublicationDraft["accessType"],
+                  )
+                }
+              >
+                <option value="lifetime">Sem prazo</option>
+                <option value="limited">Prazo definido</option>
+              </select>
+            </label>
+            {payload.accessType === "limited" && (
+              <V2Input
+                label="Dias de acesso"
+                type="number"
+                min="1"
+                value={payload.accessDays}
+                onChange={(event) => props.setAccessDays(event.target.value)}
+              />
+            )}
+            <label className="cf2-field">
+              <span className="cf2-field__label">Ordem das aulas</span>
+              <select
+                className="cf2-input"
+                value={payload.lessonOrder}
+                onChange={(event) =>
+                  props.setLessonOrder(
+                    event.target.value as CoursePublicationDraft["lessonOrder"],
+                  )
+                }
+              >
+                <option value="free">Livre</option>
+                <option value="sequential">Sequencial</option>
+              </select>
+            </label>
+          </div>
+        </V2CardContent>
+      </V2Card>
+    </>
+  );
+}
+
+function Toggle({
+  label,
+  checked,
+  onChange,
+}: {
+  label: string;
+  checked: boolean;
+  onChange: (value: boolean) => void;
+}) {
+  return (
+    <label className="course-toggle">
+      <Checkbox
+        checked={checked}
+        onCheckedChange={(value) => onChange(value === true)}
+      />
+      <span>{label}</span>
+    </label>
+  );
+}
+
+function LessonEditor({
+  lesson,
+  moduleId,
+  update,
+  changeType,
+  remove,
+  upload,
+  progress,
+  error,
+}: {
+  lesson: CourseLessonDraft;
+  moduleId: string;
+  update: (changes: Partial<CourseLessonDraft>) => void;
+  changeType: (type: CourseLessonDraft["lessonType"]) => void;
+  remove: () => void;
+  upload: (moduleId: string, lesson: CourseLessonDraft, file: File) => void;
+  progress: number;
+  error: string | null;
+}) {
+  const MediaIcon = lesson.lessonType === "audio" ? FileAudio : FileVideo;
+  return (
+    <V2Card elevation="panel">
+      <V2CardHeader>
+        <div className="studio-publish-heading">
+          <span className="studio-icon">
+            <MediaIcon />
+          </span>
+          <div>
+            <h2>Editar aula</h2>
+            <p>Escolha vídeo, áudio ou texto para esta unidade.</p>
+          </div>
+        </div>
+        <V2Button
+          variant="quiet"
+          size="sm"
+          leadingIcon={<Trash2 />}
+          onClick={remove}
+        >
+          Remover
+        </V2Button>
+      </V2CardHeader>
+      <V2CardContent className="studio-publish-fields">
+        <div className="course-lesson-types">
+          {(["video", "audio", "text"] as const).map((type) => (
+            <button
+              type="button"
+              key={type}
+              data-selected={lesson.lessonType === type || undefined}
+              onClick={() => changeType(type)}
+            >
+              {type === "video" ? (
+                <FileVideo />
+              ) : type === "audio" ? (
+                <FileAudio />
+              ) : (
+                <FileText />
+              )}
+              <span>
+                {type === "video"
+                  ? "Vídeo"
+                  : type === "audio"
+                    ? "Áudio"
+                    : "Texto"}
+              </span>
+            </button>
+          ))}
+        </div>
+        <V2Input
+          label="Título da aula"
+          value={lesson.title}
+          onChange={(event) => update({ title: event.target.value })}
+        />
+        <V2Textarea
+          label="Descrição"
+          value={lesson.description}
+          onChange={(event) => update({ description: event.target.value })}
+        />
+        {lesson.lessonType === "text" ? (
+          <V2Textarea
+            label="Conteúdo da aula"
+            rows={14}
+            value={lesson.body}
+            onChange={(event) => update({ body: event.target.value })}
+            placeholder="Escreva a aula aqui. A formatação avançada poderá ser aplicada depois."
+          />
+        ) : lesson.mediaAssetId ? (
+          <div className="course-media-ready">
+            <MediaIcon />
+            <span>
+              <strong>
+                {lesson.uploadState === "ready"
+                  ? "Mídia pronta"
+                  : lesson.uploadState === "failed"
+                    ? "Falha no processamento"
+                    : "Processando mídia"}
+              </strong>
+              <small>{formatDuration(lesson.duration)}</small>
+            </span>
+            <label>
+              <span>Substituir</span>
+              <input
+                type="file"
+                accept={lesson.lessonType === "audio" ? "audio/*" : "video/*"}
+                onChange={(event) =>
+                  event.target.files?.[0] &&
+                  upload(moduleId, lesson, event.target.files[0])
+                }
+              />
+            </label>
+          </div>
+        ) : (
+          <label className="studio-upload-dropzone">
+            <UploadCloud />
+            <strong>
+              Escolha {lesson.lessonType === "audio" ? "o áudio" : "o vídeo"}
+            </strong>
+            <span>Você pode continuar editando o curso durante o envio.</span>
+            <input
+              type="file"
+              accept={lesson.lessonType === "audio" ? "audio/*" : "video/*"}
+              onChange={(event) =>
+                event.target.files?.[0] &&
+                upload(moduleId, lesson, event.target.files[0])
+              }
+            />
+          </label>
+        )}
+        {progress > 0 && progress < 100 && (
+          <div className="studio-upload-progress">
+            <span style={{ width: `${progress}%` }} />
+          </div>
+        )}
+        {error && (
+          <p className="studio-inline-error">
+            <CircleAlert />
+            {error}
+          </p>
+        )}
+        <Toggle
+          label="Liberar esta aula como prévia"
+          checked={lesson.isPreview}
+          onChange={(value) => update({ isPreview: value })}
+        />
+      </V2CardContent>
+    </V2Card>
   );
 }

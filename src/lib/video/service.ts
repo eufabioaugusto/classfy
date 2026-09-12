@@ -2,9 +2,12 @@ import { supabase } from "@/integrations/supabase/client";
 import type { PlaybackSource, PreviewSource, VideoUploadTarget } from "./types";
 
 class VideoService {
-  async createUpload(title: string): Promise<VideoUploadTarget> {
+  async createUpload(
+    title: string,
+    options: { mediaType?: "video" | "audio"; draftId?: string | null; slotKey?: string | null } = {},
+  ): Promise<VideoUploadTarget> {
     const { data, error } = await supabase.functions.invoke("video-create-upload", {
-      body: { title, corsOrigin: window.location.origin },
+      body: { title, corsOrigin: window.location.origin, mediaType: options.mediaType ?? "video", draftId: options.draftId ?? null, slotKey: options.slotKey ?? null },
     });
     if (error || !data?.mediaAssetId) throw new Error(data?.error || error?.message || "Não foi possível preparar o upload");
     return data as VideoUploadTarget;

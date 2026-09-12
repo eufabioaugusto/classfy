@@ -7,6 +7,11 @@ export type Json =
   | Json[]
 
 export type Database = {
+  // Allows to automatically instantiate createClient with right options
+  // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
+  __InternalSupabase: {
+    PostgrestVersion: "14.5"
+  }
   graphql_public: {
     Tables: {
       [_ in never]: never
@@ -118,6 +123,38 @@ export type Database = {
           id?: string
         }
         Relationships: []
+      }
+      anonymous_short_views: {
+        Row: {
+          content_id: string
+          created_at: string
+          id: string
+          view_date: string
+          viewer_hash: string
+        }
+        Insert: {
+          content_id: string
+          created_at?: string
+          id?: string
+          view_date?: string
+          viewer_hash: string
+        }
+        Update: {
+          content_id?: string
+          created_at?: string
+          id?: string
+          view_date?: string
+          viewer_hash?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "anonymous_short_views_content_id_fkey"
+            columns: ["content_id"]
+            isOneToOne: false
+            referencedRelation: "contents"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       app_logs: {
         Row: {
@@ -447,12 +484,62 @@ export type Database = {
           },
         ]
       }
+      content_shares: {
+        Row: {
+          channel: string
+          content_id: string | null
+          course_id: string | null
+          created_at: string
+          id: string
+          user_id: string
+        }
+        Insert: {
+          channel: string
+          content_id?: string | null
+          course_id?: string | null
+          created_at?: string
+          id?: string
+          user_id: string
+        }
+        Update: {
+          channel?: string
+          content_id?: string | null
+          course_id?: string | null
+          created_at?: string
+          id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "content_shares_content_id_fkey"
+            columns: ["content_id"]
+            isOneToOne: false
+            referencedRelation: "contents"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "content_shares_course_id_fkey"
+            columns: ["course_id"]
+            isOneToOne: false
+            referencedRelation: "courses"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "content_shares_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       content_views: {
         Row: {
           content_id: string | null
           course_id: string | null
           created_at: string | null
           first_viewed_at: string | null
+          hidden_from_history_at: string | null
           id: string
           last_viewed_at: string | null
           total_watch_time_seconds: number | null
@@ -466,6 +553,7 @@ export type Database = {
           course_id?: string | null
           created_at?: string | null
           first_viewed_at?: string | null
+          hidden_from_history_at?: string | null
           id?: string
           last_viewed_at?: string | null
           total_watch_time_seconds?: number | null
@@ -479,6 +567,7 @@ export type Database = {
           course_id?: string | null
           created_at?: string | null
           first_viewed_at?: string | null
+          hidden_from_history_at?: string | null
           id?: string
           last_viewed_at?: string | null
           total_watch_time_seconds?: number | null
@@ -761,8 +850,73 @@ export type Database = {
           },
         ]
       }
+      course_lesson_progress: {
+        Row: {
+          completed: boolean
+          completed_at: string | null
+          course_id: string
+          created_at: string
+          id: string
+          last_position_seconds: number
+          lesson_id: string
+          progress_percent: number
+          updated_at: string
+          user_id: string
+          watched_seconds: number
+        }
+        Insert: {
+          completed?: boolean
+          completed_at?: string | null
+          course_id: string
+          created_at?: string
+          id?: string
+          last_position_seconds?: number
+          lesson_id: string
+          progress_percent?: number
+          updated_at?: string
+          user_id: string
+          watched_seconds?: number
+        }
+        Update: {
+          completed?: boolean
+          completed_at?: string | null
+          course_id?: string
+          created_at?: string
+          id?: string
+          last_position_seconds?: number
+          lesson_id?: string
+          progress_percent?: number
+          updated_at?: string
+          user_id?: string
+          watched_seconds?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "course_lesson_progress_course_id_fkey"
+            columns: ["course_id"]
+            isOneToOne: false
+            referencedRelation: "courses"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "course_lesson_progress_lesson_id_fkey"
+            columns: ["lesson_id"]
+            isOneToOne: false
+            referencedRelation: "course_lessons"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "course_lesson_progress_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       course_lessons: {
         Row: {
+          body: string | null
           content_id: string | null
           course_id: string
           created_at: string
@@ -770,6 +924,8 @@ export type Database = {
           duration_seconds: number | null
           id: string
           is_preview: boolean | null
+          lesson_type: string
+          media_asset_id: string | null
           module_id: string
           order_index: number
           title: string
@@ -777,6 +933,7 @@ export type Database = {
           video_url: string | null
         }
         Insert: {
+          body?: string | null
           content_id?: string | null
           course_id: string
           created_at?: string
@@ -784,6 +941,8 @@ export type Database = {
           duration_seconds?: number | null
           id?: string
           is_preview?: boolean | null
+          lesson_type?: string
+          media_asset_id?: string | null
           module_id: string
           order_index: number
           title: string
@@ -791,6 +950,7 @@ export type Database = {
           video_url?: string | null
         }
         Update: {
+          body?: string | null
           content_id?: string | null
           course_id?: string
           created_at?: string
@@ -798,6 +958,8 @@ export type Database = {
           duration_seconds?: number | null
           id?: string
           is_preview?: boolean | null
+          lesson_type?: string
+          media_asset_id?: string | null
           module_id?: string
           order_index?: number
           title?: string
@@ -817,6 +979,13 @@ export type Database = {
             columns: ["course_id"]
             isOneToOne: false
             referencedRelation: "courses"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "course_lessons_media_asset_id_fkey"
+            columns: ["media_asset_id"]
+            isOneToOne: false
+            referencedRelation: "media_assets"
             referencedColumns: ["id"]
           },
           {
@@ -986,11 +1155,18 @@ export type Database = {
       }
       courses: {
         Row: {
+          access_days: number | null
+          access_type: string
+          allow_comments: boolean
+          allow_downloads: boolean
+          allow_reviews: boolean
           created_at: string
           creator_id: string
           description: string | null
           discount: number | null
           id: string
+          issue_certificate: boolean
+          lesson_order: string
           level: string | null
           likes_count: number | null
           price: number | null
@@ -1009,11 +1185,18 @@ export type Database = {
           what_you_learn: string | null
         }
         Insert: {
+          access_days?: number | null
+          access_type?: string
+          allow_comments?: boolean
+          allow_downloads?: boolean
+          allow_reviews?: boolean
           created_at?: string
           creator_id: string
           description?: string | null
           discount?: number | null
           id?: string
+          issue_certificate?: boolean
+          lesson_order?: string
           level?: string | null
           likes_count?: number | null
           price?: number | null
@@ -1032,11 +1215,18 @@ export type Database = {
           what_you_learn?: string | null
         }
         Update: {
+          access_days?: number | null
+          access_type?: string
+          allow_comments?: boolean
+          allow_downloads?: boolean
+          allow_reviews?: boolean
           created_at?: string
           creator_id?: string
           description?: string | null
           discount?: number | null
           id?: string
+          issue_certificate?: boolean
+          lesson_order?: string
           level?: string | null
           likes_count?: number | null
           price?: number | null
@@ -1120,6 +1310,13 @@ export type Database = {
             columns: ["milestone_id"]
             isOneToOne: false
             referencedRelation: "creator_milestones"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "creator_milestone_progress_reward_event_id_fkey"
+            columns: ["reward_event_id"]
+            isOneToOne: false
+            referencedRelation: "reward_events"
             referencedColumns: ["id"]
           },
         ]
@@ -1925,6 +2122,7 @@ export type Database = {
       }
       media_assets: {
         Row: {
+          abandoned_at: string | null
           active_provider_binding_id: string | null
           aspect_ratio: string | null
           content_id: string | null
@@ -1937,11 +2135,13 @@ export type Database = {
           master_storage_provider: string | null
           media_type: string
           owner_id: string
+          publication_draft_id: string | null
           status: Database["public"]["Enums"]["media_asset_status"]
           updated_at: string
           width: number | null
         }
         Insert: {
+          abandoned_at?: string | null
           active_provider_binding_id?: string | null
           aspect_ratio?: string | null
           content_id?: string | null
@@ -1954,11 +2154,13 @@ export type Database = {
           master_storage_provider?: string | null
           media_type?: string
           owner_id: string
+          publication_draft_id?: string | null
           status?: Database["public"]["Enums"]["media_asset_status"]
           updated_at?: string
           width?: number | null
         }
         Update: {
+          abandoned_at?: string | null
           active_provider_binding_id?: string | null
           aspect_ratio?: string | null
           content_id?: string | null
@@ -1971,6 +2173,7 @@ export type Database = {
           master_storage_provider?: string | null
           media_type?: string
           owner_id?: string
+          publication_draft_id?: string | null
           status?: Database["public"]["Enums"]["media_asset_status"]
           updated_at?: string
           width?: number | null
@@ -1988,6 +2191,13 @@ export type Database = {
             columns: ["content_id"]
             isOneToOne: true
             referencedRelation: "contents"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "media_assets_publication_draft_id_fkey"
+            columns: ["publication_draft_id"]
+            isOneToOne: false
+            referencedRelation: "publication_drafts"
             referencedColumns: ["id"]
           },
         ]
@@ -2286,6 +2496,312 @@ export type Database = {
           updated_at?: string
         }
         Relationships: []
+      }
+      prospects: {
+        Row: {
+          channel_id: string
+          channel_name: string
+          channel_url: string | null
+          contact_email: string | null
+          contacted_at: string | null
+          created_at: string
+          id: string
+          instagram_handle: string | null
+          niche: string | null
+          notes: string | null
+          outreach_channel: string | null
+          score: number | null
+          size_tier: string | null
+          status: string
+          subscriber_count: number | null
+          template_used: string | null
+          updated_at: string
+          video_count: number | null
+          view_count: number | null
+        }
+        Insert: {
+          channel_id: string
+          channel_name: string
+          channel_url?: string | null
+          contact_email?: string | null
+          contacted_at?: string | null
+          created_at?: string
+          id?: string
+          instagram_handle?: string | null
+          niche?: string | null
+          notes?: string | null
+          outreach_channel?: string | null
+          score?: number | null
+          size_tier?: string | null
+          status?: string
+          subscriber_count?: number | null
+          template_used?: string | null
+          updated_at?: string
+          video_count?: number | null
+          view_count?: number | null
+        }
+        Update: {
+          channel_id?: string
+          channel_name?: string
+          channel_url?: string | null
+          contact_email?: string | null
+          contacted_at?: string | null
+          created_at?: string
+          id?: string
+          instagram_handle?: string | null
+          niche?: string | null
+          notes?: string | null
+          outreach_channel?: string | null
+          score?: number | null
+          size_tier?: string | null
+          status?: string
+          subscriber_count?: number | null
+          template_used?: string | null
+          updated_at?: string
+          video_count?: number | null
+          view_count?: number | null
+        }
+        Relationships: []
+      }
+      publication_draft_assets: {
+        Row: {
+          created_at: string
+          draft_id: string
+          media_asset_id: string
+          slot_key: string
+        }
+        Insert: {
+          created_at?: string
+          draft_id: string
+          media_asset_id: string
+          slot_key: string
+        }
+        Update: {
+          created_at?: string
+          draft_id?: string
+          media_asset_id?: string
+          slot_key?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "publication_draft_assets_draft_id_fkey"
+            columns: ["draft_id"]
+            isOneToOne: false
+            referencedRelation: "publication_drafts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "publication_draft_assets_media_asset_id_fkey"
+            columns: ["media_asset_id"]
+            isOneToOne: false
+            referencedRelation: "media_assets"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      publication_draft_files: {
+        Row: {
+          bucket: string
+          created_at: string
+          draft_id: string
+          file_name: string
+          id: string
+          mime_type: string | null
+          object_path: string
+          owner_id: string
+          size_bytes: number | null
+          state: string
+          updated_at: string
+        }
+        Insert: {
+          bucket: string
+          created_at?: string
+          draft_id: string
+          file_name: string
+          id?: string
+          mime_type?: string | null
+          object_path: string
+          owner_id: string
+          size_bytes?: number | null
+          state?: string
+          updated_at?: string
+        }
+        Update: {
+          bucket?: string
+          created_at?: string
+          draft_id?: string
+          file_name?: string
+          id?: string
+          mime_type?: string | null
+          object_path?: string
+          owner_id?: string
+          size_bytes?: number | null
+          state?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "publication_draft_files_draft_id_fkey"
+            columns: ["draft_id"]
+            isOneToOne: false
+            referencedRelation: "publication_drafts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "publication_draft_files_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      publication_drafts: {
+        Row: {
+          created_at: string
+          draft_key: string
+          id: string
+          kind: string
+          owner_id: string
+          payload: Json
+          revision: number
+          source_id: string | null
+          source_type: string | null
+          state: string
+          submitted_at: string | null
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          draft_key: string
+          id?: string
+          kind: string
+          owner_id: string
+          payload?: Json
+          revision?: number
+          source_id?: string | null
+          source_type?: string | null
+          state?: string
+          submitted_at?: string | null
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          draft_key?: string
+          id?: string
+          kind?: string
+          owner_id?: string
+          payload?: Json
+          revision?: number
+          source_id?: string | null
+          source_type?: string | null
+          state?: string
+          submitted_at?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "publication_drafts_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      publication_format_rules: {
+        Row: {
+          allowed_mime_types: string[]
+          cover_ratio: string
+          kind: string
+          max_duration_seconds: number | null
+          media_type: string | null
+          updated_at: string
+        }
+        Insert: {
+          allowed_mime_types?: string[]
+          cover_ratio: string
+          kind: string
+          max_duration_seconds?: number | null
+          media_type?: string | null
+          updated_at?: string
+        }
+        Update: {
+          allowed_mime_types?: string[]
+          cover_ratio?: string
+          kind?: string
+          max_duration_seconds?: number | null
+          media_type?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      publication_submissions: {
+        Row: {
+          created_at: string
+          draft_id: string | null
+          id: string
+          kind: string
+          owner_id: string
+          review_reason: string | null
+          reviewed_at: string | null
+          reviewed_by: string | null
+          snapshot: Json
+          source_id: string | null
+          source_type: string
+          status: string
+        }
+        Insert: {
+          created_at?: string
+          draft_id?: string | null
+          id?: string
+          kind: string
+          owner_id: string
+          review_reason?: string | null
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          snapshot: Json
+          source_id?: string | null
+          source_type: string
+          status?: string
+        }
+        Update: {
+          created_at?: string
+          draft_id?: string | null
+          id?: string
+          kind?: string
+          owner_id?: string
+          review_reason?: string | null
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          snapshot?: Json
+          source_id?: string | null
+          source_type?: string
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "publication_submissions_draft_id_fkey"
+            columns: ["draft_id"]
+            isOneToOne: false
+            referencedRelation: "publication_drafts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "publication_submissions_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "publication_submissions_reviewed_by_fkey"
+            columns: ["reviewed_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       purchased_contents: {
         Row: {
@@ -2775,6 +3291,54 @@ export type Database = {
           value_user?: number
         }
         Relationships: []
+      }
+      reward_event_reversals: {
+        Row: {
+          action_key: string
+          affected_user_id: string
+          created_at: string
+          event_snapshot: Json
+          id: string
+          initiated_by: string
+          original_reward_event_id: string
+          reason: string
+        }
+        Insert: {
+          action_key: string
+          affected_user_id: string
+          created_at?: string
+          event_snapshot: Json
+          id?: string
+          initiated_by: string
+          original_reward_event_id: string
+          reason: string
+        }
+        Update: {
+          action_key?: string
+          affected_user_id?: string
+          created_at?: string
+          event_snapshot?: Json
+          id?: string
+          initiated_by?: string
+          original_reward_event_id?: string
+          reason?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "reward_event_reversals_affected_user_id_fkey"
+            columns: ["affected_user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "reward_event_reversals_initiated_by_fkey"
+            columns: ["initiated_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       reward_events: {
         Row: {
@@ -3477,6 +4041,7 @@ export type Database = {
           progress_percent: number
           updated_at: string
           user_id: string
+          watched_seconds: number
         }
         Insert: {
           completed?: boolean | null
@@ -3488,6 +4053,7 @@ export type Database = {
           progress_percent?: number
           updated_at?: string
           user_id: string
+          watched_seconds?: number
         }
         Update: {
           completed?: boolean | null
@@ -3499,6 +4065,7 @@ export type Database = {
           progress_percent?: number
           updated_at?: string
           user_id?: string
+          watched_seconds?: number
         }
         Relationships: [
           {
@@ -4005,6 +4572,10 @@ export type Database = {
       }
     }
     Functions: {
+      abandon_media_asset: {
+        Args: { p_media_asset_id: string }
+        Returns: undefined
+      }
       adjust_wallet_v1: {
         Args: { p_amount: number; p_reason: string; p_user_id: string }
         Returns: Json
@@ -4021,6 +4592,10 @@ export type Database = {
       }
       approve_content_v1: {
         Args: { p_item_id: string; p_item_type: string; p_reason: string }
+        Returns: Json
+      }
+      approve_publication_submission_v1: {
+        Args: { p_reason: string; p_submission_id: string }
         Returns: Json
       }
       approve_withdrawal: {
@@ -4049,11 +4624,11 @@ export type Database = {
         Returns: number
       }
       check_can_message: { Args: { target_user_id: string }; Returns: string }
-      close_economic_cycle_v1: { Args: { p_year_month: string }; Returns: Json }
       claim_creator_milestone_v1: {
         Args: { p_milestone_id: string }
         Returns: Json
       }
+      close_economic_cycle_v1: { Args: { p_year_month: string }; Returns: Json }
       commit_reward_award: {
         Args: {
           p_actor_event: Json
@@ -4075,6 +4650,14 @@ export type Database = {
         Args: { p_conversation_id: string; p_user_id: string }
         Returns: undefined
       }
+      delete_own_content_history_v1: {
+        Args: { p_view_id?: string }
+        Returns: Json
+      }
+      discard_publication_draft: {
+        Args: { p_draft_id: string }
+        Returns: undefined
+      }
       distribute_cycle_payout: {
         Args: {
           p_amount: number
@@ -4086,12 +4669,12 @@ export type Database = {
         }
         Returns: undefined
       }
-      evaluate_pool_qualification: {
-        Args: { p_cycle_id: string; p_user_id: string }
-        Returns: Json
-      }
       evaluate_creator_milestones_v1: {
         Args: { p_creator_id: string; p_types?: string[] }
+        Returns: Json
+      }
+      evaluate_pool_qualification: {
+        Args: { p_cycle_id: string; p_user_id: string }
         Returns: Json
       }
       expire_subscription_entitlements_v1: { Args: never; Returns: number }
@@ -4108,13 +4691,13 @@ export type Database = {
         Returns: Json
       }
       get_economic_v1_settings: { Args: never; Returns: Json }
-      get_public_home_catalog: { Args: never; Returns: Json }
       get_growth_checkpoint_status_v1: { Args: never; Returns: Json }
       get_or_create_current_cycle: { Args: never; Returns: string }
       get_or_create_referral_link: {
         Args: { p_user_id: string }
         Returns: string
       }
+      get_public_home_catalog: { Args: never; Returns: Json }
       get_public_profile: {
         Args: { profile_id: string }
         Returns: {
@@ -4128,6 +4711,29 @@ export type Database = {
           display_name: string
           id: string
           updated_at: string
+        }[]
+      }
+      get_public_shorts_v1: {
+        Args: { p_limit?: number; p_offset?: number; p_short_id?: string }
+        Returns: {
+          bunny_hls_url: string
+          bunny_library_id: string
+          bunny_video_id: string
+          creator: Json
+          creator_id: string
+          description: string
+          duration_seconds: number
+          file_url: string
+          id: string
+          likes_count: number
+          media_asset_id: string
+          price: number
+          thumbnail_url: string
+          title: string
+          video_provider: string
+          video_url: string
+          views_count: number
+          visibility: Database["public"]["Enums"]["content_visibility"]
         }[]
       }
       get_study_limits: {
@@ -4157,6 +4763,10 @@ export type Database = {
         Args: { p_cycle_id: string; p_points: number; p_user_id: string }
         Returns: undefined
       }
+      increment_public_short_view_v1: {
+        Args: { p_content_id: string; p_viewer_token: string }
+        Returns: Json
+      }
       increment_wallet: {
         Args: {
           p_amount: number
@@ -4174,6 +4784,7 @@ export type Database = {
         Args: { p_amount: number; p_user_id: string }
         Returns: undefined
       }
+      is_admin: { Args: never; Returns: boolean }
       is_content_boosted: { Args: { p_content_id: string }; Returns: boolean }
       is_conversation_participant: {
         Args: { p_conversation_id: string; p_user_id: string }
@@ -4205,6 +4816,14 @@ export type Database = {
         }
         Returns: string
       }
+      record_content_progress_v1: {
+        Args: {
+          p_content_id: string
+          p_last_position_seconds: number
+          p_watched_delta: number
+        }
+        Returns: Json
+      }
       record_content_sale_v1: {
         Args: {
           p_checkout_session_id: string
@@ -4215,6 +4834,15 @@ export type Database = {
           p_payment_intent_id: string
           p_tax_amount?: number
           p_user_id: string
+        }
+        Returns: Json
+      }
+      record_course_lesson_progress_v1: {
+        Args: {
+          p_last_position_seconds: number
+          p_lesson_id: string
+          p_progress_percent: number
+          p_watched_seconds: number
         }
         Returns: Json
       }
@@ -4299,9 +4927,17 @@ export type Database = {
         Args: { p_item_id: string; p_item_type: string; p_reason: string }
         Returns: Json
       }
+      reject_publication_submission_v1: {
+        Args: { p_reason: string; p_submission_id: string }
+        Returns: Json
+      }
       reject_withdrawal_v1: {
         Args: { p_admin_notes: string; p_reason: string; p_request_id: string }
         Returns: Json
+      }
+      replace_course_structure_v2: {
+        Args: { p_course_id: string; p_payload: Json }
+        Returns: undefined
       }
       request_withdrawal: {
         Args: { p_amount: number; p_pix_key: string }
@@ -4339,6 +4975,35 @@ export type Database = {
       }
       run_reconciliation: { Args: { p_period?: string }; Returns: Json }
       run_reconciliation_v1: { Args: { p_period?: string }; Returns: Json }
+      save_publication_draft: {
+        Args: {
+          p_draft_key: string
+          p_kind: string
+          p_payload: Json
+          p_source_id?: string
+          p_source_type?: string
+        }
+        Returns: {
+          created_at: string
+          draft_key: string
+          id: string
+          kind: string
+          owner_id: string
+          payload: Json
+          revision: number
+          source_id: string | null
+          source_type: string | null
+          state: string
+          submitted_at: string | null
+          updated_at: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "publication_drafts"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
       search_platform_content: {
         Args: { p_exclude_id?: string; p_limit?: number; p_query: string }
         Returns: {
@@ -4356,6 +5021,11 @@ export type Database = {
           visibility: string
         }[]
       }
+      submit_course_publication: { Args: { p_draft_id: string }; Returns: Json }
+      submit_standalone_publication: {
+        Args: { p_draft_id: string }
+        Returns: Json
+      }
       sync_subscription_state_v1: {
         Args: {
           p_customer_id: string
@@ -4369,6 +5039,39 @@ export type Database = {
           p_user_id: string
         }
         Returns: Json
+      }
+      update_creator_milestone_v1: {
+        Args: {
+          p_active: boolean
+          p_description: string
+          p_milestone_id: string
+          p_reason: string
+          p_reward_enabled: boolean
+          p_reward_points: number
+          p_title: string
+        }
+        Returns: {
+          active: boolean
+          badge_id: string | null
+          created_at: string
+          description: string | null
+          icon: string | null
+          id: string
+          milestone_type: string
+          milestone_value: number
+          order_index: number
+          reward_enabled: boolean
+          reward_points: number
+          rewards_started_at: string
+          title: string
+          updated_at: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "creator_milestones"
+          isOneToOne: true
+          isSetofReturn: false
+        }
       }
       update_economic_v1_settings: {
         Args: { p_reason: string; p_value: Json }
@@ -4409,6 +5112,22 @@ export type Database = {
           isSetofReturn: false
         }
       }
+      uuid_generate_v1: { Args: never; Returns: string }
+      uuid_generate_v1mc: { Args: never; Returns: string }
+      uuid_generate_v3: {
+        Args: { name: string; namespace: string }
+        Returns: string
+      }
+      uuid_generate_v4: { Args: never; Returns: string }
+      uuid_generate_v5: {
+        Args: { name: string; namespace: string }
+        Returns: string
+      }
+      uuid_nil: { Args: never; Returns: string }
+      uuid_ns_dns: { Args: never; Returns: string }
+      uuid_ns_oid: { Args: never; Returns: string }
+      uuid_ns_url: { Args: never; Returns: string }
+      uuid_ns_x500: { Args: never; Returns: string }
     }
     Enums: {
       action_type:
@@ -4460,12 +5179,12 @@ export type Tables<
   DefaultSchemaTableNameOrOptions extends
     | keyof (DefaultSchema["Tables"] & DefaultSchema["Views"])
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof (DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"] &
         DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Views"])
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -4489,11 +5208,11 @@ export type TablesInsert<
   DefaultSchemaTableNameOrOptions extends
     | keyof DefaultSchema["Tables"]
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -4514,11 +5233,11 @@ export type TablesUpdate<
   DefaultSchemaTableNameOrOptions extends
     | keyof DefaultSchema["Tables"]
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -4539,11 +5258,11 @@ export type Enums<
   DefaultSchemaEnumNameOrOptions extends
     | keyof DefaultSchema["Enums"]
     | { schema: keyof DatabaseWithoutInternals },
-  EnumName extends DefaultSchemaEnumNameOrOptions extends {
+  EnumName extends (DefaultSchemaEnumNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"]
-    : never = never,
+    : never) = never,
 > = DefaultSchemaEnumNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -4556,11 +5275,11 @@ export type CompositeTypes<
   PublicCompositeTypeNameOrOptions extends
     | keyof DefaultSchema["CompositeTypes"]
     | { schema: keyof DatabaseWithoutInternals },
-  CompositeTypeName extends PublicCompositeTypeNameOrOptions extends {
+  CompositeTypeName extends (PublicCompositeTypeNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"]
-    : never = never,
+    : never) = never,
 > = PublicCompositeTypeNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }

@@ -34,9 +34,9 @@ Deno.serve(async (req) => {
     );
     if (authError || !user) return json({ error: "Unauthorized" }, 401);
 
-    const { contentId, itemType = "content", reason } = await req.json();
+    const { contentId, submissionId, itemType = "content", reason } = await req.json();
     if (
-      !contentId || !["content", "course"].includes(itemType) || !reason?.trim()
+      (!contentId && !submissionId) || !["content", "course"].includes(itemType) || !reason?.trim()
     ) {
       return json(
         { error: "Content ID, valid item type and reason are required" },
@@ -48,18 +48,25 @@ Deno.serve(async (req) => {
       global: { headers: { Authorization: authorization } },
       auth: { persistSession: false },
     });
-    const { data: result, error } = await userClient.rpc("approve_content_v1", {
-      p_item_id: contentId,
-      p_item_type: itemType,
-      p_reason: reason.trim(),
-    });
+    const { data: result, error } = submissionId
+      ? await userClient.rpc("approve_publication_submission_v1", {
+        p_submission_id: submissionId,
+        p_reason: reason.trim(),
+      })
+      : await userClient.rpc("approve_content_v1", {
+        p_item_id: contentId,
+        p_item_type: itemType,
+        p_reason: reason.trim(),
+      });
     if (error) throw error;
 
     const approval = Array.isArray(result) ? result[0] : result;
-    const table = itemType === "course" ? "courses" : "contents";
+    const resolvedContentId = contentId || approval?.sourceId;
+    const resolvedItemType = approval?.sourceType || itemType;
+    const table = resolvedItemType === "course" ? "courses" : "contents";
     const { data: content } = await service.from(table)
       .select("creator_id, title, content_type")
-      .eq("id", contentId)
+      .eq("id", resolvedContentId)
       .single();
 
     if (content?.creator_id) {
@@ -72,9 +79,9 @@ Deno.serve(async (req) => {
           ).single(),
         ]);
         if (creatorAuth?.user?.email) {
-          const points = Number(approval?.content_points || 0) +
+          const points = submissionId ? 0 : Number(approval?.content_points || 0) +
             Number(approval?.first_upload_points || 0);
-          const itemLabel = itemType === "course" ? "curso" : "conteúdo";
+          const itemLabel = resolvedItemType === "course" ? "curso" : "conteúdo";
           const name = profile?.display_name ||
             creatorAuth.user.email.split("@")[0];
           const subject = `Seu ${itemLabel} foi aprovado! — Classfy`;
@@ -102,10 +109,10 @@ Deno.serve(async (req) => {
       }
 
       if (
-        itemType === "content" &&
+        resolvedItemType === "content" &&
         ["aula", "podcast"].includes(content.content_type)
       ) {
-        service.functions.invoke("transcribe-content", { body: { contentId } })
+        service.functions.invoke("transcribe-content", { body: { contentId: resolvedContentId } })
           .then(({ error }) =>
             error && console.error("Auto-transcription failed", error)
           );
