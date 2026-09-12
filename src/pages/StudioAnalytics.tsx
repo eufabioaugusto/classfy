@@ -1,39 +1,36 @@
-import { useAuth } from "@/contexts/AuthContext";
-import { Navigate } from "react-router-dom";
-import { AppShell } from "@/components/layout";
-import { Card } from "@/components/ui/card";
-import { useState, useEffect } from "react";
-import { supabase } from "@/integrations/supabase/client";
-import { 
-  LineChart, 
-  Line, 
-  BarChart, 
-  Bar, 
-  XAxis, 
-  YAxis, 
-  CartesianGrid, 
-  Tooltip, 
+import { useEffect, useState } from "react";
+import { Navigate, useNavigate } from "react-router-dom";
+import {
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Line,
+  LineChart,
   ResponsiveContainer,
-  Legend,
-  PieChart,
-  Pie,
-  Cell
+  Tooltip,
+  XAxis,
+  YAxis,
 } from "recharts";
-import { 
-  Eye, 
-  Heart, 
-  Bookmark, 
-  Star, 
-  MessageSquare, 
-  TrendingUp,
-  Clock,
-  Users,
-  Video
-} from "lucide-react";
+import { BarChart3, Clock, Eye, Heart, MessageSquare, Plus, Target, Users } from "lucide-react";
+import { useAuth } from "@/contexts/AuthContext";
+import { supabase } from "@/integrations/supabase/client";
+import { AppShell, PageHeader } from "@/components/layout";
+import { CreatorTemplate } from "@/components/templates";
+import { StudioMetricCard } from "@/components/studio/StudioMetricCard";
+import { StudioNavigation } from "@/components/studio/StudioNavigation";
+import {
+  V2Button,
+  V2Card,
+  V2CardContent,
+  V2CardHeader,
+  V2EmptyState,
+  V2SectionHeader,
+  V2Table,
+  V2TableWrap,
+} from "@/components/v2";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Badge } from "@/components/ui/badge";
+import "@/styles/studio-v2.css";
 
 interface ContentMetrics {
   id: string;
@@ -49,584 +46,300 @@ interface ContentMetrics {
   totalWatchTime: number;
 }
 
+interface ContentOption {
+  id: string;
+  title: string;
+}
+
 interface ViewsOverTime {
   date: string;
   views: number;
   uniqueViewers: number;
 }
 
+const emptyStats = {
+  totalViews: 0,
+  uniqueViewers: 0,
+  totalLikes: 0,
+  totalSaves: 0,
+  totalFavorites: 0,
+  totalComments: 0,
+  avgCompletionRate: 0,
+  totalWatchTimeHours: 0,
+};
+
+const formatWatchTime = (seconds: number) => {
+  if (seconds < 60) return `${Math.round(seconds)}s`;
+  return `${Math.floor(seconds / 60)}m ${Math.floor(seconds % 60)}s`;
+};
+
 export default function StudioAnalytics() {
   const { user, role, loading } = useAuth();
-  const [selectedContent, setSelectedContent] = useState<string>("all");
-  const [selectedPeriod, setSelectedPeriod] = useState<string>("30");
+  const navigate = useNavigate();
+  const [selectedContent, setSelectedContent] = useState("all");
+  const [selectedPeriod, setSelectedPeriod] = useState("30");
+  const [contentOptions, setContentOptions] = useState<ContentOption[]>([]);
   const [contents, setContents] = useState<ContentMetrics[]>([]);
   const [viewsOverTime, setViewsOverTime] = useState<ViewsOverTime[]>([]);
-  const [totalStats, setTotalStats] = useState({
-    totalViews: 0,
-    uniqueViewers: 0,
-    totalLikes: 0,
-    totalSaves: 0,
-    totalComments: 0,
-    avgCompletionRate: 0,
-    totalWatchTimeHours: 0
-  });
+  const [totalStats, setTotalStats] = useState(emptyStats);
   const [loadingData, setLoadingData] = useState(true);
 
   useEffect(() => {
-    if (user) {
-      fetchAnalytics();
-    }
-  }, [user, selectedContent, selectedPeriod]);
-
-  const fetchAnalytics = async () => {
     if (!user) return;
-    
-    setLoadingData(true);
-    try {
-      const daysAgo = parseInt(selectedPeriod);
-      const startDate = new Date();
-      startDate.setDate(startDate.getDate() - daysAgo);
 
-      // Fetch creator's contents
-      const { data: creatorContents } = await supabase
-        .from('contents')
-        .select('id, title, views_count, likes_count')
-        .eq('creator_id', user.id)
-        .eq('status', 'approved');
+    const fetchAnalytics = async () => {
+      setLoadingData(true);
+      try {
+        const daysAgo = Number.parseInt(selectedPeriod, 10);
+        const startDate = new Date();
+        startDate.setDate(startDate.getDate() - daysAgo);
+        const startDateLabel = startDate.toISOString().split("T")[0];
+        const startTimestamp = startDate.toISOString();
+        const { data: creatorContents, error: contentsError } = await supabase
+          .from("contents")
+          .select("id, title, views_count")
+          .eq("creator_id", user.id)
+          .eq("status", "approved");
 
-      if (!creatorContents || creatorContents.length === 0) {
-        setContents([]);
-        setTotalStats({
-          totalViews: 0,
-          uniqueViewers: 0,
-          totalLikes: 0,
-          totalSaves: 0,
-          totalComments: 0,
-          avgCompletionRate: 0,
-          totalWatchTimeHours: 0
-        });
-        setViewsOverTime([]);
-        setLoadingData(false);
-        return;
-      }
+        if (contentsError) throw contentsError;
+        setContentOptions((creatorContents || []).map(({ id, title }) => ({ id, title })));
 
-      // Fetch metrics for each content - using accumulated totals
-      const metricsPromises = creatorContents.map(async (content) => {
-        // Views unique (excluding creator's own views) within period
-        const { count: uniqueViewers } = await supabase
-          .from('content_views')
-          .select('*', { count: 'exact', head: true })
-          .eq('content_id', content.id)
-          .neq('user_id', user.id)
-          .gte('view_date', startDate.toISOString().split('T')[0]);
-
-        // Total watch time within period
-        const { data: watchTime } = await supabase
-          .from('content_views')
-          .select('total_watch_time_seconds')
-          .eq('content_id', content.id)
-          .neq('user_id', user.id)
-          .gte('view_date', startDate.toISOString().split('T')[0]);
-
-        const totalWatchTime = watchTime?.reduce((sum, v) => sum + (v.total_watch_time_seconds || 0), 0) || 0;
-
-        // Likes - using actions table (total count, not date-filtered for accuracy)
-        const { count: likes } = await supabase
-          .from('actions')
-          .select('*', { count: 'exact', head: true })
-          .eq('content_id', content.id)
-          .eq('type', 'LIKE')
-          .neq('user_id', user.id);
-
-        // Saves (total accumulated)
-        const { count: saves } = await supabase
-          .from('saved_contents')
-          .select('*', { count: 'exact', head: true })
-          .eq('content_id', content.id)
-          .neq('user_id', user.id);
-
-        // Favorites (total accumulated)
-        const { count: favorites } = await supabase
-          .from('favorites')
-          .select('*', { count: 'exact', head: true })
-          .eq('content_id', content.id)
-          .neq('user_id', user.id);
-
-        // Comments (total accumulated)
-        const { count: comments } = await supabase
-          .from('comments')
-          .select('*', { count: 'exact', head: true })
-          .eq('content_id', content.id)
-          .neq('user_id', user.id);
-
-        // Completion rate (total)
-        const { count: completions } = await supabase
-          .from('user_progress')
-          .select('*', { count: 'exact', head: true })
-          .eq('content_id', content.id)
-          .eq('completed', true)
-          .neq('user_id', user.id);
-
-        const totalViewers = content.views_count || 1;
-        const completionRate = totalViewers > 0 ? ((completions || 0) / totalViewers) * 100 : 0;
-
-        return {
-          id: content.id,
-          title: content.title,
-          views: content.views_count || 0,
-          uniqueViewers: uniqueViewers || 0,
-          likes: likes || 0,
-          saves: saves || 0,
-          favorites: favorites || 0,
-          comments: comments || 0,
-          completionRate: Math.min(completionRate, 100),
-          avgWatchTime: uniqueViewers && uniqueViewers > 0 ? totalWatchTime / uniqueViewers : 0,
-          totalWatchTime
-        };
-      });
-
-      const metricsData = await Promise.all(metricsPromises);
-      
-      // Filter by selected content if needed
-      const filteredMetrics = selectedContent === "all" 
-        ? metricsData 
-        : metricsData.filter(m => m.id === selectedContent);
-
-      setContents(filteredMetrics);
-
-      // Calculate total stats
-      const totals = filteredMetrics.reduce((acc, curr) => ({
-        totalViews: acc.totalViews + curr.views,
-        uniqueViewers: acc.uniqueViewers + curr.uniqueViewers,
-        totalLikes: acc.totalLikes + curr.likes,
-        totalSaves: acc.totalSaves + curr.saves,
-        totalComments: acc.totalComments + curr.comments,
-        avgCompletionRate: acc.avgCompletionRate + curr.completionRate,
-        totalWatchTimeHours: acc.totalWatchTimeHours + curr.totalWatchTime
-      }), {
-        totalViews: 0,
-        uniqueViewers: 0,
-        totalLikes: 0,
-        totalSaves: 0,
-        totalComments: 0,
-        avgCompletionRate: 0,
-        totalWatchTimeHours: 0
-      });
-
-      totals.avgCompletionRate = filteredMetrics.length > 0 
-        ? totals.avgCompletionRate / filteredMetrics.length 
-        : 0;
-      totals.totalWatchTimeHours = totals.totalWatchTimeHours / 3600;
-
-      setTotalStats(totals);
-
-      // Fetch views over time
-      const contentIds = selectedContent === "all" 
-        ? creatorContents.map(c => c.id) 
-        : [selectedContent];
-
-      const { data: viewsData } = await supabase
-        .from('content_views')
-        .select('view_date, user_id')
-        .in('content_id', contentIds)
-        .neq('user_id', user.id)
-        .gte('view_date', startDate.toISOString().split('T')[0])
-        .order('view_date', { ascending: true });
-
-      // Group by date
-      const viewsByDate = viewsData?.reduce((acc: any, view) => {
-        const date = view.view_date;
-        if (!acc[date]) {
-          acc[date] = { date, views: 0, uniqueViewers: new Set() };
+        if (!creatorContents?.length) {
+          setContents([]);
+          setViewsOverTime([]);
+          setTotalStats(emptyStats);
+          return;
         }
-        acc[date].views++;
-        acc[date].uniqueViewers.add(view.user_id);
-        return acc;
-      }, {});
 
-      const timelineData = Object.values(viewsByDate || {}).map((d: any) => ({
-        date: new Date(d.date).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }),
-        views: d.views,
-        uniqueViewers: d.uniqueViewers.size
-      }));
+        const metricsData = await Promise.all(creatorContents.map(async (content) => {
+          const [viewsRes, likesRes, savesRes, favoritesRes, commentsRes, completionsRes] = await Promise.all([
+            supabase.from("content_views").select("user_id, view_count, total_watch_time_seconds").eq("content_id", content.id).neq("user_id", user.id).gte("view_date", startDateLabel),
+            supabase.from("actions").select("id", { count: "exact", head: true }).eq("content_id", content.id).eq("type", "LIKE").neq("user_id", user.id).gte("created_at", startTimestamp),
+            supabase.from("saved_contents").select("id", { count: "exact", head: true }).eq("content_id", content.id).neq("user_id", user.id).gte("created_at", startTimestamp),
+            supabase.from("favorites").select("id", { count: "exact", head: true }).eq("content_id", content.id).neq("user_id", user.id).gte("created_at", startTimestamp),
+            supabase.from("comments").select("id", { count: "exact", head: true }).eq("content_id", content.id).neq("user_id", user.id).gte("created_at", startTimestamp),
+            supabase.from("user_progress").select("id", { count: "exact", head: true }).eq("content_id", content.id).eq("completed", true).neq("user_id", user.id).gte("completed_at", startTimestamp),
+          ]);
+          const viewRows = viewsRes.data || [];
+          const views = viewRows.reduce((sum, view) => sum + Number(view.view_count || 0), 0);
+          const uniqueViewers = new Set(viewRows.map((view) => view.user_id)).size;
+          const totalWatchTime = viewRows.reduce((sum, view) => sum + Number(view.total_watch_time_seconds || 0), 0);
+          const completionRate = uniqueViewers > 0 ? ((completionsRes.count || 0) / uniqueViewers) * 100 : 0;
 
-      setViewsOverTime(timelineData);
-    } catch (error) {
-      console.error('Error fetching analytics:', error);
-    } finally {
-      setLoadingData(false);
-    }
-  };
+          return {
+            id: content.id,
+            title: content.title,
+            views,
+            uniqueViewers,
+            likes: likesRes.count || 0,
+            saves: savesRes.count || 0,
+            favorites: favoritesRes.count || 0,
+            comments: commentsRes.count || 0,
+            completionRate: Math.min(completionRate, 100),
+            avgWatchTime: uniqueViewers > 0 ? totalWatchTime / uniqueViewers : 0,
+            totalWatchTime,
+          };
+        }));
 
-  if (loading || loadingData) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-cinematic-accent mx-auto mb-4"></div>
-          <p className="text-muted-foreground">Carregando analytics...</p>
-        </div>
-      </div>
-    );
-  }
+        const filteredMetrics = selectedContent === "all"
+          ? metricsData
+          : metricsData.filter((metric) => metric.id === selectedContent);
+        setContents(filteredMetrics);
 
-  if (!user || (role !== 'creator' && role !== 'admin')) {
-    return <Navigate to="/" replace />;
-  }
+        const totals = filteredMetrics.reduce((acc, current) => ({
+          totalViews: acc.totalViews + current.views,
+          uniqueViewers: acc.uniqueViewers + current.uniqueViewers,
+          totalLikes: acc.totalLikes + current.likes,
+          totalSaves: acc.totalSaves + current.saves,
+          totalFavorites: acc.totalFavorites + current.favorites,
+          totalComments: acc.totalComments + current.comments,
+          avgCompletionRate: acc.avgCompletionRate + current.completionRate,
+          totalWatchTimeHours: acc.totalWatchTimeHours + current.totalWatchTime,
+        }), { ...emptyStats });
+        totals.avgCompletionRate = filteredMetrics.length > 0 ? totals.avgCompletionRate / filteredMetrics.length : 0;
+        totals.totalWatchTimeHours /= 3600;
+        const contentIds = selectedContent === "all" ? creatorContents.map((content) => content.id) : [selectedContent];
+        const { data: viewsData, error: viewsError } = await supabase
+          .from("content_views")
+          .select("view_date, user_id, view_count")
+          .in("content_id", contentIds)
+          .neq("user_id", user.id)
+          .gte("view_date", startDateLabel)
+          .order("view_date", { ascending: true });
+        if (viewsError) throw viewsError;
 
-  const COLORS = ['hsl(var(--cinematic-accent))', 'hsl(var(--primary))', 'hsl(var(--secondary))', 'hsl(var(--muted))'];
+        totals.uniqueViewers = new Set((viewsData || []).map((view) => view.user_id)).size;
+        setTotalStats(totals);
 
-  const engagementData = [
-    { name: 'Likes', value: totalStats.totalLikes, color: COLORS[0] },
-    { name: 'Salvos', value: totalStats.totalSaves, color: COLORS[1] },
-    { name: 'Comentários', value: totalStats.totalComments, color: COLORS[2] }
-  ];
+        const viewsByDate = (viewsData || []).reduce<Record<string, { views: number; viewers: Set<string> }>>((acc, view) => {
+          const date = view.view_date;
+          if (!acc[date]) acc[date] = { views: 0, viewers: new Set<string>() };
+          acc[date].views += Number(view.view_count || 0);
+          acc[date].viewers.add(view.user_id);
+          return acc;
+        }, {});
+        setViewsOverTime(Object.entries(viewsByDate).map(([date, value]) => ({
+          date: new Date(`${date}T12:00:00`).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" }),
+          views: value.views,
+          uniqueViewers: value.viewers.size,
+        })));
+      } catch (error) {
+        console.error("Error fetching analytics:", error);
+      } finally {
+        setLoadingData(false);
+      }
+    };
+
+    void fetchAnalytics();
+  }, [selectedContent, selectedPeriod, user]);
+
+  if (loading) return <div className="cf-v2 min-h-screen grid place-items-center bg-[var(--cf2-canvas)]"><div className="cf2-state"><span className="cf2-state__spinner" /><strong>Carregando Analytics...</strong></div></div>;
+  if (!user || (role !== "creator" && role !== "admin")) return <Navigate to="/" replace />;
+
+  const totalInteractions = totalStats.totalLikes + totalStats.totalSaves + totalStats.totalFavorites + totalStats.totalComments;
+  const watchTimeLabel = totalStats.totalWatchTimeHours >= 1
+    ? `${totalStats.totalWatchTimeHours.toFixed(1)}h`
+    : `${Math.round(totalStats.totalWatchTimeHours * 60)}min`;
 
   return (
-    <AppShell
-      variant="studio"
-      title="Analytics"
-      contentClassName="flex-1 p-4 sm:p-6 md:p-12 overflow-x-hidden"
-    >
-            <div className="max-w-7xl mx-auto space-y-6 sm:space-y-8">
-              {/* Header with filters */}
-              <div className="flex flex-col gap-4">
-                <div>
-                  <h2 className="text-xl sm:text-2xl md:text-3xl font-bold text-foreground mb-1 sm:mb-2">Analytics dos Conteúdos</h2>
-                  <p className="text-sm sm:text-base text-muted-foreground">
-                    Métricas detalhadas sobre o desempenho dos seus conteúdos
-                  </p>
-                </div>
-                
-                <div className="grid grid-cols-2 gap-2 sm:flex sm:gap-3">
-                  <Select value={selectedContent} onValueChange={setSelectedContent}>
-                    <SelectTrigger className="w-full sm:w-[200px] text-xs sm:text-sm">
-                      <SelectValue placeholder="Selecionar conteúdo" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">Todos os conteúdos</SelectItem>
-                      {contents.map(content => (
-                        <SelectItem key={content.id} value={content.id}>
-                          {content.title}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-
-                  <Select value={selectedPeriod} onValueChange={setSelectedPeriod}>
-                    <SelectTrigger className="w-full sm:w-[150px] text-xs sm:text-sm">
-                      <SelectValue placeholder="Período" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="7">Últimos 7 dias</SelectItem>
-                      <SelectItem value="30">Últimos 30 dias</SelectItem>
-                      <SelectItem value="90">Últimos 90 dias</SelectItem>
-                      <SelectItem value="365">Último ano</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
+    <AppShell variant="studio" title="Analytics" contentClassName="studio-page-shell">
+      <CreatorTemplate
+        className="studio-template"
+        width="wide"
+        density="comfortable"
+        header={
+          <PageHeader
+            eyebrow="Analytics do Studio"
+            title="Entenda o que prende a atenção."
+            description="Compare alcance, retenção e interações para decidir com mais segurança o que publicar depois."
+            action={<V2Button variant="primary" leadingIcon={<Plus className="h-4 w-4" />} onClick={() => navigate("/studio/upload?type=aula")}>Publicar conteúdo</V2Button>}
+          />
+        }
+        toolbar={
+          <div className="studio-section">
+            <StudioNavigation />
+            <div className="studio-toolbar">
+              <div className="studio-toolbar__filters">
+                <Select value={selectedContent} onValueChange={setSelectedContent}>
+                  <SelectTrigger className="studio-select-trigger"><SelectValue placeholder="Selecionar conteúdo" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Todo o catálogo</SelectItem>
+                    {contentOptions.map((content) => <SelectItem key={content.id} value={content.id}>{content.title}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+                <Select value={selectedPeriod} onValueChange={setSelectedPeriod}>
+                  <SelectTrigger className="studio-select-trigger"><SelectValue placeholder="Período" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="7">Últimos 7 dias</SelectItem>
+                    <SelectItem value="30">Últimos 30 dias</SelectItem>
+                    <SelectItem value="90">Últimos 90 dias</SelectItem>
+                    <SelectItem value="365">Último ano</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
-
-              {/* Overview Stats */}
-              <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-6">
-                <Card className="p-3 sm:p-6 bg-card border-border">
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="min-w-0">
-                      <p className="text-xs sm:text-sm text-muted-foreground mb-0.5 sm:mb-1">Visualizações</p>
-                      <p className="text-lg sm:text-2xl font-bold text-foreground">{totalStats.totalViews}</p>
-                      <p className="text-[10px] sm:text-xs text-muted-foreground mt-0.5 sm:mt-1">
-                        {totalStats.uniqueViewers} únicos
-                      </p>
-                    </div>
-                    <Eye className="w-6 h-6 sm:w-8 sm:h-8 text-blue-500 flex-shrink-0" />
-                  </div>
-                </Card>
-
-                <Card className="p-3 sm:p-6 bg-card border-border">
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="min-w-0">
-                      <p className="text-xs sm:text-sm text-muted-foreground mb-0.5 sm:mb-1">Tempo Assistido</p>
-                      <p className="text-lg sm:text-2xl font-bold text-foreground">
-                        {totalStats.totalWatchTimeHours >= 1 
-                          ? `${totalStats.totalWatchTimeHours.toFixed(1)}h`
-                          : `${Math.round(totalStats.totalWatchTimeHours * 60)}min`
-                        }
-                      </p>
-                      <p className="text-[10px] sm:text-xs text-muted-foreground mt-0.5 sm:mt-1">Total acumulado</p>
-                    </div>
-                    <Clock className="w-6 h-6 sm:w-8 sm:h-8 text-green-500 flex-shrink-0" />
-                  </div>
-                </Card>
-
-                <Card className="p-3 sm:p-6 bg-card border-border">
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="min-w-0">
-                      <p className="text-xs sm:text-sm text-muted-foreground mb-0.5 sm:mb-1">Taxa de Conclusão</p>
-                      <p className="text-lg sm:text-2xl font-bold text-foreground">
-                        {totalStats.avgCompletionRate.toFixed(1)}%
-                      </p>
-                      <p className="text-[10px] sm:text-xs text-muted-foreground mt-0.5 sm:mt-1">Média geral</p>
-                    </div>
-                    <TrendingUp className="w-6 h-6 sm:w-8 sm:h-8 text-cinematic-accent flex-shrink-0" />
-                  </div>
-                </Card>
-
-                <Card className="p-3 sm:p-6 bg-card border-border">
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="min-w-0">
-                      <p className="text-xs sm:text-sm text-muted-foreground mb-0.5 sm:mb-1">Engajamento</p>
-                      <p className="text-lg sm:text-2xl font-bold text-foreground">
-                        {totalStats.totalLikes + totalStats.totalSaves + totalStats.totalComments}
-                      </p>
-                      <p className="text-[10px] sm:text-xs text-muted-foreground mt-0.5 sm:mt-1">Total de interações</p>
-                    </div>
-                    <Heart className="w-6 h-6 sm:w-8 sm:h-8 text-red-500 flex-shrink-0" />
-                  </div>
-                </Card>
-              </div>
-
-              {/* Charts */}
-              <Tabs defaultValue="views" className="space-y-4 sm:space-y-6">
-                <TabsList className="grid w-full grid-cols-3">
-                  <TabsTrigger value="views" className="text-xs sm:text-sm">Visualizações</TabsTrigger>
-                  <TabsTrigger value="engagement" className="text-xs sm:text-sm">Engajamento</TabsTrigger>
-                  <TabsTrigger value="performance" className="text-xs sm:text-sm">Performance</TabsTrigger>
-                </TabsList>
-
-                <TabsContent value="views" className="space-y-4 sm:space-y-6">
-                  <Card className="p-4 sm:p-6 bg-card border-border">
-                    <h3 className="text-base sm:text-lg font-semibold text-foreground mb-4">Visualizações ao Longo do Tempo</h3>
-                    {viewsOverTime.length > 0 ? (
-                      <ResponsiveContainer width="100%" height={250}>
-                        <LineChart data={viewsOverTime}>
-                          <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-                          <XAxis dataKey="date" stroke="hsl(var(--foreground))" tick={{ fontSize: 10 }} />
-                          <YAxis stroke="hsl(var(--foreground))" tick={{ fontSize: 10 }} width={30} />
-                          <Tooltip 
-                            contentStyle={{ 
-                              backgroundColor: 'hsl(var(--card))', 
-                              border: '1px solid hsl(var(--border))',
-                              borderRadius: '8px',
-                              fontSize: '12px'
-                            }}
-                          />
-                          <Legend wrapperStyle={{ fontSize: '12px' }} />
-                          <Line 
-                            type="monotone" 
-                            dataKey="views" 
-                            stroke="hsl(var(--cinematic-accent))" 
-                            strokeWidth={2}
-                            name="Views Totais"
-                          />
-                          <Line 
-                            type="monotone" 
-                            dataKey="uniqueViewers" 
-                            stroke="hsl(var(--primary))" 
-                            strokeWidth={2}
-                            name="Viewers Únicos"
-                          />
-                        </LineChart>
-                      </ResponsiveContainer>
-                    ) : (
-                      <div className="h-[250px] flex items-center justify-center text-muted-foreground text-sm">
-                        Nenhum dado disponível para o período selecionado
-                      </div>
-                    )}
-                  </Card>
-                </TabsContent>
-
-                <TabsContent value="engagement" className="space-y-4 sm:space-y-6">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6">
-                    <Card className="p-4 sm:p-6 bg-card border-border">
-                      <h3 className="text-base sm:text-lg font-semibold text-foreground mb-4">Distribuição de Engajamento</h3>
-                      {engagementData.some(d => d.value > 0) ? (
-                        <ResponsiveContainer width="100%" height={300}>
-                          <PieChart>
-                            <Pie
-                              data={engagementData}
-                              cx="50%"
-                              cy="50%"
-                              labelLine={false}
-                              label={({ name, percent }) => `${name}: ${(percent * 100).toFixed(0)}%`}
-                              outerRadius={80}
-                              fill="#8884d8"
-                              dataKey="value"
-                            >
-                              {engagementData.map((entry, index) => (
-                                <Cell key={`cell-${index}`} fill={entry.color} />
-                              ))}
-                            </Pie>
-                            <Tooltip 
-                              contentStyle={{ 
-                                backgroundColor: 'hsl(var(--card))', 
-                                border: '1px solid hsl(var(--border))',
-                                borderRadius: '8px'
-                              }}
-                            />
-                          </PieChart>
-                        </ResponsiveContainer>
-                      ) : (
-                        <div className="h-[300px] flex items-center justify-center text-muted-foreground">
-                          Nenhuma interação registrada
-                        </div>
-                      )}
-                    </Card>
-
-                    <Card className="p-4 sm:p-6 bg-card border-border">
-                      <h3 className="text-base sm:text-lg font-semibold text-foreground mb-4">Métricas de Engajamento</h3>
-                      <div className="space-y-3 sm:space-y-4">
-                        <div className="flex items-center justify-between p-3 bg-muted/50 rounded-lg">
-                          <div className="flex items-center gap-3">
-                            <Heart className="w-5 h-5 text-red-500" />
-                            <span className="text-foreground">Likes</span>
-                          </div>
-                          <Badge variant="secondary">{totalStats.totalLikes}</Badge>
-                        </div>
-                        <div className="flex items-center justify-between p-3 bg-muted/50 rounded-lg">
-                          <div className="flex items-center gap-3">
-                            <Bookmark className="w-5 h-5 text-blue-500" />
-                            <span className="text-foreground">Salvos</span>
-                          </div>
-                          <Badge variant="secondary">{totalStats.totalSaves}</Badge>
-                        </div>
-                        <div className="flex items-center justify-between p-3 bg-muted/50 rounded-lg">
-                          <div className="flex items-center gap-3">
-                            <MessageSquare className="w-5 h-5 text-green-500" />
-                            <span className="text-foreground">Comentários</span>
-                          </div>
-                          <Badge variant="secondary">{totalStats.totalComments}</Badge>
-                        </div>
-                      </div>
-                    </Card>
-                  </div>
-                </TabsContent>
-
-                <TabsContent value="performance" className="space-y-4 sm:space-y-6">
-                  <Card className="p-4 sm:p-6 bg-card border-border">
-                    <h3 className="text-base sm:text-lg font-semibold text-foreground mb-4">Performance por Conteúdo</h3>
-                    {contents.length > 0 ? (
-                      <ResponsiveContainer width="100%" height={300}>
-                        <BarChart data={contents} margin={{ bottom: 60 }}>
-                          <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-                          <XAxis 
-                            dataKey="title" 
-                            stroke="hsl(var(--foreground))"
-                            angle={-45}
-                            textAnchor="end"
-                            height={80}
-                            tick={{ fontSize: 10 }}
-                            interval={0}
-                          />
-                          <YAxis stroke="hsl(var(--foreground))" tick={{ fontSize: 10 }} width={30} />
-                          <Tooltip 
-                            contentStyle={{ 
-                              backgroundColor: 'hsl(var(--card))', 
-                              border: '1px solid hsl(var(--border))',
-                              borderRadius: '8px',
-                              fontSize: '12px'
-                            }}
-                          />
-                          <Legend wrapperStyle={{ fontSize: '12px' }} />
-                          <Bar dataKey="uniqueViewers" fill="hsl(var(--cinematic-accent))" name="Viewers Únicos" />
-                          <Bar dataKey="likes" fill="hsl(var(--primary))" name="Likes" />
-                        </BarChart>
-                      </ResponsiveContainer>
-                    ) : (
-                      <div className="h-[300px] flex items-center justify-center text-muted-foreground text-sm">
-                        Nenhum conteúdo disponível
-                      </div>
-                    )}
-                  </Card>
-
-                  {/* Desktop table */}
-                  <Card className="p-4 sm:p-6 bg-card border-border hidden md:block">
-                    <h3 className="text-base sm:text-lg font-semibold text-foreground mb-4">Detalhamento por Conteúdo</h3>
-                    <div className="overflow-x-auto">
-                      <table className="w-full">
-                        <thead>
-                          <tr className="border-b border-border">
-                            <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">Título</th>
-                            <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">Views</th>
-                            <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">Únicos</th>
-                            <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">Taxa Conclusão</th>
-                            <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">Tempo Médio</th>
-                            <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">Engajamento</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {contents.map((content) => (
-                            <tr key={content.id} className="border-b border-border hover:bg-muted/50 transition-colors">
-                              <td className="py-3 px-4 text-sm text-foreground max-w-xs truncate">
-                                {content.title}
-                              </td>
-                              <td className="py-3 px-4 text-sm text-foreground">{content.views}</td>
-                              <td className="py-3 px-4 text-sm text-foreground">{content.uniqueViewers}</td>
-                              <td className="py-3 px-4 text-sm text-foreground">
-                                {content.completionRate.toFixed(1)}%
-                              </td>
-                              <td className="py-3 px-4 text-sm text-foreground">
-                                {Math.floor(content.avgWatchTime / 60)}m {Math.floor(content.avgWatchTime % 60)}s
-                              </td>
-                              <td className="py-3 px-4 text-sm text-foreground">
-                                {content.likes + content.saves + content.comments}
-                              </td>
-                            </tr>
-                          ))}
-                          {contents.length === 0 && (
-                            <tr>
-                              <td colSpan={6} className="py-8 text-center text-muted-foreground">
-                                Nenhum conteúdo encontrado
-                              </td>
-                            </tr>
-                          )}
-                        </tbody>
-                      </table>
-                    </div>
-                  </Card>
-
-                  {/* Mobile cards */}
-                  <div className="md:hidden space-y-3">
-                    <h3 className="text-base font-semibold text-foreground">Detalhamento por Conteúdo</h3>
-                    {contents.length > 0 ? (
-                      contents.map((content) => (
-                        <Card key={content.id} className="p-4 bg-card border-border">
-                          <p className="font-medium text-foreground text-sm mb-3 truncate">{content.title}</p>
-                          <div className="grid grid-cols-3 gap-3 text-center">
-                            <div>
-                              <p className="text-lg font-bold text-foreground">{content.views}</p>
-                              <p className="text-[10px] text-muted-foreground">Views</p>
-                            </div>
-                            <div>
-                              <p className="text-lg font-bold text-foreground">{content.uniqueViewers}</p>
-                              <p className="text-[10px] text-muted-foreground">Únicos</p>
-                            </div>
-                            <div>
-                              <p className="text-lg font-bold text-foreground">{content.likes + content.saves + content.comments}</p>
-                              <p className="text-[10px] text-muted-foreground">Engajamento</p>
-                            </div>
-                          </div>
-                          <div className="grid grid-cols-2 gap-3 text-center mt-3 pt-3 border-t border-border">
-                            <div>
-                              <p className="text-sm font-semibold text-foreground">{content.completionRate.toFixed(1)}%</p>
-                              <p className="text-[10px] text-muted-foreground">Conclusão</p>
-                            </div>
-                            <div>
-                              <p className="text-sm font-semibold text-foreground">
-                                {Math.floor(content.avgWatchTime / 60)}m {Math.floor(content.avgWatchTime % 60)}s
-                              </p>
-                              <p className="text-[10px] text-muted-foreground">Tempo Médio</p>
-                            </div>
-                          </div>
-                        </Card>
-                      ))
-                    ) : (
-                      <Card className="p-8 bg-card border-border">
-                        <p className="text-center text-muted-foreground text-sm">Nenhum conteúdo encontrado</p>
-                      </Card>
-                    )}
-                  </div>
-                </TabsContent>
-              </Tabs>
+              <span className="studio-toolbar__count">{selectedContent === "all" ? "Visão consolidada" : "Conteúdo selecionado"}</span>
             </div>
+          </div>
+        }
+      >
+        <div className="studio-stack" aria-busy={loadingData}>
+          <section className="studio-section">
+            <V2SectionHeader eyebrow="Resumo" title="Desempenho no período" description="Visualizações e tempo assistido respeitam o intervalo selecionado." />
+            <div className="studio-metrics">
+              <StudioMetricCard icon={Eye} label="Visualizações" value={totalStats.totalViews.toLocaleString("pt-BR")} detail={`${totalStats.uniqueViewers.toLocaleString("pt-BR")} pessoas alcançadas`} tone="accent" />
+              <StudioMetricCard icon={Clock} label="Tempo assistido" value={watchTimeLabel} detail="Tempo total consumido" tone="success" />
+              <StudioMetricCard icon={Target} label="Conclusão média" value={`${totalStats.avgCompletionRate.toFixed(1)}%`} detail="Pessoas que chegaram ao final" />
+              <StudioMetricCard icon={Heart} label="Interações" value={totalInteractions.toLocaleString("pt-BR")} detail="Curtidas, salvos, favoritos e comentários" tone="warning" />
+            </div>
+          </section>
+
+          <section className="studio-section">
+            <V2SectionHeader eyebrow="Leitura" title="Como a audiência respondeu" description="Alterne a visão para comparar alcance, interação e desempenho entre publicações." />
+            <Tabs defaultValue="views" className="studio-tabs">
+              <TabsList>
+                <TabsTrigger value="views">Audiência</TabsTrigger>
+                <TabsTrigger value="engagement">Interações</TabsTrigger>
+                <TabsTrigger value="performance">Publicações</TabsTrigger>
+              </TabsList>
+
+              <TabsContent value="views">
+                <V2Card className="studio-chart-card studio-panel">
+                  <V2CardHeader><div className="studio-panel-heading"><span className="studio-icon" data-tone="accent"><BarChart3 /></span><div><h3>Visualizações ao longo do tempo</h3><p>Total de reproduções e pessoas diferentes por dia.</p></div></div></V2CardHeader>
+                  <V2CardContent>
+                    {loadingData ? <div className="studio-chart-empty">Atualizando dados...</div> : viewsOverTime.length > 0 ? (
+                      <div className="studio-chart">
+                        <ResponsiveContainer width="100%" height="100%">
+                          <LineChart data={viewsOverTime} margin={{ top: 10, right: 12, left: -20, bottom: 0 }}>
+                            <CartesianGrid vertical={false} stroke="var(--cf2-border)" />
+                            <XAxis dataKey="date" axisLine={false} tickLine={false} tick={{ fill: "var(--cf2-ink-subtle)", fontSize: 11 }} />
+                            <YAxis axisLine={false} tickLine={false} allowDecimals={false} tick={{ fill: "var(--cf2-ink-subtle)", fontSize: 11 }} />
+                            <Tooltip contentStyle={{ background: "var(--cf2-surface-raised)", borderColor: "var(--cf2-border)" }} />
+                            <Line type="monotone" dataKey="views" stroke="var(--cf2-accent)" strokeWidth={2.5} dot={false} name="Visualizações" />
+                            <Line type="monotone" dataKey="uniqueViewers" stroke="var(--cf2-ink-secondary)" strokeWidth={1.5} dot={false} name="Pessoas" />
+                          </LineChart>
+                        </ResponsiveContainer>
+                      </div>
+                    ) : <div className="studio-chart-empty">Ainda não há visualizações neste período.</div>}
+                  </V2CardContent>
+                </V2Card>
+              </TabsContent>
+
+              <TabsContent value="engagement">
+                <div className="studio-workspace-grid">
+                  <V2Card className="studio-chart-card studio-panel">
+                    <V2CardHeader><div className="studio-panel-heading"><span className="studio-icon" data-tone="warning"><Heart /></span><div><h3>Interações por tipo</h3><p>Como as pessoas reagiram às publicações.</p></div></div></V2CardHeader>
+                    <V2CardContent>
+                      {totalInteractions > 0 ? (
+                        <div className="studio-chart"><ResponsiveContainer width="100%" height="100%"><BarChart data={[{ name: "Curtidas", value: totalStats.totalLikes }, { name: "Salvos", value: totalStats.totalSaves }, { name: "Favoritos", value: totalStats.totalFavorites }, { name: "Comentários", value: totalStats.totalComments }]} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}><CartesianGrid vertical={false} stroke="var(--cf2-border)" /><XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fill: "var(--cf2-ink-subtle)", fontSize: 11 }} /><YAxis axisLine={false} tickLine={false} allowDecimals={false} tick={{ fill: "var(--cf2-ink-subtle)", fontSize: 11 }} /><Tooltip contentStyle={{ background: "var(--cf2-surface-raised)", borderColor: "var(--cf2-border)" }} /><Bar dataKey="value" fill="var(--cf2-accent)" radius={[6, 6, 0, 0]} name="Interações" /></BarChart></ResponsiveContainer></div>
+                      ) : <div className="studio-chart-empty">Ainda não há interações para comparar.</div>}
+                    </V2CardContent>
+                  </V2Card>
+                  <V2Card className="studio-panel">
+                    <V2CardHeader><div className="studio-panel-heading"><span className="studio-icon"><Users /></span><div><h3>Resumo das interações</h3><p>Totais dentro do período selecionado.</p></div></div></V2CardHeader>
+                    <V2CardContent>
+                      <div className="studio-list">
+                        <div className="studio-list__item"><Heart className="h-4 w-4" /><div className="studio-list__copy"><strong>Curtidas</strong><p>Sinal rápido de interesse</p></div><span className="studio-list__value">{totalStats.totalLikes}</span></div>
+                        <div className="studio-list__item"><Target className="h-4 w-4" /><div className="studio-list__copy"><strong>Salvos</strong><p>Conteúdo guardado para rever</p></div><span className="studio-list__value">{totalStats.totalSaves}</span></div>
+                        <div className="studio-list__item"><Heart className="h-4 w-4" /><div className="studio-list__copy"><strong>Favoritos</strong><p>Conteúdo marcado como preferido</p></div><span className="studio-list__value">{totalStats.totalFavorites}</span></div>
+                        <div className="studio-list__item"><MessageSquare className="h-4 w-4" /><div className="studio-list__copy"><strong>Comentários</strong><p>Conversas iniciadas</p></div><span className="studio-list__value">{totalStats.totalComments}</span></div>
+                      </div>
+                    </V2CardContent>
+                  </V2Card>
+                </div>
+              </TabsContent>
+
+              <TabsContent value="performance">
+                <V2Card className="studio-chart-card studio-panel">
+                  <V2CardHeader><div className="studio-panel-heading"><span className="studio-icon" data-tone="success"><BarChart3 /></span><div><h3>Visualizações por publicação</h3><p>Compare quais conteúdos atraíram mais reproduções no período.</p></div></div></V2CardHeader>
+                  <V2CardContent>
+                    {contents.length > 0 ? (
+                      <div className="studio-chart"><ResponsiveContainer width="100%" height="100%"><BarChart data={contents} margin={{ top: 10, right: 10, left: -20, bottom: 45 }}><CartesianGrid vertical={false} stroke="var(--cf2-border)" /><XAxis dataKey="title" axisLine={false} tickLine={false} angle={-20} textAnchor="end" height={70} interval={0} tick={{ fill: "var(--cf2-ink-subtle)", fontSize: 10 }} /><YAxis axisLine={false} tickLine={false} allowDecimals={false} tick={{ fill: "var(--cf2-ink-subtle)", fontSize: 11 }} /><Tooltip contentStyle={{ background: "var(--cf2-surface-raised)", borderColor: "var(--cf2-border)" }} /><Bar dataKey="views" fill="var(--cf2-accent)" radius={[6, 6, 0, 0]} name="Visualizações" /></BarChart></ResponsiveContainer></div>
+                    ) : <div className="studio-chart-empty">Publique um conteúdo para começar a comparar.</div>}
+                  </V2CardContent>
+                </V2Card>
+              </TabsContent>
+            </Tabs>
+          </section>
+
+          <section className="studio-section">
+            <V2SectionHeader eyebrow="Detalhamento" title="Resultado por publicação" description="Compare audiência, retenção e interação em uma única leitura." />
+            {contents.length > 0 ? (
+              <V2TableWrap className="studio-table-wrap">
+                <V2Table>
+                  <thead><tr><th>Publicação</th><th>Views</th><th>Pessoas</th><th>Conclusão</th><th>Tempo médio</th><th>Interações</th></tr></thead>
+                  <tbody>
+                    {contents.map((content) => (
+                      <tr key={content.id}><td className="studio-table-title">{content.title}</td><td>{content.views}</td><td>{content.uniqueViewers}</td><td>{content.completionRate.toFixed(1)}%</td><td>{formatWatchTime(content.avgWatchTime)}</td><td>{content.likes + content.saves + content.favorites + content.comments}</td></tr>
+                    ))}
+                  </tbody>
+                </V2Table>
+              </V2TableWrap>
+            ) : (
+              <V2EmptyState icon={<BarChart3 className="h-5 w-5" />} title="Ainda não há dados para analisar" description="Publique um conteúdo ou altere os filtros para encontrar resultados." action={<V2Button onClick={() => navigate("/studio/upload?type=aula")}>Publicar conteúdo</V2Button>} />
+            )}
+          </section>
+        </div>
+      </CreatorTemplate>
     </AppShell>
   );
 }

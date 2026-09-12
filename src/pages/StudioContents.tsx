@@ -1,18 +1,43 @@
-import { useAuth } from "@/contexts/AuthContext";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { Navigate, useNavigate } from "react-router-dom";
-import { AppShell } from "@/components/layout";
-import { useState, useEffect } from "react";
+import {
+  BookOpen,
+  Edit,
+  Eye,
+  Library,
+  MoreVertical,
+  Plus,
+  Podcast,
+  Radio,
+  Search,
+  Trash2,
+  Video,
+  Zap,
+} from "lucide-react";
+import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { Video, Podcast, Zap, Radio, BookOpen, Eye, Trash2, MoreVertical, Edit } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { Checkbox } from "@/components/ui/checkbox";
-import { BoostModal } from "@/components/BoostModal";
 import { useBoostContent } from "@/hooks/useBoostContent";
+import type { BoostItemType } from "@/hooks/useBoostContent";
+import { AppShell, PageHeader } from "@/components/layout";
+import { CreatorTemplate } from "@/components/templates";
+import { StudioMetricCard } from "@/components/studio/StudioMetricCard";
+import { StudioNavigation } from "@/components/studio/StudioNavigation";
+import {
+  V2Button,
+  V2Card,
+  V2EmptyState,
+  V2SectionHeader,
+  V2Table,
+  V2TableWrap,
+} from "@/components/v2";
+import { Button } from "@/components/ui/button";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import "@/styles/studio-v2.css";
+
+const BoostModal = lazy(() => import("@/components/BoostModal").then((module) => ({ default: module.BoostModal })));
+
 interface Content {
   id: string;
   title: string;
@@ -24,390 +49,231 @@ interface Content {
   views_count: number | null;
   visibility: string | null;
 }
-export default function StudioContents() {
-  const {
-    user,
-    role,
-    loading
-  } = useAuth();
-  const navigate = useNavigate();
-  const {
-    toast
-  } = useToast();
-  const [contents, setContents] = useState<Content[]>([]);
-  const [filteredContents, setFilteredContents] = useState<Content[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [filterType, setFilterType] = useState<string>("all");
-  const [selectedContents, setSelectedContents] = useState<Set<string>>(new Set());
-  const { isBoostModalOpen, selectedContent, openBoostModal, closeBoostModal } = useBoostContent();
-  useEffect(() => {
-    if (user) {
-      fetchContents();
-      
-      // Subscribe to realtime updates for creator's contents and courses
-      const contentsChannel = supabase
-        .channel('studio-contents')
-        .on(
-          'postgres_changes',
-          {
-            event: 'UPDATE',
-            schema: 'public',
-            table: 'contents',
-            filter: `creator_id=eq.${user.id}`,
-          },
-          (payload) => {
-            console.log('Content updated:', payload);
-            fetchContents();
-          }
-        )
-        .on(
-          'postgres_changes',
-          {
-            event: '*',
-            schema: 'public',
-            table: 'courses',
-            filter: `creator_id=eq.${user.id}`,
-          },
-          (payload) => {
-            console.log('Course updated:', payload);
-            fetchContents();
-          }
-        )
-        .subscribe();
 
-      return () => {
-        supabase.removeChannel(contentsChannel);
-      };
-    }
-  }, [user]);
-  useEffect(() => {
-    if (filterType === "all") {
-      setFilteredContents(contents);
-    } else {
-      setFilteredContents(contents.filter(c => c.content_type === filterType));
-    }
-  }, [filterType, contents]);
-  const fetchContents = async () => {
+const typeLabels: Record<string, string> = {
+  aula: "Aula",
+  podcast: "Podcast",
+  short: "Short",
+  live: "Live",
+  curso: "Curso",
+};
+
+const statusLabels: Record<string, string> = {
+  approved: "Publicado",
+  pending: "Em análise",
+  rejected: "Revisão necessária",
+};
+
+const visibilityLabels: Record<string, string> = {
+  free: "Público",
+  pro: "Pro",
+  premium: "Premium",
+  paid: "Pago",
+};
+
+const typeIcons = { aula: Video, podcast: Podcast, short: Zap, live: Radio, curso: BookOpen };
+
+export default function StudioContents() {
+  const { user, role, loading } = useAuth();
+  const navigate = useNavigate();
+  const { toast } = useToast();
+  const [contents, setContents] = useState<Content[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [filterType, setFilterType] = useState("all");
+  const [filterStatus, setFilterStatus] = useState("all");
+  const [search, setSearch] = useState("");
+  const { isBoostModalOpen, selectedContent, openBoostModal, closeBoostModal } = useBoostContent();
+  const contentRoute = (content: Content) => `/watch/${content.id}${content.content_type === "curso" ? "?type=course" : ""}`;
+  const boostItemType = (content: Content) => content.content_type as BoostItemType;
+
+  const fetchContents = useCallback(async () => {
     if (!user) return;
     try {
-      // Buscar conteúdos regulares
-      const {
-        data: contentsData,
-        error: contentsError
-      } = await supabase.from('contents').select('*').eq('creator_id', user.id).order('created_at', {
-        ascending: false
-      });
-      
-      if (contentsError) throw contentsError;
-      
-      // Buscar cursos
-      const {
-        data: coursesData,
-        error: coursesError
-      } = await supabase.from('courses').select('*').eq('creator_id', user.id).order('created_at', {
-        ascending: false
-      });
-      
-      if (coursesError) throw coursesError;
-      
-      // Mapear cursos para o formato de Content
-      const mappedCourses = (coursesData || []).map(course => ({
+      const [contentsRes, coursesRes] = await Promise.all([
+        supabase.from("contents").select("*").eq("creator_id", user.id).order("created_at", { ascending: false }),
+        supabase.from("courses").select("*").eq("creator_id", user.id).order("created_at", { ascending: false }),
+      ]);
+      if (contentsRes.error) throw contentsRes.error;
+      if (coursesRes.error) throw coursesRes.error;
+
+      const mappedCourses = (coursesRes.data || []).map((course) => ({
         id: course.id,
         title: course.title,
         description: course.description,
-        content_type: 'curso',
+        content_type: "curso",
         thumbnail_url: course.thumbnail_url,
         status: course.status,
         created_at: course.created_at,
         views_count: course.views_count,
-        visibility: course.visibility
+        visibility: course.visibility,
       }));
-      
-      // Combinar e ordenar por data de criação
-      const allContent = [...(contentsData || []), ...mappedCourses].sort(
-        (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-      );
-      
-      setContents(allContent);
-      setFilteredContents(allContent);
+      setContents([...(contentsRes.data || []), ...mappedCourses].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()) as Content[]);
     } catch (error) {
-      console.error('Error fetching contents:', error);
-      toast({
-        title: "Erro ao carregar conteúdos",
-        description: "Não foi possível carregar seus conteúdos",
-        variant: "destructive"
-      });
+      console.error("Error fetching contents:", error);
+      toast({ title: "Não foi possível carregar o catálogo", description: "Tente novamente em alguns instantes.", variant: "destructive" });
     } finally {
       setIsLoading(false);
     }
-  };
-  const handleDelete = async (contentId: string, contentType: string) => {
-    if (!confirm('Tem certeza que deseja deletar este conteúdo?')) return;
-    try {
-      // Determinar qual tabela usar baseado no tipo
-      const table = contentType === 'curso' ? 'courses' : 'contents';
-      
-      const {
-        error
-      } = await supabase.from(table).delete().eq('id', contentId);
-      
-      if (error) throw error;
-      toast({
-        title: "Conteúdo deletado",
-        description: "O conteúdo foi removido com sucesso"
-      });
-      fetchContents();
-    } catch (error) {
-      console.error('Error deleting content:', error);
-      toast({
-        title: "Erro ao deletar",
-        description: "Não foi possível deletar o conteúdo",
-        variant: "destructive"
-      });
-    }
-  };
-  const getTypeIcon = (type: string) => {
-    switch (type) {
-      case 'aula':
-        return Video;
-      case 'podcast':
-        return Podcast;
-      case 'short':
-        return Zap;
-      case 'live':
-        return Radio;
-      case 'curso':
-        return BookOpen;
-      default:
-        return Video;
-    }
-  };
-  const getTypeLabel = (type: string) => {
-    switch (type) {
-      case 'aula':
-        return 'Aula';
-      case 'podcast':
-        return 'Podcast';
-      case 'short':
-        return 'Short';
-      case 'live':
-        return 'Live';
-      case 'curso':
-        return 'Curso';
-      default:
-        return type;
-    }
-  };
-  const getStatusBadge = (status: string | null) => {
-    switch (status) {
-      case 'approved':
-        return <Badge variant="default" className="bg-green-500">Aprovado</Badge>;
-      case 'pending':
-        return <Badge variant="secondary">Pendente</Badge>;
-      case 'rejected':
-        return <Badge variant="destructive">Rejeitado</Badge>;
-      default:
-        return <Badge variant="outline">Desconhecido</Badge>;
-    }
-  };
-  const getVisibilityLabel = (visibility: string | null) => {
-    switch (visibility) {
-      case 'free':
-        return 'Público';
-      case 'pro':
-        return 'Pro';
-      case 'premium':
-        return 'Premium';
-      case 'paid':
-        return 'Pago';
-      default:
-        return 'Público';
-    }
-  };
-  const formatDate = (dateString: string) => {
-    const date = new Date(dateString);
-    return date.toLocaleDateString('pt-BR', {
-      day: '2-digit',
-      month: 'short',
-      year: 'numeric'
-    });
-  };
-  const toggleSelectAll = () => {
-    if (selectedContents.size === filteredContents.length) {
-      setSelectedContents(new Set());
-    } else {
-      setSelectedContents(new Set(filteredContents.map(c => c.id)));
-    }
-  };
-  const toggleSelect = (contentId: string) => {
-    const newSelected = new Set(selectedContents);
-    if (newSelected.has(contentId)) {
-      newSelected.delete(contentId);
-    } else {
-      newSelected.add(contentId);
-    }
-    setSelectedContents(newSelected);
-  };
-  if (loading) {
-    return <div className="min-h-screen flex items-center justify-center">Carregando...</div>;
-  }
-  if (!user || role !== 'creator' && role !== 'admin') {
-    return <Navigate to="/" replace />;
-  }
-  return <AppShell variant="studio" title="Meus Conteúdos" contentClassName="flex-1 p-6">
-            <div className="max-w-full space-y-4">
-              {/* Filtros */}
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-4">
-                  <Select value={filterType} onValueChange={setFilterType}>
-                    <SelectTrigger className="w-[200px]">
-                      <SelectValue placeholder="Filtrar por tipo" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">Todos</SelectItem>
-                      <SelectItem value="aula">Aulas</SelectItem>
-                      <SelectItem value="curso">Cursos</SelectItem>
-                      <SelectItem value="podcast">Podcasts</SelectItem>
-                      <SelectItem value="short">Shorts</SelectItem>
-                      <SelectItem value="live">Lives</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  
-                  <p className="text-sm text-muted-foreground">
-                    {filteredContents.length} {filteredContents.length === 1 ? 'conteúdo' : 'conteúdos'}
-                  </p>
-                </div>
-              </div>
+  }, [toast, user]);
 
-              {/* Tabela de Conteúdos */}
-              {isLoading ? <div className="text-center py-12">Carregando...</div> : filteredContents.length === 0 ? <div className="border border-dashed rounded-lg p-12 text-center">
-                  <Video className="w-12 h-12 mx-auto mb-4 text-muted-foreground" />
-                  <h3 className="text-xl font-bold mb-2">
-                    {filterType === 'all' ? 'Nenhum conteúdo ainda' : 'Nenhum conteúdo deste tipo'}
-                  </h3>
-                  <p className="text-muted-foreground mb-6">
-                    {filterType === 'all' ? 'Comece criando seu primeiro conteúdo' : 'Tente outro filtro ou crie um novo conteúdo'}
-                  </p>
-                  <Button onClick={() => navigate('/studio/upload')}>
-                    Criar Conteúdo
-                  </Button>
-                </div> : <div className="border rounded-lg overflow-hidden">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead className="w-[5%]">
-                          <Checkbox checked={selectedContents.size === filteredContents.length} onCheckedChange={toggleSelectAll} />
-                        </TableHead>
-                        <TableHead className="w-[40%]">Vídeo</TableHead>
-                        <TableHead className="w-[10%]">Visibilidade</TableHead>
-                        <TableHead className="w-[10%]">Status</TableHead>
-                        <TableHead className="w-[15%]">Data</TableHead>
-                        <TableHead className="text-right w-[10%]">Visualizações</TableHead>
-                        <TableHead className="w-[5%]"></TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {filteredContents.map(content => {
-                    const TypeIcon = getTypeIcon(content.content_type);
-                    return <TableRow key={content.id} className="hover:bg-muted/50">
-                            <TableCell>
-                              <Checkbox checked={selectedContents.has(content.id)} onCheckedChange={() => toggleSelect(content.id)} />
-                            </TableCell>
-                            <TableCell>
-                              <div className="flex items-center gap-3">
-                                {/* Thumbnail */}
-                                <div className="relative w-32 h-18 bg-muted rounded overflow-hidden flex-shrink-0">
-                                  {content.thumbnail_url ? <img src={content.thumbnail_url} alt={content.title} className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center">
-                                      <TypeIcon className="w-6 h-6 text-muted-foreground" />
-                                    </div>}
-                                </div>
-                                
-                                {/* Info */}
-                                <div className="flex-1 min-w-0">
-                                  <h3 className="font-medium text-foreground line-clamp-2 mb-1 text-sm">
-                                    {content.title}
-                                  </h3>
-                                  {content.description && <p className="text-sm text-muted-foreground line-clamp-1">
-                                      {content.description}
-                                    </p>}
-                                  <div className="flex items-center gap-2 mt-1">
-                                    <span className="text-xs text-muted-foreground capitalize">
-                                      {getTypeLabel(content.content_type)}
-                                    </span>
-                                  </div>
-                                </div>
-                              </div>
-                            </TableCell>
-                            <TableCell>
-                              <span className="text-sm">
-                                {getVisibilityLabel(content.visibility)}
-                              </span>
-                            </TableCell>
-                             <TableCell>
-                               <div className="flex flex-col gap-1.5">
-                                 {getStatusBadge(content.status)}
-                                 {content.status === 'approved' && (
-                                   <Button
-                                     size="sm"
-                                     onClick={() => openBoostModal(content.id, content.title, content.content_type as any)}
-                                     className="bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 text-white border-0 h-7 px-2 text-xs gap-1"
-                                   >
-                                     <Zap className="w-3 h-3" />
-                                     Boost
-                                   </Button>
-                                 )}
-                               </div>
-                             </TableCell>
-                             <TableCell>
-                               <span className="text-sm text-muted-foreground">
-                                 {formatDate(content.created_at)}
-                               </span>
-                             </TableCell>
-                             <TableCell className="text-right">
-                               <div className="flex items-center justify-end gap-1">
-                                 <Eye className="w-4 h-4 text-muted-foreground" />
-                                 <span className="text-sm">{content.views_count || 0}</span>
-                               </div>
-                             </TableCell>
-                             <TableCell>
-                               <DropdownMenu>
-                                 <DropdownMenuTrigger asChild>
-                                   <Button variant="ghost" size="icon">
-                                     <MoreVertical className="w-4 h-4" />
-                                   </Button>
-                                 </DropdownMenuTrigger>
-                                 <DropdownMenuContent align="end">
-                                   <DropdownMenuItem onClick={() => navigate(content.content_type === 'curso' ? `/study/${content.id}` : `/watch/${content.id}`)}>
-                                     <Eye className="w-4 h-4 mr-2" />
-                                     Ver
-                                   </DropdownMenuItem>
-                                   <DropdownMenuItem onClick={() => openBoostModal(content.id, content.title, content.content_type as any)}>
-                                     <Zap className="w-4 h-4 mr-2" />
-                                     Impulsionar
-                                   </DropdownMenuItem>
-                                   <DropdownMenuItem onClick={() => navigate(`/studio/upload?edit=${content.id}`)}>
-                                     <Edit className="w-4 h-4 mr-2" />
-                                     Editar
-                                   </DropdownMenuItem>
-                                   <DropdownMenuItem onClick={() => handleDelete(content.id, content.content_type)} className="text-destructive">
-                                     <Trash2 className="w-4 h-4 mr-2" />
-                                     Deletar
-                                   </DropdownMenuItem>
-                                 </DropdownMenuContent>
-                               </DropdownMenu>
-                             </TableCell>
-                           </TableRow>;
-                   })}
-                     </TableBody>
-                   </Table>
-                 </div>}
+  useEffect(() => {
+    if (!user) return;
+    void fetchContents();
+    const channel = supabase
+      .channel("studio-contents")
+      .on("postgres_changes", { event: "*", schema: "public", table: "contents", filter: `creator_id=eq.${user.id}` }, () => void fetchContents())
+      .on("postgres_changes", { event: "*", schema: "public", table: "courses", filter: `creator_id=eq.${user.id}` }, () => void fetchContents())
+      .subscribe();
+    return () => { void supabase.removeChannel(channel); };
+  }, [fetchContents, user]);
+
+  const filteredContents = useMemo(() => {
+    const normalizedSearch = search.trim().toLocaleLowerCase("pt-BR");
+    return contents.filter((content) => {
+      const matchesType = filterType === "all" || content.content_type === filterType;
+      const matchesStatus = filterStatus === "all" || content.status === filterStatus;
+      const matchesSearch = !normalizedSearch || content.title.toLocaleLowerCase("pt-BR").includes(normalizedSearch) || content.description?.toLocaleLowerCase("pt-BR").includes(normalizedSearch);
+      return matchesType && matchesStatus && matchesSearch;
+    });
+  }, [contents, filterStatus, filterType, search]);
+
+  const summary = useMemo(() => ({
+    approved: contents.filter((content) => content.status === "approved").length,
+    pending: contents.filter((content) => content.status === "pending").length,
+    views: contents.reduce((sum, content) => sum + Number(content.views_count || 0), 0),
+  }), [contents]);
+
+  const handleDelete = async (contentId: string, contentType: string) => {
+    if (!window.confirm("Excluir este conteúdo? Esta ação não pode ser desfeita.")) return;
+    try {
+      const table = contentType === "curso" ? "courses" : "contents";
+      const { error } = await supabase.from(table).delete().eq("id", contentId);
+      if (error) throw error;
+      toast({ title: "Conteúdo excluído", description: "O item foi removido do catálogo." });
+      await fetchContents();
+    } catch (error) {
+      console.error("Error deleting content:", error);
+      toast({ title: "Não foi possível excluir", description: "Revise o conteúdo e tente novamente.", variant: "destructive" });
+    }
+  };
+
+  const formatDate = (value: string) => new Date(value).toLocaleDateString("pt-BR", { day: "2-digit", month: "short", year: "numeric" });
+
+  if (loading) return <div className="cf-v2 min-h-screen grid place-items-center bg-[var(--cf2-canvas)]"><div className="cf2-state"><span className="cf2-state__spinner" /><strong>Carregando seu catálogo...</strong></div></div>;
+  if (!user || (role !== "creator" && role !== "admin")) return <Navigate to="/" replace />;
+
+  const renderActions = (content: Content) => (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild><Button variant="ghost" size="icon" aria-label={`Ações de ${content.title}`}><MoreVertical className="h-4 w-4" /></Button></DropdownMenuTrigger>
+      <DropdownMenuContent align="end">
+        <DropdownMenuItem onClick={() => navigate(contentRoute(content))}><Eye className="mr-2 h-4 w-4" />Abrir</DropdownMenuItem>
+        {content.status === "approved" && <DropdownMenuItem onClick={() => openBoostModal(content.id, content.title, boostItemType(content))}><Zap className="mr-2 h-4 w-4" />Impulsionar</DropdownMenuItem>}
+        <DropdownMenuItem onClick={() => navigate(`/studio/upload?edit=${content.id}`)}><Edit className="mr-2 h-4 w-4" />Editar</DropdownMenuItem>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem className="text-destructive focus:text-destructive" onClick={() => void handleDelete(content.id, content.content_type)}><Trash2 className="mr-2 h-4 w-4" />Excluir</DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+
+  return (
+    <AppShell variant="studio" title="Conteúdos" contentClassName="studio-page-shell">
+      <CreatorTemplate
+        className="studio-template"
+        width="wide"
+        density="comfortable"
+        header={
+          <PageHeader
+            eyebrow="Catálogo do Studio"
+            title="Tudo o que você publicou."
+            description="Acompanhe status, visibilidade e desempenho de cada aula, podcast, short, live ou curso."
+            action={<V2Button variant="primary" leadingIcon={<Plus className="h-4 w-4" />} onClick={() => navigate("/studio/upload?type=aula")}>Publicar conteúdo</V2Button>}
+          />
+        }
+        toolbar={
+          <div className="studio-section">
+            <StudioNavigation />
+            <div className="studio-toolbar">
+              <div className="studio-toolbar__filters">
+                <label className="studio-search">
+                  <Search aria-hidden="true" />
+                  <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar no catálogo" aria-label="Buscar no catálogo" />
+                </label>
+                <Select value={filterType} onValueChange={setFilterType}>
+                  <SelectTrigger className="studio-select-trigger"><SelectValue placeholder="Tipo" /></SelectTrigger>
+                  <SelectContent><SelectItem value="all">Todos os formatos</SelectItem><SelectItem value="aula">Aulas</SelectItem><SelectItem value="curso">Cursos</SelectItem><SelectItem value="podcast">Podcasts</SelectItem><SelectItem value="short">Shorts</SelectItem><SelectItem value="live">Lives</SelectItem></SelectContent>
+                </Select>
+                <Select value={filterStatus} onValueChange={setFilterStatus}>
+                  <SelectTrigger className="studio-select-trigger"><SelectValue placeholder="Status" /></SelectTrigger>
+                  <SelectContent><SelectItem value="all">Todos os status</SelectItem><SelectItem value="approved">Publicados</SelectItem><SelectItem value="pending">Em análise</SelectItem><SelectItem value="rejected">Revisão necessária</SelectItem></SelectContent>
+                </Select>
+              </div>
+              <span className="studio-toolbar__count">{filteredContents.length} {filteredContents.length === 1 ? "item" : "itens"}</span>
             </div>
-      <BoostModal 
-        open={isBoostModalOpen}
-        onOpenChange={closeBoostModal}
-        contentId={selectedContent?.id}
-        contentTitle={selectedContent?.title}
-        itemType={selectedContent?.itemType}
-      />
-    </AppShell>;
+          </div>
+        }
+      >
+        <div className="studio-stack">
+          <section className="studio-section">
+            <V2SectionHeader eyebrow="Resumo" title="Seu catálogo em números" description="Uma leitura rápida do que já está publicado e do que ainda precisa de atenção." />
+            <div className="studio-metrics">
+              <StudioMetricCard icon={Library} label="Catálogo total" value={contents.length} detail="Todos os formatos" tone="accent" />
+              <StudioMetricCard icon={Video} label="Publicados" value={summary.approved} detail="Disponíveis para a audiência" tone="success" />
+              <StudioMetricCard icon={Zap} label="Em análise" value={summary.pending} detail="Aguardando aprovação" tone="warning" />
+              <StudioMetricCard icon={Eye} label="Visualizações" value={summary.views.toLocaleString("pt-BR")} detail="Em todo o catálogo" />
+            </div>
+          </section>
+
+          <section className="studio-section">
+            <V2SectionHeader eyebrow="Publicações" title="Gerencie seu catálogo" description="Abra um conteúdo para revisar ou use o menu para editar, impulsionar e excluir." />
+            {isLoading ? (
+              <div className="cf2-state"><span className="cf2-state__spinner" /><strong>Atualizando catálogo...</strong></div>
+            ) : filteredContents.length === 0 ? (
+              <V2EmptyState icon={<Library className="h-5 w-5" />} title={contents.length === 0 ? "Seu catálogo ainda está vazio" : "Nenhum conteúdo encontrado"} description={contents.length === 0 ? "Publique o primeiro material para começar sua operação como creator." : "Ajuste a busca ou os filtros para encontrar outra publicação."} action={contents.length === 0 ? <V2Button onClick={() => navigate("/studio/upload?type=aula")}>Publicar primeiro conteúdo</V2Button> : <V2Button variant="secondary" onClick={() => { setSearch(""); setFilterType("all"); setFilterStatus("all"); }}>Limpar filtros</V2Button>} />
+            ) : (
+              <>
+                <V2TableWrap className="studio-table-wrap">
+                  <V2Table>
+                    <thead><tr><th>Conteúdo</th><th>Visibilidade</th><th>Status</th><th>Publicado em</th><th>Views</th><th><span className="sr-only">Ações</span></th></tr></thead>
+                    <tbody>
+                      {filteredContents.map((content) => {
+                        const TypeIcon = typeIcons[content.content_type as keyof typeof typeIcons] || Video;
+                        return (
+                          <tr key={content.id}>
+                            <td><div className="studio-content-cell">{content.thumbnail_url ? <img src={content.thumbnail_url} alt="" /> : <span className="studio-content-cell__fallback"><TypeIcon /></span>}<div className="studio-content-cell__copy"><strong>{content.title}</strong><span>{typeLabels[content.content_type] || content.content_type}</span></div></div></td>
+                            <td>{visibilityLabels[content.visibility || "free"] || "Público"}</td>
+                            <td><span className="studio-status" data-status={content.status || "unknown"}>{statusLabels[content.status || ""] || "Não informado"}</span></td>
+                            <td>{formatDate(content.created_at)}</td>
+                            <td>{(content.views_count || 0).toLocaleString("pt-BR")}</td>
+                            <td><div className="studio-row-actions">{content.status === "approved" && <V2Button variant="quiet" size="sm" onClick={() => openBoostModal(content.id, content.title, boostItemType(content))}>Impulsionar</V2Button>}{renderActions(content)}</div></td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </V2Table>
+                </V2TableWrap>
+
+                <div className="studio-mobile-list">
+                  {filteredContents.map((content) => {
+                    const TypeIcon = typeIcons[content.content_type as keyof typeof typeIcons] || Video;
+                    return (
+                      <V2Card className="studio-mobile-card" key={content.id}>
+                        {content.thumbnail_url ? <img className="studio-mobile-card__media" src={content.thumbnail_url} alt="" /> : <div className="studio-mobile-card__media grid place-items-center"><TypeIcon className="h-6 w-6 text-[var(--cf2-ink-subtle)]" /></div>}
+                        <div className="studio-mobile-card__content"><div className="studio-mobile-card__meta"><span>{typeLabels[content.content_type] || content.content_type}</span><span className="studio-status" data-status={content.status || "unknown"}>{statusLabels[content.status || ""] || "Não informado"}</span></div><h3 className="studio-mobile-card__title">{content.title}</h3><div className="studio-mobile-card__meta"><span>{formatDate(content.created_at)}</span><span>{content.views_count || 0} views</span>{renderActions(content)}</div></div>
+                      </V2Card>
+                    );
+                  })}
+                </div>
+              </>
+            )}
+          </section>
+        </div>
+      </CreatorTemplate>
+
+      {isBoostModalOpen && (
+        <Suspense fallback={null}>
+          <BoostModal open onOpenChange={closeBoostModal} contentId={selectedContent?.id} contentTitle={selectedContent?.title} itemType={selectedContent?.itemType} />
+        </Suspense>
+      )}
+    </AppShell>
+  );
 }

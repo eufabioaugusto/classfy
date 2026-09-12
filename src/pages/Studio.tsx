@@ -1,579 +1,365 @@
-import { useAuth } from "@/contexts/AuthContext";
-import { Navigate, useNavigate, useLocation } from "react-router-dom";
-import { useIsMobile } from "@/hooks/use-mobile";
-import { AppShell } from "@/components/layout";
-import { 
-  Video, 
-  Eye, 
-  Users, 
-  TrendingUp, 
-  MessageSquare, 
-  DollarSign, 
-  Clock, 
-  Zap,
-  Heart,
-  ArrowRight,
-  TrendingDown,
-  ArrowUpRight
-} from "lucide-react";
-import { Card } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { useState, useEffect } from "react";
-import { supabase } from "@/integrations/supabase/client";
+import { useEffect, useMemo, useState } from "react";
+import { Navigate, useLocation, useNavigate } from "react-router-dom";
 import { formatDistanceToNow } from "date-fns";
 import { ptBR } from "date-fns/locale";
-import { CreatorMilestonesCard } from "@/components/CreatorMilestonesCard";
+import {
+  ArrowRight,
+  BarChart3,
+  CircleDollarSign,
+  Eye,
+  Heart,
+  MessageSquare,
+  Plus,
+  Rocket,
+  Sparkles,
+  Target,
+  Users,
+  Video,
+} from "lucide-react";
+import { useAuth } from "@/contexts/AuthContext";
+import { useIsMobile } from "@/hooks/use-mobile";
+import { useCreatorMilestones } from "@/hooks/useCreatorMilestones";
+import { supabase } from "@/integrations/supabase/client";
+import { AppShell, PageHeader } from "@/components/layout";
+import { CreatorTemplate } from "@/components/templates";
+import {
+  V2Button,
+  V2Card,
+  V2CardContent,
+  V2CardHeader,
+  V2EmptyState,
+  V2SectionHeader,
+} from "@/components/v2";
+import { StudioMetricCard } from "@/components/studio/StudioMetricCard";
+import { StudioNavigation } from "@/components/studio/StudioNavigation";
+import "@/styles/studio-v2.css";
+
+type RecentContent = {
+  id: string;
+  title: string;
+  status: string | null;
+  created_at: string;
+  views_count: number | null;
+  thumbnail_url: string | null;
+  content_type: string;
+};
+
+type RecentComment = {
+  id: string;
+  text: string;
+  created_at: string;
+  profiles: { display_name: string | null; avatar_url: string | null } | null;
+  contents: { id: string; title: string; creator_id: string } | null;
+};
+
+type RecentReward = {
+  id: string;
+  action_key: string;
+  points: number;
+  created_at: string;
+};
+
+const rewardLabels: Record<string, string> = {
+  FIRST_CONTENT_WEEK: "Primeira publicação da semana",
+  FIRST_UPLOAD: "Primeiro conteúdo enviado",
+  CONTENT_APPROVED: "Conteúdo aprovado",
+  CREATOR_MILESTONE: "Meta de creator alcançada",
+  CREATOR_APPROVED: "Perfil de creator aprovado",
+};
+
+const statusLabels: Record<string, string> = {
+  approved: "Publicado",
+  pending: "Em análise",
+  rejected: "Revisão necessária",
+};
 
 export default function Studio() {
   const { user, role, loading } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const isMobile = useIsMobile();
-
+  const [isLoading, setIsLoading] = useState(true);
   const [stats, setStats] = useState({
     totalContents: 0,
     totalViews: 0,
     followers: 0,
     earnings: 0,
-    points: 0,
     pendingContents: 0,
     totalComments: 0,
     activeBoosts: 0,
     last7DaysViews: 0,
-    viewsTrend: 0
+    viewsTrend: 0,
   });
-
-  const [recentContents, setRecentContents] = useState<any[]>([]);
-  const [recentComments, setRecentComments] = useState<any[]>([]);
-  const [recentRewards, setRecentRewards] = useState<any[]>([]);
-  const [activeBoosts, setActiveBoosts] = useState<any[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const [recentContents, setRecentContents] = useState<RecentContent[]>([]);
+  const [recentComments, setRecentComments] = useState<RecentComment[]>([]);
+  const [recentRewards, setRecentRewards] = useState<RecentReward[]>([]);
+  const { nextMilestones, totals, loading: milestonesLoading } = useCreatorMilestones(user?.id);
 
   useEffect(() => {
-    if (user) {
-      fetchDashboardData();
-    }
+    if (!user) return;
+
+    const fetchDashboardData = async () => {
+      setIsLoading(true);
+      try {
+        const sevenDaysAgo = new Date();
+        sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+        const fourteenDaysAgo = new Date();
+        fourteenDaysAgo.setDate(fourteenDaysAgo.getDate() - 14);
+
+        const [
+          contentsCountRes,
+          coursesCountRes,
+          pendingCountRes,
+          pendingCoursesCountRes,
+          contentsViewsRes,
+          coursesViewsRes,
+          recentViewsRes,
+          recentCourseViewsRes,
+          previousViewsRes,
+          previousCourseViewsRes,
+          followersCountRes,
+          walletRes,
+          commentsCountRes,
+          boostsRes,
+          recentContentsRes,
+          recentCoursesRes,
+          recentCommentsRes,
+          recentRewardsRes,
+        ] = await Promise.all([
+          supabase.from("contents").select("*", { count: "exact", head: true }).eq("creator_id", user.id),
+          supabase.from("courses").select("*", { count: "exact", head: true }).eq("creator_id", user.id),
+          supabase.from("contents").select("*", { count: "exact", head: true }).eq("creator_id", user.id).eq("status", "pending"),
+          supabase.from("courses").select("*", { count: "exact", head: true }).eq("creator_id", user.id).eq("status", "pending"),
+          supabase.from("contents").select("views_count").eq("creator_id", user.id),
+          supabase.from("courses").select("views_count").eq("creator_id", user.id),
+          supabase.from("content_views").select("view_count, contents!inner(creator_id)").eq("contents.creator_id", user.id).gte("view_date", sevenDaysAgo.toISOString().split("T")[0]),
+          supabase.from("content_views").select("view_count, courses!inner(creator_id)").eq("courses.creator_id", user.id).gte("view_date", sevenDaysAgo.toISOString().split("T")[0]),
+          supabase.from("content_views").select("view_count, contents!inner(creator_id)").eq("contents.creator_id", user.id).gte("view_date", fourteenDaysAgo.toISOString().split("T")[0]).lt("view_date", sevenDaysAgo.toISOString().split("T")[0]),
+          supabase.from("content_views").select("view_count, courses!inner(creator_id)").eq("courses.creator_id", user.id).gte("view_date", fourteenDaysAgo.toISOString().split("T")[0]).lt("view_date", sevenDaysAgo.toISOString().split("T")[0]),
+          supabase.from("follows").select("*", { count: "exact", head: true }).eq("following_id", user.id),
+          supabase.from("wallets").select("total_earned").eq("user_id", user.id).single(),
+          supabase.from("comments").select("*, contents!inner(creator_id)", { count: "exact", head: true }).eq("contents.creator_id", user.id),
+          supabase.from("boosts").select("*", { count: "exact", head: true }).eq("user_id", user.id).eq("status", "active"),
+          supabase.from("contents").select("id, title, status, created_at, views_count, thumbnail_url, content_type").eq("creator_id", user.id).order("created_at", { ascending: false }).limit(5),
+          supabase.from("courses").select("id, title, status, created_at, views_count, thumbnail_url").eq("creator_id", user.id).order("created_at", { ascending: false }).limit(3),
+          supabase.from("comments").select("id, text, created_at, profiles:user_id(display_name, avatar_url), contents!inner(id, title, creator_id)").eq("contents.creator_id", user.id).order("created_at", { ascending: false }).limit(5),
+          supabase.from("reward_events").select("id, action_key, points, created_at").eq("user_id", user.id).eq("point_type", "creator").order("created_at", { ascending: false }).limit(5),
+        ]);
+
+        const totalViews = [...(contentsViewsRes.data || []), ...(coursesViewsRes.data || [])]
+          .reduce((sum, item) => sum + (item.views_count || 0), 0);
+        const last7DaysViews = [...(recentViewsRes.data || []), ...(recentCourseViewsRes.data || [])]
+          .reduce((sum, view) => sum + Number(view.view_count || 0), 0);
+        const previous7DaysViews = [...(previousViewsRes.data || []), ...(previousCourseViewsRes.data || [])]
+          .reduce((sum, view) => sum + Number(view.view_count || 0), 0);
+        const viewsTrend = previous7DaysViews > 0
+          ? ((last7DaysViews - previous7DaysViews) / previous7DaysViews) * 100
+          : 0;
+        const allRecent = [
+          ...(recentContentsRes.data || []),
+          ...(recentCoursesRes.data || []).map((course) => ({ ...course, content_type: "curso" })),
+        ]
+          .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+          .slice(0, 5) as RecentContent[];
+
+        setRecentContents(allRecent);
+        setRecentComments((recentCommentsRes.data || []) as unknown as RecentComment[]);
+        setRecentRewards((recentRewardsRes.data || []) as RecentReward[]);
+        setStats({
+          totalContents: (contentsCountRes.count || 0) + (coursesCountRes.count || 0),
+          totalViews,
+          followers: followersCountRes.count || 0,
+          earnings: Number(walletRes.data?.total_earned || 0),
+          pendingContents: (pendingCountRes.count || 0) + (pendingCoursesCountRes.count || 0),
+          totalComments: commentsCountRes.count || 0,
+          activeBoosts: boostsRes.count || 0,
+          last7DaysViews,
+          viewsTrend,
+        });
+      } catch (error) {
+        console.error("Error fetching dashboard data:", error);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    void fetchDashboardData();
   }, [user]);
 
-  const fetchDashboardData = async () => {
-    if (!user) return;
-    
-    setIsLoading(true);
-    try {
-      const sevenDaysAgo = new Date();
-      sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-      const fourteenDaysAgo = new Date();
-      fourteenDaysAgo.setDate(fourteenDaysAgo.getDate() - 14);
-
-      // Parallelize ALL queries
-      const [
-        contentsCountRes,
-        coursesCountRes,
-        pendingCountRes,
-        pendingCoursesCountRes,
-        contentsViewsRes,
-        coursesViewsRes,
-        recentViewsRes,
-        previousViewsRes,
-        followersCountRes,
-        walletRes,
-        commentsCountRes,
-        boostsRes,
-        recentContentsRes,
-        recentCoursesRes,
-        recentCommentsRes,
-        recentRewardsRes,
-      ] = await Promise.all([
-        supabase.from('contents').select('*', { count: 'exact', head: true }).eq('creator_id', user.id),
-        supabase.from('courses').select('*', { count: 'exact', head: true }).eq('creator_id', user.id),
-        supabase.from('contents').select('*', { count: 'exact', head: true }).eq('creator_id', user.id).eq('status', 'pending'),
-        supabase.from('courses').select('*', { count: 'exact', head: true }).eq('creator_id', user.id).eq('status', 'pending'),
-        supabase.from('contents').select('views_count, created_at').eq('creator_id', user.id),
-        supabase.from('courses').select('views_count, created_at').eq('creator_id', user.id),
-        supabase.from('content_views').select('content_id, contents!inner(creator_id)').eq('contents.creator_id', user.id).gte('view_date', sevenDaysAgo.toISOString().split('T')[0]),
-        supabase.from('content_views').select('content_id, contents!inner(creator_id)').eq('contents.creator_id', user.id).gte('view_date', fourteenDaysAgo.toISOString().split('T')[0]).lt('view_date', sevenDaysAgo.toISOString().split('T')[0]),
-        supabase.from('follows').select('*', { count: 'exact', head: true }).eq('following_id', user.id),
-        supabase.from('wallets').select('total_earned, balance').eq('user_id', user.id).single(),
-        supabase.from('comments').select('*, contents!inner(creator_id)', { count: 'exact', head: true }).eq('contents.creator_id', user.id),
-        supabase.from('boosts').select('*, contents(title)', { count: 'exact' }).eq('user_id', user.id).eq('status', 'active').limit(3),
-        supabase.from('contents').select('id, title, status, created_at, views_count, thumbnail_url, content_type').eq('creator_id', user.id).order('created_at', { ascending: false }).limit(5),
-        supabase.from('courses').select('id, title, status, created_at, views_count, thumbnail_url').eq('creator_id', user.id).order('created_at', { ascending: false }).limit(3),
-        supabase.from('comments').select(`id, text, created_at, profiles:user_id (display_name, avatar_url), contents!inner(id, title, creator_id)`).eq('contents.creator_id', user.id).order('created_at', { ascending: false }).limit(5),
-        supabase.from('reward_events').select('id, action_key, points, point_type, created_at, metadata').eq('user_id', user.id).eq('point_type' as any, 'creator').order('created_at', { ascending: false }).limit(5),
-      ]);
-
-      const totalContentViews = contentsViewsRes.data?.reduce((sum, c) => sum + (c.views_count || 0), 0) || 0;
-      const totalCourseViews = coursesViewsRes.data?.reduce((sum, c) => sum + (c.views_count || 0), 0) || 0;
-      const totalViews = totalContentViews + totalCourseViews;
-
-      const last7DaysViews = recentViewsRes.data?.length || 0;
-      const previous7DaysViews = previousViewsRes.data?.length || 0;
-      const viewsTrend = previous7DaysViews > 0 
-        ? ((last7DaysViews - previous7DaysViews) / previous7DaysViews) * 100 
-        : 0;
-
-      setActiveBoosts(boostsRes.data || []);
-
-      // Merge contents + courses for recent list
-      const allRecent = [
-        ...(recentContentsRes.data || []),
-        ...(recentCoursesRes.data || []).map((c: any) => ({ ...c, content_type: 'curso' })),
-      ].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()).slice(0, 5);
-
-      setRecentContents(allRecent);
-      setRecentComments(recentCommentsRes.data || []);
-      setRecentRewards(recentRewardsRes.data || []);
-
-      setStats({
-        totalContents: (contentsCountRes.count || 0) + (coursesCountRes.count || 0),
-        totalViews,
-        followers: followersCountRes.count || 0,
-        earnings: walletRes.data?.total_earned || 0,
-        points: 0,
-        pendingContents: (pendingCountRes.count || 0) + (pendingCoursesCountRes.count || 0),
-        totalComments: commentsCountRes.count || 0,
-        activeBoosts: boostsRes.count || 0,
-        last7DaysViews,
-        viewsTrend
-      });
-    } catch (error) {
-      console.error('Error fetching dashboard data:', error);
-    } finally {
-      setIsLoading(false);
+  const engagementRate = stats.totalViews > 0
+    ? (stats.totalComments / stats.totalViews) * 100
+    : 0;
+  const milestoneProgress = totals.total > 0
+    ? Math.round((totals.claimed / totals.total) * 100)
+    : 0;
+  const spotlight = useMemo(() => {
+    if (stats.totalContents === 0) {
+      return {
+        kicker: "Comece por aqui",
+        title: "Publique seu primeiro conteúdo.",
+        description: "Envie uma aula, podcast ou short e acompanhe toda a operação a partir deste painel.",
+      };
     }
-  };
+    return {
+      kicker: "Sua semana no Studio",
+      title: `${stats.last7DaysViews.toLocaleString("pt-BR")} ${stats.last7DaysViews === 1 ? "visualização" : "visualizações"} nos últimos 7 dias.`,
+      description: stats.pendingContents > 0
+        ? `${stats.pendingContents} ${stats.pendingContents === 1 ? "publicação está" : "publicações estão"} aguardando análise. Enquanto isso, acompanhe o desempenho do seu catálogo.`
+        : "Seu catálogo está pronto para crescer. Publique com consistência e use os dados para decidir o próximo conteúdo.",
+    };
+  }, [stats.last7DaysViews, stats.pendingContents, stats.totalContents]);
 
   if (loading || isLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
-          <p className="text-muted-foreground">Carregando dashboard...</p>
-        </div>
+      <div className="cf-v2 min-h-screen grid place-items-center bg-[var(--cf2-canvas)]">
+        <div className="cf2-state"><span className="cf2-state__spinner" /><strong>Preparando seu Studio...</strong></div>
       </div>
     );
   }
 
-  if (!user || (role !== 'creator' && role !== 'admin')) {
-    return <Navigate to="/" replace />;
-  }
-
-  const getStatusBadge = (status: string) => {
-    switch (status) {
-      case 'approved':
-        return <Badge className="bg-green-500/10 text-green-500 border-green-500/20">Aprovado</Badge>;
-      case 'pending':
-        return <Badge className="bg-yellow-500/10 text-yellow-500 border-yellow-500/20">Pendente</Badge>;
-      case 'rejected':
-        return <Badge className="bg-red-500/10 text-red-500 border-red-500/20">Rejeitado</Badge>;
-      default:
-        return <Badge variant="outline">{status}</Badge>;
-    }
-  };
-
-  const getRewardLabel = (actionKey: string) => {
-    const labels: Record<string, string> = {
-      'CONTENT_UPLOAD': 'Upload de Conteúdo',
-      'CONTENT_VIEW': 'Visualização',
-      'VIEW_15S': 'Visualização (+15s)',
-      'WATCH_50': 'Assistiu 50%',
-      'WATCH_100': 'Assistiu 100%',
-      'LIKE': 'Curtiu Conteúdo',
-      'SAVE': 'Salvou Conteúdo',
-      'FAVORITE': 'Favoritou Conteúdo',
-      'COMMENT': 'Comentou',
-      'SHARE': 'Compartilhou',
-      'SUBSCRIBE_CREATOR': 'Seguiu Creator',
-      'DAILY_LOGIN': 'Login Diário',
-      'WEEKLY_STREAK': 'Sequência Semanal',
-      'STREAK_7': 'Sequência de 7 dias',
-      'BINGE_WATCH': 'Maratona',
-      'FIRST_CONTENT_WEEK': 'Primeira Aula da Semana',
-      'COMPLETE_COURSE': 'Curso Completo',
-      'PROFILE_COMPLETE': 'Perfil Completo',
-      'MILESTONE_100_VIEWS': '100 Visualizações',
-      'MILESTONE_500_VIEWS': '500 Visualizações',
-      'MILESTONE_1000_VIEWS': '1.000 Visualizações',
-    };
-    return labels[actionKey] || actionKey;
-  };
+  if (!user || (role !== "creator" && role !== "admin")) return <Navigate to="/" replace />;
 
   return (
-    <AppShell variant="studio" title="Studio Classfy" contentClassName="flex-1 p-4 md:p-6">
-            <div className="max-w-[1600px] mx-auto space-y-4">
-              {/* Welcome Section */}
-              <div>
-                <h2 className="text-xl font-bold text-foreground mb-1">Bem-vindo ao Studio!</h2>
-                <p className="text-muted-foreground">
-                  Gerencie seus conteúdos, acompanhe métricas e publique novos materiais.
-                </p>
+    <AppShell variant="studio" title="Studio" contentClassName="studio-page-shell">
+      <CreatorTemplate
+        className="studio-template"
+        width="wide"
+        density="comfortable"
+        header={
+          <PageHeader
+            eyebrow="Studio Classfy"
+            title="Seu conteúdo, sua operação."
+            description="Publique, acompanhe o que está funcionando e encontre o próximo passo para crescer como creator."
+            action={
+              <div className="studio-header-action">
+                <V2Button variant="primary" leadingIcon={<Plus className="h-4 w-4" />} onClick={() => navigate("/studio/upload?type=aula")}>
+                  Publicar conteúdo
+                </V2Button>
               </div>
-
-              {/* Main Stats Grid - 4 columns */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                {/* Total Contents */}
-                <Card className="p-4 bg-card/50 backdrop-blur-sm border-border/50 hover:border-border transition-all">
-                  <div className="flex items-start justify-between mb-2">
-                    <div className="p-2 rounded-lg bg-blue-500/10">
-                      <Video className="w-5 h-5 text-blue-500" />
-                    </div>
-                    <Button 
-                      variant="ghost" 
-                      size="sm" 
-                      className="h-7 text-xs"
-                      onClick={() => navigate('/studio/contents')}
-                    >
-                      Ver todos
-                    </Button>
-                  </div>
-                  <div>
-                    <p className="text-sm text-muted-foreground mb-1">Total de Conteúdos</p>
-                    <p className="text-xl font-bold text-foreground">{stats.totalContents}</p>
-                    {stats.pendingContents > 0 && (
-                      <p className="text-xs text-yellow-500 mt-1">
-                        {stats.pendingContents} pendente{stats.pendingContents > 1 ? 's' : ''}
-                      </p>
-                    )}
-                  </div>
-                </Card>
-
-                {/* Views - Last 7 days with trend */}
-                <Card className="p-4 bg-card/50 backdrop-blur-sm border-border/50 hover:border-border transition-all">
-                  <div className="flex items-start justify-between mb-2">
-                    <div className="p-2 rounded-lg bg-green-500/10">
-                      <Eye className="w-5 h-5 text-green-500" />
-                    </div>
-                    <Button 
-                      variant="ghost" 
-                      size="sm" 
-                      className="h-7 text-xs"
-                      onClick={() => navigate('/studio/analytics')}
-                    >
-                      Analytics
-                    </Button>
-                  </div>
-                  <div>
-                    <p className="text-sm text-muted-foreground mb-1">Últimos 7 dias</p>
-                    <div className="flex items-baseline gap-2">
-                      <p className="text-xl font-bold text-foreground">{stats.last7DaysViews}</p>
-                      {stats.viewsTrend !== 0 && (
-                        <span className={`text-xs font-medium flex items-center gap-0.5 ${
-                          stats.viewsTrend > 0 ? 'text-green-500' : 'text-red-500'
-                        }`}>
-                          {stats.viewsTrend > 0 ? <ArrowUpRight className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
-                          {Math.abs(stats.viewsTrend).toFixed(0)}%
-                        </span>
-                      )}
-                    </div>
-                    <p className="text-xs text-muted-foreground mt-1">
-                      {stats.totalViews.toLocaleString()} total
-                    </p>
-                  </div>
-                </Card>
-
-                {/* Followers */}
-                <Card className="p-4 bg-card/50 backdrop-blur-sm border-border/50 hover:border-border transition-all">
-                  <div className="flex items-start justify-between mb-2">
-                    <div className="p-2 rounded-lg bg-purple-500/10">
-                      <Users className="w-5 h-5 text-purple-500" />
-                    </div>
-                  </div>
-                  <div>
-                    <p className="text-sm text-muted-foreground mb-1">Seguidores</p>
-                    <p className="text-xl font-bold text-foreground">{stats.followers}</p>
-                  </div>
-                </Card>
-
-                {/* Earnings */}
-                <Card className="p-4 bg-card/50 backdrop-blur-sm border-border/50 hover:border-border transition-all">
-                  <div className="flex items-start justify-between mb-2">
-                    <div className="p-2 rounded-lg bg-accent/10">
-                      <DollarSign className="w-5 h-5 text-accent" />
-                    </div>
-                    <Button 
-                      variant="ghost" 
-                      size="sm" 
-                      className="h-7 text-xs"
-                      onClick={() => navigate('/carteira')}
-                    >
-                      Ver carteira
-                    </Button>
-                  </div>
-                  <div>
-                    <p className="text-sm text-muted-foreground mb-1">Total Ganho</p>
-                    <p className="text-xl font-bold text-foreground">
-                      R$ {stats.earnings.toFixed(2)}
-                    </p>
-                  </div>
-                </Card>
+            }
+          />
+        }
+        toolbar={<StudioNavigation />}
+      >
+        <div className="studio-stack">
+          <section className="studio-overview">
+            <V2Card elevation="panel" className="studio-spotlight">
+              <span className="studio-kicker">{spotlight.kicker}</span>
+              <h2 className="studio-spotlight__title">{spotlight.title}</h2>
+              <p className="studio-spotlight__description">{spotlight.description}</p>
+              <div className="studio-spotlight__actions">
+                <V2Button variant="primary" leadingIcon={<Plus className="h-4 w-4" />} onClick={() => navigate("/studio/upload?type=aula")}>Criar nova publicação</V2Button>
+                <V2Button variant="secondary" trailingIcon={<ArrowRight className="h-4 w-4" />} onClick={() => navigate("/studio/analytics")}>Ver desempenho</V2Button>
               </div>
+            </V2Card>
 
-              {/* Secondary Stats - 3 columns */}
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                {/* Comments */}
-                <Card className="p-4 bg-card/50 backdrop-blur-sm border-border/50">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <div className="p-2 rounded-lg bg-orange-500/10">
-                        <MessageSquare className="w-4 h-4 text-orange-500" />
-                      </div>
-                      <div>
-                        <p className="text-xs text-muted-foreground">Comentários</p>
-                        <p className="text-xl font-bold text-foreground">{stats.totalComments}</p>
-                      </div>
+            <V2Card className="studio-health studio-panel">
+              <V2CardHeader>
+                <div className="studio-panel-heading">
+                  <span className="studio-icon" data-tone="accent"><Sparkles /></span>
+                  <div><h2>Agora no seu Studio</h2><p>Os sinais que pedem sua atenção.</p></div>
+                </div>
+              </V2CardHeader>
+              <V2CardContent className="studio-health__content">
+                <div className="studio-list">
+                  <div className="studio-list__item"><MessageSquare className="h-4 w-4 text-[var(--cf2-ink-subtle)]" /><div className="studio-list__copy"><strong>Comentários</strong><p>Conversas recebidas no catálogo</p></div><span className="studio-list__value">{stats.totalComments}</span></div>
+                  <div className="studio-list__item"><Rocket className="h-4 w-4 text-[var(--cf2-ink-subtle)]" /><div className="studio-list__copy"><strong>Boosts ativos</strong><p>Campanhas em circulação</p></div><span className="studio-list__value">{stats.activeBoosts}</span></div>
+                  <div className="studio-list__item"><Heart className="h-4 w-4 text-[var(--cf2-ink-subtle)]" /><div className="studio-list__copy"><strong>Engajamento</strong><p>Comentários por visualização</p></div><span className="studio-list__value">{engagementRate.toFixed(1)}%</span></div>
+                </div>
+              </V2CardContent>
+            </V2Card>
+          </section>
+
+          <section className="studio-section">
+            <V2SectionHeader eyebrow="Visão geral" title="O que aconteceu com seu conteúdo" description="Dados essenciais para acompanhar alcance, audiência e retorno." />
+            <div className="studio-metrics">
+              <StudioMetricCard icon={Video} label="Publicações" value={stats.totalContents} detail={stats.pendingContents > 0 ? `${stats.pendingContents} em análise` : "Catálogo total"} tone="accent" />
+              <StudioMetricCard icon={Eye} label="Visualizações" value={stats.totalViews.toLocaleString("pt-BR")} detail="Em todo o catálogo" tone="success" trend={stats.viewsTrend > 0 ? `+${stats.viewsTrend.toFixed(0)}% na semana` : undefined} />
+              <StudioMetricCard icon={Users} label="Seguidores" value={stats.followers.toLocaleString("pt-BR")} detail="Pessoas acompanhando você" />
+              <StudioMetricCard icon={CircleDollarSign} label="Total gerado" value={stats.earnings.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })} detail="Valor acumulado na carteira" tone="warning" />
+            </div>
+          </section>
+
+          <section className="studio-section">
+            <V2SectionHeader eyebrow="Operação" title="Continue de onde parou" description="Revise suas publicações e acompanhe as conversas mais recentes." />
+            <div className="studio-workspace-grid">
+              <V2Card className="studio-panel">
+                <V2CardHeader>
+                  <div className="studio-panel-heading"><span className="studio-icon"><Video /></span><div><h3>Publicações recentes</h3><p>Os últimos itens enviados ao catálogo.</p></div></div>
+                  <V2Button variant="quiet" size="sm" trailingIcon={<ArrowRight className="h-3.5 w-3.5" />} onClick={() => navigate("/studio/contents")}>Ver catálogo</V2Button>
+                </V2CardHeader>
+                <V2CardContent>
+                  {recentContents.length === 0 ? (
+                    <V2EmptyState className="studio-empty-inline" icon={<Video className="h-5 w-5" />} title="Seu catálogo começa aqui" description="Publique o primeiro conteúdo para acompanhar status e resultados." action={<V2Button onClick={() => navigate("/studio/upload?type=aula")}>Publicar conteúdo</V2Button>} />
+                  ) : (
+                    <div className="studio-list">
+                      {recentContents.map((content) => (
+                        <button type="button" key={content.id} className="studio-list__item" onClick={() => navigate(`/watch/${content.id}${content.content_type === "curso" ? "?type=course" : ""}`, isMobile ? { state: { backgroundLocation: location } } : undefined)}>
+                          <img className="studio-list__media" src={content.thumbnail_url || "/placeholder.svg"} alt="" />
+                          <div className="studio-list__copy"><strong>{content.title}</strong><div className="studio-list__meta"><span className="studio-status" data-status={content.status || "unknown"}>{statusLabels[content.status || ""] || "Não informado"}</span><span>{content.content_type}</span><span>{formatDistanceToNow(new Date(content.created_at), { addSuffix: true, locale: ptBR })}</span></div></div>
+                          <span className="studio-list__value">{content.views_count || 0} views</span>
+                        </button>
+                      ))}
                     </div>
-                  </div>
-                </Card>
+                  )}
+                </V2CardContent>
+              </V2Card>
 
-                {/* Active Boosts */}
-                <Card className="p-4 bg-card/50 backdrop-blur-sm border-border/50">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <div className="p-2 rounded-lg bg-yellow-500/10">
-                        <Zap className="w-4 h-4 text-yellow-500" />
-                      </div>
-                      <div>
-                        <p className="text-xs text-muted-foreground">Boosts Ativos</p>
-                        <p className="text-xl font-bold text-foreground">{stats.activeBoosts}</p>
-                      </div>
-                    </div>
-                    <Button 
-                      variant="ghost" 
-                      size="sm" 
-                      className="h-7 text-xs"
-                      onClick={() => navigate('/studio/boosts')}
-                    >
-                      Ver
-                    </Button>
-                  </div>
-                </Card>
-
-                {/* Engagement Rate */}
-                <Card className="p-4 bg-card/50 backdrop-blur-sm border-border/50">
-                  <div className="flex items-center gap-3">
-                    <div className="p-2 rounded-lg bg-red-500/10">
-                      <Heart className="w-4 h-4 text-red-500" />
-                    </div>
-                    <div>
-                      <p className="text-xs text-muted-foreground">Taxa de Engajamento</p>
-                      <p className="text-xl font-bold text-foreground">
-                        {stats.totalViews > 0 
-                          ? ((stats.totalComments / stats.totalViews) * 100).toFixed(1)
-                          : '0'}%
-                      </p>
-                    </div>
-                  </div>
-                </Card>
-              </div>
-
-              {/* Creator Milestones Section */}
-              <CreatorMilestonesCard creatorId={user.id} compact />
-
-              {/* Content Cards Grid - 2 columns */}
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                {/* Recent Contents */}
-                <Card className="p-6 bg-card/50 backdrop-blur-sm border-border/50">
-                  <div className="flex items-center justify-between mb-4">
-                    <h3 className="text-lg font-semibold text-foreground">Conteúdos Recentes</h3>
-                    <Button 
-                      variant="ghost" 
-                      size="sm"
-                      onClick={() => navigate('/studio/contents')}
-                    >
-                      Ver todos
-                      <ArrowRight className="w-4 h-4 ml-1" />
-                    </Button>
-                  </div>
-                  <div className="space-y-3">
-                    {recentContents.length === 0 ? (
-                      <div className="text-center py-8 text-muted-foreground">
-                        <Video className="w-10 h-10 mx-auto mb-3 opacity-30" />
-                        <p className="text-sm">Nenhum conteúdo ainda</p>
-                      </div>
-                    ) : (
-                      recentContents.map((content) => (
-                        <div 
-                          key={content.id}
-                          className="flex items-center gap-3 p-3 rounded-lg hover:bg-muted/30 transition-colors cursor-pointer"
-                          onClick={() => navigate(`/watch/${content.id}`, isMobile ? { state: { backgroundLocation: location } } : undefined)}
-                        >
-                          <img 
-                            src={content.thumbnail_url || '/placeholder.svg'} 
-                            alt={content.title}
-                            className="w-20 h-12 object-cover rounded"
-                          />
-                          <div className="flex-1 min-w-0">
-                            <p className="text-sm font-medium text-foreground truncate">
-                              {content.title}
-                            </p>
-                            <div className="flex items-center gap-2 mt-1">
-                              {getStatusBadge(content.status)}
-                              <span className="text-xs text-muted-foreground flex items-center gap-1">
-                                <Eye className="w-3 h-3" />
-                                {content.views_count || 0}
-                              </span>
-                            </div>
-                          </div>
-                          <p className="text-xs text-muted-foreground">
-                            {formatDistanceToNow(new Date(content.created_at), { 
-                              addSuffix: true, 
-                              locale: ptBR 
-                            })}
-                          </p>
-                        </div>
-                      ))
-                    )}
-                  </div>
-                </Card>
-
-                {/* Recent Comments */}
-                <Card className="p-6 bg-card/50 backdrop-blur-sm border-border/50">
-                  <div className="flex items-center justify-between mb-4">
-                    <h3 className="text-lg font-semibold text-foreground">Comentários Recentes</h3>
-                  </div>
-                  <div className="space-y-3">
-                    {recentComments.length === 0 ? (
-                      <div className="text-center py-8 text-muted-foreground">
-                        <MessageSquare className="w-10 h-10 mx-auto mb-3 opacity-30" />
-                        <p className="text-sm">Nenhum comentário ainda</p>
-                      </div>
-                    ) : (
-                      recentComments.map((comment: any) => (
-                        <div 
-                          key={comment.id}
-                          className="p-3 rounded-lg hover:bg-muted/30 transition-colors"
-                        >
-                          <div className="flex items-start gap-3">
-                            <img 
-                              src={comment.profiles?.avatar_url || '/placeholder.svg'} 
-                              alt={comment.profiles?.display_name}
-                              className="w-8 h-8 rounded-full"
-                            />
-                            <div className="flex-1 min-w-0">
-                              <div className="flex items-center gap-2 mb-1">
-                                <p className="text-sm font-medium text-foreground">
-                                  {comment.profiles?.display_name}
-                                </p>
-                                <p className="text-xs text-muted-foreground">
-                                  {formatDistanceToNow(new Date(comment.created_at), { 
-                                    addSuffix: true, 
-                                    locale: ptBR 
-                                  })}
-                                </p>
-                              </div>
-                              <p className="text-sm text-foreground/80 line-clamp-2">
-                                {comment.text}
-                              </p>
-                              <p className="text-xs text-muted-foreground mt-1">
-                                Em: {comment.contents?.title}
-                              </p>
-                            </div>
-                          </div>
-                        </div>
-                      ))
-                    )}
-                  </div>
-                </Card>
-              </div>
-
-              {/* Bottom Row - Full Width Cards */}
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                {/* Active Boosts Details */}
-                {activeBoosts.length > 0 && (
-                  <Card className="p-6 bg-card/50 backdrop-blur-sm border-border/50">
-                    <div className="flex items-center justify-between mb-4">
-                      <h3 className="text-lg font-semibold text-foreground flex items-center gap-2">
-                        <Zap className="w-5 h-5 text-yellow-500" />
-                        Boosts Ativos
-                      </h3>
-                      <Button 
-                        variant="ghost" 
-                        size="sm"
-                        onClick={() => navigate('/studio/boosts')}
-                      >
-                        Ver todos
-                        <ArrowRight className="w-4 h-4 ml-1" />
-                      </Button>
-                    </div>
-                    <div className="space-y-3">
-                      {activeBoosts.map((boost: any) => (
-                        <div 
-                          key={boost.id}
-                          className="p-3 rounded-lg bg-yellow-500/5 border border-yellow-500/20"
-                        >
-                          <div className="flex items-center justify-between mb-2">
-                            <p className="text-sm font-medium text-foreground">
-                              {boost.contents?.title || 'Boost do Perfil'}
-                            </p>
-                            <Badge className="bg-yellow-500/10 text-yellow-500 border-yellow-500/20">
-                              Ativo
-                            </Badge>
-                          </div>
-                          <div className="flex items-center gap-4 text-xs text-muted-foreground">
-                            <span className="flex items-center gap-1">
-                              <Eye className="w-3 h-3" />
-                              {boost.impressions_count || 0} impressões
-                            </span>
-                            <span className="flex items-center gap-1">
-                              <DollarSign className="w-3 h-3" />
-                              R$ {boost.daily_budget}/dia
-                            </span>
-                          </div>
+              <V2Card className="studio-panel">
+                <V2CardHeader><div className="studio-panel-heading"><span className="studio-icon"><MessageSquare /></span><div><h3>Conversas recentes</h3><p>O que a audiência comentou.</p></div></div></V2CardHeader>
+                <V2CardContent>
+                  {recentComments.length === 0 ? (
+                    <V2EmptyState className="studio-empty-inline" icon={<MessageSquare className="h-5 w-5" />} title="Nenhum comentário ainda" description="Quando alguém comentar, a conversa aparecerá aqui." />
+                  ) : (
+                    <div className="studio-list">
+                      {recentComments.map((comment) => (
+                        <div className="studio-list__item" key={comment.id}>
+                          <img className="studio-list__avatar" src={comment.profiles?.avatar_url || "/placeholder.svg"} alt="" />
+                          <div className="studio-list__copy"><strong>{comment.profiles?.display_name || "Usuário Classfy"}</strong><p>{comment.text}</p><div className="studio-list__meta"><span>{comment.contents?.title}</span><span>{formatDistanceToNow(new Date(comment.created_at), { addSuffix: true, locale: ptBR })}</span></div></div>
                         </div>
                       ))}
                     </div>
-                  </Card>
-                )}
-
-                {/* Recent Rewards */}
-                <Card className="p-6 bg-card/50 backdrop-blur-sm border-border/50">
-                  <div className="flex items-center justify-between mb-4">
-                    <h3 className="text-lg font-semibold text-foreground">Recompensas Recentes</h3>
-                    <Button 
-                      variant="ghost" 
-                      size="sm"
-                      onClick={() => navigate('/recompensas')}
-                    >
-                      Ver histórico
-                      <ArrowRight className="w-4 h-4 ml-1" />
-                    </Button>
-                  </div>
-                  <div className="space-y-2">
-                    {recentRewards.length === 0 ? (
-                      <div className="text-center py-8 text-muted-foreground">
-                        <TrendingUp className="w-10 h-10 mx-auto mb-3 opacity-30" />
-                        <p className="text-sm">Nenhuma recompensa ainda</p>
-                      </div>
-                    ) : (
-                      recentRewards.map((reward) => (
-                        <div 
-                          key={reward.id}
-                          className="flex items-center justify-between p-3 rounded-lg hover:bg-muted/30 transition-colors"
-                        >
-                          <div className="flex-1">
-                            <p className="text-sm font-medium text-foreground">
-                              {getRewardLabel(reward.action_key)}
-                            </p>
-                            <p className="text-xs text-muted-foreground">
-                              {formatDistanceToNow(new Date(reward.created_at), { 
-                                addSuffix: true, 
-                                locale: ptBR 
-                              })}
-                            </p>
-                          </div>
-                          <div className="text-right">
-                            <p className="text-sm font-semibold text-accent">
-                              +{reward.points} Points
-                            </p>
-                          </div>
-                        </div>
-                      ))
-                    )}
-                  </div>
-                </Card>
-              </div>
+                  )}
+                </V2CardContent>
+              </V2Card>
             </div>
+          </section>
+
+          {!milestonesLoading && totals.total > 0 && (
+            <section className="studio-section">
+              <V2SectionHeader eyebrow="Evolução" title="Próximas metas" description="Acompanhe o que falta para liberar novas conquistas e Creator Points." />
+              <V2Card className="studio-milestones">
+                <V2CardHeader>
+                  <div className="studio-milestones__summary"><div className="studio-milestones__copy"><span>{totals.claimed} de {totals.total} metas conquistadas</span><strong>{milestoneProgress}%</strong></div><div className="studio-progress"><span style={{ width: `${milestoneProgress}%` }} /></div></div>
+                  <V2Button variant="quiet" size="sm" trailingIcon={<ArrowRight className="h-3.5 w-3.5" />} onClick={() => navigate("/studio/goals")}>Ver todas</V2Button>
+                </V2CardHeader>
+                <div className="studio-milestones__items">
+                  {nextMilestones.slice(0, 3).map((milestone) => (
+                    <div className="studio-milestone" key={milestone.id}><strong>{milestone.title}</strong><span>{milestone.currentValue.toLocaleString("pt-BR")} de {milestone.milestone_value.toLocaleString("pt-BR")}</span><div className="studio-progress"><span style={{ width: `${milestone.percentComplete}%` }} /></div></div>
+                  ))}
+                </div>
+              </V2Card>
+            </section>
+          )}
+
+          <section className="studio-section">
+            <V2SectionHeader eyebrow="Creator Points" title="Recompensas recentes" description="Ações de criação que já foram registradas na nova economia." action={<V2Button variant="quiet" size="sm" trailingIcon={<ArrowRight className="h-3.5 w-3.5" />} onClick={() => navigate("/rewards-history")}>Ver histórico</V2Button>} />
+            <V2Card className="studio-panel">
+              <V2CardContent>
+                {recentRewards.length === 0 ? (
+                  <V2EmptyState className="studio-empty-inline" icon={<Target className="h-5 w-5" />} title="Nenhuma recompensa de criação ainda" description="Quando uma ação elegível for concluída, ela será registrada aqui." />
+                ) : (
+                  <div className="studio-list">
+                    {recentRewards.map((reward) => (
+                      <div className="studio-list__item" key={reward.id}><span className="studio-icon" data-tone="success"><BarChart3 /></span><div className="studio-list__copy"><strong>{rewardLabels[reward.action_key] || reward.action_key}</strong><p>{formatDistanceToNow(new Date(reward.created_at), { addSuffix: true, locale: ptBR })}</p></div><span className="studio-list__value studio-list__value--positive">+{reward.points} Creator Points</span></div>
+                    ))}
+                  </div>
+                )}
+              </V2CardContent>
+            </V2Card>
+          </section>
+        </div>
+      </CreatorTemplate>
     </AppShell>
   );
 }
