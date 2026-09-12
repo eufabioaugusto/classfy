@@ -46,6 +46,7 @@ interface UserStats {
   currentStreak: number;
   longestStreak: number;
   cyclePoints: number;
+  cycleDaysRemaining: number;
   engagementStats: {
     likes: number;
     saves: number;
@@ -126,6 +127,9 @@ export default function Recompensas() {
 
         const now = new Date();
         const yearMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+        const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        const cycleClose = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+        const cycleDaysRemaining = Math.max(0, Math.ceil((cycleClose.getTime() - today.getTime()) / 86_400_000));
         const { data: cycle } = await supabase
           .from("economic_cycles")
           .select("id")
@@ -153,6 +157,7 @@ export default function Recompensas() {
           currentStreak: streaksRes.data?.current_streak || 0,
           longestStreak: streaksRes.data?.longest_streak || 0,
           cyclePoints,
+          cycleDaysRemaining,
           engagementStats,
           creatorStats,
         });
@@ -175,6 +180,9 @@ export default function Recompensas() {
     ? [...lockedMilestones].sort((a, b) => b.percentComplete - a.percentComplete)[0]
     : null;
   const nextStreakReward = Math.max(1, 7 - (stats.currentStreak % 7));
+  const cycleCloseLabel = stats.cycleDaysRemaining === 0
+    ? "O ciclo fecha hoje"
+    : `O ciclo fecha em ${stats.cycleDaysRemaining} ${stats.cycleDaysRemaining === 1 ? "dia" : "dias"}`;
 
   const engagementRows = [
     { Icon: Heart, label: "Curtidas", value: stats.engagementStats.likes },
@@ -208,8 +216,8 @@ export default function Recompensas() {
         header={
           <PageHeader
             eyebrow="Economia Classfy"
-            title="Seu progresso tem valor."
-            description="Acompanhe seus Points, sua evolução e as conquistas que marcam a sua jornada."
+            title="Acompanhe seu progresso e suas recompensas."
+            description="Veja quantos Points você acumulou, quais ações contaram e o que falta para avançar."
             action={
               <V2Button variant="secondary" leadingIcon={<History className="h-4 w-4" />} onClick={() => navigate("/rewards-history")}>
                 Ver histórico
@@ -222,14 +230,14 @@ export default function Recompensas() {
           <V2Card elevation="panel" className="economy-balance-hero">
             <div className="economy-balance-hero__top">
               <span className="economy-kicker">Ciclo atual</span>
-              <h2 className="economy-balance-hero__headline">Cada ação elegível constrói sua participação.</h2>
-              <span className="economy-balance-hero__label">Points neste ciclo</span>
+              <h2 className="economy-balance-hero__headline">Combine ações de estudo para evoluir sua participação.</h2>
+              <span className="economy-balance-hero__label">Points acumulados neste ciclo</span>
               <div className="economy-balance-hero__value">
                 {stats.cyclePoints.toLocaleString("pt-BR")} <small>Points</small>
               </div>
               <div className="economy-balance-hero__meta">
-                <span><span className="economy-status-dot" />Ciclo em andamento</span>
-                <span>Valor em reais definido no fechamento mensal</span>
+                <span><span className="economy-status-dot" />Somando Points agora</span>
+                <span>{cycleCloseLabel}</span>
               </div>
             </div>
             <div className="economy-balance-hero__bottom economy-level">
@@ -255,15 +263,15 @@ export default function Recompensas() {
         <section className="economy-section" aria-labelledby="reward-overview-title">
           <V2SectionHeader
             eyebrow="Visão rápida"
-            title="Seu ritmo agora"
-            description="Os sinais mais importantes da sua evolução, sem ruído."
+            title="Seu progresso em números"
+            description="Confira o resumo da sua evolução."
           />
           <div className="economy-metric-grid">
             {[
-              { Icon: Zap, label: "Points acumulados", value: stats.totalPoints.toLocaleString("pt-BR"), detail: "Toda a jornada" },
-              { Icon: Wallet, label: "Saldo disponível", value: formatMoney(stats.balance), detail: `${formatMoney(stats.totalEarned)} gerados` },
-              { Icon: Flame, label: "Sequência atual", value: `${stats.currentStreak} dias`, detail: `Recorde de ${stats.longestStreak} dias` },
-              { Icon: Target, label: "Conteúdos concluídos", value: stats.engagementStats.completedContents, detail: "Com 100% assistido" },
+              { Icon: Zap, label: "Points acumulados", value: stats.totalPoints.toLocaleString("pt-BR"), detail: "Somados desde a sua entrada" },
+              { Icon: Wallet, label: "Saldo disponível", value: formatMoney(stats.balance), detail: `${formatMoney(stats.totalEarned)} gerados no total` },
+              { Icon: Flame, label: "Acessos consecutivos", value: `${stats.currentStreak} dias`, detail: `Seu recorde é de ${stats.longestStreak} dias` },
+              { Icon: Target, label: "Conteúdos concluídos", value: stats.engagementStats.completedContents, detail: "Assistidos até o fim" },
             ].map(({ Icon, label, value, detail }) => (
               <V2Card key={label} className="economy-metric">
                 <div className="economy-metric__top">
@@ -280,8 +288,8 @@ export default function Recompensas() {
         <section className="economy-section">
           <V2SectionHeader
             eyebrow="Conquistas"
-            title="Marcos que contam sua história"
-            description="O progresso aparece com clareza; o destaque fica para aquilo que você realmente conquistou."
+            title="Metas e conquistas"
+            description="Complete metas para desbloquear conquistas e acompanhar tudo o que já alcançou."
           />
           <div className="economy-content-grid">
             <V2Card className="economy-panel">
@@ -334,25 +342,25 @@ export default function Recompensas() {
                 <div className="economy-panel-heading">
                   <span className="economy-icon economy-icon--warning"><Flame aria-hidden="true" /></span>
                   <div>
-                    <h2 className="economy-panel-title">Consistência</h2>
-                    <p className="economy-panel-copy">Pequenas ações, repetidas no tempo</p>
+                    <h2 className="economy-panel-title">Bônus por acesso diário</h2>
+                    <p className="economy-panel-copy">Entre na Classfy em dias consecutivos para liberar bônus.</p>
                   </div>
                 </div>
-                <V2Badge variant="warning">{stats.currentStreak} dias</V2Badge>
+                <V2Badge variant="warning">{stats.currentStreak} dias seguidos</V2Badge>
               </V2CardHeader>
               <V2CardContent>
                 <div className="economy-stat-list">
                   <div className="economy-stat-row">
-                    <span className="economy-stat-row__label"><Flame />Sequência atual</span>
+                    <span className="economy-stat-row__label"><Flame />Acessos consecutivos agora</span>
                     <strong className="economy-stat-row__value">{stats.currentStreak} dias</strong>
                   </div>
                   <div className="economy-stat-row">
-                    <span className="economy-stat-row__label"><Trophy />Melhor sequência</span>
+                    <span className="economy-stat-row__label"><Trophy />Seu recorde de acessos</span>
                     <strong className="economy-stat-row__value">{stats.longestStreak} dias</strong>
                   </div>
                   <div className="economy-stat-row">
-                    <span className="economy-stat-row__label"><Sparkles />Próximo bônus</span>
-                    <strong className="economy-stat-row__value">em {nextStreakReward} dias</strong>
+                    <span className="economy-stat-row__label"><Sparkles />Bônus por 7 dias seguidos</span>
+                    <strong className="economy-stat-row__value">faltam {nextStreakReward} dias</strong>
                   </div>
                 </div>
               </V2CardContent>
@@ -361,13 +369,13 @@ export default function Recompensas() {
         </section>
 
         <section className="economy-section">
-          <V2SectionHeader eyebrow="Atividade" title={isCreator ? "Consumo e criação, lado a lado" : "Como você participa"} />
+          <V2SectionHeader eyebrow="Atividade" title={isCreator ? "Seu estudo e sua criação" : "Suas ações na Classfy"} description="Veja o que foi registrado na sua conta." />
           <div className="economy-content-grid">
             <V2Card className="economy-panel">
               <V2CardHeader>
                 <div className="economy-panel-heading">
                   <span className="economy-icon economy-icon--muted"><Zap aria-hidden="true" /></span>
-                  <div><h2 className="economy-panel-title">Seu engajamento</h2><p className="economy-panel-copy">Ações elegíveis registradas</p></div>
+                    <div><h2 className="economy-panel-title">Ações registradas</h2><p className="economy-panel-copy">Curtidas, salvos, comentários e conclusões</p></div>
                 </div>
               </V2CardHeader>
               <V2CardContent className="economy-stat-list">
@@ -385,7 +393,7 @@ export default function Recompensas() {
                 <V2CardHeader>
                   <div className="economy-panel-heading">
                     <span className="economy-icon economy-icon--muted"><Star aria-hidden="true" /></span>
-                    <div><h2 className="economy-panel-title">Sua presença como creator</h2><p className="economy-panel-copy">Desempenho do conteúdo aprovado</p></div>
+                    <div><h2 className="economy-panel-title">Resultados dos seus conteúdos</h2><p className="economy-panel-copy">Dados dos conteúdos já aprovados</p></div>
                   </div>
                 </V2CardHeader>
                 <V2CardContent className="economy-stat-list">
@@ -401,8 +409,8 @@ export default function Recompensas() {
               <V2Card className="economy-panel">
                 <V2CardContent className="flex min-h-[18rem] flex-col items-start justify-center">
                   <span className="economy-kicker">Próximo passo</span>
-                  <h2 className="economy-balance-hero__headline">Descubra novas formas de evoluir.</h2>
-                  <p className="economy-panel-copy mt-3">Continue aprendendo e interagindo com conteúdos elegíveis.</p>
+                  <h2 className="economy-balance-hero__headline">Continue estudando para acumular Points.</h2>
+                  <p className="economy-panel-copy mt-3">Assista a conteúdos e participe das ações que geram recompensa.</p>
                   <V2Button className="mt-6" onClick={() => navigate("/")}>Explorar conteúdos</V2Button>
                 </V2CardContent>
               </V2Card>
@@ -416,7 +424,7 @@ export default function Recompensas() {
               <V2CardHeader>
                 <div className="economy-panel-heading">
                   <span className="economy-icon"><Trophy aria-hidden="true" /></span>
-                  <div><h2 className="economy-panel-title">Próximo milestone</h2><p className="economy-panel-copy">{nextMilestone.title}</p></div>
+                  <div><h2 className="economy-panel-title">Próxima conquista</h2><p className="economy-panel-copy">{nextMilestone.title}</p></div>
                 </div>
                 <V2Badge>Reconhecimento</V2Badge>
               </V2CardHeader>
@@ -426,8 +434,8 @@ export default function Recompensas() {
                 </strong>
                 <div className="economy-progress mt-6"><span style={{ width: `${Math.min(100, nextMilestone.percentComplete)}%` }} /></div>
                 <div className="economy-progress-copy">
-                  <span>{nextMilestone.currentValue.toLocaleString("pt-BR")} alcançados</span>
-                  <span>{nextMilestone.percentComplete.toFixed(0)}%</span>
+                  <span>{nextMilestone.currentValue.toLocaleString("pt-BR")} de {nextMilestone.milestone_value.toLocaleString("pt-BR")}</span>
+                  <span>{nextMilestone.percentComplete.toFixed(0)}% concluído</span>
                 </div>
               </V2CardContent>
             </V2Card>
@@ -435,8 +443,8 @@ export default function Recompensas() {
           <V2Card className="economy-panel">
             <V2CardContent className="flex min-h-[13rem] flex-col items-start justify-center">
               <span className="economy-kicker">Transparência</span>
-              <h2 className="economy-panel-title mt-3">Veja de onde veio cada Point.</h2>
-              <p className="economy-panel-copy">O histórico detalha ações, datas e tipos de recompensa.</p>
+              <h2 className="economy-panel-title mt-3">Veja como seus Points foram ganhos.</h2>
+              <p className="economy-panel-copy">Consulte cada ação, data, tipo de Point e conteúdo relacionado.</p>
               <V2Button variant="secondary" className="mt-6" onClick={() => navigate("/rewards-history")}>Abrir histórico completo</V2Button>
             </V2CardContent>
           </V2Card>

@@ -47,25 +47,25 @@ const formatMoney = (value: number) =>
   new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(value);
 
 const actionLabels: Record<string, string> = {
-  VIEW_15S: "Primeiros 15 segundos",
-  LIKE: "Curtida",
-  COMMENT: "Comentário",
-  SAVE: "Salvamento",
-  FAVORITE: "Favorito",
-  SHARE: "Compartilhamento",
-  WATCH_50: "Assistiu 50%",
-  WATCH_100: "Conteúdo concluído",
-  DAILY_LOGIN: "Login diário",
-  FIRST_CONTENT_WEEK: "Primeiro conteúdo da semana",
-  WEEKLY_STREAK: "Sequência semanal",
-  PROFILE_COMPLETE: "Perfil completo",
-  REFERRAL_SIGNUP: "Indicação",
-  REFERRAL_PURCHASE: "Compra por indicação",
-  SUBSCRIBE_CREATOR: "Inscrição em creator",
-  COMPLETE_COURSE: "Curso concluído",
-  CREATOR_APPROVED: "Creator aprovado",
-  FIRST_UPLOAD: "Primeiro upload",
-  CONTENT_APPROVED: "Conteúdo aprovado",
+  VIEW_15S: "Assistiu aos primeiros 15 segundos",
+  LIKE: "Curtiu um conteúdo",
+  COMMENT: "Comentou em um conteúdo",
+  SAVE: "Salvou um conteúdo",
+  FAVORITE: "Favoritou um conteúdo",
+  SHARE: "Compartilhou um conteúdo",
+  WATCH_50: "Assistiu à metade",
+  WATCH_100: "Concluiu o conteúdo",
+  DAILY_LOGIN: "Acessou a Classfy no dia",
+  FIRST_CONTENT_WEEK: "Publicou o primeiro conteúdo da semana",
+  WEEKLY_STREAK: "Completou 7 dias seguidos",
+  PROFILE_COMPLETE: "Completou o perfil",
+  REFERRAL_SIGNUP: "Convidou um novo usuário",
+  REFERRAL_PURCHASE: "Gerou uma compra por indicação",
+  SUBSCRIBE_CREATOR: "Começou a seguir um creator",
+  COMPLETE_COURSE: "Concluiu um curso",
+  CREATOR_APPROVED: "Teve o perfil de creator aprovado",
+  FIRST_UPLOAD: "Enviou o primeiro conteúdo",
+  CONTENT_APPROVED: "Teve um conteúdo aprovado",
 };
 
 export default function Carteira() {
@@ -201,9 +201,9 @@ export default function Carteira() {
         header={
           <PageHeader
             eyebrow="Carteira Classfy"
-            title="Seu valor, com clareza."
-            description="Acompanhe valores disponíveis, períodos de maturação e cada movimentação da sua carteira."
-            action={<V2Badge variant="success">Carteira ativa</V2Badge>}
+            title="Acompanhe seu saldo e seus saques."
+            description="Veja o que já está disponível, o que ainda aguarda liberação e todas as movimentações da sua carteira."
+            action={<V2Badge variant="success">Conta ativa</V2Badge>}
           />
         }
       >
@@ -211,14 +211,14 @@ export default function Carteira() {
           <V2Card elevation="panel" className="economy-balance-hero">
             <div className="economy-balance-hero__top">
               <span className="economy-kicker">Saldo disponível</span>
-              <h2 className="economy-balance-hero__headline">O valor gerado por você, pronto para acompanhar.</h2>
+              <h2 className="economy-balance-hero__headline">Seu saldo disponível para saque.</h2>
               <span className="economy-balance-hero__label">Disponível para saque</span>
               <div className="economy-balance-hero__value">
                 <small>R$</small> {availableBalance.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
               </div>
               <div className="economy-balance-hero__meta">
-                <span><span className="economy-status-dot" />Disponível</span>
-                <span>+ {formatMoney(Number(wallet.pending_balance || 0))} em maturação</span>
+                <span><span className="economy-status-dot" />Pronto para solicitar</span>
+                <span>{formatMoney(Number(wallet.pending_balance || 0))} aguardando liberação</span>
               </div>
             </div>
             <div className="economy-balance-hero__bottom economy-level">
@@ -227,7 +227,7 @@ export default function Carteira() {
                 <strong className="economy-level__value">{formatMoney(Number(wallet.total_earned || 0))}</strong>
               </div>
               <div className="economy-level__row mt-3">
-                <span className="economy-panel-copy">Saldo reservado</span>
+                <span className="economy-panel-copy">Reservado em saques solicitados</span>
                 <strong className="economy-level__value">{formatMoney(Number(wallet.reserved_balance || 0))}</strong>
               </div>
             </div>
@@ -268,7 +268,7 @@ export default function Carteira() {
                   disabled={submitting}
                 />
                 <div className="economy-form-actions">
-                  <span className="economy-form-note">A solicitação passa por análise antes da liberação.</span>
+                  <span className="economy-form-note">Após o envio, você poderá acompanhar a análise no histórico abaixo.</span>
                   <V2Button type="submit" disabled={submitting}>
                     {submitting ? "Enviando..." : "Solicitar saque"}
                   </V2Button>
@@ -280,16 +280,16 @@ export default function Carteira() {
 
         <section className="economy-section">
           <V2SectionHeader
-            eyebrow="Visão financeira"
-            title="O que está acontecendo agora"
-            description="Disponibilidade e histórico apresentados sem misturar Points com valores em reais."
+            eyebrow="Resumo da carteira"
+            title="Confira seus valores"
+            description="Veja quanto está disponível, aguardando liberação e já foi sacado. Points continuam separados dos valores em reais."
           />
           <div className="economy-metric-grid">
             {[
-              { Icon: Clock, label: "Em maturação", value: formatMoney(Number(wallet.pending_balance || 0)), detail: "Aguardando liberação" },
-              { Icon: ArrowUpRight, label: "Total gerado", value: formatMoney(Number(wallet.total_earned || 0)), detail: "Histórico completo" },
-              { Icon: ArrowDownRight, label: "Total sacado", value: formatMoney(Number(wallet.total_withdrawn || 0)), detail: "Saques concluídos" },
-              { Icon: Calendar, label: "Points neste mês", value: Math.floor(stats.thisMonth).toLocaleString("pt-BR"), detail: "Ciclo em andamento" },
+              { Icon: Clock, label: "Aguardando liberação", value: formatMoney(Number(wallet.pending_balance || 0)), detail: "Ainda não disponível para saque" },
+              { Icon: ArrowUpRight, label: "Total gerado", value: formatMoney(Number(wallet.total_earned || 0)), detail: "Desde a abertura da conta" },
+              { Icon: ArrowDownRight, label: "Total sacado", value: formatMoney(Number(wallet.total_withdrawn || 0)), detail: "Já recebido por você" },
+              { Icon: Calendar, label: "Points neste mês", value: Math.floor(stats.thisMonth).toLocaleString("pt-BR"), detail: "Acumulados no ciclo atual" },
             ].map(({ Icon, label, value, detail }) => (
               <V2Card key={label} className="economy-metric">
                 <div className="economy-metric__top">
@@ -306,13 +306,13 @@ export default function Carteira() {
         <section className="economy-section">
           <V2SectionHeader
             eyebrow="Movimentações"
-            title="Tudo registrado, sem surpresas"
+            title="Confira cada movimentação"
             description={`Últimos 7 dias: ${Math.floor(stats.last7Days).toLocaleString("pt-BR")} Points · últimos 30 dias: ${Math.floor(stats.last30Days).toLocaleString("pt-BR")} Points`}
           />
           <Tabs defaultValue="ganhos">
             <TabsList className="economy-tabs-list mb-4">
-              <TabsTrigger value="ganhos"><TrendingUp className="mr-2 h-4 w-4" />Ganhos</TabsTrigger>
-              <TabsTrigger value="saques"><History className="mr-2 h-4 w-4" />Saques</TabsTrigger>
+              <TabsTrigger value="ganhos"><TrendingUp className="mr-2 h-4 w-4" />Points recebidos</TabsTrigger>
+              <TabsTrigger value="saques"><History className="mr-2 h-4 w-4" />Solicitações de saque</TabsTrigger>
             </TabsList>
 
             <TabsContent value="ganhos">
@@ -320,15 +320,15 @@ export default function Carteira() {
                 <V2CardHeader>
                   <div className="economy-panel-heading">
                     <span className="economy-icon economy-icon--success"><Zap aria-hidden="true" /></span>
-                    <div><h2 className="economy-panel-title">Histórico de ganhos</h2><p className="economy-panel-copy">Últimos 50 eventos registrados</p></div>
+                    <div><h2 className="economy-panel-title">Points recebidos</h2><p className="economy-panel-copy">As 50 recompensas mais recentes</p></div>
                   </div>
                 </V2CardHeader>
                 <V2CardContent>
                   {rewardHistory.length === 0 ? (
                     <V2EmptyState
                       icon={<TrendingUp className="h-5 w-5" />}
-                      title="Nenhum ganho registrado"
-                      description="Quando uma ação elegível gerar Points, ela aparecerá aqui."
+                      title="Você ainda não recebeu Points"
+                      description="Quando uma ação gerar recompensa, ela aparecerá aqui."
                     />
                   ) : (
                     <div className="economy-activity-list">
@@ -358,7 +358,7 @@ export default function Carteira() {
                 <V2CardHeader>
                   <div className="economy-panel-heading">
                     <span className="economy-icon economy-icon--muted"><ShieldCheck aria-hidden="true" /></span>
-                    <div><h2 className="economy-panel-title">Histórico de saques</h2><p className="economy-panel-copy">Acompanhe cada solicitação e seu status</p></div>
+                    <div><h2 className="economy-panel-title">Solicitações de saque</h2><p className="economy-panel-copy">Veja o andamento de cada pedido</p></div>
                   </div>
                 </V2CardHeader>
                 <V2CardContent>

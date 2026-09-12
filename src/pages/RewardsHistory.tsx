@@ -1,244 +1,150 @@
-import { useState, useEffect } from "react";
-import { useAuth } from "@/contexts/AuthContext";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { supabase } from "@/integrations/supabase/client";
-import { GlobalLoader } from "@/components/GlobalLoader";
-import { AppShell } from "@/components/layout";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { Input } from "@/components/ui/input";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Calendar, Coins, TrendingUp, Download, Filter, Eye } from "lucide-react";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
+import { Activity, BookOpen, Coins, Download, Eye, Filter, Sparkles, TrendingUp } from "lucide-react";
+import { useAuth } from "@/contexts/AuthContext";
+import { supabase } from "@/integrations/supabase/client";
+import type { Database } from "@/integrations/supabase/types";
+import { GlobalLoader } from "@/components/GlobalLoader";
+import { AppShell, PageHeader } from "@/components/layout";
+import { EconomyTemplate } from "@/components/templates";
 import {
   Dialog,
   DialogContent,
   DialogDescription,
   DialogHeader,
   DialogTitle,
-} from "@/components/ui/dialog";
+  V2Badge,
+  V2Button,
+  V2Card,
+  V2CardContent,
+  V2CardHeader,
+  V2EmptyState,
+  V2Input,
+  V2SectionHeader,
+  V2Table,
+  V2TableWrap,
+} from "@/components/v2";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import "@/styles/economy-v2.css";
 
-interface RewardEvent {
-  id: string;
-  action_key: string;
-  points: number;
-  value: number;
-  point_type?: 'user' | 'creator';
-  content_id: string | null;
-  created_at: string;
-  metadata: any;
-  contents: {
-    title: string;
-  } | null;
-}
-
-interface Stats {
-  userPoints: number;
-  creatorPoints: number;
-  totalEvents: number;
-}
+type RewardEventRow = Database["public"]["Tables"]["reward_events"]["Row"];
+type RewardEvent = RewardEventRow & { contents: { title: string } | null };
 
 const ITEMS_PER_PAGE = 20;
+
+const actionLabels: Record<string, string> = {
+  LIKE: "Curtiu um conteúdo",
+  SAVE: "Salvou um conteúdo",
+  FAVORITE: "Favoritou um conteúdo",
+  COMMENT: "Comentou em um conteúdo",
+  WATCH_50: "Assistiu à metade",
+  WATCH_100: "Concluiu o conteúdo",
+  VIEW_15S: "Assistiu aos primeiros 15 segundos",
+  SHARE: "Compartilhou um conteúdo",
+  COMPLETE_COURSE: "Concluiu um curso",
+  DAILY_LOGIN: "Acessou a Classfy no dia",
+  WEEKLY_STREAK: "Completou 7 dias seguidos",
+  FIRST_CONTENT_WEEK: "Publicou o primeiro conteúdo da semana",
+  BINGE_WATCH: "Completou uma maratona",
+  PROFILE_COMPLETE: "Completou o perfil",
+  SUBSCRIBE_CREATOR: "Começou a seguir um creator",
+  FOLLOW_CREATOR: "Começou a seguir um creator",
+  CREATOR_APPROVED: "Teve o perfil de creator aprovado",
+  FIRST_UPLOAD: "Enviou o primeiro conteúdo",
+  CONTENT_APPROVED: "Teve um conteúdo aprovado",
+  LIKE_CONTENT: "Curtiu um conteúdo (registro antigo)",
+  SAVE_CONTENT: "Salvou um conteúdo (registro antigo)",
+  FAVORITE_CONTENT: "Favoritou um conteúdo (registro antigo)",
+  COMMENT_CONTENT: "Comentou em um conteúdo (registro antigo)",
+  SHARE_CONTENT: "Compartilhou um conteúdo (registro antigo)",
+  MILESTONE_100_VIEWS: "Alcançou 100 visualizações",
+  MILESTONE_500_VIEWS: "Alcançou 500 visualizações",
+  MILESTONE_1000_VIEWS: "Alcançou 1.000 visualizações",
+  MILESTONE_5000_VIEWS: "Alcançou 5.000 visualizações",
+  MILESTONE_10000_VIEWS: "Alcançou 10.000 visualizações",
+};
+
+const getActionLabel = (actionKey: string) => actionLabels[actionKey] || actionKey.replaceAll("_", " ");
+
+const getPointTypeLabel = (pointType: RewardEventRow["point_type"]) =>
+  pointType === "creator" ? "Criação" : "Estudo e participação";
+
+const metadataLabels: Record<string, string> = {
+  date: "Data de referência",
+  plan: "Plano",
+  title: "Título",
+  course_id: "Curso",
+  content_id: "Conteúdo",
+  tracking_key: "Identificador do registro",
+  canonical_name: "Nome da regra",
+  economy_version: "Versão da economia",
+};
+
+const formatMetadataValue = (value: unknown) => {
+  if (value === null || value === undefined || value === "") return "Não informado";
+  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") return String(value);
+  return JSON.stringify(value) || "Não informado";
+};
 
 export default function RewardsHistory() {
   const { user, loading: authLoading } = useAuth();
   const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
   const [events, setEvents] = useState<RewardEvent[]>([]);
-  const [filteredEvents, setFilteredEvents] = useState<RewardEvent[]>([]);
-  const [stats, setStats] = useState<Stats>({
-    userPoints: 0,
-    creatorPoints: 0,
-    totalEvents: 0,
-  });
-  const [actionFilter, setActionFilter] = useState<string>("all");
-  const [startDate, setStartDate] = useState<string>("");
-  const [endDate, setEndDate] = useState<string>("");
+  const [actionFilter, setActionFilter] = useState("all");
+  const [startDate, setStartDate] = useState("");
+  const [endDate, setEndDate] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
   const [selectedEvent, setSelectedEvent] = useState<RewardEvent | null>(null);
   const [detailsOpen, setDetailsOpen] = useState(false);
 
-  useEffect(() => {
-    if (!authLoading && !user) {
-      navigate("/auth");
-    } else if (user) {
-      fetchRewardEvents();
-    }
-  }, [user, authLoading, navigate]);
-
-  const fetchRewardEvents = async () => {
+  const fetchRewardEvents = useCallback(async () => {
+    if (!user) return;
     try {
       const { data, error } = await supabase
         .from("reward_events")
-        .select(
-          `
-          *,
-          contents (
-            title
-          )
-        `
-        )
-        .eq("user_id", user!.id)
+        .select(`*, contents (title)`)
+        .eq("user_id", user.id)
         .order("created_at", { ascending: false });
 
       if (error) throw error;
-
-      setEvents(data || []);
-      setFilteredEvents(data || []);
-      
-      // Calculate stats
-      const userPoints = data?.filter((event: any) => event.point_type !== 'creator').reduce((sum, event) => sum + event.points, 0) || 0;
-      const creatorPoints = data?.filter((event: any) => event.point_type === 'creator').reduce((sum, event) => sum + event.points, 0) || 0;
-      
-      setStats({
-        userPoints,
-        creatorPoints,
-        totalEvents: data?.length || 0,
-      });
+      setEvents((data || []) as RewardEvent[]);
     } catch (error) {
       console.error("Error fetching reward events:", error);
     } finally {
       setLoading(false);
     }
-  };
+  }, [user]);
 
   useEffect(() => {
-    let filtered = [...events];
-
-    // Filter by action
-    if (actionFilter !== "all") {
-      filtered = filtered.filter((event) => event.action_key === actionFilter);
+    if (!authLoading && !user) {
+      navigate("/auth");
+      return;
     }
+    if (user) void fetchRewardEvents();
+  }, [authLoading, fetchRewardEvents, navigate, user]);
 
-    // Filter by date range
-    if (startDate) {
-      filtered = filtered.filter(
-        (event) => new Date(event.created_at) >= new Date(startDate)
-      );
-    }
-    if (endDate) {
-      filtered = filtered.filter(
-        (event) => new Date(event.created_at) <= new Date(endDate + "T23:59:59")
-      );
-    }
+  const filteredEvents = useMemo(() => events.filter((event) => {
+    if (actionFilter !== "all" && event.action_key !== actionFilter) return false;
+    if (startDate && new Date(event.created_at) < new Date(startDate)) return false;
+    if (endDate && new Date(event.created_at) > new Date(`${endDate}T23:59:59`)) return false;
+    return true;
+  }), [actionFilter, endDate, events, startDate]);
 
-    setFilteredEvents(filtered);
+  const stats = useMemo(() => ({
+    userPoints: filteredEvents.filter((event) => event.point_type !== "creator").reduce((sum, event) => sum + Number(event.points || 0), 0),
+    creatorPoints: filteredEvents.filter((event) => event.point_type === "creator").reduce((sum, event) => sum + Number(event.points || 0), 0),
+    totalEvents: filteredEvents.length,
+  }), [filteredEvents]);
 
-    // Recalculate stats for filtered data
-    const userPoints = filtered.filter(event => event.point_type !== 'creator').reduce((sum, event) => sum + event.points, 0);
-    const creatorPoints = filtered.filter(event => event.point_type === 'creator').reduce((sum, event) => sum + event.points, 0);
-    
-    setStats({
-      userPoints,
-      creatorPoints,
-      totalEvents: filtered.length,
-    });
-  }, [actionFilter, startDate, endDate, events]);
-
-  const getActionLabel = (actionKey: string) => {
-    const labels: Record<string, string> = {
-      LIKE: "Curtir Conteúdo",
-      SAVE: "Salvar Conteúdo",
-      FAVORITE: "Favoritar Conteúdo",
-      COMMENT: "Comentar Conteúdo",
-      WATCH_50: "Assistir 50%",
-      WATCH_100: "Assistir 100%",
-      VIEW_15S: "Visualização 15s",
-      SHARE: "Compartilhar",
-      COMPLETE_COURSE: "Completar Curso",
-      DAILY_LOGIN: "Login Diário",
-      WEEKLY_STREAK: "Sequência Semanal",
-      FIRST_CONTENT_WEEK: "1º Conteúdo da Semana",
-      BINGE_WATCH: "Maratona",
-      PROFILE_COMPLETE: "Perfil Completo",
-      SUBSCRIBE_CREATOR: "Seguir Criador",
-      CREATOR_APPROVED: "Creator Aprovado",
-      FIRST_UPLOAD: "Primeiro Upload",
-      CONTENT_APPROVED: "Conteúdo Aprovado",
-      LIKE_CONTENT: "Curtir Conteúdo (legado)",
-      SAVE_CONTENT: "Salvar Conteúdo (legado)",
-      FAVORITE_CONTENT: "Favoritar Conteúdo (legado)",
-      COMMENT_CONTENT: "Comentar Conteúdo (legado)",
-      SHARE_CONTENT: "Compartilhar (legado)",
-      MILESTONE_100_VIEWS: "Marco: 100 Views",
-      MILESTONE_500_VIEWS: "Marco: 500 Views",
-      MILESTONE_1000_VIEWS: "Marco: 1.000 Views",
-      MILESTONE_5000_VIEWS: "Marco: 5.000 Views",
-      MILESTONE_10000_VIEWS: "Marco: 10.000 Views",
-    };
-    return labels[actionKey] || actionKey;
-  };
-
-  const getActionColor = (actionKey: string) => {
-    const colors: Record<string, string> = {
-      LIKE: "bg-pink-500/10 text-pink-500 border-pink-500/20",
-      SAVE: "bg-blue-500/10 text-blue-500 border-blue-500/20",
-      FAVORITE: "bg-yellow-500/10 text-yellow-500 border-yellow-500/20",
-      COMMENT: "bg-purple-500/10 text-purple-500 border-purple-500/20",
-      SHARE: "bg-sky-500/10 text-sky-500 border-sky-500/20",
-      LIKE_CONTENT: "bg-pink-500/10 text-pink-500 border-pink-500/20",
-      SAVE_CONTENT: "bg-blue-500/10 text-blue-500 border-blue-500/20",
-      FAVORITE_CONTENT: "bg-yellow-500/10 text-yellow-500 border-yellow-500/20",
-      COMMENT_CONTENT: "bg-purple-500/10 text-purple-500 border-purple-500/20",
-      WATCH_50: "bg-green-500/10 text-green-500 border-green-500/20",
-      WATCH_100: "bg-emerald-500/10 text-emerald-500 border-emerald-500/20",
-      VIEW_15S: "bg-teal-500/10 text-teal-500 border-teal-500/20",
-      SHARE_CONTENT: "bg-sky-500/10 text-sky-500 border-sky-500/20",
-      COMPLETE_COURSE: "bg-indigo-500/10 text-indigo-500 border-indigo-500/20",
-      DAILY_LOGIN: "bg-orange-500/10 text-orange-500 border-orange-500/20",
-      WEEKLY_STREAK: "bg-amber-500/10 text-amber-500 border-amber-500/20",
-      FIRST_CONTENT_WEEK: "bg-lime-500/10 text-lime-500 border-lime-500/20",
-      BINGE_WATCH: "bg-red-500/10 text-red-500 border-red-500/20",
-      PROFILE_COMPLETE: "bg-cyan-500/10 text-cyan-500 border-cyan-500/20",
-      SUBSCRIBE_CREATOR: "bg-red-500/10 text-red-500 border-red-500/20",
-      FOLLOW_CREATOR: "bg-rose-500/10 text-rose-500 border-rose-500/20",
-      CONTENT_APPROVED: "bg-teal-500/10 text-teal-500 border-teal-500/20",
-      MILESTONE_100_VIEWS: "bg-violet-500/10 text-violet-500 border-violet-500/20",
-      MILESTONE_500_VIEWS: "bg-fuchsia-500/10 text-fuchsia-500 border-fuchsia-500/20",
-      MILESTONE_1000_VIEWS: "bg-sky-500/10 text-sky-500 border-sky-500/20",
-      MILESTONE_5000_VIEWS: "bg-lime-500/10 text-lime-500 border-lime-500/20",
-      MILESTONE_10000_VIEWS: "bg-amber-500/10 text-amber-500 border-amber-500/20",
-    };
-    return colors[actionKey] || "bg-muted text-muted-foreground";
-  };
-
-  const exportToCSV = () => {
-    const headers = ["Data", "Ação", "Conteúdo", "Tipo", "Points"];
-    const rows = filteredEvents.map(event => [
-      format(new Date(event.created_at), "dd/MM/yyyy HH:mm", { locale: ptBR }),
-      getActionLabel(event.action_key),
-      event.contents?.title || "-",
-      event.point_type === 'creator' ? 'Creator' : 'Usuário',
-      event.points.toString()
-    ]);
-
-    const csvContent = [
-      headers.join(","),
-      ...rows.map(row => row.map(cell => `"${cell}"`).join(","))
-    ].join("\n");
-
-    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
-    const link = document.createElement("a");
-    link.href = URL.createObjectURL(blob);
-    link.download = `historico-recompensas-${format(new Date(), "yyyy-MM-dd")}.csv`;
-    link.click();
-  };
+  const uniqueActions = useMemo(() => Array.from(new Set(events.map((event) => event.action_key))).sort(), [events]);
+  const totalPages = Math.ceil(filteredEvents.length / ITEMS_PER_PAGE);
+  const paginatedEvents = useMemo(
+    () => filteredEvents.slice((currentPage - 1) * ITEMS_PER_PAGE, currentPage * ITEMS_PER_PAGE),
+    [currentPage, filteredEvents],
+  );
 
   const clearFilters = () => {
     setActionFilter("all");
@@ -247,375 +153,184 @@ export default function RewardsHistory() {
     setCurrentPage(1);
   };
 
-  const uniqueActions = Array.from(new Set(events.map((e) => e.action_key))).sort();
-  
-  const totalPages = Math.ceil(filteredEvents.length / ITEMS_PER_PAGE);
-  const paginatedEvents = filteredEvents.slice(
-    (currentPage - 1) * ITEMS_PER_PAGE,
-    currentPage * ITEMS_PER_PAGE
-  );
+  const exportToCSV = () => {
+    const headers = ["Data", "Ação", "Conteúdo", "Tipo", "Points"];
+    const rows = filteredEvents.map((event) => [
+      format(new Date(event.created_at), "dd/MM/yyyy HH:mm", { locale: ptBR }),
+      getActionLabel(event.action_key),
+      event.contents?.title || "-",
+      getPointTypeLabel(event.point_type),
+      String(event.points),
+    ]);
+    const escapeCell = (cell: string) => `"${cell.replaceAll('"', '""')}"`;
+    const csvContent = [headers, ...rows].map((row) => row.map(escapeCell).join(",")).join("\n");
+    const url = URL.createObjectURL(new Blob([csvContent], { type: "text/csv;charset=utf-8;" }));
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `historico-recompensas-${format(new Date(), "yyyy-MM-dd")}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
 
-  const handleViewDetails = (event: RewardEvent) => {
+  const showDetails = (event: RewardEvent) => {
     setSelectedEvent(event);
     setDetailsOpen(true);
   };
 
-  if (authLoading || loading) {
-    return <GlobalLoader />;
-  }
+  if (authLoading || loading) return <GlobalLoader />;
 
   return (
-    <AppShell
-      variant="home"
-      title="Histórico de Recompensas"
-      contentClassName="container mx-auto px-4 py-8 space-y-6"
-    >
-        {/* Stats Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Points por participação</CardTitle>
-              <Coins className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{stats.userPoints.toLocaleString()}</div>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Points por criação</CardTitle>
-              <TrendingUp className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">
-                {stats.creatorPoints.toLocaleString()} Points
+    <AppShell title="Histórico de recompensas" contentClassName="economy-page-shell">
+      <EconomyTemplate
+        className="economy-template"
+        width="wide"
+        header={
+          <PageHeader
+            eyebrow="Histórico de Points"
+            title="Entenda cada Point recebido."
+            description="Veja qual ação gerou a recompensa, quando ela foi registrada e se veio do seu estudo ou da sua criação."
+            action={
+              <div className="economy-page-actions">
+                <V2Button variant="secondary" onClick={() => navigate("/recompensas")}>Voltar para recompensas</V2Button>
+                <V2Button variant="secondary" leadingIcon={<Download className="h-4 w-4" />} onClick={exportToCSV}>Exportar CSV</V2Button>
               </div>
-            </CardContent>
-          </Card>
+            }
+          />
+        }
+      >
+        <section className="economy-metric-grid">
+          {[
+            { Icon: Coins, label: "Points de estudo e participação", value: stats.userPoints, detail: "Recebidos pelas suas ações na plataforma" },
+            { Icon: TrendingUp, label: "Creator Points", value: stats.creatorPoints, detail: "Gerados pelos seus conteúdos" },
+            { Icon: Activity, label: "Recompensas registradas", value: stats.totalEvents, detail: "No período selecionado" },
+          ].map(({ Icon, label, value, detail }) => (
+            <V2Card className="economy-metric" key={label}>
+              <div className="economy-metric__top">
+                <span className="economy-metric__label">{label}</span>
+                <span className="economy-icon economy-icon--muted"><Icon aria-hidden="true" /></span>
+              </div>
+              <strong className="economy-metric__value">{Math.floor(value).toLocaleString("pt-BR")}</strong>
+              <span className="economy-metric__detail">{detail}</span>
+            </V2Card>
+          ))}
+        </section>
 
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Total de Eventos</CardTitle>
-              <TrendingUp className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{stats.totalEvents}</div>
-            </CardContent>
-          </Card>
-        </div>
-
-        {/* Filters */}
-        <Card>
-          <CardHeader className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-            <div>
-              <CardTitle className="flex items-center gap-2">
-                <Filter className="w-5 h-5" />
-                Filtros
-              </CardTitle>
-              <CardDescription>Filtre o histórico por tipo de ação e período</CardDescription>
+        <V2Card className="economy-panel">
+          <V2CardHeader>
+            <div className="economy-panel-heading">
+              <span className="economy-icon"><Filter aria-hidden="true" /></span>
+              <div><h2 className="economy-panel-title">Encontre uma recompensa</h2><p className="economy-panel-copy">Filtre por ação ou escolha um período.</p></div>
             </div>
-            <div className="flex gap-2 w-full sm:w-auto">
-              <Button variant="outline" size="sm" onClick={clearFilters} className="flex-1 sm:flex-none">
-                Limpar
-              </Button>
-              <Button variant="outline" size="sm" onClick={exportToCSV} className="flex-1 sm:flex-none">
-                <Download className="w-4 h-4 sm:mr-2" />
-                <span className="hidden sm:inline">Exportar CSV</span>
-              </Button>
-            </div>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div className="space-y-2">
-                <label className="text-sm font-medium">Tipo de Ação</label>
-                <Select value={actionFilter} onValueChange={setActionFilter}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Todas as ações" />
-                  </SelectTrigger>
+            {(actionFilter !== "all" || startDate || endDate) && <V2Button variant="quiet" size="sm" onClick={clearFilters}>Limpar filtros</V2Button>}
+          </V2CardHeader>
+          <V2CardContent>
+            <div className="economy-filter-grid">
+              <label className="cf2-field">
+                <span className="cf2-field__label">Ação realizada</span>
+                <Select value={actionFilter} onValueChange={(value) => { setActionFilter(value); setCurrentPage(1); }}>
+                  <SelectTrigger className="economy-select-trigger"><SelectValue placeholder="Todas as ações" /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">Todas as ações</SelectItem>
-                    {uniqueActions.map((action) => (
-                      <SelectItem key={action} value={action}>
-                        {getActionLabel(action)}
-                      </SelectItem>
-                    ))}
+                    {uniqueActions.map((action) => <SelectItem key={action} value={action}>{getActionLabel(action)}</SelectItem>)}
                   </SelectContent>
                 </Select>
-              </div>
-
-              <div className="space-y-2">
-                <label className="text-sm font-medium">Data Inicial</label>
-                <Input
-                  type="date"
-                  value={startDate}
-                  onChange={(e) => {
-                    setStartDate(e.target.value);
-                    setCurrentPage(1);
-                  }}
-                />
-              </div>
-
-              <div className="space-y-2">
-                <label className="text-sm font-medium">Data Final</label>
-                <Input
-                  type="date"
-                  value={endDate}
-                  onChange={(e) => {
-                    setEndDate(e.target.value);
-                    setCurrentPage(1);
-                  }}
-                />
-              </div>
+              </label>
+              <V2Input type="date" label="De" value={startDate} onChange={(event) => { setStartDate(event.target.value); setCurrentPage(1); }} />
+              <V2Input type="date" label="Até" value={endDate} onChange={(event) => { setEndDate(event.target.value); setCurrentPage(1); }} />
             </div>
-          </CardContent>
-        </Card>
+          </V2CardContent>
+        </V2Card>
 
-        {/* Events Table - Desktop */}
-        <Card className="hidden md:block">
-          <CardHeader>
-            <CardTitle>Eventos de Recompensa</CardTitle>
-            <CardDescription>
-              Mostrando {paginatedEvents.length} de {filteredEvents.length} eventos
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="rounded-md border">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Data</TableHead>
-                    <TableHead>Ação</TableHead>
-                    <TableHead>Conteúdo</TableHead>
-                     <TableHead className="text-right">Points</TableHead>
-                    <TableHead>Origem</TableHead>
-                    <TableHead className="text-right">Ações</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {paginatedEvents.length === 0 ? (
-                    <TableRow>
-                      <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
-                        Nenhum evento encontrado
-                      </TableCell>
-                    </TableRow>
-                  ) : (
-                    paginatedEvents.map((event) => (
-                      <TableRow key={event.id}>
-                        <TableCell>
-                          <div className="flex items-center gap-2">
-                            <Calendar className="h-4 w-4 text-muted-foreground" />
-                            <span className="text-sm">
-                              {format(new Date(event.created_at), "dd/MM/yyyy HH:mm", {
-                                locale: ptBR,
-                              })}
-                            </span>
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <Badge className={getActionColor(event.action_key)} variant="outline">
-                            {getActionLabel(event.action_key)}
-                          </Badge>
-                        </TableCell>
-                        <TableCell>
-                          {event.contents ? (
-                            <span className="text-sm">{event.contents.title}</span>
-                          ) : (
-                            <span className="text-sm text-muted-foreground">-</span>
-                          )}
-                        </TableCell>
-                        <TableCell className="text-right">
-                          <span className="font-semibold text-primary">
-                            +{event.points} Points
-                          </span>
-                        </TableCell>
-                        <TableCell className="text-right">
-                          <Badge variant="secondary">{event.point_type === 'creator' ? 'Creator' : 'Usuário'}</Badge>
-                        </TableCell>
-                        <TableCell className="text-right">
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => handleViewDetails(event)}
-                          >
-                            <Eye className="w-4 h-4" />
-                          </Button>
-                        </TableCell>
-                      </TableRow>
-                    ))
-                  )}
-                </TableBody>
-              </Table>
-            </div>
+        <section className="economy-section">
+          <V2SectionHeader eyebrow="Movimentações" title="Recompensas recebidas" description={`Exibindo ${paginatedEvents.length} de ${filteredEvents.length} registros encontrados.`} />
+          <V2Card className="economy-panel economy-history-card">
+            <V2CardContent>
+              {paginatedEvents.length === 0 ? (
+                <V2EmptyState
+                  icon={<BookOpen className="h-5 w-5" />}
+                  title="Nenhuma recompensa encontrada"
+                  description="Altere os filtros para procurar em outro período ou por outra ação."
+                  action={(actionFilter !== "all" || startDate || endDate) ? <V2Button variant="secondary" onClick={clearFilters}>Limpar filtros</V2Button> : undefined}
+                />
+              ) : (
+                <>
+                  <V2TableWrap className="economy-desktop-table">
+                    <V2Table>
+                      <thead><tr><th>Quando</th><th>O que você fez</th><th>Conteúdo</th><th>Points</th><th>Tipo</th><th aria-label="Detalhes" /></tr></thead>
+                      <tbody>
+                        {paginatedEvents.map((event) => (
+                          <tr key={event.id}>
+                            <td className="economy-table-date">{format(new Date(event.created_at), "dd/MM/yyyy, HH:mm", { locale: ptBR })}</td>
+                            <td><div className="economy-action-cell"><span className="economy-icon economy-icon--muted"><Sparkles aria-hidden="true" /></span><strong>{getActionLabel(event.action_key)}</strong></div></td>
+                            <td className="economy-content-name">{event.contents?.title || "Não vinculado a um conteúdo"}</td>
+                            <td><strong className="economy-table-points">+{Math.floor(Number(event.points || 0))}</strong></td>
+                            <td><V2Badge variant={event.point_type === "creator" ? "accent" : "neutral"}>{getPointTypeLabel(event.point_type)}</V2Badge></td>
+                            <td><V2Button variant="quiet" size="icon" aria-label="Ver detalhes" onClick={() => showDetails(event)}><Eye className="h-4 w-4" /></V2Button></td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </V2Table>
+                  </V2TableWrap>
 
-            {/* Pagination */}
-            {totalPages > 1 && (
-              <div className="flex items-center justify-between">
-                <p className="text-sm text-muted-foreground">
-                  Página {currentPage} de {totalPages}
-                </p>
-                <div className="flex gap-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-                    disabled={currentPage === 1}
-                  >
-                    Anterior
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
-                    disabled={currentPage === totalPages}
-                  >
-                    Próxima
-                  </Button>
-                </div>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        {/* Events Cards - Mobile */}
-        <Card className="md:hidden">
-          <CardHeader>
-            <CardTitle className="text-base">Eventos de Recompensa</CardTitle>
-            <CardDescription>
-              Mostrando {paginatedEvents.length} de {filteredEvents.length} eventos
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-3 px-3">
-            {paginatedEvents.length === 0 ? (
-              <div className="text-center py-8 text-muted-foreground">
-                Nenhum evento encontrado
-              </div>
-            ) : (
-              paginatedEvents.map((event) => (
-                <div 
-                  key={event.id} 
-                  className="border rounded-lg p-3 space-y-2"
-                  onClick={() => handleViewDetails(event)}
-                >
-                  <div className="flex items-start justify-between gap-2">
-                    <Badge className={`${getActionColor(event.action_key)} text-xs`} variant="outline">
-                      {getActionLabel(event.action_key)}
-                    </Badge>
-                    <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                      <Calendar className="h-3 w-3" />
-                      {format(new Date(event.created_at), "dd/MM/yy", { locale: ptBR })}
-                    </div>
-                  </div>
-                  
-                  {event.contents && (
-                    <p className="text-sm text-foreground line-clamp-1">
-                      {event.contents.title}
-                    </p>
-                  )}
-                  
-                  <div className="flex items-center justify-between pt-1 border-t">
-                    <div className="flex items-center gap-3">
-                      <span className="text-sm font-semibold text-primary">+{event.points} Points</span>
-                      <Badge variant="secondary">{event.point_type === 'creator' ? 'Creator' : 'Usuário'}</Badge>
-                    </div>
-                    <Eye className="w-4 h-4 text-muted-foreground" />
-                  </div>
-                </div>
-              ))
-            )}
-
-            {/* Pagination - Mobile */}
-            {totalPages > 1 && (
-              <div className="flex items-center justify-between pt-2">
-                <p className="text-xs text-muted-foreground">
-                  {currentPage}/{totalPages}
-                </p>
-                <div className="flex gap-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-                    disabled={currentPage === 1}
-                  >
-                    Anterior
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
-                    disabled={currentPage === totalPages}
-                  >
-                    Próxima
-                  </Button>
-                </div>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        {/* Details Dialog */}
-        <Dialog open={detailsOpen} onOpenChange={setDetailsOpen}>
-          <DialogContent className="max-w-2xl">
-            <DialogHeader>
-              <DialogTitle>Detalhes do Evento</DialogTitle>
-              <DialogDescription>
-                Informações completas sobre esta recompensa
-              </DialogDescription>
-            </DialogHeader>
-            {selectedEvent && (
-              <div className="space-y-4">
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <p className="text-sm font-medium text-muted-foreground">Data</p>
-                    <p className="text-sm">
-                      {format(new Date(selectedEvent.created_at), "dd/MM/yyyy 'às' HH:mm", {
-                        locale: ptBR,
-                      })}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-sm font-medium text-muted-foreground">Tipo de Ação</p>
-                    <Badge className={getActionColor(selectedEvent.action_key)} variant="outline">
-                      {getActionLabel(selectedEvent.action_key)}
-                    </Badge>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <p className="text-sm font-medium text-muted-foreground">Points ganhos</p>
-                    <p className="text-2xl font-bold text-primary">+{selectedEvent.points} Points</p>
-                  </div>
-                  <div>
-                    <p className="text-sm font-medium text-muted-foreground">Origem</p>
-                    <p className="text-lg font-semibold">{selectedEvent.point_type === 'creator' ? 'Creator' : 'Usuário'}</p>
-                  </div>
-                </div>
-
-                {selectedEvent.contents && (
-                  <div>
-                    <p className="text-sm font-medium text-muted-foreground">Conteúdo Relacionado</p>
-                    <p className="text-sm mt-1">{selectedEvent.contents.title}</p>
-                  </div>
-                )}
-
-                {selectedEvent.metadata && Object.keys(selectedEvent.metadata).length > 0 && (
-                  <div>
-                    <p className="text-sm font-medium text-muted-foreground mb-2">Informações Adicionais</p>
-                    <div className="rounded-lg bg-muted p-3 space-y-1">
-                      {Object.entries(selectedEvent.metadata).map(([key, value]) => (
-                        <div key={key} className="flex justify-between text-sm">
-                          <span className="text-muted-foreground capitalize">{key}:</span>
-                          <span className="font-medium">{JSON.stringify(value)}</span>
+                  <div className="economy-mobile-list">
+                    {paginatedEvents.map((event) => (
+                      <button className="economy-history-mobile-button" key={event.id} type="button" onClick={() => showDetails(event)}>
+                        <div className="economy-level__row">
+                          <div className="economy-action-cell"><span className="economy-icon economy-icon--muted"><Sparkles aria-hidden="true" /></span><strong>{getActionLabel(event.action_key)}</strong></div>
+                          <strong className="economy-table-points">+{Math.floor(Number(event.points || 0))}</strong>
                         </div>
-                      ))}
-                    </div>
+                        <p className="economy-panel-copy mt-3">{event.contents?.title || "Não vinculado a um conteúdo"}</p>
+                        <div className="economy-history-mobile-meta">
+                          <span>{format(new Date(event.created_at), "dd/MM/yyyy 'às' HH:mm", { locale: ptBR })}</span>
+                          <V2Badge variant={event.point_type === "creator" ? "accent" : "neutral"}>{getPointTypeLabel(event.point_type)}</V2Badge>
+                        </div>
+                      </button>
+                    ))}
                   </div>
-                )}
-              </div>
-            )}
-          </DialogContent>
-        </Dialog>
+                </>
+              )}
+
+              {totalPages > 1 && (
+                <div className="economy-pagination">
+                  <span>Página {currentPage} de {totalPages}</span>
+                  <div className="economy-page-actions">
+                    <V2Button variant="secondary" size="sm" disabled={currentPage === 1} onClick={() => setCurrentPage((page) => Math.max(1, page - 1))}>Anterior</V2Button>
+                    <V2Button variant="secondary" size="sm" disabled={currentPage === totalPages} onClick={() => setCurrentPage((page) => Math.min(totalPages, page + 1))}>Próxima</V2Button>
+                  </div>
+                </div>
+              )}
+            </V2CardContent>
+          </V2Card>
+        </section>
+      </EconomyTemplate>
+
+      <Dialog open={detailsOpen} onOpenChange={setDetailsOpen}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Detalhes da recompensa</DialogTitle>
+            <DialogDescription>Confira como e quando estes Points foram registrados.</DialogDescription>
+          </DialogHeader>
+          {selectedEvent && (
+            <div className="economy-detail-grid">
+              <div className="economy-detail-item"><span className="economy-detail-label">Quando</span><strong className="economy-detail-value">{format(new Date(selectedEvent.created_at), "dd/MM/yyyy 'às' HH:mm", { locale: ptBR })}</strong></div>
+              <div className="economy-detail-item"><span className="economy-detail-label">Ação realizada</span><strong className="economy-detail-value">{getActionLabel(selectedEvent.action_key)}</strong></div>
+              <div className="economy-detail-item"><span className="economy-detail-label">Points recebidos</span><strong className="economy-detail-points">+{Math.floor(Number(selectedEvent.points || 0))} Points</strong></div>
+              <div className="economy-detail-item"><span className="economy-detail-label">Tipo de recompensa</span><V2Badge variant={selectedEvent.point_type === "creator" ? "accent" : "neutral"}>{getPointTypeLabel(selectedEvent.point_type)}</V2Badge></div>
+              <div className="economy-detail-item economy-detail-item--wide"><span className="economy-detail-label">Conteúdo</span><strong className="economy-detail-value">{selectedEvent.contents?.title || "Não vinculado a um conteúdo"}</strong></div>
+              {selectedEvent.metadata && typeof selectedEvent.metadata === "object" && !Array.isArray(selectedEvent.metadata) && Object.keys(selectedEvent.metadata).length > 0 && (
+                <div className="economy-detail-item economy-detail-item--wide">
+                  <span className="economy-detail-label">Dados adicionais</span>
+                  <div className="economy-metadata-list">
+                    {Object.entries(selectedEvent.metadata).map(([key, value]) => (
+                      <div className="economy-metadata-row" key={key}><span>{metadataLabels[key] || key.replaceAll("_", " ")}</span><strong>{formatMetadataValue(value)}</strong></div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </AppShell>
   );
 }
