@@ -12,6 +12,7 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
+import { HighlightedText } from "@/components/chat/HighlightedText";
 
 interface StudyToolSheetsProps {
   activeToolPanel: ToolPanel;
@@ -25,7 +26,6 @@ interface StudyToolSheetsProps {
   onGenerateTranscription: () => void;
   onSeekToTimestamp: (seconds: number) => void;
   notesRefresh: number;
-  highlightSearchResults: (text: string, query: string) => string;
 }
 
 export function StudyToolSheets({
@@ -40,28 +40,49 @@ export function StudyToolSheets({
   onGenerateTranscription,
   onSeekToTimestamp,
   notesRefresh,
-  highlightSearchResults,
 }: StudyToolSheetsProps) {
   if (!activeContent) return null;
 
   return (
     <>
       {/* Transcription Sheet */}
-      <Sheet open={activeToolPanel === 'transcription'} onOpenChange={(open) => !open && setActiveToolPanel(null)}>
-        <SheetContent side="right" className="w-full sm:w-[500px] sm:max-w-[600px] overflow-y-auto">
+      <Sheet
+        open={activeToolPanel === "transcription"}
+        onOpenChange={(open) => !open && setActiveToolPanel(null)}
+      >
+        <SheetContent
+          side="right"
+          className="w-full sm:w-[500px] sm:max-w-[600px] overflow-y-auto"
+        >
           <SheetHeader>
             <SheetTitle>Transcrição</SheetTitle>
-            <SheetDescription className="line-clamp-1">{activeContent.title}</SheetDescription>
+            <SheetDescription className="line-clamp-1">
+              {activeContent.title}
+            </SheetDescription>
           </SheetHeader>
           <div className="mt-6 space-y-4">
             {!transcription && !transcriptionLoading ? (
               <div className="space-y-4">
                 <div className="text-muted-foreground text-sm">
-                  <p>A transcrição deste conteúdo está sendo processada automaticamente.</p>
-                  <p className="mt-2">Isso acontece em segundo plano quando o conteúdo é aprovado. Recarregue a página em alguns minutos.</p>
-                  <p className="mt-2 text-xs">Se a transcrição não aparecer após alguns minutos, você pode gerá-la manualmente:</p>
+                  <p>
+                    A transcrição deste conteúdo está sendo processada
+                    automaticamente.
+                  </p>
+                  <p className="mt-2">
+                    Isso acontece em segundo plano quando o conteúdo é aprovado.
+                    Recarregue a página em alguns minutos.
+                  </p>
+                  <p className="mt-2 text-xs">
+                    Se a transcrição não aparecer após alguns minutos, você pode
+                    gerá-la manualmente:
+                  </p>
                 </div>
-                <Button onClick={onGenerateTranscription} disabled={transcriptionLoading} variant="outline" size="sm">
+                <Button
+                  onClick={onGenerateTranscription}
+                  disabled={transcriptionLoading}
+                  variant="outline"
+                  size="sm"
+                >
                   Tentar Gerar Novamente
                 </Button>
               </div>
@@ -73,15 +94,24 @@ export function StudyToolSheets({
             ) : (
               <div className="space-y-4">
                 <div className="flex gap-2">
-                  <Input placeholder="Buscar na transcrição..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="flex-1" />
+                  <Input
+                    placeholder="Buscar na transcrição..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="flex-1"
+                  />
                   {searchQuery && (
-                    <Button variant="ghost" size="icon" onClick={() => setSearchQuery("")}>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => setSearchQuery("")}
+                    >
                       <X className="h-4 w-4" />
                     </Button>
                   )}
                 </div>
-                <div className="prose prose-sm max-w-none text-foreground">
-                  <div dangerouslySetInnerHTML={{ __html: highlightSearchResults(transcription, searchQuery) }} />
+                <div className="prose prose-sm max-w-none whitespace-pre-wrap text-foreground">
+                  <HighlightedText text={transcription} query={searchQuery} />
                 </div>
               </div>
             )}
@@ -90,37 +120,68 @@ export function StudyToolSheets({
       </Sheet>
 
       {/* Quiz Sheet */}
-      <Sheet open={activeToolPanel === 'quiz'} onOpenChange={(open) => !open && setActiveToolPanel(null)}>
-        <SheetContent side="right" className="w-full sm:w-[500px] sm:max-w-[600px] overflow-y-auto">
+      <Sheet
+        open={activeToolPanel === "quiz"}
+        onOpenChange={(open) => !open && setActiveToolPanel(null)}
+      >
+        <SheetContent
+          side="right"
+          className="w-full sm:w-[500px] sm:max-w-[600px] overflow-y-auto"
+        >
           <SheetHeader>
             <SheetTitle>Quiz</SheetTitle>
-            <SheetDescription className="line-clamp-1">Teste seus conhecimentos</SheetDescription>
+            <SheetDescription className="line-clamp-1">
+              Teste seus conhecimentos
+            </SheetDescription>
           </SheetHeader>
           <div className="mt-6">
-            <StudyQuiz studyId={studyId} contentId={activeContent.id} contentTitle={activeContent.title} />
+            <StudyQuiz
+              studyId={studyId}
+              contentId={activeContent.id}
+              contentTitle={activeContent.title}
+            />
           </div>
         </SheetContent>
       </Sheet>
 
       {/* Notes Sheet */}
-      <Sheet open={activeToolPanel === 'notes'} onOpenChange={(open) => !open && setActiveToolPanel(null)}>
-        <SheetContent side="right" className="w-full sm:w-[500px] sm:max-w-[600px] overflow-y-auto">
+      <Sheet
+        open={activeToolPanel === "notes"}
+        onOpenChange={(open) => !open && setActiveToolPanel(null)}
+      >
+        <SheetContent
+          side="right"
+          className="w-full sm:w-[500px] sm:max-w-[600px] overflow-y-auto"
+        >
           <SheetHeader>
             <SheetTitle>Anotações</SheetTitle>
             <SheetDescription>Suas anotações de estudo</SheetDescription>
           </SheetHeader>
           <div className="mt-6">
-            <StudyNotes studyId={studyId} activeContentId={activeContent?.id || null} onSeekToTimestamp={onSeekToTimestamp} key={notesRefresh} />
+            <StudyNotes
+              studyId={studyId}
+              activeContentId={activeContent?.id || null}
+              onSeekToTimestamp={onSeekToTimestamp}
+              key={notesRefresh}
+            />
           </div>
         </SheetContent>
       </Sheet>
 
       {/* Comments Sheet */}
-      <Sheet open={activeToolPanel === 'comments'} onOpenChange={(open) => !open && setActiveToolPanel(null)}>
-        <SheetContent side="right" className="w-full sm:w-[500px] sm:max-w-[600px] overflow-y-auto">
+      <Sheet
+        open={activeToolPanel === "comments"}
+        onOpenChange={(open) => !open && setActiveToolPanel(null)}
+      >
+        <SheetContent
+          side="right"
+          className="w-full sm:w-[500px] sm:max-w-[600px] overflow-y-auto"
+        >
           <SheetHeader>
             <SheetTitle>Comentários</SheetTitle>
-            <SheetDescription className="line-clamp-1">Discussões sobre {activeContent.title}</SheetDescription>
+            <SheetDescription className="line-clamp-1">
+              Discussões sobre {activeContent.title}
+            </SheetDescription>
           </SheetHeader>
           <div className="mt-6 text-muted-foreground text-sm">
             <p>Comentários disponíveis em breve...</p>
@@ -129,8 +190,14 @@ export function StudyToolSheets({
       </Sheet>
 
       {/* Recommendations Sheet */}
-      <Sheet open={activeToolPanel === 'recommendations'} onOpenChange={(open) => !open && setActiveToolPanel(null)}>
-        <SheetContent side="right" className="w-full sm:w-[500px] sm:max-w-[600px] overflow-y-auto">
+      <Sheet
+        open={activeToolPanel === "recommendations"}
+        onOpenChange={(open) => !open && setActiveToolPanel(null)}
+      >
+        <SheetContent
+          side="right"
+          className="w-full sm:w-[500px] sm:max-w-[600px] overflow-y-auto"
+        >
           <SheetHeader>
             <SheetTitle>Recomendações</SheetTitle>
             <SheetDescription>Conteúdos sugeridos para você</SheetDescription>

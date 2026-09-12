@@ -1,9 +1,11 @@
 import { Brain, Compass, Target } from "lucide-react";
 
 export interface ClassyStudyState {
-  activeMode: "onboard" | "explain" | "recommend" | "practice" | "review" | "plan";
+  activeMode:
+    "onboard" | "explain" | "recommend" | "practice" | "review" | "plan";
   currentFocus: string | null;
   learnerLevel: "beginner" | "intermediate" | "advanced" | "unknown";
+  learningStyle?: "direct" | "step_by_step" | "analogy" | "mixed";
   nextBestAction: string | null;
   userGoal?: string | null;
   sessionSummary?: string | null;
@@ -40,7 +42,10 @@ const levelLabels: Record<ClassyStudyState["learnerLevel"], string> = {
   unknown: "Em avaliação",
 };
 
-export function ClassyStudyStateBar({ state, compact = false }: ClassyStudyStateBarProps) {
+export function ClassyStudyStateBar({
+  state,
+  compact = false,
+}: ClassyStudyStateBarProps) {
   if (!state) return null;
 
   const items = [

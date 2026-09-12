@@ -1,4 +1,9 @@
-import { useParams, Navigate, useNavigate, useLocation } from "react-router-dom";
+import {
+  useParams,
+  Navigate,
+  useNavigate,
+  useLocation,
+} from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { useMiniPlayer } from "@/contexts/MiniPlayerContext";
@@ -41,6 +46,7 @@ import { MobileCurriculumSheet } from "@/components/watch/MobileCurriculumSheet"
 import { ContentRewardProgress } from "@/components/watch/ContentRewardProgress";
 import { StudyQuiz } from "@/components/StudyQuiz";
 import { StudyNotes } from "@/components/StudyNotes";
+import { HighlightedText } from "@/components/chat/HighlightedText";
 import {
   Sheet,
   SheetContent,
@@ -106,7 +112,11 @@ function WatchContent() {
   const isMobile = useIsMobile();
   const { user, profile, loading, role } = useAuth();
   const { setOpen: setSidebarOpen } = useSidebar();
-  const { startMiniPlayer, closeMiniPlayer, state: miniPlayerState } = useMiniPlayer();
+  const {
+    startMiniPlayer,
+    closeMiniPlayer,
+    state: miniPlayerState,
+  } = useMiniPlayer();
   const locationState = (location.state || {}) as {
     studyId?: string;
     studyTitle?: string;
@@ -128,17 +138,31 @@ function WatchContent() {
   const [hasAccess, setHasAccess] = useState(false);
   const [showUpgradeModal, setShowUpgradeModal] = useState(false);
   const [showPurchaseModal, setShowPurchaseModal] = useState(false);
-  const [requiredUpgradePlan, setRequiredUpgradePlan] = useState<"pro" | "premium">("pro");
-   const [accessBlockedReason, setAccessBlockedReason] = useState<"plan" | "purchase" | null>(null);
+  const [requiredUpgradePlan, setRequiredUpgradePlan] = useState<
+    "pro" | "premium"
+  >("pro");
+  const [accessBlockedReason, setAccessBlockedReason] = useState<
+    "plan" | "purchase" | null
+  >(null);
   const [isPurchased, setIsPurchased] = useState(false);
   const [showAddToStudyModal, setShowAddToStudyModal] = useState(false);
   const [notesRefreshTrigger, setNotesRefreshTrigger] = useState(0);
   const [rewardRefreshTrigger, setRewardRefreshTrigger] = useState(0);
   const triggerRewardRefresh = () => setRewardRefreshTrigger((n) => n + 1);
-  const [liveActionStates, setLiveActionStates] = useState({ isLiked: false, isSaved: false, isFavorited: false });
+  const [liveActionStates, setLiveActionStates] = useState({
+    isLiked: false,
+    isSaved: false,
+    isFavorited: false,
+  });
   const [seekToTime, setSeekToTime] = useState<number | null>(null);
-  const { processReward, handleLike, handleSave, handleFavorite, reverseReward } = useRewardSystem();
-  
+  const {
+    processReward,
+    handleLike,
+    handleSave,
+    handleFavorite,
+    reverseReward,
+  } = useRewardSystem();
+
   // Track current playback time for mini player
   const currentPlaybackTime = useRef(0);
 
@@ -150,7 +174,7 @@ function WatchContent() {
   // Theater mode state
   const [theaterMode, setTheaterMode] = useState(false);
   const previousSidebarState = useRef(true);
-  
+
   // Study toolbar state
   const [activeStudyPanel, setActiveStudyPanel] = useState<ToolPanel>(null);
   const [transcription, setTranscription] = useState<string>("");
@@ -176,14 +200,17 @@ function WatchContent() {
   const [isSaved, setIsSaved] = useState(false);
   const [isFavorited, setIsFavorited] = useState(false);
   const [likesCount, setLikesCount] = useState(0);
-  const [unlikeConfirmation, setUnlikeConfirmation] = useState<{ pending: boolean; rewardValue: number }>({
+  const [unlikeConfirmation, setUnlikeConfirmation] = useState<{
+    pending: boolean;
+    rewardValue: number;
+  }>({
     pending: false,
     rewardValue: 0,
   });
 
   // Store content ref for cleanup
   const contentRef = useRef<Content | null>(null);
-  
+
   // Keep contentRef updated
   useEffect(() => {
     contentRef.current = content;
@@ -201,18 +228,23 @@ function WatchContent() {
     return () => {
       const currentContent = contentRef.current;
       const playbackTime = currentPlaybackTime.current;
-      
+
       // Only activate if we have content and some playback progress
       if (currentContent && playbackTime > 0) {
-        startMiniPlayer({
-          id: currentContent.id,
-          title: currentContent.title,
-          subtitle: currentContent.creator?.display_name,
-          thumbnail_url: currentContent.thumbnail_url,
-          file_url: currentContent.file_url,
-          duration_seconds: currentContent.duration_seconds,
-          creator: currentContent.creator ? { display_name: currentContent.creator.display_name } : undefined,
-        }, playbackTime);
+        startMiniPlayer(
+          {
+            id: currentContent.id,
+            title: currentContent.title,
+            subtitle: currentContent.creator?.display_name,
+            thumbnail_url: currentContent.thumbnail_url,
+            file_url: currentContent.file_url,
+            duration_seconds: currentContent.duration_seconds,
+            creator: currentContent.creator
+              ? { display_name: currentContent.creator.display_name }
+              : undefined,
+          },
+          playbackTime,
+        );
       }
     };
   }, [startMiniPlayer]);
@@ -242,27 +274,31 @@ function WatchContent() {
       const [contentResult, courseResult] = await Promise.all([
         supabase
           .from("contents")
-          .select(`
+          .select(
+            `
             id, content_type, title, description, file_url, thumbnail_url,
             visibility, price, duration_seconds, views_count, likes_count,
             status, creator_id, category_id, tags, created_at,
             is_curated, attribution_text, license_type, source_url,
             video_provider, bunny_library_id, bunny_video_id, media_asset_id,
             creator:profiles!creator_id(id, display_name, avatar_url, creator_channel_name)
-          `)
+          `,
+          )
           .eq("id", id)
           .maybeSingle(),
         supabase
           .from("courses")
-          .select(`
+          .select(
+            `
             id, title, description, thumbnail_url, visibility, price,
             total_duration_seconds, views_count, likes_count, status,
             creator_id, tags, total_lessons, level, what_you_learn,
             requirements, created_at,
             creator:profiles!creator_id(id, display_name, avatar_url, creator_channel_name)
-          `)
+          `,
+          )
           .eq("id", id)
-          .maybeSingle()
+          .maybeSingle(),
       ]);
 
       const data = contentResult.data;
@@ -284,12 +320,14 @@ function WatchContent() {
         // Register view in background (don't await)
         const isAdminPreview = role === "admin" && data.status === "pending";
         if (!isAdminPreview && user) {
-          supabase.rpc("increment_content_view", {
-            p_user_id: user.id,
-            p_content_id: id,
-          }).then(({ error }) => {
-            if (error) console.error("Error registering view:", error);
-          });
+          supabase
+            .rpc("increment_content_view", {
+              p_user_id: user.id,
+              p_content_id: id,
+            })
+            .then(({ error }) => {
+              if (error) console.error("Error registering view:", error);
+            });
         }
 
         setLoadingContent(false);
@@ -298,7 +336,11 @@ function WatchContent() {
 
       // Handle course
       if (courseData) {
-        if (role !== "admin" && courseData.status !== "approved" && courseData.creator_id !== user?.id) {
+        if (
+          role !== "admin" &&
+          courseData.status !== "approved" &&
+          courseData.creator_id !== user?.id
+        ) {
           setContent(null);
           setLoadingContent(false);
           return;
@@ -307,7 +349,9 @@ function WatchContent() {
         // Fetch modules (needed for course display)
         const { data: modules } = await supabase
           .from("course_modules")
-          .select(`*, lessons:course_lessons(*, content:contents(file_url, thumbnail_url, duration_seconds, video_provider, bunny_video_id, bunny_library_id, media_asset_id))`)
+          .select(
+            `*, lessons:course_lessons(*, content:contents(file_url, thumbnail_url, duration_seconds, video_provider, bunny_video_id, bunny_library_id, media_asset_id))`,
+          )
           .eq("course_id", id)
           .order("order_index", { ascending: true });
 
@@ -330,14 +374,17 @@ function WatchContent() {
         checkAccess(courseData as any);
 
         // Register view in background
-        const isAdminPreview = role === "admin" && courseData.status === "pending";
+        const isAdminPreview =
+          role === "admin" && courseData.status === "pending";
         if (!isAdminPreview && user) {
-          supabase.rpc("increment_course_view", {
-            p_user_id: user.id,
-            p_course_id: id,
-          }).then(({ error }) => {
-            if (error) console.error("Error registering course view:", error);
-          });
+          supabase
+            .rpc("increment_course_view", {
+              p_user_id: user.id,
+              p_course_id: id,
+            })
+            .then(({ error }) => {
+              if (error) console.error("Error registering course view:", error);
+            });
         }
 
         setLoadingContent(false);
@@ -375,13 +422,29 @@ function WatchContent() {
 
   const checkActionStates = async () => {
     if (!user || !content) return;
-    
+
     const [likeData, savedData, favoriteData] = await Promise.all([
-      supabase.from('actions').select('id').eq('user_id', user.id).eq('type', 'LIKE').eq(isCourse ? 'course_id' : 'content_id', content.id).maybeSingle(),
-      supabase.from('saved_contents').select('id').eq('user_id', user.id).eq(isCourse ? 'course_id' : 'content_id', content.id).maybeSingle(),
-      supabase.from('favorites').select('id').eq('user_id', user.id).eq(isCourse ? 'course_id' : 'content_id', content.id).maybeSingle(),
+      supabase
+        .from("actions")
+        .select("id")
+        .eq("user_id", user.id)
+        .eq("type", "LIKE")
+        .eq(isCourse ? "course_id" : "content_id", content.id)
+        .maybeSingle(),
+      supabase
+        .from("saved_contents")
+        .select("id")
+        .eq("user_id", user.id)
+        .eq(isCourse ? "course_id" : "content_id", content.id)
+        .maybeSingle(),
+      supabase
+        .from("favorites")
+        .select("id")
+        .eq("user_id", user.id)
+        .eq(isCourse ? "course_id" : "content_id", content.id)
+        .maybeSingle(),
     ]);
-    
+
     setIsLiked(!!likeData.data);
     setIsSaved(!!savedData.data);
     setIsFavorited(!!favoriteData.data);
@@ -392,10 +455,12 @@ function WatchContent() {
   const fetchRelatedContents = async () => {
     if (!content) return;
     const { data } = await supabase
-      .from('contents')
-      .select('id, title, thumbnail_url, duration_seconds, views_count, creator:profiles!creator_id(display_name)')
-      .eq('status', 'approved')
-      .neq('id', content.id)
+      .from("contents")
+      .select(
+        "id, title, thumbnail_url, duration_seconds, views_count, creator:profiles!creator_id(display_name)",
+      )
+      .eq("status", "approved")
+      .neq("id", content.id)
       .limit(6);
     setRelatedContents(data || []);
   };
@@ -473,9 +538,11 @@ function WatchContent() {
       await refreshLikesCountEventually();
 
       const revertedPoints = Number(reversal.points || 0);
-      toast.success(revertedPoints > 0
-        ? `Like removido. ${revertedPoints} Points deduzidos.`
-        : "Like removido.");
+      toast.success(
+        revertedPoints > 0
+          ? `Like removido. ${revertedPoints} Points deduzidos.`
+          : "Like removido.",
+      );
     } finally {
       setUnlikeConfirmation({ pending: false, rewardValue: 0 });
     }
@@ -541,7 +608,12 @@ function WatchContent() {
       setIsSaved(false);
     } else {
       setIsSaved(true);
-      const { error } = await supabase.from('saved_contents').insert({ user_id: user.id, [isCourse ? 'course_id' : 'content_id']: content.id });
+      const { error } = await supabase
+        .from("saved_contents")
+        .insert({
+          user_id: user.id,
+          [isCourse ? "course_id" : "content_id"]: content.id,
+        });
       if (error) {
         setIsSaved(false);
         throw error;
@@ -558,7 +630,12 @@ function WatchContent() {
       setIsFavorited(false);
     } else {
       setIsFavorited(true);
-      const { error } = await supabase.from('favorites').insert({ user_id: user.id, [isCourse ? 'course_id' : 'content_id']: content.id });
+      const { error } = await supabase
+        .from("favorites")
+        .insert({
+          user_id: user.id,
+          [isCourse ? "course_id" : "content_id"]: content.id,
+        });
       if (error) {
         setIsFavorited(false);
         throw error;
@@ -570,14 +647,16 @@ function WatchContent() {
   // Log content fetch errors for debugging
   useEffect(() => {
     if (content && !content.creator) {
-      console.warn("⚠️ Content loaded but creator is null - possible RLS/network issue");
+      console.warn(
+        "⚠️ Content loaded but creator is null - possible RLS/network issue",
+      );
     }
   }, [content]);
 
   const checkAccess = async (content: Content) => {
     // Reset access state
     setAccessBlockedReason(null);
-    
+
     if (!profile || !user) {
       // User not logged in - block access for non-free content
       if (content.visibility !== "free") {
@@ -586,7 +665,9 @@ function WatchContent() {
           setAccessBlockedReason("purchase");
         } else {
           setAccessBlockedReason("plan");
-          setRequiredUpgradePlan(content.visibility === "premium" ? "premium" : "pro");
+          setRequiredUpgradePlan(
+            content.visibility === "premium" ? "premium" : "pro",
+          );
         }
       } else {
         setHasAccess(true);
@@ -716,9 +797,10 @@ function WatchContent() {
       if (!reason?.trim()) return;
 
       // Update content status using service role through edge function
-      const { data: updateData, error: updateError } = await supabase.functions.invoke("approve-content", {
-        body: { contentId: id, itemType: "content", reason: reason.trim() },
-      });
+      const { data: updateData, error: updateError } =
+        await supabase.functions.invoke("approve-content", {
+          body: { contentId: id, itemType: "content", reason: reason.trim() },
+        });
 
       if (updateError) throw updateError;
 
@@ -743,9 +825,10 @@ function WatchContent() {
       if (!reason?.trim()) return;
 
       // Update content status using service role through edge function
-      const { data: updateData, error: updateError } = await supabase.functions.invoke("reject-content", {
-        body: { contentId: id, itemType: "content", reason: reason.trim() },
-      });
+      const { data: updateData, error: updateError } =
+        await supabase.functions.invoke("reject-content", {
+          body: { contentId: id, itemType: "content", reason: reason.trim() },
+        });
 
       if (updateError) throw updateError;
 
@@ -792,22 +875,24 @@ function WatchContent() {
     }
   };
 
-  // Highlight search results in transcription
-  const highlightSearchResults = (text: string, query: string) => {
-    if (!query.trim()) return text;
-    const regex = new RegExp(`(${query})`, "gi");
-    return text.replace(regex, '<mark class="bg-yellow-200 dark:bg-yellow-800 rounded px-0.5">$1</mark>');
-  };
-
   // Load transcription when panel opens
   useEffect(() => {
-    if (activeStudyPanel === 'transcription' && content) {
+    if (activeStudyPanel === "transcription" && content) {
       loadTranscription(content.id);
     }
   }, [activeStudyPanel, content?.id]);
 
-// Debug logs
-  console.log("🎬 Watch render - loading:", loading, "loadingContent:", loadingContent, "user:", !!user, "content:", !!content);
+  // Debug logs
+  console.log(
+    "🎬 Watch render - loading:",
+    loading,
+    "loadingContent:",
+    loadingContent,
+    "user:",
+    !!user,
+    "content:",
+    !!content,
+  );
 
   // First check auth loading - if auth is still loading, show loader
   if (loading) {
@@ -828,7 +913,9 @@ function WatchContent() {
         <Card className="p-8 text-center">
           <AlertCircle className="h-12 w-12 mx-auto mb-4 text-muted-foreground" />
           <h2 className="text-2xl font-bold mb-2">Conteúdo não encontrado</h2>
-          <p className="text-muted-foreground">O conteúdo que você está procurando não existe ou foi removido.</p>
+          <p className="text-muted-foreground">
+            O conteúdo que você está procurando não existe ou foi removido.
+          </p>
         </Card>
       </div>
     );
@@ -852,7 +939,10 @@ function WatchContent() {
         content={{
           id: content.id,
           title: content.title,
-          file_url: isCourse && currentLesson ? currentLesson.video_url : content.file_url,
+          file_url:
+            isCourse && currentLesson
+              ? currentLesson.video_url
+              : content.file_url,
           thumbnail_url: content.thumbnail_url,
           duration_seconds: content.duration_seconds,
           creator: content.creator,
@@ -874,19 +964,38 @@ function WatchContent() {
           ) : (
             <MobileVideoPlayer
               key={isCourse && currentLesson ? currentLesson.id : content.id}
-              src={isCourse && currentLesson ? currentLesson.video_url : content.file_url}
+              src={
+                isCourse && currentLesson
+                  ? currentLesson.video_url
+                  : content.file_url
+              }
               poster={content.thumbnail_url}
-              title={isCourse && currentLesson ? currentLesson.title : content.title}
+              title={
+                isCourse && currentLesson ? currentLesson.title : content.title
+              }
               artist={content.creator?.display_name}
               onTimeUpdate={handleTimeUpdate}
               onNoteClick={() => setShowMobileNotes(true)}
               onMinimize={handleMinimize}
               seekToTime={seekToTime}
               isPodcast={content.content_type === "podcast"}
-              mediaAssetId={isCourse && currentLesson ? currentLesson.media_asset_id || currentLesson.content?.media_asset_id : content.media_asset_id}
-              videoProvider={isCourse && currentLesson ? currentLesson.content?.video_provider : content.video_provider}
+              mediaAssetId={
+                isCourse && currentLesson
+                  ? currentLesson.media_asset_id ||
+                    currentLesson.content?.media_asset_id
+                  : content.media_asset_id
+              }
+              videoProvider={
+                isCourse && currentLesson
+                  ? currentLesson.content?.video_provider
+                  : content.video_provider
+              }
               contentId={isCourse ? null : content.id}
-              courseProgress={isCourse && currentLesson ? { courseId: content.id, lessonId: currentLesson.id } : undefined}
+              courseProgress={
+                isCourse && currentLesson
+                  ? { courseId: content.id, lessonId: currentLesson.id }
+                  : undefined
+              }
               onMilestone={triggerRewardRefresh}
             />
           )}
@@ -894,30 +1003,67 @@ function WatchContent() {
 
         {/* Rest of children: Scrollable content area */}
         <>
-          <UpgradeModal open={showUpgradeModal} onOpenChange={setShowUpgradeModal} requiredPlan={requiredUpgradePlan} />
+          <UpgradeModal
+            open={showUpgradeModal}
+            onOpenChange={setShowUpgradeModal}
+            requiredPlan={requiredUpgradePlan}
+          />
           <PurchaseModal
             open={showPurchaseModal}
             onOpenChange={setShowPurchaseModal}
-            content={{ id: content.id, title: content.title, thumbnail_url: content.thumbnail_url, price: content.price, discount: 0, creator_name: content.creator?.display_name || "Criador" }}
-            onPurchaseComplete={() => { setShowPurchaseModal(false); fetchContent(); }}
+            content={{
+              id: content.id,
+              title: content.title,
+              thumbnail_url: content.thumbnail_url,
+              price: content.price,
+              discount: 0,
+              creator_name: content.creator?.display_name || "Criador",
+            }}
+            onPurchaseComplete={() => {
+              setShowPurchaseModal(false);
+              fetchContent();
+            }}
           />
-          <AddToStudyModal open={showAddToStudyModal} onOpenChange={setShowAddToStudyModal} contentId={content.id} contentTitle={content.title} />
-          <MobileCommentsSheet open={showMobileComments} onOpenChange={setShowMobileComments} contentId={content.id} />
-          <MobileNotesSheet open={showMobileNotes} onOpenChange={setShowMobileNotes} contentId={content.id} onSeekTo={setSeekToTime} refreshTrigger={notesRefreshTrigger} />
-          <MobileCurriculumSheet 
-            open={showMobileCurriculum} 
-            onOpenChange={setShowMobileCurriculum} 
+          <AddToStudyModal
+            open={showAddToStudyModal}
+            onOpenChange={setShowAddToStudyModal}
+            contentId={content.id}
+            contentTitle={content.title}
+          />
+          <MobileCommentsSheet
+            open={showMobileComments}
+            onOpenChange={setShowMobileComments}
+            contentId={content.id}
+          />
+          <MobileNotesSheet
+            open={showMobileNotes}
+            onOpenChange={setShowMobileNotes}
+            contentId={content.id}
+            onSeekTo={setSeekToTime}
+            refreshTrigger={notesRefreshTrigger}
+          />
+          <MobileCurriculumSheet
+            open={showMobileCurriculum}
+            onOpenChange={setShowMobileCurriculum}
             modules={courseModules}
             currentLesson={currentLesson}
             onLessonSelect={setCurrentLesson}
             hasAccess={hasAccess}
           />
-          
+
           {/* Study Tool Sheets */}
-          <Sheet open={activeStudyPanel === 'transcription'} onOpenChange={(open) => !open && setActiveStudyPanel(null)}>
-            <SheetContent side="bottom" className="h-[80vh] rounded-t-3xl p-0 flex flex-col">
+          <Sheet
+            open={activeStudyPanel === "transcription"}
+            onOpenChange={(open) => !open && setActiveStudyPanel(null)}
+          >
+            <SheetContent
+              side="bottom"
+              className="h-[80vh] rounded-t-3xl p-0 flex flex-col"
+            >
               <SheetHeader className="px-4 py-3 border-b flex-row items-center justify-between">
-                <SheetTitle className="text-base font-semibold">Transcrição</SheetTitle>
+                <SheetTitle className="text-base font-semibold">
+                  Transcrição
+                </SheetTitle>
               </SheetHeader>
               <div className="flex-1 overflow-auto p-4">
                 {transcriptionLoading ? (
@@ -930,8 +1076,13 @@ function WatchContent() {
                   </div>
                 ) : (
                   <div className="flex flex-col items-center justify-center py-12 text-center">
-                    <p className="text-muted-foreground text-sm mb-4">Transcrição não disponível</p>
-                    <Button onClick={generateTranscription} disabled={transcriptionLoading}>
+                    <p className="text-muted-foreground text-sm mb-4">
+                      Transcrição não disponível
+                    </p>
+                    <Button
+                      onClick={generateTranscription}
+                      disabled={transcriptionLoading}
+                    >
                       Gerar Transcrição
                     </Button>
                   </div>
@@ -940,14 +1091,22 @@ function WatchContent() {
             </SheetContent>
           </Sheet>
 
-          <Sheet open={activeStudyPanel === 'quiz'} onOpenChange={(open) => !open && setActiveStudyPanel(null)}>
-            <SheetContent side="bottom" className="h-[80vh] rounded-t-3xl p-0 flex flex-col">
+          <Sheet
+            open={activeStudyPanel === "quiz"}
+            onOpenChange={(open) => !open && setActiveStudyPanel(null)}
+          >
+            <SheetContent
+              side="bottom"
+              className="h-[80vh] rounded-t-3xl p-0 flex flex-col"
+            >
               <SheetHeader className="px-4 py-3 border-b">
-                <SheetTitle className="text-base font-semibold">Quiz</SheetTitle>
+                <SheetTitle className="text-base font-semibold">
+                  Quiz
+                </SheetTitle>
               </SheetHeader>
               <div className="flex-1 overflow-auto p-4">
-                <StudyQuiz 
-                  studyId={content.id} 
+                <StudyQuiz
+                  studyId={content.id}
                   contentId={content.id}
                   contentTitle={content.title}
                 />
@@ -955,10 +1114,18 @@ function WatchContent() {
             </SheetContent>
           </Sheet>
 
-          <Sheet open={activeStudyPanel === 'notes'} onOpenChange={(open) => !open && setActiveStudyPanel(null)}>
-            <SheetContent side="bottom" className="h-[80vh] rounded-t-3xl p-0 flex flex-col">
+          <Sheet
+            open={activeStudyPanel === "notes"}
+            onOpenChange={(open) => !open && setActiveStudyPanel(null)}
+          >
+            <SheetContent
+              side="bottom"
+              className="h-[80vh] rounded-t-3xl p-0 flex flex-col"
+            >
               <SheetHeader className="px-4 py-3 border-b">
-                <SheetTitle className="text-base font-semibold">Anotações</SheetTitle>
+                <SheetTitle className="text-base font-semibold">
+                  Anotações
+                </SheetTitle>
               </SheetHeader>
               <div className="flex-1 overflow-auto">
                 <StudyNotes
@@ -973,17 +1140,28 @@ function WatchContent() {
             </SheetContent>
           </Sheet>
 
-          <Sheet open={activeStudyPanel === 'recommendations'} onOpenChange={(open) => !open && setActiveStudyPanel(null)}>
-            <SheetContent side="bottom" className="h-[80vh] rounded-t-3xl p-0 flex flex-col">
+          <Sheet
+            open={activeStudyPanel === "recommendations"}
+            onOpenChange={(open) => !open && setActiveStudyPanel(null)}
+          >
+            <SheetContent
+              side="bottom"
+              className="h-[80vh] rounded-t-3xl p-0 flex flex-col"
+            >
               <SheetHeader className="px-4 py-3 border-b">
-                <SheetTitle className="text-base font-semibold">Sugestões</SheetTitle>
+                <SheetTitle className="text-base font-semibold">
+                  Sugestões
+                </SheetTitle>
               </SheetHeader>
               <div className="flex-1 overflow-auto p-4">
-                <WatchRelated 
+                <WatchRelated
                   contentId={content.id}
                   categoryId={content.category_id}
                   tags={content.tags}
-                  contentType={content.content_type as "aula" | "short" | "podcast" | "curso"}
+                  contentType={
+                    content.content_type as
+                      "aula" | "short" | "podcast" | "curso"
+                  }
                 />
               </div>
             </SheetContent>
@@ -1008,12 +1186,16 @@ function WatchContent() {
               onShowCurriculum={() => setShowMobileCurriculum(true)}
               onShowStudyTool={(panel) => setActiveStudyPanel(panel)}
               isCourse={isCourse}
-              totalLessons={courseModules.reduce((acc, mod) => acc + (mod.lessons?.length || 0), 0)}
+              totalLessons={courseModules.reduce(
+                (acc, mod) => acc + (mod.lessons?.length || 0),
+                0,
+              )}
               relatedContents={relatedContents}
               onContentClick={(nextId) =>
                 navigate(`/watch/${nextId}`, {
                   state: {
-                    backgroundLocation: (location.state as any)?.backgroundLocation ?? location,
+                    backgroundLocation:
+                      (location.state as any)?.backgroundLocation ?? location,
                   },
                 })
               }
@@ -1032,69 +1214,120 @@ function WatchContent() {
       <div className="flex-1 flex flex-col">
         <Header />
 
-          <UpgradeModal open={showUpgradeModal} onOpenChange={setShowUpgradeModal} requiredPlan={requiredUpgradePlan} />
+        <UpgradeModal
+          open={showUpgradeModal}
+          onOpenChange={setShowUpgradeModal}
+          requiredPlan={requiredUpgradePlan}
+        />
 
-          {content && (
-            <PurchaseModal
-              open={showPurchaseModal}
-              onOpenChange={setShowPurchaseModal}
-              content={{
-                id: content.id,
-                title: content.title,
-                thumbnail_url: content.thumbnail_url,
-                price: content.price,
-                discount: 0,
-                creator_name: content.creator?.display_name || "Criador",
-              }}
-              onPurchaseComplete={() => {
-                setShowPurchaseModal(false);
-                fetchContent();
-              }}
-            />
-          )}
-
-          <AddToStudyModal
-            open={showAddToStudyModal}
-            onOpenChange={setShowAddToStudyModal}
-            contentId={content.id}
-            contentTitle={content.title}
+        {content && (
+          <PurchaseModal
+            open={showPurchaseModal}
+            onOpenChange={setShowPurchaseModal}
+            content={{
+              id: content.id,
+              title: content.title,
+              thumbnail_url: content.thumbnail_url,
+              price: content.price,
+              discount: 0,
+              creator_name: content.creator?.display_name || "Criador",
+            }}
+            onPurchaseComplete={() => {
+              setShowPurchaseModal(false);
+              fetchContent();
+            }}
           />
+        )}
 
-          <main className="flex-1 overflow-auto">
-            <div className="w-full">
-              <div className={`flex gap-4 sm:gap-6 p-3 sm:p-6 ${theaterMode ? 'flex-col' : 'flex-col lg:flex-row'}`}>
-                <div className={`min-w-0 space-y-3 sm:space-y-4 ${theaterMode ? 'w-full' : 'flex-1'}`}>
-                  {/* Access Blocked Overlay - shown when user doesn't have access */}
-                  {!hasAccess && accessBlockedReason ? (
-                    <AccessBlockedOverlay
-                      reason={accessBlockedReason}
-                      requiredPlan={requiredUpgradePlan}
-                      price={content.price}
-                      thumbnail={content.thumbnail_url}
-                      onUpgradeClick={() => setShowUpgradeModal(true)}
-                      onPurchaseClick={() => setShowPurchaseModal(true)}
-                    />
-                  ) : isCourse && currentLesson ? (
+        <AddToStudyModal
+          open={showAddToStudyModal}
+          onOpenChange={setShowAddToStudyModal}
+          contentId={content.id}
+          contentTitle={content.title}
+        />
+
+        <main className="flex-1 overflow-auto">
+          <div className="w-full">
+            <div
+              className={`flex gap-4 sm:gap-6 p-3 sm:p-6 ${theaterMode ? "flex-col" : "flex-col lg:flex-row"}`}
+            >
+              <div
+                className={`min-w-0 space-y-3 sm:space-y-4 ${theaterMode ? "w-full" : "flex-1"}`}
+              >
+                {/* Access Blocked Overlay - shown when user doesn't have access */}
+                {!hasAccess && accessBlockedReason ? (
+                  <AccessBlockedOverlay
+                    reason={accessBlockedReason}
+                    requiredPlan={requiredUpgradePlan}
+                    price={content.price}
+                    thumbnail={content.thumbnail_url}
+                    onUpgradeClick={() => setShowUpgradeModal(true)}
+                    onPurchaseClick={() => setShowPurchaseModal(true)}
+                  />
+                ) : isCourse && currentLesson ? (
+                  <UnifiedVideoPlayer
+                    key={currentLesson.id}
+                    content={{
+                      id: currentLesson.id,
+                      title: currentLesson.title,
+                      file_url: currentLesson.video_url || "",
+                      thumbnail_url: content.thumbnail_url,
+                      content_type: "aula" as const,
+                      duration_seconds: currentLesson.duration_seconds || 0,
+                      content_id: currentLesson.content_id || null,
+                      lesson_id: currentLesson.id,
+                      video_provider: currentLesson.content?.video_provider,
+                      bunny_video_id: currentLesson.content?.bunny_video_id,
+                      bunny_library_id: currentLesson.content?.bunny_library_id,
+                      media_asset_id:
+                        currentLesson.media_asset_id ||
+                        currentLesson.content?.media_asset_id,
+                    }}
+                    courseProgress={{
+                      courseId: content.id,
+                      lessonId: currentLesson.id,
+                    }}
+                    mode="watch"
+                    onTimeUpdate={handleTimeUpdate}
+                    onNoteCreated={() =>
+                      setNotesRefreshTrigger((prev) => prev + 1)
+                    }
+                    onMilestone={triggerRewardRefresh}
+                    seekToTime={seekToTime}
+                    theaterMode={theaterMode}
+                    onTheaterModeToggle={handleTheaterModeToggle}
+                    toolbarSlot={
+                      <StudyToolbar
+                        activePanel={activeStudyPanel}
+                        onPanelChange={setActiveStudyPanel}
+                        disabled={!hasAccess}
+                        surface="dark"
+                      />
+                    }
+                  />
+                ) : !isCourse ? (
+                  <div className="relative">
                     <UnifiedVideoPlayer
-                      key={currentLesson.id}
+                      key={content.id}
                       content={{
-                        id: currentLesson.id,
-                        title: currentLesson.title,
-                        file_url: currentLesson.video_url || "",
+                        id: content.id,
+                        title: content.title,
+                        file_url: content.file_url,
                         thumbnail_url: content.thumbnail_url,
-                        content_type: "aula" as const,
-                        duration_seconds: currentLesson.duration_seconds || 0,
-                        content_id: currentLesson.content_id || null,
-                        lesson_id: currentLesson.id,
-                        video_provider: currentLesson.content?.video_provider,
-                        bunny_video_id: currentLesson.content?.bunny_video_id,
-                        bunny_library_id: currentLesson.content?.bunny_library_id,
-                        media_asset_id: currentLesson.media_asset_id || currentLesson.content?.media_asset_id,
+                        content_type: content.content_type,
+                        duration_seconds: content.duration_seconds,
+                        content_id: content.id,
+                        video_provider: content.video_provider,
+                        bunny_video_id: content.bunny_video_id,
+                        bunny_library_id: content.bunny_library_id,
+                        media_asset_id: content.media_asset_id,
                       }}
-                      courseProgress={{ courseId: content.id, lessonId: currentLesson.id }}
                       mode="watch"
                       onTimeUpdate={handleTimeUpdate}
-                      onNoteCreated={() => setNotesRefreshTrigger((prev) => prev + 1)}
+                      onVideoEnded={handleVideoEnd}
+                      onNoteCreated={() =>
+                        setNotesRefreshTrigger((prev) => prev + 1)
+                      }
                       onMilestone={triggerRewardRefresh}
                       seekToTime={seekToTime}
                       theaterMode={theaterMode}
@@ -1108,343 +1341,398 @@ function WatchContent() {
                         />
                       }
                     />
-                  ) : !isCourse ? (
-                    <div className="relative">
-                      <UnifiedVideoPlayer
-                        key={content.id}
-                        content={{
-                          id: content.id,
-                          title: content.title,
-                          file_url: content.file_url,
-                          thumbnail_url: content.thumbnail_url,
-                          content_type: content.content_type,
-                          duration_seconds: content.duration_seconds,
-                          content_id: content.id,
-                          video_provider: content.video_provider,
-                          bunny_video_id: content.bunny_video_id,
-                          bunny_library_id: content.bunny_library_id,
-                          media_asset_id: content.media_asset_id,
-                        }}
-                        mode="watch"
-                        onTimeUpdate={handleTimeUpdate}
-                        onVideoEnded={handleVideoEnd}
-                        onNoteCreated={() => setNotesRefreshTrigger((prev) => prev + 1)}
-                        onMilestone={triggerRewardRefresh}
-                        seekToTime={seekToTime}
-                        theaterMode={theaterMode}
-                        onTheaterModeToggle={handleTheaterModeToggle}
-                        toolbarSlot={
-                          <StudyToolbar
-                            activePanel={activeStudyPanel}
-                            onPanelChange={setActiveStudyPanel}
-                            disabled={!hasAccess}
-                            surface="dark"
-                          />
-                        }
-                      />
-                      {/* Autoplay Next Overlay */}
-                      <AutoplayNextOverlay
-                        nextContent={nextContent}
-                        show={showAutoplayOverlay}
-                        onCancel={() => { setShowAutoplayOverlay(false); setAutoplayCancelled(true); }}
-                      />
-                    </div>
-                  ) : null}
-
-                  {/* Reward progress bar */}
-                  {hasAccess && user && !isCourse && (
-                    <ContentRewardProgress
-                      contentId={content.id}
-                      refreshTrigger={rewardRefreshTrigger}
-                      liveStates={liveActionStates}
-                      studyId={activeStudyId}
-                      studyTitle={activeStudyTitle}
+                    {/* Autoplay Next Overlay */}
+                    <AutoplayNextOverlay
+                      nextContent={nextContent}
+                      show={showAutoplayOverlay}
+                      onCancel={() => {
+                        setShowAutoplayOverlay(false);
+                        setAutoplayCancelled(true);
+                      }}
                     />
-                  )}
+                  </div>
+                ) : null}
 
-                  {/* Attribution banner for curated content */}
-                  {content.is_curated && content.attribution_text && (
-                    <div className="flex items-center gap-2 px-3 py-2 mt-1 rounded-lg bg-muted/50 text-xs text-muted-foreground">
-                      <span className="font-medium text-foreground/70 shrink-0">Curadoria Classfy</span>
-                      <span className="text-muted-foreground/60">·</span>
-                      <span>{content.attribution_text}</span>
-                      {content.license_type && (
-                        <span className="ml-auto shrink-0 font-mono text-[10px] bg-muted px-1.5 py-0.5 rounded">
-                          {content.license_type}
-                        </span>
-                      )}
-                      {content.source_url && (
-                        <a
-                          href={content.source_url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="shrink-0 underline underline-offset-2 hover:text-foreground transition-colors"
-                        >
-                          fonte
-                        </a>
-                      )}
-                    </div>
-                  )}
+                {/* Reward progress bar */}
+                {hasAccess && user && !isCourse && (
+                  <ContentRewardProgress
+                    contentId={content.id}
+                    refreshTrigger={rewardRefreshTrigger}
+                    liveStates={liveActionStates}
+                    studyId={activeStudyId}
+                    studyTitle={activeStudyTitle}
+                  />
+                )}
 
-                  {/* Title */}
-                  <div className="flex items-start sm:items-center gap-2 sm:gap-3 mb-2 flex-wrap">
-                    <h1 className="text-lg sm:text-xl font-bold">
-                      {isCourse && currentLesson ? currentLesson.title : content.title}
-                    </h1>
-                    {content.status === "pending" && role === "admin" && (
-                      <Badge
-                        variant="outline"
-                        className="flex items-center gap-1 border-yellow-500 text-yellow-600 dark:text-yellow-400"
+                {/* Attribution banner for curated content */}
+                {content.is_curated && content.attribution_text && (
+                  <div className="flex items-center gap-2 px-3 py-2 mt-1 rounded-lg bg-muted/50 text-xs text-muted-foreground">
+                    <span className="font-medium text-foreground/70 shrink-0">
+                      Curadoria Classfy
+                    </span>
+                    <span className="text-muted-foreground/60">·</span>
+                    <span>{content.attribution_text}</span>
+                    {content.license_type && (
+                      <span className="ml-auto shrink-0 font-mono text-[10px] bg-muted px-1.5 py-0.5 rounded">
+                        {content.license_type}
+                      </span>
+                    )}
+                    {content.source_url && (
+                      <a
+                        href={content.source_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="shrink-0 underline underline-offset-2 hover:text-foreground transition-colors"
                       >
-                        <AlertCircle className="h-3 w-3" />
-                        PENDENTE
-                      </Badge>
+                        fonte
+                      </a>
                     )}
-                    {isCourse && <Badge variant="secondary">CURSO</Badge>}
-                  </div>
-
-                  {/* Creator Row + Actions - YouTube Style */}
-                  {content.status === "pending" && role === "admin" ? (
-                    <div className="flex gap-2 mb-4">
-                      <Button onClick={handleApprove} className="flex items-center gap-2">
-                        <CheckCircle className="h-4 w-4" />
-                        Aprovar Conteúdo
-                      </Button>
-                      <Button onClick={handleReject} variant="destructive" className="flex items-center gap-2">
-                        <XCircle className="h-4 w-4" />
-                        Reprovar Conteúdo
-                      </Button>
-                    </div>
-                  ) : (
-                    <div className="py-2 sm:py-3">
-                      <SocialBar
-                        contentId={content.id}
-                        isCourse={isCourse}
-                        contentTitle={content.title}
-                        contentThumbnail={content.thumbnail_url || undefined}
-                        creator={content.creator ? {
-                          id: content.creator.id,
-                          display_name: content.creator.display_name,
-                          avatar_url: content.creator.avatar_url,
-                          channel_name: (content.creator as any)?.creator_channel_name
-                        } : null}
-                        followersCount={followersCount}
-                        hasAccess={hasAccess}
-                        onAddToStudy={() => setShowAddToStudyModal(true)}
-                        showCreator={true}
-                        onAction={triggerRewardRefresh}
-                        onStateChange={setLiveActionStates}
-                      />
-                    </div>
-                  )}
-
-                  {/* Collapsible Description Card - YouTube Style */}
-                  <div 
-                    className="bg-secondary/50 rounded-lg sm:rounded-xl p-2.5 sm:p-3 cursor-pointer hover:bg-secondary/70 transition-colors"
-                    onClick={() => setDescExpanded(!descExpanded)}
-                  >
-                    <p className="text-xs sm:text-sm font-medium text-muted-foreground mb-1">
-                      {formatCount(content.views_count || 0)} visualizações • {formatDistanceToNow(new Date(content.created_at || Date.now()), { addSuffix: true, locale: ptBR })}
-                      {content.tags && content.tags.length > 0 && (
-                        <span className="ml-2">
-                          {content.tags.slice(0, 3).map(tag => `#${tag}`).join(' ')}
-                        </span>
-                      )}
-                    </p>
-                    <div className={`text-xs sm:text-sm ${!descExpanded ? 'line-clamp-2' : ''}`}>
-                      {isCourse && currentLesson && currentLesson.description && (
-                        <p className="mb-2">{currentLesson.description}</p>
-                      )}
-                      {content.description && <p>{content.description}</p>}
-                      {descExpanded && isCourse && content.what_you_learn && (
-                        <div className="mt-4 pt-4 border-t border-border">
-                          <h4 className="font-semibold mb-2">O que você vai aprender</h4>
-                          <p className="text-muted-foreground">{content.what_you_learn}</p>
-                        </div>
-                      )}
-                      {descExpanded && isCourse && content.requirements && (
-                        <div className="mt-4">
-                          <h4 className="font-semibold mb-2">Requisitos</h4>
-                          <p className="text-muted-foreground">{content.requirements}</p>
-                        </div>
-                      )}
-                    </div>
-                    {!descExpanded && (content.description || (isCourse && currentLesson?.description)) && (
-                      <span className="text-xs sm:text-sm font-semibold mt-1 inline-block">...mais</span>
-                    )}
-                  </div>
-
-                  {!isCourse && <ContentComments contentId={content.id} />}
-                </div>
-
-                <div className={`shrink-0 space-y-4 ${theaterMode ? 'w-full grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6' : 'w-full lg:w-80 xl:w-96'}`}>
-                  {isCourse ? (
-                    <>
-                      <WatchNotes
-                        contentId={currentLesson?.content_id || null}
-                        courseId={content.id}
-                        currentLessonId={currentLesson?.id}
-                        onSeekTo={(seconds) => setSeekToTime(seconds)}
-                        onLessonChange={(lessonId) => {
-                          // Encontrar a lesson pelo ID e trocar
-                          const lesson = courseModules
-                            .flatMap(m => m.lessons)
-                            .find(l => l.id === lessonId);
-                          if (lesson) {
-                            setCurrentLesson(lesson);
-                          }
-                        }}
-                        refreshTrigger={notesRefreshTrigger}
-                        key={currentLesson?.id}
-                      />
-                      
-                      <CourseCurriculum
-                        modules={courseModules}
-                        currentLesson={currentLesson}
-                        onLessonSelect={setCurrentLesson}
-                        hasAccess={hasAccess}
-                      />
-                    </>
-                  ) : (
-                    <>
-                      <WatchNotes
-                        contentId={content.id}
-                        onSeekTo={(seconds) => setSeekToTime(seconds)}
-                        refreshTrigger={notesRefreshTrigger}
-                      />
-
-                      <WatchRelated
-                        contentId={content.id}
-                        categoryId={content.category_id}
-                        tags={content.tags}
-                        contentType={content.content_type}
-                      />
-                    </>
-                  )}
-                </div>
-              </div>
-            </div>
-          </main>
-
-          {/* Study Tool Panels - Sheets */}
-          {/* Transcription Sheet */}
-          <Sheet open={activeStudyPanel === 'transcription'} onOpenChange={(open) => !open && setActiveStudyPanel(null)}>
-            <SheetContent side="right" className="w-full sm:w-[500px] sm:max-w-[600px] overflow-y-auto">
-              <SheetHeader>
-                <SheetTitle>Transcrição</SheetTitle>
-                <SheetDescription className="line-clamp-1">{content.title}</SheetDescription>
-              </SheetHeader>
-              <div className="mt-6 space-y-4">
-                {!transcription && !transcriptionLoading ? (
-                  <div className="space-y-4">
-                    <div className="text-muted-foreground text-sm">
-                      <p>A transcrição deste conteúdo está sendo processada automaticamente.</p>
-                      <p className="mt-2">
-                        Isso acontece em segundo plano quando o conteúdo é aprovado. Recarregue a página em alguns minutos.
-                      </p>
-                    </div>
-                    <Button onClick={generateTranscription} disabled={transcriptionLoading} variant="outline" size="sm">
-                      Tentar Gerar Novamente
-                    </Button>
-                  </div>
-                ) : transcriptionLoading ? (
-                  <div className="flex items-center gap-2 text-muted-foreground">
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    <p className="text-sm">Carregando transcrição...</p>
-                  </div>
-                ) : (
-                  <div className="space-y-4">
-                    <div className="flex gap-2">
-                      <Input
-                        placeholder="Buscar na transcrição..."
-                        value={searchQuery}
-                        onChange={(e) => setSearchQuery(e.target.value)}
-                        className="flex-1"
-                      />
-                      {searchQuery && (
-                        <Button variant="ghost" size="icon" onClick={() => setSearchQuery("")}>
-                          <X className="h-4 w-4" />
-                        </Button>
-                      )}
-                    </div>
-                    <div className="prose prose-sm max-w-none text-foreground">
-                      <div 
-                        dangerouslySetInnerHTML={{ 
-                          __html: highlightSearchResults(transcription, searchQuery) 
-                        }}
-                      />
-                    </div>
                   </div>
                 )}
-              </div>
-            </SheetContent>
-          </Sheet>
 
-          {/* Quiz Sheet */}
-          <Sheet open={activeStudyPanel === 'quiz'} onOpenChange={(open) => !open && setActiveStudyPanel(null)}>
-            <SheetContent side="right" className="w-full sm:w-[500px] sm:max-w-[600px] overflow-y-auto">
-              <SheetHeader>
-                <SheetTitle>Quiz</SheetTitle>
-                <SheetDescription className="line-clamp-1">Teste seus conhecimentos</SheetDescription>
-              </SheetHeader>
-              <div className="mt-6">
-                <StudyQuiz 
-                  studyId={content.id}
-                  contentId={content.id}
-                  contentTitle={content.title}
-                />
-              </div>
-            </SheetContent>
-          </Sheet>
+                {/* Title */}
+                <div className="flex items-start sm:items-center gap-2 sm:gap-3 mb-2 flex-wrap">
+                  <h1 className="text-lg sm:text-xl font-bold">
+                    {isCourse && currentLesson
+                      ? currentLesson.title
+                      : content.title}
+                  </h1>
+                  {content.status === "pending" && role === "admin" && (
+                    <Badge
+                      variant="outline"
+                      className="flex items-center gap-1 border-yellow-500 text-yellow-600 dark:text-yellow-400"
+                    >
+                      <AlertCircle className="h-3 w-3" />
+                      PENDENTE
+                    </Badge>
+                  )}
+                  {isCourse && <Badge variant="secondary">CURSO</Badge>}
+                </div>
 
-          {/* Notes Sheet */}
-          <Sheet open={activeStudyPanel === 'notes'} onOpenChange={(open) => !open && setActiveStudyPanel(null)}>
-            <SheetContent side="right" className="w-full sm:w-[500px] sm:max-w-[600px] overflow-y-auto">
-              <SheetHeader>
-                <SheetTitle>Anotações</SheetTitle>
-                <SheetDescription>Suas anotações de estudo</SheetDescription>
-              </SheetHeader>
-              <div className="mt-6">
-                <StudyNotes
-                  studyId={content.id}
-                  activeContentId={content.id}
-                  onSeekToTimestamp={(time) => setSeekToTime(time)}
-                  key={notesRefreshTrigger}
-                />
-              </div>
-            </SheetContent>
-          </Sheet>
+                {/* Creator Row + Actions - YouTube Style */}
+                {content.status === "pending" && role === "admin" ? (
+                  <div className="flex gap-2 mb-4">
+                    <Button
+                      onClick={handleApprove}
+                      className="flex items-center gap-2"
+                    >
+                      <CheckCircle className="h-4 w-4" />
+                      Aprovar Conteúdo
+                    </Button>
+                    <Button
+                      onClick={handleReject}
+                      variant="destructive"
+                      className="flex items-center gap-2"
+                    >
+                      <XCircle className="h-4 w-4" />
+                      Reprovar Conteúdo
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="py-2 sm:py-3">
+                    <SocialBar
+                      contentId={content.id}
+                      isCourse={isCourse}
+                      contentTitle={content.title}
+                      contentThumbnail={content.thumbnail_url || undefined}
+                      creator={
+                        content.creator
+                          ? {
+                              id: content.creator.id,
+                              display_name: content.creator.display_name,
+                              avatar_url: content.creator.avatar_url,
+                              channel_name: (content.creator as any)
+                                ?.creator_channel_name,
+                            }
+                          : null
+                      }
+                      followersCount={followersCount}
+                      hasAccess={hasAccess}
+                      onAddToStudy={() => setShowAddToStudyModal(true)}
+                      showCreator={true}
+                      onAction={triggerRewardRefresh}
+                      onStateChange={setLiveActionStates}
+                    />
+                  </div>
+                )}
 
-          {/* Comments Sheet */}
-          <Sheet open={activeStudyPanel === 'comments'} onOpenChange={(open) => !open && setActiveStudyPanel(null)}>
-            <SheetContent side="right" className="w-full sm:w-[500px] sm:max-w-[600px] overflow-y-auto">
-              <SheetHeader>
-                <SheetTitle>Comentários</SheetTitle>
-                <SheetDescription className="line-clamp-1">Discussões sobre {content.title}</SheetDescription>
-              </SheetHeader>
-              <div className="mt-6">
-                <ContentComments contentId={content.id} />
-              </div>
-            </SheetContent>
-          </Sheet>
+                {/* Collapsible Description Card - YouTube Style */}
+                <div
+                  className="bg-secondary/50 rounded-lg sm:rounded-xl p-2.5 sm:p-3 cursor-pointer hover:bg-secondary/70 transition-colors"
+                  onClick={() => setDescExpanded(!descExpanded)}
+                >
+                  <p className="text-xs sm:text-sm font-medium text-muted-foreground mb-1">
+                    {formatCount(content.views_count || 0)} visualizações •{" "}
+                    {formatDistanceToNow(
+                      new Date(content.created_at || Date.now()),
+                      { addSuffix: true, locale: ptBR },
+                    )}
+                    {content.tags && content.tags.length > 0 && (
+                      <span className="ml-2">
+                        {content.tags
+                          .slice(0, 3)
+                          .map((tag) => `#${tag}`)
+                          .join(" ")}
+                      </span>
+                    )}
+                  </p>
+                  <div
+                    className={`text-xs sm:text-sm ${!descExpanded ? "line-clamp-2" : ""}`}
+                  >
+                    {isCourse && currentLesson && currentLesson.description && (
+                      <p className="mb-2">{currentLesson.description}</p>
+                    )}
+                    {content.description && <p>{content.description}</p>}
+                    {descExpanded && isCourse && content.what_you_learn && (
+                      <div className="mt-4 pt-4 border-t border-border">
+                        <h4 className="font-semibold mb-2">
+                          O que você vai aprender
+                        </h4>
+                        <p className="text-muted-foreground">
+                          {content.what_you_learn}
+                        </p>
+                      </div>
+                    )}
+                    {descExpanded && isCourse && content.requirements && (
+                      <div className="mt-4">
+                        <h4 className="font-semibold mb-2">Requisitos</h4>
+                        <p className="text-muted-foreground">
+                          {content.requirements}
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                  {!descExpanded &&
+                    (content.description ||
+                      (isCourse && currentLesson?.description)) && (
+                      <span className="text-xs sm:text-sm font-semibold mt-1 inline-block">
+                        ...mais
+                      </span>
+                    )}
+                </div>
 
-          {/* Recommendations Sheet */}
-          <Sheet open={activeStudyPanel === 'recommendations'} onOpenChange={(open) => !open && setActiveStudyPanel(null)}>
-            <SheetContent side="right" className="w-full sm:w-[500px] sm:max-w-[600px] overflow-y-auto">
-              <SheetHeader>
-                <SheetTitle>Recomendações</SheetTitle>
-                <SheetDescription>Conteúdos relacionados</SheetDescription>
-              </SheetHeader>
-              <div className="mt-6">
-                <WatchRelated
-                  contentId={content.id}
-                  categoryId={content.category_id}
-                  tags={content.tags}
-                  contentType={content.content_type}
-                />
+                {!isCourse && <ContentComments contentId={content.id} />}
               </div>
-            </SheetContent>
-          </Sheet>
+
+              <div
+                className={`shrink-0 space-y-4 ${theaterMode ? "w-full grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6" : "w-full lg:w-80 xl:w-96"}`}
+              >
+                {isCourse ? (
+                  <>
+                    <WatchNotes
+                      contentId={currentLesson?.content_id || null}
+                      courseId={content.id}
+                      currentLessonId={currentLesson?.id}
+                      onSeekTo={(seconds) => setSeekToTime(seconds)}
+                      onLessonChange={(lessonId) => {
+                        // Encontrar a lesson pelo ID e trocar
+                        const lesson = courseModules
+                          .flatMap((m) => m.lessons)
+                          .find((l) => l.id === lessonId);
+                        if (lesson) {
+                          setCurrentLesson(lesson);
+                        }
+                      }}
+                      refreshTrigger={notesRefreshTrigger}
+                      key={currentLesson?.id}
+                    />
+
+                    <CourseCurriculum
+                      modules={courseModules}
+                      currentLesson={currentLesson}
+                      onLessonSelect={setCurrentLesson}
+                      hasAccess={hasAccess}
+                    />
+                  </>
+                ) : (
+                  <>
+                    <WatchNotes
+                      contentId={content.id}
+                      onSeekTo={(seconds) => setSeekToTime(seconds)}
+                      refreshTrigger={notesRefreshTrigger}
+                    />
+
+                    <WatchRelated
+                      contentId={content.id}
+                      categoryId={content.category_id}
+                      tags={content.tags}
+                      contentType={content.content_type}
+                    />
+                  </>
+                )}
+              </div>
+            </div>
+          </div>
+        </main>
+
+        {/* Study Tool Panels - Sheets */}
+        {/* Transcription Sheet */}
+        <Sheet
+          open={activeStudyPanel === "transcription"}
+          onOpenChange={(open) => !open && setActiveStudyPanel(null)}
+        >
+          <SheetContent
+            side="right"
+            className="w-full sm:w-[500px] sm:max-w-[600px] overflow-y-auto"
+          >
+            <SheetHeader>
+              <SheetTitle>Transcrição</SheetTitle>
+              <SheetDescription className="line-clamp-1">
+                {content.title}
+              </SheetDescription>
+            </SheetHeader>
+            <div className="mt-6 space-y-4">
+              {!transcription && !transcriptionLoading ? (
+                <div className="space-y-4">
+                  <div className="text-muted-foreground text-sm">
+                    <p>
+                      A transcrição deste conteúdo está sendo processada
+                      automaticamente.
+                    </p>
+                    <p className="mt-2">
+                      Isso acontece em segundo plano quando o conteúdo é
+                      aprovado. Recarregue a página em alguns minutos.
+                    </p>
+                  </div>
+                  <Button
+                    onClick={generateTranscription}
+                    disabled={transcriptionLoading}
+                    variant="outline"
+                    size="sm"
+                  >
+                    Tentar Gerar Novamente
+                  </Button>
+                </div>
+              ) : transcriptionLoading ? (
+                <div className="flex items-center gap-2 text-muted-foreground">
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  <p className="text-sm">Carregando transcrição...</p>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  <div className="flex gap-2">
+                    <Input
+                      placeholder="Buscar na transcrição..."
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      className="flex-1"
+                    />
+                    {searchQuery && (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => setSearchQuery("")}
+                      >
+                        <X className="h-4 w-4" />
+                      </Button>
+                    )}
+                  </div>
+                  <div className="prose prose-sm max-w-none whitespace-pre-wrap text-foreground">
+                    <HighlightedText
+                      text={transcription}
+                      query={searchQuery}
+                      markClassName="rounded bg-yellow-200 px-0.5 dark:bg-yellow-800"
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
+          </SheetContent>
+        </Sheet>
+
+        {/* Quiz Sheet */}
+        <Sheet
+          open={activeStudyPanel === "quiz"}
+          onOpenChange={(open) => !open && setActiveStudyPanel(null)}
+        >
+          <SheetContent
+            side="right"
+            className="w-full sm:w-[500px] sm:max-w-[600px] overflow-y-auto"
+          >
+            <SheetHeader>
+              <SheetTitle>Quiz</SheetTitle>
+              <SheetDescription className="line-clamp-1">
+                Teste seus conhecimentos
+              </SheetDescription>
+            </SheetHeader>
+            <div className="mt-6">
+              <StudyQuiz
+                studyId={content.id}
+                contentId={content.id}
+                contentTitle={content.title}
+              />
+            </div>
+          </SheetContent>
+        </Sheet>
+
+        {/* Notes Sheet */}
+        <Sheet
+          open={activeStudyPanel === "notes"}
+          onOpenChange={(open) => !open && setActiveStudyPanel(null)}
+        >
+          <SheetContent
+            side="right"
+            className="w-full sm:w-[500px] sm:max-w-[600px] overflow-y-auto"
+          >
+            <SheetHeader>
+              <SheetTitle>Anotações</SheetTitle>
+              <SheetDescription>Suas anotações de estudo</SheetDescription>
+            </SheetHeader>
+            <div className="mt-6">
+              <StudyNotes
+                studyId={content.id}
+                activeContentId={content.id}
+                onSeekToTimestamp={(time) => setSeekToTime(time)}
+                key={notesRefreshTrigger}
+              />
+            </div>
+          </SheetContent>
+        </Sheet>
+
+        {/* Comments Sheet */}
+        <Sheet
+          open={activeStudyPanel === "comments"}
+          onOpenChange={(open) => !open && setActiveStudyPanel(null)}
+        >
+          <SheetContent
+            side="right"
+            className="w-full sm:w-[500px] sm:max-w-[600px] overflow-y-auto"
+          >
+            <SheetHeader>
+              <SheetTitle>Comentários</SheetTitle>
+              <SheetDescription className="line-clamp-1">
+                Discussões sobre {content.title}
+              </SheetDescription>
+            </SheetHeader>
+            <div className="mt-6">
+              <ContentComments contentId={content.id} />
+            </div>
+          </SheetContent>
+        </Sheet>
+
+        {/* Recommendations Sheet */}
+        <Sheet
+          open={activeStudyPanel === "recommendations"}
+          onOpenChange={(open) => !open && setActiveStudyPanel(null)}
+        >
+          <SheetContent
+            side="right"
+            className="w-full sm:w-[500px] sm:max-w-[600px] overflow-y-auto"
+          >
+            <SheetHeader>
+              <SheetTitle>Recomendações</SheetTitle>
+              <SheetDescription>Conteúdos relacionados</SheetDescription>
+            </SheetHeader>
+            <div className="mt-6">
+              <WatchRelated
+                contentId={content.id}
+                categoryId={content.category_id}
+                tags={content.tags}
+                contentType={content.content_type}
+              />
+            </div>
+          </SheetContent>
+        </Sheet>
       </div>
     </div>
   );

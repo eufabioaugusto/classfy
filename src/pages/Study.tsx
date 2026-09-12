@@ -7,13 +7,41 @@ import { useMiniPlayer } from "@/contexts/MiniPlayerContext";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Loader2, Send, MoreVertical, Edit2, Share2, Trash2, X, List, Minimize2, Maximize2, Play, ChevronLeft, ChevronRight, AlertCircle, Sparkles, Brain, Compass, ChevronRight as ChevronRightIcon, PlayCircle, BookOpen, StickyNote, Clock, Coins } from "lucide-react";
+import {
+  Loader2,
+  Send,
+  MoreVertical,
+  Edit2,
+  Share2,
+  Trash2,
+  X,
+  List,
+  Minimize2,
+  Maximize2,
+  Play,
+  ChevronLeft,
+  ChevronRight,
+  AlertCircle,
+  Sparkles,
+  Brain,
+  Compass,
+  ChevronRight as ChevronRightIcon,
+  PlayCircle,
+  BookOpen,
+  StickyNote,
+  Clock,
+  Coins,
+} from "lucide-react";
 import { StudyMessage } from "@/hooks/useStudies";
 import { useStudies } from "@/hooks/useStudies";
 import { StudyUsageIndicator } from "@/components/StudyUsageIndicator";
 import { ChatContentCard } from "@/components/ChatContentCard";
 import { ChatMessage } from "@/components/chat/ChatMessage";
-import { ClassyMessageExtras, ClassyMessageMetadata } from "@/components/chat/ClassyMessageExtras";
+import {
+  ClassyMessageExtras,
+  ClassyMessageMetadata,
+} from "@/components/chat/ClassyMessageExtras";
+import { HighlightedText } from "@/components/chat/HighlightedText";
 import { ClassyStudyState } from "@/components/chat/ClassyStudyStateBar";
 import { UpgradePromptCard } from "@/components/chat/UpgradePromptCard";
 import { UnifiedVideoPlayer } from "@/components/unified/UnifiedVideoPlayer";
@@ -32,13 +60,27 @@ import { ptBR } from "date-fns/locale";
 import { MobileStudyPlayer } from "@/components/study/MobileStudyPlayer";
 import { useStudyJourneySummary } from "@/hooks/useStudyJourneySummary";
 import { toShortTitle } from "@/lib/study/getStudyJourneySummary";
-import { getActiveDifficulties, getTopInterests, trackUserInteraction } from "@/lib/personalization/interests";
+import {
+  getActiveDifficulties,
+  getTopInterests,
+  trackUserInteraction,
+} from "@/lib/personalization/interests";
 
 import { StudyQuiz } from "@/components/StudyQuiz";
 import { StudyNotes } from "@/components/StudyNotes";
 import { Textarea } from "@/components/ui/textarea";
-import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/components/ui/resizable";
-import { Carousel, CarouselContent, CarouselItem, CarouselNext, CarouselPrevious } from "@/components/ui/carousel";
+import {
+  ResizablePanelGroup,
+  ResizablePanel,
+  ResizableHandle,
+} from "@/components/ui/resizable";
+import {
+  Carousel,
+  CarouselContent,
+  CarouselItem,
+  CarouselNext,
+  CarouselPrevious,
+} from "@/components/ui/carousel";
 import { SidebarProvider, useSidebar } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/AppSidebar";
 import { Header } from "@/components/Header";
@@ -84,6 +126,7 @@ type StudyAiStateRecord = {
   current_focus: string | null;
   last_celebration: string | null;
   learner_level: ClassyStudyState["learnerLevel"];
+  learning_style: NonNullable<ClassyStudyState["learningStyle"]> | null;
   live_plan_steps: string[] | null;
   next_best_action: string | null;
   user_goal: string | null;
@@ -96,7 +139,9 @@ type StudyAiStateRecord = {
   last_quiz_total: number | null;
 };
 
-const mapStudyStateRecord = (record: StudyAiStateRecord | null): ClassyStudyState | null => {
+const mapStudyStateRecord = (
+  record: StudyAiStateRecord | null,
+): ClassyStudyState | null => {
   if (!record) return null;
 
   const weakTopics = record.weak_topics || [];
@@ -113,6 +158,7 @@ const mapStudyStateRecord = (record: StudyAiStateRecord | null): ClassyStudyStat
     activeMode: record.active_mode,
     currentFocus: record.current_focus,
     learnerLevel: record.learner_level,
+    learningStyle: record.learning_style || "mixed",
     nextBestAction: record.next_best_action,
     userGoal: record.user_goal,
     sessionSummary: record.session_summary,
@@ -139,7 +185,9 @@ const INITIAL_ONBOARDING_SUGGESTIONS = [
 
 const isTransientStudyBootstrapError = (error: any) => {
   const status = error?.context?.status ?? error?.status;
-  const message = String(error?.message || error?.context?.error?.message || "").toLowerCase();
+  const message = String(
+    error?.message || error?.context?.error?.message || "",
+  ).toLowerCase();
 
   return (
     status === 404 ||
@@ -196,7 +244,10 @@ const sanitizeStudyTopic = (value?: string | null) => {
     .replace(/[!?.:,;\s]+$/g, "");
 };
 
-const buildInitialAssistantReply = (studyTitle: string, userName?: string | null) => {
+const buildInitialAssistantReply = (
+  studyTitle: string,
+  userName?: string | null,
+) => {
   const firstName = userName?.trim()?.split(" ")[0];
   const greetingPrefix = firstName ? `Olá, ${firstName}!` : "Olá!";
   const cleanTopic = sanitizeStudyTopic(studyTitle) || studyTitle;
@@ -252,10 +303,14 @@ function StudyContent() {
   const { updateLastActivity, getStudyUsage, limits } = useStudies();
   const { setOpen, open } = useSidebar();
   const isMobile = useIsMobile();
-  const { startMiniPlayer, closeMiniPlayer, state: miniPlayerState } = useMiniPlayer();
+  const {
+    startMiniPlayer,
+    closeMiniPlayer,
+    state: miniPlayerState,
+  } = useMiniPlayer();
 
-  const currentPlan = (profile?.plan || 'free') as 'free' | 'pro' | 'premium';
-  const PLAYLIST_LIMITS: Record<'free' | 'pro' | 'premium', number> = {
+  const currentPlan = (profile?.plan || "free") as "free" | "pro" | "premium";
+  const PLAYLIST_LIMITS: Record<"free" | "pro" | "premium", number> = {
     free: 5,
     pro: 50,
     premium: Infinity,
@@ -265,7 +320,9 @@ function StudyContent() {
 
   const [study, setStudy] = useState<any>(null);
   const [messages, setMessages] = useState<StudyMessage[]>([]);
-  const [messageContents, setMessageContents] = useState<Map<string, any[]>>(new Map());
+  const [messageContents, setMessageContents] = useState<Map<string, any[]>>(
+    new Map(),
+  );
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(true);
   const [loadingMessages, setLoadingMessages] = useState(true);
@@ -285,8 +342,13 @@ function StudyContent() {
   const [wasOpenBeforeFocus, setWasOpenBeforeFocus] = useState(true);
   const [savedPlaylists, setSavedPlaylists] = useState<Set<string>>(new Set());
   const [showPlaylistsDropdown, setShowPlaylistsDropdown] = useState(false);
-  const [activePlaylist, setActivePlaylist] = useState<{ messageId: string, currentIndex: number } | null>(null);
-  const [autoplayCountdown, setAutoplayCountdown] = useState<number | null>(null);
+  const [activePlaylist, setActivePlaylist] = useState<{
+    messageId: string;
+    currentIndex: number;
+  } | null>(null);
+  const [autoplayCountdown, setAutoplayCountdown] = useState<number | null>(
+    null,
+  );
   const [playlistsCount, setPlaylistsCount] = useState(0);
   const [newestMessageId, setNewestMessageId] = useState<string | null>(null);
   const initialMessageTriggeredRef = useRef(false);
@@ -300,7 +362,10 @@ function StudyContent() {
   // Tool panels state - using unified ToolPanel type
   const [activeToolPanel, setActiveToolPanel] = useState<ToolPanel>(null);
   const [miniPlayerActive, setMiniPlayerActive] = useState(false);
-  const [miniPlayerPosition, setMiniPlayerPosition] = useState({ x: 20, y: 20 });
+  const [miniPlayerPosition, setMiniPlayerPosition] = useState({
+    x: 20,
+    y: 20,
+  });
   const miniPlayerRef = useRef<HTMLDivElement>(null);
   const isDraggingRef = useRef(false);
 
@@ -309,19 +374,27 @@ function StudyContent() {
 
   // Limit state (inline alert + CTA card)
   const [limitReached, setLimitReached] = useState<{
-    type: 'messages' | 'deviations';
+    type: "messages" | "deviations";
     suggestedTopic?: string;
   } | null>(null);
-  const [studyUsage, setStudyUsage] = useState<{ messageCount: number; maxMessages: number } | null>(null);
-  const [studyAiState, setStudyAiState] = useState<ClassyStudyState | null>(null);
+  const [studyUsage, setStudyUsage] = useState<{
+    messageCount: number;
+    maxMessages: number;
+  } | null>(null);
+  const [studyAiState, setStudyAiState] = useState<ClassyStudyState | null>(
+    null,
+  );
   const [studyMapDialogOpen, setStudyMapDialogOpen] = useState(false);
   const [thinkingPhraseIndex, setThinkingPhraseIndex] = useState(0);
 
   // Access control state
-  const { checkAccess, hasAccess, blockReason, requiredPlan } = useAccessControl();
+  const { checkAccess, hasAccess, blockReason, requiredPlan } =
+    useAccessControl();
   const [showUpgradeModal, setShowUpgradeModal] = useState(false);
   const [showPurchaseModal, setShowPurchaseModal] = useState(false);
-  const [activeContentInfo, setActiveContentInfo] = useState<{ price?: number } | null>(null);
+  const [activeContentInfo, setActiveContentInfo] = useState<{
+    price?: number;
+  } | null>(null);
   const [followersCount, setFollowersCount] = useState(0);
 
   // Track current playback time for mini player
@@ -356,15 +429,20 @@ function StudyContent() {
 
       // Only activate if we have content and some playback progress
       if (content && playbackTime > 0) {
-        startMiniPlayer({
-          id: content.id,
-          title: content.title,
-          subtitle: content.creator?.display_name,
-          thumbnail_url: content.thumbnail_url,
-          file_url: content.file_url,
-          duration_seconds: content.duration_seconds,
-          creator: content.creator ? { display_name: content.creator.display_name } : undefined,
-        }, playbackTime);
+        startMiniPlayer(
+          {
+            id: content.id,
+            title: content.title,
+            subtitle: content.creator?.display_name,
+            thumbnail_url: content.thumbnail_url,
+            file_url: content.file_url,
+            duration_seconds: content.duration_seconds,
+            creator: content.creator
+              ? { display_name: content.creator.display_name }
+              : undefined,
+          },
+          playbackTime,
+        );
       }
     };
   }, [startMiniPlayer]);
@@ -411,7 +489,9 @@ function StudyContent() {
   useEffect(() => {
     if (!user || !id) return;
 
-    const assistantMessages = messages.filter((message) => message.role === "assistant");
+    const assistantMessages = messages.filter(
+      (message) => message.role === "assistant",
+    );
     assistantMessages.forEach((message) => {
       if (trackedMessageEventsRef.current.has(message.id)) {
         return;
@@ -422,7 +502,9 @@ function StudyContent() {
 
       trackedMessageEventsRef.current.add(message.id);
 
-      const blockTypes = new Set((metadata.ui_blocks || []).map((block) => block.type));
+      const blockTypes = new Set(
+        (metadata.ui_blocks || []).map((block) => block.type),
+      );
       if (blockTypes.has("checkpoint")) {
         trackClassyEvent("checkpoint_impression", {
           assistant_message_id: message.id,
@@ -474,7 +556,14 @@ function StudyContent() {
       setInitialMessageSent(true);
       sendInitialMessage();
     }
-  }, [study, loadingMessages, messages.length, initialMessageSent, loading, sending]);
+  }, [
+    study,
+    loadingMessages,
+    messages.length,
+    initialMessageSent,
+    loading,
+    sending,
+  ]);
 
   useEffect(() => {
     if (!sending) {
@@ -491,30 +580,55 @@ function StudyContent() {
 
   useEffect(() => {
     const autoOpenPlaylistId = location.state?.autoOpenPlaylist;
-    if (autoOpenPlaylistId && savedPlaylists.has(autoOpenPlaylistId) && !activePlaylist) {
-      const playlistMessage = messages.find(msg => msg.id === autoOpenPlaylistId);
+    if (
+      autoOpenPlaylistId &&
+      savedPlaylists.has(autoOpenPlaylistId) &&
+      !activePlaylist
+    ) {
+      const playlistMessage = messages.find(
+        (msg) => msg.id === autoOpenPlaylistId,
+      );
       if (playlistMessage) {
         const contents = messageContents.get(playlistMessage.id);
         if (contents && contents.length > 0) {
           const firstContent = contents[0];
-          const firstContentId = typeof firstContent === 'string' ? firstContent : firstContent.id;
+          const firstContentId =
+            typeof firstContent === "string" ? firstContent : firstContent.id;
 
           if (firstContentId) {
-            setActivePlaylist({ messageId: playlistMessage.id, currentIndex: 0 });
+            setActivePlaylist({
+              messageId: playlistMessage.id,
+              currentIndex: 0,
+            });
             setShowPlaylistsDropdown(false);
             handlePlayContent(firstContentId, {
               sourceMessageId: playlistMessage.id,
-              title: typeof firstContent === "string" ? undefined : firstContent.title,
-              relevanceScore: typeof firstContent === "string" ? null : firstContent.relevanceScore,
+              title:
+                typeof firstContent === "string"
+                  ? undefined
+                  : firstContent.title,
+              relevanceScore:
+                typeof firstContent === "string"
+                  ? null
+                  : firstContent.relevanceScore,
             });
             navigate(location.pathname, { replace: true, state: {} });
           }
         }
       }
     }
-  }, [savedPlaylists, messages, messageContents, location.state, activePlaylist]);
+  }, [
+    savedPlaylists,
+    messages,
+    messageContents,
+    location.state,
+    activePlaylist,
+  ]);
 
-  const handleCreatePlaylist = async (messageId: string, contentIds: string[]) => {
+  const handleCreatePlaylist = async (
+    messageId: string,
+    contentIds: string[],
+  ) => {
     if (!user || !id) return;
 
     if (playlistsCount >= playlistLimit) {
@@ -535,27 +649,30 @@ function StudyContent() {
 
       if (playlistError) throw playlistError;
 
-      setSavedPlaylists(prev => new Set(prev).add(messageId));
-      setPlaylistsCount(prev => prev + 1);
+      setSavedPlaylists((prev) => new Set(prev).add(messageId));
+      setPlaylistsCount((prev) => prev + 1);
 
       const { data: transcriptions } = await supabase
-        .from('transcriptions')
-        .select('content_id, text')
-        .in('content_id', contentIds);
+        .from("transcriptions")
+        .select("content_id, text")
+        .in("content_id", contentIds);
 
       const { data: contents } = await supabase
-        .from('contents')
-        .select('id, title, description')
-        .in('id', contentIds);
+        .from("contents")
+        .select("id, title, description")
+        .in("id", contentIds);
 
-      const transcriptionsMap = new Map(transcriptions?.map(t => [t.content_id, t.text]) || []);
-      const contentsInfo = contents?.map(c => ({
-        title: c.title,
-        description: c.description,
-        transcription: transcriptionsMap.get(c.id)?.substring(0, 2000)
-      })) || [];
+      const transcriptionsMap = new Map(
+        transcriptions?.map((t) => [t.content_id, t.text]) || [],
+      );
+      const contentsInfo =
+        contents?.map((c) => ({
+          title: c.title,
+          description: c.description,
+          transcription: transcriptionsMap.get(c.id)?.substring(0, 2000),
+        })) || [];
 
-      toast.success('Playlist salva! Gerando resumo...');
+      toast.success("Playlist salva! Gerando resumo...");
 
       const [topInterests, activeDifficulties] = await Promise.all([
         getTopInterests(user.id),
@@ -573,42 +690,37 @@ function StudyContent() {
             user_interests: topInterests,
             user_difficulties: activeDifficulties,
           },
-        }
+        },
       );
 
       if (aiError) throw aiError;
-
-      await supabase
-        .from("study_messages")
-        .insert({
-          study_id: id,
-          role: "assistant",
-          content: aiData.message,
-          related_contents: null,
-        });
 
       await fetchMessages();
       await refetchStudyJourneySummary();
       scrollToBottom();
     } catch (error) {
-      console.error('Error creating playlist:', error);
-      toast.error('Erro ao salvar playlist');
+      console.error("Error creating playlist:", error);
+      toast.error("Erro ao salvar playlist");
     } finally {
       setSending(false);
     }
   };
 
   const getPlaylistMessages = () => {
-    return messages.filter(msg =>
-      msg.role === 'assistant' &&
-      messageContents.get(msg.id) &&
-      messageContents.get(msg.id)!.length > 1 &&
-      savedPlaylists.has(msg.id)
+    return messages.filter(
+      (msg) =>
+        msg.role === "assistant" &&
+        messageContents.get(msg.id) &&
+        messageContents.get(msg.id)!.length > 1 &&
+        savedPlaylists.has(msg.id),
     );
   };
 
   const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
+    messagesEndRef.current?.scrollIntoView({
+      behavior: "smooth",
+      block: "end",
+    });
   };
 
   // Scroll callback for typewriter animation - uses scrollTop for smoother continuous scroll
@@ -629,10 +741,18 @@ function StudyContent() {
 
       if (error) throw error;
 
-      const allPlaylists = (data || []) as { id: string; study_id: string; message_id: string }[];
-      const currentStudyPlaylists = allPlaylists.filter(p => p.study_id === id);
+      const allPlaylists = (data || []) as {
+        id: string;
+        study_id: string;
+        message_id: string;
+      }[];
+      const currentStudyPlaylists = allPlaylists.filter(
+        (p) => p.study_id === id,
+      );
 
-      setSavedPlaylists(new Set(currentStudyPlaylists.map(p => p.message_id)));
+      setSavedPlaylists(
+        new Set(currentStudyPlaylists.map((p) => p.message_id)),
+      );
       setPlaylistsCount(allPlaylists.length);
     } catch (error) {
       console.error("Error fetching playlists:", error);
@@ -646,7 +766,11 @@ function StudyContent() {
       let data: any = null;
       let lastError: any = null;
 
-      for (let attempt = 0; attempt < STUDY_BOOTSTRAP_RETRY_LIMIT; attempt += 1) {
+      for (
+        let attempt = 0;
+        attempt < STUDY_BOOTSTRAP_RETRY_LIMIT;
+        attempt += 1
+      ) {
         const response = await supabase
           .from("studies")
           .select("*")
@@ -660,7 +784,9 @@ function StudyContent() {
           break;
         }
 
-        await new Promise((resolve) => setTimeout(resolve, STUDY_BOOTSTRAP_RETRY_DELAY_MS));
+        await new Promise((resolve) =>
+          setTimeout(resolve, STUDY_BOOTSTRAP_RETRY_DELAY_MS),
+        );
       }
 
       if (!data) {
@@ -672,7 +798,7 @@ function StudyContent() {
       if (data) {
         setStudyUsage({
           messageCount: data.message_count || 0,
-          maxMessages: messageLimit
+          maxMessages: messageLimit,
         });
       }
     } catch (error) {
@@ -715,7 +841,9 @@ function StudyContent() {
       if (data) {
         const newContentsMap = new Map();
         data.forEach((msg: any) => {
-          const sanitizedContents = sanitizeRelatedContents(msg.related_contents);
+          const sanitizedContents = sanitizeRelatedContents(
+            msg.related_contents,
+          );
           if (sanitizedContents.length > 0) {
             newContentsMap.set(msg.id, sanitizedContents);
           }
@@ -735,7 +863,9 @@ function StudyContent() {
     try {
       const { data, error } = await supabase
         .from("study_ai_state")
-        .select("active_mode, celebration_count, current_focus, last_celebration, learner_level, live_plan_steps, next_best_action, user_goal, session_summary, mastered_topics, weak_topics, open_questions, last_checkpoint_at, last_quiz_score, last_quiz_total")
+        .select(
+          "active_mode, celebration_count, current_focus, last_celebration, learner_level, learning_style, live_plan_steps, next_best_action, user_goal, session_summary, mastered_topics, weak_topics, open_questions, last_checkpoint_at, last_quiz_score, last_quiz_total",
+        )
         .eq("study_id", id)
         .maybeSingle();
 
@@ -747,8 +877,14 @@ function StudyContent() {
     }
   };
 
-  const getAssistantMetadata = (message: StudyMessage): ClassyMessageMetadata | null => {
-    if (message.role !== "assistant" || !message.metadata || typeof message.metadata !== "object") {
+  const getAssistantMetadata = (
+    message: StudyMessage,
+  ): ClassyMessageMetadata | null => {
+    if (
+      message.role !== "assistant" ||
+      !message.metadata ||
+      typeof message.metadata !== "object"
+    ) {
       return null;
     }
 
@@ -768,7 +904,10 @@ function StudyContent() {
     await handleSend(suggestion);
   };
 
-  const trackClassyEvent = async (eventKey: string, payload: Record<string, any>) => {
+  const trackClassyEvent = async (
+    eventKey: string,
+    payload: Record<string, any>,
+  ) => {
     if (!user || !id) return;
 
     try {
@@ -783,21 +922,11 @@ function StudyContent() {
     }
   };
 
-  const buildAssistantMetadata = (aiData: any) => ({
-    intent: aiData.intent || null,
-    active_mode: aiData.studyState?.activeMode || null,
-    next_best_action: aiData.studyState?.nextBestAction || null,
-    follow_up_suggestions: aiData.followUpSuggestions || [],
-    citations: aiData.citations || [],
-    ui_blocks: aiData.uiBlocks || [],
-    content_strategy: aiData.contentStrategy || null,
-    source_transparency: aiData.sourceTransparency || null,
-    checkpoint_generated: (aiData.uiBlocks || []).some((block: any) => block.type === "checkpoint"),
-  });
-
   const studyTitleText = study?.title?.trim() || "Novo estudo";
-  const sanitizedStudyTopic = sanitizeStudyTopic(studyTitleText) || studyTitleText;
-  const studyDisplayTitle = toShortTitle(sanitizedStudyTopic) || sanitizedStudyTopic;
+  const sanitizedStudyTopic =
+    sanitizeStudyTopic(studyTitleText) || studyTitleText;
+  const studyDisplayTitle =
+    toShortTitle(sanitizedStudyTopic) || sanitizedStudyTopic;
   const studyLearningTopic = studyDisplayTitle || "este tema";
 
   useEffect(() => {
@@ -813,18 +942,16 @@ function StudyContent() {
       studyAiState?.activeMode,
       studyAiState?.currentFocus,
       studyAiState?.nextBestAction,
-    ]
+    ],
   );
-  const {
-    summary: studyJourneySummary,
-    refetch: refetchStudyJourneySummary,
-  } = useStudyJourneySummary({
-    studyId: id,
-    userId: user?.id,
-    title: studyTitleText,
-    overrides: studyJourneyOverrides,
-    enabled: Boolean(id && user?.id && study),
-  });
+  const { summary: studyJourneySummary, refetch: refetchStudyJourneySummary } =
+    useStudyJourneySummary({
+      studyId: id,
+      userId: user?.id,
+      title: studyTitleText,
+      overrides: studyJourneyOverrides,
+      enabled: Boolean(id && user?.id && study),
+    });
   const studyJourneyRefetchPrimedRef = useRef(false);
 
   useEffect(() => {
@@ -848,20 +975,11 @@ function StudyContent() {
     if (!id || !user || !study) return;
 
     const now = new Date().toISOString();
-    const initialMessage =
-      studyLearningTopic === "este tema"
-        ? "Quero começar um novo estudo"
-        : `Quero aprender ${studyLearningTopic}`;
-    const assistantReply = buildInitialAssistantReply(studyLearningTopic, profile?.display_name);
+    const assistantReply = buildInitialAssistantReply(
+      studyLearningTopic,
+      profile?.display_name,
+    );
     const assistantMetadata = buildInitialAssistantMetadata();
-
-    const localUserMessage: StudyMessage = {
-      id: `local-user-${Date.now()}`,
-      study_id: id,
-      role: "user",
-      content: initialMessage,
-      created_at: now,
-    };
 
     const localAssistantMessage: StudyMessage = {
       id: `local-assistant-${Date.now()}`,
@@ -873,17 +991,19 @@ function StudyContent() {
       related_contents: null,
     };
 
-    setMessages([localUserMessage, localAssistantMessage]);
+    setMessages([localAssistantMessage]);
     setNewestMessageId(localAssistantMessage.id);
     setStudyUsage({
-      messageCount: 1,
+      messageCount: 0,
       maxMessages: messageLimit,
     });
     setStudyAiState({
       activeMode: "onboard",
       currentFocus: studyDisplayTitle,
       learnerLevel: "unknown",
-      nextBestAction: "Entender seu nível atual antes de montar a melhor direção.",
+      learningStyle: "mixed",
+      nextBestAction:
+        "Entender seu nível atual antes de montar a melhor direção.",
       userGoal: studyDisplayTitle,
       sessionSummary: null,
       masteredTopics: [],
@@ -899,57 +1019,18 @@ function StudyContent() {
     });
 
     try {
-      const { error: userError } = await supabase
-        .from("study_messages")
-        .insert({
-          study_id: id,
-          role: "user",
-          content: initialMessage,
-        });
-
-      if (userError) throw userError;
-
-      const { error: aiMessageError } = await supabase
-        .from("study_messages")
-        .insert({
-          study_id: id,
-          role: "assistant",
-          content: assistantReply,
-          metadata: assistantMetadata,
-          related_contents: null,
-        });
-
-      if (aiMessageError) throw aiMessageError;
-
-      await supabase
-        .from("study_ai_state")
-        .upsert({
-          study_id: id,
-          user_goal: studyDisplayTitle,
-          current_focus: studyDisplayTitle,
-          learner_level: "unknown",
-          active_mode: "onboard",
-          next_best_action: "Entender seu nível atual antes de montar a melhor direção.",
-          open_questions: INITIAL_ONBOARDING_SUGGESTIONS,
-        });
+      await supabase.from("study_ai_state").upsert({
+        study_id: id,
+        user_goal: studyDisplayTitle,
+        current_focus: studyDisplayTitle,
+        learner_level: "unknown",
+        active_mode: "onboard",
+        next_best_action:
+          "Entender seu nível atual antes de montar a melhor direção.",
+        open_questions: INITIAL_ONBOARDING_SUGGESTIONS,
+      });
 
       await updateLastActivity(id);
-
-      const { data: updatedStudy } = await supabase
-        .from("studies")
-        .select("*")
-        .eq("id", id)
-        .single();
-
-      if (updatedStudy) {
-        setStudy(updatedStudy);
-        setStudyUsage({
-          messageCount: updatedStudy.message_count || 1,
-          maxMessages: messageLimit,
-        });
-      }
-
-      await fetchMessages();
       await refetchStudyJourneySummary();
     } catch (error: any) {
       console.error("Error syncing initial conversation:", error);
@@ -961,25 +1042,29 @@ function StudyContent() {
 
   const messageCount = studyUsage?.messageCount || study?.message_count || 0;
   const maxMessages = studyUsage?.maxMessages || messageLimit;
-  const isMessageLimitReached = currentPlan !== 'premium' && maxMessages !== Infinity && messageCount >= maxMessages;
+  const isMessageLimitReached =
+    currentPlan !== "premium" &&
+    maxMessages !== Infinity &&
+    messageCount >= maxMessages;
   const isChatLocked = Boolean(limitReached) || isMessageLimitReached;
-  const userMessagesCount = messages.filter((message) => message.role === "user").length;
+  const userMessagesCount = messages.filter(
+    (message) => message.role === "user",
+  ).length;
   const isEarlyOnboarding =
     studyAiState?.activeMode === "onboard" &&
     userMessagesCount <= 1 &&
     messages.length <= 2;
   const thinkingPhrases = buildThinkingPhrases(study?.title);
-  const thinkingLabel = thinkingPhrases[thinkingPhraseIndex % thinkingPhrases.length];
+  const thinkingLabel =
+    thinkingPhrases[thinkingPhraseIndex % thinkingPhrases.length];
   const hasDetailedStudyState = Boolean(
     studyAiState &&
     userMessagesCount >= 2 &&
-    (
-      (studyAiState.livePlanSteps?.length || 0) > 0 ||
+    ((studyAiState.livePlanSteps?.length || 0) > 0 ||
       (studyAiState.masteredTopics?.length || 0) > 0 ||
       (studyAiState.weakTopics?.length || 0) > 0 ||
       (studyAiState.openQuestions?.length || 0) > 0 ||
-      studyAiState.lastCelebration
-    )
+      studyAiState.lastCelebration),
   );
   const shouldShowStudyMap = Boolean(study && studyJourneySummary);
 
@@ -1007,7 +1092,7 @@ function StudyContent() {
     try {
       let currentVideoTime: number | undefined;
       if (activeContent) {
-        const videoElement = document.querySelector('video');
+        const videoElement = document.querySelector("video");
         if (videoElement) {
           currentVideoTime = videoElement.currentTime;
         }
@@ -1029,14 +1114,15 @@ function StudyContent() {
             user_interests: topInterests,
             user_difficulties: activeDifficulties,
           },
-        }
+        },
       );
 
       if (aiError) throw aiError;
 
       // Handle limit errors
       if (aiData.limitReached) {
-        const limitType = aiData.limitType === 'deviations' ? 'deviations' : 'messages';
+        const limitType =
+          aiData.limitType === "deviations" ? "deviations" : "messages";
 
         setLimitReached({
           type: limitType,
@@ -1044,28 +1130,19 @@ function StudyContent() {
         });
 
         setStudyUsage({
-          messageCount: aiData.usage?.userMessageCount || study?.message_count || 0,
+          messageCount:
+            aiData.usage?.userMessageCount || study?.message_count || 0,
           maxMessages: aiData.usage?.maxMessages || messageLimit,
         });
 
         return;
       }
 
-      const { error: userError } = await supabase
-        .from("study_messages")
-        .insert({
-          study_id: id,
-          role: "user",
-          content: userMessage,
-        });
-
-      if (userError) throw userError;
-
       // Update usage info
       if (aiData.usage) {
         setStudyUsage({
           messageCount: aiData.usage.userMessageCount,
-          maxMessages: aiData.usage.maxMessages
+          maxMessages: aiData.usage.maxMessages,
         });
       }
 
@@ -1073,22 +1150,10 @@ function StudyContent() {
         setStudyAiState(aiData.studyState);
       }
 
-      const { data: aiMessageData, error: aiMessageError } = await supabase
-        .from("study_messages")
-        .insert({
-          study_id: id,
-          role: "assistant",
-          content: aiData.message,
-          metadata: buildAssistantMetadata(aiData),
-          related_contents: sanitizeRelatedContents(aiData.relatedContents) || null,
-        })
-        .select()
-        .single();
-
-      if (aiMessageError) throw aiMessageError;
-
       // Mark this message as the newest for typewriter animation
-      setNewestMessageId(aiMessageData.id);
+      setNewestMessageId(
+        aiData.persistedMessages?.assistantMessageId || null,
+      );
       await fetchMessages();
       await refetchStudyJourneySummary();
       await updateLastActivity(id);
@@ -1105,13 +1170,14 @@ function StudyContent() {
       }
     } catch (error: any) {
       console.error("Error sending message:", error);
-      setMessages((current) => current.filter((message) => message.id !== optimisticUserMessage.id));
+      setMessages((current) =>
+        current.filter((message) => message.id !== optimisticUserMessage.id),
+      );
       toast.error("Erro ao enviar mensagem");
     } finally {
       setSending(false);
     }
   };
-
 
   const handleRename = async () => {
     if (!newTitle.trim() || !id) return;
@@ -1165,7 +1231,14 @@ function StudyContent() {
     toast.success("Link copiado para a área de transferência!");
   };
 
-  const handlePlayContent = async (contentId: string, source?: { sourceMessageId?: string; title?: string; relevanceScore?: number | null }) => {
+  const handlePlayContent = async (
+    contentId: string,
+    source?: {
+      sourceMessageId?: string;
+      title?: string;
+      relevanceScore?: number | null;
+    },
+  ) => {
     try {
       if (source?.sourceMessageId) {
         trackClassyEvent("content_opened", {
@@ -1181,7 +1254,9 @@ function StudyContent() {
 
       const { data, error } = await supabase
         .from("contents")
-        .select("id, title, file_url, content_type, duration_seconds, visibility, price, creator_id, views_count, created_at, tags, thumbnail_url, description, category_id, media_asset_id, video_provider, bunny_video_id, bunny_library_id, creator:profiles!creator_id(id, display_name, avatar_url, creator_channel_name, creator_channel_name)")
+        .select(
+          "id, title, file_url, content_type, duration_seconds, visibility, price, creator_id, views_count, created_at, tags, thumbnail_url, description, category_id, media_asset_id, video_provider, bunny_video_id, bunny_library_id, creator:profiles!creator_id(id, display_name, avatar_url, creator_channel_name, creator_channel_name)",
+        )
         .eq("id", contentId)
         .single();
 
@@ -1231,7 +1306,7 @@ function StudyContent() {
 
         setActiveContent({
           ...data,
-          savedPosition: progressData?.last_position_seconds || 0
+          savedPosition: progressData?.last_position_seconds || 0,
         });
       } else {
         setActiveContent(data);
@@ -1247,7 +1322,8 @@ function StudyContent() {
   const handleVideoEnded = () => {
     if (!activePlaylist) return;
 
-    const playlistContents = messageContents.get(activePlaylist.messageId) || [];
+    const playlistContents =
+      messageContents.get(activePlaylist.messageId) || [];
     const nextIndex = activePlaylist.currentIndex + 1;
 
     if (nextIndex < playlistContents.length) {
@@ -1283,7 +1359,8 @@ function StudyContent() {
   const playNextVideo = (nextIndex: number) => {
     if (!activePlaylist) return;
 
-    const playlistContents = messageContents.get(activePlaylist.messageId) || [];
+    const playlistContents =
+      messageContents.get(activePlaylist.messageId) || [];
     const nextContent = playlistContents[nextIndex];
 
     if (nextContent) {
@@ -1356,7 +1433,9 @@ function StudyContent() {
       seconds,
       current_focus: studyAiState?.currentFocus || null,
     });
-    toast.info(`Saltar para ${Math.floor(seconds / 60)}:${(seconds % 60).toString().padStart(2, "0")}`);
+    toast.info(
+      `Saltar para ${Math.floor(seconds / 60)}:${(seconds % 60).toString().padStart(2, "0")}`,
+    );
   };
 
   const generateTranscription = async () => {
@@ -1364,9 +1443,12 @@ function StudyContent() {
 
     setTranscriptionLoading(true);
     try {
-      const { data, error } = await supabase.functions.invoke("transcribe-content", {
-        body: { contentId: activeContent.id },
-      });
+      const { data, error } = await supabase.functions.invoke(
+        "transcribe-content",
+        {
+          body: { contentId: activeContent.id },
+        },
+      );
 
       if (error) throw error;
 
@@ -1387,22 +1469,6 @@ function StudyContent() {
     }
   };
 
-  // Escape special regex characters to prevent ReDoS attacks
-  const escapeRegex = (str: string) =>
-    str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-
-  const highlightSearchResults = (text: string, query: string) => {
-    if (!query.trim()) return text;
-
-    const escapedQuery = escapeRegex(query);
-    const regex = new RegExp(`(${escapedQuery})`, "gi");
-    return text.split(regex).map((part, i) =>
-      regex.test(part)
-        ? `<mark class="bg-primary/30 text-foreground">${part}</mark>`
-        : part
-    ).join("");
-  };
-
   if (loading) {
     return (
       <div className="flex-1">
@@ -1420,24 +1486,33 @@ function StudyContent() {
 
   const studyProgressPercent = studyJourneySummary?.progressPercent ?? 0;
   const studyTotalMinutes = studyJourneySummary?.estimatedMinutes ?? 0;
-  const compactStudyTitle = studyJourneySummary?.shortTitle || studyDisplayTitle;
+  const compactStudyTitle =
+    studyJourneySummary?.shortTitle || studyDisplayTitle;
   const compactStageLabel =
     studyJourneySummary?.stageLabel ||
     (studyAiState?.activeMode
       ? modeLabelMap[studyAiState.activeMode]
       : "Diagnóstico");
   const studyVideosCount = studyJourneySummary?.videosCount ?? 0;
-  const studyPlaylistsCount = studyJourneySummary?.playlistsCount ?? savedPlaylists.size;
+  const studyPlaylistsCount =
+    studyJourneySummary?.playlistsCount ?? savedPlaylists.size;
   const studyNotesCount = studyJourneySummary?.notesCount ?? 0;
   const studyRewardPoints = studyJourneySummary?.rewardPoints ?? 0;
-  const studyEngagedContentsCount = studyJourneySummary?.engagedContentsCount ?? 0;
-  const studyCompletedContentsCount = studyJourneySummary?.completedContentsCount ?? 0;
-  const studyRecommendedContentsCount = studyJourneySummary?.totalRecommendedContents ?? 0;
+  const studyEngagedContentsCount =
+    studyJourneySummary?.engagedContentsCount ?? 0;
+  const studyCompletedContentsCount =
+    studyJourneySummary?.completedContentsCount ?? 0;
+  const studyRecommendedContentsCount =
+    studyJourneySummary?.totalRecommendedContents ?? 0;
 
   const studyMapActions = (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0 rounded-full">
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-8 w-8 shrink-0 rounded-full"
+        >
           <MoreVertical className="h-4 w-4" />
         </Button>
       </DropdownMenuTrigger>
@@ -1499,7 +1574,7 @@ function StudyContent() {
           {studyRewardPoints > 0 && (
             <span className="hidden shrink-0 items-center gap-1.5 rounded-full bg-background/92 px-2.5 py-1 text-sm font-semibold text-foreground min-[760px]:inline-flex dark:bg-white/10 dark:text-white">
               <Coins className="h-4 w-4 text-muted-foreground dark:text-white/55" />
-              {studyRewardPoints.toLocaleString('pt-BR')} Points
+              {studyRewardPoints.toLocaleString("pt-BR")} Points
             </span>
           )}
         </div>
@@ -1531,85 +1606,146 @@ function StudyContent() {
           <div className="space-y-4 p-6">
             <div className="grid gap-3 md:grid-cols-3">
               <div className="rounded-2xl border border-border/60 bg-muted/35 p-4">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Foco</p>
+                <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+                  Foco
+                </p>
                 <p className="mt-2 text-sm font-medium text-foreground">
-                  {toShortTitle(studyAiState?.currentFocus || studyAiState?.userGoal || studyDisplayTitle)}
+                  {toShortTitle(
+                    studyAiState?.currentFocus ||
+                      studyAiState?.userGoal ||
+                      studyDisplayTitle,
+                  )}
                 </p>
               </div>
               <div className="rounded-2xl border border-border/60 bg-muted/35 p-4">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Modo atual</p>
-                <p className="mt-2 text-sm font-medium text-foreground">{studyAiState?.activeMode ? modeLabelMap[studyAiState.activeMode] : "Em andamento"}</p>
+                <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+                  Modo atual
+                </p>
+                <p className="mt-2 text-sm font-medium text-foreground">
+                  {studyAiState?.activeMode
+                    ? modeLabelMap[studyAiState.activeMode]
+                    : "Em andamento"}
+                </p>
               </div>
               <div className="rounded-2xl border border-primary/20 bg-primary/8 p-4">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-primary/80">Próximo passo</p>
-                <p className="mt-2 text-sm font-medium text-foreground">{studyAiState?.nextBestAction || "Continue a conversa para a Classy ajustar sua direção."}</p>
+                <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-primary/80">
+                  Próximo passo
+                </p>
+                <p className="mt-2 text-sm font-medium text-foreground">
+                  {studyAiState?.nextBestAction ||
+                    "Continue a conversa para a Classy ajustar sua direção."}
+                </p>
               </div>
             </div>
 
             <div className="grid gap-3 md:grid-cols-4">
               <div className="rounded-2xl border border-border/60 bg-muted/35 p-4">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Progresso</p>
-                <p className="mt-2 text-lg font-semibold text-foreground">{studyProgressPercent}%</p>
+                <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+                  Progresso
+                </p>
+                <p className="mt-2 text-lg font-semibold text-foreground">
+                  {studyProgressPercent}%
+                </p>
                 <p className="mt-1 text-xs text-muted-foreground">
-                  {studyEngagedContentsCount} engajados de {studyRecommendedContentsCount || 0} sugeridos
+                  {studyEngagedContentsCount} engajados de{" "}
+                  {studyRecommendedContentsCount || 0} sugeridos
                 </p>
               </div>
               <div className="rounded-2xl border border-border/60 bg-muted/35 p-4">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Conteúdos</p>
-                <p className="mt-2 text-lg font-semibold text-foreground">{studyCompletedContentsCount}/{studyRecommendedContentsCount || 0}</p>
+                <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+                  Conteúdos
+                </p>
+                <p className="mt-2 text-lg font-semibold text-foreground">
+                  {studyCompletedContentsCount}/
+                  {studyRecommendedContentsCount || 0}
+                </p>
                 <p className="mt-1 text-xs text-muted-foreground">
                   {studyPlaylistsCount} playlists · {studyVideosCount} vídeos
                 </p>
               </div>
               <div className="rounded-2xl border border-border/60 bg-muted/35 p-4">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Ganhos</p>
-                <p className="mt-2 text-lg font-semibold text-foreground">{studyRewardPoints.toLocaleString('pt-BR')} Points</p>
-                <p className="mt-1 text-xs text-muted-foreground">Acumulados ao estudar</p>
+                <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+                  Ganhos
+                </p>
+                <p className="mt-2 text-lg font-semibold text-foreground">
+                  {studyRewardPoints.toLocaleString("pt-BR")} Points
+                </p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Acumulados ao estudar
+                </p>
               </div>
               <div className="rounded-2xl border border-border/60 bg-muted/35 p-4">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Ritmo</p>
-                <p className="mt-2 text-lg font-semibold text-foreground">{studyTotalMinutes}min</p>
-                <p className="mt-1 text-xs text-muted-foreground">{studyNotesCount} anotações no estudo</p>
+                <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+                  Ritmo
+                </p>
+                <p className="mt-2 text-lg font-semibold text-foreground">
+                  {studyTotalMinutes}min
+                </p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {studyNotesCount} anotações no estudo
+                </p>
               </div>
             </div>
 
             {(studyAiState?.livePlanSteps?.length || 0) > 0 && (
               <div className="rounded-3xl border border-border/60 bg-card p-5">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-primary/85">Rota sugerida</p>
+                <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-primary/85">
+                  Rota sugerida
+                </p>
                 <div className="mt-4 space-y-2.5">
-                  {studyAiState?.livePlanSteps?.slice(0, 4).map((step, index) => (
-                    <div key={step} className="flex gap-3 rounded-2xl border border-border/50 bg-muted/25 px-4 py-3">
-                      <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary/12 text-xs font-semibold text-primary">
-                        {index + 1}
+                  {studyAiState?.livePlanSteps
+                    ?.slice(0, 4)
+                    .map((step, index) => (
+                      <div
+                        key={step}
+                        className="flex gap-3 rounded-2xl border border-border/50 bg-muted/25 px-4 py-3"
+                      >
+                        <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary/12 text-xs font-semibold text-primary">
+                          {index + 1}
+                        </div>
+                        <p className="text-sm leading-6 text-foreground">
+                          {step}
+                        </p>
                       </div>
-                      <p className="text-sm leading-6 text-foreground">{step}</p>
-                    </div>
-                  ))}
+                    ))}
                 </div>
               </div>
             )}
 
-            {((studyAiState?.masteredTopics?.length || 0) > 0 || (studyAiState?.weakTopics?.length || 0) > 0) && (
+            {((studyAiState?.masteredTopics?.length || 0) > 0 ||
+              (studyAiState?.weakTopics?.length || 0) > 0) && (
               <div className="grid gap-3 md:grid-cols-2">
                 {(studyAiState?.masteredTopics?.length || 0) > 0 && (
                   <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/8 p-4">
-                    <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-emerald-700">Já está firme</p>
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-emerald-700">
+                      Já está firme
+                    </p>
                     <div className="mt-3 flex flex-wrap gap-2">
-                      {studyAiState?.masteredTopics?.slice(0, 4).map((topic) => (
-                        <span key={topic} className="rounded-full border border-emerald-500/20 bg-background/70 px-3 py-1 text-xs text-foreground">
-                          {topic}
-                        </span>
-                      ))}
+                      {studyAiState?.masteredTopics
+                        ?.slice(0, 4)
+                        .map((topic) => (
+                          <span
+                            key={topic}
+                            className="rounded-full border border-emerald-500/20 bg-background/70 px-3 py-1 text-xs text-foreground"
+                          >
+                            {topic}
+                          </span>
+                        ))}
                     </div>
                   </div>
                 )}
 
                 {(studyAiState?.weakTopics?.length || 0) > 0 && (
                   <div className="rounded-2xl border border-amber-500/20 bg-amber-500/8 p-4">
-                    <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-amber-700">Vale revisar</p>
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-amber-700">
+                      Vale revisar
+                    </p>
                     <div className="mt-3 flex flex-wrap gap-2">
                       {studyAiState?.weakTopics?.slice(0, 4).map((topic) => (
-                        <span key={topic} className="rounded-full border border-amber-500/20 bg-background/70 px-3 py-1 text-xs text-foreground">
+                        <span
+                          key={topic}
+                          className="rounded-full border border-amber-500/20 bg-background/70 px-3 py-1 text-xs text-foreground"
+                        >
                           {topic}
                         </span>
                       ))}
@@ -1621,7 +1757,9 @@ function StudyContent() {
 
             {(studyAiState?.openQuestions?.length || 0) > 0 && (
               <div className="rounded-2xl border border-border/60 bg-card p-4">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Próximos atalhos úteis</p>
+                <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+                  Próximos atalhos úteis
+                </p>
                 <div className="mt-3 flex flex-wrap gap-2">
                   {studyAiState?.openQuestions?.slice(0, 3).map((question) => (
                     <Button
@@ -1669,22 +1807,26 @@ function StudyContent() {
             )}
 
             <StudyUsageIndicator
-              messageCount={studyUsage?.messageCount || study?.message_count || 0}
+              messageCount={
+                studyUsage?.messageCount || study?.message_count || 0
+              }
               maxMessages={studyUsage?.maxMessages || messageLimit}
               plan={currentPlan}
               compact
             />
           </div>
           {studyMapCard && !activeContent && (
-            <div className="mt-3 w-full max-w-4xl mx-auto">
-              {studyMapCard}
-            </div>
+            <div className="mt-3 w-full max-w-4xl mx-auto">{studyMapCard}</div>
           )}
         </header>
         {studyMapDialog}
 
         {/* Modals for access control */}
-        <UpgradeModal open={showUpgradeModal} onOpenChange={setShowUpgradeModal} requiredPlan={requiredPlan} />
+        <UpgradeModal
+          open={showUpgradeModal}
+          onOpenChange={setShowUpgradeModal}
+          requiredPlan={requiredPlan}
+        />
         {activeContentInfo && (
           <PurchaseModal
             open={showPurchaseModal}
@@ -1735,17 +1877,31 @@ function StudyContent() {
                 <>
                   {messages.map((message) => {
                     return (
-                      <div key={message.id} className="space-y-3 w-full overflow-hidden animate-fade-in">
+                      <div
+                        key={message.id}
+                        className="space-y-3 w-full overflow-hidden animate-fade-in"
+                      >
                         <div
-                          className={`flex w-full ${message.role === "user" ? "justify-end" : "justify-start"
-                            }`}
+                          className={`flex w-full ${
+                            message.role === "user"
+                              ? "justify-end"
+                              : "justify-start"
+                          }`}
                         >
                           <ChatMessage
                             content={message.content}
                             role={message.role}
-                            isNew={message.id === newestMessageId && message.role === 'assistant'}
+                            isNew={
+                              message.id === newestMessageId &&
+                              message.role === "assistant"
+                            }
                             className="text-sm"
-                            onContentGrow={message.id === newestMessageId && message.role === 'assistant' ? handleContentGrow : undefined}
+                            onContentGrow={
+                              message.id === newestMessageId &&
+                              message.role === "assistant"
+                                ? handleContentGrow
+                                : undefined
+                            }
                           />
                         </div>
                         {message.role === "assistant" && (
@@ -1758,113 +1914,161 @@ function StudyContent() {
                         )}
 
                         {/* Mobile Content Cards */}
-                        {message.role === "assistant" && messageContents.has(message.id) && (
-                          <div className="space-y-3 w-full">
-                            {messageContents.get(message.id)!.length >= 3 ? (
-                              <div className="relative">
-                                <Carousel
-                                  opts={{
-                                    align: "start",
-                                    loop: false,
-                                  }}
-                                  className="w-full"
+                        {message.role === "assistant" &&
+                          messageContents.has(message.id) && (
+                            <div className="space-y-3 w-full">
+                              {messageContents.get(message.id)!.length >= 3 ? (
+                                <div className="relative">
+                                  <Carousel
+                                    opts={{
+                                      align: "start",
+                                      loop: false,
+                                    }}
+                                    className="w-full"
+                                  >
+                                    <CarouselContent className="-ml-2">
+                                      {messageContents
+                                        .get(message.id)
+                                        ?.map((content: any) => (
+                                          <CarouselItem
+                                            key={content.id}
+                                            className="pl-2 basis-[75%]"
+                                          >
+                                            <ChatContentCard
+                                              id={content.id}
+                                              title={content.title}
+                                              description={content.description}
+                                              thumbnail_url={
+                                                content.thumbnail_url
+                                              }
+                                              content_type={
+                                                content.content_type
+                                              }
+                                              duration_minutes={
+                                                content.duration_minutes
+                                              }
+                                              required_plan={
+                                                content.required_plan
+                                              }
+                                              visibility={content.visibility}
+                                              price={content.price}
+                                              is_free={content.is_free}
+                                              relevanceScore={
+                                                content.relevanceScore
+                                              }
+                                              onPlay={(contentId) =>
+                                                handlePlayContent(contentId, {
+                                                  sourceMessageId: message.id,
+                                                  title: content.title,
+                                                  relevanceScore:
+                                                    content.relevanceScore,
+                                                })
+                                              }
+                                              compact
+                                            />
+                                          </CarouselItem>
+                                        ))}
+                                    </CarouselContent>
+                                  </Carousel>
+                                </div>
+                              ) : (
+                                <div
+                                  className={`grid gap-2 w-full ${
+                                    messageContents.get(message.id)!.length ===
+                                    1
+                                      ? "grid-cols-1"
+                                      : "grid-cols-2"
+                                  }`}
                                 >
-                                  <CarouselContent className="-ml-2">
-                                    {messageContents.get(message.id)?.map((content: any) => (
-                                      <CarouselItem key={content.id} className="pl-2 basis-[75%]">
-                                        <ChatContentCard
-                                          id={content.id}
-                                          title={content.title}
-                                          description={content.description}
-                                          thumbnail_url={content.thumbnail_url}
-                                          content_type={content.content_type}
-                                          duration_minutes={content.duration_minutes}
-                                          required_plan={content.required_plan}
-                                          visibility={content.visibility}
-                                          price={content.price}
-                                          is_free={content.is_free}
-                                          relevanceScore={content.relevanceScore}
-                                          onPlay={(contentId) => handlePlayContent(contentId, {
+                                  {messageContents
+                                    .get(message.id)
+                                    ?.map((content: any) => (
+                                      <ChatContentCard
+                                        key={content.id}
+                                        id={content.id}
+                                        title={content.title}
+                                        description={content.description}
+                                        thumbnail_url={content.thumbnail_url}
+                                        content_type={content.content_type}
+                                        duration_minutes={
+                                          content.duration_minutes
+                                        }
+                                        required_plan={content.required_plan}
+                                        visibility={content.visibility}
+                                        price={content.price}
+                                        is_free={content.is_free}
+                                        relevanceScore={content.relevanceScore}
+                                        onPlay={(contentId) =>
+                                          handlePlayContent(contentId, {
                                             sourceMessageId: message.id,
                                             title: content.title,
-                                            relevanceScore: content.relevanceScore,
-                                          })}
-                                          compact
-                                        />
-                                      </CarouselItem>
+                                            relevanceScore:
+                                              content.relevanceScore,
+                                          })
+                                        }
+                                        compact
+                                      />
                                     ))}
-                                  </CarouselContent>
-                                </Carousel>
-                              </div>
-                            ) : (
-                              <div
-                                className={`grid gap-2 w-full ${messageContents.get(message.id)!.length === 1
-                                  ? 'grid-cols-1'
-                                  : 'grid-cols-2'
-                                  }`}
-                              >
-                                {messageContents.get(message.id)?.map((content: any) => (
-                                  <ChatContentCard
-                                    key={content.id}
-                                    id={content.id}
-                                    title={content.title}
-                                    description={content.description}
-                                    thumbnail_url={content.thumbnail_url}
-                                    content_type={content.content_type}
-                                    duration_minutes={content.duration_minutes}
-                                    required_plan={content.required_plan}
-                                    visibility={content.visibility}
-                                    price={content.price}
-                                    is_free={content.is_free}
-                                    relevanceScore={content.relevanceScore}
-                                    onPlay={(contentId) => handlePlayContent(contentId, {
-                                      sourceMessageId: message.id,
-                                      title: content.title,
-                                      relevanceScore: content.relevanceScore,
-                                    })}
-                                    compact
-                                  />
-                                ))}
-                              </div>
-                            )}
-                            {messageContents.get(message.id) && messageContents.get(message.id)!.length > 1 && (
-                              <div className="flex gap-2 justify-start">
-                                {savedPlaylists.has(message.id) ? (
-                                  <Button
-                                    size="sm"
-                                    variant="default"
-                                    onClick={() => {
-                                      setActivePlaylist({ messageId: message.id, currentIndex: 0 });
-                                      const firstContent = messageContents.get(message.id)?.[0];
-                                      if (firstContent) handlePlayContent(firstContent.id, {
-                                        sourceMessageId: message.id,
-                                        title: firstContent.title,
-                                        relevanceScore: firstContent.relevanceScore,
-                                      });
-                                    }}
-                                    className="gap-1.5 text-xs h-8"
-                                  >
-                                    <Play className="w-3.5 h-3.5" />
-                                    Assistir Playlist
-                                  </Button>
-                                ) : (
-                                  <Button
-                                    size="sm"
-                                    variant="outline"
-                                    onClick={() => {
-                                      const contentIds = messageContents.get(message.id)?.map(c => c.id) || [];
-                                      handleCreatePlaylist(message.id, contentIds);
-                                    }}
-                                    className="gap-1.5 text-xs h-8"
-                                  >
-                                    <List className="w-3.5 h-3.5" />
-                                    Salvar ({messageContents.get(message.id)!.length})
-                                  </Button>
+                                </div>
+                              )}
+                              {messageContents.get(message.id) &&
+                                messageContents.get(message.id)!.length > 1 && (
+                                  <div className="flex gap-2 justify-start">
+                                    {savedPlaylists.has(message.id) ? (
+                                      <Button
+                                        size="sm"
+                                        variant="default"
+                                        onClick={() => {
+                                          setActivePlaylist({
+                                            messageId: message.id,
+                                            currentIndex: 0,
+                                          });
+                                          const firstContent =
+                                            messageContents.get(
+                                              message.id,
+                                            )?.[0];
+                                          if (firstContent)
+                                            handlePlayContent(firstContent.id, {
+                                              sourceMessageId: message.id,
+                                              title: firstContent.title,
+                                              relevanceScore:
+                                                firstContent.relevanceScore,
+                                            });
+                                        }}
+                                        className="gap-1.5 text-xs h-8"
+                                      >
+                                        <Play className="w-3.5 h-3.5" />
+                                        Assistir Playlist
+                                      </Button>
+                                    ) : (
+                                      <Button
+                                        size="sm"
+                                        variant="outline"
+                                        onClick={() => {
+                                          const contentIds =
+                                            messageContents
+                                              .get(message.id)
+                                              ?.map((c) => c.id) || [];
+                                          handleCreatePlaylist(
+                                            message.id,
+                                            contentIds,
+                                          );
+                                        }}
+                                        className="gap-1.5 text-xs h-8"
+                                      >
+                                        <List className="w-3.5 h-3.5" />
+                                        Salvar (
+                                        {
+                                          messageContents.get(message.id)!
+                                            .length
+                                        }
+                                        )
+                                      </Button>
+                                    )}
+                                  </div>
                                 )}
-                              </div>
-                            )}
-                          </div>
-                        )}
+                            </div>
+                          )}
                       </div>
                     );
                   })}
@@ -1876,10 +2080,18 @@ function StudyContent() {
                   <div className="flex items-center gap-2 py-2">
                     <div className="flex gap-1">
                       <span className="w-1.5 h-1.5 bg-muted-foreground/60 rounded-full animate-pulse" />
-                      <span className="w-1.5 h-1.5 bg-muted-foreground/60 rounded-full animate-pulse" style={{ animationDelay: '150ms' }} />
-                      <span className="w-1.5 h-1.5 bg-muted-foreground/60 rounded-full animate-pulse" style={{ animationDelay: '300ms' }} />
+                      <span
+                        className="w-1.5 h-1.5 bg-muted-foreground/60 rounded-full animate-pulse"
+                        style={{ animationDelay: "150ms" }}
+                      />
+                      <span
+                        className="w-1.5 h-1.5 bg-muted-foreground/60 rounded-full animate-pulse"
+                        style={{ animationDelay: "300ms" }}
+                      />
                     </div>
-                    <span className="text-xs text-muted-foreground">{thinkingLabel}</span>
+                    <span className="text-xs text-muted-foreground">
+                      {thinkingLabel}
+                    </span>
                   </div>
                 </div>
               )}
@@ -1892,9 +2104,9 @@ function StudyContent() {
                         <div className="flex items-start gap-3">
                           <AlertCircle className="w-5 h-5 text-destructive mt-0.5" />
                           <p className="text-sm text-destructive">
-                            {limitReached?.type === 'deviations'
-                              ? `Novo tema detectado${limitReached?.suggestedTopic ? `: "${limitReached.suggestedTopic}"` : ''}. Faça upgrade para continuar explorando sem limites.`
-                              : 'Você atingiu o limite de mensagens do seu plano. Faça upgrade para continuar.'}
+                            {limitReached?.type === "deviations"
+                              ? `Novo tema detectado${limitReached?.suggestedTopic ? `: "${limitReached.suggestedTopic}"` : ""}. Faça upgrade para continuar explorando sem limites.`
+                              : "Você atingiu o limite de mensagens do seu plano. Faça upgrade para continuar."}
                           </p>
                         </div>
                       </div>
@@ -1926,11 +2138,20 @@ function StudyContent() {
             <Input
               value={input}
               onChange={(e) => setInput(e.target.value)}
-              placeholder={isChatLocked ? "Limite atingido — faça upgrade para continuar" : "Digite sua mensagem..."}
+              placeholder={
+                isChatLocked
+                  ? "Limite atingido — faça upgrade para continuar"
+                  : "Digite sua mensagem..."
+              }
               disabled={sending || isChatLocked}
               className="flex-1 h-10"
             />
-            <Button type="submit" disabled={sending || isChatLocked || !input.trim()} size="icon" className="h-10 w-10 shrink-0">
+            <Button
+              type="submit"
+              disabled={sending || isChatLocked || !input.trim()}
+              size="icon"
+              className="h-10 w-10 shrink-0"
+            >
               {sending ? (
                 <Loader2 className="w-4 h-4 animate-spin" />
               ) : (
@@ -1950,7 +2171,8 @@ function StudyContent() {
                 </p>
                 {activePlaylist && (
                   <p className="text-[10px] text-muted-foreground">
-                    Playlist: {activePlaylist.currentIndex + 1}/{messageContents.get(activePlaylist.messageId)?.length}
+                    Playlist: {activePlaylist.currentIndex + 1}/
+                    {messageContents.get(activePlaylist.messageId)?.length}
                   </p>
                 )}
               </div>
@@ -2005,7 +2227,8 @@ function StudyContent() {
             >
               <List className="w-4 h-4" />
               <span className="text-sm font-medium">
-                {activePlaylist.currentIndex + 1}/{messageContents.get(activePlaylist.messageId)?.length}
+                {activePlaylist.currentIndex + 1}/
+                {messageContents.get(activePlaylist.messageId)?.length}
               </span>
             </Button>
           </div>
@@ -2017,7 +2240,9 @@ function StudyContent() {
             <SheetHeader className="p-4 border-b">
               <SheetTitle>Playlists</SheetTitle>
               <SheetDescription>
-                {savedPlaylists.size} playlist{savedPlaylists.size !== 1 ? 's' : ''} salva{savedPlaylists.size !== 1 ? 's' : ''}
+                {savedPlaylists.size} playlist
+                {savedPlaylists.size !== 1 ? "s" : ""} salva
+                {savedPlaylists.size !== 1 ? "s" : ""}
               </SheetDescription>
             </SheetHeader>
             <ScrollArea className="h-[calc(100vh-8rem)]">
@@ -2029,27 +2254,39 @@ function StudyContent() {
                     <button
                       key={msg.id}
                       onClick={() => {
-                        setActivePlaylist({ messageId: msg.id, currentIndex: 0 });
-                        const firstContent = contents[0];
-                        if (firstContent) handlePlayContent(firstContent.id, {
-                          sourceMessageId: msg.id,
-                          title: firstContent.title,
-                          relevanceScore: firstContent.relevanceScore,
+                        setActivePlaylist({
+                          messageId: msg.id,
+                          currentIndex: 0,
                         });
+                        const firstContent = contents[0];
+                        if (firstContent)
+                          handlePlayContent(firstContent.id, {
+                            sourceMessageId: msg.id,
+                            title: firstContent.title,
+                            relevanceScore: firstContent.relevanceScore,
+                          });
                         setShowPlaylistSheet(false);
                       }}
-                      className={`w-full text-left p-3 rounded-lg transition-all ${isActive
-                        ? 'bg-primary text-primary-foreground'
-                        : 'bg-muted hover:bg-muted/80'
-                        }`}
+                      className={`w-full text-left p-3 rounded-lg transition-all ${
+                        isActive
+                          ? "bg-primary text-primary-foreground"
+                          : "bg-muted hover:bg-muted/80"
+                      }`}
                     >
-                      <div className="font-medium text-sm">Playlist {idx + 1}</div>
-                      <div className={`text-xs mt-1 ${isActive ? 'text-primary-foreground/80' : 'text-muted-foreground'}`}>
+                      <div className="font-medium text-sm">
+                        Playlist {idx + 1}
+                      </div>
+                      <div
+                        className={`text-xs mt-1 ${isActive ? "text-primary-foreground/80" : "text-muted-foreground"}`}
+                      >
                         {contents.length} conteúdos
                       </div>
                       {isActive && activePlaylist && (
-                        <div className={`text-xs mt-2 ${isActive ? 'text-primary-foreground/70' : 'text-muted-foreground'}`}>
-                          Reproduzindo: {activePlaylist.currentIndex + 1}/{contents.length}
+                        <div
+                          className={`text-xs mt-2 ${isActive ? "text-primary-foreground/70" : "text-muted-foreground"}`}
+                        >
+                          Reproduzindo: {activePlaylist.currentIndex + 1}/
+                          {contents.length}
                         </div>
                       )}
                     </button>
@@ -2068,35 +2305,51 @@ function StudyContent() {
                   <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
                     Conteúdos da Playlist
                   </p>
-                  {messageContents.get(activePlaylist.messageId)?.map((content, idx) => (
-                    <button
-                      key={content.id}
-                      onClick={() => {
-                        setActivePlaylist({ ...activePlaylist, currentIndex: idx });
-                        handlePlayContent(content.id, {
-                          sourceMessageId: activePlaylist.messageId,
-                          title: content.title,
-                          relevanceScore: content.relevanceScore,
-                        });
-                        setShowPlaylistSheet(false);
-                      }}
-                      className={`w-full text-left p-2.5 rounded-lg transition-all ${idx === activePlaylist.currentIndex
-                        ? 'bg-primary text-primary-foreground'
-                        : 'bg-card hover:bg-muted'
+                  {messageContents
+                    .get(activePlaylist.messageId)
+                    ?.map((content, idx) => (
+                      <button
+                        key={content.id}
+                        onClick={() => {
+                          setActivePlaylist({
+                            ...activePlaylist,
+                            currentIndex: idx,
+                          });
+                          handlePlayContent(content.id, {
+                            sourceMessageId: activePlaylist.messageId,
+                            title: content.title,
+                            relevanceScore: content.relevanceScore,
+                          });
+                          setShowPlaylistSheet(false);
+                        }}
+                        className={`w-full text-left p-2.5 rounded-lg transition-all ${
+                          idx === activePlaylist.currentIndex
+                            ? "bg-primary text-primary-foreground"
+                            : "bg-card hover:bg-muted"
                         }`}
-                    >
-                      <div className="flex items-start gap-2">
-                        <span className={`text-xs font-semibold mt-0.5 ${idx === activePlaylist.currentIndex ? 'text-primary-foreground' : 'text-muted-foreground'
-                          }`}>
-                          {idx + 1}
-                        </span>
-                        <p className={`text-sm font-medium line-clamp-2 ${idx === activePlaylist.currentIndex ? 'text-primary-foreground' : 'text-foreground'
-                          }`}>
-                          {content.title}
-                        </p>
-                      </div>
-                    </button>
-                  ))}
+                      >
+                        <div className="flex items-start gap-2">
+                          <span
+                            className={`text-xs font-semibold mt-0.5 ${
+                              idx === activePlaylist.currentIndex
+                                ? "text-primary-foreground"
+                                : "text-muted-foreground"
+                            }`}
+                          >
+                            {idx + 1}
+                          </span>
+                          <p
+                            className={`text-sm font-medium line-clamp-2 ${
+                              idx === activePlaylist.currentIndex
+                                ? "text-primary-foreground"
+                                : "text-foreground"
+                            }`}
+                          >
+                            {content.title}
+                          </p>
+                        </div>
+                      </button>
+                    ))}
                 </div>
               )}
             </ScrollArea>
@@ -2117,25 +2370,43 @@ function StudyContent() {
     return (
       <>
         {/* Transcription Sheet */}
-        <Sheet open={activeToolPanel === 'transcription'} onOpenChange={(open) => !open && setActiveToolPanel(null)}>
-          <SheetContent side="right" className="w-full sm:w-[500px] sm:max-w-[600px] overflow-y-auto">
+        <Sheet
+          open={activeToolPanel === "transcription"}
+          onOpenChange={(open) => !open && setActiveToolPanel(null)}
+        >
+          <SheetContent
+            side="right"
+            className="w-full sm:w-[500px] sm:max-w-[600px] overflow-y-auto"
+          >
             <SheetHeader>
               <SheetTitle>Transcrição</SheetTitle>
-              <SheetDescription className="line-clamp-1">{activeContent.title}</SheetDescription>
+              <SheetDescription className="line-clamp-1">
+                {activeContent.title}
+              </SheetDescription>
             </SheetHeader>
             <div className="mt-6 space-y-4">
               {!transcription && !transcriptionLoading ? (
                 <div className="space-y-4">
                   <div className="text-muted-foreground text-sm">
-                    <p>A transcrição deste conteúdo está sendo processada automaticamente.</p>
+                    <p>
+                      A transcrição deste conteúdo está sendo processada
+                      automaticamente.
+                    </p>
                     <p className="mt-2">
-                      Isso acontece em segundo plano quando o conteúdo é aprovado. Recarregue a página em alguns minutos.
+                      Isso acontece em segundo plano quando o conteúdo é
+                      aprovado. Recarregue a página em alguns minutos.
                     </p>
                     <p className="mt-2 text-xs">
-                      Se a transcrição não aparecer após alguns minutos, você pode gerá-la manualmente:
+                      Se a transcrição não aparecer após alguns minutos, você
+                      pode gerá-la manualmente:
                     </p>
                   </div>
-                  <Button onClick={generateTranscription} disabled={transcriptionLoading} variant="outline" size="sm">
+                  <Button
+                    onClick={generateTranscription}
+                    disabled={transcriptionLoading}
+                    variant="outline"
+                    size="sm"
+                  >
                     Tentar Gerar Novamente
                   </Button>
                 </div>
@@ -2154,17 +2425,17 @@ function StudyContent() {
                       className="flex-1"
                     />
                     {searchQuery && (
-                      <Button variant="ghost" size="icon" onClick={() => setSearchQuery("")}>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => setSearchQuery("")}
+                      >
                         <X className="h-4 w-4" />
                       </Button>
                     )}
                   </div>
-                  <div className="prose prose-sm max-w-none text-foreground">
-                    <div
-                      dangerouslySetInnerHTML={{
-                        __html: highlightSearchResults(transcription, searchQuery)
-                      }}
-                    />
+                  <div className="prose prose-sm max-w-none whitespace-pre-wrap text-foreground">
+                    <HighlightedText text={transcription} query={searchQuery} />
                   </div>
                 </div>
               )}
@@ -2173,11 +2444,19 @@ function StudyContent() {
         </Sheet>
 
         {/* Quiz Sheet */}
-        <Sheet open={activeToolPanel === 'quiz'} onOpenChange={(open) => !open && setActiveToolPanel(null)}>
-          <SheetContent side="right" className="w-full sm:w-[500px] sm:max-w-[600px] overflow-y-auto">
+        <Sheet
+          open={activeToolPanel === "quiz"}
+          onOpenChange={(open) => !open && setActiveToolPanel(null)}
+        >
+          <SheetContent
+            side="right"
+            className="w-full sm:w-[500px] sm:max-w-[600px] overflow-y-auto"
+          >
             <SheetHeader>
               <SheetTitle>Quiz</SheetTitle>
-              <SheetDescription className="line-clamp-1">Teste seus conhecimentos</SheetDescription>
+              <SheetDescription className="line-clamp-1">
+                Teste seus conhecimentos
+              </SheetDescription>
             </SheetHeader>
             <div className="mt-6">
               <StudyQuiz
@@ -2190,8 +2469,14 @@ function StudyContent() {
         </Sheet>
 
         {/* Notes Sheet */}
-        <Sheet open={activeToolPanel === 'notes'} onOpenChange={(open) => !open && setActiveToolPanel(null)}>
-          <SheetContent side="right" className="w-full sm:w-[500px] sm:max-w-[600px] overflow-y-auto">
+        <Sheet
+          open={activeToolPanel === "notes"}
+          onOpenChange={(open) => !open && setActiveToolPanel(null)}
+        >
+          <SheetContent
+            side="right"
+            className="w-full sm:w-[500px] sm:max-w-[600px] overflow-y-auto"
+          >
             <SheetHeader>
               <SheetTitle>Anotações</SheetTitle>
               <SheetDescription>Suas anotações de estudo</SheetDescription>
@@ -2208,11 +2493,19 @@ function StudyContent() {
         </Sheet>
 
         {/* Comments Sheet */}
-        <Sheet open={activeToolPanel === 'comments'} onOpenChange={(open) => !open && setActiveToolPanel(null)}>
-          <SheetContent side="right" className="w-full sm:w-[500px] sm:max-w-[600px] overflow-y-auto">
+        <Sheet
+          open={activeToolPanel === "comments"}
+          onOpenChange={(open) => !open && setActiveToolPanel(null)}
+        >
+          <SheetContent
+            side="right"
+            className="w-full sm:w-[500px] sm:max-w-[600px] overflow-y-auto"
+          >
             <SheetHeader>
               <SheetTitle>Comentários</SheetTitle>
-              <SheetDescription className="line-clamp-1">Discussões sobre {activeContent.title}</SheetDescription>
+              <SheetDescription className="line-clamp-1">
+                Discussões sobre {activeContent.title}
+              </SheetDescription>
             </SheetHeader>
             <div className="mt-6 text-muted-foreground text-sm">
               <p>Comentários disponíveis em breve...</p>
@@ -2221,8 +2514,14 @@ function StudyContent() {
         </Sheet>
 
         {/* Recommendations Sheet */}
-        <Sheet open={activeToolPanel === 'recommendations'} onOpenChange={(open) => !open && setActiveToolPanel(null)}>
-          <SheetContent side="right" className="w-full sm:w-[500px] sm:max-w-[600px] overflow-y-auto">
+        <Sheet
+          open={activeToolPanel === "recommendations"}
+          onOpenChange={(open) => !open && setActiveToolPanel(null)}
+        >
+          <SheetContent
+            side="right"
+            className="w-full sm:w-[500px] sm:max-w-[600px] overflow-y-auto"
+          >
             <SheetHeader>
               <SheetTitle>Recomendações</SheetTitle>
               <SheetDescription>Conteúdos sugeridos para você</SheetDescription>
@@ -2264,7 +2563,10 @@ function StudyContent() {
               />
             </div>
             <DialogFooter>
-              <Button variant="outline" onClick={() => setRenameDialogOpen(false)}>
+              <Button
+                variant="outline"
+                onClick={() => setRenameDialogOpen(false)}
+              >
                 Cancelar
               </Button>
               <Button onClick={handleRename} disabled={!newTitle.trim()}>
@@ -2280,7 +2582,8 @@ function StudyContent() {
             <AlertDialogHeader>
               <AlertDialogTitle>Excluir Estudo</AlertDialogTitle>
               <AlertDialogDescription>
-                Tem certeza que deseja excluir este estudo? Esta ação não pode ser desfeita.
+                Tem certeza que deseja excluir este estudo? Esta ação não pode
+                ser desfeita.
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>
@@ -2301,7 +2604,10 @@ function StudyContent() {
             <DialogHeader>
               <DialogTitle>Nova Anotação</DialogTitle>
               <DialogDescription>
-                Adicione uma anotação {noteTimestamp > 0 ? `no momento ${Math.floor(noteTimestamp / 60)}:${(noteTimestamp % 60).toString().padStart(2, "0")}` : "geral"}
+                Adicione uma anotação{" "}
+                {noteTimestamp > 0
+                  ? `no momento ${Math.floor(noteTimestamp / 60)}:${(noteTimestamp % 60).toString().padStart(2, "0")}`
+                  : "geral"}
               </DialogDescription>
             </DialogHeader>
             <div className="space-y-4">
@@ -2317,7 +2623,10 @@ function StudyContent() {
               </div>
             </div>
             <DialogFooter>
-              <Button variant="outline" onClick={() => setNoteDialogOpen(false)}>
+              <Button
+                variant="outline"
+                onClick={() => setNoteDialogOpen(false)}
+              >
                 Cancelar
               </Button>
               <Button onClick={handleSaveNote} disabled={!noteText.trim()}>
@@ -2347,14 +2656,19 @@ function StudyContent() {
           <div className="flex shrink-0 items-center gap-2">
             {/* Usage Indicator - Desktop */}
             <StudyUsageIndicator
-              messageCount={studyUsage?.messageCount || study?.message_count || 0}
+              messageCount={
+                studyUsage?.messageCount || study?.message_count || 0
+              }
               maxMessages={studyUsage?.maxMessages || messageLimit}
               plan={currentPlan}
             />
 
             {/* Playlists Button */}
             {savedPlaylists.size > 0 && (
-              <DropdownMenu open={showPlaylistsDropdown} onOpenChange={setShowPlaylistsDropdown}>
+              <DropdownMenu
+                open={showPlaylistsDropdown}
+                onOpenChange={setShowPlaylistsDropdown}
+              >
                 <DropdownMenuTrigger asChild>
                   <Button variant="outline" size="sm" className="gap-2">
                     <List className="w-4 h-4" />
@@ -2368,19 +2682,27 @@ function StudyContent() {
                       <DropdownMenuItem
                         key={msg.id}
                         onClick={() => {
-                          setActivePlaylist({ messageId: msg.id, currentIndex: 0 });
-                          const firstContent = contents[0];
-                          if (firstContent) handlePlayContent(firstContent.id, {
-                            sourceMessageId: msg.id,
-                            title: firstContent.title,
-                            relevanceScore: firstContent.relevanceScore,
+                          setActivePlaylist({
+                            messageId: msg.id,
+                            currentIndex: 0,
                           });
+                          const firstContent = contents[0];
+                          if (firstContent)
+                            handlePlayContent(firstContent.id, {
+                              sourceMessageId: msg.id,
+                              title: firstContent.title,
+                              relevanceScore: firstContent.relevanceScore,
+                            });
                           setShowPlaylistsDropdown(false);
                         }}
                         className="cursor-pointer flex-col items-start gap-1 py-3"
                       >
-                        <div className="font-medium text-sm">Playlist {idx + 1}</div>
-                        <div className="text-xs text-muted-foreground">{contents.length} conteúdos</div>
+                        <div className="font-medium text-sm">
+                          Playlist {idx + 1}
+                        </div>
+                        <div className="text-xs text-muted-foreground">
+                          {contents.length} conteúdos
+                        </div>
                       </DropdownMenuItem>
                     );
                   })}
@@ -2437,8 +2759,8 @@ function StudyContent() {
             <div
               className="overflow-hidden"
               style={{
-                flex: activePlaylist ? '6 1 0%' : '7 1 0%',
-                minWidth: '350px',
+                flex: activePlaylist ? "6 1 0%" : "7 1 0%",
+                minWidth: "350px",
               }}
             >
               <ScrollArea className="h-full">
@@ -2481,8 +2803,12 @@ function StudyContent() {
                         }}
                         mode="study"
                         onVideoEnded={handleVideoEnded}
-                        onNoteCreated={() => setNotesRefresh((prev) => prev + 1)}
-                        onTimeUpdate={(time) => { currentPlaybackTimeRef.current = time; }}
+                        onNoteCreated={() =>
+                          setNotesRefresh((prev) => prev + 1)
+                        }
+                        onTimeUpdate={(time) => {
+                          currentPlaybackTimeRef.current = time;
+                        }}
                       />
                     </div>
 
@@ -2491,11 +2817,19 @@ function StudyContent() {
                       <div className="absolute inset-0 bg-background/90 backdrop-blur-sm flex items-center justify-center z-50">
                         <div className="bg-card border border-border rounded-lg p-8 text-center space-y-4 max-w-md mx-4">
                           <div className="space-y-2">
-                            <h3 className="text-2xl font-bold text-foreground">Próximo Vídeo</h3>
+                            <h3 className="text-2xl font-bold text-foreground">
+                              Próximo Vídeo
+                            </h3>
                             <p className="text-muted-foreground">
                               {(() => {
-                                const playlistContents = messageContents.get(activePlaylist.messageId) || [];
-                                const nextContent = playlistContents[activePlaylist.currentIndex + 1];
+                                const playlistContents =
+                                  messageContents.get(
+                                    activePlaylist.messageId,
+                                  ) || [];
+                                const nextContent =
+                                  playlistContents[
+                                    activePlaylist.currentIndex + 1
+                                  ];
                                 return nextContent?.title || "Carregando...";
                               })()}
                             </p>
@@ -2558,10 +2892,20 @@ function StudyContent() {
                     <SocialBar
                       contentId={activeContent.id}
                       contentTitle={activeContent.title}
-                      creator={activeContent.creator ? { id: activeContent.creator.id, display_name: activeContent.creator.display_name, avatar_url: activeContent.creator.avatar_url, channel_name: (activeContent.creator as any)?.creator_channel_name } : null}
+                      creator={
+                        activeContent.creator
+                          ? {
+                              id: activeContent.creator.id,
+                              display_name: activeContent.creator.display_name,
+                              avatar_url: activeContent.creator.avatar_url,
+                              channel_name: (activeContent.creator as any)
+                                ?.creator_channel_name,
+                            }
+                          : null
+                      }
                       followersCount={followersCount}
                       showCreator={true}
-                      onAddToStudy={() => { }}
+                      onAddToStudy={() => {}}
                     />
                   </div>
 
@@ -2569,15 +2913,30 @@ function StudyContent() {
                   <div className="px-3 pb-3">
                     <div className="bg-secondary/50 rounded-lg p-3">
                       <p className="text-xs sm:text-sm font-medium text-muted-foreground mb-1">
-                        {activeContent.views_count ? `${activeContent.views_count} visualizações` : "0 visualizações"} • {activeContent.created_at ? formatDistanceToNow(new Date(activeContent.created_at), { addSuffix: true, locale: ptBR }) : "recentemente"}
-                        {activeContent.tags && activeContent.tags.length > 0 && (
-                          <span className="ml-2">
-                            {activeContent.tags.slice(0, 3).map((tag: string) => `#${tag}`).join(' ')}
-                          </span>
-                        )}
+                        {activeContent.views_count
+                          ? `${activeContent.views_count} visualizações`
+                          : "0 visualizações"}{" "}
+                        •{" "}
+                        {activeContent.created_at
+                          ? formatDistanceToNow(
+                              new Date(activeContent.created_at),
+                              { addSuffix: true, locale: ptBR },
+                            )
+                          : "recentemente"}
+                        {activeContent.tags &&
+                          activeContent.tags.length > 0 && (
+                            <span className="ml-2">
+                              {activeContent.tags
+                                .slice(0, 3)
+                                .map((tag: string) => `#${tag}`)
+                                .join(" ")}
+                            </span>
+                          )}
                       </p>
                       {activeContent.description && (
-                        <p className="text-sm text-muted-foreground">{activeContent.description}</p>
+                        <p className="text-sm text-muted-foreground">
+                          {activeContent.description}
+                        </p>
                       )}
                     </div>
                   </div>
@@ -2605,9 +2964,9 @@ function StudyContent() {
               <div
                 className="flex-shrink-0 h-full flex flex-col bg-card border-l border-border"
                 style={{
-                  width: '200px',
-                  minWidth: '160px',
-                  transition: 'width 0.2s ease-out'
+                  width: "200px",
+                  minWidth: "160px",
+                  transition: "width 0.2s ease-out",
                 }}
               >
                 <div className="p-3 border-b border-border flex-shrink-0">
@@ -2623,48 +2982,70 @@ function StudyContent() {
                     </Button>
                   </div>
                   <p className="text-xs text-muted-foreground">
-                    {messageContents.get(activePlaylist.messageId)?.length || 0} conteúdos
+                    {messageContents.get(activePlaylist.messageId)?.length || 0}{" "}
+                    conteúdos
                   </p>
                 </div>
 
                 <ScrollArea className="flex-1">
                   <div className="p-2 space-y-2">
-                    {messageContents.get(activePlaylist.messageId)?.map((content, idx) => (
-                      <button
-                        key={content.id}
-                        onClick={() => {
-                          setActivePlaylist({ ...activePlaylist, currentIndex: idx });
-                          handlePlayContent(content.id, {
-                            sourceMessageId: activePlaylist.messageId,
-                            title: content.title,
-                            relevanceScore: content.relevanceScore,
-                          });
-                        }}
-                        className={`w-full text-left p-3 rounded-lg transition-all ${idx === activePlaylist.currentIndex
-                          ? 'bg-primary text-primary-foreground'
-                          : 'bg-muted hover:bg-muted/80'
+                    {messageContents
+                      .get(activePlaylist.messageId)
+                      ?.map((content, idx) => (
+                        <button
+                          key={content.id}
+                          onClick={() => {
+                            setActivePlaylist({
+                              ...activePlaylist,
+                              currentIndex: idx,
+                            });
+                            handlePlayContent(content.id, {
+                              sourceMessageId: activePlaylist.messageId,
+                              title: content.title,
+                              relevanceScore: content.relevanceScore,
+                            });
+                          }}
+                          className={`w-full text-left p-3 rounded-lg transition-all ${
+                            idx === activePlaylist.currentIndex
+                              ? "bg-primary text-primary-foreground"
+                              : "bg-muted hover:bg-muted/80"
                           }`}
-                      >
-                        <div className="flex items-start gap-2">
-                          <span className={`text-xs font-semibold mt-1 ${idx === activePlaylist.currentIndex ? 'text-primary-foreground' : 'text-muted-foreground'
-                            }`}>
-                            {idx + 1}
-                          </span>
-                          <div className="flex-1 min-w-0">
-                            <p className={`text-sm font-medium line-clamp-2 ${idx === activePlaylist.currentIndex ? 'text-primary-foreground' : 'text-foreground'
-                              }`}>
-                              {content.title}
-                            </p>
-                            {content.description && (
-                              <p className={`text-xs mt-1 line-clamp-1 ${idx === activePlaylist.currentIndex ? 'text-primary-foreground/80' : 'text-muted-foreground'
-                                }`}>
-                                {content.description}
+                        >
+                          <div className="flex items-start gap-2">
+                            <span
+                              className={`text-xs font-semibold mt-1 ${
+                                idx === activePlaylist.currentIndex
+                                  ? "text-primary-foreground"
+                                  : "text-muted-foreground"
+                              }`}
+                            >
+                              {idx + 1}
+                            </span>
+                            <div className="flex-1 min-w-0">
+                              <p
+                                className={`text-sm font-medium line-clamp-2 ${
+                                  idx === activePlaylist.currentIndex
+                                    ? "text-primary-foreground"
+                                    : "text-foreground"
+                                }`}
+                              >
+                                {content.title}
                               </p>
-                            )}
+                              {content.description && (
+                                <p
+                                  className={`text-xs mt-1 line-clamp-1 ${
+                                    idx === activePlaylist.currentIndex
+                                      ? "text-primary-foreground/80"
+                                      : "text-muted-foreground"
+                                  }`}
+                                >
+                                  {content.description}
+                                </p>
+                              )}
+                            </div>
                           </div>
-                        </div>
-                      </button>
-                    ))}
+                        </button>
+                      ))}
                   </div>
                 </ScrollArea>
               </div>
@@ -2674,10 +3055,10 @@ function StudyContent() {
 
         {/* Right Panel - Chat - flex-based width that adapts to remaining space */}
         <div
-          className={`flex flex-col overflow-hidden ${activeContent && !miniPlayerActive ? 'border-l border-border' : ''}`}
+          className={`flex flex-col overflow-hidden ${activeContent && !miniPlayerActive ? "border-l border-border" : ""}`}
           style={{
-            flex: activeContent && !miniPlayerActive ? '3 1 0%' : '1 1 0%',
-            minWidth: activeContent && !miniPlayerActive ? '260px' : undefined,
+            flex: activeContent && !miniPlayerActive ? "3 1 0%" : "1 1 0%",
+            minWidth: activeContent && !miniPlayerActive ? "260px" : undefined,
           }}
         >
           <div className="flex flex-col h-full overflow-hidden">
@@ -2693,16 +3074,30 @@ function StudyContent() {
                   <>
                     {messages.map((message) => {
                       return (
-                        <div key={message.id} className="space-y-4 animate-fade-in">
+                        <div
+                          key={message.id}
+                          className="space-y-4 animate-fade-in"
+                        >
                           <div
-                            className={`flex ${message.role === "user" ? "justify-end" : "justify-start"
-                              }`}
+                            className={`flex ${
+                              message.role === "user"
+                                ? "justify-end"
+                                : "justify-start"
+                            }`}
                           >
                             <ChatMessage
                               content={message.content}
                               role={message.role}
-                              isNew={message.id === newestMessageId && message.role === 'assistant'}
-                              onContentGrow={message.id === newestMessageId && message.role === 'assistant' ? handleContentGrow : undefined}
+                              isNew={
+                                message.id === newestMessageId &&
+                                message.role === "assistant"
+                              }
+                              onContentGrow={
+                                message.id === newestMessageId &&
+                                message.role === "assistant"
+                                  ? handleContentGrow
+                                  : undefined
+                              }
                             />
                           </div>
                           {message.role === "assistant" && (
@@ -2714,90 +3109,131 @@ function StudyContent() {
                           )}
 
                           {/* Render content cards if available - Always carousel for responsive behavior */}
-                          {message.role === "assistant" && messageContents.has(message.id) && (
-                            <div className="space-y-4 w-full">
-                              <div className="relative">
-                                <Carousel
-                                  opts={{
-                                    align: "start",
-                                    loop: false,
-                                  }}
-                                  className="w-full"
-                                >
-                                  <CarouselContent className="-ml-2">
-                                    {messageContents.get(message.id)?.map((content: any) => (
-                                      <CarouselItem
-                                        key={content.id}
-                                        className="pl-2 basis-[280px] max-w-[280px]"
-                                      >
-                                        <ChatContentCard
-                                          id={content.id}
-                                          title={content.title}
-                                          description={content.description}
-                                          thumbnail_url={content.thumbnail_url}
-                                          content_type={content.content_type}
-                                          duration_minutes={content.duration_minutes}
-                                          required_plan={content.required_plan}
-                                          visibility={content.visibility}
-                                          price={content.price}
-                                          is_free={content.is_free}
-                                          relevanceScore={content.relevanceScore}
-                                          onPlay={(contentId) => handlePlayContent(contentId, {
-                                            sourceMessageId: message.id,
-                                            title: content.title,
-                                            relevanceScore: content.relevanceScore,
-                                          })}
-                                          compact
-                                        />
-                                      </CarouselItem>
-                                    ))}
-                                  </CarouselContent>
-                                  {(messageContents.get(message.id)?.length ?? 0) > 1 && (
-                                    <>
-                                      <CarouselPrevious className="absolute -left-3 top-1/2 -translate-y-1/2 h-8 w-8 bg-background/80 backdrop-blur-sm border-border" />
-                                      <CarouselNext className="absolute -right-3 top-1/2 -translate-y-1/2 h-8 w-8 bg-background/80 backdrop-blur-sm border-border" />
-                                    </>
-                                  )}
-                                </Carousel>
-                              </div>
-                              {messageContents.get(message.id) && messageContents.get(message.id)!.length > 1 && (
-                                <div className="flex gap-2 justify-start pt-3 mt-1 border-t border-border/30">
-                                  {savedPlaylists.has(message.id) ? (
-                                    <Button
-                                      size="sm"
-                                      variant="default"
-                                      onClick={() => {
-                                        setActivePlaylist({ messageId: message.id, currentIndex: 0 });
-                                        const firstContent = messageContents.get(message.id)?.[0];
-                                        if (firstContent) handlePlayContent(firstContent.id, {
-                                          sourceMessageId: message.id,
-                                          title: firstContent.title,
-                                          relevanceScore: firstContent.relevanceScore,
-                                        });
-                                      }}
-                                      className="gap-2 shadow-sm hover:shadow-md transition-all h-9"
-                                    >
-                                      <Play className="w-4 h-4" />
-                                      Assistir Playlist
-                                    </Button>
-                                  ) : (
-                                    <Button
-                                      size="sm"
-                                      variant="outline"
-                                      onClick={() => {
-                                        const contentIds = messageContents.get(message.id)?.map(c => c.id) || [];
-                                        handleCreatePlaylist(message.id, contentIds);
-                                      }}
-                                      className="gap-2 shadow-sm hover:shadow-md transition-all hover:border-primary/50 h-9"
-                                    >
-                                      <List className="w-4 h-4" />
-                                      Salvar Playlist ({messageContents.get(message.id)!.length} conteúdos)
-                                    </Button>
-                                  )}
+                          {message.role === "assistant" &&
+                            messageContents.has(message.id) && (
+                              <div className="space-y-4 w-full">
+                                <div className="relative">
+                                  <Carousel
+                                    opts={{
+                                      align: "start",
+                                      loop: false,
+                                    }}
+                                    className="w-full"
+                                  >
+                                    <CarouselContent className="-ml-2">
+                                      {messageContents
+                                        .get(message.id)
+                                        ?.map((content: any) => (
+                                          <CarouselItem
+                                            key={content.id}
+                                            className="pl-2 basis-[280px] max-w-[280px]"
+                                          >
+                                            <ChatContentCard
+                                              id={content.id}
+                                              title={content.title}
+                                              description={content.description}
+                                              thumbnail_url={
+                                                content.thumbnail_url
+                                              }
+                                              content_type={
+                                                content.content_type
+                                              }
+                                              duration_minutes={
+                                                content.duration_minutes
+                                              }
+                                              required_plan={
+                                                content.required_plan
+                                              }
+                                              visibility={content.visibility}
+                                              price={content.price}
+                                              is_free={content.is_free}
+                                              relevanceScore={
+                                                content.relevanceScore
+                                              }
+                                              onPlay={(contentId) =>
+                                                handlePlayContent(contentId, {
+                                                  sourceMessageId: message.id,
+                                                  title: content.title,
+                                                  relevanceScore:
+                                                    content.relevanceScore,
+                                                })
+                                              }
+                                              compact
+                                            />
+                                          </CarouselItem>
+                                        ))}
+                                    </CarouselContent>
+                                    {(messageContents.get(message.id)?.length ??
+                                      0) > 1 && (
+                                      <>
+                                        <CarouselPrevious className="absolute -left-3 top-1/2 -translate-y-1/2 h-8 w-8 bg-background/80 backdrop-blur-sm border-border" />
+                                        <CarouselNext className="absolute -right-3 top-1/2 -translate-y-1/2 h-8 w-8 bg-background/80 backdrop-blur-sm border-border" />
+                                      </>
+                                    )}
+                                  </Carousel>
                                 </div>
-                              )}
-                            </div>
-                          )}
+                                {messageContents.get(message.id) &&
+                                  messageContents.get(message.id)!.length >
+                                    1 && (
+                                    <div className="flex gap-2 justify-start pt-3 mt-1 border-t border-border/30">
+                                      {savedPlaylists.has(message.id) ? (
+                                        <Button
+                                          size="sm"
+                                          variant="default"
+                                          onClick={() => {
+                                            setActivePlaylist({
+                                              messageId: message.id,
+                                              currentIndex: 0,
+                                            });
+                                            const firstContent =
+                                              messageContents.get(
+                                                message.id,
+                                              )?.[0];
+                                            if (firstContent)
+                                              handlePlayContent(
+                                                firstContent.id,
+                                                {
+                                                  sourceMessageId: message.id,
+                                                  title: firstContent.title,
+                                                  relevanceScore:
+                                                    firstContent.relevanceScore,
+                                                },
+                                              );
+                                          }}
+                                          className="gap-2 shadow-sm hover:shadow-md transition-all h-9"
+                                        >
+                                          <Play className="w-4 h-4" />
+                                          Assistir Playlist
+                                        </Button>
+                                      ) : (
+                                        <Button
+                                          size="sm"
+                                          variant="outline"
+                                          onClick={() => {
+                                            const contentIds =
+                                              messageContents
+                                                .get(message.id)
+                                                ?.map((c) => c.id) || [];
+                                            handleCreatePlaylist(
+                                              message.id,
+                                              contentIds,
+                                            );
+                                          }}
+                                          className="gap-2 shadow-sm hover:shadow-md transition-all hover:border-primary/50 h-9"
+                                        >
+                                          <List className="w-4 h-4" />
+                                          Salvar Playlist (
+                                          {
+                                            messageContents.get(message.id)!
+                                              .length
+                                          }{" "}
+                                          conteúdos)
+                                        </Button>
+                                      )}
+                                    </div>
+                                  )}
+                              </div>
+                            )}
                         </div>
                       );
                     })}
@@ -2809,10 +3245,18 @@ function StudyContent() {
                     <div className="flex items-center gap-2 py-2">
                       <div className="flex gap-1">
                         <span className="w-1.5 h-1.5 bg-muted-foreground/60 rounded-full animate-pulse" />
-                        <span className="w-1.5 h-1.5 bg-muted-foreground/60 rounded-full animate-pulse" style={{ animationDelay: '150ms' }} />
-                        <span className="w-1.5 h-1.5 bg-muted-foreground/60 rounded-full animate-pulse" style={{ animationDelay: '300ms' }} />
+                        <span
+                          className="w-1.5 h-1.5 bg-muted-foreground/60 rounded-full animate-pulse"
+                          style={{ animationDelay: "150ms" }}
+                        />
+                        <span
+                          className="w-1.5 h-1.5 bg-muted-foreground/60 rounded-full animate-pulse"
+                          style={{ animationDelay: "300ms" }}
+                        />
                       </div>
-                      <span className="text-sm text-muted-foreground">{thinkingLabel}</span>
+                      <span className="text-sm text-muted-foreground">
+                        {thinkingLabel}
+                      </span>
                     </div>
                   </div>
                 )}
@@ -2831,9 +3275,9 @@ function StudyContent() {
                         </div>
                         <div className="flex-1 min-w-0">
                           <p className="text-sm font-medium text-destructive/85">
-                            {limitReached?.type === 'deviations'
-                              ? `${limitReached?.suggestedTopic ? `"${limitReached.suggestedTopic}" • ` : ''}Faça upgrade para explorar temas ilimitados.`
-                              : 'Limite atingido • atualize seu plano para continuar conversando.'}
+                            {limitReached?.type === "deviations"
+                              ? `${limitReached?.suggestedTopic ? `"${limitReached.suggestedTopic}" • ` : ""}Faça upgrade para explorar temas ilimitados.`
+                              : "Limite atingido • atualize seu plano para continuar conversando."}
                           </p>
                         </div>
                       </div>
@@ -2857,34 +3301,42 @@ function StudyContent() {
                   className="relative"
                 >
                   {/* Modern Input Container */}
-                  <div className={cn(
-                    "relative flex items-end gap-2 rounded-3xl transition-all duration-300",
-                    "bg-card border-2 shadow-lg hover:shadow-xl",
-                    isChatLocked
-                      ? "border-border/30 opacity-60"
-                      : "border-border/50 hover:border-border focus-within:border-primary/30 focus-within:shadow-2xl focus-within:shadow-primary/5"
-                  )}>
+                  <div
+                    className={cn(
+                      "relative flex items-end gap-2 rounded-3xl transition-all duration-300",
+                      "bg-card border-2 shadow-lg hover:shadow-xl",
+                      isChatLocked
+                        ? "border-border/30 opacity-60"
+                        : "border-border/50 hover:border-border focus-within:border-primary/30 focus-within:shadow-2xl focus-within:shadow-primary/5",
+                    )}
+                  >
                     {/* Text Input */}
                     <div className="flex-1 min-h-[56px] px-5 py-3">
                       <textarea
                         ref={messageInputRef}
                         value={input}
                         onChange={(e) => setInput(e.target.value)}
-                        onInput={(e) => resizeTextareaToContent(e.currentTarget)}
+                        onInput={(e) =>
+                          resizeTextareaToContent(e.currentTarget)
+                        }
                         onKeyDown={(e) => {
-                          if (e.key === 'Enter' && !e.shiftKey) {
+                          if (e.key === "Enter" && !e.shiftKey) {
                             e.preventDefault();
                             handleSend();
                           }
                         }}
-                        placeholder={isChatLocked ? "🔒 Limite atingido — faça upgrade para continuar" : "Pergunte algo à Classy..."}
+                        placeholder={
+                          isChatLocked
+                            ? "🔒 Limite atingido — faça upgrade para continuar"
+                            : "Pergunte algo à Classy..."
+                        }
                         disabled={sending || isChatLocked}
                         rows={1}
                         className={cn(
                           "block w-full bg-transparent resize-none overflow-y-hidden outline-none",
                           "text-sm sm:text-base !leading-[2.2rem]",
                           "placeholder:text-muted-foreground/60",
-                          "disabled:cursor-not-allowed"
+                          "disabled:cursor-not-allowed",
                         )}
                         style={{ minHeight: "24px", maxHeight: "160px" }}
                       />
@@ -2899,8 +3351,14 @@ function StudyContent() {
                         className={cn(
                           "h-10 w-10 rounded-2xl transition-all duration-300 shadow-md",
                           "disabled:opacity-40 disabled:cursor-not-allowed",
-                          !input.trim() && !sending && !isChatLocked && "opacity-50 hover:opacity-70",
-                          input.trim() && !sending && !isChatLocked && "bg-primary hover:bg-primary/90 hover:scale-105 active:scale-95 shadow-lg shadow-primary/20"
+                          !input.trim() &&
+                            !sending &&
+                            !isChatLocked &&
+                            "opacity-50 hover:opacity-70",
+                          input.trim() &&
+                            !sending &&
+                            !isChatLocked &&
+                            "bg-primary hover:bg-primary/90 hover:scale-105 active:scale-95 shadow-lg shadow-primary/20",
                         )}
                       >
                         {sending ? (
@@ -2935,11 +3393,12 @@ function StudyContent() {
           ref={miniPlayerRef}
           className="fixed bottom-20 right-20 z-50 w-80 bg-card border-2 border-border rounded-lg shadow-2xl overflow-hidden"
           style={{
-            transform: `translate(${miniPlayerPosition.x}px, ${miniPlayerPosition.y}px)`
+            transform: `translate(${miniPlayerPosition.x}px, ${miniPlayerPosition.y}px)`,
           }}
         >
           {/* Mini Player Header */}
-          <div className="flex items-center justify-between gap-2 px-3 py-2 bg-card/95 backdrop-blur-sm border-b border-border cursor-move"
+          <div
+            className="flex items-center justify-between gap-2 px-3 py-2 bg-card/95 backdrop-blur-sm border-b border-border cursor-move"
             onMouseDown={(e) => {
               e.preventDefault();
               isDraggingRef.current = true;
@@ -2950,19 +3409,19 @@ function StudyContent() {
                 if (isDraggingRef.current) {
                   setMiniPlayerPosition({
                     x: e.clientX - startX,
-                    y: e.clientY - startY
+                    y: e.clientY - startY,
                   });
                 }
               };
 
               const handleMouseUp = () => {
                 isDraggingRef.current = false;
-                document.removeEventListener('mousemove', handleMouseMove);
-                document.removeEventListener('mouseup', handleMouseUp);
+                document.removeEventListener("mousemove", handleMouseMove);
+                document.removeEventListener("mouseup", handleMouseUp);
               };
 
-              document.addEventListener('mousemove', handleMouseMove);
-              document.addEventListener('mouseup', handleMouseUp);
+              document.addEventListener("mousemove", handleMouseMove);
+              document.addEventListener("mouseup", handleMouseUp);
             }}
           >
             <div className="flex-1 min-w-0">
@@ -3017,7 +3476,8 @@ function StudyContent() {
           {activePlaylist && (
             <div className="p-2 border-t border-border bg-muted/30">
               <p className="text-xs text-muted-foreground mb-1">
-                Playlist: {activePlaylist.currentIndex + 1}/{(messageContents.get(activePlaylist.messageId) || []).length}
+                Playlist: {activePlaylist.currentIndex + 1}/
+                {(messageContents.get(activePlaylist.messageId) || []).length}
               </p>
             </div>
           )}

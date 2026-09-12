@@ -1,6 +1,7 @@
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { ShieldCheck } from "lucide-react";
 
 export interface ClassyCitation {
   source: "transcript" | "note" | "quiz";
@@ -9,7 +10,15 @@ export interface ClassyCitation {
 }
 
 export interface ClassyUiBlock {
-  type: "goal" | "checkpoint" | "practice" | "next_step" | "resume" | "trail" | "celebration" | "sources";
+  type:
+    | "goal"
+    | "checkpoint"
+    | "practice"
+    | "next_step"
+    | "resume"
+    | "trail"
+    | "celebration"
+    | "sources";
   title: string;
   body?: string;
   bullets?: string[];
@@ -26,6 +35,10 @@ export interface ClassyMessageMetadata {
   intent?: string;
   next_best_action?: string;
   source_transparency?: string;
+  quality?: {
+    grounding?: "transcript" | "study_context" | "general_knowledge" | "mixed";
+    confidence?: "high" | "medium" | "low";
+  };
   ui_blocks?: ClassyUiBlock[];
 }
 
@@ -46,6 +59,7 @@ const contentStrategyLabel: Record<string, string> = {
   grounded: "Baseado no conteúdo atual",
   recommendation: "Baseado na trilha recomendada",
   mixed: "Baseado em memória e contexto do estudo",
+  general_knowledge: "Baseado em conhecimento geral",
 };
 
 export function ClassyMessageExtras({
@@ -58,7 +72,8 @@ export function ClassyMessageExtras({
 
   const rawBlocks = metadata.ui_blocks || [];
   const hasTrailBlock = rawBlocks.some((block) => block.type === "trail");
-  const hasRelatedContentStrategy = metadata.content_strategy === "recommendation";
+  const hasRelatedContentStrategy =
+    metadata.content_strategy === "recommendation";
   const blocks = rawBlocks.filter((block) => {
     if (["resume", "checkpoint"].includes(block.type)) return false;
     if (block.type === "trail" && hasRelatedContentStrategy) return false;
@@ -68,7 +83,16 @@ export function ClassyMessageExtras({
   const citations = metadata.citations || [];
   const contentStrategy = metadata.content_strategy;
   const sourceTransparency = metadata.source_transparency;
-  const suggestionFriendlyIntents = new Set(["onboard", "clarify", "plan", "recommend", "practice"]);
+  const sourceDescription =
+    sourceTransparency ||
+    (contentStrategy ? contentStrategyLabel[contentStrategy] : null);
+  const suggestionFriendlyIntents = new Set([
+    "onboard",
+    "clarify",
+    "plan",
+    "recommend",
+    "practice",
+  ]);
   const shouldShowSuggestions =
     suggestions.length > 0 &&
     !compact &&
@@ -77,9 +101,17 @@ export function ClassyMessageExtras({
     (suggestionFriendlyIntents.has(metadata.intent || "") ||
       metadata.active_mode === "onboard" ||
       blocks.some((block) => ["practice", "trail"].includes(block.type)));
-  const visibleSuggestions = shouldShowSuggestions ? suggestions.slice(0, 3) : [];
+  const visibleSuggestions = shouldShowSuggestions
+    ? suggestions.slice(0, 3)
+    : [];
 
-  if (blocks.length === 0 && visibleSuggestions.length === 0 && citations.length === 0 && !contentStrategy && !sourceTransparency) {
+  if (
+    blocks.length === 0 &&
+    visibleSuggestions.length === 0 &&
+    citations.length === 0 &&
+    !contentStrategy &&
+    !sourceTransparency
+  ) {
     return null;
   }
 
@@ -96,16 +128,28 @@ export function ClassyMessageExtras({
                 {block.type === "trail"
                   ? "Rota sugerida"
                   : block.type === "next_step"
-                  ? "Próximo passo"
-                  : block.type === "practice"
-                  ? "Prática guiada"
-                  : block.type === "celebration"
-                  ? "Sinal de progresso"
-                  : block.title}
+                    ? "Próximo passo"
+                    : block.type === "practice"
+                      ? "Prática guiada"
+                      : block.type === "celebration"
+                        ? "Sinal de progresso"
+                        : block.title}
               </p>
-              {block.body && <p className="mt-1.5 text-sm leading-6 text-foreground">{block.body}</p>}
-              {block.prompt && <p className="mt-1.5 text-sm leading-6 text-foreground">{block.prompt}</p>}
-              {block.action && <p className="mt-1.5 text-sm leading-6 text-foreground">{block.action}</p>}
+              {block.body && (
+                <p className="mt-1.5 text-sm leading-6 text-foreground">
+                  {block.body}
+                </p>
+              )}
+              {block.prompt && (
+                <p className="mt-1.5 text-sm leading-6 text-foreground">
+                  {block.prompt}
+                </p>
+              )}
+              {block.action && (
+                <p className="mt-1.5 text-sm leading-6 text-foreground">
+                  {block.action}
+                </p>
+              )}
               {block.bullets && block.bullets.length > 0 && (
                 <ul className="mt-2.5 space-y-1.5 text-sm text-foreground">
                   {block.bullets.map((bullet) => (
@@ -141,19 +185,36 @@ export function ClassyMessageExtras({
       {citations.length > 0 && (
         <div className="flex flex-wrap gap-2">
           {citations.map((citation, index) => {
-            const clickable = typeof citation.timestampSeconds === "number" && onCitationClick;
+            const clickable =
+              typeof citation.timestampSeconds === "number" && onCitationClick;
             return (
               <Badge
                 key={`${citation.source}-${index}`}
                 variant="secondary"
-                className={cn("gap-1.5 px-2.5 py-1 text-[11px]", clickable && "cursor-pointer hover:bg-secondary/80")}
-                onClick={clickable ? () => onCitationClick?.(citation.timestampSeconds!) : undefined}
+                className={cn(
+                  "gap-1.5 px-2.5 py-1 text-[11px]",
+                  clickable && "cursor-pointer hover:bg-secondary/80",
+                )}
+                onClick={
+                  clickable
+                    ? () => onCitationClick?.(citation.timestampSeconds!)
+                    : undefined
+                }
               >
-                <span className="font-medium">{sourceLabel[citation.source]}:</span>
+                <span className="font-medium">
+                  {sourceLabel[citation.source]}:
+                </span>
                 <span>{citation.label}</span>
               </Badge>
             );
           })}
+        </div>
+      )}
+
+      {sourceDescription && (
+        <div className="flex items-start gap-2 text-[11px] leading-5 text-muted-foreground/85">
+          <ShieldCheck className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+          <span>{sourceDescription}</span>
         </div>
       )}
     </div>
