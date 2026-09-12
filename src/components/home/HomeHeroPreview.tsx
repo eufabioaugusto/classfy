@@ -82,7 +82,6 @@ export function HomeHeroPreview({ content, maxDurationSeconds }: HomeHeroPreview
     videoService.getHeroPreviewSource(content.id)
       .then((source) => {
         if (!active) return;
-        startedRef.current = true;
         setPublicPreview(source);
       })
       .catch(() => undefined);
@@ -92,45 +91,61 @@ export function HomeHeroPreview({ content, maxDurationSeconds }: HomeHeroPreview
     };
   }, [content.id, hasProtectedSource, previewEnabled, publicPreview]);
 
+  const previewUrl = playback.url || publicPreview?.url || "";
+  const previewDuration = Math.min(
+    maxDurationSeconds,
+    publicPreview?.duration || maxDurationSeconds,
+  );
+
   useEffect(() => {
     const video = videoRef.current;
-    if (!video || !previewEnabled || !playback.url) return;
+    if (!video || !previewEnabled || !previewUrl) return;
 
     let active = true;
     let hls: Hls | null = null;
-    const isHls = playback.url.includes(".m3u8") || Boolean(content.media_asset_id);
+    const isHls = publicPreview?.type === "hls" || previewUrl.includes(".m3u8") || Boolean(content.media_asset_id);
+
+    const revealPreview = () => {
+      if (active) setPreviewActive(true);
+    };
 
     const startPreview = () => {
       if (!active) return;
       startedRef.current = true;
-      setPreviewActive(true);
-      void video.play().catch(() => undefined);
+      void video.play().catch(() => {
+        if (!active) return;
+        setPreviewActive(false);
+        setPreviewFinished(true);
+      });
     };
 
     const mountSource = async () => {
-      if (isHls && video.canPlayType("application/vnd.apple.mpegurl")) {
-        video.src = playback.url;
-        video.addEventListener("canplay", startPreview, { once: true });
-        return;
-      }
-
       if (isHls) {
         const { default: HlsConstructor } = await import("hls.js");
-        if (!active || !HlsConstructor.isSupported()) return;
+        if (!active) return;
+
+        // Browsers com MediaSource (Chrome/Edge/Firefox) usam hls.js.
+        // Safari cai no HLS nativo, preservando a implementacao mais adequada.
+        if (!HlsConstructor.isSupported()) {
+          if (!video.canPlayType("application/vnd.apple.mpegurl")) return;
+          video.src = previewUrl;
+          startPreview();
+          return;
+        }
 
         hls = new HlsConstructor(heroPreviewHlsConfig);
-        hls.loadSource(playback.url);
+        hls.loadSource(previewUrl);
         hls.attachMedia(video);
         hls.on(HlsConstructor.Events.MANIFEST_PARSED, startPreview);
         return;
       }
 
-      video.src = playback.url;
-      video.addEventListener("canplay", startPreview, { once: true });
+      video.src = previewUrl;
+      startPreview();
     };
 
     const stopAtPreviewLimit = () => {
-      if (video.currentTime < maxDurationSeconds) return;
+      if (video.currentTime < previewDuration) return;
       video.pause();
       hls?.stopLoad();
       setPreviewActive(false);
@@ -138,17 +153,18 @@ export function HomeHeroPreview({ content, maxDurationSeconds }: HomeHeroPreview
     };
 
     video.addEventListener("timeupdate", stopAtPreviewLimit);
+    video.addEventListener("playing", revealPreview, { once: true });
     void mountSource();
 
     return () => {
       active = false;
-      video.removeEventListener("canplay", startPreview);
+      video.removeEventListener("playing", revealPreview);
       video.removeEventListener("timeupdate", stopAtPreviewLimit);
       hls?.destroy();
       releaseMediaElement(video);
       setPreviewActive(false);
     };
-  }, [content.media_asset_id, maxDurationSeconds, playback.url, previewEnabled]);
+  }, [content.media_asset_id, previewDuration, previewEnabled, previewUrl, publicPreview?.type]);
 
   return (
     <div ref={rootRef} className="cf2-home-hero__preview" aria-hidden="true">
@@ -160,14 +176,6 @@ export function HomeHeroPreview({ content, maxDurationSeconds }: HomeHeroPreview
           loading="eager"
         />
       ) : null}
-      {previewEnabled && publicPreview?.type === "animated-image" && (
-        <img
-          className={`cf2-home-hero__motion ${previewActive ? "is-active" : ""}`}
-          src={publicPreview.url}
-          alt=""
-          onLoad={() => setPreviewActive(true)}
-        />
-      )}
       <video
         ref={videoRef}
         className={previewActive ? "is-active" : undefined}

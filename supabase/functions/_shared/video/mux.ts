@@ -59,24 +59,14 @@ export class MuxVideoProvider implements VideoProvider {
     if (!binding.provider_playback_id) throw new Error('Video is not ready for preview');
 
     const start = Math.max(0, Math.floor(options.startSeconds ?? 0));
-    const availableDuration = Math.max(1, Math.floor(Number(asset.duration_seconds ?? 10)) - start);
-    const duration = Math.min(10, Math.max(1, Math.floor(options.durationSeconds ?? 10)), availableDuration);
-    const end = start + duration;
-    const fps = Math.min(10, Math.max(1, Math.floor(options.fps ?? 5)));
-    const width = Math.min(640, Math.max(320, Math.floor(options.width ?? 640)));
-    const expiresIn = 300;
-    const params = {
-      start: String(start),
-      end: String(end),
-      fps: String(fps),
-      width: String(width),
-    };
-    const token = await createMuxSignedToken(binding.provider_playback_id, 'g', expiresIn, params);
-    const query = new URLSearchParams({ ...params, token });
+    const availableDuration = Math.max(1, Math.floor(Number(asset.duration_seconds ?? 20)) - start);
+    const duration = Math.min(20, Math.max(1, Math.floor(options.durationSeconds ?? 20)), availableDuration);
+    const expiresIn = 60;
+    const token = await createMuxSignedToken(binding.provider_playback_id, 'v', expiresIn);
 
     return {
-      type: 'animated-image',
-      url: `https://image.mux.com/${binding.provider_playback_id}/animated.gif?${query}`,
+      type: 'hls',
+      url: `https://stream.mux.com/${binding.provider_playback_id}.m3u8?token=${token}`,
       duration,
       expiresAt: new Date(Date.now() + expiresIn * 1000).toISOString(),
     };
@@ -97,16 +87,15 @@ async function createMuxPlaybackToken(playbackId: string, duration?: number) {
 
 async function createMuxSignedToken(
   playbackId: string,
-  audience: 'v' | 'g',
+  audience: 'v',
   lifetimeSeconds: number,
-  params: Record<string, string> = {},
 ) {
   const keyId = Deno.env.get('MUX_SIGNING_KEY_ID');
   const encodedPrivateKey = Deno.env.get('MUX_SIGNING_PRIVATE_KEY');
   if (!keyId || !encodedPrivateKey) throw new Error('Mux playback signing key is not configured');
   const now = Math.floor(Date.now() / 1000);
   const header = base64url(JSON.stringify({ alg: 'RS256', typ: 'JWT', kid: keyId }));
-  const payload = base64url(JSON.stringify({ sub: playbackId, aud: audience, exp: now + lifetimeSeconds, iat: now, ...params }));
+  const payload = base64url(JSON.stringify({ sub: playbackId, aud: audience, exp: now + lifetimeSeconds, iat: now }));
   const signingInput = `${header}.${payload}`;
   const pem = new TextDecoder().decode(Uint8Array.from(atob(encodedPrivateKey), c => c.charCodeAt(0)));
   const der = Uint8Array.from(atob(pem.replace(/-----[^-]+-----|\s/g, '')), c => c.charCodeAt(0));

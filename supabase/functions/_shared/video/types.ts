@@ -26,7 +26,7 @@ export interface PlaybackSource {
 }
 
 export interface PreviewSource {
-  type: 'animated-image' | 'hls' | 'mp4';
+  type: 'hls' | 'mp4';
   url: string;
   duration: number;
   expiresAt?: string;

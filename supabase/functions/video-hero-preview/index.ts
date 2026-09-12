@@ -21,12 +21,20 @@ Deno.serve(async (req) => {
     const client = serviceClient();
     const { data: content, error: contentError } = await client
       .from("contents")
-      .select("id, status, media_asset_id")
+      .select("id, title, status, media_asset_id")
       .eq("id", contentId)
       .eq("status", "approved")
       .maybeSingle();
 
     if (contentError || !content?.media_asset_id) {
+      return json({ error: "Preview not available" }, 404);
+    }
+
+    const configuredHeroId = Deno.env.get("HOME_HERO_CONTENT_ID")?.trim();
+    const isConfiguredHero = configuredHeroId
+      ? content.id === configuredHeroId
+      : content.title.trim().toLocaleLowerCase("pt-BR") === "aula mux 1";
+    if (!isConfiguredHero) {
       return json({ error: "Preview not available" }, 404);
     }
 
@@ -54,9 +62,7 @@ Deno.serve(async (req) => {
 
     const source = await provider.getPreviewSource(binding, asset, {
       startSeconds: 0,
-      durationSeconds: 10,
-      fps: 5,
-      width: 640,
+      durationSeconds: 20,
     });
 
     return new Response(JSON.stringify({ source }), {
@@ -64,7 +70,7 @@ Deno.serve(async (req) => {
       headers: {
         ...corsHeaders,
         "Content-Type": "application/json",
-        "Cache-Control": "public, max-age=240",
+        "Cache-Control": "no-store",
       },
     });
   } catch (error) {

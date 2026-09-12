@@ -42,9 +42,7 @@
 .cf2-home-hero__preview img,
 .cf2-home-hero__preview video { position: absolute; inset: 0; }
 .cf2-home-hero__poster { z-index: 0; }
-.cf2-home-hero__motion,
 .cf2-home-hero__preview video { z-index: 1; opacity: 0; transition: opacity 700ms var(--cf2-ease); }
-.cf2-home-hero__motion.is-active,
 .cf2-home-hero__preview video.is-active { opacity: 1; }
 .cf2-home-hero__shade {
   z-index: -2;
