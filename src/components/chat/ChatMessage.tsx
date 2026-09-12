@@ -1,54 +1,44 @@
-import React, { useState, useEffect } from 'react';
-import { TypewriterText } from './TypewriterText';
-import { cn } from '@/lib/utils';
+import { TypewriterText } from "./TypewriterText";
+import { cn } from "@/lib/utils";
+import { normalizeClassyMessageContent } from "./classyMessageContent";
 
 interface ChatMessageProps {
   content: string;
-  role: 'user' | 'assistant' | 'system';
+  role: "user" | "assistant" | "system";
   isNew?: boolean;
   className?: string;
   onContentGrow?: () => void;
 }
 
-export const ChatMessage: React.FC<ChatMessageProps> = ({ 
-  content, 
-  role, 
+export function ChatMessage({
+  content,
+  role,
   isNew = false,
-  className = '',
-  onContentGrow
-}) => {
-  const [animationComplete, setAnimationComplete] = useState(!isNew);
-
-  // Mark as complete after animation
-  useEffect(() => {
-    if (!isNew) {
-      setAnimationComplete(true);
-    }
-  }, [isNew]);
-
-  if (role === 'user') {
+  className = "",
+}: ChatMessageProps) {
+  if (role === "user") {
     return (
-      <div className={cn(
-        "bg-muted text-foreground rounded-2xl rounded-tr-md px-4 py-3 max-w-[80%] border border-border/60 shadow-sm",
-        className
-      )}>
+      <div
+        className={cn(
+          "max-w-[82%] rounded-[22px] rounded-br-md bg-muted/75 px-4 py-2.5 text-foreground",
+          "text-[15px] leading-6 sm:max-w-[76%]",
+          className,
+        )}
+      >
         <p className="whitespace-pre-wrap">{content}</p>
       </div>
     );
   }
 
   return (
-    <div className={cn(
-      "text-foreground rounded-2xl rounded-tl-md px-0 py-1 max-w-[85%]",
-      !animationComplete && "animate-fade-in",
-      className
-    )}>
-      <TypewriterText 
-        content={content} 
-        isNew={isNew}
-        onComplete={() => setAnimationComplete(true)}
-        onContentGrow={onContentGrow}
-      />
+    <div
+      className={cn(
+        "w-full max-w-none py-1 text-[15px] leading-7 text-foreground",
+        isNew && "animate-in fade-in duration-200",
+        className,
+      )}
+    >
+      <TypewriterText content={normalizeClassyMessageContent(content)} />
     </div>
   );
-};
+}

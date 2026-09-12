@@ -208,102 +208,59 @@ export const ChatContentCard = ({
   const isLocked = !hasAccess;
   const showPlanBadge = visibility === "pro" || visibility === "premium";
 
-  // Compact mode for mobile
+  // Compact attachment used inside the conversation.
   if (compact) {
     return (
       <>
-        <Card className="overflow-hidden bg-card/80 backdrop-blur-sm border border-border/30 hover:border-primary/40 transition-all duration-300 group cursor-pointer" onClick={handleWatch}>
-          {/* Thumbnail */}
-          <div className="relative overflow-hidden bg-muted aspect-[16/9]">
+        <button
+          type="button"
+          className="group flex w-full items-center gap-3 rounded-xl border border-border bg-card p-2 text-left transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          onClick={handleWatch}
+          aria-label={`${isLocked ? "Ver acesso a" : "Abrir"} ${title}`}
+        >
+          <div className="relative aspect-video w-24 shrink-0 overflow-hidden rounded-lg bg-muted">
             <img
               src={thumbnail_url || "/placeholder.svg"}
               alt={title}
-              className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+              className="h-full w-full object-cover"
             />
-            
-            {/* Plan Badge - Top Right */}
             {showPlanBadge && (
-              <div className="absolute top-1.5 right-1.5">
+              <div className="absolute right-1.5 top-1.5">
                 <Crown
                   className={`w-3 h-3 drop-shadow-lg ${visibility === "pro" ? "text-yellow-400" : "text-red-500"}`}
                   fill="currentColor"
                 />
               </div>
             )}
-
-            {/* Badges */}
-            <div className="absolute top-1.5 left-1.5 flex gap-1 flex-wrap">
-              <Badge className="bg-primary/95 backdrop-blur-md text-primary-foreground text-[9px] font-medium px-1.5 py-0.5 shadow-sm">
-                {contentTypeLabel[content_type]}
-              </Badge>
-            </div>
-
-            {/* Duration */}
             {duration_minutes && (
-              <div className="absolute bottom-1.5 right-1.5 bg-black/90 backdrop-blur-md px-1.5 py-0.5 rounded text-[9px] font-medium text-white flex items-center gap-0.5">
-                <Clock className="w-2.5 h-2.5" />
+              <div className="absolute bottom-1 right-1 rounded bg-black/80 px-1 py-0.5 text-[9px] font-medium text-white">
                 {duration_minutes}m
               </div>
             )}
-
-            {/* Lock overlay */}
             {isLocked && (
-              <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
-                <Lock className="w-5 h-5 text-white" />
+              <div className="absolute inset-0 flex items-center justify-center bg-black/45">
+                <Lock className="h-4 w-4 text-white" />
               </div>
             )}
-
-            {/* Play overlay on hover */}
-            <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-all duration-300 flex items-center justify-center">
-              <div className="opacity-0 group-hover:opacity-100 transition-all duration-300">
-                <div className="bg-primary rounded-full p-2.5 shadow-lg">
-                  {isLocked ? (
-                    <Lock className="w-4 h-4 text-primary-foreground" />
-                  ) : (
-                    <Play className="w-4 h-4 text-primary-foreground fill-current" />
-                  )}
-                </div>
-              </div>
-            </div>
           </div>
 
-          {/* Content */}
-          <div className="p-2 space-y-1.5">
-            <h3 className="font-medium text-foreground text-xs leading-tight line-clamp-2">
+          <div className="min-w-0 flex-1">
+            <p className="text-[11px] text-muted-foreground">
+              {contentTypeLabel[content_type]}
+            </p>
+            <h3 className="mt-0.5 line-clamp-2 text-xs font-medium leading-4 text-foreground">
               {title}
             </h3>
-
-            {/* Compact Action Buttons */}
-            <div className="flex gap-1.5 pt-0.5">
-              <Button
-                onClick={handleWatch}
-                className="flex-1 h-7 text-[10px] font-medium"
-                size="sm"
-              >
-                {isLocked ? (
-                  <>
-                    <Lock className="w-3 h-3 mr-1" />
-                    {visibility === "paid" ? "Comprar" : "Upgrade"}
-                  </>
-                ) : (
-                  <>
-                    <Play className="w-3 h-3 mr-1 fill-current" />
-                    Assistir
-                  </>
-                )}
-              </Button>
-              <Button
-                onClick={handleSave}
-                variant="outline"
-                size="sm"
-                className="h-7 w-7 p-0"
-                disabled={loading}
-              >
-                <Bookmark className={`w-3 h-3 ${isSaved ? "fill-current" : ""}`} />
-              </Button>
-            </div>
           </div>
-        </Card>
+
+          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-muted text-foreground transition-colors group-hover:bg-foreground group-hover:text-background">
+            {isLocked ? (
+              <Lock className="h-3.5 w-3.5" />
+            ) : (
+              <Play className="h-3.5 w-3.5 fill-current" />
+            )}
+          </span>
+        </button>
 
         <UpgradeModal
           open={showUpgradeModal}

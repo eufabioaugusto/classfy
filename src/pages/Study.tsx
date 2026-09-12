@@ -22,15 +22,7 @@ import {
   ChevronLeft,
   ChevronRight,
   AlertCircle,
-  Sparkles,
-  Brain,
-  Compass,
   ChevronRight as ChevronRightIcon,
-  PlayCircle,
-  BookOpen,
-  StickyNote,
-  Clock,
-  Coins,
 } from "lucide-react";
 import { StudyMessage } from "@/hooks/useStudies";
 import { useStudies } from "@/hooks/useStudies";
@@ -41,6 +33,7 @@ import {
   ClassyMessageExtras,
   ClassyMessageMetadata,
 } from "@/components/chat/ClassyMessageExtras";
+import { ClassyMessageActions } from "@/components/chat/ClassyMessageActions";
 import { HighlightedText } from "@/components/chat/HighlightedText";
 import { ClassyStudyState } from "@/components/chat/ClassyStudyStateBar";
 import { UpgradePromptCard } from "@/components/chat/UpgradePromptCard";
@@ -267,16 +260,6 @@ const buildInitialAssistantMetadata = (): ClassyMessageMetadata => ({
   checkpoint_generated: false,
 });
 
-const buildThinkingPhrases = (topic?: string | null) => {
-  const focus = topic || "seu tema";
-
-  return [
-    `Explorando ${focus}...`,
-    `Conectando ideias sobre ${focus}...`,
-    "Montando uma resposta mais útil...",
-  ];
-};
-
 const resizeTextareaToContent = (textarea: HTMLTextAreaElement | null) => {
   if (!textarea) return;
 
@@ -289,10 +272,12 @@ const resizeTextareaToContent = (textarea: HTMLTextAreaElement | null) => {
 const sanitizeRelatedContents = (contents: any[] | null | undefined) => {
   if (!Array.isArray(contents)) return [];
 
-  return contents.filter((content) => {
-    if (!content || typeof content !== "object") return false;
-    return "id" in content && content.id;
-  });
+  return contents
+    .filter((content) => {
+      if (!content || typeof content !== "object") return false;
+      return "id" in content && content.id;
+    })
+    .slice(0, 3);
 };
 
 function StudyContent() {
@@ -356,7 +341,6 @@ function StudyContent() {
   const scrollRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messageInputRef = useRef<HTMLTextAreaElement>(null);
-  const trackedMessageEventsRef = useRef<Set<string>>(new Set());
   const latestMessagesRef = useRef<StudyMessage[]>([]);
 
   // Tool panels state - using unified ToolPanel type
@@ -385,7 +369,6 @@ function StudyContent() {
     null,
   );
   const [studyMapDialogOpen, setStudyMapDialogOpen] = useState(false);
-  const [thinkingPhraseIndex, setThinkingPhraseIndex] = useState(0);
 
   // Access control state
   const { checkAccess, hasAccess, blockReason, requiredPlan } =
@@ -487,48 +470,6 @@ function StudyContent() {
   }, [messages]);
 
   useEffect(() => {
-    if (!user || !id) return;
-
-    const assistantMessages = messages.filter(
-      (message) => message.role === "assistant",
-    );
-    assistantMessages.forEach((message) => {
-      if (trackedMessageEventsRef.current.has(message.id)) {
-        return;
-      }
-
-      const metadata = getAssistantMetadata(message);
-      if (!metadata) return;
-
-      trackedMessageEventsRef.current.add(message.id);
-
-      const blockTypes = new Set(
-        (metadata.ui_blocks || []).map((block) => block.type),
-      );
-      if (blockTypes.has("checkpoint")) {
-        trackClassyEvent("checkpoint_impression", {
-          assistant_message_id: message.id,
-          current_focus: studyAiState?.currentFocus || null,
-        });
-      }
-
-      if (blockTypes.has("celebration")) {
-        trackClassyEvent("celebration_impression", {
-          assistant_message_id: message.id,
-          current_focus: studyAiState?.currentFocus || null,
-        });
-      }
-
-      if (blockTypes.has("trail")) {
-        trackClassyEvent("learning_plan_impression", {
-          assistant_message_id: message.id,
-          current_focus: studyAiState?.currentFocus || null,
-        });
-      }
-    });
-  }, [messages, user, id, studyAiState]);
-
-  useEffect(() => {
     setStudyUsage((current) => {
       if (!current) return current;
       if (current.maxMessages === messageLimit) return current;
@@ -564,19 +505,6 @@ function StudyContent() {
     loading,
     sending,
   ]);
-
-  useEffect(() => {
-    if (!sending) {
-      setThinkingPhraseIndex(0);
-      return;
-    }
-
-    const intervalId = window.setInterval(() => {
-      setThinkingPhraseIndex((current) => current + 1);
-    }, 1300);
-
-    return () => window.clearInterval(intervalId);
-  }, [sending]);
 
   useEffect(() => {
     const autoOpenPlaylistId = location.state?.autoOpenPlaylist;
@@ -907,6 +835,7 @@ function StudyContent() {
   const trackClassyEvent = async (
     eventKey: string,
     payload: Record<string, any>,
+    assistantMessageId?: string,
   ) => {
     if (!user || !id) return;
 
@@ -914,6 +843,7 @@ function StudyContent() {
       await supabase.from("study_ai_events").insert({
         user_id: user.id,
         study_id: id,
+        assistant_message_id: assistantMessageId || null,
         event_key: eventKey,
         payload,
       });
@@ -1054,9 +984,6 @@ function StudyContent() {
     studyAiState?.activeMode === "onboard" &&
     userMessagesCount <= 1 &&
     messages.length <= 2;
-  const thinkingPhrases = buildThinkingPhrases(study?.title);
-  const thinkingLabel =
-    thinkingPhrases[thinkingPhraseIndex % thinkingPhrases.length];
   const hasDetailedStudyState = Boolean(
     studyAiState &&
     userMessagesCount >= 2 &&
@@ -1544,53 +1471,29 @@ function StudyContent() {
   );
 
   const studyMapCard = shouldShowStudyMap ? (
-    <button
-      type="button"
-      onClick={() => setStudyMapDialogOpen(true)}
-      className="group w-full overflow-hidden rounded-full border border-border/70 bg-[#FFF5F6] px-3 py-2.5 text-left transition-colors hover:border-primary/20 dark:border-white/10 dark:bg-[#2a141acc] sm:px-4"
-    >
-      <div className="flex w-full items-center gap-2 sm:gap-3">
-        <img
-          src="/star-red.png"
-          alt=""
-          aria-hidden="true"
-          className="h-7 w-7 shrink-0 object-contain sm:h-8 sm:w-8"
-        />
-
-        <div className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden sm:gap-3">
-          <span className="min-w-0 flex-1 truncate text-sm font-bold text-foreground sm:text-base">
-            {compactStudyTitle}
-          </span>
-
-          <span className="inline-flex shrink-0 items-center justify-center rounded-full bg-background/92 px-2.5 py-1 text-sm font-semibold text-foreground dark:bg-white/10 dark:text-white">
-            {studyProgressPercent}%
-          </span>
-
-          <span className="hidden shrink-0 items-center gap-1.5 rounded-full bg-background/92 px-2.5 py-1 text-sm font-medium text-foreground/82 min-[430px]:inline-flex dark:bg-white/10 dark:text-white/82">
-            <Brain className="h-4 w-4 text-muted-foreground dark:text-white/55" />
-            <span className="truncate">{compactStageLabel}</span>
-          </span>
-
-          {studyRewardPoints > 0 && (
-            <span className="hidden shrink-0 items-center gap-1.5 rounded-full bg-background/92 px-2.5 py-1 text-sm font-semibold text-foreground min-[760px]:inline-flex dark:bg-white/10 dark:text-white">
-              <Coins className="h-4 w-4 text-muted-foreground dark:text-white/55" />
-              {studyRewardPoints.toLocaleString("pt-BR")} Points
-            </span>
-          )}
-        </div>
-
-        <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
-          <span className="hidden items-center gap-1 rounded-full bg-background/96 px-3 py-1.5 text-sm font-semibold text-foreground min-[520px]:inline-flex dark:bg-white dark:text-zinc-900">
-            <span className="hidden min-[760px]:inline">Plano de estudo</span>
-            <span className="min-[760px]:hidden">Plano</span>
-            <ChevronRightIcon className="h-4 w-4" />
-          </span>
-          <span onClick={(event) => event.stopPropagation()}>
-            {studyMapActions}
-          </span>
-        </div>
-      </div>
-    </button>
+    <div className="flex w-full items-center rounded-xl border border-border/70 bg-card px-2 py-1.5 shadow-sm">
+      <button
+        type="button"
+        onClick={() => setStudyMapDialogOpen(true)}
+        className="group flex min-w-0 flex-1 items-center gap-3 rounded-lg px-2 py-1.5 text-left transition-colors hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        aria-label={`Abrir plano do estudo ${compactStudyTitle}`}
+      >
+        <span className="min-w-0 flex-1 truncate text-sm font-semibold text-foreground">
+          {compactStudyTitle}
+        </span>
+        <span className="hidden shrink-0 text-xs text-muted-foreground min-[430px]:inline">
+          {compactStageLabel}
+        </span>
+        <span className="shrink-0 text-xs font-medium text-muted-foreground">
+          {studyProgressPercent}%
+        </span>
+        <span className="hidden shrink-0 items-center gap-1 text-xs font-medium text-foreground min-[520px]:inline-flex">
+          Ver plano
+          <ChevronRightIcon className="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5" />
+        </span>
+      </button>
+      <div className="shrink-0">{studyMapActions}</div>
+    </div>
   ) : null;
 
   const studyMapDialog = shouldShowStudyMap ? (
@@ -1816,7 +1719,7 @@ function StudyContent() {
             />
           </div>
           {studyMapCard && !activeContent && (
-            <div className="mt-3 w-full max-w-4xl mx-auto">{studyMapCard}</div>
+            <div className="mt-3 w-full max-w-3xl mx-auto">{studyMapCard}</div>
           )}
         </header>
         {studyMapDialog}
@@ -1905,16 +1808,32 @@ function StudyContent() {
                           />
                         </div>
                         {message.role === "assistant" && (
-                          <ClassyMessageExtras
-                            metadata={getAssistantMetadata(message)}
-                            onSuggestionClick={handleSuggestionClick}
-                            onCitationClick={handleSeekToTimestamp}
-                            compact
-                          />
+                          <div className="space-y-1">
+                            <ClassyMessageExtras
+                              metadata={getAssistantMetadata(message)}
+                              onSuggestionClick={handleSuggestionClick}
+                              onCitationClick={handleSeekToTimestamp}
+                              compact
+                            />
+                            <ClassyMessageActions
+                              content={message.content}
+                              onAction={(action, payload) =>
+                                trackClassyEvent(
+                                  action,
+                                  { ...payload, assistant_message_id: message.id },
+                                  message.id,
+                                )
+                              }
+                            />
+                          </div>
                         )}
 
                         {/* Mobile Content Cards */}
                         {message.role === "assistant" &&
+                          ["recommendation", "mixed"].includes(
+                            getAssistantMetadata(message)?.content_strategy ||
+                              "",
+                          ) &&
                           messageContents.has(message.id) && (
                             <div className="space-y-3 w-full">
                               {messageContents.get(message.id)!.length >= 3 ? (
@@ -2090,7 +2009,7 @@ function StudyContent() {
                       />
                     </div>
                     <span className="text-xs text-muted-foreground">
-                      {thinkingLabel}
+                      Classy está pensando
                     </span>
                   </div>
                 </div>
@@ -2144,6 +2063,7 @@ function StudyContent() {
                   : "Digite sua mensagem..."
               }
               disabled={sending || isChatLocked}
+              aria-label="Mensagem para a Classy"
               className="flex-1 h-10"
             />
             <Button
@@ -2151,6 +2071,7 @@ function StudyContent() {
               disabled={sending || isChatLocked || !input.trim()}
               size="icon"
               className="h-10 w-10 shrink-0"
+              aria-label="Enviar mensagem"
             >
               {sending ? (
                 <Loader2 className="w-4 h-4 animate-spin" />
@@ -2645,10 +2566,10 @@ function StudyContent() {
       <Header />
 
       {/* Study Header */}
-      <header className="border-b border-border bg-card px-6 py-4 flex-shrink-0">
+      <header className="border-b border-border bg-background px-4 py-2.5 flex-shrink-0">
         <div className="flex w-full items-center justify-between gap-4">
           <div className="flex min-w-0 flex-1 justify-center">
-            <div className="w-full max-w-4xl">
+            <div className="w-full max-w-3xl">
               {!activeContent && studyMapCard}
             </div>
           </div>
@@ -3063,8 +2984,8 @@ function StudyContent() {
         >
           <div className="flex flex-col h-full overflow-hidden">
             {/* Chat Messages */}
-            <ScrollArea className="flex-1 px-6" ref={scrollRef}>
-              <div className="max-w-4xl mx-auto py-6 space-y-6">
+            <ScrollArea className="flex-1 px-4 sm:px-6" ref={scrollRef}>
+              <div className="mx-auto max-w-3xl space-y-8 py-8">
                 {loading || (messages.length === 0 && !initialMessageSent) ? (
                   <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
                     <Loader2 className="w-8 h-8 animate-spin mx-auto mb-4" />
@@ -3076,7 +2997,7 @@ function StudyContent() {
                       return (
                         <div
                           key={message.id}
-                          className="space-y-4 animate-fade-in"
+                          className="space-y-2.5 animate-fade-in"
                         >
                           <div
                             className={`flex ${
@@ -3101,15 +3022,34 @@ function StudyContent() {
                             />
                           </div>
                           {message.role === "assistant" && (
-                            <ClassyMessageExtras
-                              metadata={getAssistantMetadata(message)}
-                              onSuggestionClick={handleSuggestionClick}
-                              onCitationClick={handleSeekToTimestamp}
-                            />
+                            <div className="space-y-1">
+                              <ClassyMessageExtras
+                                metadata={getAssistantMetadata(message)}
+                                onSuggestionClick={handleSuggestionClick}
+                                onCitationClick={handleSeekToTimestamp}
+                              />
+                              <ClassyMessageActions
+                                content={message.content}
+                                onAction={(action, payload) =>
+                                  trackClassyEvent(
+                                    action,
+                                    {
+                                      ...payload,
+                                      assistant_message_id: message.id,
+                                    },
+                                    message.id,
+                                  )
+                                }
+                              />
+                            </div>
                           )}
 
                           {/* Render content cards if available - Always carousel for responsive behavior */}
                           {message.role === "assistant" &&
+                            ["recommendation", "mixed"].includes(
+                              getAssistantMetadata(message)
+                                ?.content_strategy || "",
+                            ) &&
                             messageContents.has(message.id) && (
                               <div className="space-y-4 w-full">
                                 <div className="relative">
@@ -3255,7 +3195,7 @@ function StudyContent() {
                         />
                       </div>
                       <span className="text-sm text-muted-foreground">
-                        {thinkingLabel}
+                        Classy está pensando
                       </span>
                     </div>
                   </div>
@@ -3263,9 +3203,9 @@ function StudyContent() {
               </div>
             </ScrollArea>
 
-            {/* Input - Modern ChatGPT Style */}
-            <div className="border-t border-border/50 bg-gradient-to-b from-card/50 to-background/50 backdrop-blur-xl px-4 sm:px-6 py-6 flex-shrink-0">
-              <div className="max-w-4xl mx-auto">
+            {/* Input */}
+            <div className="flex-shrink-0 bg-background px-4 pb-4 pt-2 sm:px-6">
+              <div className="mx-auto max-w-3xl">
                 {isChatLocked && (
                   <div className="pb-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
                     <div className="w-full rounded-2xl border border-destructive/20 bg-gradient-to-r from-destructive/5 to-destructive/10 px-5 py-4 shadow-lg">
@@ -3300,18 +3240,15 @@ function StudyContent() {
                   }}
                   className="relative"
                 >
-                  {/* Modern Input Container */}
                   <div
                     className={cn(
-                      "relative flex items-end gap-2 rounded-3xl transition-all duration-300",
-                      "bg-card border-2 shadow-lg hover:shadow-xl",
+                      "relative flex items-end gap-2 rounded-[26px] border bg-card shadow-sm transition-colors",
                       isChatLocked
-                        ? "border-border/30 opacity-60"
-                        : "border-border/50 hover:border-border focus-within:border-primary/30 focus-within:shadow-2xl focus-within:shadow-primary/5",
+                        ? "border-border/40 opacity-60"
+                        : "border-border focus-within:border-foreground/25 focus-within:ring-1 focus-within:ring-ring/20",
                     )}
                   >
-                    {/* Text Input */}
-                    <div className="flex-1 min-h-[56px] px-5 py-3">
+                    <div className="min-h-[52px] flex-1 px-4 py-2.5">
                       <textarea
                         ref={messageInputRef}
                         value={input}
@@ -3331,10 +3268,11 @@ function StudyContent() {
                             : "Pergunte algo à Classy..."
                         }
                         disabled={sending || isChatLocked}
+                        aria-label="Mensagem para a Classy"
                         rows={1}
                         className={cn(
                           "block w-full bg-transparent resize-none overflow-y-hidden outline-none",
-                          "text-sm sm:text-base !leading-[2.2rem]",
+                          "text-sm sm:text-[15px] !leading-7",
                           "placeholder:text-muted-foreground/60",
                           "disabled:cursor-not-allowed",
                         )}
@@ -3342,14 +3280,13 @@ function StudyContent() {
                       />
                     </div>
 
-                    {/* Send Button */}
-                    <div className="pr-2 pb-2">
+                    <div className="pb-2 pr-2">
                       <Button
                         type="submit"
                         disabled={sending || isChatLocked || !input.trim()}
                         size="icon"
                         className={cn(
-                          "h-10 w-10 rounded-2xl transition-all duration-300 shadow-md",
+                          "h-9 w-9 rounded-full transition-colors",
                           "disabled:opacity-40 disabled:cursor-not-allowed",
                           !input.trim() &&
                             !sending &&
@@ -3358,8 +3295,9 @@ function StudyContent() {
                           input.trim() &&
                             !sending &&
                             !isChatLocked &&
-                            "bg-primary hover:bg-primary/90 hover:scale-105 active:scale-95 shadow-lg shadow-primary/20",
+                            "bg-foreground text-background hover:bg-foreground/85",
                         )}
+                        aria-label="Enviar mensagem"
                       >
                         {sending ? (
                           <Loader2 className="w-5 h-5 animate-spin" />
@@ -3377,6 +3315,9 @@ function StudyContent() {
                     </p>
                   )}
                 </form>
+                <p className="mt-2 text-center text-[11px] text-muted-foreground/70">
+                  A Classy pode cometer erros. Confira informações importantes.
+                </p>
               </div>
             </div>
           </div>

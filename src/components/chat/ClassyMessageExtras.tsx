@@ -1,7 +1,6 @@
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { ShieldCheck } from "lucide-react";
+import { ChevronDown, FileText } from "lucide-react";
 
 export interface ClassyCitation {
   source: "transcript" | "note" | "quiz";
@@ -51,15 +50,17 @@ interface ClassyMessageExtrasProps {
 
 const sourceLabel: Record<ClassyCitation["source"], string> = {
   transcript: "Transcrição",
-  note: "Notas",
+  note: "Anotação",
   quiz: "Quiz",
 };
 
-const contentStrategyLabel: Record<string, string> = {
-  grounded: "Baseado no conteúdo atual",
-  recommendation: "Baseado na trilha recomendada",
-  mixed: "Baseado em memória e contexto do estudo",
-  general_knowledge: "Baseado em conhecimento geral",
+const groundingLabel: Record<string, string> = {
+  transcript: "Transcrição deste conteúdo",
+  study_context: "Contexto deste estudo",
+  mixed: "Conteúdo e contexto do estudo",
+  general_knowledge: "Conhecimento geral",
+  grounded: "Conteúdo atual",
+  recommendation: "Conteúdos recomendados",
 };
 
 export function ClassyMessageExtras({
@@ -70,110 +71,30 @@ export function ClassyMessageExtras({
 }: ClassyMessageExtrasProps) {
   if (!metadata) return null;
 
-  const rawBlocks = metadata.ui_blocks || [];
-  const hasTrailBlock = rawBlocks.some((block) => block.type === "trail");
-  const hasRelatedContentStrategy =
-    metadata.content_strategy === "recommendation";
-  const blocks = rawBlocks.filter((block) => {
-    if (["resume", "checkpoint"].includes(block.type)) return false;
-    if (block.type === "trail" && hasRelatedContentStrategy) return false;
-    return true;
-  });
   const suggestions = metadata.follow_up_suggestions || [];
   const citations = metadata.citations || [];
-  const contentStrategy = metadata.content_strategy;
-  const sourceTransparency = metadata.source_transparency;
-  const sourceDescription =
-    sourceTransparency ||
-    (contentStrategy ? contentStrategyLabel[contentStrategy] : null);
-  const suggestionFriendlyIntents = new Set([
-    "onboard",
-    "clarify",
-    "plan",
-    "recommend",
-    "practice",
-  ]);
-  const shouldShowSuggestions =
-    suggestions.length > 0 &&
-    !compact &&
-    !hasRelatedContentStrategy &&
-    !hasTrailBlock &&
-    (suggestionFriendlyIntents.has(metadata.intent || "") ||
-      metadata.active_mode === "onboard" ||
-      blocks.some((block) => ["practice", "trail"].includes(block.type)));
-  const visibleSuggestions = shouldShowSuggestions
-    ? suggestions.slice(0, 3)
-    : [];
+  const isOnboarding =
+    metadata.active_mode === "onboard" || metadata.intent === "onboard";
+  const visibleSuggestions = isOnboarding ? suggestions.slice(0, 3) : [];
+  const sourceDescription = metadata.source_transparency;
+  const sourceKind =
+    metadata.quality?.grounding || metadata.content_strategy || "";
+  const sourceSummary = groundingLabel[sourceKind] || "Sobre esta resposta";
+  const hasSourceDetails = Boolean(sourceDescription || citations.length > 0);
 
-  if (
-    blocks.length === 0 &&
-    visibleSuggestions.length === 0 &&
-    citations.length === 0 &&
-    !contentStrategy &&
-    !sourceTransparency
-  ) {
-    return null;
-  }
+  if (visibleSuggestions.length === 0 && !hasSourceDetails) return null;
 
   return (
-    <div className={cn("space-y-3", compact && "space-y-2")}>
-      {blocks.length > 0 && (
-        <div className="space-y-2">
-          {blocks.slice(0, 1).map((block, index) => (
-            <div
-              key={`${block.type}-${index}`}
-              className="rounded-2xl border border-primary/15 bg-gradient-to-br from-primary/10 via-primary/5 to-transparent px-4 py-3"
-            >
-              <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-primary">
-                {block.type === "trail"
-                  ? "Rota sugerida"
-                  : block.type === "next_step"
-                    ? "Próximo passo"
-                    : block.type === "practice"
-                      ? "Prática guiada"
-                      : block.type === "celebration"
-                        ? "Sinal de progresso"
-                        : block.title}
-              </p>
-              {block.body && (
-                <p className="mt-1.5 text-sm leading-6 text-foreground">
-                  {block.body}
-                </p>
-              )}
-              {block.prompt && (
-                <p className="mt-1.5 text-sm leading-6 text-foreground">
-                  {block.prompt}
-                </p>
-              )}
-              {block.action && (
-                <p className="mt-1.5 text-sm leading-6 text-foreground">
-                  {block.action}
-                </p>
-              )}
-              {block.bullets && block.bullets.length > 0 && (
-                <ul className="mt-2.5 space-y-1.5 text-sm text-foreground">
-                  {block.bullets.map((bullet) => (
-                    <li key={bullet} className="flex gap-2">
-                      <span className="mt-1.5 h-1.5 w-1.5 rounded-full bg-primary shrink-0" />
-                      <span>{bullet}</span>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-          ))}
-        </div>
-      )}
-
+    <div className={cn("space-y-2.5", compact && "space-y-2")}>
       {visibleSuggestions.length > 0 && (
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-col items-start gap-2 sm:flex-row sm:flex-wrap">
           {visibleSuggestions.map((suggestion) => (
             <Button
               key={suggestion}
               type="button"
               variant="outline"
               size="sm"
-              className="h-8 rounded-full text-xs"
+              className="h-auto min-h-9 rounded-xl px-3 py-2 text-left text-xs font-medium"
               onClick={() => onSuggestionClick(suggestion)}
             >
               {suggestion}
@@ -182,40 +103,51 @@ export function ClassyMessageExtras({
         </div>
       )}
 
-      {citations.length > 0 && (
-        <div className="flex flex-wrap gap-2">
-          {citations.map((citation, index) => {
-            const clickable =
-              typeof citation.timestampSeconds === "number" && onCitationClick;
-            return (
-              <Badge
-                key={`${citation.source}-${index}`}
-                variant="secondary"
-                className={cn(
-                  "gap-1.5 px-2.5 py-1 text-[11px]",
-                  clickable && "cursor-pointer hover:bg-secondary/80",
-                )}
-                onClick={
-                  clickable
-                    ? () => onCitationClick?.(citation.timestampSeconds!)
-                    : undefined
-                }
-              >
-                <span className="font-medium">
-                  {sourceLabel[citation.source]}:
-                </span>
-                <span>{citation.label}</span>
-              </Badge>
-            );
-          })}
-        </div>
-      )}
+      {hasSourceDetails && (
+        <details className="group w-fit max-w-full text-xs text-muted-foreground">
+          <summary className="flex cursor-pointer list-none items-center gap-1.5 rounded-md py-1 transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+            <FileText className="h-3.5 w-3.5" aria-hidden="true" />
+            <span>{sourceSummary}</span>
+            <ChevronDown
+              className="h-3.5 w-3.5 transition-transform group-open:rotate-180"
+              aria-hidden="true"
+            />
+          </summary>
 
-      {sourceDescription && (
-        <div className="flex items-start gap-2 text-[11px] leading-5 text-muted-foreground/85">
-          <ShieldCheck className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-          <span>{sourceDescription}</span>
-        </div>
+          <div className="mt-1.5 max-w-2xl space-y-2 border-l border-border pl-3 leading-5">
+            {sourceDescription && <p>{sourceDescription}</p>}
+
+            {citations.length > 0 && (
+              <div className="flex flex-wrap gap-x-3 gap-y-1">
+                {citations.map((citation, index) => {
+                  const clickable =
+                    typeof citation.timestampSeconds === "number" &&
+                    onCitationClick;
+
+                  return (
+                    <button
+                      key={`${citation.source}-${index}`}
+                      type="button"
+                      disabled={!clickable}
+                      className={cn(
+                        "text-left text-xs text-muted-foreground",
+                        clickable &&
+                          "underline decoration-border underline-offset-4 hover:text-foreground",
+                      )}
+                      onClick={
+                        clickable
+                          ? () => onCitationClick?.(citation.timestampSeconds!)
+                          : undefined
+                      }
+                    >
+                      {sourceLabel[citation.source]}: {citation.label}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </details>
       )}
     </div>
   );
