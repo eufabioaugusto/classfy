@@ -71,6 +71,20 @@ const getActionLabel = (actionKey: string) => actionLabels[actionKey] || actionK
 const getPointTypeLabel = (pointType: RewardEventRow["point_type"]) =>
   pointType === "creator" ? "Criação" : "Estudo e participação";
 
+const rewardOriginLabels: Record<string, string> = {
+  DAILY_LOGIN: "Registro de login diário",
+  WEEKLY_STREAK: "Bônus de 7 dias consecutivos",
+  PROFILE_COMPLETE: "Perfil da conta",
+  CREATOR_APPROVED: "Perfil de creator",
+  REFERRAL_SIGNUP: "Programa de indicações",
+  REFERRAL_PURCHASE: "Compra por indicação",
+  SUBSCRIBE_CREATOR: "Perfil do creator seguido",
+  FOLLOW_CREATOR: "Perfil do creator seguido",
+};
+
+const getRewardOrigin = (event: RewardEvent) =>
+  event.contents?.title || rewardOriginLabels[event.action_key] || "Ação geral da plataforma";
+
 const metadataLabels: Record<string, string> = {
   date: "Data de referência",
   plan: "Plano",
@@ -154,11 +168,11 @@ export default function RewardsHistory() {
   };
 
   const exportToCSV = () => {
-    const headers = ["Data", "Ação", "Conteúdo", "Tipo", "Points"];
+    const headers = ["Data", "Ação", "Origem", "Tipo", "Points"];
     const rows = filteredEvents.map((event) => [
       format(new Date(event.created_at), "dd/MM/yyyy HH:mm", { locale: ptBR }),
       getActionLabel(event.action_key),
-      event.contents?.title || "-",
+      getRewardOrigin(event),
       getPointTypeLabel(event.point_type),
       String(event.points),
     ]);
@@ -198,7 +212,7 @@ export default function RewardsHistory() {
           />
         }
       >
-        <section className="economy-metric-grid">
+        <section className="economy-metric-grid economy-history-metrics">
           {[
             { Icon: Coins, label: "Points de estudo e participação", value: stats.userPoints, detail: "Recebidos pelas suas ações na plataforma" },
             { Icon: TrendingUp, label: "Creator Points", value: stats.creatorPoints, detail: "Gerados pelos seus conteúdos" },
@@ -243,64 +257,62 @@ export default function RewardsHistory() {
 
         <section className="economy-section">
           <V2SectionHeader eyebrow="Movimentações" title="Recompensas recebidas" description={`Exibindo ${paginatedEvents.length} de ${filteredEvents.length} registros encontrados.`} />
-          <V2Card className="economy-panel economy-history-card">
-            <V2CardContent>
-              {paginatedEvents.length === 0 ? (
-                <V2EmptyState
-                  icon={<BookOpen className="h-5 w-5" />}
-                  title="Nenhuma recompensa encontrada"
-                  description="Altere os filtros para procurar em outro período ou por outra ação."
-                  action={(actionFilter !== "all" || startDate || endDate) ? <V2Button variant="secondary" onClick={clearFilters}>Limpar filtros</V2Button> : undefined}
-                />
-              ) : (
-                <>
-                  <V2TableWrap className="economy-desktop-table">
-                    <V2Table>
-                      <thead><tr><th>Quando</th><th>O que você fez</th><th>Conteúdo</th><th>Points</th><th>Tipo</th><th aria-label="Detalhes" /></tr></thead>
-                      <tbody>
-                        {paginatedEvents.map((event) => (
-                          <tr key={event.id}>
-                            <td className="economy-table-date">{format(new Date(event.created_at), "dd/MM/yyyy, HH:mm", { locale: ptBR })}</td>
-                            <td><div className="economy-action-cell"><span className="economy-icon economy-icon--muted"><Sparkles aria-hidden="true" /></span><strong>{getActionLabel(event.action_key)}</strong></div></td>
-                            <td className="economy-content-name">{event.contents?.title || "Não vinculado a um conteúdo"}</td>
-                            <td><strong className="economy-table-points">+{Math.floor(Number(event.points || 0))}</strong></td>
-                            <td><V2Badge variant={event.point_type === "creator" ? "accent" : "neutral"}>{getPointTypeLabel(event.point_type)}</V2Badge></td>
-                            <td><V2Button variant="quiet" size="icon" aria-label="Ver detalhes" onClick={() => showDetails(event)}><Eye className="h-4 w-4" /></V2Button></td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </V2Table>
-                  </V2TableWrap>
+          <div className="economy-history-content">
+            {paginatedEvents.length === 0 ? (
+              <V2EmptyState
+                icon={<BookOpen className="h-5 w-5" />}
+                title="Nenhuma recompensa encontrada"
+                description="Altere os filtros para procurar em outro período ou por outra ação."
+                action={(actionFilter !== "all" || startDate || endDate) ? <V2Button variant="secondary" onClick={clearFilters}>Limpar filtros</V2Button> : undefined}
+              />
+            ) : (
+              <>
+                <V2TableWrap className="economy-desktop-table">
+                  <V2Table>
+                    <thead><tr><th>Quando</th><th>O que você fez</th><th>Origem</th><th>Points</th><th>Tipo</th><th aria-label="Detalhes" /></tr></thead>
+                    <tbody>
+                      {paginatedEvents.map((event) => (
+                        <tr key={event.id}>
+                          <td className="economy-table-date">{format(new Date(event.created_at), "dd/MM/yyyy, HH:mm", { locale: ptBR })}</td>
+                          <td><div className="economy-action-cell"><span className="economy-icon economy-icon--muted"><Sparkles aria-hidden="true" /></span><strong>{getActionLabel(event.action_key)}</strong></div></td>
+                          <td className="economy-origin-name">{getRewardOrigin(event)}</td>
+                          <td><strong className="economy-table-points">+{Math.floor(Number(event.points || 0))}</strong></td>
+                          <td><V2Badge variant={event.point_type === "creator" ? "accent" : "neutral"}>{getPointTypeLabel(event.point_type)}</V2Badge></td>
+                          <td><V2Button variant="quiet" size="icon" aria-label="Ver detalhes" onClick={() => showDetails(event)}><Eye className="h-4 w-4" /></V2Button></td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </V2Table>
+                </V2TableWrap>
 
-                  <div className="economy-mobile-list">
-                    {paginatedEvents.map((event) => (
-                      <button className="economy-history-mobile-button" key={event.id} type="button" onClick={() => showDetails(event)}>
-                        <div className="economy-level__row">
-                          <div className="economy-action-cell"><span className="economy-icon economy-icon--muted"><Sparkles aria-hidden="true" /></span><strong>{getActionLabel(event.action_key)}</strong></div>
-                          <strong className="economy-table-points">+{Math.floor(Number(event.points || 0))}</strong>
-                        </div>
-                        <p className="economy-panel-copy mt-3">{event.contents?.title || "Não vinculado a um conteúdo"}</p>
-                        <div className="economy-history-mobile-meta">
-                          <span>{format(new Date(event.created_at), "dd/MM/yyyy 'às' HH:mm", { locale: ptBR })}</span>
-                          <V2Badge variant={event.point_type === "creator" ? "accent" : "neutral"}>{getPointTypeLabel(event.point_type)}</V2Badge>
-                        </div>
-                      </button>
-                    ))}
-                  </div>
-                </>
-              )}
-
-              {totalPages > 1 && (
-                <div className="economy-pagination">
-                  <span>Página {currentPage} de {totalPages}</span>
-                  <div className="economy-page-actions">
-                    <V2Button variant="secondary" size="sm" disabled={currentPage === 1} onClick={() => setCurrentPage((page) => Math.max(1, page - 1))}>Anterior</V2Button>
-                    <V2Button variant="secondary" size="sm" disabled={currentPage === totalPages} onClick={() => setCurrentPage((page) => Math.min(totalPages, page + 1))}>Próxima</V2Button>
-                  </div>
+                <div className="economy-mobile-list">
+                  {paginatedEvents.map((event) => (
+                    <button className="economy-history-mobile-button" key={event.id} type="button" onClick={() => showDetails(event)}>
+                      <div className="economy-level__row">
+                        <div className="economy-action-cell"><span className="economy-icon economy-icon--muted"><Sparkles aria-hidden="true" /></span><strong>{getActionLabel(event.action_key)}</strong></div>
+                        <strong className="economy-table-points">+{Math.floor(Number(event.points || 0))}</strong>
+                      </div>
+                      <p className="economy-panel-copy mt-3">Origem · {getRewardOrigin(event)}</p>
+                      <div className="economy-history-mobile-meta">
+                        <span>{format(new Date(event.created_at), "dd/MM/yyyy 'às' HH:mm", { locale: ptBR })}</span>
+                        <V2Badge variant={event.point_type === "creator" ? "accent" : "neutral"}>{getPointTypeLabel(event.point_type)}</V2Badge>
+                      </div>
+                    </button>
+                  ))}
                 </div>
-              )}
-            </V2CardContent>
-          </V2Card>
+              </>
+            )}
+
+            {totalPages > 1 && (
+              <div className="economy-pagination">
+                <span>Página {currentPage} de {totalPages}</span>
+                <div className="economy-page-actions">
+                  <V2Button variant="secondary" size="sm" disabled={currentPage === 1} onClick={() => setCurrentPage((page) => Math.max(1, page - 1))}>Anterior</V2Button>
+                  <V2Button variant="secondary" size="sm" disabled={currentPage === totalPages} onClick={() => setCurrentPage((page) => Math.min(totalPages, page + 1))}>Próxima</V2Button>
+                </div>
+              </div>
+            )}
+          </div>
         </section>
       </EconomyTemplate>
 
@@ -316,7 +328,7 @@ export default function RewardsHistory() {
               <div className="economy-detail-item"><span className="economy-detail-label">Ação realizada</span><strong className="economy-detail-value">{getActionLabel(selectedEvent.action_key)}</strong></div>
               <div className="economy-detail-item"><span className="economy-detail-label">Points recebidos</span><strong className="economy-detail-points">+{Math.floor(Number(selectedEvent.points || 0))} Points</strong></div>
               <div className="economy-detail-item"><span className="economy-detail-label">Tipo de recompensa</span><V2Badge variant={selectedEvent.point_type === "creator" ? "accent" : "neutral"}>{getPointTypeLabel(selectedEvent.point_type)}</V2Badge></div>
-              <div className="economy-detail-item economy-detail-item--wide"><span className="economy-detail-label">Conteúdo</span><strong className="economy-detail-value">{selectedEvent.contents?.title || "Não vinculado a um conteúdo"}</strong></div>
+              <div className="economy-detail-item economy-detail-item--wide"><span className="economy-detail-label">Origem</span><strong className="economy-detail-value">{getRewardOrigin(selectedEvent)}</strong></div>
               {selectedEvent.metadata && typeof selectedEvent.metadata === "object" && !Array.isArray(selectedEvent.metadata) && Object.keys(selectedEvent.metadata).length > 0 && (
                 <div className="economy-detail-item economy-detail-item--wide">
                   <span className="economy-detail-label">Dados adicionais</span>

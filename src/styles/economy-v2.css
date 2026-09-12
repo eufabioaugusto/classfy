@@ -436,8 +436,6 @@
   line-height: 1.45;
 }
 
-.economy-history-card .cf2-card__content { padding-top: 0; }
-
 .economy-mobile-list { display: none; }
 
 .economy-status {
@@ -463,6 +461,11 @@
   flex-wrap: wrap;
   align-items: center;
   gap: var(--cf2-space-2);
+}
+
+.economy-history-metrics {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin-bottom: var(--cf2-space-5);
 }
 
 .economy-filter-grid {
@@ -504,12 +507,16 @@
   line-height: 1.35;
 }
 
-.economy-content-name {
+.economy-origin-name {
   max-width: 18rem;
   overflow: hidden;
   color: var(--cf2-ink-muted);
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.economy-history-content {
+  min-width: 0;
 }
 
 .economy-table-date {
@@ -593,6 +600,7 @@
 @media (max-width: 1100px) {
   .economy-hero-grid { grid-template-columns: minmax(0, 1.3fr) minmax(17rem, 0.8fr); }
   .economy-metric-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .economy-history-metrics { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
 
 @media (max-width: 820px) {
@@ -600,6 +608,7 @@
   .economy-content-grid { grid-template-columns: minmax(0, 1fr); }
   .economy-balance-hero { min-height: 22rem; }
   .economy-filter-grid { grid-template-columns: minmax(0, 1fr); }
+  .economy-history-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
 @media (max-width: 640px) {
