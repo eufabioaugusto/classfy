@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Navigate, useNavigate, useSearchParams } from "react-router-dom";
 import {
   Check,
+  ChevronLeft,
+  ChevronRight,
   CircleAlert,
   Cloud,
   CloudOff,
@@ -13,15 +15,16 @@ import {
   Lock,
   RotateCcw,
   Save,
+  Scissors,
   Send,
   Trash2,
   UploadCloud,
+  X,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
 import { AppShell, PageHeader } from "@/components/layout";
 import { CreatorTemplate } from "@/components/templates";
-import { StudioNavigation } from "@/components/studio/StudioNavigation";
 import {
   V2Badge,
   V2Button,
@@ -107,11 +110,17 @@ export default function StudioUpload() {
   const [manualThumbnail, setManualThumbnail] = useState(false);
   const [lobbyOpen, setLobbyOpen] = useState(false);
   const [lobbyVideoSrc, setLobbyVideoSrc] = useState("");
+  const [lobbyPurpose, setLobbyPurpose] = useState<"initial" | "adjust" | null>(
+    null,
+  );
   const [previewOpen, setPreviewOpen] = useState(false);
   const [discardOpen, setDiscardOpen] = useState(false);
+  const [wizardStep, setWizardStep] = useState(0);
+  const [isDraggingFile, setIsDraggingFile] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [isGeneratingTags, setIsGeneratingTags] = useState(false);
   const pendingFileRef = useRef<File | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const mediaUpload = useMediaUpload();
   const compression = useVideoCompression();
   const [rules, setRules] = useState(publicationRules[contentType]);
@@ -182,6 +191,7 @@ export default function StudioUpload() {
       setPrice(String(data.price ?? 0));
       setDiscount(String(data.discount ?? 0));
       setTags(data.tags ?? []);
+      setFileName("");
       setFileUrl(data.file_url ?? "");
       setMediaAssetId(data.media_asset_id ?? null);
       setVideoProvider(data.video_provider ?? null);
@@ -190,6 +200,7 @@ export default function StudioUpload() {
       setThumbnailPreview(data.thumbnail_url ?? "");
       setManualThumbnail(Boolean(data.thumbnail_url));
       if (data.media_asset_id) {
+        setWizardStep(1);
         const { data: asset } = await (supabase as any)
           .from("media_assets")
           .select("status")
@@ -213,6 +224,7 @@ export default function StudioUpload() {
       price,
       discount,
       tags,
+      fileName,
       fileUrl,
       thumbnailUrl,
       duration,
@@ -224,6 +236,7 @@ export default function StudioUpload() {
       description,
       discount,
       duration,
+      fileName,
       fileUrl,
       mediaAssetId,
       mediaUpload.state,
@@ -244,6 +257,7 @@ export default function StudioUpload() {
       setPrice(restored.price ?? "0");
       setDiscount(restored.discount ?? "0");
       setTags(restored.tags ?? []);
+      setFileName(restored.fileName ?? "");
       setFileUrl(restored.fileUrl ?? "");
       setThumbnailUrl(restored.thumbnailUrl ?? "");
       setThumbnailPreview(restored.thumbnailUrl ?? "");
@@ -251,6 +265,7 @@ export default function StudioUpload() {
       setMediaAssetId(restored.mediaAssetId ?? null);
       setVideoProvider(restored.videoProvider ?? null);
       if (restored.mediaAssetId) {
+        setWizardStep(1);
         if (restored.uploadState === "ready") mediaUpload.setState("ready");
         else mediaUpload.resumeProcessing(restored.mediaAssetId);
       }
@@ -272,14 +287,18 @@ export default function StudioUpload() {
 
   useEffect(() => {
     const guard = (event: BeforeUnloadEvent) => {
-      if (["preparing", "uploading"].includes(mediaUpload.state)) {
+      if (
+        ["preparing", "uploading"].includes(mediaUpload.state) ||
+        compression.isCompressing ||
+        ["loading", "analyzing", "finalizing"].includes(compression.stage)
+      ) {
         event.preventDefault();
         event.returnValue = "";
       }
     };
     window.addEventListener("beforeunload", guard);
     return () => window.removeEventListener("beforeunload", guard);
-  }, [mediaUpload.state]);
+  }, [compression.isCompressing, compression.stage, mediaUpload.state]);
 
   const uploadCover = async (file: File) => {
     if (!user) return;
@@ -391,17 +410,45 @@ export default function StudioUpload() {
     const url = URL.createObjectURL(file);
     setFileName(file.name);
     setFilePreview(url);
+    mediaUpload.setState("preparing");
+    if (!title.trim()) {
+      setTitle(
+        file.name
+          .replace(/\.[^/.]+$/, "")
+          .replace(/[_-]+/g, " ")
+          .replace(/\s+/g, " ")
+          .trim(),
+      );
+    }
     pendingFileRef.current = file;
     if (contentType === "podcast") {
+      setWizardStep(1);
       const audio = document.createElement("audio");
       audio.preload = "metadata";
       audio.src = url;
       audio.onloadedmetadata = () =>
         setDuration(Math.floor(audio.duration || 0));
-      await startUpload(file);
+      void startUpload(file);
     } else {
       setLobbyVideoSrc(url);
-      setLobbyOpen(true);
+      const video = document.createElement("video");
+      video.preload = "metadata";
+      video.src = url;
+      video.onloadedmetadata = () => {
+        const selectedDuration = Math.floor(video.duration || 0);
+        setDuration(selectedDuration);
+        if (contentType === "short" && selectedDuration > 180) {
+          setLobbyPurpose("initial");
+          setLobbyOpen(true);
+          return;
+        }
+        setWizardStep(1);
+        void startUpload(file);
+      };
+      video.onerror = () => {
+        setWizardStep(1);
+        void startUpload(file);
+      };
     }
   };
 
@@ -419,6 +466,10 @@ export default function StudioUpload() {
     setDuration(0);
     setMediaAssetId(null);
     setVideoProvider(null);
+    pendingFileRef.current = null;
+    setLobbyPurpose(null);
+    setLobbyVideoSrc("");
+    setWizardStep(0);
   };
 
   const discardDraft = async () => {
@@ -536,6 +587,33 @@ export default function StudioUpload() {
     );
   const hasPlayablePreview =
     filePreview.startsWith("blob:") || filePreview.startsWith("http");
+  const hasSelectedMedia = Boolean(
+    filePreview ||
+    fileUrl ||
+    mediaAssetId ||
+    fileName ||
+    mediaUpload.state !== "idle",
+  );
+  const isPreparingLocally =
+    compression.isCompressing ||
+    ["loading", "analyzing", "compressing", "finalizing"].includes(
+      compression.stage,
+    );
+  const mediaStatus = isPreparingLocally
+    ? compression.message || "Preparando o arquivo..."
+    : mediaStatusCopy(mediaUpload.state, mediaUpload.progress);
+  const closeWizard = async () => {
+    if (
+      ["preparing", "uploading"].includes(mediaUpload.state) ||
+      isPreparingLocally
+    ) {
+      toast.info("Aguarde o envio terminar antes de fechar esta janela.");
+      return;
+    }
+    if (title || description || hasSelectedMedia) await draft.saveNow();
+    navigate("/studio/contents");
+  };
+  const wizardSteps = ["Arquivo", "Detalhes", "Acesso e revisão"];
 
   return (
     <AppShell
@@ -550,9 +628,10 @@ export default function StudioUpload() {
         header={
           <PageHeader
             title={
-              isEditMode
+              title ||
+              (isEditMode
                 ? `Editar ${rules.label.toLowerCase()}`
-                : `Publique ${newPublicationLabel}.`
+                : `Publique ${newPublicationLabel}.`)
             }
             description={
               isEditMode && originalStatus === "approved"
@@ -560,18 +639,56 @@ export default function StudioUpload() {
                 : rules.description
             }
             action={
-              <span className="studio-draft-state" data-state={draft.state}>
-                {saveIcon}
-                {draft.label}
-              </span>
+              <div className="studio-wizard-header-actions">
+                <span className="studio-draft-state" data-state={draft.state}>
+                  {saveIcon}
+                  {draft.label}
+                </span>
+                <button
+                  type="button"
+                  className="studio-wizard-close studio-wizard-discard"
+                  aria-label="Descartar rascunho"
+                  onClick={() => setDiscardOpen(true)}
+                >
+                  <Trash2 />
+                </button>
+                <button
+                  type="button"
+                  className="studio-wizard-close"
+                  aria-label="Fechar publicação"
+                  onClick={() => void closeWizard()}
+                >
+                  <X />
+                </button>
+              </div>
             }
           />
         }
-        toolbar={<StudioNavigation />}
       >
-        <form className="studio-publish-layout" onSubmit={submit}>
+        <nav className="studio-wizard-steps" aria-label="Etapas da publicação">
+          <ol>
+            {wizardSteps.map((step, index) => (
+              <li
+                key={step}
+                data-active={index === wizardStep || undefined}
+                data-complete={index < wizardStep || undefined}
+              >
+                <span>{index < wizardStep ? <Check /> : index + 1}</span>
+                <strong>{step}</strong>
+              </li>
+            ))}
+          </ol>
+        </nav>
+        <form
+          className="studio-publish-layout"
+          data-step={wizardStep}
+          onSubmit={submit}
+        >
           <div className="studio-publish-main">
-            <V2Card className="studio-publish-card" elevation="panel">
+            <V2Card
+              className={`studio-publish-card studio-media-card ${wizardStep > 1 ? "studio-wizard-hidden" : ""}`}
+              elevation="panel"
+            >
               <V2CardHeader>
                 <div className="studio-publish-heading">
                   <span className="studio-icon" data-tone="accent">
@@ -601,26 +718,66 @@ export default function StudioUpload() {
                         : "neutral"
                   }
                 >
-                  {mediaStatusCopy(mediaUpload.state, mediaUpload.progress)}
+                  {mediaStatus}
                 </V2Badge>
               </V2CardHeader>
               <V2CardContent>
-                {!fileUrl && mediaUpload.state === "idle" ? (
-                  <label className="studio-upload-dropzone">
-                    <UploadCloud />
-                    <strong>Escolha um arquivo ou arraste para cá</strong>
-                    <span>
-                      Você poderá preencher o restante enquanto o envio
-                      acontece.
+                {!hasSelectedMedia ? (
+                  <div
+                    className="studio-upload-dropzone"
+                    data-dragging={isDraggingFile || undefined}
+                    onDragEnter={(event) => {
+                      event.preventDefault();
+                      setIsDraggingFile(true);
+                    }}
+                    onDragOver={(event) => event.preventDefault()}
+                    onDragLeave={(event) => {
+                      if (
+                        !event.currentTarget.contains(
+                          event.relatedTarget as Node,
+                        )
+                      )
+                        setIsDraggingFile(false);
+                    }}
+                    onDrop={(event) => {
+                      event.preventDefault();
+                      setIsDraggingFile(false);
+                      void handleFileSelect(event.dataTransfer.files?.[0]);
+                    }}
+                  >
+                    <span className="studio-upload-dropzone__icon">
+                      <UploadCloud />
                     </span>
+                    <h1>
+                      {contentType === "podcast"
+                        ? "Envie o áudio do episódio"
+                        : "Envie seu vídeo"}
+                    </h1>
+                    <p>
+                      Arraste o arquivo para cá ou selecione no dispositivo.
+                    </p>
+                    <V2Button
+                      size="lg"
+                      onClick={() => fileInputRef.current?.click()}
+                    >
+                      Selecionar arquivo
+                    </V2Button>
+                    <small>
+                      {contentType === "short"
+                        ? "Vídeo vertical de até 3 minutos · MP4, WebM ou MOV"
+                        : contentType === "podcast"
+                          ? "MP3, M4A, WAV ou OGG"
+                          : "MP4, WebM ou MOV"}
+                    </small>
                     <input
+                      ref={fileInputRef}
                       type="file"
                       accept={rules.accept}
                       onChange={(event) =>
                         void handleFileSelect(event.target.files?.[0])
                       }
                     />
-                  </label>
+                  </div>
                 ) : (
                   <div className="studio-media-progress">
                     <div
@@ -643,27 +800,49 @@ export default function StudioUpload() {
                           {duration > 0
                             ? `${Math.floor(duration / 60)}:${String(duration % 60).padStart(2, "0")} · `
                             : ""}
-                          {mediaStatusCopy(
-                            mediaUpload.state,
-                            mediaUpload.progress,
-                          )}
+                          {mediaStatus}
                         </span>
                       </div>
-                      <V2Button
-                        variant="quiet"
-                        size="sm"
-                        leadingIcon={<Trash2 />}
-                        onClick={removeMedia}
-                      >
-                        Remover
-                      </V2Button>
+                      <div className="studio-media-progress__actions">
+                        {contentType !== "podcast" &&
+                          pendingFileRef.current && (
+                            <V2Button
+                              variant="quiet"
+                              size="sm"
+                              leadingIcon={<Scissors />}
+                              disabled={
+                                mediaUpload.state === "uploading" ||
+                                isPreparingLocally
+                              }
+                              onClick={() => {
+                                setLobbyPurpose("adjust");
+                                setLobbyOpen(true);
+                              }}
+                            >
+                              Ajustar vídeo
+                            </V2Button>
+                          )}
+                        <V2Button
+                          variant="quiet"
+                          size="sm"
+                          leadingIcon={<Trash2 />}
+                          onClick={removeMedia}
+                        >
+                          Remover
+                        </V2Button>
+                      </div>
                     </div>
-                    {mediaUpload.state === "uploading" && (
+                    {(mediaUpload.state === "uploading" ||
+                      isPreparingLocally) && (
                       <div
                         className="studio-upload-progress"
-                        aria-label={`Upload ${mediaUpload.progress}%`}
+                        aria-label={`Preparação ${isPreparingLocally ? compression.progress : mediaUpload.progress}%`}
                       >
-                        <span style={{ width: `${mediaUpload.progress}%` }} />
+                        <span
+                          style={{
+                            width: `${isPreparingLocally ? compression.progress : mediaUpload.progress}%`,
+                          }}
+                        />
                       </div>
                     )}
                     {mediaUpload.error && (
@@ -695,7 +874,10 @@ export default function StudioUpload() {
               </V2CardContent>
             </V2Card>
 
-            <V2Card className="studio-publish-card" elevation="panel">
+            <V2Card
+              className={`studio-publish-card ${wizardStep !== 1 ? "studio-wizard-hidden" : ""}`}
+              elevation="panel"
+            >
               <V2CardHeader>
                 <div className="studio-publish-heading">
                   <span className="studio-icon">
@@ -737,7 +919,10 @@ export default function StudioUpload() {
               </V2CardContent>
             </V2Card>
 
-            <V2Card className="studio-publish-card" elevation="panel">
+            <V2Card
+              className={`studio-publish-card ${wizardStep !== 1 ? "studio-wizard-hidden" : ""}`}
+              elevation="panel"
+            >
               <V2CardHeader>
                 <div className="studio-publish-heading">
                   <span className="studio-icon">
@@ -780,7 +965,10 @@ export default function StudioUpload() {
               </V2CardContent>
             </V2Card>
 
-            <V2Card className="studio-publish-card" elevation="panel">
+            <V2Card
+              className={`studio-publish-card ${wizardStep !== 2 ? "studio-wizard-hidden" : ""}`}
+              elevation="panel"
+            >
               <V2CardHeader>
                 <div className="studio-publish-heading">
                   <span className="studio-icon">
@@ -832,7 +1020,9 @@ export default function StudioUpload() {
             </V2Card>
           </div>
 
-          <aside className="studio-publish-review">
+          <aside
+            className={`studio-publish-review ${wizardStep !== 2 ? "studio-wizard-hidden" : ""}`}
+          >
             <V2Card elevation="raised">
               <V2CardHeader>
                 <div>
@@ -891,45 +1081,68 @@ export default function StudioUpload() {
                   </div>
                 </dl>
               </V2CardContent>
-              <div className="studio-review-actions">
-                <V2Button
-                  variant="secondary"
-                  leadingIcon={<Eye />}
-                  onClick={() => setPreviewOpen(true)}
-                  disabled={!title && !thumbnailPreview}
-                >
-                  Pré-visualizar
-                </V2Button>
-                <V2Button
-                  type="submit"
-                  leadingIcon={
-                    submitting ? (
-                      <LoaderCircle className="animate-spin" />
-                    ) : (
-                      <Send />
-                    )
-                  }
-                  disabled={submitting || issues.length > 0}
-                >
-                  {submitting ? "Enviando..." : "Enviar para análise"}
-                </V2Button>
-                <V2Button
-                  variant="quiet"
-                  leadingIcon={<Save />}
-                  onClick={() => void draft.saveNow()}
-                >
-                  Salvar rascunho
-                </V2Button>
-                <V2Button
-                  variant="quiet"
-                  leadingIcon={<Trash2 />}
-                  onClick={() => setDiscardOpen(true)}
-                >
-                  Descartar rascunho
-                </V2Button>
-              </div>
             </V2Card>
           </aside>
+          <footer className="studio-wizard-footer">
+            <div className="studio-wizard-footer__status">
+              <UploadCloud />
+              <div>
+                <strong>{mediaStatus}</strong>
+                <span>
+                  {mediaUpload.state === "uploading"
+                    ? `${mediaUpload.progress}% concluído`
+                    : isPreparingLocally
+                      ? `${compression.progress}% preparado`
+                      : draft.label}
+                </span>
+              </div>
+            </div>
+            <div className="studio-wizard-footer__actions">
+              {wizardStep > 0 && (
+                <V2Button
+                  variant="secondary"
+                  leadingIcon={<ChevronLeft />}
+                  onClick={() => setWizardStep((step) => Math.max(0, step - 1))}
+                >
+                  Voltar
+                </V2Button>
+              )}
+              {wizardStep === 1 && (
+                <V2Button
+                  trailingIcon={<ChevronRight />}
+                  onClick={() => setWizardStep(2)}
+                  disabled={!hasSelectedMedia}
+                >
+                  Avançar
+                </V2Button>
+              )}
+              {wizardStep === 2 && (
+                <>
+                  <V2Button
+                    variant="secondary"
+                    leadingIcon={<Eye />}
+                    onClick={() => setPreviewOpen(true)}
+                    disabled={!title && !thumbnailPreview}
+                  >
+                    Pré-visualizar
+                  </V2Button>
+                  <V2Button
+                    type="submit"
+                    leadingIcon={
+                      submitting ? (
+                        <LoaderCircle className="animate-spin" />
+                      ) : (
+                        <Send />
+                      )
+                    }
+                    disabled={submitting || issues.length > 0}
+                  >
+                    {submitting ? "Enviando..." : "Enviar para análise"}
+                  </V2Button>
+                </>
+              )}
+            </div>
+          </footer>
         </form>
       </CreatorTemplate>
 
@@ -939,16 +1152,33 @@ export default function StudioUpload() {
         open={lobbyOpen}
         onClose={() => {
           setLobbyOpen(false);
-          pendingFileRef.current = null;
-          setFilePreview("");
+          if (lobbyPurpose === "initial") removeMedia();
+          setLobbyPurpose(null);
         }}
         onConfirm={(data) => {
           setLobbyOpen(false);
+          setWizardStep(1);
           setDuration(Math.floor(data.duration));
           if (data.thumbnailFile) void uploadCover(data.thumbnailFile);
           const file = pendingFileRef.current;
-          pendingFileRef.current = null;
-          if (file) void startUpload(file, data.trimStart, data.trimEnd);
+          const shouldReplace = lobbyPurpose === "adjust" && mediaAssetId;
+          setLobbyPurpose(null);
+          if (!file) return;
+          if (shouldReplace) {
+            void (async () => {
+              await (supabase as any).rpc("abandon_media_asset", {
+                p_media_asset_id: mediaAssetId,
+              });
+              mediaUpload.reset();
+              compression.reset();
+              setFileUrl("");
+              setMediaAssetId(null);
+              setVideoProvider(null);
+              await startUpload(file, data.trimStart, data.trimEnd);
+            })();
+            return;
+          }
+          void startUpload(file, data.trimStart, data.trimEnd);
         }}
       />
       <Dialog open={previewOpen} onOpenChange={setPreviewOpen}>
@@ -988,14 +1218,18 @@ export default function StudioUpload() {
           <DialogHeader>
             <DialogTitle>Descartar este rascunho?</DialogTitle>
             <DialogDescription>
-              Os dados que ainda não foram enviados para análise e a mídia vinculada serão removidos.
+              Os dados que ainda não foram enviados para análise e a mídia
+              vinculada serão removidos.
             </DialogDescription>
           </DialogHeader>
           <div className="studio-dialog-actions">
             <V2Button variant="secondary" onClick={() => setDiscardOpen(false)}>
               Continuar editando
             </V2Button>
-            <V2Button leadingIcon={<Trash2 />} onClick={() => void discardDraft()}>
+            <V2Button
+              leadingIcon={<Trash2 />}
+              onClick={() => void discardDraft()}
+            >
               Descartar rascunho
             </V2Button>
           </div>
