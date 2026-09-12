@@ -430,15 +430,17 @@ function WatchContent() {
   const getLikeRewardPoints = async (): Promise<number> => {
     if (!user || !content) return 0;
 
-    const { data, error } = await supabase
+    let query = supabase
       .from("reward_events")
       .select("points, created_at")
       .eq("user_id", user.id)
-      .eq("content_id", content.id)
       .eq("action_key", "LIKE")
       .order("created_at", { ascending: false })
-      .limit(1)
-      .maybeSingle();
+      .limit(1);
+    query = isCourse
+      ? query.contains("metadata", { course_id: content.id })
+      : query.eq("content_id", content.id);
+    const { data, error } = await query.maybeSingle();
 
     if (error) return 0;
     return data?.points || 0;
@@ -469,8 +471,11 @@ function WatchContent() {
     if (!user || !content || !unlikeConfirmation.pending) return;
 
     try {
-      await reverseReward(user.id, content.id, "LIKE");
-      await performUnlike();
+      const reversal = await reverseReward(user.id, content.id, "LIKE");
+      if (!reversal) throw new Error("Reward reversal failed");
+      setIsLiked(false);
+      setLikesCount((prev) => Math.max(0, prev - 1));
+      await refreshLikesCountEventually();
 
       toast.success("Like removido. Points deduzidos.");
     } finally {
@@ -504,6 +509,8 @@ function WatchContent() {
       }
 
       // Add like
+      setIsLiked(true);
+      setLikesCount((prev) => prev + 1);
       const { error } = await supabase.from("actions").insert({
         user_id: user.id,
         type: "LIKE",
@@ -511,13 +518,15 @@ function WatchContent() {
       });
 
       if (!error) {
-        setIsLiked(true);
-        setLikesCount((prev) => prev + 1);
         if (hasAccess) {
           await handleLike(user.id, content.id, true);
         }
       } else if (error.code === "23505") {
         setIsLiked(true);
+      } else {
+        setIsLiked(false);
+        setLikesCount((prev) => Math.max(0, prev - 1));
+        throw error;
       }
 
       await refreshLikesCountEventually();
@@ -529,11 +538,19 @@ function WatchContent() {
   const toggleSave = async () => {
     if (!user || !content) return;
     if (isSaved) {
-      await supabase.from('saved_contents').delete().eq('user_id', user.id).eq(isCourse ? 'course_id' : 'content_id', content.id);
       setIsSaved(false);
+      const { error } = await supabase.from('saved_contents').delete().eq('user_id', user.id).eq(isCourse ? 'course_id' : 'content_id', content.id);
+      if (error) {
+        setIsSaved(true);
+        throw error;
+      }
     } else {
-      await supabase.from('saved_contents').insert({ user_id: user.id, [isCourse ? 'course_id' : 'content_id']: content.id });
       setIsSaved(true);
+      const { error } = await supabase.from('saved_contents').insert({ user_id: user.id, [isCourse ? 'course_id' : 'content_id']: content.id });
+      if (error) {
+        setIsSaved(false);
+        throw error;
+      }
       await handleSave(user.id, content.id);
     }
   };
@@ -541,11 +558,19 @@ function WatchContent() {
   const toggleFavorite = async () => {
     if (!user || !content) return;
     if (isFavorited) {
-      await supabase.from('favorites').delete().eq('user_id', user.id).eq(isCourse ? 'course_id' : 'content_id', content.id);
       setIsFavorited(false);
+      const { error } = await supabase.from('favorites').delete().eq('user_id', user.id).eq(isCourse ? 'course_id' : 'content_id', content.id);
+      if (error) {
+        setIsFavorited(true);
+        throw error;
+      }
     } else {
-      await supabase.from('favorites').insert({ user_id: user.id, [isCourse ? 'course_id' : 'content_id']: content.id });
       setIsFavorited(true);
+      const { error } = await supabase.from('favorites').insert({ user_id: user.id, [isCourse ? 'course_id' : 'content_id']: content.id });
+      if (error) {
+        setIsFavorited(false);
+        throw error;
+      }
       await handleFavorite(user.id, content.id);
     }
   };
@@ -866,8 +891,11 @@ function WatchContent() {
               onMinimize={handleMinimize}
               seekToTime={seekToTime}
               isPodcast={content.content_type === "podcast"}
-              mediaAssetId={isCourse && currentLesson ? currentLesson.content?.media_asset_id : content.media_asset_id}
+              mediaAssetId={isCourse && currentLesson ? currentLesson.media_asset_id || currentLesson.content?.media_asset_id : content.media_asset_id}
               videoProvider={isCourse && currentLesson ? currentLesson.content?.video_provider : content.video_provider}
+              contentId={isCourse ? null : content.id}
+              courseProgress={isCourse && currentLesson ? { courseId: content.id, lessonId: currentLesson.id } : undefined}
+              onMilestone={triggerRewardRefresh}
             />
           )}
         </div>
@@ -1069,8 +1097,9 @@ function WatchContent() {
                         video_provider: currentLesson.content?.video_provider,
                         bunny_video_id: currentLesson.content?.bunny_video_id,
                         bunny_library_id: currentLesson.content?.bunny_library_id,
-                        media_asset_id: currentLesson.content?.media_asset_id,
+                        media_asset_id: currentLesson.media_asset_id || currentLesson.content?.media_asset_id,
                       }}
+                      courseProgress={{ courseId: content.id, lessonId: currentLesson.id }}
                       mode="watch"
                       onTimeUpdate={handleTimeUpdate}
                       onNoteCreated={() => setNotesRefreshTrigger((prev) => prev + 1)}

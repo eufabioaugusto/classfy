@@ -15,6 +15,8 @@ import { useMediaSession } from "@/hooks/useMediaSession";
 import Hls from "hls.js";
 import { usePlaybackSource } from "@/hooks/usePlaybackSource";
 import { releaseMediaElement, standardHlsConfig } from "@/lib/video/hlsConfig";
+import { useContentMetrics } from "@/hooks/useContentMetrics";
+import { useCourseLessonProgress } from "@/hooks/useCourseLessonProgress";
 
 interface MobileVideoPlayerProps {
   src: string;
@@ -28,6 +30,9 @@ interface MobileVideoPlayerProps {
   isPodcast?: boolean;
   mediaAssetId?: string | null;
   videoProvider?: string | null;
+  contentId?: string | null;
+  courseProgress?: { courseId: string; lessonId: string };
+  onMilestone?: () => void;
 }
 
 export function MobileVideoPlayer({
@@ -42,6 +47,9 @@ export function MobileVideoPlayer({
   isPodcast = false,
   mediaAssetId,
   videoProvider,
+  contentId,
+  courseProgress,
+  onMilestone,
 }: MobileVideoPlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const audioRef = useRef<HTMLAudioElement>(null);
@@ -58,6 +66,24 @@ export function MobileVideoPlayer({
   const lastTapRef = useRef<number>(0);
   const lastTapPositionRef = useRef<{ x: number; time: number }>({ x: 0, time: 0 });
   const { setMetadata, setPlaybackState, setPositionState, clearSession } = useMediaSession();
+  const { handleTimeUpdate: trackContentMetrics, flushProgress } = useContentMetrics({
+    contentId: contentId || "",
+    duration,
+    enabled: Boolean(contentId) && !courseProgress,
+    onMilestone,
+  });
+  const {
+    handleTimeUpdate: trackCourseProgress,
+    completeLesson,
+    persistCurrent: persistCourseProgress,
+    reset: resetCourseProgress,
+  } = useCourseLessonProgress({
+    courseId: courseProgress?.courseId,
+    lessonId: courseProgress?.lessonId,
+    duration,
+    enabled: Boolean(courseProgress),
+    onMilestone,
+  });
 
   const mediaRef = isPodcast ? audioRef : videoRef;
   const playback = usePlaybackSource({
@@ -70,7 +96,8 @@ export function MobileVideoPlayer({
   useEffect(() => {
     setPlaybackRequested(false);
     setIsPlaying(false);
-  }, [src, mediaAssetId]);
+    resetCourseProgress();
+  }, [src, mediaAssetId, courseProgress?.lessonId, resetCourseProgress]);
 
   useEffect(() => {
     const video = videoRef.current;
@@ -187,10 +214,20 @@ export function MobileVideoPlayer({
     const handleTimeUpdate = () => {
       setCurrentTime(media.currentTime);
       onTimeUpdate?.(media.currentTime);
+      trackContentMetrics(media.currentTime);
+      trackCourseProgress(media.currentTime);
     };
-    const handleEnded = () => setIsPlaying(false);
+    const handleEnded = () => {
+      setIsPlaying(false);
+      if (courseProgress) void completeLesson();
+      else void flushProgress(media.currentTime);
+    };
     const handlePlay = () => setIsPlaying(true);
-    const handlePause = () => setIsPlaying(false);
+    const handlePause = () => {
+      setIsPlaying(false);
+      if (courseProgress) void persistCourseProgress();
+      else void flushProgress(media.currentTime);
+    };
 
     media.addEventListener("loadedmetadata", handleLoadedMetadata);
     media.addEventListener("timeupdate", handleTimeUpdate);
@@ -205,7 +242,7 @@ export function MobileVideoPlayer({
       media.removeEventListener("play", handlePlay);
       media.removeEventListener("pause", handlePause);
     };
-  }, []);
+  }, [contentId, courseProgress, trackContentMetrics, trackCourseProgress, completeLesson, flushProgress, persistCourseProgress]);
 
   const togglePlay = () => {
     const media = mediaRef.current;

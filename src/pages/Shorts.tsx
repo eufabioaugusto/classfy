@@ -1,7 +1,6 @@
-import { useParams, useNavigate, Navigate } from "react-router-dom";
+import { useParams, useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
-import { useRewardSystem } from "@/hooks/useRewardSystem";
 import { useState, useEffect, useRef } from "react";
 import { toast } from "sonner";
 import { UpgradeModal } from "@/components/UpgradeModal";
@@ -42,7 +41,7 @@ interface ShortContent {
 export default function Shorts() {
   const { id } = useParams();
   const navigate = useNavigate();
-  const { user, profile } = useAuth();
+  const { user, loading: authLoading } = useAuth();
   const isMobile = useIsMobile();
   const [shorts, setShorts] = useState<ShortContent[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
@@ -56,7 +55,6 @@ export default function Shorts() {
   const [localLikesCount, setLocalLikesCount] = useState(0);
   const videoRefs = useRef<(HTMLVideoElement | null)[]>([]);
   const containerRef = useRef<HTMLDivElement>(null);
-  const { processReward } = useRewardSystem();
   const [metricsRecorded, setMetricsRecorded] = useState<{[key: string]: {start: boolean, half: boolean, complete: boolean}}>({});
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(true);
@@ -66,10 +64,8 @@ export default function Shorts() {
   const PAGE_SIZE = 10;
 
   useEffect(() => {
-    if (user) {
-      fetchInitialShorts();
-    }
-  }, [user]);
+    if (!authLoading) fetchInitialShorts();
+  }, [authLoading, user?.id]);
 
 
 
@@ -106,6 +102,19 @@ export default function Shorts() {
   const fetchInitialShorts = async () => {
     try {
       setLoading(true);
+      if (!user) {
+        const { data, error } = await supabase.rpc("get_public_shorts_v1", {
+          p_short_id: id || undefined,
+          p_offset: 0,
+          p_limit: PAGE_SIZE,
+        });
+        if (error) throw error;
+        const publicShorts = (data || []) as unknown as ShortContent[];
+        setShorts(publicShorts);
+        setHasMore(publicShorts.length === PAGE_SIZE);
+        setHasAccess(true);
+        return;
+      }
       let shortsData: ShortContent[] = [];
 
       // If we have an ID in the URL, fetch that specific short first
@@ -213,6 +222,18 @@ export default function Shorts() {
   const fetchMoreShorts = async () => {
     try {
       setIsLoadingMore(true);
+      if (!user) {
+        const { data, error } = await supabase.rpc("get_public_shorts_v1", {
+          p_short_id: id || undefined,
+          p_offset: shorts.length,
+          p_limit: PAGE_SIZE,
+        });
+        if (error) throw error;
+        const publicShorts = (data || []) as unknown as ShortContent[];
+        setShorts((prev) => [...prev, ...publicShorts]);
+        setHasMore(publicShorts.length === PAGE_SIZE);
+        return;
+      }
       let moreQuery = supabase
         .from("contents")
         .select(`
@@ -283,60 +304,30 @@ export default function Shorts() {
   };
 
   const checkAccess = async (short: ShortContent) => {
-    if (!user || !short) return;
-
-    // Creator/Owner always has access
-    if (short.creator_id === user.id) {
-      setHasAccess(true);
-      await incrementView(short.id);
-      return;
-    }
-
-    // Check if content is free
-    if (short.visibility === "free") {
-      setHasAccess(true);
-      await incrementView(short.id);
-      return;
-    }
-
-    // Check if user has required plan
-    if (short.visibility === "pro" && (profile?.plan === "pro" || profile?.plan === "premium")) {
-      setHasAccess(true);
-      await incrementView(short.id);
-      return;
-    }
-
-    if (short.visibility === "premium" && profile?.plan === "premium") {
-      setHasAccess(true);
-      await incrementView(short.id);
-      return;
-    }
-
-    // Check if paid content was purchased
-    if (short.visibility === "paid") {
-      const { data } = await supabase
-        .from("purchased_contents")
-        .select("id")
-        .eq("user_id", user.id)
-        .eq("content_id", short.id)
-        .in("status", ["confirmed", "legacy_confirmed"])
-        .maybeSingle();
-
-      if (data) {
-        setHasAccess(true);
-        await incrementView(short.id);
-        return;
-      }
-    }
-
-    setHasAccess(false);
+    if (!short) return;
+    setHasAccess(true);
+    await incrementView(short.id);
   };
 
   const incrementView = async (contentId: string) => {
     try {
-      await supabase.rpc("increment_content_view", {
+      if (user) {
+        await supabase.rpc("increment_content_view", {
+          p_content_id: contentId,
+          p_user_id: user.id,
+        });
+        return;
+      }
+
+      const storageKey = "classfy-anonymous-viewer-v1";
+      let viewerToken = window.localStorage.getItem(storageKey);
+      if (!viewerToken) {
+        viewerToken = crypto.randomUUID();
+        window.localStorage.setItem(storageKey, viewerToken);
+      }
+      await supabase.rpc("increment_public_short_view_v1", {
         p_content_id: contentId,
-        p_user_id: user?.id,
+        p_viewer_token: viewerToken,
       });
     } catch (error) {
       console.error("Error incrementing view:", error);
@@ -387,7 +378,11 @@ export default function Shorts() {
   };
 
   const handleLike = async () => {
-    if (!user || !shorts[currentIndex]) return;
+    if (!user) {
+      navigate("/auth", { state: { from: `/shorts/${shorts[currentIndex]?.id || ""}` } });
+      return;
+    }
+    if (!shorts[currentIndex]) return;
 
     const contentId = shorts[currentIndex].id;
     
@@ -409,11 +404,6 @@ export default function Shorts() {
         
         setLocalLikesCount(prev => prev + 1);
         setIsLiked(true);
-        await processReward({
-          actionKey: 'LIKE',
-          userId: user.id,
-          contentId,
-        });
       }
     } catch (error) {
       console.error("Error toggling like:", error);
@@ -421,7 +411,11 @@ export default function Shorts() {
   };
 
   const handleSave = async () => {
-    if (!user || !shorts[currentIndex]) return;
+    if (!user) {
+      navigate("/auth", { state: { from: `/shorts/${shorts[currentIndex]?.id || ""}` } });
+      return;
+    }
+    if (!shorts[currentIndex]) return;
 
     const contentId = shorts[currentIndex].id;
     
@@ -442,11 +436,6 @@ export default function Shorts() {
         
         setIsSaved(true);
         toast.success("Salvo com sucesso");
-        await processReward({
-          actionKey: 'SAVE',
-          userId: user.id,
-          contentId,
-        });
       }
     } catch (error) {
       console.error("Error toggling save:", error);
@@ -454,7 +443,11 @@ export default function Shorts() {
   };
 
   const handleFollow = async () => {
-    if (!user || !shorts[currentIndex]) return;
+    if (!user) {
+      navigate("/auth", { state: { from: `/shorts/${shorts[currentIndex]?.id || ""}` } });
+      return;
+    }
+    if (!shorts[currentIndex]) return;
 
     const creatorId = shorts[currentIndex].creator_id;
     
@@ -600,11 +593,6 @@ export default function Shorts() {
     // Record complete
     if (percentWatched >= 95 && !metricsRecorded[contentId]?.complete) {
       await recordMetric(contentId, "complete");
-      await processReward({
-        actionKey: 'WATCH_100',
-        userId: user.id,
-        contentId,
-      });
       setMetricsRecorded(prev => ({
         ...prev,
         [contentId]: { ...prev[contentId], complete: true }
@@ -623,10 +611,6 @@ export default function Shorts() {
       console.error("Error recording metric:", error);
     }
   };
-
-  if (!user) {
-    return <Navigate to="/auth" replace />;
-  }
 
   if (loading && shorts.length === 0) {
     return (

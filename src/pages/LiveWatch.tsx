@@ -108,8 +108,7 @@ export default function LiveWatch() {
   }, [id]);
 
   const handleSendGift = async (gift: LiveGift, quantity: number) => {
-    // For now, just send as message (real payment would go here)
-    toast.success(`Você enviou ${gift.name} x${quantity}! (Integração de pagamento pendente)`);
+    toast.info("Presentes ainda não estão disponíveis. Nenhuma cobrança foi realizada.");
   };
 
   if (isLoading) {
@@ -197,7 +196,7 @@ export default function LiveWatch() {
             <div className="flex items-center gap-2">
               {live.creator && <FollowButton creatorId={live.creator.id} />}
               {!isEnded && (
-                <Button variant="outline" onClick={() => setShowGifts(!showGifts)}>
+                <Button variant="outline" disabled title="Pagamento seguro ainda não disponível">
                   <Gift className="w-4 h-4 mr-2" />
                   Enviar Presente
                 </Button>

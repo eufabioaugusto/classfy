@@ -1181,7 +1181,7 @@ function StudyContent() {
 
       const { data, error } = await supabase
         .from("contents")
-        .select("id, title, file_url, content_type, duration_seconds, visibility, price, creator_id, views_count, created_at, tags, thumbnail_url, description, category_id, creator:profiles!creator_id(id, display_name, avatar_url, creator_channel_name, creator_channel_name)")
+        .select("id, title, file_url, content_type, duration_seconds, visibility, price, creator_id, views_count, created_at, tags, thumbnail_url, description, category_id, media_asset_id, video_provider, bunny_video_id, bunny_library_id, creator:profiles!creator_id(id, display_name, avatar_url, creator_channel_name, creator_channel_name)")
         .eq("id", contentId)
         .single();
 
@@ -1984,6 +1984,8 @@ function StudyContent() {
                   content_type: activeContent.content_type,
                   duration_seconds: activeContent.duration_seconds,
                   content_id: activeContent.id,
+                  media_asset_id: activeContent.media_asset_id,
+                  video_provider: activeContent.video_provider,
                 }}
                 mode="study"
                 compact
@@ -2474,6 +2476,8 @@ function StudyContent() {
                           duration_seconds: activeContent.duration_seconds,
                           content_id: activeContent.id,
                           creator: activeContent.creator,
+                          media_asset_id: activeContent.media_asset_id,
+                          video_provider: activeContent.video_provider,
                         }}
                         mode="study"
                         onVideoEnded={handleVideoEnded}
@@ -3000,6 +3004,8 @@ function StudyContent() {
                 content_type: activeContent.content_type,
                 duration_seconds: activeContent.duration_seconds,
                 content_id: activeContent.id,
+                media_asset_id: activeContent.media_asset_id,
+                video_provider: activeContent.video_provider,
               }}
               mode="study"
               compact

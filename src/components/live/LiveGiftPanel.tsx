@@ -20,6 +20,7 @@ interface LiveGiftPanelProps {
   isLoading: boolean;
   onSendGift: (gift: LiveGift, quantity: number) => Promise<void>;
   className?: string;
+  enabled?: boolean;
 }
 
 export function LiveGiftPanel({
@@ -27,6 +28,7 @@ export function LiveGiftPanel({
   isLoading,
   onSendGift,
   className,
+  enabled = false,
 }: LiveGiftPanelProps) {
   const { user } = useAuth();
   const [selectedGift, setSelectedGift] = useState<LiveGift | null>(null);
@@ -70,7 +72,11 @@ export function LiveGiftPanel({
           <span className="text-sm font-medium">Enviar Presente</span>
         </div>
         
-        {!user ? (
+        {!enabled ? (
+          <p className="text-xs text-muted-foreground text-center py-4">
+            Presentes estarão disponíveis quando o pagamento seguro for ativado.
+          </p>
+        ) : !user ? (
           <p className="text-xs text-muted-foreground text-center py-4">
             Faça login para enviar presentes
           </p>
@@ -102,7 +108,7 @@ export function LiveGiftPanel({
       </div>
       
       {/* Confirmation Dialog */}
-      <Dialog open={showConfirm} onOpenChange={setShowConfirm}>
+      <Dialog open={enabled && showConfirm} onOpenChange={setShowConfirm}>
         <DialogContent className="sm:max-w-sm">
           <DialogHeader>
             <DialogTitle>Enviar Presente</DialogTitle>

@@ -196,6 +196,7 @@ export function MobileWatchLayout({
           contentId={content.id} 
           contentTitle={content.title} 
           variant="secondary"
+          isCourse={isCourse}
         />
 
         <Button

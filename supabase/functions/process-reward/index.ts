@@ -4,6 +4,7 @@ import {
   mergeEconomySettings,
   normalizePlan,
 } from "../_shared/economy.ts";
+import { excludesEconomicRewards } from "../_shared/reward-contract.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -16,6 +17,16 @@ interface RewardPayload {
   userId: string;
   contentId?: string;
   metadata?: Record<string, unknown>;
+}
+
+interface RewardTarget {
+  id: string;
+  kind: "content" | "course";
+  creatorId: string;
+  title: string;
+  status: string;
+  visibility: string;
+  contentType?: string;
 }
 
 const CLIENT_REWARD_ACTIONS = new Set([
@@ -42,6 +53,7 @@ const CREATOR_ACTIVATION_ACTIONS = new Set([
 ]);
 
 const CONTENT_INTERACTION_ACTIONS = new Set([
+  "FIRST_CONTENT_WEEK",
   "LIKE",
   "SAVE",
   "FAVORITE",
@@ -52,6 +64,75 @@ const CONTENT_INTERACTION_ACTIONS = new Set([
   "WATCH_100",
   "COMPLETE_COURSE",
 ]);
+
+async function resolveRewardTarget(
+  supabase: any,
+  targetId: string,
+): Promise<RewardTarget | null> {
+  const { data: content, error: contentError } = await supabase.from("contents")
+    .select("id,creator_id,title,status,visibility,content_type")
+    .eq("id", targetId).maybeSingle();
+  if (contentError) throw contentError;
+  if (content) {
+    return {
+      id: content.id,
+      kind: "content",
+      creatorId: content.creator_id,
+      title: content.title,
+      status: content.status,
+      visibility: content.visibility,
+      contentType: content.content_type,
+    };
+  }
+
+  const { data: course, error: courseError } = await supabase.from("courses")
+    .select("id,creator_id,title,status,visibility")
+    .eq("id", targetId).maybeSingle();
+  if (courseError) throw courseError;
+  return course
+    ? {
+      id: course.id,
+      kind: "course",
+      creatorId: course.creator_id,
+      title: course.title,
+      status: course.status,
+      visibility: course.visibility,
+    }
+    : null;
+}
+
+async function hasTargetAccess(
+  supabase: any,
+  userId: string,
+  target: RewardTarget,
+) {
+  if (target.status !== "approved") return false;
+  if (target.creatorId === userId) return true;
+
+  const [{ data: adminRole }, { data: profile }] = await Promise.all([
+    supabase.from("user_roles").select("role").eq("user_id", userId)
+      .eq("role", "admin").maybeSingle(),
+    supabase.from("profiles").select("plan").eq("id", userId).single(),
+  ]);
+  if (adminRole) return true;
+  if (target.visibility === "free") return true;
+
+  const rank: Record<string, number> = { free: 0, pro: 1, premium: 2 };
+  if (target.visibility === "pro" || target.visibility === "premium") {
+    return (rank[profile?.plan ?? "free"] ?? 0) >= rank[target.visibility];
+  }
+  if (target.visibility !== "paid") return false;
+
+  if (target.kind === "course") {
+    const { data } = await supabase.from("course_enrollments").select("id")
+      .eq("user_id", userId).eq("course_id", target.id).maybeSingle();
+    return !!data;
+  }
+  const { data } = await supabase.from("purchased_contents").select("id")
+    .eq("user_id", userId).eq("content_id", target.id)
+    .in("status", ["confirmed", "legacy_confirmed"]).maybeSingle();
+  return !!data;
+}
 
 async function hasRewardEvidence(
   supabase: any,
@@ -73,28 +154,46 @@ async function hasRewardEvidence(
     return (count || 0) > 0;
   };
 
+  let targetColumn: "content_id" | "course_id" = "content_id";
+  if (
+    contentId &&
+    ["LIKE", "SAVE", "FAVORITE", "COMMENT", "SHARE"].includes(actionKey)
+  ) {
+    const { data: contentTarget, error: targetError } = await supabase
+      .from("contents")
+      .select("id")
+      .eq("id", contentId)
+      .maybeSingle();
+    if (targetError) throw targetError;
+    targetColumn = contentTarget ? "content_id" : "course_id";
+  }
+
   switch (actionKey) {
     case "LIKE":
       return !!contentId &&
-        exists("actions", [["user_id", userId], ["content_id", contentId], [
+        exists("actions", [["user_id", userId], [targetColumn, contentId], [
           "type",
           "LIKE",
         ]]);
     case "SAVE":
       return !!contentId &&
         exists("saved_contents", [["user_id", userId], [
-          "content_id",
+          targetColumn,
           contentId,
         ]]);
     case "FAVORITE":
       return !!contentId &&
-        exists("favorites", [["user_id", userId], ["content_id", contentId]]);
+        exists("favorites", [["user_id", userId], [targetColumn, contentId]]);
     case "COMMENT":
       return !!contentId &&
+        targetColumn === "content_id" &&
         exists("comments", [["user_id", userId], ["content_id", contentId]]);
     case "SHARE":
       return !!contentId &&
-        exists("contents", [["id", contentId], ["status", "approved"]]);
+        exists("content_shares", [["user_id", userId], [
+          targetColumn,
+          contentId,
+        ]]);
     case "SUBSCRIBE_CREATOR":
       return !!metadata.creatorId &&
         exists("follows", [["follower_id", userId], [
@@ -112,7 +211,7 @@ async function hasRewardEvidence(
     case "WATCH_50":
     case "WATCH_100": {
       if (!contentId) return false;
-      const threshold = actionKey === "WATCH_50" ? 50 : 90;
+      const threshold = actionKey === "WATCH_50" ? 50 : 100;
       const { data, error } = await supabase.from("user_progress")
         .select("id").eq("user_id", userId).eq("content_id", contentId)
         .gte("progress_percent", threshold).limit(1);
@@ -148,12 +247,14 @@ async function hasRewardEvidence(
       const streak = data as { current_streak?: number } | null;
       return Number(streak?.current_streak || 0) >= 7;
     }
-    case "FIRST_CONTENT_WEEK":
-      return !!contentId &&
-        exists("content_metrics", [["user_id", userId], [
-          "content_id",
-          contentId,
-        ], ["event", "start"]]);
+    case "FIRST_CONTENT_WEEK": {
+      if (!contentId) return false;
+      const { data, error } = await supabase.from("user_progress")
+        .select("id").eq("user_id", userId).eq("content_id", contentId)
+        .gte("watched_seconds", 1).limit(1);
+      if (error) throw error;
+      return !!data?.length;
+    }
     default:
       return false;
   }
@@ -175,6 +276,24 @@ Deno.serve(async (req) => {
       return json({ error: "actionKey and userId are required" }, 400);
     }
     let streakState: Record<string, unknown> | null = null;
+    const rewardTarget = contentId
+      ? await resolveRewardTarget(supabase, contentId)
+      : null;
+
+    if (contentId && !rewardTarget) {
+      return json({ error: "Reward target not found" }, 404);
+    }
+
+    // Shorts sao superficie publica de descoberta. Engajamento continua sendo
+    // persistido, mas nenhuma acao ligada a um Short entra no ledger economico.
+    if (excludesEconomicRewards(rewardTarget?.contentType)) {
+      return json({
+        success: true,
+        rewardExcluded: true,
+        reason: "shorts_do_not_generate_rewards",
+        rewards: [],
+      });
+    }
 
     const authHeader = req.headers.get("Authorization") || "";
     const isServiceRequest = authHeader === `Bearer ${serviceKey}`;
@@ -189,6 +308,11 @@ Deno.serve(async (req) => {
       if (error || !user) return json({ error: "Unauthorized" }, 401);
       if (user.id !== userId) {
         return json({ error: "User identity mismatch" }, 403);
+      }
+      if (
+        rewardTarget && !await hasTargetAccess(supabase, userId, rewardTarget)
+      ) {
+        return json({ error: "Reward target access required" }, 403);
       }
       if (actionKey === "DAILY_LOGIN" || actionKey === "WEEKLY_STREAK") {
         const { data, error: streakError } = await supabase.rpc(
@@ -228,22 +352,15 @@ Deno.serve(async (req) => {
     let resolvedCourseId: string | null = null;
     let creatorId: string | null = null;
     let title: string | null = null;
-    if (contentId) {
-      const { data: content } = await supabase.from("contents")
-        .select("id,creator_id,title").eq("id", contentId).maybeSingle();
-      if (content) {
-        resolvedContentId = content.id;
-        creatorId = content.creator_id;
-        title = content.title;
-      } else {
-        const { data: course } = await supabase.from("courses")
-          .select("id,creator_id,title").eq("id", contentId).maybeSingle();
-        if (course) {
-          resolvedCourseId = course.id;
-          creatorId = course.creator_id;
-          title = course.title;
-        }
-      }
+    if (rewardTarget) {
+      resolvedContentId = rewardTarget.kind === "content"
+        ? rewardTarget.id
+        : null;
+      resolvedCourseId = rewardTarget.kind === "course"
+        ? rewardTarget.id
+        : null;
+      creatorId = rewardTarget.creatorId;
+      title = rewardTarget.title;
     }
     if (
       actionKey === "SUBSCRIBE_CREATOR" &&

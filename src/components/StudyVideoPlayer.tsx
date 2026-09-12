@@ -120,17 +120,12 @@ export const StudyVideoPlayer = ({ content, studyId, onClose, onTranscriptionUpd
     if (!user || !content.id || !currentTime || currentTime < 1) return;
 
     try {
-      await supabase
-        .from("user_progress")
-        .upsert({
-          user_id: user.id,
-          content_id: content.id,
-          last_position_seconds: Math.floor(currentTime),
-          progress_percent: duration > 0 ? Math.floor((currentTime / duration) * 100) : 0,
-          updated_at: new Date().toISOString(),
-        }, {
-          onConflict: 'user_id,content_id'
-        });
+      const { error } = await supabase.rpc("record_content_progress_v1", {
+        p_content_id: content.id,
+        p_watched_delta: 0,
+        p_last_position_seconds: Math.floor(currentTime),
+      });
+      if (error) throw error;
     } catch (error) {
       console.error("Error saving position:", error);
     }

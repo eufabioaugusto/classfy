@@ -23,6 +23,7 @@ interface ShareViaDMModalProps {
   contentThumbnail?: string;
   contentType?: string;
   creatorName?: string;
+  onShared?: () => void | Promise<void>;
 }
 
 interface User {
@@ -44,6 +45,7 @@ export const ShareViaDMModal = ({
   contentThumbnail,
   contentType = "video",
   creatorName,
+  onShared,
 }: ShareViaDMModalProps) => {
   const { user } = useAuth();
   const { toast } = useToast();
@@ -157,6 +159,7 @@ export const ShareViaDMModal = ({
 
     try {
       setSending(true);
+      let sentCount = 0;
 
       // Create content card message format
       const contentMessage = JSON.stringify({
@@ -205,12 +208,17 @@ export const ShareViaDMModal = ({
 
         if (msgError) {
           console.error("Error sending message:", msgError);
+        } else {
+          sentCount += 1;
         }
       }
 
+      if (sentCount === 0) throw new Error("Nenhuma mensagem foi enviada");
+      await onShared?.();
+
       toast({
         title: "Enviado!",
-        description: `Conteúdo compartilhado com ${selectedUsers.length} pessoa${selectedUsers.length > 1 ? "s" : ""}`,
+        description: `Conteúdo compartilhado com ${sentCount} pessoa${sentCount > 1 ? "s" : ""}`,
       });
 
       setSelectedUsers([]);

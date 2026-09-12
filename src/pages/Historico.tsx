@@ -149,6 +149,7 @@ export default function Historico() {
             )
           )
         `)
+        .is("hidden_from_history_at", null)
         .eq("user_id", user.id)
         .order("last_viewed_at", { ascending: false })
         .limit(100);
@@ -216,10 +217,9 @@ export default function Historico() {
 
   const removeFromHistory = async (viewId: string) => {
     try {
-      const { error } = await supabase
-        .from("content_views")
-        .delete()
-        .eq("id", viewId);
+      const { error } = await supabase.rpc("delete_own_content_history_v1", {
+        p_view_id: viewId,
+      });
 
       if (error) throw error;
 
@@ -236,10 +236,9 @@ export default function Historico() {
     if (!user) return;
 
     try {
-      const { error } = await supabase
-        .from("content_views")
-        .delete()
-        .eq("user_id", user.id);
+      const { error } = await supabase.rpc("delete_own_content_history_v1", {
+        p_view_id: null,
+      });
 
       if (error) throw error;
 

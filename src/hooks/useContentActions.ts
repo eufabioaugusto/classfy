@@ -107,15 +107,17 @@ export function useContentActions({ contentId, isCourse = false, hasAccess = tru
   const getLikeRewardPoints = useCallback(async (): Promise<number> => {
     if (!user) return 0;
 
-    const { data, error } = await supabase
+    let query = supabase
       .from("reward_events")
       .select("points, created_at")
       .eq("user_id", user.id)
-      .eq("content_id", contentId)
       .eq("action_key", "LIKE")
       .order("created_at", { ascending: false })
-      .limit(1)
-      .maybeSingle();
+      .limit(1);
+    query = isCourse
+      ? query.contains("metadata", { course_id: contentId })
+      : query.eq("content_id", contentId);
+    const { data, error } = await query.maybeSingle();
 
     if (error) {
       console.warn("Could not fetch like reward points:", error);
@@ -123,7 +125,7 @@ export function useContentActions({ contentId, isCourse = false, hasAccess = tru
     }
 
     return data?.points || 0;
-  }, [user, contentId]);
+  }, [user, contentId, isCourse]);
 
   const trackContentInterest = useCallback(async (action: "like" | "save" | "favorite") => {
     if (!user || isCourse) return;
@@ -167,6 +169,10 @@ export function useContentActions({ contentId, isCourse = false, hasAccess = tru
         // No reward to reverse, just unlike
         await performUnlike();
       } else {
+        setIsLiked(true);
+        setLikesCount((prev) => prev + 1);
+        triggerLikeBurst();
+
         const insertData: any = {
           user_id: user.id,
           type: "LIKE",
@@ -176,10 +182,6 @@ export function useContentActions({ contentId, isCourse = false, hasAccess = tru
         const { error } = await supabase.from("actions").insert(insertData);
 
         if (!error) {
-          setIsLiked(true);
-          setLikesCount((prev) => prev + 1);
-          triggerLikeBurst();
-          
           // Only give reward if user has access to the content
           if (hasAccess) {
             await rewardLike(user.id, contentId, true);
@@ -188,6 +190,8 @@ export function useContentActions({ contentId, isCourse = false, hasAccess = tru
         } else if (error.code === "23505") {
           setIsLiked(true);
         } else {
+          setIsLiked(false);
+          setLikesCount((prev) => Math.max(0, prev - 1));
           throw error;
         }
       }
@@ -225,11 +229,12 @@ export function useContentActions({ contentId, isCourse = false, hasAccess = tru
     if (!user || !unlikeConfirmation.pending) return;
     
     try {
-      // Reverse the reward
-      await reverseReward(user.id, contentId, "LIKE");
-      
-      // Perform the unlike
-      await performUnlike();
+      // O backend remove o like e reverte o evento na mesma transacao.
+      const reversal = await reverseReward(user.id, contentId, "LIKE");
+      if (!reversal) throw new Error("Reward reversal failed");
+      setIsLiked(false);
+      setLikesCount((prev) => Math.max(0, prev - 1));
+      await refreshLikesCountEventually();
       
       toast({
         title: "Like removido",
@@ -245,7 +250,7 @@ export function useContentActions({ contentId, isCourse = false, hasAccess = tru
     } finally {
       setUnlikeConfirmation({ pending: false, rewardValue: 0 });
     }
-  }, [user, contentId, unlikeConfirmation, performUnlike, reverseReward]);
+  }, [user, contentId, unlikeConfirmation, refreshLikesCountEventually, reverseReward]);
 
   const cancelUnlike = useCallback(() => {
     setUnlikeConfirmation({ pending: false, rewardValue: 0 });
@@ -263,24 +268,31 @@ export function useContentActions({ contentId, isCourse = false, hasAccess = tru
 
     try {
       if (isSaved) {
-        await supabase
+        setIsSaved(false);
+        const { error } = await supabase
           .from("saved_contents")
           .delete()
           .eq("user_id", user.id)
           .eq(isCourse ? "course_id" : "content_id", contentId);
 
-        setIsSaved(false);
+        if (error) {
+          setIsSaved(true);
+          throw error;
+        }
         toast({
           title: "Removido dos salvos",
           description: "Conteúdo removido da sua lista",
         });
       } else {
-        await supabase.from("saved_contents").insert({
+        setIsSaved(true);
+        const { error } = await supabase.from("saved_contents").insert({
           user_id: user.id,
           [isCourse ? "course_id" : "content_id"]: contentId,
         });
-
-        setIsSaved(true);
+        if (error) {
+          setIsSaved(false);
+          throw error;
+        }
         await rewardSave(user.id, contentId);
         await trackContentInterest("save");
       }
@@ -306,24 +318,31 @@ export function useContentActions({ contentId, isCourse = false, hasAccess = tru
 
     try {
       if (isFavorited) {
-        await supabase
+        setIsFavorited(false);
+        const { error } = await supabase
           .from("favorites")
           .delete()
           .eq("user_id", user.id)
           .eq(isCourse ? "course_id" : "content_id", contentId);
 
-        setIsFavorited(false);
+        if (error) {
+          setIsFavorited(true);
+          throw error;
+        }
         toast({
           title: "Removido dos favoritos",
           description: "Conteúdo removido dos seus favoritos",
         });
       } else {
-        await supabase.from("favorites").insert({
+        setIsFavorited(true);
+        const { error } = await supabase.from("favorites").insert({
           user_id: user.id,
           [isCourse ? "course_id" : "content_id"]: contentId,
         });
-
-        setIsFavorited(true);
+        if (error) {
+          setIsFavorited(false);
+          throw error;
+        }
         await rewardFavorite(user.id, contentId);
         await trackContentInterest("favorite");
       }

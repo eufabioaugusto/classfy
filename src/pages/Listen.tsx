@@ -1,6 +1,6 @@
 import { useParams, Navigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -14,6 +14,7 @@ import { GlobalLoader } from "@/components/GlobalLoader";
 import { UpgradeModal } from "@/components/UpgradeModal";
 import { PurchaseModal } from "@/components/PurchaseModal";
 import { useContentMetrics } from "@/hooks/useContentMetrics";
+import { UnifiedVideoPlayer } from "@/components/unified/UnifiedVideoPlayer";
 
 interface Content {
   id: string;
@@ -27,6 +28,9 @@ interface Content {
   duration_seconds: number;
   views_count: number;
   likes_count: number;
+  creator_id: string;
+  media_asset_id?: string | null;
+  video_provider?: string | null;
   creator: {
     id: string;
     display_name: string;
@@ -43,10 +47,8 @@ export default function Listen() {
   const [showUpgradeModal, setShowUpgradeModal] = useState(false);
   const [showPurchaseModal, setShowPurchaseModal] = useState(false);
   const [requiredUpgradePlan, setRequiredUpgradePlan] = useState<"pro" | "premium">("pro");
-  const audioRef = useRef<HTMLAudioElement>(null);
 
   const {
-    handleTimeUpdate: handleMetricsTimeUpdate,
     registerView,
     resetMetrics,
   } = useContentMetrics({
@@ -66,7 +68,8 @@ export default function Listen() {
         .from('contents')
         .select(`
           id, content_type, title, description, file_url, thumbnail_url,
-          visibility, price, duration_seconds, views_count, likes_count,
+          visibility, price, duration_seconds, views_count, likes_count, creator_id,
+          media_asset_id, video_provider,
           creator:profiles!creator_id(id, display_name, avatar_url)
         `)
         .eq('id', id)
@@ -135,11 +138,6 @@ export default function Listen() {
     }
   };
 
-  const handleAudioTimeUpdate = () => {
-    if (!audioRef.current || !content) return;
-    handleMetricsTimeUpdate(audioRef.current.currentTime);
-  };
-
   if (loading) return <GlobalLoader />;
   if (!user) return <Navigate to="/auth" replace />;
   if (loadingContent) return <GlobalLoader />;
@@ -175,7 +173,27 @@ export default function Listen() {
             <img src={content.thumbnail_url} alt={content.title} className="w-full h-full object-cover" />
           </div>
           <div className="p-6">
-            <audio ref={audioRef} className="w-full" controls onTimeUpdate={handleAudioTimeUpdate} src={content.file_url} />
+            {hasAccess ? (
+              <UnifiedVideoPlayer
+                content={{
+                  id: content.id,
+                  title: content.title,
+                  file_url: content.file_url,
+                  thumbnail_url: content.thumbnail_url,
+                  content_type: "podcast",
+                  duration_seconds: content.duration_seconds,
+                  content_id: content.id,
+                  media_asset_id: content.media_asset_id,
+                  video_provider: content.video_provider || undefined,
+                  creator: { display_name: content.creator.display_name },
+                }}
+                showNoteButton={false}
+              />
+            ) : (
+              <p className="py-8 text-center text-sm text-muted-foreground">
+                Faça upgrade ou conclua a compra para ouvir este episódio.
+              </p>
+            )}
           </div>
         </Card>
 

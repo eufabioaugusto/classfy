@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef, useCallback } from "react";
-import { Eye, Heart, Bookmark, MessageCircle, CheckCircle2, PlayCircle, Zap, Sparkles, Brain, Coins, ChevronRight } from "lucide-react";
+import { Eye, Heart, Bookmark, MessageCircle, CheckCircle2, PlayCircle, Zap, Sparkles, Brain, Coins, ChevronRight, Star, Share2 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
@@ -23,7 +23,9 @@ const TRACKED_ACTIONS = [
   { key: "WATCH_100",      label: "Completou",     icon: CheckCircle2 },
   { key: "LIKE",           label: "Curtiu",        icon: Heart },
   { key: "SAVE",           label: "Salvou",        icon: Bookmark },
+  { key: "FAVORITE",       label: "Favoritou",     icon: Star },
   { key: "COMMENT",        label: "Comentou",      icon: MessageCircle },
+  { key: "SHARE",          label: "Compartilhou",  icon: Share2 },
 ];
 
 const WATCH_KEYS = new Set(["VIEW_15S", "WATCH_50", "WATCH_100", "COMMENT"]);
@@ -150,7 +152,12 @@ export function ContentRewardProgress({ contentId, refreshTrigger, liveStates, s
 
     let animationTimer: number | undefined;
     const unsubscribe = subscribeToRewardEarned((reward) => {
-      if (reward.userId !== user.id || reward.contentId !== contentId || reward.points <= 0) return;
+      if (reward.userId !== user.id || reward.contentId !== contentId || reward.points === 0) return;
+
+      if (reward.points < 0) {
+        setEarnedPoints((current) => Math.max(0, Math.round((current + reward.points) * 10) / 10));
+        return;
+      }
 
       const optimisticPoints = optimisticActionPointsRef.current.get(reward.actionKey);
       optimisticActionPointsRef.current.delete(reward.actionKey);
@@ -244,12 +251,32 @@ export function ContentRewardProgress({ contentId, refreshTrigger, liveStates, s
 
     const prev = actionsRef.current;
     const toTrigger: string[] = [];
+    const rollbackKeys = new Set<string>();
+    let rollbackPoints = 0;
 
     const wasLiked = prev.find(a => a.key === "LIKE")?.earned ?? false;
     const wasSaved = prev.find(a => a.key === "SAVE")?.earned ?? false;
 
     if (!wasLiked && liveIsLiked) toTrigger.push("LIKE");
     if (!wasSaved && liveIsSaved) toTrigger.push("SAVE");
+
+    // Se a gravacao da acao falhar, o pai desfaz o estado otimista. Removemos
+    // tambem a previa visual dos Points; eventos ja confirmados nao ficam neste
+    // mapa e, portanto, nunca sao revertidos apenas por estado de interface.
+    if (!liveIsLiked && optimisticActionPointsRef.current.has("LIKE")) {
+      rollbackPoints += optimisticActionPointsRef.current.get("LIKE") || 0;
+      optimisticActionPointsRef.current.delete("LIKE");
+      rollbackKeys.add("LIKE");
+    }
+    if (!liveIsSaved && optimisticActionPointsRef.current.has("SAVE")) {
+      rollbackPoints += optimisticActionPointsRef.current.get("SAVE") || 0;
+      optimisticActionPointsRef.current.delete("SAVE");
+      rollbackKeys.add("SAVE");
+    }
+
+    if (rollbackPoints > 0) {
+      setEarnedPoints((current) => Math.max(0, Math.round((current - rollbackPoints) * 10) / 10));
+    }
 
     const optimisticPoints = toTrigger.reduce((sum, actionKey) => {
       const points = prev.find((action) => action.key === actionKey)?.points || 0;
@@ -265,8 +292,9 @@ export function ContentRewardProgress({ contentId, refreshTrigger, liveStates, s
     }
 
     setActions(current => current.map(a => {
-      if (a.key === "LIKE") return { ...a, earned: liveIsLiked };
-      if (a.key === "SAVE") return { ...a, earned: liveIsSaved };
+      if (rollbackKeys.has(a.key)) return { ...a, earned: false };
+      if (a.key === "LIKE") return { ...a, earned: a.earned || liveIsLiked };
+      if (a.key === "SAVE") return { ...a, earned: a.earned || liveIsSaved };
       return a;
     }));
 
@@ -277,7 +305,7 @@ export function ContentRewardProgress({ contentId, refreshTrigger, liveStates, s
     try {
       const uid = user!.id;
 
-      const [configResult, eventsResult, likeResult, saveResult, commentResult, trackingResult, settingsResult] = await Promise.all([
+      const [configResult, eventsResult, trackingResult, settingsResult] = await Promise.all([
         supabase
           .from("reward_actions_config")
           .select("action_key, points_user")
@@ -288,9 +316,6 @@ export function ContentRewardProgress({ contentId, refreshTrigger, liveStates, s
           .select("action_key, points")
           .eq("user_id", uid)
           .eq("content_id", contentId),
-        supabase.from("actions").select("id").eq("user_id", uid).eq("content_id", contentId).eq("type", "LIKE").maybeSingle(),
-        supabase.from("saved_contents").select("id").eq("user_id", uid).eq("content_id", contentId).maybeSingle(),
-        supabase.from("comments").select("id").eq("user_id", uid).eq("content_id", contentId).limit(1),
         supabase
           .from("reward_action_tracking")
           .select("action_key")
@@ -320,16 +345,18 @@ export function ContentRewardProgress({ contentId, refreshTrigger, liveStates, s
         VIEW_15S:        permanentKeys.has("VIEW_15S"),
         WATCH_50:        permanentKeys.has("WATCH_50"),
         WATCH_100:       permanentKeys.has("WATCH_100"),
-        LIKE:            !!likeResult.data,
-        SAVE:            !!saveResult.data,
-        COMMENT:         (commentResult.data?.length ?? 0) > 0,
+        LIKE:            permanentKeys.has("LIKE"),
+        SAVE:            permanentKeys.has("SAVE"),
+        FAVORITE:        permanentKeys.has("FAVORITE"),
+        COMMENT:         permanentKeys.has("COMMENT"),
+        SHARE:           permanentKeys.has("SHARE"),
       };
 
-      const activeEvents = (eventsResult.data || []).filter(e => {
-        if (e.action_key === "LIKE") return earnedMap.LIKE;
-        if (e.action_key === "SAVE") return earnedMap.SAVE;
-        return true;
-      });
+      // A barra representa apenas as recompensas deste conteudo. Bonus globais
+      // (como primeiro conteudo da semana) aparecem no saldo, mas nao distorcem
+      // o total "ganho x ainda disponivel" desta faixa.
+      const trackedKeys = new Set(TRACKED_ACTIONS.map((action) => action.key));
+      const activeEvents = (eventsResult.data || []).filter((event) => trackedKeys.has(event.action_key));
       const totalPoints = activeEvents.reduce((sum, e) => sum + (e.points || 0), 0);
 
       const built: ActionState[] = TRACKED_ACTIONS.map(a => ({

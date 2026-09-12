@@ -12,6 +12,8 @@ import { useContentActions } from "@/hooks/useContentActions";
 import { useAuth } from "@/contexts/AuthContext";
 import { cn } from "@/lib/utils";
 import { ShareViaDMModal } from "@/components/direct-messages/ShareViaDMModal";
+import { supabase } from "@/integrations/supabase/client";
+import { useRewardSystem } from "@/hooks/useRewardSystem";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -60,8 +62,25 @@ export function SocialBar({
   onStateChange,
 }: SocialBarProps) {
   const { user } = useAuth();
+  const { processReward } = useRewardSystem();
   const navigate = useNavigate();
   const [showDMModal, setShowDMModal] = useState(false);
+
+  const recordDirectShare = async () => {
+    if (!user) return;
+    try {
+      const { error } = await supabase.from("content_shares").insert({
+        user_id: user.id,
+        channel: "direct_message",
+        [isCourse ? "course_id" : "content_id"]: contentId,
+      });
+      if (error) throw error;
+      await processReward({ actionKey: "SHARE", userId: user.id, contentId });
+      onAction?.();
+    } catch (error) {
+      console.error("Error recording direct share reward:", error);
+    }
+  };
 
   const {
     isLiked,
@@ -168,6 +187,7 @@ export function SocialBar({
             contentThumbnail={contentThumbnail}
             creatorName={creator?.display_name}
             variant="secondary"
+            isCourse={isCourse}
           />
 
           {/* Save */}
@@ -255,6 +275,7 @@ export function SocialBar({
         contentTitle={contentTitle}
         contentThumbnail={contentThumbnail}
         creatorName={creator?.display_name}
+        onShared={recordDirectShare}
       />
     </>
   );

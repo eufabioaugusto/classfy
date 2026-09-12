@@ -14,10 +14,11 @@ interface MetricsState {
 interface UseContentMetricsProps {
   contentId: string;
   duration: number;
+  enabled?: boolean;
   onMilestone?: () => void;
 }
 
-export function useContentMetrics({ contentId, duration, onMilestone }: UseContentMetricsProps) {
+export function useContentMetrics({ contentId, duration, enabled = true, onMilestone }: UseContentMetricsProps) {
   const { user } = useAuth();
   const { processReward, trackProgress } = useRewardSystem();
   const [metricsRecorded, setMetricsRecorded] = useState<MetricsState>({
@@ -34,7 +35,6 @@ export function useContentMetrics({ contentId, duration, onMilestone }: UseConte
   });
   const currentTimeRef = useRef(0);
   const lastProgressUpdateRef = useRef(0);
-  const lastWatchTimeUpdateRef = useRef(0);
   const interestMilestonesRef = useRef({ half: false, complete: false });
 
   // --- Anti-seek tracking ---
@@ -46,7 +46,7 @@ export function useContentMetrics({ contentId, duration, onMilestone }: UseConte
   const MAX_NATURAL_JUMP = 3;
 
   const recordMetric = useCallback(async (event: "start" | "half" | "complete") => {
-    if (metricsRecordedRef.current[event] || !user || !contentId) return;
+    if (!enabled || metricsRecordedRef.current[event] || !user || !contentId) return;
 
     metricsRecordedRef.current[event] = true;
     setMetricsRecorded((prev) => ({ ...prev, [event]: true }));
@@ -63,40 +63,21 @@ export function useContentMetrics({ contentId, duration, onMilestone }: UseConte
       setMetricsRecorded((prev) => ({ ...prev, [event]: false }));
       console.error("Error recording metric:", error);
     }
-  }, [contentId, user]);
+  }, [contentId, enabled, user]);
 
   const checkFirstContentWeek = useCallback(async () => {
-    if (!user || !contentId) return;
-    // A evidência de start já foi persistida. A decisão de primeira ação da
-    // semana e a idempotência pertencem exclusivamente ao servidor.
+    if (!enabled || !user || !contentId) return;
+    // O primeiro checkpoint de progresso já foi aceito pelo servidor. A decisão
+    // semanal e a idempotência pertencem exclusivamente ao backend.
     await processReward({
       actionKey: "FIRST_CONTENT_WEEK",
       userId: user.id,
       contentId,
     });
-  }, [user, contentId, processReward]);
-
-  const updateWatchTime = useCallback(async (watchedSeconds: number) => {
-    if (!user || !contentId) return;
-    
-    const today = new Date().toISOString().split('T')[0];
-    try {
-      await supabase
-        .from('content_views')
-        .update({ 
-          total_watch_time_seconds: Math.floor(watchedSeconds),
-          last_viewed_at: new Date().toISOString()
-        })
-        .eq('content_id', contentId)
-        .eq('user_id', user.id)
-        .eq('view_date', today);
-    } catch (error) {
-      console.error('Error updating watch time:', error);
-    }
-  }, [user, contentId]);
+  }, [user, contentId, enabled, processReward]);
 
   const trackContentInterest = useCallback(async (action: "watch_50" | "watch_100") => {
-    if (!user || !contentId) return;
+    if (!enabled || !user || !contentId) return;
 
     const { data } = await supabase
       .from("contents")
@@ -111,10 +92,10 @@ export function useContentMetrics({ contentId, duration, onMilestone }: UseConte
       tags: data?.tags,
       categoryId: data?.category_id,
     });
-  }, [contentId, user]);
+  }, [contentId, enabled, user]);
 
   const handleTimeUpdate = useCallback(async (currentTime: number) => {
-    if (!contentId || !user || duration === 0) return;
+    if (!enabled || !contentId || !user || duration === 0) return;
 
     currentTimeRef.current = currentTime;
 
@@ -137,23 +118,6 @@ export function useContentMetrics({ contentId, duration, onMilestone }: UseConte
     // Start metric: triggers on first real playback (any small delta counts)
     if (!metricsRecordedRef.current.start && realWatchTime > 0.5) {
       await recordMetric("start");
-      await checkFirstContentWeek();
-    }
-
-    // 15 second view reward - based on REAL accumulated watch time
-    if (!metricsRecordedRef.current.view15s && realWatchTime >= 15) {
-      metricsRecordedRef.current.view15s = true;
-      setMetricsRecorded((prev) => ({ ...prev, view15s: true }));
-      // Persistir a evidencia antes de pedir a recompensa. O servidor nao confia
-      // no tempo informado pelo cliente sem um registro de progresso associado.
-      await updateWatchTime(realWatchTime);
-      await processReward({
-        actionKey: "VIEW_15S",
-        userId: user.id,
-        contentId: contentId,
-        metadata: { watch_time: realWatchTime },
-      });
-      onMilestone?.();
     }
 
     // Persistir progresso e processar recompensas antes de analytics auxiliares.
@@ -161,7 +125,26 @@ export function useContentMetrics({ contentId, duration, onMilestone }: UseConte
     const floorRealTime = Math.floor(realWatchTime);
     if (floorRealTime >= lastProgressUpdateRef.current + 5 && realWatchTime > 0.5) {
       lastProgressUpdateRef.current = floorRealTime;
-      await trackProgress(user.id, contentId, realPercent, realWatchTime);
+      await trackProgress(user.id, contentId, realPercent, realWatchTime, currentTime);
+      await checkFirstContentWeek();
+    }
+
+    // A evidencia server-side precisa existir antes da solicitacao da recompensa.
+    if (!metricsRecordedRef.current.view15s && realWatchTime >= 15) {
+      metricsRecordedRef.current.view15s = true;
+      setMetricsRecorded((prev) => ({ ...prev, view15s: true }));
+      const result = await processReward({
+        actionKey: "VIEW_15S",
+        userId: user.id,
+        contentId: contentId,
+        metadata: { watch_time: realWatchTime },
+      });
+      if (!result) {
+        metricsRecordedRef.current.view15s = false;
+        setMetricsRecorded((prev) => ({ ...prev, view15s: false }));
+      } else {
+        onMilestone?.();
+      }
     }
 
     // Half metric - user must have actually watched >= 50% of the content
@@ -184,12 +167,14 @@ export function useContentMetrics({ contentId, duration, onMilestone }: UseConte
       onMilestone?.();
     }
 
-    // Update watch time every 10 seconds of REAL watch time (throttled)
-    if (floorRealTime >= lastWatchTimeUpdateRef.current + 10 && realWatchTime >= 10) {
-      lastWatchTimeUpdateRef.current = floorRealTime;
-      await updateWatchTime(realWatchTime);
-    }
-  }, [contentId, user, duration, recordMetric, processReward, trackProgress, checkFirstContentWeek, updateWatchTime, trackContentInterest, onMilestone]);
+  }, [contentId, user, duration, enabled, recordMetric, processReward, trackProgress, checkFirstContentWeek, trackContentInterest, onMilestone]);
+
+  const flushProgress = useCallback(async (currentPosition: number) => {
+    if (!enabled || !user || !contentId || duration <= 0) return;
+    const realWatchTime = accumulatedWatchTimeRef.current;
+    const realPercent = (realWatchTime / duration) * 100;
+    await trackProgress(user.id, contentId, realPercent, realWatchTime, currentPosition);
+  }, [contentId, duration, enabled, trackProgress, user]);
 
   const registerView = useCallback(async () => {
     if (!user || !contentId) return;
@@ -227,7 +212,6 @@ export function useContentMetrics({ contentId, duration, onMilestone }: UseConte
     metricsRecordedRef.current = initialState;
     setMetricsRecorded(initialState);
     lastProgressUpdateRef.current = 0;
-    lastWatchTimeUpdateRef.current = 0;
     accumulatedWatchTimeRef.current = 0;
     previousTimeRef.current = 0;
     interestMilestonesRef.current = { half: false, complete: false };
@@ -235,6 +219,7 @@ export function useContentMetrics({ contentId, duration, onMilestone }: UseConte
 
   return {
     handleTimeUpdate,
+    flushProgress,
     registerView,
     registerCourseView,
     resetMetrics,

@@ -15,6 +15,8 @@ interface MobileStudyPlayerProps {
     file_url: string;
     content_type: string;
     duration_seconds?: number;
+    media_asset_id?: string | null;
+    video_provider?: string | null;
     creator?: {
       id?: string;
       display_name: string;
@@ -135,6 +137,8 @@ export function MobileStudyPlayer({
               duration_seconds: activeContent.duration_seconds,
               content_id: activeContent.id,
               creator: activeContent.creator,
+              media_asset_id: activeContent.media_asset_id,
+              video_provider: activeContent.video_provider || undefined,
             }}
             mode="study"
             compact

@@ -18,6 +18,8 @@ import {
 import { toast } from "sonner";
 import { Upload, Loader2, CheckCircle2, Video } from "lucide-react";
 import { cn } from "@/lib/utils";
+import * as tus from "tus-js-client";
+import { videoService } from "@/lib/video/service";
 
 const emptyForm = {
   title: "",
@@ -35,6 +37,8 @@ export default function AdminCuration() {
   const [form, setForm] = useState(emptyForm);
   const [videoFile, setVideoFile] = useState<File | null>(null);
   const [videoUrl, setVideoUrl] = useState("");
+  const [mediaAssetId, setMediaAssetId] = useState<string | null>(null);
+  const [videoProvider, setVideoProvider] = useState<string | null>(null);
   const [videoPreview, setVideoPreview] = useState("");
   const [duration, setDuration] = useState(0);
   const [uploadProgress, setUploadProgress] = useState(0);
@@ -52,38 +56,54 @@ export default function AdminCuration() {
     setUploadState("uploading");
     setUploadProgress(0);
 
-    const fileExt = file.name.split(".").pop();
-    const fileName = `curated/${user!.id}/${Date.now()}.${fileExt}`;
-    const { data: session } = await supabase.auth.getSession();
-    const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-    const uploadUrl = `${supabaseUrl}/storage/v1/object/contents/${fileName}`;
+    try {
+      const target = await videoService.createUpload(form.title || file.name);
+      await new Promise<void>((resolve, reject) => {
+        if (target.method === "TUS") {
+          const upload = new tus.Upload(file, {
+            endpoint: target.uploadUrl,
+            retryDelays: [0, 3000, 5000, 10000],
+            headers: target.headers,
+            metadata: { filename: file.name, filetype: file.type, title: form.title || file.name },
+            onProgress: (sent, total) => setUploadProgress(Math.round((sent / total) * 100)),
+            onSuccess: resolve,
+            onError: reject,
+          });
+          upload.start();
+          return;
+        }
 
-    await new Promise<void>((resolve, reject) => {
-      const xhr = new XMLHttpRequest();
-      xhrRef.current = xhr;
-      xhr.upload.addEventListener("progress", (e) => {
-        if (e.lengthComputable) setUploadProgress(Math.round((e.loaded / e.total) * 100));
+        if (target.method !== "PUT") {
+          reject(new Error("Método de upload não suportado"));
+          return;
+        }
+        const xhr = new XMLHttpRequest();
+        xhrRef.current = xhr;
+        xhr.upload.addEventListener("progress", (event) => {
+          if (event.lengthComputable) setUploadProgress(Math.round((event.loaded / event.total) * 100));
+        });
+        xhr.addEventListener("load", () => xhr.status >= 200 && xhr.status < 300
+          ? resolve()
+          : reject(new Error(`Status ${xhr.status}`)));
+        xhr.addEventListener("error", () => reject(new Error("Upload falhou")));
+        xhr.open("PUT", target.uploadUrl);
+        Object.entries(target.headers ?? {}).forEach(([name, value]) => xhr.setRequestHeader(name, value));
+        xhr.setRequestHeader("Content-Type", file.type || "application/octet-stream");
+        xhr.send(file);
       });
-      xhr.addEventListener("load", () => {
-        if (xhr.status >= 200 && xhr.status < 300) resolve();
-        else reject(new Error(`Status ${xhr.status}`));
-      });
-      xhr.addEventListener("error", () => reject(new Error("Upload falhou")));
-      xhr.open("POST", uploadUrl);
-      xhr.setRequestHeader("Authorization", `Bearer ${session?.session?.access_token}`);
-      xhr.setRequestHeader("x-upsert", "true");
-      xhr.setRequestHeader("cache-control", "public, max-age=31536000, immutable");
-      xhr.send(file);
-    }).catch((err) => {
-      toast.error("Erro no upload: " + err.message);
+
+      setMediaAssetId(target.mediaAssetId);
+      setVideoProvider(target.provider);
+      setVideoUrl(`media:${target.mediaAssetId}`);
+      setUploadState("done");
+      toast.success("Vídeo enviado!");
+    } catch (error) {
       setUploadState("idle");
-      return;
-    });
-
-    const { data: { publicUrl } } = supabase.storage.from("contents").getPublicUrl(fileName);
-    setVideoUrl(publicUrl);
-    setUploadState("done");
-    toast.success("Vídeo enviado!");
+      setUploadProgress(0);
+      toast.error(`Erro no upload: ${error instanceof Error ? error.message : "falha desconhecida"}`);
+    } finally {
+      xhrRef.current = null;
+    }
   }
 
   async function handleThumbnailSelect(file: File) {
@@ -113,32 +133,48 @@ export default function AdminCuration() {
     const vid = document.querySelector<HTMLVideoElement>("#curation-preview");
     const dur = vid?.duration && isFinite(vid.duration) ? Math.round(vid.duration) : duration;
 
-    const { error } = await supabase.from("contents").insert({
+    const { data: createdContent, error } = await supabase.from("contents").insert({
       creator_id: user!.id,
       content_type: "aula",
       title: form.title.trim(),
       description: form.description.trim() || null,
       file_url: videoUrl,
+      media_asset_id: mediaAssetId,
+      video_provider: videoProvider,
       thumbnail_url: thumbnailUrl || null,
       duration_seconds: dur,
       is_free: true,
       visibility: "free",
-      status: "approved",
-      published_at: new Date().toISOString(),
+      status: "pending",
+      published_at: null,
       is_curated: true,
       source_url: form.source_url.trim() || null,
       license_type: form.license_type,
       attribution_text: form.attribution_text.trim(),
       tags: form.tags ? form.tags.split(",").map((t) => t.trim()).filter(Boolean) : null,
-    });
+    }).select("id").single();
 
     if (error) {
       toast.error("Erro ao publicar: " + error.message);
     } else {
+      const { data: approval, error: approvalError } = await supabase.functions.invoke("approve-content", {
+        body: {
+          contentId: createdContent.id,
+          itemType: "content",
+          reason: "Conteúdo licenciado publicado pela curadoria administrativa",
+        },
+      });
+      if (approvalError || approval?.error) {
+        toast.error("Conteúdo criado, mas a aprovação segura falhou. Ele permanece pendente.");
+        setSubmitting(false);
+        return;
+      }
       toast.success("Conteúdo curado publicado!");
       setForm(emptyForm);
       setVideoFile(null);
       setVideoUrl("");
+      setMediaAssetId(null);
+      setVideoProvider(null);
       setVideoPreview("");
       setThumbnailUrl("");
       setThumbnailPreview("");

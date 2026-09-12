@@ -5,6 +5,7 @@ export interface RewardEarnedDetail {
   userId: string;
   contentId?: string;
   points: number;
+  pointType?: "user" | "creator";
 }
 
 export function dispatchRewardEarned(detail: RewardEarnedDetail) {

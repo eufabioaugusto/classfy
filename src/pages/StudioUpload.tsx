@@ -329,118 +329,46 @@ export default function StudioUpload() {
         }
       }
       
-      if (contentType !== "podcast") {
-        setUploadState("uploading");
-        setFileProgress(0);
-        const target = await videoService.createUpload(title || fileToUpload.name);
-        setMediaAssetId(target.mediaAssetId);
-        setVideoProvider(target.provider);
-        setFileUrl(`media:${target.mediaAssetId}`);
+      setUploadState("uploading");
+      setFileProgress(0);
+      const target = await videoService.createUpload(title || fileToUpload.name);
+      setMediaAssetId(target.mediaAssetId);
+      setVideoProvider(target.provider);
+      setFileUrl(`media:${target.mediaAssetId}`);
 
-        if (target.method === "TUS") {
-          await new Promise<void>((resolve, reject) => {
-            const upload = new tus.Upload(fileToUpload, {
-              endpoint: target.uploadUrl, retryDelays: [0, 3000, 5000, 10000], headers: target.headers,
-              metadata: { filename: fileToUpload.name, filetype: fileToUpload.type, title: title || fileToUpload.name },
-              onProgress: (sent, total) => setFileProgress(Math.round((sent / total) * 100)),
-              onSuccess: () => resolve(), onError: reject,
-            });
-            upload.start();
+      if (target.method === "TUS") {
+        await new Promise<void>((resolve, reject) => {
+          const upload = new tus.Upload(fileToUpload, {
+            endpoint: target.uploadUrl, retryDelays: [0, 3000, 5000, 10000], headers: target.headers,
+            metadata: { filename: fileToUpload.name, filetype: fileToUpload.type, title: title || fileToUpload.name },
+            onProgress: (sent, total) => setFileProgress(Math.round((sent / total) * 100)),
+            onSuccess: () => resolve(), onError: reject,
           });
-        } else if (target.method === "PUT") {
-          await new Promise<void>((resolve, reject) => {
-            const xhr = new XMLHttpRequest();
-            xhrRef.current = xhr;
-            xhr.upload.onprogress = event => event.lengthComputable && setFileProgress(Math.round((event.loaded / event.total) * 100));
-            xhr.onload = () => xhr.status >= 200 && xhr.status < 300 ? resolve() : reject(new Error(`Upload failed with status ${xhr.status}`));
-            xhr.onerror = () => reject(new Error("Upload failed"));
-            xhr.onabort = () => reject(new Error("Upload aborted"));
-            xhr.open("PUT", target.uploadUrl);
-            Object.entries(target.headers ?? {}).forEach(([name, value]) => xhr.setRequestHeader(name, value));
-            xhr.setRequestHeader("Content-Type", fileToUpload.type || "application/octet-stream");
-            xhr.send(fileToUpload);
-          });
-        }
-
-        setUploadState("processing");
-        setFileProgress(100);
-        setUploadState("complete");
-        toast.success("Vídeo enviado! O processamento continuará em segundo plano.");
-      } else {
-        setUploadState("uploading");
-        setFileProgress(0);
-        
-        const fileExt = fileToUpload.name.split('.').pop();
-        const fileName = `${user.id}/${Date.now()}.${fileExt}`;
-
-        const { data: session } = await supabase.auth.getSession();
-        const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-        const uploadUrl = `${supabaseUrl}/storage/v1/object/contents/${fileName}`;
-
-        const maxRetries = 3;
-        let attempt = 0;
-
-        const attemptUpload = () => new Promise<void>((resolve, reject) => {
+          upload.start();
+        });
+      } else if (target.method === "PUT") {
+        await new Promise<void>((resolve, reject) => {
           const xhr = new XMLHttpRequest();
           xhrRef.current = xhr;
-
-          xhr.upload.addEventListener('progress', (event) => {
-            if (event.lengthComputable) {
-              const percent = Math.round((event.loaded / event.total) * 100);
-              setFileProgress(percent);
-            }
-          });
-
-          xhr.addEventListener('load', () => {
-            if (xhr.status >= 200 && xhr.status < 300) {
-              resolve();
-            } else {
-              reject(new Error(`Upload failed with status ${xhr.status}`));
-            }
-          });
-
-          xhr.addEventListener('error', () => reject(new Error('Upload failed')));
-          xhr.addEventListener('abort', () => reject(new Error('Upload aborted')));
-
-          xhr.open('POST', uploadUrl);
-          xhr.setRequestHeader('Authorization', `Bearer ${session?.session?.access_token}`);
-          xhr.setRequestHeader('x-upsert', 'true');
-          xhr.setRequestHeader('cache-control', 'public, max-age=31536000, immutable');
+          xhr.upload.onprogress = event => event.lengthComputable && setFileProgress(Math.round((event.loaded / event.total) * 100));
+          xhr.onload = () => xhr.status >= 200 && xhr.status < 300 ? resolve() : reject(new Error(`Upload failed with status ${xhr.status}`));
+          xhr.onerror = () => reject(new Error("Upload failed"));
+          xhr.onabort = () => reject(new Error("Upload aborted"));
+          xhr.open("PUT", target.uploadUrl);
+          Object.entries(target.headers ?? {}).forEach(([name, value]) => xhr.setRequestHeader(name, value));
+          xhr.setRequestHeader("Content-Type", fileToUpload.type || "application/octet-stream");
           xhr.send(fileToUpload);
         });
-
-        while (attempt < maxRetries) {
-          try {
-            await attemptUpload();
-            break;
-          } catch (err: any) {
-            attempt++;
-            if (err.message === 'Upload aborted' || attempt >= maxRetries) throw err;
-            const delay = Math.min(1000 * Math.pow(2, attempt - 1), 8000);
-            toast.info(`Tentativa ${attempt + 1}/${maxRetries}... Reenviando em ${delay / 1000}s`);
-            setFileProgress(0);
-            await new Promise(r => setTimeout(r, delay));
-          }
-        }
-
-        setUploadState("processing");
-        
-        const { data: { publicUrl } } = supabase.storage
-          .from('contents')
-          .getPublicUrl(fileName);
-
-        await new Promise(resolve => setTimeout(resolve, 500));
-
-        setFileUrl(publicUrl);
-        setUploadState("complete");
-        setFileProgress(100);
-        
-        if (compressionRatio > 5) {
-          toast.success(`Arquivo enviado! Comprimido ${compressionRatio.toFixed(0)}%`);
-        } else {
-          toast.success("Arquivo enviado com sucesso!");
-        }
       }
+
+      setUploadState("processing");
+      setFileProgress(100);
+      setUploadState("complete");
+      toast.success(
+        contentType === "podcast"
+          ? "Áudio enviado! O processamento continuará em segundo plano."
+          : "Vídeo enviado! O processamento continuará em segundo plano.",
+      );
     } catch (error: any) {
       toast.error(error.message || "Erro ao enviar arquivo");
       setFilePreview("");

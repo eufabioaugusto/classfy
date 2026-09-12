@@ -13,6 +13,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useRewardSystem } from "@/hooks/useRewardSystem";
 import { useToast } from "@/hooks/use-toast";
 import { ShareViaDMModal } from "@/components/direct-messages/ShareViaDMModal";
+import { supabase } from "@/integrations/supabase/client";
 
 interface ShareButtonProps {
   contentId: string;
@@ -21,6 +22,7 @@ interface ShareButtonProps {
   creatorName?: string;
   size?: "default" | "sm" | "lg" | "icon";
   variant?: "default" | "outline" | "secondary" | "ghost";
+  isCourse?: boolean;
 }
 
 export function ShareButton({ 
@@ -29,7 +31,8 @@ export function ShareButton({
   contentThumbnail,
   creatorName,
   size = "sm", 
-  variant = "ghost" 
+  variant = "ghost",
+  isCourse = false,
 }: ShareButtonProps) {
   const { user } = useAuth();
   const { processReward } = useRewardSystem();
@@ -40,6 +43,23 @@ export function ShareButton({
 
   const shareUrl = `${window.location.origin}/watch/${contentId}`;
 
+  const recordRewardableShare = async (channel: "native" | "copy" | "direct_message") => {
+    if (!user) return;
+    try {
+      const { error } = await supabase.from("content_shares").insert({
+        user_id: user.id,
+        channel,
+        [isCourse ? "course_id" : "content_id"]: contentId,
+      });
+      if (error) throw error;
+      await processReward({ actionKey: "SHARE", userId: user.id, contentId });
+    } catch (error) {
+      // Compartilhar e recompensar sao operacoes independentes: uma falha na
+      // telemetria economica nunca deve transformar um envio bem-sucedido em erro.
+      console.error("Error recording rewardable share:", error);
+    }
+  };
+
   const handleCopy = async () => {
     try {
       await navigator.clipboard.writeText(shareUrl);
@@ -47,13 +67,7 @@ export function ShareButton({
       setTimeout(() => setCopied(false), 2000);
 
       // Trigger reward
-      if (user) {
-        await processReward({
-          actionKey: 'SHARE',
-          userId: user.id,
-          contentId,
-        });
-      }
+      await recordRewardableShare("copy");
 
       toast({
         title: "Link copiado!",
@@ -77,13 +91,7 @@ export function ShareButton({
         });
 
         // Trigger reward
-        if (user) {
-          await processReward({
-            actionKey: 'SHARE',
-            userId: user.id,
-            contentId,
-          });
-        }
+        await recordRewardableShare("native");
       } catch (error) {
         console.error('Error sharing:', error);
       }
@@ -150,6 +158,7 @@ export function ShareButton({
         contentTitle={contentTitle}
         contentThumbnail={contentThumbnail}
         creatorName={creatorName}
+        onShared={() => recordRewardableShare("direct_message")}
       />
     </Dialog>
   );

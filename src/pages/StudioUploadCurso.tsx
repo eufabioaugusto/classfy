@@ -42,6 +42,8 @@ import { DraggableModuleWrapper } from "@/components/course-builder/DraggableMod
 import { DraggableLesson } from "@/components/course-builder/DraggableLesson";
 import { CourseStructurePreview } from "@/components/course-builder/CourseStructurePreview";
 import { QuizEditor } from "@/components/course-builder/QuizEditor";
+import * as tus from "tus-js-client";
+import { videoService } from "@/lib/video/service";
 
 type Visibility = "free" | "pro" | "premium" | "paid";
 type CourseLevel = "beginner" | "intermediate" | "advanced";
@@ -62,6 +64,9 @@ interface Lesson {
   description: string;
   videoFile: File | null;
   videoUrl: string;
+  videoPreviewUrl: string;
+  mediaAssetId: string | null;
+  videoProvider: string | null;
   duration: number;
   isPreview: boolean;
   uploading: boolean;
@@ -296,6 +301,9 @@ export default function StudioUploadCurso() {
       description: "",
       videoFile: null,
       videoUrl: "",
+      videoPreviewUrl: "",
+      mediaAssetId: null,
+      videoProvider: null,
       duration: 0,
       isPreview: false,
       uploading: false,
@@ -344,6 +352,8 @@ export default function StudioUploadCurso() {
 
       updateLesson(moduleId, lessonId, 'uploading', true);
       updateLesson(moduleId, lessonId, 'progress', 0);
+      const localPreviewUrl = URL.createObjectURL(file);
+      updateLesson(moduleId, lessonId, 'videoPreviewUrl', localPreviewUrl);
 
       // Get video duration
       const videoDurationPromise = new Promise<number>((resolve) => {
@@ -417,51 +427,55 @@ export default function StudioUploadCurso() {
         fileToUpload = file;
       }
 
-      // Upload with real XHR progress
-      const fileExt = fileToUpload.name.split('.').pop();
-      const fileName = `${user.id}/${Date.now()}.${fileExt}`;
-      
-      const { data: session } = await supabase.auth.getSession();
-      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-      const uploadUrl = `${supabaseUrl}/storage/v1/object/courses/${fileName}`;
+      // Aulas usam o mesmo pipeline privado e adaptativo dos conteúdos avulsos.
+      // O browser nunca recebe uma URL publica permanente do arquivo original.
+      const target = await videoService.createUpload(fileToUpload.name);
+      const reportUploadProgress = (sent: number, total: number) => {
+        const uploadPercent = total > 0 ? Math.round((sent / total) * 35) + 60 : 60;
+        updateLesson(moduleId, lessonId, 'progress', Math.min(uploadPercent, 95));
+      };
 
-      await new Promise<void>((resolve, reject) => {
-        const xhr = new XMLHttpRequest();
-
-        xhr.upload.addEventListener('progress', (event) => {
-          if (event.lengthComputable) {
-            // Upload progress mapped to 60-95%
-            const uploadPercent = Math.round((event.loaded / event.total) * 35) + 60;
-            updateLesson(moduleId, lessonId, 'progress', Math.min(uploadPercent, 95));
-          }
+      if (target.method === "TUS") {
+        await new Promise<void>((resolve, reject) => {
+          const upload = new tus.Upload(fileToUpload, {
+            endpoint: target.uploadUrl,
+            retryDelays: [0, 3000, 5000, 10000],
+            headers: target.headers,
+            metadata: {
+              filename: fileToUpload.name,
+              filetype: fileToUpload.type,
+              title: fileToUpload.name,
+            },
+            onProgress: reportUploadProgress,
+            onSuccess: resolve,
+            onError: reject,
+          });
+          upload.start();
         });
-
-        xhr.addEventListener('load', () => {
-          if (xhr.status >= 200 && xhr.status < 300) {
-            resolve();
-          } else {
-            reject(new Error(`Upload failed with status ${xhr.status}`));
-          }
+      } else if (target.method === "PUT") {
+        await new Promise<void>((resolve, reject) => {
+          const xhr = new XMLHttpRequest();
+          xhr.upload.onprogress = (event) => event.lengthComputable && reportUploadProgress(event.loaded, event.total);
+          xhr.onload = () => xhr.status >= 200 && xhr.status < 300
+            ? resolve()
+            : reject(new Error(`Upload failed with status ${xhr.status}`));
+          xhr.onerror = () => reject(new Error("Upload failed"));
+          xhr.onabort = () => reject(new Error("Upload aborted"));
+          xhr.open("PUT", target.uploadUrl);
+          Object.entries(target.headers ?? {}).forEach(([name, value]) => xhr.setRequestHeader(name, value));
+          xhr.setRequestHeader("Content-Type", fileToUpload.type || "application/octet-stream");
+          xhr.send(fileToUpload);
         });
-
-        xhr.addEventListener('error', () => reject(new Error('Upload failed')));
-        xhr.addEventListener('abort', () => reject(new Error('Upload aborted')));
-
-        xhr.open('POST', uploadUrl);
-        xhr.setRequestHeader('Authorization', `Bearer ${session?.session?.access_token}`);
-        xhr.setRequestHeader('x-upsert', 'true');
-        xhr.setRequestHeader('cache-control', 'public, max-age=31536000, immutable');
-        xhr.send(fileToUpload);
-      });
-
-      const { data: { publicUrl } } = supabase.storage
-        .from('courses')
-        .getPublicUrl(fileName);
+      } else {
+        throw new Error("Método de upload de vídeo não suportado");
+      }
 
       const videoDuration = await videoDurationPromise;
       updateLesson(moduleId, lessonId, 'duration', videoDuration);
       updateLesson(moduleId, lessonId, 'progress', 100);
-      updateLesson(moduleId, lessonId, 'videoUrl', publicUrl);
+      updateLesson(moduleId, lessonId, 'videoUrl', `media:${target.mediaAssetId}`);
+      updateLesson(moduleId, lessonId, 'mediaAssetId', target.mediaAssetId);
+      updateLesson(moduleId, lessonId, 'videoProvider', target.provider);
       updateLesson(moduleId, lessonId, 'videoFile', fileToUpload);
       
       toast.success("Vídeo da aula enviado com sucesso!");
@@ -651,6 +665,7 @@ export default function StudioUploadCurso() {
               title: lesson.title,
               description: lesson.description,
               video_url: lesson.videoUrl,
+              media_asset_id: lesson.mediaAssetId,
               duration_seconds: lesson.duration,
               order_index: lessonIndex,
               is_preview: lesson.isPreview,
@@ -1079,7 +1094,7 @@ export default function StudioUploadCurso() {
                                                                 <div className="space-y-2">
                                                                   <div className="border rounded-lg overflow-hidden bg-muted">
                                                                     <video
-                                                                      src={lesson.videoUrl}
+                                                                      src={lesson.videoPreviewUrl}
                                                                       className="w-full aspect-video object-cover"
                                                                       controls
                                                                     />
@@ -1097,6 +1112,10 @@ export default function StudioUploadCurso() {
                                                                       size="sm"
                                                                       onClick={() => {
                                                                         updateLesson(module.id, lesson.id, 'videoUrl', '');
+                                                                        if (lesson.videoPreviewUrl) URL.revokeObjectURL(lesson.videoPreviewUrl);
+                                                                        updateLesson(module.id, lesson.id, 'videoPreviewUrl', '');
+                                                                        updateLesson(module.id, lesson.id, 'mediaAssetId', null);
+                                                                        updateLesson(module.id, lesson.id, 'videoProvider', null);
                                                                         updateLesson(module.id, lesson.id, 'videoFile', null);
                                                                       }}
                                                                     >

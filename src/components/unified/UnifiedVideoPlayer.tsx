@@ -25,6 +25,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
 import { useMediaSession } from "@/hooks/useMediaSession";
 import { useContentMetrics } from "@/hooks/useContentMetrics";
+import { useCourseLessonProgress } from "@/hooks/useCourseLessonProgress";
 import { cn } from "@/lib/utils";
 import Hls from "hls.js";
 import { usePlaybackSource } from "@/hooks/usePlaybackSource";
@@ -62,6 +63,10 @@ export interface UnifiedVideoPlayerProps {
   toolbarSlot?: React.ReactNode;
   /** Callback disparado quando um milestone de progresso é atingido (15s, 50%, 90%) */
   onMilestone?: () => void;
+  courseProgress?: {
+    courseId: string;
+    lessonId: string;
+  };
 }
 
 export function UnifiedVideoPlayer({
@@ -78,6 +83,7 @@ export function UnifiedVideoPlayer({
   className,
   toolbarSlot,
   onMilestone,
+  courseProgress,
 }: UnifiedVideoPlayerProps) {
   const { user } = useAuth();
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -118,9 +124,22 @@ export function UnifiedVideoPlayer({
   const clickAnimTimeoutRef = useRef<NodeJS.Timeout>();
 
   const { setMetadata, setPlaybackState, setPositionState, clearSession } = useMediaSession();
-  const { handleTimeUpdate: trackMetrics } = useContentMetrics({
+  const { handleTimeUpdate: trackMetrics, flushProgress } = useContentMetrics({
     contentId: content.content_id ?? content.id,
     duration: content.duration_seconds || duration,
+    enabled: !courseProgress,
+    onMilestone,
+  });
+  const {
+    handleTimeUpdate: trackCourseProgress,
+    completeLesson,
+    persistCurrent: persistCourseProgress,
+    reset: resetCourseProgress,
+  } = useCourseLessonProgress({
+    courseId: courseProgress?.courseId,
+    lessonId: courseProgress?.lessonId,
+    duration: content.duration_seconds || duration,
+    enabled: Boolean(courseProgress),
     onMilestone,
   });
 
@@ -131,7 +150,8 @@ export function UnifiedVideoPlayer({
   useEffect(() => {
     setPlaybackRequested(false);
     setIsPlaying(false);
-  }, [content.id]);
+    resetCourseProgress();
+  }, [content.id, courseProgress?.lessonId, resetCourseProgress]);
 
   // ── Keyboard shortcuts ─────────────────────────────────────────────────────
   useEffect(() => {
@@ -271,6 +291,26 @@ export function UnifiedVideoPlayer({
     };
   }, [playback.url, content.media_asset_id, content.video_provider]);
 
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (isVideo || !audio || !playback.url) return;
+
+    let hls: Hls | null = null;
+    const isHls = playback.url.includes(".m3u8") || Boolean(content.media_asset_id);
+    if (isHls && Hls.isSupported()) {
+      hls = new Hls(standardHlsConfig);
+      hls.loadSource(playback.url);
+      hls.attachMedia(audio);
+    } else {
+      audio.src = playback.url;
+    }
+
+    return () => {
+      hls?.destroy();
+      releaseMediaElement(audio);
+    };
+  }, [content.media_asset_id, isVideo, playback.url]);
+
   // ── Media Session ─────────────────────────────────────────────────────────
   useEffect(() => {
     const media = mediaRef.current;
@@ -304,6 +344,22 @@ export function UnifiedVideoPlayer({
   useEffect(() => {
     const load = async () => {
       if (!user || !content.id) return;
+      if (courseProgress) {
+        const { data } = await supabase
+          .from("course_lesson_progress")
+          .select("last_position_seconds")
+          .eq("user_id", user.id)
+          .eq("lesson_id", courseProgress.lessonId)
+          .maybeSingle();
+        if (data?.last_position_seconds && data.last_position_seconds > 0) {
+          const media = mediaRef.current;
+          if (media) {
+            media.currentTime = data.last_position_seconds;
+            setCurrentTime(data.last_position_seconds);
+          }
+        }
+        return;
+      }
       const { data } = await supabase
         .from("user_progress")
         .select("last_position_seconds")
@@ -319,7 +375,7 @@ export function UnifiedVideoPlayer({
       }
     };
     load();
-  }, [content.id, user]);
+  }, [content.id, courseProgress?.lessonId, user]);
 
   // ── Load note markers ─────────────────────────────────────────────────────
   useEffect(() => {
@@ -362,6 +418,7 @@ export function UnifiedVideoPlayer({
       setCurrentTime(t);
       onTimeUpdate?.(t);
       trackMetrics(t);
+      trackCourseProgress(t);
 
       // Update buffered range
       if (media.buffered.length > 0) {
@@ -375,19 +432,10 @@ export function UnifiedVideoPlayer({
 
     const onEnded = async () => {
       setIsPlaying(false);
-      if (user && content.id && media.duration) {
-        await supabase.from("user_progress").upsert(
-          {
-            user_id: user.id,
-            content_id: content.content_id ?? content.id,
-            last_position_seconds: Math.floor(media.duration),
-            progress_percent: 100,
-            completed: true,
-            completed_at: new Date().toISOString(),
-            updated_at: new Date().toISOString(),
-          },
-          { onConflict: "user_id,content_id" }
-        );
+      if (courseProgress) {
+        await completeLesson();
+      } else {
+        await flushProgress(media.currentTime);
       }
       onVideoEnded?.();
     };
@@ -414,45 +462,17 @@ export function UnifiedVideoPlayer({
       media.removeEventListener("ended", onEnded);
       media.removeEventListener("pause", onPause);
     };
-  }, [content.id, content.content_id, user, duration, onTimeUpdate, onVideoEnded, trackMetrics]);
+  }, [content.id, content.content_id, user, duration, onTimeUpdate, onVideoEnded, trackMetrics, trackCourseProgress, courseProgress, completeLesson, flushProgress]);
 
   const saveCurrentPosition = useCallback(async (time: number) => {
     if (!user || !content.id || !time || time < 1 || duration <= 0) return;
 
-    const contentId = content.content_id ?? content.id;
-    const currentPercent = Math.min(Math.floor((time / duration) * 100), 100);
-    const { data: existing, error: progressReadError } = await supabase
-      .from("user_progress")
-      .select("id, progress_percent, completed, completed_at")
-      .eq("user_id", user.id)
-      .eq("content_id", contentId)
-      .maybeSingle();
-
-    if (progressReadError) {
-      console.error("Error reading playback progress:", progressReadError);
+    if (courseProgress) {
+      await persistCourseProgress();
       return;
     }
-
-    const progressPercent = Math.max(existing?.progress_percent || 0, currentPercent);
-    const completed = Boolean(existing?.completed) || progressPercent >= 90;
-    const progressData = {
-        user_id: user.id,
-        content_id: contentId,
-        last_position_seconds: Math.floor(time),
-        progress_percent: progressPercent,
-        completed,
-        completed_at: completed ? existing?.completed_at || new Date().toISOString() : null,
-        updated_at: new Date().toISOString(),
-    };
-
-    if (existing?.id) {
-      const { error } = await supabase.from("user_progress").update(progressData).eq("id", existing.id);
-      if (error) console.error("Error updating playback progress:", error);
-    } else {
-      const { error } = await supabase.from("user_progress").insert(progressData);
-      if (error) console.error("Error creating playback progress:", error);
-    }
-  }, [user, content.id, content.content_id, duration]);
+    await flushProgress(time);
+  }, [user, content.id, duration, courseProgress, persistCourseProgress, flushProgress]);
 
   // ── Controls ──────────────────────────────────────────────────────────────
   const togglePlay = useCallback(() => {
@@ -723,7 +743,7 @@ export function UnifiedVideoPlayer({
                 <h3 className="text-xl font-semibold text-white drop-shadow-lg">{content.title}</h3>
               </div>
             </div>
-            <audio ref={audioRef} src={content.file_url} />
+            <audio ref={audioRef} />
           </>
         )}
 

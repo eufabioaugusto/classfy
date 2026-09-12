@@ -1,6 +1,7 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Play, Wallet, Zap } from "lucide-react";
+import { subscribeToRewardEarned } from "@/lib/rewards/events";
 
 interface CreatorStatsCardProps {
   userId: string;
@@ -20,10 +21,8 @@ const getPointsForLevel = (n: number) => 500 * n * (n - 1) / 2;
 export const CreatorStatsCard = ({ userId, collapsed }: CreatorStatsCardProps) => {
   const [stats, setStats] = useState<StatsData | null>(null);
 
-  useEffect(() => {
-    if (!userId) return;
-
-    (async () => {
+  const loadStats = useCallback(async () => {
+      if (!userId) return;
       const [walletRes, eventsRes, contentsRes] = await Promise.all([
         supabase.from("wallets").select("balance").eq("user_id", userId).single(),
         supabase.from("reward_events").select("points, point_type").eq("user_id", userId),
@@ -47,8 +46,40 @@ export const CreatorStatsCard = ({ userId, collapsed }: CreatorStatsCardProps) =
         contentCount: contentsRes.count || 0,
         balance: walletRes.data?.balance || 0,
       });
-    })();
   }, [userId]);
+
+  useEffect(() => {
+    void loadStats();
+
+    const unsubscribe = subscribeToRewardEarned((reward) => {
+      if (reward.userId !== userId) return;
+      setStats((current) => current ? {
+        ...current,
+        totalPoints: reward.pointType === "creator"
+          ? current.totalPoints
+          : current.totalPoints + reward.points,
+        creatorPoints: reward.pointType === "creator"
+          ? current.creatorPoints + reward.points
+          : current.creatorPoints,
+      } : current);
+      window.setTimeout(() => void loadStats(), 250);
+    });
+
+    const channel = supabase
+      .channel(`sidebar-rewards-${userId}`)
+      .on("postgres_changes", {
+        event: "*",
+        schema: "public",
+        table: "reward_events",
+        filter: `user_id=eq.${userId}`,
+      }, () => void loadStats())
+      .subscribe();
+
+    return () => {
+      unsubscribe();
+      void supabase.removeChannel(channel);
+    };
+  }, [loadStats, userId]);
 
   if (!stats) return (
     <div className="cf-v2 mx-0.5 h-[148px] animate-pulse rounded-[var(--cf2-radius-card)] bg-[var(--cf2-surface)]" />

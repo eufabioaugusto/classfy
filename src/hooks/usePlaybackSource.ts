@@ -7,7 +7,7 @@ function playableFallback(url?: string | null) {
 }
 
 export function usePlaybackSource(content: VideoContentReference, enabled = true) {
-  const [url, setUrl] = useState(playableFallback(content.file_url));
+  const [url, setUrl] = useState(enabled ? playableFallback(content.file_url) : "");
   const [resolvedMediaAssetId, setResolvedMediaAssetId] = useState<string | null>(null);
   const [poster, setPoster] = useState(content.thumbnail_url ?? "");
   const [loading, setLoading] = useState(Boolean(content.media_asset_id));
@@ -17,7 +17,8 @@ export function usePlaybackSource(content: VideoContentReference, enabled = true
     let active = true;
     setError(null);
     if (!enabled) {
-      setUrl(content.media_asset_id ? "" : playableFallback(content.file_url));
+      // Sem entitlement o elemento de midia nunca recebe nem a URL legada.
+      setUrl("");
       setResolvedMediaAssetId(null);
       setPoster(content.thumbnail_url ?? "");
       setLoading(false);

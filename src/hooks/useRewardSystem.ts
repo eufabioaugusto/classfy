@@ -1,6 +1,6 @@
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "@/hooks/use-toast";
-import { useRef } from "react";
+import { useCallback, useRef } from "react";
 import { dispatchRewardEarned } from "@/lib/rewards/events";
 
 interface ProcessRewardParams {
@@ -31,8 +31,16 @@ const getBrazilDateString = (date = new Date()) => {
 export function useRewardSystem() {
   // Track in-flight reward processing to prevent duplicates
   const processingRewards = useRef<Set<string>>(new Set());
+  const progressCheckpoints = useRef<Map<string, number>>(new Map());
+  const pendingProgress = useRef<Map<string, {
+    userId: string;
+    contentId: string;
+    watchedSeconds: number;
+    currentPosition: number;
+  }>>(new Map());
+  const progressDrains = useRef<Map<string, Promise<void>>>(new Map());
 
-  const processReward = async ({
+  const processReward = useCallback(async ({
     actionKey,
     userId,
     contentId,
@@ -108,6 +116,7 @@ export function useRewardSystem() {
             userId,
             contentId,
             points: pts,
+            pointType: userReward.point_type === "creator" ? "creator" : "user",
           });
           toast({
             title: "🎉 Recompensa recebida!",
@@ -126,9 +135,9 @@ export function useRewardSystem() {
       // Remove from in-flight tracker
       processingRewards.current.delete(rewardKey);
     }
-  };
+  }, []);
 
-  const reverseReward = async (userId: string, contentId: string, actionKey: string) => {
+  const reverseReward = useCallback(async (userId: string, contentId: string, actionKey: string) => {
     try {
       const { data, error } = await supabase.functions.invoke("reverse-reward", {
         body: {
@@ -140,16 +149,22 @@ export function useRewardSystem() {
 
       if (error) throw error;
 
-      // Keep client-side trackers aligned with server reversal
-      const rewardKey = `${actionKey}_${userId}_${contentId}`;
-      sessionRewardTracker.delete(rewardKey);
+      if (data?.reversed && Number(data?.points || 0) > 0) {
+        dispatchRewardEarned({
+          actionKey: `${actionKey}_REVERSED`,
+          userId,
+          contentId,
+          points: -Number(data.points),
+          pointType: "user",
+        });
+      }
 
       return data;
     } catch (error) {
       console.error("Error reversing reward:", error);
       return null;
     }
-  };
+  }, []);
 
   const handleLike = async (userId: string, contentId: string, isLiking: boolean) => {
     if (!isLiking) return; // Only reward on like, not unlike
@@ -208,7 +223,7 @@ export function useRewardSystem() {
     if (Number(dailyResult?.currentStreak || 0) >= 7) {
       await processReward({ actionKey: 'WEEKLY_STREAK', userId, metadata: { date: today } });
     }
-    return true;
+    return dailyResult !== null;
   };
 
   const checkCourseCompletion = async (userId: string, courseId: string) => {
@@ -264,91 +279,97 @@ export function useRewardSystem() {
     }
   };
 
-  const trackProgress = async (
+  const trackProgress = useCallback(async (
     userId: string,
     contentId: string,
-    currentPercent: number,
-    watchedSeconds: number
+    _currentPercent: number,
+    watchedSeconds: number,
+    currentPosition = watchedSeconds,
   ) => {
-    try {
-      // Create unique key for this progress update
-      const progressKey = `progress_${userId}_${contentId}`;
-      
-      // Prevent multiple simultaneous updates
-      if (processingRewards.current.has(progressKey)) {
-        return;
-      }
-      
-      processingRewards.current.add(progressKey);
-
-      try {
-        // Check if user already has progress record
-        const { data: existingProgress, error: progressReadError } = await supabase
-          .from('user_progress')
-          .select('*')
-          .eq('user_id', userId)
-          .eq('content_id', contentId)
-          .maybeSingle();
-
-        if (progressReadError) throw progressReadError;
-
-        // Clamp percent to 100
-        const clampedPercent = Math.min(Math.floor(currentPercent), 100);
-
-        const progressData = {
-          user_id: userId,
-          content_id: contentId,
-          progress_percent: clampedPercent,
-          last_position_seconds: Math.floor(watchedSeconds),
-          completed: clampedPercent >= 90,
-          completed_at: clampedPercent >= 90 ? new Date().toISOString() : null,
-        };
-
-        if (existingProgress) {
-          // Only update if new progress is higher (prevent regression on re-watch)
-          if (clampedPercent > (existingProgress.progress_percent || 0)) {
-            const { error: progressUpdateError } = await supabase
-              .from('user_progress')
-              .update(progressData)
-              .eq('id', existingProgress.id);
-            if (progressUpdateError) throw progressUpdateError;
-          }
-        } else {
-          const { error: progressInsertError } = await supabase
-            .from('user_progress')
-            .insert(progressData);
-          if (progressInsertError) throw progressInsertError;
-        }
-
-        // Sempre pedir o processamento ao cruzar o milestone. O ledger e o
-        // tracking do servidor sao a fonte de idempotencia, nao user_progress.
-        // Assim um progresso antigo nao bloqueia uma recompensa ainda ausente.
-        if (currentPercent >= 50) {
-          await processReward({
-            actionKey: 'WATCH_50',
-            userId,
-            contentId,
-            metadata: { progress: 50 },
-          });
-        }
-
-        if (currentPercent >= 90) {
-          await processReward({
-            actionKey: 'WATCH_100',
-            userId,
-            contentId,
-            metadata: { progress: 100 },
-          });
-        }
-      } finally {
-        setTimeout(() => {
-          processingRewards.current.delete(progressKey);
-        }, 1000);
-      }
-    } catch (error) {
-      console.error('Error tracking progress:', error);
+    const progressKey = `progress_${userId}_${contentId}`;
+    const queued = pendingProgress.current.get(progressKey);
+    if (!queued || watchedSeconds >= queued.watchedSeconds) {
+      pendingProgress.current.set(progressKey, {
+        userId,
+        contentId,
+        watchedSeconds,
+        currentPosition,
+      });
     }
-  };
+
+    let drain = progressDrains.current.get(progressKey);
+    if (!drain) {
+      drain = (async () => {
+        while (pendingProgress.current.has(progressKey)) {
+          const request = pendingProgress.current.get(progressKey)!;
+          pendingProgress.current.delete(progressKey);
+
+          const watchedFloor = Math.floor(request.watchedSeconds);
+          const previousCheckpoint = progressCheckpoints.current.get(progressKey) || 0;
+          const watchedDelta = watchedFloor - previousCheckpoint;
+          if (watchedDelta <= 0) continue;
+
+          try {
+            const { data, error } = await supabase.rpc("record_content_progress_v1", {
+              p_content_id: request.contentId,
+              p_watched_delta: watchedDelta,
+              p_last_position_seconds: Math.floor(request.currentPosition),
+            });
+            if (error) throw error;
+
+            const result = data as {
+              accepted_watched_delta?: number;
+              progress_percent?: number;
+            } | null;
+            const acceptedDelta = Math.max(0, Number(result?.accepted_watched_delta || 0));
+            progressCheckpoints.current.set(progressKey, previousCheckpoint + acceptedDelta);
+            const serverProgress = Number(result?.progress_percent || 0);
+
+            // Ledger e tracking do servidor sao a fonte de idempotencia. A fila
+            // impede que o checkpoint final seja perdido por concorrencia.
+            if (serverProgress >= 50) {
+              await processReward({
+                actionKey: 'WATCH_50',
+                userId: request.userId,
+                contentId: request.contentId,
+                metadata: { progress: 50 },
+              });
+            }
+
+            if (serverProgress >= 100) {
+              await processReward({
+                actionKey: 'WATCH_100',
+                userId: request.userId,
+                contentId: request.contentId,
+                metadata: { progress: 100 },
+              });
+            }
+          } catch (error) {
+            console.error('Error tracking progress:', error);
+          }
+        }
+      })().finally(() => {
+        progressDrains.current.delete(progressKey);
+      });
+      progressDrains.current.set(progressKey, drain);
+    }
+
+    await drain;
+
+    // Uma nova leitura pode entrar exatamente entre o ultimo teste do `while`
+    // e o `finally` que libera a fila. Nesse caso ela fica pendente, mas nao
+    // pode depender de outro `timeupdate` (o video pode ter acabado).
+    const pending = pendingProgress.current.get(progressKey);
+    if (pending && !progressDrains.current.has(progressKey)) {
+      await trackProgress(
+        pending.userId,
+        pending.contentId,
+        _currentPercent,
+        pending.watchedSeconds,
+        pending.currentPosition,
+      );
+    }
+  }, [processReward]);
 
   return {
     processReward,

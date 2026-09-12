@@ -7,6 +7,8 @@ import { ParticleBurst } from "@/components/ui/particle-burst";
 import { useContentActions } from "@/hooks/useContentActions";
 import { useAuth } from "@/contexts/AuthContext";
 import { ShareViaDMModal } from "@/components/direct-messages/ShareViaDMModal";
+import { supabase } from "@/integrations/supabase/client";
+import { useRewardSystem } from "@/hooks/useRewardSystem";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -40,7 +42,24 @@ export function ContentActions({
   onShare 
 }: ContentActionsProps) {
   const { user } = useAuth();
+  const { processReward } = useRewardSystem();
   const [showDMModal, setShowDMModal] = useState(false);
+
+  const recordDirectShare = async () => {
+    if (!user) return;
+    try {
+      const { error } = await supabase.from("content_shares").insert({
+        user_id: user.id,
+        channel: "direct_message",
+        [isCourse ? "course_id" : "content_id"]: contentId,
+      });
+      if (error) throw error;
+      await processReward({ actionKey: "SHARE", userId: user.id, contentId });
+      onShare?.();
+    } catch (error) {
+      console.error("Error recording direct share reward:", error);
+    }
+  };
   
   const {
     isLiked,
@@ -99,6 +118,7 @@ export function ContentActions({
           contentThumbnail={contentThumbnail}
           creatorName={creatorName}
           variant="secondary"
+          isCourse={isCourse}
         />
 
         {/* Salvar */}
@@ -177,6 +197,7 @@ export function ContentActions({
         contentTitle={contentTitle}
         contentThumbnail={contentThumbnail}
         creatorName={creatorName}
+        onShared={recordDirectShare}
       />
     </>
   );
