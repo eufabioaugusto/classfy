@@ -67,6 +67,17 @@
 .economy-icon--success { color: var(--cf2-success); background: var(--cf2-success-soft); }
 .economy-icon--warning { color: var(--cf2-warning); background: var(--cf2-warning-soft); }
 
+.economy-streak-badge {
+  flex: 0 0 auto;
+  min-height: 1.625rem;
+  padding-inline: var(--cf2-space-2);
+  font-size: 0.625rem;
+  font-weight: 650;
+  letter-spacing: 0;
+  text-transform: none;
+  white-space: nowrap;
+}
+
 .economy-kicker {
   display: block;
   color: var(--cf2-accent);

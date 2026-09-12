@@ -346,7 +346,7 @@ export default function Recompensas() {
                     <p className="economy-panel-copy">Entre na Classfy em dias consecutivos para liberar bônus.</p>
                   </div>
                 </div>
-                <V2Badge variant="warning">{stats.currentStreak} dias seguidos</V2Badge>
+                <V2Badge className="economy-streak-badge" variant="warning">{stats.currentStreak} dias seguidos</V2Badge>
               </V2CardHeader>
               <V2CardContent>
                 <div className="economy-stat-list">
