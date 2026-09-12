@@ -1,34 +1,40 @@
 import { useEffect, useState } from "react";
-import { useAuth } from "@/contexts/AuthContext";
 import { useNavigate } from "react-router-dom";
+import {
+  Award,
+  BarChart3,
+  Bookmark,
+  Eye,
+  Flame,
+  Heart,
+  History,
+  MessageSquare,
+  Sparkles,
+  Star,
+  Target,
+  Trophy,
+  Video,
+  Wallet,
+  Zap,
+} from "lucide-react";
+import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
 import { GlobalLoader } from "@/components/GlobalLoader";
-import { AppShell } from "@/components/layout";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { Progress } from "@/components/ui/progress";
-import { Badge } from "@/components/ui/badge";
-import { Separator } from "@/components/ui/separator";
-import { Button } from "@/components/ui/button";
+import { AppShell, PageHeader } from "@/components/layout";
+import { EconomyTemplate } from "@/components/templates";
+import {
+  V2Badge,
+  V2Button,
+  V2Card,
+  V2CardContent,
+  V2CardHeader,
+  V2SectionHeader,
+} from "@/components/v2";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { CreatorAchievementBadge } from "@/components/CreatorAchievementBadge";
-import { useCreatorMilestones } from "@/hooks/useCreatorMilestones";
 import { LeaderboardSection } from "@/components/LeaderboardSection";
-import {
-  Trophy,
-  Zap,
-  Flame,
-  Target,
-  DollarSign,
-  Award,
-  Star,
-  Heart,
-  Bookmark,
-  MessageSquare,
-  TrendingUp,
-  Eye,
-  Video,
-  BarChart3
-} from "lucide-react";
+import { useCreatorMilestones } from "@/hooks/useCreatorMilestones";
+import "@/styles/economy-v2.css";
 
 interface UserStats {
   level: number;
@@ -39,7 +45,6 @@ interface UserStats {
   balance: number;
   currentStreak: number;
   longestStreak: number;
-  badges: any[];
   cyclePoints: number;
   engagementStats: {
     likes: number;
@@ -52,468 +57,391 @@ interface UserStats {
     totalViews: number;
     totalLikes: number;
     avgEngagement: number;
-    nextMilestone: {
-      target: number;
-      current: number;
-      reward: string;
-    };
   };
 }
+
+const formatMoney = (value: number) =>
+  new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(value);
 
 export default function Recompensas() {
   const { user, loading: authLoading, role } = useAuth();
   const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState<UserStats | null>(null);
-
-  // Use creator milestones hook for achievements
-  const {
-    milestones,
-    loading: milestonesLoading
-  } = useCreatorMilestones(user?.id);
+  const { milestones, loading: milestonesLoading } = useCreatorMilestones(user?.id);
 
   useEffect(() => {
     if (!authLoading && !user) {
       navigate("/auth");
-    } else if (user) {
-      fetchStats();
+      return;
     }
-  }, [user, authLoading, navigate]);
 
-  const fetchStats = async () => {
-    try {
-      // Fetch all data in parallel
-      const [
-        rewardEventsRes,
-        walletRes,
-        streaksRes,
-        badgesRes,
-        engagementRes
-      ] = await Promise.all([
-        supabase.from("reward_events").select("points, point_type").eq("user_id", user!.id).eq("point_type" as any, "user"),
-        supabase.from("wallets").select("balance, total_earned").eq("user_id", user!.id).single(),
-        supabase.from("user_login_streaks").select("current_streak, longest_streak").eq("user_id", user!.id).maybeSingle(),
-        supabase.from("user_badges").select("*, badges(*)").eq("user_id", user!.id),
-        // Engagement stats from reward events
-        supabase.from("reward_events").select("action_key").eq("user_id", user!.id).eq("point_type" as any, "user")
-      ]);
+    if (!user) return;
 
-      // Calculate level and points with progressive curve
-      // Level N requires: 500 * N total cumulative points from previous levels
-      // Level 1: 0, Level 2: 500, Level 3: 1500, Level 4: 3000, Level 5: 5000...
-      // Formula: cumulative points for level N = 500 * N*(N-1)/2
-      const totalPoints = rewardEventsRes.data?.reduce((sum, e) => sum + e.points, 0) || 0;
-      
-      const getPointsForLevel = (n: number) => 500 * n * (n - 1) / 2;
-      let level = 1;
-      while (getPointsForLevel(level + 1) <= totalPoints) {
-        level++;
-      }
-      const pointsAtCurrentLevel = getPointsForLevel(level);
-      const pointsAtNextLevel = getPointsForLevel(level + 1);
-      const pointsNeededForNext = pointsAtNextLevel - pointsAtCurrentLevel;
-      const pointsInCurrentLevel = totalPoints - pointsAtCurrentLevel;
-      const pointsToNextLevel = Math.ceil(pointsNeededForNext - pointsInCurrentLevel);
-      const progressPercent = (pointsInCurrentLevel / pointsNeededForNext) * 100;
-
-      // Calculate engagement stats
-      const actions = engagementRes.data || [];
-      const engagementStats = {
-        likes: actions.filter(a => a.action_key === 'LIKE').length,
-        saves: actions.filter(a => a.action_key === 'SAVE').length,
-        comments: actions.filter(a => a.action_key === 'COMMENT').length,
-        completedContents: actions.filter(a => a.action_key === 'WATCH_100').length,
-      };
-
-      let creatorStats = undefined;
-
-      // If user is creator, fetch creator stats
-      if (role === 'creator' || role === 'admin') {
-        const [contentsRes, coursesRes] = await Promise.all([
-          supabase.from("contents")
-            .select("views_count, likes_count")
-            .eq("creator_id", user!.id)
-            .eq("status", "approved"),
-          supabase.from("courses")
-            .select("views_count, likes_count")
-            .eq("creator_id", user!.id)
-            .eq("status", "approved")
+    const fetchStats = async () => {
+      try {
+        const [rewardEventsRes, walletRes, streaksRes, engagementRes] = await Promise.all([
+          supabase.from("reward_events").select("points, point_type").eq("user_id", user.id).eq("point_type", "user"),
+          supabase.from("wallets").select("balance, total_earned").eq("user_id", user.id).single(),
+          supabase.from("user_login_streaks").select("current_streak, longest_streak").eq("user_id", user.id).maybeSingle(),
+          supabase.from("reward_events").select("action_key").eq("user_id", user.id).eq("point_type", "user"),
         ]);
 
-        const contents = contentsRes.data || [];
-        const courses = coursesRes.data || [];
-        const allItems = [...contents, ...courses];
-        const totalViews = allItems.reduce((sum, c) => sum + (c.views_count || 0), 0);
-        const totalLikes = allItems.reduce((sum, c) => sum + (c.likes_count || 0), 0);
-        const avgEngagement = allItems.length > 0 && totalViews > 0 ? (totalLikes / totalViews) * 100 : 0;
+        const totalPoints = rewardEventsRes.data?.reduce((sum, event) => sum + event.points, 0) || 0;
+        const getPointsForLevel = (level: number) => (500 * level * (level - 1)) / 2;
+        let level = 1;
+        while (getPointsForLevel(level + 1) <= totalPoints) level += 1;
 
-        let nextMilestone = { target: 100, current: totalViews, reward: "Reconhecimento" };
-        if (totalViews >= 1000) {
-          nextMilestone = { target: 5000, current: totalViews, reward: "Reconhecimento" };
-        } else if (totalViews >= 500) {
-          nextMilestone = { target: 1000, current: totalViews, reward: "Reconhecimento" };
-        } else if (totalViews >= 100) {
-          nextMilestone = { target: 500, current: totalViews, reward: "Reconhecimento" };
+        const pointsAtCurrentLevel = getPointsForLevel(level);
+        const pointsAtNextLevel = getPointsForLevel(level + 1);
+        const pointsNeededForNext = pointsAtNextLevel - pointsAtCurrentLevel;
+        const pointsInCurrentLevel = totalPoints - pointsAtCurrentLevel;
+        const pointsToNextLevel = Math.ceil(pointsNeededForNext - pointsInCurrentLevel);
+        const progressPercent = (pointsInCurrentLevel / pointsNeededForNext) * 100;
+
+        const actions = engagementRes.data || [];
+        const engagementStats = {
+          likes: actions.filter((action) => action.action_key === "LIKE").length,
+          saves: actions.filter((action) => action.action_key === "SAVE").length,
+          comments: actions.filter((action) => action.action_key === "COMMENT").length,
+          completedContents: actions.filter((action) => action.action_key === "WATCH_100").length,
+        };
+
+        let creatorStats: UserStats["creatorStats"];
+        if (role === "creator" || role === "admin") {
+          const [contentsRes, coursesRes] = await Promise.all([
+            supabase.from("contents").select("views_count, likes_count").eq("creator_id", user.id).eq("status", "approved"),
+            supabase.from("courses").select("views_count, likes_count").eq("creator_id", user.id).eq("status", "approved"),
+          ]);
+          const items = [...(contentsRes.data || []), ...(coursesRes.data || [])];
+          const totalViews = items.reduce((sum, item) => sum + (item.views_count || 0), 0);
+          const totalLikes = items.reduce((sum, item) => sum + (item.likes_count || 0), 0);
+          creatorStats = {
+            totalContents: items.length,
+            totalViews,
+            totalLikes,
+            avgEngagement: items.length > 0 && totalViews > 0 ? (totalLikes / totalViews) * 100 : 0,
+          };
         }
 
-        creatorStats = {
-          totalContents: allItems.length,
-          totalViews,
-          totalLikes,
-          avgEngagement,
-          nextMilestone
-        };
-      }
-
-      // Points do ciclo atual; valores em reais só são definitivos após o fechamento.
-      const now = new Date();
-      const yearMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-      let cyclePoints = 0;
-      const { data: cycle } = await supabase
-        .from('economic_cycles')
-        .select('id')
-        .eq('year_month', yearMonth)
-        .maybeSingle();
-
-      if (cycle) {
-        const { data: userCycle } = await supabase
-          .from('economic_cycle_users')
-          .select('cycle_points')
-          .eq('cycle_id', cycle.id)
-          .eq('user_id', user!.id)
+        const now = new Date();
+        const yearMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+        const { data: cycle } = await supabase
+          .from("economic_cycles")
+          .select("id")
+          .eq("year_month", yearMonth)
           .maybeSingle();
-        cyclePoints = Number((userCycle as any)?.cycle_points || 0);
-      }
 
-      setStats({
-        level,
-        totalPoints,
-        pointsToNextLevel,
-        progressPercent,
-        totalEarned: walletRes.data?.total_earned || 0,
-        balance: walletRes.data?.balance || 0,
-        currentStreak: streaksRes.data?.current_streak || 0,
-        longestStreak: streaksRes.data?.longest_streak || 0,
-        badges: badgesRes.data || [],
-        cyclePoints,
-        engagementStats,
-        creatorStats
-      });
-    } catch (error) {
-      console.error("Error fetching stats:", error);
-    } finally {
-      setLoading(false);
-    }
+        let cyclePoints = 0;
+        if (cycle) {
+          const { data: userCycle } = await supabase
+            .from("economic_cycle_users")
+            .select("cycle_points")
+            .eq("cycle_id", cycle.id)
+            .eq("user_id", user.id)
+            .maybeSingle();
+          cyclePoints = Number(userCycle?.cycle_points || 0);
+        }
+
+        setStats({
+          level,
+          totalPoints,
+          pointsToNextLevel,
+          progressPercent,
+          totalEarned: walletRes.data?.total_earned || 0,
+          balance: walletRes.data?.balance || 0,
+          currentStreak: streaksRes.data?.current_streak || 0,
+          longestStreak: streaksRes.data?.longest_streak || 0,
+          cyclePoints,
+          engagementStats,
+          creatorStats,
+        });
+      } catch (error) {
+        console.error("Error fetching stats:", error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    void fetchStats();
+  }, [authLoading, navigate, role, user]);
+
+  if (authLoading || loading || !stats || !user) return <GlobalLoader />;
+
+  const isCreator = role === "creator" || role === "admin";
+  const unlockedMilestones = milestones.filter((milestone) => milestone.isClaimed);
+  const lockedMilestones = milestones.filter((milestone) => !milestone.isClaimed);
+  const nextMilestone = isCreator
+    ? [...lockedMilestones].sort((a, b) => b.percentComplete - a.percentComplete)[0]
+    : null;
+  const nextStreakReward = Math.max(1, 7 - (stats.currentStreak % 7));
+
+  const engagementRows = [
+    { Icon: Heart, label: "Curtidas", value: stats.engagementStats.likes },
+    { Icon: Bookmark, label: "Salvos", value: stats.engagementStats.saves },
+    { Icon: MessageSquare, label: "Comentários", value: stats.engagementStats.comments },
+    { Icon: Target, label: "Conteúdos concluídos", value: stats.engagementStats.completedContents },
+  ];
+
+  const creatorRows = stats.creatorStats
+    ? [
+        { Icon: Video, label: "Publicações", value: stats.creatorStats.totalContents.toLocaleString("pt-BR") },
+        { Icon: Eye, label: "Visualizações", value: stats.creatorStats.totalViews.toLocaleString("pt-BR") },
+        { Icon: Heart, label: "Curtidas recebidas", value: stats.creatorStats.totalLikes.toLocaleString("pt-BR") },
+        { Icon: BarChart3, label: "Engajamento médio", value: `${stats.creatorStats.avgEngagement.toFixed(1)}%` },
+      ]
+    : [];
+
+  const typeLabel: Record<string, string> = {
+    contents: "conteúdos",
+    followers: "seguidores",
+    views: "visualizações",
+    earnings: "reais",
+    engagement: "% de engajamento",
   };
 
-  if (authLoading || loading || !stats) {
-    return <GlobalLoader />;
-  }
-
-  const isCreator = role === 'creator' || role === 'admin';
-
   return (
-    <AppShell
-      variant="home"
-      title="Minhas Recompensas"
-      contentClassName="container mx-auto px-4 py-5 pb-24 md:pb-6 space-y-4"
-    >
-            {/* Points do ciclo + ranking */}
-            <div className="grid grid-cols-1 md:grid-cols-2 items-stretch gap-4">
-              <Card>
-                <CardHeader>
-                  <CardDescription>Points do ciclo atual</CardDescription>
-                  <CardTitle className="text-3xl font-bold flex items-center gap-2">
-                    <Zap className="w-7 h-7 text-primary" />
-                    {stats.cyclePoints.toLocaleString('pt-BR')}
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <p className="text-sm text-muted-foreground">
-                    Seus Points participam proporcionalmente do fechamento mensal. O valor em reais só aparece depois do fechamento.
-                  </p>
-                </CardContent>
-              </Card>
-              <LeaderboardSection userId={user!.id} />
+    <AppShell variant="home" title="Recompensas" contentClassName="economy-page-shell">
+      <EconomyTemplate
+        className="economy-template"
+        width="wide"
+        header={
+          <PageHeader
+            eyebrow="Economia Classfy"
+            title="Seu progresso tem valor."
+            description="Acompanhe seus Points, sua evolução e as conquistas que marcam a sua jornada."
+            action={
+              <V2Button variant="secondary" leadingIcon={<History className="h-4 w-4" />} onClick={() => navigate("/rewards-history")}>
+                Ver histórico
+              </V2Button>
+            }
+          />
+        }
+      >
+        <section className="economy-hero-grid">
+          <V2Card elevation="panel" className="economy-balance-hero">
+            <div className="economy-balance-hero__top">
+              <span className="economy-kicker">Ciclo atual</span>
+              <h2 className="economy-balance-hero__headline">Cada ação elegível constrói sua participação.</h2>
+              <span className="economy-balance-hero__label">Points neste ciclo</span>
+              <div className="economy-balance-hero__value">
+                {stats.cyclePoints.toLocaleString("pt-BR")} <small>Points</small>
+              </div>
+              <div className="economy-balance-hero__meta">
+                <span><span className="economy-status-dot" />Ciclo em andamento</span>
+                <span>Valor em reais definido no fechamento mensal</span>
+              </div>
             </div>
-
-            {/* Level + Balance */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <Card className="col-span-1 md:col-span-2">
-                <CardHeader>
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <CardDescription>Seu Nível</CardDescription>
-                      <CardTitle className="text-3xl font-bold flex items-center gap-2 mt-1">
-                        <Trophy className="w-7 h-7 text-accent" />
-                        {stats.level}
-                      </CardTitle>
-                    </div>
-                    <div className="text-right">
-                      <p className="text-xs text-muted-foreground">Points acumulados</p>
-                      <p className="text-2xl font-bold text-primary">{stats.totalPoints.toLocaleString()}</p>
-                    </div>
-                  </div>
-                </CardHeader>
-                <CardContent className="space-y-2">
-                  <div className="flex justify-between text-xs">
-                    <span className="text-muted-foreground">Para o Nível {stats.level + 1}</span>
-                    <span className="font-medium">faltam {stats.pointsToNextLevel.toLocaleString('pt-BR')} Points</span>
-                  </div>
-                  <Progress value={stats.progressPercent} className="h-2" indicatorClassName="bg-gradient-to-r from-primary to-accent" />
-                </CardContent>
-              </Card>
-
-              <Card className="bg-gradient-to-br from-green-500/10 to-emerald-500/10 border-green-500/20">
-                <CardHeader>
-                  <CardDescription>Saldo Disponível</CardDescription>
-                  <CardTitle className="text-2xl font-bold text-green-500 flex items-center gap-1.5 mt-1">
-                    <DollarSign className="w-5 h-5" />
-                    R$ {stats.balance.toFixed(2)}
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <Separator className="mb-2" />
-                  <div className="flex justify-between text-xs">
-                    <span className="text-muted-foreground">Total Ganho</span>
-                    <span className="font-medium">R$ {stats.totalEarned.toFixed(2)}</span>
-                  </div>
-                </CardContent>
-              </Card>
+            <div className="economy-balance-hero__bottom economy-level">
+              <div className="economy-level__row">
+                <div>
+                  <span className="economy-kicker">Nível {stats.level}</span>
+                  <span className="economy-level__value">{stats.totalPoints.toLocaleString("pt-BR")} Points acumulados</span>
+                </div>
+                <V2Badge variant="accent">Próximo · N{stats.level + 1}</V2Badge>
+              </div>
+              <div className="economy-progress" aria-label={`${stats.progressPercent.toFixed(0)}% do nível concluído`}>
+                <span style={{ width: `${Math.min(100, stats.progressPercent)}%` }} />
+              </div>
+              <div className="economy-progress-copy">
+                <span>{stats.progressPercent.toFixed(0)}% concluído</span>
+                <span>Faltam {stats.pointsToNextLevel.toLocaleString("pt-BR")} Points</span>
+              </div>
             </div>
+          </V2Card>
+          <LeaderboardSection userId={user.id} />
+        </section>
 
-            {/* Streak & Badges */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {/* Streak Card */}
-              <Card>
-                <CardHeader>
-                  <div className="flex items-center gap-2">
-                    <Flame className="w-6 h-6 text-orange-500" />
-                    <CardTitle>Sequência de Login</CardTitle>
-                  </div>
-                  <CardDescription>Continue sua sequência diária para ganhar bônus</CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-3">
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <p className="text-xs text-muted-foreground">Sequência Atual</p>
-                      <p className="text-2xl font-bold text-orange-500">{stats.currentStreak} dias</p>
-                    </div>
-                    <div>
-                      <p className="text-xs text-muted-foreground">Melhor Sequência</p>
-                      <p className="text-2xl font-bold">{stats.longestStreak} dias</p>
-                    </div>
-                  </div>
-                  <div className="px-3 py-2 rounded-lg bg-orange-500/10 border border-orange-500/20">
-                    <p className="text-xs flex items-center gap-2">
-                      <Target className="w-3.5 h-3.5" />
-                      <span>Próxima recompensa em <strong>{Math.max(0, 7 - (stats.currentStreak % 7))} dias</strong></span>
-                    </p>
-                  </div>
-                </CardContent>
-              </Card>
+        <section className="economy-section" aria-labelledby="reward-overview-title">
+          <V2SectionHeader
+            eyebrow="Visão rápida"
+            title="Seu ritmo agora"
+            description="Os sinais mais importantes da sua evolução, sem ruído."
+          />
+          <div className="economy-metric-grid">
+            {[
+              { Icon: Zap, label: "Points acumulados", value: stats.totalPoints.toLocaleString("pt-BR"), detail: "Toda a jornada" },
+              { Icon: Wallet, label: "Saldo disponível", value: formatMoney(stats.balance), detail: `${formatMoney(stats.totalEarned)} gerados` },
+              { Icon: Flame, label: "Sequência atual", value: `${stats.currentStreak} dias`, detail: `Recorde de ${stats.longestStreak} dias` },
+              { Icon: Target, label: "Conteúdos concluídos", value: stats.engagementStats.completedContents, detail: "Com 100% assistido" },
+            ].map(({ Icon, label, value, detail }) => (
+              <V2Card key={label} className="economy-metric">
+                <div className="economy-metric__top">
+                  <span className="economy-metric__label">{label}</span>
+                  <span className="economy-icon economy-icon--muted"><Icon aria-hidden="true" /></span>
+                </div>
+                <strong className="economy-metric__value">{value}</strong>
+                <span className="economy-metric__detail">{detail}</span>
+              </V2Card>
+            ))}
+          </div>
+        </section>
 
-              {/* Achievements Card - Creator Milestones */}
-              <Card>
-                <CardHeader>
-                  <div className="flex items-center gap-2">
-                    <Award className="w-6 h-6 text-accent" />
-                    <CardTitle>Conquistas</CardTitle>
+        <section className="economy-section">
+          <V2SectionHeader
+            eyebrow="Conquistas"
+            title="Marcos que contam sua história"
+            description="O progresso aparece com clareza; o destaque fica para aquilo que você realmente conquistou."
+          />
+          <div className="economy-content-grid">
+            <V2Card className="economy-panel">
+              <V2CardHeader>
+                <div className="economy-panel-heading">
+                  <span className="economy-icon"><Award aria-hidden="true" /></span>
+                  <div>
+                    <h2 className="economy-panel-title">Conquistas</h2>
+                    <p className="economy-panel-copy">{unlockedMilestones.length} desbloqueadas de {milestones.length}</p>
                   </div>
-                  <CardDescription>Badges conquistadas</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  {milestonesLoading ? (
-                    <div className="text-center py-8 text-muted-foreground">
-                      <Award className="w-12 h-12 mx-auto mb-2 opacity-50 animate-pulse" />
-                      <p className="text-sm">Carregando conquistas...</p>
-                    </div>
-                  ) : (
-                    <Tabs defaultValue="unlocked">
-                      <TabsList className="w-full grid grid-cols-2 mb-4">
-                        <TabsTrigger value="unlocked" className="gap-1.5">
-                          Desbloqueadas
-                          <span className="bg-primary/20 text-primary px-1.5 py-0.5 rounded-full text-xs">
-                            {milestones.filter(m => m.isClaimed).length}
-                          </span>
-                        </TabsTrigger>
-                        <TabsTrigger value="locked" className="gap-1.5">
-                          Bloqueadas
-                          <span className="bg-muted px-1.5 py-0.5 rounded-full text-xs">
-                            {milestones.filter(m => !m.isClaimed).length}
-                          </span>
-                        </TabsTrigger>
-                      </TabsList>
-
-                      <TabsContent value="unlocked" className="mt-0">
-                        {milestones.filter(m => m.isClaimed).length > 0 ? (
-                          <div className="grid grid-cols-3 sm:grid-cols-4 gap-4">
-                            {milestones.filter(m => m.isClaimed).map((milestone) => (
-                              <CreatorAchievementBadge
-                                key={milestone.id}
-                                milestone={milestone}
-                                size="sm"
-                              />
-                            ))}
-                          </div>
-                        ) : (
-                          <div className="text-center py-8 text-muted-foreground">
-                            <Trophy className="w-12 h-12 mx-auto mb-3 opacity-30" />
-                            <p className="text-sm">Nenhuma conquista desbloqueada ainda</p>
-                            <p className="text-xs mt-1">Complete metas para ganhar selos!</p>
-                          </div>
-                        )}
-                      </TabsContent>
-
-                      <TabsContent value="locked" className="mt-0">
-                        <div className="grid grid-cols-3 sm:grid-cols-4 gap-4">
-                          {milestones.filter(m => !m.isClaimed).slice(0, 8).map((milestone) => (
-                            <CreatorAchievementBadge
-                              key={milestone.id}
-                              milestone={milestone}
-                              size="sm"
-                            />
+                </div>
+              </V2CardHeader>
+              <V2CardContent>
+                {milestonesLoading ? (
+                  <div className="py-12 text-center text-sm text-muted-foreground">Carregando conquistas...</div>
+                ) : (
+                  <Tabs defaultValue="unlocked">
+                    <TabsList className="economy-tabs-list">
+                      <TabsTrigger value="unlocked">Desbloqueadas · {unlockedMilestones.length}</TabsTrigger>
+                      <TabsTrigger value="locked">Em progresso · {lockedMilestones.length}</TabsTrigger>
+                    </TabsList>
+                    <TabsContent value="unlocked" className="mt-5">
+                      {unlockedMilestones.length ? (
+                        <div className="economy-achievement-grid">
+                          {unlockedMilestones.map((milestone) => (
+                            <CreatorAchievementBadge key={milestone.id} milestone={milestone} size="sm" variant="economy" />
                           ))}
                         </div>
-                        {milestones.filter(m => !m.isClaimed).length > 8 && (
-                          <p className="text-center text-xs text-muted-foreground mt-4">
-                            +{milestones.filter(m => !m.isClaimed).length - 8} conquistas restantes
-                          </p>
-                        )}
-                      </TabsContent>
-                    </Tabs>
-                  )}
-                </CardContent>
-              </Card>
-            </div>
+                      ) : (
+                        <div className="py-10 text-center">
+                          <p className="economy-panel-title">Sua primeira conquista está próxima</p>
+                          <p className="economy-panel-copy">Complete metas para marcar o início da sua coleção.</p>
+                        </div>
+                      )}
+                    </TabsContent>
+                    <TabsContent value="locked" className="mt-5">
+                      <div className="economy-achievement-grid">
+                        {lockedMilestones.slice(0, 8).map((milestone) => (
+                          <CreatorAchievementBadge key={milestone.id} milestone={milestone} size="sm" variant="economy" />
+                        ))}
+                      </div>
+                    </TabsContent>
+                  </Tabs>
+                )}
+              </V2CardContent>
+            </V2Card>
 
-            {/* Engagement + Creator Stats — 2 colunas para creators */}
-            <div className={`grid grid-cols-1 gap-6${isCreator && stats.creatorStats ? ' md:grid-cols-2' : ''}`}>
-              <Card>
-                <CardHeader className="pb-3">
-                  <div className="flex items-center gap-2">
-                    <Zap className="w-4 h-4 text-primary" />
-                    <CardTitle className="text-sm font-semibold">Engajamento</CardTitle>
+            <V2Card className="economy-panel">
+              <V2CardHeader>
+                <div className="economy-panel-heading">
+                  <span className="economy-icon economy-icon--warning"><Flame aria-hidden="true" /></span>
+                  <div>
+                    <h2 className="economy-panel-title">Consistência</h2>
+                    <p className="economy-panel-copy">Pequenas ações, repetidas no tempo</p>
                   </div>
-                </CardHeader>
-                <CardContent>
-                  <div className="grid grid-cols-2 gap-2">
-                    {[
-                      { Icon: Heart, label: 'Curtidas', value: stats.engagementStats.likes, color: 'text-pink-500' },
-                      { Icon: Bookmark, label: 'Salvos', value: stats.engagementStats.saves, color: 'text-blue-500' },
-                      { Icon: MessageSquare, label: 'Comentários', value: stats.engagementStats.comments, color: 'text-purple-500' },
-                      { Icon: Target, label: 'Completados', value: stats.engagementStats.completedContents, color: 'text-green-500' },
-                    ].map(({ Icon, label, value, color }) => (
-                      <div key={label} className="flex items-center gap-3 p-2.5 rounded-lg bg-muted/40">
-                        <Icon className={`w-4 h-4 shrink-0 ${color}`} />
-                        <div>
-                          <p className="text-xs text-muted-foreground leading-none">{label}</p>
-                          <p className="text-xl font-bold mt-0.5">{value}</p>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </CardContent>
-              </Card>
-
-              {isCreator && stats.creatorStats && (
-                <Card>
-                  <CardHeader className="pb-3">
-                    <div className="flex items-center gap-2">
-                      <Star className="w-4 h-4 text-accent" />
-                      <CardTitle className="text-sm font-semibold">Creator</CardTitle>
-                    </div>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="grid grid-cols-2 gap-2">
-                      {[
-                        { Icon: Video, label: 'Conteúdos', value: stats.creatorStats.totalContents, color: 'text-muted-foreground' },
-                        { Icon: Eye, label: 'Visualizações', value: stats.creatorStats.totalViews.toLocaleString(), color: 'text-muted-foreground' },
-                        { Icon: Heart, label: 'Curtidas', value: stats.creatorStats.totalLikes.toLocaleString(), color: 'text-pink-500' },
-                        { Icon: BarChart3, label: 'Engajamento', value: `${stats.creatorStats.avgEngagement.toFixed(1)}%`, color: 'text-muted-foreground' },
-                      ].map(({ Icon, label, value, color }) => (
-                        <div key={label} className="flex items-center gap-3 p-2.5 rounded-lg bg-muted/40">
-                          <Icon className={`w-4 h-4 shrink-0 ${color}`} />
-                          <div>
-                            <p className="text-xs text-muted-foreground leading-none">{label}</p>
-                            <p className="text-xl font-bold mt-0.5">{value}</p>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </CardContent>
-                </Card>
-              )}
-            </div>
-
-
-            {/* Próximo Milestone + Histórico Detalhado — 50/50 */}
-            {(() => {
-              const typeLabel: Record<string, string> = {
-                contents: 'conteúdos', followers: 'seguidores',
-                views: 'views', earnings: 'R$', engagement: '%',
-              };
-              const nextMilestone = isCreator
-                ? milestones.filter(m => !m.isClaimed).sort((a, b) => b.percentComplete - a.percentComplete)[0]
-                : null;
-
-              const historicoCard = (
-                <Card className="h-full flex flex-col justify-center">
-                  <CardContent className="p-4 sm:p-6">
-                    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-                      <div>
-                        <h3 className="text-base sm:text-lg font-semibold">Histórico Detalhado</h3>
-                        <p className="text-xs sm:text-sm text-muted-foreground">
-                          Veja todas as suas recompensas com filtros avançados
-                        </p>
-                      </div>
-                      <Button onClick={() => navigate('/rewards-history')} className="w-full sm:w-auto">
-                        Ver Histórico Completo
-                      </Button>
-                    </div>
-                  </CardContent>
-                </Card>
-              );
-
-              if (!nextMilestone) return historicoCard;
-
-              const unit = typeLabel[nextMilestone.milestone_type] ?? '';
-              const remaining = Math.max(0, nextMilestone.milestone_value - nextMilestone.currentValue);
-              const rewardParts = 'Reconhecimento';
-
-              return (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <Card>
-                    <CardHeader>
-                      <div className="flex items-center gap-2">
-                        <TrendingUp className="w-5 h-5 text-accent" />
-                        <CardTitle>Próximo Milestone</CardTitle>
-                      </div>
-                      <CardDescription>{nextMilestone.title}</CardDescription>
-                    </CardHeader>
-                    <CardContent className="space-y-3">
-                      <div className="flex justify-between items-end gap-2">
-                        <div className="min-w-0">
-                          <p className="text-xs text-muted-foreground">Meta</p>
-                          <p className="text-xl font-bold">{nextMilestone.milestone_value.toLocaleString()} {unit}</p>
-                        </div>
-                        <Badge variant="secondary" className="flex-shrink-0">{rewardParts}</Badge>
-                      </div>
-                      <Progress
-                        value={nextMilestone.percentComplete}
-                        className="h-2"
-                        indicatorClassName="bg-gradient-to-r from-accent to-primary"
-                      />
-                      <p className="text-xs text-muted-foreground">
-                        {nextMilestone.currentValue.toLocaleString()} / {nextMilestone.milestone_value.toLocaleString()} {unit}
-                        {remaining > 0 && <span> · Faltam <strong>{remaining.toLocaleString()}</strong></span>}
-                      </p>
-                    </CardContent>
-                  </Card>
-                  {historicoCard}
                 </div>
-              );
-            })()}
+                <V2Badge variant="warning">{stats.currentStreak} dias</V2Badge>
+              </V2CardHeader>
+              <V2CardContent>
+                <div className="economy-stat-list">
+                  <div className="economy-stat-row">
+                    <span className="economy-stat-row__label"><Flame />Sequência atual</span>
+                    <strong className="economy-stat-row__value">{stats.currentStreak} dias</strong>
+                  </div>
+                  <div className="economy-stat-row">
+                    <span className="economy-stat-row__label"><Trophy />Melhor sequência</span>
+                    <strong className="economy-stat-row__value">{stats.longestStreak} dias</strong>
+                  </div>
+                  <div className="economy-stat-row">
+                    <span className="economy-stat-row__label"><Sparkles />Próximo bônus</span>
+                    <strong className="economy-stat-row__value">em {nextStreakReward} dias</strong>
+                  </div>
+                </div>
+              </V2CardContent>
+            </V2Card>
+          </div>
+        </section>
+
+        <section className="economy-section">
+          <V2SectionHeader eyebrow="Atividade" title={isCreator ? "Consumo e criação, lado a lado" : "Como você participa"} />
+          <div className="economy-content-grid">
+            <V2Card className="economy-panel">
+              <V2CardHeader>
+                <div className="economy-panel-heading">
+                  <span className="economy-icon economy-icon--muted"><Zap aria-hidden="true" /></span>
+                  <div><h2 className="economy-panel-title">Seu engajamento</h2><p className="economy-panel-copy">Ações elegíveis registradas</p></div>
+                </div>
+              </V2CardHeader>
+              <V2CardContent className="economy-stat-list">
+                {engagementRows.map(({ Icon, label, value }) => (
+                  <div className="economy-stat-row" key={label}>
+                    <span className="economy-stat-row__label"><Icon />{label}</span>
+                    <strong className="economy-stat-row__value">{value.toLocaleString("pt-BR")}</strong>
+                  </div>
+                ))}
+              </V2CardContent>
+            </V2Card>
+
+            {isCreator && stats.creatorStats ? (
+              <V2Card className="economy-panel">
+                <V2CardHeader>
+                  <div className="economy-panel-heading">
+                    <span className="economy-icon economy-icon--muted"><Star aria-hidden="true" /></span>
+                    <div><h2 className="economy-panel-title">Sua presença como creator</h2><p className="economy-panel-copy">Desempenho do conteúdo aprovado</p></div>
+                  </div>
+                </V2CardHeader>
+                <V2CardContent className="economy-stat-list">
+                  {creatorRows.map(({ Icon, label, value }) => (
+                    <div className="economy-stat-row" key={label}>
+                      <span className="economy-stat-row__label"><Icon />{label}</span>
+                      <strong className="economy-stat-row__value">{value}</strong>
+                    </div>
+                  ))}
+                </V2CardContent>
+              </V2Card>
+            ) : (
+              <V2Card className="economy-panel">
+                <V2CardContent className="flex min-h-[18rem] flex-col items-start justify-center">
+                  <span className="economy-kicker">Próximo passo</span>
+                  <h2 className="economy-balance-hero__headline">Descubra novas formas de evoluir.</h2>
+                  <p className="economy-panel-copy mt-3">Continue aprendendo e interagindo com conteúdos elegíveis.</p>
+                  <V2Button className="mt-6" onClick={() => navigate("/")}>Explorar conteúdos</V2Button>
+                </V2CardContent>
+              </V2Card>
+            )}
+          </div>
+        </section>
+
+        <section className="economy-section economy-content-grid">
+          {nextMilestone && (
+            <V2Card className="economy-panel">
+              <V2CardHeader>
+                <div className="economy-panel-heading">
+                  <span className="economy-icon"><Trophy aria-hidden="true" /></span>
+                  <div><h2 className="economy-panel-title">Próximo milestone</h2><p className="economy-panel-copy">{nextMilestone.title}</p></div>
+                </div>
+                <V2Badge>Reconhecimento</V2Badge>
+              </V2CardHeader>
+              <V2CardContent>
+                <strong className="economy-metric__value">
+                  {nextMilestone.milestone_value.toLocaleString("pt-BR")} {typeLabel[nextMilestone.milestone_type] || ""}
+                </strong>
+                <div className="economy-progress mt-6"><span style={{ width: `${Math.min(100, nextMilestone.percentComplete)}%` }} /></div>
+                <div className="economy-progress-copy">
+                  <span>{nextMilestone.currentValue.toLocaleString("pt-BR")} alcançados</span>
+                  <span>{nextMilestone.percentComplete.toFixed(0)}%</span>
+                </div>
+              </V2CardContent>
+            </V2Card>
+          )}
+          <V2Card className="economy-panel">
+            <V2CardContent className="flex min-h-[13rem] flex-col items-start justify-center">
+              <span className="economy-kicker">Transparência</span>
+              <h2 className="economy-panel-title mt-3">Veja de onde veio cada Point.</h2>
+              <p className="economy-panel-copy">O histórico detalha ações, datas e tipos de recompensa.</p>
+              <V2Button variant="secondary" className="mt-6" onClick={() => navigate("/rewards-history")}>Abrir histórico completo</V2Button>
+            </V2CardContent>
+          </V2Card>
+        </section>
+      </EconomyTemplate>
     </AppShell>
   );
 }

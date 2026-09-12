@@ -1,5 +1,6 @@
 import { cn } from '@/lib/utils';
 import * as LucideIcons from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import type { MilestoneWithProgress } from '@/hooks/useCreatorMilestones';
@@ -7,10 +8,12 @@ import type { MilestoneWithProgress } from '@/hooks/useCreatorMilestones';
 interface CreatorAchievementBadgeProps {
   milestone: MilestoneWithProgress;
   size?: 'sm' | 'md' | 'lg';
+  variant?: 'legacy' | 'economy';
 }
 
-export function CreatorAchievementBadge({ milestone, size = 'md' }: CreatorAchievementBadgeProps) {
-  const IconComponent = (LucideIcons as any)[
+export function CreatorAchievementBadge({ milestone, size = 'md', variant = 'legacy' }: CreatorAchievementBadgeProps) {
+  const iconLibrary = LucideIcons as unknown as Record<string, LucideIcon>;
+  const IconComponent = iconLibrary[
     milestone.icon.split('-').map((word: string, i: number) => 
       word.charAt(0).toUpperCase() + word.slice(1)
     ).join('')
@@ -65,6 +68,30 @@ export function CreatorAchievementBadge({ milestone, size = 'md' }: CreatorAchie
   };
 
   const TypeIcon = getTypeIcon(milestone.milestone_type);
+
+  if (variant === 'economy') {
+    return (
+      <div className={cn('economy-achievement', !isUnlocked && 'economy-achievement--locked')}>
+        <div className="economy-achievement__mark">
+          <TypeIcon aria-hidden="true" />
+          <strong>{formatMilestoneValue(milestone.milestone_value, milestone.milestone_type)}</strong>
+        </div>
+        <div className="economy-achievement__copy">
+          <span>{milestone.title}</span>
+          {isUnlocked && milestone.progress?.claimed_at ? (
+            <small>{format(new Date(milestone.progress.claimed_at), "d 'de' MMM", { locale: ptBR })}</small>
+          ) : (
+            <small>{milestone.percentComplete.toFixed(0)}% concluído</small>
+          )}
+        </div>
+        {!isUnlocked && (
+          <div className="economy-achievement__progress" aria-hidden="true">
+            <span style={{ width: `${Math.min(100, milestone.percentComplete)}%` }} />
+          </div>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div className={cn("flex flex-col items-center gap-2", sizeClasses[size])}>
