@@ -215,7 +215,7 @@ function PeopleShowcase() {
     <div className="cfv2-people-showcase">
       <div className="cfv2-people-heading">
         <div>
-          <span>CREATORS EM DESTAQUE</span>
+          <span>Creators em destaque</span>
           <h3>Aprenda com quem vive o que ensina.</h3>
         </div>
         <div className="cfv2-carousel-actions">
@@ -249,7 +249,7 @@ function PlayerShowcase() {
       <div className="cfv2-player-stage">
         <img src={heroEducadora} alt="Helena Costa em seu ambiente de trabalho" />
         <div className="cfv2-player-vignette" />
-        <div className="cfv2-player-brand"><ClassfyMark compact /><span>ORIGINAL</span></div>
+        <div className="cfv2-player-brand"><ClassfyMark compact /><span>Original</span></div>
         <div className="cfv2-player-center">
           <button type="button" aria-label="Reproduzir"><Play size={26} fill="currentColor" /></button>
         </div>
@@ -272,7 +272,7 @@ function PlayerShowcase() {
       <div className="cfv2-player-meta">
         <div className="cfv2-player-title">
           <div>
-            <Eyebrow>EPISÓDIO 03 · LIDERANÇA</Eyebrow>
+            <Eyebrow>Episódio 03 · Liderança</Eyebrow>
             <h3>A cultura aparece nas decisões difíceis.</h3>
           </div>
           <LabBadge tone="premium"><Crown size={11} /> PREMIUM</LabBadge>
@@ -284,7 +284,7 @@ function PlayerShowcase() {
           <button type="button">Ver perfil</button>
         </div>
         <div className="cfv2-player-chapters">
-          <span>PRÓXIMOS CAPÍTULOS</span>
+          <span>Próximos capítulos</span>
           <button type="button"><i>04</i><div><strong>Rituais que criam confiança</strong><small>12 min</small></div><Play size={15} /></button>
           <button type="button"><i>05</i><div><strong>Quando a cultura é testada</strong><small>16 min</small></div><Play size={15} /></button>
         </div>
@@ -340,7 +340,7 @@ function AppShellPreview() {
           </div>
         </header>
         <main className="cfv2-app-content">
-          <div className="cfv2-app-kicker">CONTINUE DE ONDE PAROU</div>
+          <div className="cfv2-app-kicker">Continue de onde parou</div>
           <div className="cfv2-app-title-row">
             <div>
               <h3>Seu próximo insight começa aqui.</h3>
@@ -429,7 +429,7 @@ function WalletPreview() {
       <article className="cfv2-wallet-hero">
         <div className="cfv2-wallet-head">
           <div>
-            <Eyebrow>CARTEIRA CLASSFY</Eyebrow>
+            <Eyebrow>Carteira Classfy</Eyebrow>
             <h3>Seu aprendizado também gera valor.</h3>
           </div>
           <span className="cfv2-wallet-icon"><WalletCards size={22} /></span>
@@ -452,7 +452,7 @@ function WalletPreview() {
         <article className="cfv2-reward-list">
           <div className="cfv2-card-heading">
             <div>
-              <Eyebrow>ATIVIDADE</Eyebrow>
+              <Eyebrow>Atividade</Eyebrow>
               <h3>Points recentes</h3>
             </div>
             <button type="button">Ver tudo</button>
@@ -479,7 +479,7 @@ function CreatorAndPlans() {
       <article className="cfv2-creator-panel">
         <div className="cfv2-card-heading">
           <div>
-            <Eyebrow>CREATOR STUDIO</Eyebrow>
+            <Eyebrow>Creator Studio</Eyebrow>
             <h3>Visão do seu conteúdo</h3>
           </div>
           <LabBadge tone="success">PUBLICADO</LabBadge>
@@ -533,7 +533,7 @@ function DialogPreview({ onClose }: { onClose: () => void }) {
       <section className="cfv2-dialog" role="dialog" aria-modal="true" aria-labelledby="cfv2-dialog-title" onMouseDown={(event) => event.stopPropagation()}>
         <button className="cfv2-dialog-close" type="button" onClick={onClose} aria-label="Fechar"><X size={18} /></button>
         <span className="cfv2-dialog-icon"><Clapperboard size={22} /></span>
-        <Eyebrow>ADICIONAR À LISTA</Eyebrow>
+        <Eyebrow>Adicionar à lista</Eyebrow>
         <h3 id="cfv2-dialog-title">Guarde para o momento certo.</h3>
         <p>O conteúdo ficará disponível em Minha lista em todos os seus dispositivos.</p>
         <div className="cfv2-dialog-actions">
@@ -550,7 +550,7 @@ function SheetPreview({ onClose }: { onClose: () => void }) {
     <div className="cfv2-overlay cfv2-sheet-overlay" role="presentation" onMouseDown={onClose}>
       <aside className="cfv2-sheet" role="dialog" aria-modal="true" aria-labelledby="cfv2-sheet-title" onMouseDown={(event) => event.stopPropagation()}>
         <button className="cfv2-dialog-close" type="button" onClick={onClose} aria-label="Fechar"><X size={18} /></button>
-        <Eyebrow>DETALHES DA AULA</Eyebrow>
+        <Eyebrow>Detalhes da aula</Eyebrow>
         <h3 id="cfv2-sheet-title">Antes de começar</h3>
         <div className="cfv2-sheet-list">
           <div><span><Clock3 size={16} /></span><p><strong>18 minutos</strong><small>Duração total</small></p></div>
@@ -598,7 +598,7 @@ export default function FrontV2Lab() {
           <div className="cfv2-hero-shade" />
           <div className="cfv2-hero-copy">
             <LabBadge tone="premium"><Crown size={11} /> CLASSFY ORIGINAL</LabBadge>
-            <Eyebrow>NOVA SÉRIE · 8 EPISÓDIOS</Eyebrow>
+            <Eyebrow>Nova série · 8 episódios</Eyebrow>
             <h1>Liderança é o que<br />você faz <em>quando importa.</em></h1>
             <p>Helena Costa mostra como transformar cultura em decisões claras, times fortes e trabalho que permanece.</p>
             <div className="cfv2-hero-actions">
@@ -622,17 +622,17 @@ export default function FrontV2Lab() {
         </section>
 
         <section className="cfv2-section cfv2-people-section">
-          <SectionIntro number="01" eyebrow="IDENTIDADE HUMANA" title="A Classfy tem rostos, não avatares genéricos." description="Creators são parte da marca. A fotografia editorial recebe protagonismo e a interface assume um papel silencioso." />
+          <SectionIntro number="01" eyebrow="Identidade humana" title="A Classfy tem rostos, não avatares genéricos." description="Creators são parte da marca. A fotografia editorial recebe protagonismo e a interface assume um papel silencioso." />
           <PeopleShowcase />
         </section>
 
         <section className="cfv2-section cfv2-foundations">
-          <SectionIntro number="02" eyebrow="FUNDAÇÃO" title="Uma base silenciosa. Uma identidade reconhecível." description="Contraste confortável, hierarquia precisa e cor usada como significado — não decoração." />
+          <SectionIntro number="02" eyebrow="Fundação" title="Uma base silenciosa. Uma identidade reconhecível." description="Contraste confortável, hierarquia precisa e cor usada como significado — não decoração." />
 
           <div className="cfv2-foundation-grid">
             <article className="cfv2-token-card cfv2-colors-card">
               <div className="cfv2-card-heading">
-                <div><Eyebrow>PALETA SEMÂNTICA</Eyebrow><h3>Cor que orienta</h3></div>
+                <div><Eyebrow>Paleta semântica</Eyebrow><h3>Cor que orienta</h3></div>
                 <span>AA+</span>
               </div>
               <div className="cfv2-swatches">
@@ -647,7 +647,7 @@ export default function FrontV2Lab() {
             </article>
 
             <article className="cfv2-token-card cfv2-type-card">
-              <Eyebrow>TIPOGRAFIA</Eyebrow>
+              <Eyebrow>Tipografia</Eyebrow>
               <div className="cfv2-type-display">Conhecimento<br /><em>que transforma.</em></div>
               <div className="cfv2-type-samples">
                 <div><span>DISPLAY / 56</span><strong>Domínio e presença</strong></div>
@@ -658,7 +658,7 @@ export default function FrontV2Lab() {
             </article>
 
             <article className="cfv2-token-card cfv2-surfaces-card">
-              <Eyebrow>SUPERFÍCIES E CAMADAS</Eyebrow>
+              <Eyebrow>Superfícies e camadas</Eyebrow>
               <div className="cfv2-surface-stack">
                 <div className="cfv2-surface-layer layer-1"><span>01</span><strong>Canvas</strong><small>Base imersiva</small></div>
                 <div className="cfv2-surface-layer layer-2"><span>02</span><strong>Surface</strong><small>Organização</small></div>
@@ -672,7 +672,7 @@ export default function FrontV2Lab() {
             </article>
 
             <article className="cfv2-token-card cfv2-spacing-card">
-              <Eyebrow>RITMO E ESPAÇAMENTO</Eyebrow>
+              <Eyebrow>Ritmo e espaçamento</Eyebrow>
               <h3>Espaço também comunica hierarquia.</h3>
               <div className="cfv2-spacing-scale">
                 {[4, 8, 12, 16, 24, 32, 48, 64].map((space) => <div key={space}><span style={{ width: `${space}px` }} /><small>{space}</small></div>)}
@@ -683,27 +683,27 @@ export default function FrontV2Lab() {
         </section>
 
         <section className="cfv2-section cfv2-components-section">
-          <SectionIntro number="03" eyebrow="SISTEMA" title="Componentes que se explicam sozinhos." description="Estados claros, ações previsíveis e uma interface que permanece familiar em qualquer contexto." />
+          <SectionIntro number="03" eyebrow="Sistema" title="Componentes que se explicam sozinhos." description="Estados claros, ações previsíveis e uma interface que permanece familiar em qualquer contexto." />
           <ComponentSystem onOpenModal={() => setModalOpen(true)} onOpenSheet={() => setSheetOpen(true)} />
         </section>
 
         <section className="cfv2-section cfv2-experience-section">
-          <SectionIntro number="04" eyebrow="EXPERIÊNCIA DE CONSUMO" title="Mais conteúdo por tela. Menos esforço para encontrar." description="Shell completo, busca sempre acessível e três colunas reais de conteúdo — inspirado na praticidade do YouTube, preservando a identidade Classfy." action={<LabButton tone="quiet">Ver anatomia <ArrowRight size={15} /></LabButton>} />
+          <SectionIntro number="04" eyebrow="Experiência de consumo" title="Mais conteúdo por tela. Menos esforço para encontrar." description="Shell completo, busca sempre acessível e três colunas reais de conteúdo — inspirado na praticidade do YouTube, preservando a identidade Classfy." action={<LabButton tone="quiet">Ver anatomia <ArrowRight size={15} /></LabButton>} />
           <AppShellPreview />
         </section>
 
         <section className="cfv2-section cfv2-player-section">
-          <SectionIntro number="05" eyebrow="PLAYER CLASSFY" title="O momento de assistir também precisa ter identidade." description="A imagem permanece soberana; controles são precisos e familiares, enquanto creator, contexto e próximos capítulos formam uma experiência própria." />
+          <SectionIntro number="05" eyebrow="Player Classfy" title="O momento de assistir também precisa ter identidade." description="A imagem permanece soberana; controles são precisos e familiares, enquanto creator, contexto e próximos capítulos formam uma experiência própria." />
           <PlayerShowcase />
         </section>
 
         <section className="cfv2-section cfv2-value-section">
-          <SectionIntro number="06" eyebrow="VALOR E PROGRESSO" title="Economia clara. Conquista com significado." description="Rewards, saldo e evolução apresentados de forma transparente, humana e fácil de compreender." />
+          <SectionIntro number="06" eyebrow="Valor e progresso" title="Economia clara. Conquista com significado." description="Rewards, saldo e evolução apresentados de forma transparente, humana e fácil de compreender." />
           <WalletPreview />
         </section>
 
         <section className="cfv2-section cfv2-business-section">
-          <SectionIntro number="07" eyebrow="ECOSSISTEMA" title="Criar, crescer e evoluir — na mesma linguagem." description="A interface muda de densidade conforme a tarefa, mas mantém a identidade e a hierarquia da Classfy." />
+          <SectionIntro number="07" eyebrow="Ecossistema" title="Criar, crescer e evoluir — na mesma linguagem." description="A interface muda de densidade conforme a tarefa, mas mantém a identidade e a hierarquia da Classfy." />
           <CreatorAndPlans />
         </section>
 

@@ -51,8 +51,8 @@
     linear-gradient(0deg, rgba(5, 6, 8, 0.85) 0%, transparent 48%);
 }
 .cf2-home-hero__content { width: min(100%, 47rem); padding: clamp(2rem, 4.5vw, 5.5rem); }
-.cf2-home-hero__eyebrow { display: flex; margin-bottom: 1.1rem; align-items: center; gap: 0.75rem; color: rgba(255, 255, 255, 0.7); font-size: 0.62rem; font-weight: 760; letter-spacing: 0.14em; text-transform: uppercase; }
-.cf2-home-hero__plan { display: inline-flex; min-height: 1.4rem; padding: 0 0.5rem; align-items: center; border: 1px solid rgba(255, 255, 255, 0.18); border-radius: 0.3rem; color: rgba(255, 255, 255, 0.84); background: rgba(6, 7, 9, 0.42); letter-spacing: 0.08em; backdrop-filter: blur(9px); }
+.cf2-home-hero__eyebrow { display: flex; margin-bottom: 1.1rem; align-items: center; gap: 0.75rem; color: rgba(255, 255, 255, 0.7); font-size: 0.75rem; font-weight: 650; letter-spacing: 0; text-transform: none; }
+.cf2-home-hero__plan { display: inline-flex; min-height: 1.4rem; padding: 0 0.5rem; align-items: center; border: 1px solid rgba(255, 255, 255, 0.18); border-radius: 0.3rem; color: rgba(255, 255, 255, 0.84); background: rgba(6, 7, 9, 0.42); letter-spacing: 0; backdrop-filter: blur(9px); }
 .cf2-home-hero__plan--pro { color: #c5d2fa; border-color: rgba(142, 167, 239, 0.36); }
 .cf2-home-hero__plan--premium { color: #ebd5a9; border-color: rgba(217, 184, 120, 0.4); }
 .cf2-home-hero__identity { width: auto; max-width: min(68%, 20rem); max-height: 5rem; margin-bottom: 1.2rem; object-fit: contain; object-position: left center; filter: drop-shadow(0 8px 24px rgba(0, 0, 0, 0.34)); }
@@ -92,7 +92,7 @@
 .cf2-creator-approved__surface { position: relative; display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; min-height: 6.5rem; padding: 1rem 1rem 1rem 1.2rem; align-items: center; gap: 1rem; border: 1px solid var(--cf2-border); border-radius: var(--cf2-radius-card); background: var(--cf2-surface); box-shadow: var(--cf2-shadow-soft); }
 .cf2-creator-approved__status { display: grid; width: 2.4rem; height: 2.4rem; place-items: center; border: 1px solid color-mix(in srgb, var(--cf2-success) 30%, transparent); border-radius: 50%; color: var(--cf2-success); background: var(--cf2-success-soft); }
 .cf2-creator-approved__status svg { width: 1rem; height: 1rem; }
-.cf2-creator-approved__copy span { color: var(--cf2-success); font-size: 0.55rem; font-weight: 760; letter-spacing: 0.12em; text-transform: uppercase; }
+.cf2-creator-approved__copy span { color: var(--cf2-success); font-size: 0.7rem; font-weight: 650; letter-spacing: 0; text-transform: none; }
 .cf2-creator-approved__copy h2 { margin: 0.25rem 0 0; color: var(--cf2-ink); font-size: 1rem; font-weight: 660; letter-spacing: -0.025em; }
 .cf2-creator-approved__copy p { margin: 0.25rem 0 0; color: var(--cf2-ink-muted); font-size: 0.68rem; }
 .cf2-creator-approved__action { display: inline-flex; min-height: 2.5rem; padding: 0 1rem; align-items: center; gap: 0.45rem; border: 1px solid transparent; border-radius: var(--cf2-radius-control); color: var(--cf2-accent-contrast); background: var(--cf2-accent); font-size: 0.7rem; font-weight: 690; white-space: nowrap; cursor: pointer; }
@@ -144,7 +144,7 @@
 .cf2-mode-bridge__copy span,
 .cf2-mode-bridge__copy strong,
 .cf2-mode-bridge__copy small { display: block; }
-.cf2-mode-bridge__copy span { margin-bottom: 0.25rem; color: var(--cf2-accent); font-size: 0.55rem; font-weight: 780; letter-spacing: 0.12em; text-transform: uppercase; }
+.cf2-mode-bridge__copy span { margin-bottom: 0.25rem; color: var(--cf2-accent); font-size: 0.7rem; font-weight: 650; letter-spacing: 0; text-transform: none; }
 .cf2-mode-bridge__copy strong { overflow: hidden; font-size: 0.9rem; font-weight: 650; letter-spacing: -0.018em; line-height: 1.2; text-overflow: ellipsis; white-space: nowrap; }
 .cf2-mode-bridge__copy small { margin-top: 0.2rem; overflow: hidden; color: var(--cf2-ink-muted); font-size: 0.65rem; line-height: 1.2; text-overflow: ellipsis; white-space: nowrap; }
 .cf2-mode-bridge__action {
@@ -204,7 +204,7 @@
 .cf2-home-section { display: grid; min-width: 0; gap: 1rem; }
 .cf2-home-section__header { display: flex; min-height: 2.2rem; justify-content: space-between; align-items: flex-end; gap: 1.25rem; }
 .cf2-home-section__header > div { min-width: 0; }
-.cf2-home-section__eyebrow { display: block; margin-bottom: 0.35rem; color: var(--cf2-ink-muted); font-size: 0.55rem; font-weight: 760; letter-spacing: 0.13em; text-transform: uppercase; }
+.cf2-home-section__eyebrow { display: block; margin-bottom: 0.35rem; color: var(--cf2-ink-muted); font-size: 0.7rem; font-weight: 650; letter-spacing: 0; text-transform: none; }
 .cf2-home-section__header h2 { display: flex; margin: 0; align-items: center; gap: 0.5rem; color: var(--cf2-ink); font-size: clamp(1.15rem, 1.45vw, 1.55rem); font-weight: 650; letter-spacing: -0.035em; line-height: 1.1; }
 .cf2-home-section__header h2 svg { width: 1.1rem; height: 1.1rem; color: var(--cf2-ink-secondary); }
 .cf2-home-section__header > button { display: inline-flex; padding: 0.35rem 0; align-items: center; gap: 0.4rem; border: 0; color: var(--cf2-ink-muted); background: transparent; font-size: 0.7rem; font-weight: 630; cursor: pointer; transition: color var(--cf2-duration-fast); }
@@ -259,7 +259,7 @@
   overflow: hidden;
 }
 .cf2-home-premium__intro { max-width: 43rem; }
-.cf2-home-premium__intro > span { color: var(--cf2-premium); font-size: 0.58rem; font-weight: 780; letter-spacing: 0.15em; text-transform: uppercase; }
+.cf2-home-premium__intro > span { color: var(--cf2-premium); font-size: 0.72rem; font-weight: 650; letter-spacing: 0; text-transform: none; }
 .cf2-home-premium__intro h2 { max-width: 18ch; margin: 0.6rem 0 0; color: var(--cf2-ink); font-size: clamp(1.8rem, 3vw, 3.25rem); font-weight: 620; letter-spacing: -0.05em; line-height: 1.02; text-wrap: balance; }
 .cf2-home-premium__intro p { max-width: 35rem; margin: 0.85rem 0 0; color: var(--cf2-ink-muted); font-size: 0.82rem; line-height: 1.6; }
 .cf2-home-premium__grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: clamp(0.9rem, 1.4vw, 1.35rem); }
