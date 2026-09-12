@@ -234,17 +234,22 @@ export const publicationDraftService = {
       .eq("state", "draft")
       .maybeSingle();
     if (data?.id) {
-      await (supabase as any).rpc("discard_publication_draft", {
-        p_draft_id: data.id,
-      });
+      const { error } = await (supabase as any).rpc(
+        "discard_publication_draft",
+        {
+          p_draft_id: data.id,
+        },
+      );
+      if (error) throw error;
       return;
     }
-    await (supabase as any)
+    const { error } = await (supabase as any)
       .from("publication_drafts")
       .update({ state: "discarded", updated_at: new Date().toISOString() })
       .eq("owner_id", ownerId)
       .eq("draft_key", draftKey)
       .eq("state", "draft");
+    if (error) throw error;
   },
 
   clearLocal(ownerId: string, draftKey: string) {

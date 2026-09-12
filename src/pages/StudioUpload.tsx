@@ -43,7 +43,7 @@ import {
 } from "@/components/ui/dialog";
 import { TagsInput } from "@/components/TagsInput";
 import { StandaloneCoverSelector } from "@/components/StandaloneCoverSelector";
-import { VideoPreparationLobby } from "@/components/video-lobby/VideoPreparationLobby";
+import { VideoTrimBar } from "@/components/video-lobby/VideoTrimBar";
 import { useVideoCompression } from "@/hooks/useVideoCompression";
 import { useMediaUpload } from "@/hooks/useMediaUpload";
 import { usePublicationDraft } from "@/hooks/usePublicationDraft";
@@ -102,17 +102,16 @@ export default function StudioUpload() {
   const [filePreview, setFilePreview] = useState("");
   const [fileName, setFileName] = useState("");
   const [duration, setDuration] = useState(0);
+  const [sourceDuration, setSourceDuration] = useState(0);
   const [mediaAssetId, setMediaAssetId] = useState<string | null>(null);
   const [videoProvider, setVideoProvider] = useState<string | null>(null);
   const [thumbnailUrl, setThumbnailUrl] = useState("");
   const [thumbnailPreview, setThumbnailPreview] = useState("");
   const [thumbnailUploading, setThumbnailUploading] = useState(false);
   const [manualThumbnail, setManualThumbnail] = useState(false);
-  const [lobbyOpen, setLobbyOpen] = useState(false);
-  const [lobbyVideoSrc, setLobbyVideoSrc] = useState("");
-  const [lobbyPurpose, setLobbyPurpose] = useState<"initial" | "adjust" | null>(
-    null,
-  );
+  const [trimStart, setTrimStart] = useState(0);
+  const [trimEnd, setTrimEnd] = useState(0);
+  const [captureReady, setCaptureReady] = useState(false);
   const [previewOpen, setPreviewOpen] = useState(false);
   const [discardOpen, setDiscardOpen] = useState(false);
   const [wizardStep, setWizardStep] = useState(0);
@@ -121,6 +120,8 @@ export default function StudioUpload() {
   const [isGeneratingTags, setIsGeneratingTags] = useState(false);
   const pendingFileRef = useRef<File | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const visibleVideoRef = useRef<HTMLVideoElement>(null);
+  const captureVideoRef = useRef<HTMLVideoElement>(null);
   const mediaUpload = useMediaUpload();
   const compression = useVideoCompression();
   const [rules, setRules] = useState(publicationRules[contentType]);
@@ -200,7 +201,7 @@ export default function StudioUpload() {
       setThumbnailPreview(data.thumbnail_url ?? "");
       setManualThumbnail(Boolean(data.thumbnail_url));
       if (data.media_asset_id) {
-        setWizardStep(1);
+        setWizardStep(2);
         const { data: asset } = await (supabase as any)
           .from("media_assets")
           .select("status")
@@ -257,7 +258,11 @@ export default function StudioUpload() {
       setPrice(restored.price ?? "0");
       setDiscount(restored.discount ?? "0");
       setTags(restored.tags ?? []);
-      setFileName(restored.fileName ?? "");
+      setFileName(
+        restored.mediaAssetId || restored.fileUrl
+          ? (restored.fileName ?? "")
+          : "",
+      );
       setFileUrl(restored.fileUrl ?? "");
       setThumbnailUrl(restored.thumbnailUrl ?? "");
       setThumbnailPreview(restored.thumbnailUrl ?? "");
@@ -265,7 +270,7 @@ export default function StudioUpload() {
       setMediaAssetId(restored.mediaAssetId ?? null);
       setVideoProvider(restored.videoProvider ?? null);
       if (restored.mediaAssetId) {
-        setWizardStep(1);
+        setWizardStep(2);
         if (restored.uploadState === "ready") mediaUpload.setState("ready");
         else mediaUpload.resumeProcessing(restored.mediaAssetId);
       }
@@ -347,6 +352,11 @@ export default function StudioUpload() {
         );
       let prepared = file;
       if (contentType !== "podcast") {
+        const requiresTrim =
+          (trimStart !== undefined && trimStart > 0.5) ||
+          (trimEnd !== undefined &&
+            sourceDuration > 0 &&
+            trimEnd < sourceDuration - 0.5);
         try {
           prepared = await compression.compressVideo(file, {
             quality: "balanced",
@@ -355,8 +365,14 @@ export default function StudioUpload() {
             trimStart,
             trimEnd,
           });
+          if (requiresTrim && prepared === file) {
+            throw new Error(
+              "Não conseguimos aplicar o corte. Revise o arquivo ou tente novamente.",
+            );
+          }
           if (prepared !== file) setFilePreview(URL.createObjectURL(prepared));
-        } catch {
+        } catch (preparationError) {
+          if (requiresTrim) throw preparationError;
           prepared = file;
         }
       }
@@ -380,6 +396,7 @@ export default function StudioUpload() {
           ? "Áudio enviado. Agora estamos preparando a reprodução."
           : "Vídeo enviado. Agora estamos preparando a reprodução.",
       );
+      return true;
     } catch (uploadError) {
       if (!(
         uploadError instanceof DOMException && uploadError.name === "AbortError"
@@ -389,6 +406,7 @@ export default function StudioUpload() {
             ? uploadError.message
             : "Não foi possível enviar o arquivo.",
         );
+      return false;
     }
   };
 
@@ -408,9 +426,10 @@ export default function StudioUpload() {
       return;
     }
     const url = URL.createObjectURL(file);
+    setCaptureReady(false);
     setFileName(file.name);
     setFilePreview(url);
-    mediaUpload.setState("preparing");
+    mediaUpload.reset();
     if (!title.trim()) {
       setTitle(
         file.name
@@ -426,30 +445,52 @@ export default function StudioUpload() {
       const audio = document.createElement("audio");
       audio.preload = "metadata";
       audio.src = url;
-      audio.onloadedmetadata = () =>
-        setDuration(Math.floor(audio.duration || 0));
-      void startUpload(file);
+      audio.onloadedmetadata = () => {
+        setDuration(audio.duration || 0);
+        setSourceDuration(audio.duration || 0);
+      };
     } else {
-      setLobbyVideoSrc(url);
       const video = document.createElement("video");
       video.preload = "metadata";
       video.src = url;
       video.onloadedmetadata = () => {
-        const selectedDuration = Math.floor(video.duration || 0);
+        const selectedDuration = video.duration || 0;
         setDuration(selectedDuration);
-        if (contentType === "short" && selectedDuration > 180) {
-          setLobbyPurpose("initial");
-          setLobbyOpen(true);
-          return;
-        }
+        setSourceDuration(selectedDuration);
+        setTrimStart(0);
+        setTrimEnd(
+          contentType === "short"
+            ? Math.min(selectedDuration, 180)
+            : selectedDuration,
+        );
         setWizardStep(1);
-        void startUpload(file);
       };
       video.onerror = () => {
         setWizardStep(1);
-        void startUpload(file);
+        toast.error(
+          "Não conseguimos abrir a prévia. Você pode trocar o arquivo e tentar novamente.",
+        );
       };
     }
+  };
+
+  const confirmMediaPreparation = async () => {
+    const file = pendingFileRef.current;
+    if (!file) {
+      if (mediaAssetId) setWizardStep(2);
+      else toast.error("Selecione o arquivo novamente para continuar.");
+      return;
+    }
+    if (contentType !== "podcast") {
+      setDuration(Math.max(0, trimEnd - trimStart));
+    }
+    setWizardStep(2);
+    const started = await startUpload(
+      file,
+      contentType === "podcast" ? undefined : trimStart,
+      contentType === "podcast" ? undefined : trimEnd,
+    );
+    if (!started) setWizardStep(1);
   };
 
   const removeMedia = () => {
@@ -464,11 +505,14 @@ export default function StudioUpload() {
     setFilePreview("");
     setFileName("");
     setDuration(0);
+    setSourceDuration(0);
+    setTrimStart(0);
+    setTrimEnd(0);
+    setCaptureReady(false);
     setMediaAssetId(null);
     setVideoProvider(null);
     pendingFileRef.current = null;
-    setLobbyPurpose(null);
-    setLobbyVideoSrc("");
+    if (fileInputRef.current) fileInputRef.current.value = "";
     setWizardStep(0);
   };
 
@@ -599,9 +643,12 @@ export default function StudioUpload() {
     ["loading", "analyzing", "compressing", "finalizing"].includes(
       compression.stage,
     );
-  const mediaStatus = isPreparingLocally
-    ? compression.message || "Preparando o arquivo..."
-    : mediaStatusCopy(mediaUpload.state, mediaUpload.progress);
+  const mediaStatus =
+    wizardStep === 1 && mediaUpload.state === "idle"
+      ? "Arquivo selecionado"
+      : isPreparingLocally
+        ? compression.message || "Preparando o arquivo..."
+        : mediaStatusCopy(mediaUpload.state, mediaUpload.progress);
   const closeWizard = async () => {
     if (
       ["preparing", "uploading"].includes(mediaUpload.state) ||
@@ -610,10 +657,15 @@ export default function StudioUpload() {
       toast.info("Aguarde o envio terminar antes de fechar esta janela.");
       return;
     }
+    if (pendingFileRef.current && !mediaAssetId) {
+      toast.info("Confirme a preparação da mídia antes de fechar.");
+      return;
+    }
     if (title || description || hasSelectedMedia) await draft.saveNow();
     navigate("/studio/contents");
   };
-  const wizardSteps = ["Arquivo", "Detalhes", "Acesso e revisão"];
+  const wizardSteps = ["Arquivo", "Preparar", "Detalhes", "Acesso e revisão"];
+  const mediaAlreadySent = Boolean(mediaAssetId || fileUrl);
 
   return (
     <AppShell
@@ -786,7 +838,12 @@ export default function StudioUpload() {
                       {hasPlayablePreview && contentType === "podcast" ? (
                         <audio src={filePreview} controls />
                       ) : hasPlayablePreview && filePreview ? (
-                        <video src={filePreview} controls preload="metadata" />
+                        <video
+                          ref={visibleVideoRef}
+                          src={filePreview}
+                          controls
+                          preload="metadata"
+                        />
                       ) : (
                         <MediaIcon />
                       )}
@@ -804,24 +861,6 @@ export default function StudioUpload() {
                         </span>
                       </div>
                       <div className="studio-media-progress__actions">
-                        {contentType !== "podcast" &&
-                          pendingFileRef.current && (
-                            <V2Button
-                              variant="quiet"
-                              size="sm"
-                              leadingIcon={<Scissors />}
-                              disabled={
-                                mediaUpload.state === "uploading" ||
-                                isPreparingLocally
-                              }
-                              onClick={() => {
-                                setLobbyPurpose("adjust");
-                                setLobbyOpen(true);
-                              }}
-                            >
-                              Ajustar vídeo
-                            </V2Button>
-                          )}
                         <V2Button
                           variant="quiet"
                           size="sm"
@@ -859,13 +898,71 @@ export default function StudioUpload() {
                         </V2Button>
                       </p>
                     )}
+                    {wizardStep === 1 &&
+                      contentType !== "podcast" &&
+                      pendingFileRef.current &&
+                      sourceDuration > 0 && (
+                        <div
+                          className="studio-media-editor"
+                          data-locked={mediaAlreadySent || undefined}
+                        >
+                          <div className="studio-media-editor__heading">
+                            <div>
+                              <strong>
+                                <Scissors /> Defina o trecho do vídeo
+                              </strong>
+                              <span>
+                                Arraste as alças para escolher exatamente o que
+                                será enviado.
+                              </span>
+                            </div>
+                            {mediaAlreadySent && (
+                              <small>
+                                Para mudar o corte, substitua o arquivo.
+                              </small>
+                            )}
+                          </div>
+                          <video
+                            ref={captureVideoRef}
+                            src={filePreview}
+                            muted
+                            playsInline
+                            preload="auto"
+                            className="studio-media-editor__capture"
+                            onLoadedData={() => setCaptureReady(true)}
+                          />
+                          <div className="studio-media-editor__timeline">
+                            <VideoTrimBar
+                              key={filePreview}
+                              captureVideoRef={captureVideoRef}
+                              captureReady={captureReady}
+                              duration={sourceDuration}
+                              trimStart={trimStart}
+                              trimEnd={trimEnd || sourceDuration}
+                              maxDuration={
+                                contentType === "short" ? 180 : undefined
+                              }
+                              onTrimChange={(start, end) => {
+                                if (mediaAlreadySent) return;
+                                setTrimStart(start);
+                                setTrimEnd(end);
+                              }}
+                              onTrimCommit={(start) => {
+                                if (visibleVideoRef.current)
+                                  visibleVideoRef.current.currentTime = start;
+                              }}
+                            />
+                          </div>
+                        </div>
+                      )}
                   </div>
                 )}
                 {filePreview &&
-                  mediaUpload.state === "ready" &&
+                  wizardStep === 1 &&
                   contentType !== "podcast" &&
                   !manualThumbnail && (
                     <StandaloneCoverSelector
+                      key={filePreview}
                       videoSrc={filePreview}
                       onFrameSelect={(file) => void uploadCover(file)}
                       className="studio-cover-selector"
@@ -875,7 +972,7 @@ export default function StudioUpload() {
             </V2Card>
 
             <V2Card
-              className={`studio-publish-card ${wizardStep !== 1 ? "studio-wizard-hidden" : ""}`}
+              className={`studio-publish-card ${wizardStep !== 2 ? "studio-wizard-hidden" : ""}`}
               elevation="panel"
             >
               <V2CardHeader>
@@ -966,7 +1063,7 @@ export default function StudioUpload() {
             </V2Card>
 
             <V2Card
-              className={`studio-publish-card ${wizardStep !== 2 ? "studio-wizard-hidden" : ""}`}
+              className={`studio-publish-card ${wizardStep !== 3 ? "studio-wizard-hidden" : ""}`}
               elevation="panel"
             >
               <V2CardHeader>
@@ -1021,7 +1118,7 @@ export default function StudioUpload() {
           </div>
 
           <aside
-            className={`studio-publish-review ${wizardStep !== 2 ? "studio-wizard-hidden" : ""}`}
+            className={`studio-publish-review ${wizardStep !== 3 ? "studio-wizard-hidden" : ""}`}
           >
             <V2Card elevation="raised">
               <V2CardHeader>
@@ -1110,13 +1207,27 @@ export default function StudioUpload() {
               {wizardStep === 1 && (
                 <V2Button
                   trailingIcon={<ChevronRight />}
-                  onClick={() => setWizardStep(2)}
+                  onClick={() => void confirmMediaPreparation()}
+                  disabled={
+                    !hasSelectedMedia ||
+                    thumbnailUploading ||
+                    isPreparingLocally ||
+                    mediaUpload.state === "uploading"
+                  }
+                >
+                  {mediaAlreadySent ? "Ir para detalhes" : "Confirmar e enviar"}
+                </V2Button>
+              )}
+              {wizardStep === 2 && (
+                <V2Button
+                  trailingIcon={<ChevronRight />}
+                  onClick={() => setWizardStep(3)}
                   disabled={!hasSelectedMedia}
                 >
                   Avançar
                 </V2Button>
               )}
-              {wizardStep === 2 && (
+              {wizardStep === 3 && (
                 <>
                   <V2Button
                     variant="secondary"
@@ -1146,43 +1257,11 @@ export default function StudioUpload() {
         </form>
       </CreatorTemplate>
 
-      <VideoPreparationLobby
-        videoSrc={lobbyVideoSrc}
-        contentType={contentType}
-        open={lobbyOpen}
-        onClose={() => {
-          setLobbyOpen(false);
-          if (lobbyPurpose === "initial") removeMedia();
-          setLobbyPurpose(null);
-        }}
-        onConfirm={(data) => {
-          setLobbyOpen(false);
-          setWizardStep(1);
-          setDuration(Math.floor(data.duration));
-          if (data.thumbnailFile) void uploadCover(data.thumbnailFile);
-          const file = pendingFileRef.current;
-          const shouldReplace = lobbyPurpose === "adjust" && mediaAssetId;
-          setLobbyPurpose(null);
-          if (!file) return;
-          if (shouldReplace) {
-            void (async () => {
-              await (supabase as any).rpc("abandon_media_asset", {
-                p_media_asset_id: mediaAssetId,
-              });
-              mediaUpload.reset();
-              compression.reset();
-              setFileUrl("");
-              setMediaAssetId(null);
-              setVideoProvider(null);
-              await startUpload(file, data.trimStart, data.trimEnd);
-            })();
-            return;
-          }
-          void startUpload(file, data.trimStart, data.trimEnd);
-        }}
-      />
       <Dialog open={previewOpen} onOpenChange={setPreviewOpen}>
-        <DialogContent className="studio-preview-dialog">
+        <DialogContent
+          className="studio-preview-dialog z-[91]"
+          overlayClassName="z-[90]"
+        >
           <DialogHeader>
             <DialogTitle>Prévia da publicação</DialogTitle>
             <DialogDescription>
@@ -1214,7 +1293,10 @@ export default function StudioUpload() {
         </DialogContent>
       </Dialog>
       <Dialog open={discardOpen} onOpenChange={setDiscardOpen}>
-        <DialogContent className="studio-preview-dialog studio-discard-dialog">
+        <DialogContent
+          className="studio-preview-dialog studio-discard-dialog z-[91]"
+          overlayClassName="z-[90]"
+        >
           <DialogHeader>
             <DialogTitle>Descartar este rascunho?</DialogTitle>
             <DialogDescription>

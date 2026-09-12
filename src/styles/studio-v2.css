@@ -329,6 +329,7 @@ button.studio-list__item:focus-visible { outline: none; box-shadow: inset var(--
 .studio-status[data-status="completed"] { color: var(--cf2-success); border-color: color-mix(in srgb, var(--cf2-success) 32%, transparent); background: var(--cf2-success-soft); }
 .studio-status[data-status="pending"],
 .studio-status[data-status="pending_payment"] { color: var(--cf2-warning); border-color: color-mix(in srgb, var(--cf2-warning) 32%, transparent); background: var(--cf2-warning-soft); }
+.studio-status[data-status="draft"] { color: var(--cf2-ink-muted); border-color: var(--cf2-border-strong); background: var(--cf2-canvas-soft); }
 .studio-status[data-status="rejected"],
 .studio-status[data-status="cancelled"] { color: var(--cf2-danger); border-color: color-mix(in srgb, var(--cf2-danger) 32%, transparent); background: var(--cf2-danger-soft); }
 

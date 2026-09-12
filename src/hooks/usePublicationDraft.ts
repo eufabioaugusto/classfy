@@ -24,36 +24,52 @@ export function usePublicationDraft<TPayload>({
   sourceId?: string | null;
   payload: TPayload;
   enabled?: boolean;
-  onRestore: (payload: TPayload, record: PublicationDraftRecord<TPayload>) => void;
+  onRestore: (
+    payload: TPayload,
+    record: PublicationDraftRecord<TPayload>,
+  ) => void;
 }) {
   const [draftId, setDraftId] = useState<string | null>(null);
   const [state, setState] = useState<PublicationSaveState>("loading");
   const [savedAt, setSavedAt] = useState<Date | null>(null);
   const hydratedRef = useRef(false);
   const payloadRef = useRef(payload);
+  const lastSavedPayloadRef = useRef<string | null>(null);
   const restoreRef = useRef(onRestore);
   payloadRef.current = payload;
   restoreRef.current = onRestore;
 
   useEffect(() => {
     hydratedRef.current = false;
-    if (!enabled || !userId) { setState("saved"); return; }
+    lastSavedPayloadRef.current = null;
+    if (!enabled || !userId) {
+      setState("saved");
+      return;
+    }
     let cancelled = false;
     setState("loading");
-    publicationDraftService.load<TPayload>(userId, draftKey).then((record) => {
-      if (cancelled) return;
-      if (record) {
-        setDraftId(record.id);
-        setSavedAt(new Date(record.updated_at));
-        restoreRef.current(record.payload, record);
-      }
-      hydratedRef.current = true;
-      setState("saved");
-    }).catch(() => {
-      hydratedRef.current = true;
-      setState("error");
-    });
-    return () => { cancelled = true; };
+    publicationDraftService
+      .load<TPayload>(userId, draftKey)
+      .then((record) => {
+        if (cancelled) return;
+        if (record) {
+          setDraftId(record.id);
+          setSavedAt(new Date(record.updated_at));
+          lastSavedPayloadRef.current = JSON.stringify(record.payload);
+          restoreRef.current(record.payload, record);
+        } else {
+          lastSavedPayloadRef.current = JSON.stringify(payloadRef.current);
+        }
+        hydratedRef.current = true;
+        setState("saved");
+      })
+      .catch(() => {
+        hydratedRef.current = true;
+        setState("error");
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [draftKey, enabled, userId]);
 
   const saveNow = useCallback(async () => {
@@ -61,10 +77,16 @@ export function usePublicationDraft<TPayload>({
     setState("saving");
     try {
       const result = await publicationDraftService.save({
-        ownerId: userId, draftKey, kind, sourceType, sourceId, payload: payloadRef.current,
+        ownerId: userId,
+        draftKey,
+        kind,
+        sourceType,
+        sourceId,
+        payload: payloadRef.current,
       });
       setDraftId(result.record.id);
       setSavedAt(new Date(result.record.updated_at));
+      lastSavedPayloadRef.current = JSON.stringify(result.record.payload);
       setState(result.remote ? "saved" : "offline");
       return result.record;
     } catch {
@@ -75,9 +97,20 @@ export function usePublicationDraft<TPayload>({
 
   useEffect(() => {
     if (!enabled || !userId || !hydratedRef.current) return;
-    const timer = window.setTimeout(() => { void saveNow(); }, 900);
+    if (JSON.stringify(payload) === lastSavedPayloadRef.current) return;
+    const timer = window.setTimeout(() => {
+      void saveNow();
+    }, 900);
     return () => window.clearTimeout(timer);
   }, [enabled, payload, saveNow, userId]);
+
+  useEffect(() => {
+    const syncWhenOnline = () => {
+      if (state === "offline") void saveNow();
+    };
+    window.addEventListener("online", syncWhenOnline);
+    return () => window.removeEventListener("online", syncWhenOnline);
+  }, [saveNow, state]);
 
   const discard = useCallback(async () => {
     if (!userId) return;
@@ -91,6 +124,9 @@ export function usePublicationDraft<TPayload>({
     if (userId) publicationDraftService.clearLocal(userId, draftKey);
   }, [draftKey, userId]);
 
-  const label = useMemo(() => formatSaveStatus(state, savedAt), [savedAt, state]);
+  const label = useMemo(
+    () => formatSaveStatus(state, savedAt),
+    [savedAt, state],
+  );
   return { draftId, state, savedAt, label, saveNow, discard, clearLocal };
 }
