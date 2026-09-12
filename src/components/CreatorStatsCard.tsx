@@ -102,11 +102,10 @@ export const CreatorStatsCard = ({ userId, collapsed }: CreatorStatsCardProps) =
             R$&nbsp;{stats.balance.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
           </strong>
         </div>
-      </div>
-
-      <div className="cf2-sidebar-progress__footer">
-        <span><Play aria-hidden="true" /> Conteúdos publicados</span>
-        <strong>{stats.contentCount}</strong>
+        <div>
+          <span><Play aria-hidden="true" /> Publicações</span>
+          <strong>{stats.contentCount}</strong>
+        </div>
       </div>
     </section>
   );
