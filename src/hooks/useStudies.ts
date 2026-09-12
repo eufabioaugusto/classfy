@@ -52,16 +52,28 @@ function normalizeLimitValue(value: unknown, fallback: number) {
 }
 
 export function useStudies() {
-  const { user, profile } = useAuth();
+  const { user, profile, loading: authLoading } = useAuth();
+  const currentPlan = (profile?.plan || 'free') as keyof typeof PLAN_LIMITS;
+  const limitsReady = !user || (!authLoading && Boolean(profile));
   const [studies, setStudies] = useState<Study[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeCount, setActiveCount] = useState(0);
-  const [limits, setLimits] = useState<StudyPlanLimits>(PLAN_LIMITS.free);
-
-  const currentPlan = (profile?.plan || 'free') as keyof typeof PLAN_LIMITS;
+  const [resolvedLimits, setResolvedLimits] = useState<StudyPlanLimits>(
+    PLAN_LIMITS[currentPlan],
+  );
+  const [resolvedLimitsPlan, setResolvedLimitsPlan] = useState(currentPlan);
+  // Nunca combine o plano atual com limites resolvidos para um plano anterior.
+  // Isso evita estados transitórios impossíveis, como Premium exibindo 6/5.
+  const limits =
+    resolvedLimitsPlan === currentPlan
+      ? resolvedLimits
+      : PLAN_LIMITS[currentPlan];
 
   useEffect(() => {
-    setLimits(PLAN_LIMITS[currentPlan]);
+    let cancelled = false;
+
+    setResolvedLimits(PLAN_LIMITS[currentPlan]);
+    setResolvedLimitsPlan(currentPlan);
 
     const loadLimits = async () => {
       const { data, error } = await supabase.rpc("get_study_limits", {
@@ -73,14 +85,30 @@ export function useStudies() {
         return;
       }
 
-      setLimits({
-        studies: normalizeLimitValue(data.max_studies, PLAN_LIMITS[currentPlan].studies),
-        messages: normalizeLimitValue(data.max_messages, PLAN_LIMITS[currentPlan].messages),
-        deviations: normalizeLimitValue(data.max_deviations, PLAN_LIMITS[currentPlan].deviations),
+      if (cancelled) return;
+
+      setResolvedLimits({
+        studies: normalizeLimitValue(
+          data.max_studies,
+          PLAN_LIMITS[currentPlan].studies,
+        ),
+        messages: normalizeLimitValue(
+          data.max_messages,
+          PLAN_LIMITS[currentPlan].messages,
+        ),
+        deviations: normalizeLimitValue(
+          data.max_deviations,
+          PLAN_LIMITS[currentPlan].deviations,
+        ),
       });
+      setResolvedLimitsPlan(currentPlan);
     };
 
     loadLimits();
+
+    return () => {
+      cancelled = true;
+    };
   }, [currentPlan]);
 
   useEffect(() => {
@@ -201,7 +229,9 @@ export function useStudies() {
     };
   };
 
-  const canCreateMore = activeCount < limits.studies;
+  // Enquanto o perfil autenticado ainda carrega, não aplique o fallback Free
+  // nem permita uma criação com o plano_at_creation incorreto.
+  const canCreateMore = limitsReady && activeCount < limits.studies;
 
   return {
     studies,
@@ -210,6 +240,7 @@ export function useStudies() {
     loading,
     activeCount,
     limits,
+    limitsReady,
     currentPlan,
     canCreateMore,
     createStudy,

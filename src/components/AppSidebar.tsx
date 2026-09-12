@@ -92,6 +92,7 @@ export function AppSidebar() {
     activeStudies,
     activeCount,
     limits,
+    limitsReady,
     canCreateMore,
     archiveStudy,
     refetch: refetchStudies,
@@ -107,7 +108,11 @@ export function AppSidebar() {
   const [pinnedStudyIds, setPinnedStudyIds] = useState<string[]>([]);
   // No mobile, quando o sidebar abre como Sheet, sempre mostrar expandido
   const collapsed = isMobile ? false : state === "collapsed";
-  const limitText = limits.studies === Infinity ? "Ilimitado" : `${activeCount}/${limits.studies}`;
+  const limitText = !limitsReady
+    ? "Carregando..."
+    : limits.studies === Infinity
+      ? "Ilimitado"
+      : `${activeCount}/${limits.studies}`;
   const collapsedGroupClass = collapsed ? "px-0" : undefined;
   const collapsedMenuClass = collapsed ? "items-center overflow-visible" : undefined;
   const collapsedIconButtonClass = "relative !h-10 !w-10 !p-0 justify-center overflow-visible";
@@ -505,7 +510,7 @@ export function AppSidebar() {
                       {orderedStudies.length === 0 && (
                         <div className="px-4 py-2 text-sm text-muted-foreground">Nenhum estudo ativo</div>
                       )}
-                      {canCreateMore && (
+                      {limitsReady && canCreateMore && (
                         <SidebarMenuItem>
                           <SidebarMenuButton onClick={() => navigate("/?mode=focus")}>
                             <Plus className="h-4 w-4" />
@@ -513,7 +518,7 @@ export function AppSidebar() {
                           </SidebarMenuButton>
                         </SidebarMenuItem>
                       )}
-                      {!canCreateMore && (
+                      {limitsReady && !canCreateMore && (
                         <div className="px-3 py-3 mx-2 mb-2 rounded-lg border border-red-500/30 bg-gradient-to-br from-red-500/10 via-red-500/5 to-transparent backdrop-blur-sm">
                           <div className="flex items-start gap-2">
                             <div className="p-1.5 rounded-full bg-red-500/20 shrink-0 mt-0.5">
