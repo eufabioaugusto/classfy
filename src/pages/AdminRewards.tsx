@@ -78,8 +78,8 @@ interface CreatorMilestone {
   id: string;
   milestone_type: string;
   milestone_value: number;
-  points_reward: number;
-  value_reward: number;
+  reward_points: number;
+  reward_enabled: boolean;
   title: string;
   description: string | null;
   icon: string;
@@ -153,6 +153,7 @@ export default function AdminRewards() {
   const [editingMilestone, setEditingMilestone] = useState<CreatorMilestone | null>(null);
   const [isMilestoneDialogOpen, setIsMilestoneDialogOpen] = useState(false);
   const [milestoneSearchTerm, setMilestoneSearchTerm] = useState("");
+  const [milestoneEditReason, setMilestoneEditReason] = useState("");
 
   // Economy state
   const [poolPercentage, setPoolPercentage] = useState(40);
@@ -453,23 +454,28 @@ export default function AdminRewards() {
 
   const handleUpdateMilestone = async () => {
     if (!editingMilestone) return;
+    if (!milestoneEditReason.trim()) {
+      toast.error('Informe o motivo da alteração');
+      return;
+    }
 
     try {
-      const { error } = await supabase
-        .from('creator_milestones')
-        .update({
-          title: editingMilestone.title,
-          description: editingMilestone.description,
-          active: editingMilestone.active,
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', editingMilestone.id);
+      const { error } = await supabase.rpc('update_creator_milestone_v1' as any, {
+        p_milestone_id: editingMilestone.id,
+        p_title: editingMilestone.title,
+        p_description: editingMilestone.description || '',
+        p_reward_points: editingMilestone.reward_points,
+        p_reward_enabled: editingMilestone.reward_enabled,
+        p_active: editingMilestone.active,
+        p_reason: milestoneEditReason.trim(),
+      } as any);
 
       if (error) throw error;
 
       toast.success('Meta atualizada com sucesso!');
       setIsMilestoneDialogOpen(false);
       setEditingMilestone(null);
+      setMilestoneEditReason("");
       fetchMilestones();
     } catch (error) {
       console.error('Error updating milestone:', error);
@@ -483,24 +489,10 @@ export default function AdminRewards() {
     setIsDialogOpen(true);
   };
 
-  const handleToggleMilestoneActive = async (milestone: CreatorMilestone) => {
-    try {
-      const { error } = await supabase
-        .from('creator_milestones')
-        .update({ 
-          active: !milestone.active,
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', milestone.id);
-
-      if (error) throw error;
-
-      toast.success(`Meta ${!milestone.active ? 'ativada' : 'desativada'} com sucesso!`);
-      fetchMilestones();
-    } catch (error) {
-      console.error('Error toggling milestone:', error);
-      toast.error('Erro ao atualizar status');
-    }
+  const handleToggleMilestoneActive = (milestone: CreatorMilestone) => {
+    setEditingMilestone({ ...milestone, active: !milestone.active });
+    setMilestoneEditReason("");
+    setIsMilestoneDialogOpen(true);
   };
 
   const openEditDialog = (reward: RewardConfig) => {
@@ -511,6 +503,7 @@ export default function AdminRewards() {
 
   const openMilestoneEditDialog = (milestone: CreatorMilestone) => {
     setEditingMilestone({ ...milestone });
+    setMilestoneEditReason("");
     setIsMilestoneDialogOpen(true);
   };
 
@@ -794,6 +787,7 @@ export default function AdminRewards() {
                       <TableHead>Meta</TableHead>
                       <TableHead>Tipo</TableHead>
                       <TableHead className="text-center">Valor Alvo</TableHead>
+                      <TableHead className="text-center">Prêmio</TableHead>
                       <TableHead className="text-center">Completaram</TableHead>
                       <TableHead className="text-center">Reconhecidos</TableHead>
                       <TableHead>Status</TableHead>
@@ -830,6 +824,11 @@ export default function AdminRewards() {
                               : milestone.milestone_type === 'engagement'
                                 ? `${milestone.milestone_value}%`
                                 : milestone.milestone_value.toLocaleString('pt-BR')}
+                          </TableCell>
+                          <TableCell className="text-center font-medium">
+                            {milestone.reward_enabled
+                              ? `+${milestone.reward_points.toLocaleString('pt-BR')} Creator Points`
+                              : 'Desativado'}
                           </TableCell>
                           <TableCell className="text-center">
                             {stats?.completed_count || 0}
@@ -1395,7 +1394,7 @@ export default function AdminRewards() {
             <DialogHeader>
               <DialogTitle>Editar Meta de Creator</DialogTitle>
               <DialogDescription>
-                Metas são apenas reconhecimento e não geram recompensa econômica.
+                Defina os Creator Points pagos uma única vez pelo motor oficial da Economia V1.
               </DialogDescription>
             </DialogHeader>
 
@@ -1434,6 +1433,49 @@ export default function AdminRewards() {
                   />
                 </div>
 
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="text-sm font-medium">Creator Points do prêmio</label>
+                    <Input
+                      type="number"
+                      min={0}
+                      step={1}
+                      value={editingMilestone.reward_points}
+                      onChange={(e) => setEditingMilestone({
+                        ...editingMilestone,
+                        reward_points: Math.max(0, Number(e.target.value) || 0),
+                      })}
+                    />
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      O valor alvo acima mede a meta. Este campo define o pagamento.
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2 pt-6">
+                    <Switch
+                      checked={editingMilestone.reward_enabled}
+                      onCheckedChange={(checked) =>
+                        setEditingMilestone({ ...editingMilestone, reward_enabled: checked })
+                      }
+                    />
+                    <label className="text-sm font-medium">
+                      {editingMilestone.reward_enabled ? 'Prêmio ativo' : 'Prêmio desativado'}
+                    </label>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="text-sm font-medium">Motivo da alteração</label>
+                  <Textarea
+                    value={milestoneEditReason}
+                    onChange={(e) => setMilestoneEditReason(e.target.value)}
+                    placeholder="Explique por que esta regra foi alterada..."
+                    rows={2}
+                  />
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Obrigatório para registrar a mudança na auditoria econômica.
+                  </p>
+                </div>
+
                 <div className="flex items-center gap-2">
                   <Switch
                     checked={editingMilestone.active}
@@ -1450,7 +1492,10 @@ export default function AdminRewards() {
                   <Button variant="outline" onClick={() => setIsMilestoneDialogOpen(false)}>
                     Cancelar
                   </Button>
-                  <Button onClick={handleUpdateMilestone}>
+                  <Button
+                    onClick={handleUpdateMilestone}
+                    disabled={!milestoneEditReason.trim() || (editingMilestone.reward_enabled && editingMilestone.reward_points <= 0)}
+                  >
                     Salvar Alterações
                   </Button>
                 </div>

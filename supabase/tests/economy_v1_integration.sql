@@ -348,9 +348,24 @@ BEGIN
     RAISE EXCEPTION 'content_reapproval_generated_duplicate_reward';
   END IF;
 
-  -- QP, carry-over, milestones economicos e crons legados estao inativos.
-  IF EXISTS (SELECT 1 FROM public.creator_milestones
-      WHERE points_reward <> 0 OR value_reward <> 0)
+  -- QP, carry-over, campos de milestone antigos e crons legados estao inativos.
+  IF EXISTS (
+       SELECT 1 FROM information_schema.columns
+       WHERE table_schema = 'public'
+         AND table_name = 'creator_milestones'
+         AND column_name IN (
+           'points_reward', 'value_reward', 'legacy_points_reward',
+           'legacy_value_reward', 'awards_points'
+         )
+     )
+     OR EXISTS (
+       SELECT 1 FROM public.creator_milestones
+       WHERE reward_enabled AND reward_points <= 0
+     )
+     OR EXISTS (
+       SELECT 1 FROM public.creator_milestones
+       GROUP BY milestone_type, milestone_value HAVING count(*) > 1
+     )
      OR has_function_privilege('service_role',
        'public.carryover_cycle_points(uuid,uuid,numeric)', 'EXECUTE')
      OR EXISTS (SELECT 1 FROM cron.job
@@ -358,7 +373,14 @@ BEGIN
      OR NOT EXISTS (SELECT 1 FROM cron.job
        WHERE jobname = 'classfy-reconciliation-daily'
          AND command LIKE '%run_reconciliation_v1%') THEN
-    RAISE EXCEPTION 'legacy_economic_engine_still_active';
+    RAISE EXCEPTION 'legacy_economic_engine_or_invalid_milestone_still_active';
+  END IF;
+
+  IF NOT has_function_privilege('authenticated',
+      'public.claim_creator_milestone_v1(uuid)', 'EXECUTE')
+     OR has_table_privilege('authenticated', 'public.creator_milestones', 'UPDATE')
+  THEN
+    RAISE EXCEPTION 'creator_milestone_contract_not_hardened';
   END IF;
 
   IF (SELECT value ? 'approved_content_monthly_limit'

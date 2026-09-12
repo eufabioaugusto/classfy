@@ -54,6 +54,7 @@ const actionLabels: Record<string, string> = {
   CREATOR_APPROVED: "Teve o perfil de creator aprovado",
   FIRST_UPLOAD: "Enviou o primeiro conteúdo",
   CONTENT_APPROVED: "Teve um conteúdo aprovado",
+  CREATOR_MILESTONE: "Alcançou uma meta de creator",
   LIKE_CONTENT: "Curtiu um conteúdo (registro antigo)",
   SAVE_CONTENT: "Salvou um conteúdo (registro antigo)",
   FAVORITE_CONTENT: "Favoritou um conteúdo (registro antigo)",
@@ -83,7 +84,11 @@ const rewardOriginLabels: Record<string, string> = {
 };
 
 const getRewardOrigin = (event: RewardEvent) =>
-  event.contents?.title || rewardOriginLabels[event.action_key] || "Ação geral da plataforma";
+  event.contents?.title
+  || (event.metadata && typeof event.metadata === "object" && !Array.isArray(event.metadata)
+    && typeof event.metadata.milestone_title === "string" ? event.metadata.milestone_title : null)
+  || rewardOriginLabels[event.action_key]
+  || "Ação geral da plataforma";
 
 const metadataLabels: Record<string, string> = {
   date: "Data de referência",
@@ -94,6 +99,11 @@ const metadataLabels: Record<string, string> = {
   tracking_key: "Identificador do registro",
   canonical_name: "Nome da regra",
   economy_version: "Versão da economia",
+  milestone_id: "Identificador da conquista",
+  milestone_title: "Conquista",
+  milestone_type: "Tipo de meta",
+  milestone_value: "Valor alvo",
+  source: "Origem técnica",
 };
 
 const formatMetadataValue = (value: unknown) => {

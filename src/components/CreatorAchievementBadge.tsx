@@ -68,6 +68,9 @@ export function CreatorAchievementBadge({ milestone, size = 'md', variant = 'leg
   };
 
   const TypeIcon = getTypeIcon(milestone.milestone_type);
+  const rewardStatus = milestone.progress?.reward_status;
+  const isLegacyAchievement = rewardStatus === 'legacy_ignored';
+  const hasAwardedReward = rewardStatus === 'awarded';
 
   if (variant === 'economy') {
     return (
@@ -78,6 +81,13 @@ export function CreatorAchievementBadge({ milestone, size = 'md', variant = 'leg
         </div>
         <div className="economy-achievement__copy">
           <span>{milestone.title}</span>
+          {isLegacyAchievement ? (
+            <small>Conquista anterior · sem pagamento retroativo</small>
+          ) : hasAwardedReward ? (
+            <small>+{(milestone.progress?.reward_points || 0).toLocaleString('pt-BR')} Creator Points recebidos</small>
+          ) : milestone.reward_enabled ? (
+            <small>+{milestone.reward_points.toLocaleString('pt-BR')} Creator Points</small>
+          ) : null}
           {isUnlocked && milestone.progress?.claimed_at ? (
             <small>{format(new Date(milestone.progress.claimed_at), "d 'de' MMM", { locale: ptBR })}</small>
           ) : (

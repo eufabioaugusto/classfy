@@ -93,7 +93,7 @@ export function CreatorMilestoneItem({
             className="shrink-0"
           >
             <Gift className="w-4 h-4 mr-1" />
-            Reconhecer
+            {milestone.reward_enabled ? `Receber +${milestone.reward_points}` : 'Desbloquear'}
           </Button>
         )}
       </div>
@@ -169,7 +169,15 @@ export function CreatorMilestoneItem({
           </div>
 
           <div className="flex items-center justify-between mt-4">
-            <span className="text-sm text-muted-foreground">Conquista sem prêmio econômico</span>
+            <span className="text-sm text-muted-foreground">
+              {milestone.progress?.reward_status === 'legacy_ignored'
+                ? 'Conquista anterior · sem pagamento retroativo'
+                : milestone.progress?.reward_status === 'awarded'
+                  ? `Recebidos: +${milestone.progress.reward_points.toLocaleString('pt-BR')} Creator Points`
+                  : milestone.reward_enabled
+                    ? `Prêmio: +${milestone.reward_points.toLocaleString('pt-BR')} Creator Points`
+                    : 'Conquista sem prêmio ativo'}
+            </span>
 
             {milestone.isClaimed ? (
               <span className="text-sm text-muted-foreground flex items-center gap-1">
@@ -183,7 +191,9 @@ export function CreatorMilestoneItem({
                 className="gap-2"
               >
                 <Gift className="w-4 h-4" />
-                Reconhecer Conquista
+                {milestone.reward_enabled
+                  ? `Receber +${milestone.reward_points.toLocaleString('pt-BR')} Points`
+                  : 'Desbloquear conquista'}
               </Button>
             ) : (
               <span className="text-sm text-muted-foreground flex items-center gap-1">

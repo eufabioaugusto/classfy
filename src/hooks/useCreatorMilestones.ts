@@ -6,8 +6,8 @@ export interface CreatorMilestone {
   id: string;
   milestone_type: 'contents' | 'followers' | 'earnings' | 'engagement' | 'views';
   milestone_value: number;
-  points_reward: number;
-  value_reward: number;
+  reward_points: number;
+  reward_enabled: boolean;
   badge_id: string | null;
   title: string;
   description: string | null;
@@ -25,6 +25,9 @@ export interface CreatorMilestoneProgress {
   completed_at: string | null;
   claimed: boolean;
   claimed_at: string | null;
+  reward_status: 'pending' | 'awarded' | 'legacy_ignored' | 'disabled';
+  reward_points: number;
+  reward_event_id: string | null;
   milestone?: CreatorMilestone;
 }
 
@@ -53,11 +56,19 @@ export function useCreatorMilestones(creatorId?: string) {
 
   const fetchCreatorStats = useCallback(async (userId: string): Promise<CreatorStats> => {
     // Fetch total contents
-    const { count: contentsCount } = await supabase
-      .from('contents')
-      .select('*', { count: 'exact', head: true })
-      .eq('creator_id', userId)
-      .eq('status', 'approved');
+    const [{ count: contentsCount }, { count: coursesCount }] = await Promise.all([
+      supabase
+        .from('contents')
+        .select('*', { count: 'exact', head: true })
+        .eq('creator_id', userId)
+        .eq('status', 'approved')
+        .neq('content_type', 'short'),
+      supabase
+        .from('courses')
+        .select('*', { count: 'exact', head: true })
+        .eq('creator_id', userId)
+        .eq('status', 'approved'),
+    ]);
 
     // Fetch total followers
     const { count: followersCount } = await supabase
@@ -66,12 +77,22 @@ export function useCreatorMilestones(creatorId?: string) {
       .eq('following_id', userId);
 
     // Fetch total views
-    const { data: contentsData } = await supabase
-      .from('contents')
-      .select('views_count')
-      .eq('creator_id', userId);
+    const [{ data: contentsData }, { data: coursesData }] = await Promise.all([
+      supabase
+        .from('contents')
+        .select('views_count, likes_count')
+        .eq('creator_id', userId)
+        .eq('status', 'approved')
+        .neq('content_type', 'short'),
+      supabase
+        .from('courses')
+        .select('views_count')
+        .eq('creator_id', userId)
+        .eq('status', 'approved'),
+    ]);
     
-    const totalViews = contentsData?.reduce((sum, c) => sum + (c.views_count || 0), 0) || 0;
+    const totalViews = (contentsData?.reduce((sum, c) => sum + (c.views_count || 0), 0) || 0)
+      + (coursesData?.reduce((sum, c) => sum + (c.views_count || 0), 0) || 0);
 
     // Fetch total earnings from wallet
     const { data: walletData } = await supabase
@@ -81,16 +102,11 @@ export function useCreatorMilestones(creatorId?: string) {
       .single();
 
     // Calculate engagement rate (likes / views * 100)
-    const { data: likesData } = await supabase
-      .from('contents')
-      .select('likes_count')
-      .eq('creator_id', userId);
-    
-    const totalLikes = likesData?.reduce((sum, c) => sum + (c.likes_count || 0), 0) || 0;
+    const totalLikes = contentsData?.reduce((sum, c) => sum + (c.likes_count || 0), 0) || 0;
     const engagementRate = totalViews > 0 ? Math.round((totalLikes / totalViews) * 100) : 0;
 
     return {
-      totalContents: contentsCount || 0,
+      totalContents: (contentsCount || 0) + (coursesCount || 0),
       totalFollowers: followersCount || 0,
       totalEarnings: walletData?.total_earned || 0,
       totalViews,
@@ -157,8 +173,8 @@ export function useCreatorMilestones(creatorId?: string) {
           id: milestone.id,
           milestone_type: milestoneType,
           milestone_value: milestone.milestone_value,
-          points_reward: milestone.points_reward,
-          value_reward: milestone.value_reward,
+          reward_points: milestone.reward_points,
+          reward_enabled: milestone.reward_enabled,
           badge_id: milestone.badge_id,
           title: milestone.title,
           description: milestone.description,
@@ -192,14 +208,9 @@ export function useCreatorMilestones(creatorId?: string) {
         throw new Error('Milestone não pode ser resgatada');
       }
 
-      // A elegibilidade e o progresso são calculados no servidor. O cliente não
-      // grava milestones e elas não participam da economia ativa.
-      const { error: checkError } = await supabase.functions.invoke('check-creator-milestones', {
-        body: { creatorId },
-      });
-      if (checkError) throw checkError;
-
-      const { error: claimError } = await supabase.functions.invoke('claim-creator-milestone', {
+      // O servidor valida a meta e registra conquista + Creator Points de forma
+      // atomica e idempotente no ledger da Economia V1.
+      const { data: claimData, error: claimError } = await supabase.functions.invoke('claim-creator-milestone', {
         body: {
           milestoneId: milestone.id,
           creatorId,
@@ -209,7 +220,9 @@ export function useCreatorMilestones(creatorId?: string) {
 
       toast({
         title: '🎉 Meta alcançada!',
-        description: 'Conquista reconhecida no seu perfil.',
+        description: Number(claimData?.points || 0) > 0
+          ? `Você recebeu +${Number(claimData.points).toLocaleString('pt-BR')} Creator Points.`
+          : 'Conquista registrada no seu perfil.',
       });
 
       // Refresh milestones

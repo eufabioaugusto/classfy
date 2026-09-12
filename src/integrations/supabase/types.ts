@@ -1074,6 +1074,9 @@ export type Database = {
           current_value: number
           id: string
           milestone_id: string
+          reward_event_id: string | null
+          reward_points: number
+          reward_status: string
           updated_at: string
         }
         Insert: {
@@ -1085,6 +1088,9 @@ export type Database = {
           current_value?: number
           id?: string
           milestone_id: string
+          reward_event_id?: string | null
+          reward_points?: number
+          reward_status?: string
           updated_at?: string
         }
         Update: {
@@ -1096,6 +1102,9 @@ export type Database = {
           current_value?: number
           id?: string
           milestone_id?: string
+          reward_event_id?: string | null
+          reward_points?: number
+          reward_status?: string
           updated_at?: string
         }
         Relationships: [
@@ -1118,57 +1127,51 @@ export type Database = {
       creator_milestones: {
         Row: {
           active: boolean
-          awards_points: boolean
           badge_id: string | null
           created_at: string
           description: string | null
           icon: string | null
           id: string
-          legacy_points_reward: number | null
-          legacy_value_reward: number | null
           milestone_type: string
           milestone_value: number
           order_index: number
-          points_reward: number
+          reward_enabled: boolean
+          reward_points: number
+          rewards_started_at: string
           title: string
           updated_at: string
-          value_reward: number
         }
         Insert: {
           active?: boolean
-          awards_points?: boolean
           badge_id?: string | null
           created_at?: string
           description?: string | null
           icon?: string | null
           id?: string
-          legacy_points_reward?: number | null
-          legacy_value_reward?: number | null
           milestone_type: string
           milestone_value: number
           order_index?: number
-          points_reward?: number
+          reward_enabled?: boolean
+          reward_points?: number
+          rewards_started_at?: string
           title: string
           updated_at?: string
-          value_reward?: number
         }
         Update: {
           active?: boolean
-          awards_points?: boolean
           badge_id?: string | null
           created_at?: string
           description?: string | null
           icon?: string | null
           id?: string
-          legacy_points_reward?: number | null
-          legacy_value_reward?: number | null
           milestone_type?: string
           milestone_value?: number
           order_index?: number
-          points_reward?: number
+          reward_enabled?: boolean
+          reward_points?: number
+          rewards_started_at?: string
           title?: string
           updated_at?: string
-          value_reward?: number
         }
         Relationships: [
           {
@@ -4047,6 +4050,10 @@ export type Database = {
       }
       check_can_message: { Args: { target_user_id: string }; Returns: string }
       close_economic_cycle_v1: { Args: { p_year_month: string }; Returns: Json }
+      claim_creator_milestone_v1: {
+        Args: { p_milestone_id: string }
+        Returns: Json
+      }
       commit_reward_award: {
         Args: {
           p_actor_event: Json
@@ -4081,6 +4088,10 @@ export type Database = {
       }
       evaluate_pool_qualification: {
         Args: { p_cycle_id: string; p_user_id: string }
+        Returns: Json
+      }
+      evaluate_creator_milestones_v1: {
+        Args: { p_creator_id: string; p_types?: string[] }
         Returns: Json
       }
       expire_subscription_entitlements_v1: { Args: never; Returns: number }

@@ -66,6 +66,7 @@ const actionLabels: Record<string, string> = {
   CREATOR_APPROVED: "Teve o perfil de creator aprovado",
   FIRST_UPLOAD: "Enviou o primeiro conteúdo",
   CONTENT_APPROVED: "Teve um conteúdo aprovado",
+  CREATOR_MILESTONE: "Alcançou uma meta de creator",
 };
 
 export default function Carteira() {
