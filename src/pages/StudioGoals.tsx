@@ -1,45 +1,114 @@
-import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { useAuth } from '@/contexts/AuthContext';
-import { AppShell } from '@/components/layout';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Progress } from '@/components/ui/progress';
-import { Skeleton } from '@/components/ui/skeleton';
-import { CreatorMilestoneItem } from '@/components/CreatorMilestoneItem';
-import { CreatorAchievementBadge } from '@/components/CreatorAchievementBadge';
-import { useCreatorMilestones } from '@/hooks/useCreatorMilestones';
-import { useIsMobile } from '@/hooks/use-mobile';
+import { useMemo, useState } from "react";
+import { Navigate, useNavigate } from "react-router-dom";
 import {
-  Trophy,
-  Video,
-  Users,
-  Wallet,
+  BarChart3,
+  Check,
   Eye,
+  Gift,
   Heart,
+  Lock,
+  Plus,
   Target,
-  ArrowLeft,
-  Award
-} from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import { cn } from '@/lib/utils';
+  Trophy,
+  Users,
+  Video,
+  Wallet,
+} from "lucide-react";
+import { useAuth } from "@/contexts/AuthContext";
+import {
+  type CreatorMilestone,
+  type MilestoneWithProgress,
+  useCreatorMilestones,
+} from "@/hooks/useCreatorMilestones";
+import { AppShell, PageHeader } from "@/components/layout";
+import { CreatorTemplate } from "@/components/templates";
+import { StudioNavigation } from "@/components/studio/StudioNavigation";
+import {
+  V2Button,
+  V2Card,
+  V2EmptyState,
+  V2SectionHeader,
+  V2Table,
+  V2TableWrap,
+} from "@/components/v2";
+import "@/styles/studio-v2.css";
 
-function ProgressIllustration() {
+type MilestoneType = CreatorMilestone["milestone_type"];
+
+const milestoneTypes: Array<{
+  id: "all" | MilestoneType;
+  label: string;
+  Icon: typeof Trophy;
+}> = [
+  { id: "all", label: "Todas", Icon: Trophy },
+  { id: "contents", label: "Produção", Icon: Video },
+  { id: "followers", label: "Audiência", Icon: Users },
+  { id: "earnings", label: "Monetização", Icon: Wallet },
+  { id: "views", label: "Alcance", Icon: Eye },
+  { id: "engagement", label: "Engajamento", Icon: Heart },
+];
+
+const typeLabels: Record<MilestoneType, string> = {
+  contents: "Produção",
+  followers: "Audiência",
+  earnings: "Monetização",
+  views: "Alcance",
+  engagement: "Engajamento",
+};
+
+const typeIcons: Record<MilestoneType, typeof Trophy> = {
+  contents: Video,
+  followers: Users,
+  earnings: Wallet,
+  views: Eye,
+  engagement: Heart,
+};
+
+const formatValue = (value: number, type: MilestoneType) => {
+  if (type === "earnings") {
+    return value.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+  }
+  if (type === "engagement") return `${value.toLocaleString("pt-BR")}%`;
+  return value.toLocaleString("pt-BR");
+};
+
+const rewardLabel = (milestone: MilestoneWithProgress) => {
+  if (milestone.progress?.reward_status === "legacy_ignored") return "Conquista anterior · sem pagamento";
+  if (milestone.progress?.reward_status === "awarded") {
+    return `+${milestone.progress.reward_points.toLocaleString("pt-BR")} Creator Points recebidos`;
+  }
+  if (milestone.reward_enabled) return `+${milestone.reward_points.toLocaleString("pt-BR")} Creator Points`;
+  return "Sem recompensa em Points";
+};
+
+function GoalStatus({ milestone }: { milestone: MilestoneWithProgress }) {
+  if (milestone.isClaimed) {
+    return <span className="studio-status" data-status="completed"><Check aria-hidden="true" />Reconhecida</span>;
+  }
+  if (milestone.isCompleted) {
+    return <span className="studio-status" data-status="pending"><Gift aria-hidden="true" />Pronta para resgatar</span>;
+  }
+  return <span className="studio-status"><Lock aria-hidden="true" />Em progresso</span>;
+}
+
+function GoalProgress({ milestone }: { milestone: MilestoneWithProgress }) {
   return (
-    <img
-      src="/progress_illustration.png"
-      alt=""
-      className="w-24 h-24 shrink-0 object-contain"
-    />
+    <div className="studio-goal-progress">
+      <div className="studio-goal-progress__copy">
+        <span>{formatValue(milestone.currentValue, milestone.milestone_type)} de {formatValue(milestone.milestone_value, milestone.milestone_type)}</span>
+        <strong>{milestone.percentComplete}%</strong>
+      </div>
+      <div className="studio-progress" aria-label={`${milestone.percentComplete}% concluído`}>
+        <span style={{ width: `${milestone.percentComplete}%` }} />
+      </div>
+    </div>
   );
 }
 
 export default function StudioGoals() {
-  const { user, loading: authLoading } = useAuth();
+  const { user, role, loading: authLoading } = useAuth();
   const navigate = useNavigate();
-  const isMobile = useIsMobile();
-  const [activeTab, setActiveTab] = useState('all');
-
+  const [activeType, setActiveType] = useState<"all" | MilestoneType>("all");
   const {
     milestones,
     milestonesByType,
@@ -47,272 +116,153 @@ export default function StudioGoals() {
     loading,
     claiming,
     claimMilestone,
-    totals
+    totals,
   } = useCreatorMilestones(user?.id);
+
+  const overallProgress = totals.total > 0
+    ? Math.round((totals.claimed / totals.total) * 100)
+    : 0;
+  const filteredMilestones = useMemo(
+    () => activeType === "all" ? milestones : milestonesByType[activeType],
+    [activeType, milestones, milestonesByType],
+  );
+  const remaining = Math.max(0, totals.total - totals.completed);
 
   if (authLoading || loading) {
     return (
-      <AppShell contentClassName="flex-1 p-4 md:p-6 space-y-6">
-              <Skeleton className="h-8 w-64" />
-              <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-                {[...Array(5)].map((_, i) => (
-                  <Skeleton key={i} className="h-24" />
-                ))}
-              </div>
-              <Skeleton className="h-32" />
-              <Skeleton className="h-64" />
-      </AppShell>
+      <div className="cf-v2 min-h-screen grid place-items-center bg-[var(--cf2-canvas)]">
+        <div className="cf2-state"><span className="cf2-state__spinner" /><strong>Organizando suas metas...</strong></div>
+      </div>
     );
   }
 
-  if (!user) {
-    navigate('/auth');
-    return null;
-  }
+  if (!user || (role !== "creator" && role !== "admin")) return <Navigate to="/" replace />;
 
-  const overallProgress = totals.total > 0 
-    ? Math.round((totals.claimed / totals.total) * 100) 
-    : 0;
+  const countForType = (type: "all" | MilestoneType) => (
+    type === "all" ? milestones.length : milestonesByType[type].length
+  );
 
-  const tabs = [
-    { id: 'all', label: 'Todas', icon: Trophy, count: milestones.length },
-    { id: 'contents', label: 'Produção', icon: Video, count: milestonesByType.contents.length },
-    { id: 'followers', label: 'Audiência', icon: Users, count: milestonesByType.followers.length },
-    { id: 'earnings', label: 'Monetização', icon: Wallet, count: milestonesByType.earnings.length },
-    { id: 'views', label: 'Alcance', icon: Eye, count: milestonesByType.views.length },
-    { id: 'engagement', label: 'Engajamento', icon: Heart, count: milestonesByType.engagement.length },
-  ];
+  const renderAction = (milestone: MilestoneWithProgress) => {
+    if (milestone.isClaimed) return <span className="studio-goal-action-label"><Check aria-hidden="true" />Concluída</span>;
+    if (milestone.isCompleted) {
+      return (
+        <V2Button
+          size="sm"
+          leadingIcon={<Gift className="h-3.5 w-3.5" />}
+          disabled={claiming === milestone.id}
+          onClick={() => void claimMilestone(milestone.id)}
+        >
+          {claiming === milestone.id ? "Registrando..." : milestone.reward_enabled ? "Receber prêmio" : "Reconhecer"}
+        </V2Button>
+      );
+    }
 
-  const getFilteredMilestones = () => {
-    if (activeTab === 'all') return milestones;
-    return milestonesByType[activeTab as keyof typeof milestonesByType] || [];
+    const missing = Math.max(0, milestone.milestone_value - milestone.currentValue);
+    return <span className="studio-goal-action-label">Faltam {formatValue(missing, milestone.milestone_type)}</span>;
   };
 
-  const filteredMilestones = getFilteredMilestones();
-
   return (
-    <AppShell contentClassName="flex-1 p-4 md:p-6 space-y-6">
-            {/* Header */}
-            <div className="flex items-center gap-4">
-              <Button 
-                variant="ghost" 
-                size="icon"
-                onClick={() => navigate('/studio')}
-              >
-                <ArrowLeft className="w-5 h-5" />
-              </Button>
-              <div>
-                <h1 className="text-2xl font-bold flex items-center gap-2">
-                  <Target className="w-6 h-6 text-primary" />
-                  Metas do Creator
-                </h1>
-                <p className="text-muted-foreground">
-                  Alcance metas e ganhe recompensas exclusivas
-                </p>
+    <AppShell variant="studio" title="Metas" contentClassName="studio-page-shell">
+      <CreatorTemplate
+        className="studio-template"
+        width="wide"
+        density="comfortable"
+        header={
+          <PageHeader
+            eyebrow="Metas do Studio"
+            title="Transforme crescimento em conquistas."
+            description="Veja exatamente o que conta para cada meta, quanto falta e quais Creator Points serão liberados."
+            action={<V2Button variant="primary" leadingIcon={<Plus className="h-4 w-4" />} onClick={() => navigate("/studio/upload?type=aula")}>Publicar conteúdo</V2Button>}
+          />
+        }
+        toolbar={<StudioNavigation />}
+      >
+        <div className="studio-stack">
+          <section className="studio-section">
+            <V2Card className="studio-goals-overview">
+              <img className="studio-goals-overview__star" src="/progress_illustration.png" alt="" />
+              <div className="studio-goals-overview__main">
+                <span className="studio-kicker">Progresso geral</span>
+                <h2>{totals.claimed} de {totals.total} metas reconhecidas</h2>
+                <p>{totals.pendingClaims > 0 ? `${totals.pendingClaims} ${totals.pendingClaims === 1 ? "meta está pronta" : "metas estão prontas"} para resgate.` : "Avance nas metas para liberar conquistas e Creator Points."}</p>
+                <div className="studio-progress" aria-label={`${overallProgress}% das metas reconhecidas`}><span style={{ width: `${overallProgress}%` }} /></div>
               </div>
+              <div className="studio-goals-overview__totals">
+                <div><strong>{totals.completed}</strong><span>Concluídas</span></div>
+                <div><strong>{totals.pendingClaims}</strong><span>Para resgatar</span></div>
+                <div><strong>{remaining}</strong><span>Em andamento</span></div>
+              </div>
+            </V2Card>
+          </section>
+
+          {stats && (
+            <section className="studio-section">
+              <V2SectionHeader eyebrow="Seus números" title="O que já conta para suas metas" description="Estes resultados são usados para calcular automaticamente seu progresso." />
+              <V2Card className="studio-goals-snapshot">
+                <div><Video aria-hidden="true" /><span>Publicações</span><strong>{stats.totalContents.toLocaleString("pt-BR")}</strong></div>
+                <div><Users aria-hidden="true" /><span>Seguidores</span><strong>{stats.totalFollowers.toLocaleString("pt-BR")}</strong></div>
+                <div><Eye aria-hidden="true" /><span>Visualizações</span><strong>{stats.totalViews.toLocaleString("pt-BR")}</strong></div>
+                <div><Wallet aria-hidden="true" /><span>Ganhos</span><strong>{stats.totalEarnings.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}</strong></div>
+                <div><BarChart3 aria-hidden="true" /><span>Engajamento</span><strong>{stats.engagementRate.toLocaleString("pt-BR")}%</strong></div>
+              </V2Card>
+            </section>
+          )}
+
+          <section className="studio-section">
+            <V2SectionHeader eyebrow="Tabela de metas" title="Acompanhe cada conquista" description="Filtre por objetivo e consulte progresso, recompensa e situação sem sair da tela." />
+
+            <div className="studio-goal-filters" role="group" aria-label="Filtrar metas por objetivo">
+              {milestoneTypes.map(({ id, label, Icon }) => (
+                <button type="button" key={id} data-active={activeType === id || undefined} onClick={() => setActiveType(id)}>
+                  <Icon aria-hidden="true" />
+                  <span>{label}</span>
+                  <small>{countForType(id)}</small>
+                </button>
+              ))}
             </div>
 
-            {/* Stats Grid */}
-            {stats && (
-              <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-                <StatCard
-                  icon={Video}
-                  label="Conteúdos Publicados"
-                  value={stats.totalContents}
-                  color="text-blue-500"
-                  bgColor="bg-blue-500/10"
-                />
-                <StatCard
-                  icon={Users}
-                  label="Seguidores"
-                  value={stats.totalFollowers.toLocaleString('pt-BR')}
-                  color="text-purple-500"
-                  bgColor="bg-purple-500/10"
-                />
-                <StatCard
-                  icon={Wallet}
-                  label="Ganhos Totais"
-                  value={`R$ ${stats.totalEarnings.toLocaleString('pt-BR')}`}
-                  color="text-green-500"
-                  bgColor="bg-green-500/10"
-                />
-                <StatCard
-                  icon={Eye}
-                  label="Visualizações"
-                  value={stats.totalViews.toLocaleString('pt-BR')}
-                  color="text-orange-500"
-                  bgColor="bg-orange-500/10"
-                />
-                <StatCard
-                  icon={Heart}
-                  label="Taxa de Engajamento"
-                  value={`${stats.engagementRate}%`}
-                  color="text-red-500"
-                  bgColor="bg-red-500/10"
-                />
-              </div>
+            {filteredMilestones.length === 0 ? (
+              <V2EmptyState icon={<Target className="h-5 w-5" />} title="Nenhuma meta nesta categoria" description="Escolha outro objetivo para consultar as metas disponíveis." />
+            ) : (
+              <>
+                <V2TableWrap className="studio-table-wrap studio-goal-table">
+                  <V2Table>
+                    <thead><tr><th>Meta</th><th>Seu progresso</th><th>Recompensa</th><th>Situação</th><th><span className="sr-only">Ação</span></th></tr></thead>
+                    <tbody>
+                      {filteredMilestones.map((milestone) => {
+                        const Icon = typeIcons[milestone.milestone_type];
+                        return (
+                          <tr key={milestone.id}>
+                            <td><div className="studio-goal-name"><span className="studio-icon"><Icon /></span><div><strong>{milestone.title}</strong><p>{milestone.description || typeLabels[milestone.milestone_type]}</p></div></div></td>
+                            <td><GoalProgress milestone={milestone} /></td>
+                            <td><span className="studio-goal-reward" data-awarded={milestone.progress?.reward_status === "awarded" || undefined}>{rewardLabel(milestone)}</span></td>
+                            <td><GoalStatus milestone={milestone} /></td>
+                            <td><div className="studio-row-actions">{renderAction(milestone)}</div></td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </V2Table>
+                </V2TableWrap>
+
+                <div className="studio-goal-mobile-list">
+                  {filteredMilestones.map((milestone) => {
+                    const Icon = typeIcons[milestone.milestone_type];
+                    return (
+                      <V2Card className="studio-goal-mobile-card" key={milestone.id}>
+                        <div className="studio-goal-mobile-card__header"><span className="studio-icon"><Icon /></span><GoalStatus milestone={milestone} /></div>
+                        <div><h3>{milestone.title}</h3><p>{milestone.description || typeLabels[milestone.milestone_type]}</p></div>
+                        <GoalProgress milestone={milestone} />
+                        <div className="studio-goal-mobile-card__footer"><span className="studio-goal-reward">{rewardLabel(milestone)}</span>{renderAction(milestone)}</div>
+                      </V2Card>
+                    );
+                  })}
+                </div>
+              </>
             )}
-
-            {/* Progress Overview */}
-            <Card className="bg-gradient-to-r from-primary/10 via-primary/5 to-background border-primary/20">
-              <CardContent className="p-5">
-                <div className="flex flex-col md:flex-row md:items-center gap-5">
-                  <div className="flex items-center gap-4 flex-1">
-                    <ProgressIllustration />
-                    <div className="flex-1">
-                      <h3 className="text-base font-bold mb-0.5">Seu Progresso Geral</h3>
-                      <p className="text-muted-foreground text-xs mb-2.5">
-                        Continue alcançando metas para desbloquear mais recompensas!
-                      </p>
-                      <Progress value={overallProgress} className="h-2" />
-                    </div>
-                  </div>
-
-                  <div className="flex flex-wrap gap-4 md:gap-6">
-                    <div className="text-center">
-                      <p className="text-2xl font-bold text-primary">{totals.claimed}</p>
-                      <p className="text-xs text-muted-foreground">Resgatadas</p>
-                    </div>
-                    <div className="text-center">
-                      <p className="text-2xl font-bold text-orange-500">{totals.pendingClaims}</p>
-                      <p className="text-xs text-muted-foreground">Para Resgatar</p>
-                    </div>
-                    <div className="text-center">
-                      <p className="text-2xl font-bold">{totals.total - totals.completed}</p>
-                      <p className="text-xs text-muted-foreground">Restantes</p>
-                    </div>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Achievement Badges Section */}
-            <Card>
-              <CardHeader className="pb-3">
-                <CardTitle className="flex items-center gap-2 text-lg">
-                  <Award className="w-5 h-5 text-primary" />
-                  Suas Conquistas
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="px-5 pb-5">
-                <Tabs defaultValue="unlocked">
-                  <TabsList className="w-full grid grid-cols-2 mb-4">
-                    <TabsTrigger value="unlocked" className="gap-1.5">
-                      Desbloqueadas
-                      <span className="bg-primary/20 text-primary px-1.5 py-0.5 rounded-full text-xs">
-                        {milestones.filter(m => m.isClaimed).length}
-                      </span>
-                    </TabsTrigger>
-                    <TabsTrigger value="locked" className="gap-1.5">
-                      Bloqueadas
-                      <span className="bg-muted px-1.5 py-0.5 rounded-full text-xs">
-                        {milestones.filter(m => !m.isClaimed).length}
-                      </span>
-                    </TabsTrigger>
-                  </TabsList>
-
-                  <TabsContent value="unlocked" className="mt-0">
-                    {milestones.filter(m => m.isClaimed).length > 0 ? (
-                      <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-8 gap-5 pt-2 pb-6">
-                        {milestones.filter(m => m.isClaimed).map((milestone) => (
-                          <CreatorAchievementBadge
-                            key={milestone.id}
-                            milestone={milestone}
-                            size="md"
-                          />
-                        ))}
-                      </div>
-                    ) : (
-                      <div className="text-center py-8 text-muted-foreground">
-                        <Trophy className="w-12 h-12 mx-auto mb-3 opacity-30" />
-                        <p className="text-sm">Nenhuma conquista desbloqueada ainda</p>
-                        <p className="text-xs mt-1">Complete metas para ganhar selos!</p>
-                      </div>
-                    )}
-                  </TabsContent>
-
-                  <TabsContent value="locked" className="mt-0">
-                    <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-8 gap-5 pt-2 pb-6">
-                      {milestones.filter(m => !m.isClaimed).map((milestone) => (
-                        <CreatorAchievementBadge
-                          key={milestone.id}
-                          milestone={milestone}
-                          size="md"
-                        />
-                      ))}
-                    </div>
-                  </TabsContent>
-                </Tabs>
-              </CardContent>
-            </Card>
-
-            {/* Milestones List Tabs */}
-            <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-              <TabsList className={cn(
-                "w-full justify-start gap-1 bg-muted/50 p-1",
-                isMobile ? "flex-wrap h-auto" : ""
-              )}>
-                {tabs.map((tab) => (
-                  <TabsTrigger 
-                    key={tab.id} 
-                    value={tab.id}
-                    className="gap-1.5 data-[state=active]:bg-background"
-                  >
-                    <tab.icon className="w-4 h-4" />
-                    {!isMobile && tab.label}
-                    <span className="text-xs bg-muted px-1.5 py-0.5 rounded-full">
-                      {tab.count}
-                    </span>
-                  </TabsTrigger>
-                ))}
-              </TabsList>
-
-              <TabsContent value={activeTab} className="mt-6">
-                <div className="space-y-4">
-                  {filteredMilestones.length > 0 ? (
-                    filteredMilestones.map((milestone) => (
-                      <CreatorMilestoneItem
-                        key={milestone.id}
-                        milestone={milestone}
-                        onClaim={claimMilestone}
-                        claiming={claiming === milestone.id}
-                      />
-                    ))
-                  ) : (
-                    <div className="text-center py-12 text-muted-foreground">
-                      <Trophy className="w-12 h-12 mx-auto mb-4 opacity-50" />
-                      <p>Nenhuma meta encontrada nesta categoria.</p>
-                    </div>
-                  )}
-                </div>
-              </TabsContent>
-            </Tabs>
-    </AppShell>
-  );
-}
-
-function StatCard({ 
-  icon: Icon, 
-  label, 
-  value, 
-  color,
-  bgColor
-}: { 
-  icon: any; 
-  label: string; 
-  value: string | number; 
-  color: string;
-  bgColor: string;
-}) {
-  return (
-    <Card className="overflow-hidden">
-      <CardContent className="p-4">
-        <div className={cn("w-10 h-10 rounded-lg flex items-center justify-center mb-3", bgColor)}>
-          <Icon className={cn("w-5 h-5", color)} />
+          </section>
         </div>
-        <p className="text-2xl font-bold">{value}</p>
-        <p className="text-xs text-muted-foreground mt-0.5">{label}</p>
-      </CardContent>
-    </Card>
+      </CreatorTemplate>
+    </AppShell>
   );
 }
