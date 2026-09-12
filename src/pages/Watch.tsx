@@ -449,19 +449,12 @@ function WatchContent() {
   const performUnlike = async () => {
     if (!user || !content) return;
 
-    const { data: deleted, error } = await supabase
-      .from("actions")
-      .delete()
-      .eq("user_id", user.id)
-      .eq("type", "LIKE")
-      .eq(isCourse ? "course_id" : "content_id", content.id)
-      .select("id");
+    const reversal = await reverseReward(user.id, content.id, "LIKE");
+    if (!reversal) throw new Error("Reward reversal failed");
 
-    if (!error) {
-      setIsLiked(false);
-      if ((deleted?.length || 0) > 0) {
-        setLikesCount((prev) => Math.max(0, prev - 1));
-      }
+    setIsLiked(false);
+    if (reversal.action_removed) {
+      setLikesCount((prev) => Math.max(0, prev - 1));
     }
 
     await refreshLikesCountEventually();
@@ -474,10 +467,15 @@ function WatchContent() {
       const reversal = await reverseReward(user.id, content.id, "LIKE");
       if (!reversal) throw new Error("Reward reversal failed");
       setIsLiked(false);
-      setLikesCount((prev) => Math.max(0, prev - 1));
+      if (reversal.action_removed) {
+        setLikesCount((prev) => Math.max(0, prev - 1));
+      }
       await refreshLikesCountEventually();
 
-      toast.success("Like removido. Points deduzidos.");
+      const revertedPoints = Number(reversal.points || 0);
+      toast.success(revertedPoints > 0
+        ? `Like removido. ${revertedPoints} Points deduzidos.`
+        : "Like removido.");
     } finally {
       setUnlikeConfirmation({ pending: false, rewardValue: 0 });
     }
@@ -538,12 +536,9 @@ function WatchContent() {
   const toggleSave = async () => {
     if (!user || !content) return;
     if (isSaved) {
+      const reversal = await reverseReward(user.id, content.id, "SAVE");
+      if (!reversal) throw new Error("Reward reversal failed");
       setIsSaved(false);
-      const { error } = await supabase.from('saved_contents').delete().eq('user_id', user.id).eq(isCourse ? 'course_id' : 'content_id', content.id);
-      if (error) {
-        setIsSaved(true);
-        throw error;
-      }
     } else {
       setIsSaved(true);
       const { error } = await supabase.from('saved_contents').insert({ user_id: user.id, [isCourse ? 'course_id' : 'content_id']: content.id });
@@ -558,12 +553,9 @@ function WatchContent() {
   const toggleFavorite = async () => {
     if (!user || !content) return;
     if (isFavorited) {
+      const reversal = await reverseReward(user.id, content.id, "FAVORITE");
+      if (!reversal) throw new Error("Reward reversal failed");
       setIsFavorited(false);
-      const { error } = await supabase.from('favorites').delete().eq('user_id', user.id).eq(isCourse ? 'course_id' : 'content_id', content.id);
-      if (error) {
-        setIsFavorited(true);
-        throw error;
-      }
     } else {
       setIsFavorited(true);
       const { error } = await supabase.from('favorites').insert({ user_id: user.id, [isCourse ? 'course_id' : 'content_id']: content.id });

@@ -17,7 +17,7 @@ interface FollowButtonProps {
 
 export function FollowButton({ creatorId, size = "default", variant = "outline" }: FollowButtonProps) {
   const { user } = useAuth();
-  const { handleFollow } = useRewardSystem();
+  const { handleFollow, reverseReward } = useRewardSystem();
   const { toast } = useToast();
   const [isFollowing, setIsFollowing] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -65,19 +65,16 @@ export function FollowButton({ creatorId, size = "default", variant = "outline" 
     setLoading(true);
     try {
       if (isFollowing) {
-        // Unfollow
-        const { error } = await supabase
-          .from('follows')
-          .delete()
-          .eq('follower_id', user.id)
-          .eq('following_id', creatorId);
-
-        if (error) throw error;
+        const reversal = await reverseReward(user.id, creatorId, "SUBSCRIBE_CREATOR");
+        if (!reversal) throw new Error("Não foi possível desfazer a recompensa");
 
         setIsFollowing(false);
+        const revertedPoints = Number(reversal.points || 0);
         toast({
           title: "Deixou de seguir",
-          description: "Você não segue mais este creator.",
+          description: revertedPoints > 0
+            ? `${revertedPoints} Points deduzidos. Você não segue mais este creator.`
+            : "Você não segue mais este creator.",
         });
       } else {
         // Follow

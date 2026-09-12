@@ -137,23 +137,33 @@ export function useRewardSystem() {
     }
   }, []);
 
-  const reverseReward = useCallback(async (userId: string, contentId: string, actionKey: string) => {
+  const reverseReward = useCallback(async (userId: string, targetId: string, actionKey: string) => {
+    const normalizedActionKey = actionKey.trim().toUpperCase();
+    const rewardKey = `${normalizedActionKey}_${userId}_${targetId}`;
+
     try {
       const { data, error } = await supabase.functions.invoke("reverse-reward", {
         body: {
-          actionKey,
+          actionKey: normalizedActionKey,
           userId,
-          contentId,
+          targetId,
         },
       });
 
       if (error) throw error;
 
+      if (data?.action_removed || data?.tracking_released || data?.reversed) {
+        // A chave local precisa acompanhar o estado ativo do servidor. Sem
+        // isso, uma nova ativacao valida continuaria bloqueada ate recarregar.
+        sessionRewardTracker.delete(rewardKey);
+        processingRewards.current.delete(rewardKey);
+      }
+
       if (data?.reversed && Number(data?.points || 0) > 0) {
         dispatchRewardEarned({
-          actionKey: `${actionKey}_REVERSED`,
+          actionKey: normalizedActionKey,
           userId,
-          contentId,
+          contentId: targetId,
           points: -Number(data.points),
           pointType: "user",
         });

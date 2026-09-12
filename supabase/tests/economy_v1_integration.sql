@@ -207,18 +207,24 @@ BEGIN
 
   -- Uma interacao de terceiro grava User Points e Creator Points no mesmo commit.
   SELECT public.get_or_create_current_cycle() INTO v_current_cycle;
+  INSERT INTO public.actions(user_id, content_id, type)
+  VALUES (v_user, v_content, 'LIKE');
   v_result := public.commit_reward_award(v_user, 'LIKE_' || v_content::text, v_content,
-    '{"evidence":"integration-test"}'::jsonb, v_current_cycle,
+    jsonb_build_object('evidence','integration-test','tracking_key','LIKE_' || v_content::text), v_current_cycle,
     jsonb_build_object('user_id',v_user,'related_user_id',v_creator,'content_id',v_content,
-      'action_key','LIKE','points',4,'cycle_points',4,'point_type','user'),
+      'action_key','LIKE','points',4,'cycle_points',4,'point_type','user',
+      'metadata',jsonb_build_object('tracking_key','LIKE_' || v_content::text)),
     jsonb_build_object('user_id',v_creator,'related_user_id',v_user,'content_id',v_content,
-      'action_key','LIKE','points',1,'cycle_points',1,'point_type','creator'));
+      'action_key','LIKE','points',1,'cycle_points',1,'point_type','creator',
+      'metadata',jsonb_build_object('tracking_key','LIKE_' || v_content::text,'as_creator',true)));
   PERFORM public.commit_reward_award(v_user, 'LIKE_' || v_content::text, v_content,
-    '{"evidence":"integration-test"}'::jsonb, v_current_cycle,
+    jsonb_build_object('evidence','integration-test','tracking_key','LIKE_' || v_content::text), v_current_cycle,
     jsonb_build_object('user_id',v_user,'related_user_id',v_creator,'content_id',v_content,
-      'action_key','LIKE','points',4,'cycle_points',4,'point_type','user'),
+      'action_key','LIKE','points',4,'cycle_points',4,'point_type','user',
+      'metadata',jsonb_build_object('tracking_key','LIKE_' || v_content::text)),
     jsonb_build_object('user_id',v_creator,'related_user_id',v_user,'content_id',v_content,
-      'action_key','LIKE','points',1,'cycle_points',1,'point_type','creator'));
+      'action_key','LIKE','points',1,'cycle_points',1,'point_type','creator',
+      'metadata',jsonb_build_object('tracking_key','LIKE_' || v_content::text,'as_creator',true)));
   IF (SELECT count(*) FROM public.reward_events WHERE content_id=v_content AND action_key='LIKE') <> 2
      OR (SELECT count(*) FROM public.reward_events WHERE content_id=v_content AND action_key='LIKE'
          AND user_id=v_user AND point_type='user' AND points=4) <> 1
@@ -233,6 +239,45 @@ BEGIN
        jsonb_build_object('user_id',v_user,'action_key','LIKE','points',4,'point_type','user'),
        NULL)->>'already_tracked')::boolean,false) THEN
     RAISE EXCEPTION 'point_origin_or_reward_idempotency_failed';
+  END IF;
+
+  -- Acoes reversiveis representam estado, nao um pagamento vitalicio. Remover
+  -- desfaz os dois lados do ciclo e libera uma unica nova ativacao.
+  v_result := public.reverse_reward_award(v_user, v_content, 'LIKE');
+  IF NOT COALESCE((v_result->>'reversed')::boolean, false)
+     OR NOT COALESCE((v_result->>'reaward_allowed')::boolean, false)
+     OR EXISTS (SELECT 1 FROM public.actions
+         WHERE user_id=v_user AND content_id=v_content AND type='LIKE')
+     OR EXISTS (SELECT 1 FROM public.reward_action_tracking
+         WHERE user_id=v_user AND action_key='LIKE_' || v_content::text)
+     OR (SELECT count(*) FROM public.reward_events
+         WHERE content_id=v_content AND action_key='LIKE') <> 0
+     OR (SELECT user_points FROM public.economic_cycle_users
+         WHERE cycle_id=v_current_cycle AND user_id=v_user) <> 0
+     OR (SELECT creator_points FROM public.economic_cycle_users
+         WHERE cycle_id=v_current_cycle AND user_id=v_creator) <> 0
+     OR (SELECT count(*) FROM public.reward_event_reversals
+         WHERE action_key='LIKE' AND initiated_by=v_user) <> 2 THEN
+    RAISE EXCEPTION 'reversible_reward_did_not_restore_cycle_state: %', v_result;
+  END IF;
+
+  INSERT INTO public.actions(user_id, content_id, type)
+  VALUES (v_user, v_content, 'LIKE');
+  PERFORM public.commit_reward_award(v_user, 'LIKE_' || v_content::text, v_content,
+    jsonb_build_object('evidence','integration-test-readded','tracking_key','LIKE_' || v_content::text), v_current_cycle,
+    jsonb_build_object('user_id',v_user,'related_user_id',v_creator,'content_id',v_content,
+      'action_key','LIKE','points',4,'cycle_points',4,'point_type','user',
+      'metadata',jsonb_build_object('tracking_key','LIKE_' || v_content::text)),
+    jsonb_build_object('user_id',v_creator,'related_user_id',v_user,'content_id',v_content,
+      'action_key','LIKE','points',1,'cycle_points',1,'point_type','creator',
+      'metadata',jsonb_build_object('tracking_key','LIKE_' || v_content::text,'as_creator',true)));
+  IF (SELECT count(*) FROM public.reward_events
+      WHERE content_id=v_content AND action_key='LIKE') <> 2
+     OR (SELECT user_points FROM public.economic_cycle_users
+         WHERE cycle_id=v_current_cycle AND user_id=v_user) <> 4
+     OR (SELECT creator_points FROM public.economic_cycle_users
+         WHERE cycle_id=v_current_cycle AND user_id=v_creator) <> 1 THEN
+    RAISE EXCEPTION 'readded_action_was_not_rewarded_once';
   END IF;
 
   PERFORM public.record_content_sale_v1(v_buyer, v_content, 100, 0, 'pi_sale_test',

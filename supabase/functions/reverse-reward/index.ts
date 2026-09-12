@@ -8,8 +8,16 @@ const corsHeaders = {
 interface ReverseRewardPayload {
   actionKey: string;
   userId: string;
-  contentId: string;
+  contentId?: string;
+  targetId?: string;
 }
+
+const REVERSIBLE_ACTIONS = new Set([
+  "LIKE",
+  "SAVE",
+  "FAVORITE",
+  "SUBSCRIBE_CREATOR",
+]);
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -22,13 +30,22 @@ Deno.serve(async (req) => {
     const anonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
     const supabase = createClient(supabaseUrl, supabaseKey);
 
-    const { actionKey, userId, contentId }: ReverseRewardPayload = await req.json();
+    const payload: ReverseRewardPayload = await req.json();
+    const actionKey = payload.actionKey?.trim().toUpperCase();
+    const userId = payload.userId;
+    const targetId = payload.targetId || payload.contentId;
 
-    if (!actionKey || !userId || !contentId) {
+    if (!actionKey || !userId || !targetId) {
       return new Response(
-        JSON.stringify({ error: "Missing required fields: actionKey, userId, contentId" }),
+        JSON.stringify({ error: "Missing required fields: actionKey, userId, targetId" }),
         { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 400 },
       );
+    }
+
+    if (!REVERSIBLE_ACTIONS.has(actionKey)) {
+      return new Response(JSON.stringify({ error: "Reward action is not reversible" }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 400,
+      });
     }
 
     const authHeader = req.headers.get("Authorization") || "";
@@ -43,7 +60,7 @@ Deno.serve(async (req) => {
           headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 401,
         });
       }
-      if (user.id !== userId || actionKey !== "LIKE") {
+      if (user.id !== userId) {
         return new Response(JSON.stringify({ error: "Forbidden" }), {
           headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 403,
         });
@@ -52,7 +69,7 @@ Deno.serve(async (req) => {
 
     const { data: reversal, error: reversalError } = await supabase.rpc("reverse_reward_award", {
       p_user_id: userId,
-      p_content_id: contentId,
+      p_content_id: targetId,
       p_action_key: actionKey,
     });
     if (reversalError) {

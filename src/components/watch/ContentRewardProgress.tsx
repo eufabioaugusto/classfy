@@ -108,6 +108,7 @@ export function ContentRewardProgress({ contentId, refreshTrigger, liveStates, s
   const optimisticActionPointsRef = useRef<Map<string, number>>(new Map());
   const liveIsLiked = liveStates?.isLiked;
   const liveIsSaved = liveStates?.isSaved;
+  const liveIsFavorited = liveStates?.isFavorited;
 
   // Keep a ref to current actions for use inside async load
   const actionsRef = useRef<ActionState[]>([]);
@@ -155,7 +156,16 @@ export function ContentRewardProgress({ contentId, refreshTrigger, liveStates, s
       if (reward.userId !== user.id || reward.contentId !== contentId || reward.points === 0) return;
 
       if (reward.points < 0) {
+        const revertedActionKey = reward.actionKey.replace(/_REVERSED$/, "");
+        optimisticActionPointsRef.current.delete(revertedActionKey);
         setEarnedPoints((current) => Math.max(0, Math.round((current + reward.points) * 10) / 10));
+        setActions((current) => current.map((action) => (
+          action.key === revertedActionKey ? { ...action, earned: false } : action
+        )));
+        pointBurstSequence.current += 1;
+        setPointBurst({ id: pointBurstSequence.current, points: reward.points });
+        window.clearTimeout(animationTimer);
+        animationTimer = window.setTimeout(() => setPointBurst(null), 900);
         return;
       }
 
@@ -242,12 +252,15 @@ export function ContentRewardProgress({ contentId, refreshTrigger, liveStates, s
     };
   }, [resolvedStudyTitle, studyId, studyTitle, user?.id, refreshTrigger]);
 
-  // LIKE e SAVE aparecem assim que a evidencia da acao foi persistida.
+  // LIKE, SAVE e FAVORITE aparecem assim que a evidencia foi persistida.
   // O evento confirmado do servidor corrige qualquer diferenca e o load
   // posterior reconcilia o total definitivo do ledger.
   useEffect(() => {
     if (studyId) return;
-    if (liveIsLiked === undefined || liveIsSaved === undefined || actionsRef.current.length === 0) return;
+    if (
+      liveIsLiked === undefined || liveIsSaved === undefined ||
+      liveIsFavorited === undefined || actionsRef.current.length === 0
+    ) return;
 
     const prev = actionsRef.current;
     const toTrigger: string[] = [];
@@ -256,9 +269,11 @@ export function ContentRewardProgress({ contentId, refreshTrigger, liveStates, s
 
     const wasLiked = prev.find(a => a.key === "LIKE")?.earned ?? false;
     const wasSaved = prev.find(a => a.key === "SAVE")?.earned ?? false;
+    const wasFavorited = prev.find(a => a.key === "FAVORITE")?.earned ?? false;
 
     if (!wasLiked && liveIsLiked) toTrigger.push("LIKE");
     if (!wasSaved && liveIsSaved) toTrigger.push("SAVE");
+    if (!wasFavorited && liveIsFavorited) toTrigger.push("FAVORITE");
 
     // Se a gravacao da acao falhar, o pai desfaz o estado otimista. Removemos
     // tambem a previa visual dos Points; eventos ja confirmados nao ficam neste
@@ -272,6 +287,11 @@ export function ContentRewardProgress({ contentId, refreshTrigger, liveStates, s
       rollbackPoints += optimisticActionPointsRef.current.get("SAVE") || 0;
       optimisticActionPointsRef.current.delete("SAVE");
       rollbackKeys.add("SAVE");
+    }
+    if (!liveIsFavorited && optimisticActionPointsRef.current.has("FAVORITE")) {
+      rollbackPoints += optimisticActionPointsRef.current.get("FAVORITE") || 0;
+      optimisticActionPointsRef.current.delete("FAVORITE");
+      rollbackKeys.add("FAVORITE");
     }
 
     if (rollbackPoints > 0) {
@@ -295,11 +315,12 @@ export function ContentRewardProgress({ contentId, refreshTrigger, liveStates, s
       if (rollbackKeys.has(a.key)) return { ...a, earned: false };
       if (a.key === "LIKE") return { ...a, earned: a.earned || liveIsLiked };
       if (a.key === "SAVE") return { ...a, earned: a.earned || liveIsSaved };
+      if (a.key === "FAVORITE") return { ...a, earned: a.earned || liveIsFavorited };
       return a;
     }));
 
     triggerBurst(toTrigger);
-  }, [liveIsLiked, liveIsSaved, studyId, triggerBurst]);
+  }, [liveIsFavorited, liveIsLiked, liveIsSaved, studyId, triggerBurst]);
 
   async function load(isInitial: boolean) {
     try {
@@ -476,7 +497,7 @@ export function ContentRewardProgress({ contentId, refreshTrigger, liveStates, s
               exit={{ y: -34, opacity: 0 }}
               transition={{ duration: 0.72, ease: "easeOut" }}
             >
-              +{pointBurst.points} Point{pointBurst.points === 1 ? "" : "s"}
+              {pointBurst.points > 0 ? "+" : ""}{pointBurst.points} Point{Math.abs(pointBurst.points) === 1 ? "" : "s"}
             </motion.span>
           )}
         </AnimatePresence>

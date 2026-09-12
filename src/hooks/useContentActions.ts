@@ -209,21 +209,16 @@ export function useContentActions({ contentId, isCourse = false, hasAccess = tru
 
   const performUnlike = useCallback(async () => {
     if (!user) return;
-    
-    const { data: deleted } = await supabase
-      .from("actions")
-      .delete()
-      .eq("user_id", user.id)
-      .eq("type", "LIKE")
-      .eq(isCourse ? "course_id" : "content_id", contentId)
-      .select("id");
+
+    const reversal = await reverseReward(user.id, contentId, "LIKE");
+    if (!reversal) throw new Error("Reward reversal failed");
 
     setIsLiked(false);
-    if ((deleted?.length || 0) > 0) {
+    if (reversal.action_removed) {
       setLikesCount((prev) => Math.max(0, prev - 1));
     }
     await refreshLikesCountEventually();
-  }, [user, contentId, isCourse, refreshLikesCountEventually]);
+  }, [user, contentId, refreshLikesCountEventually, reverseReward]);
 
   const confirmUnlike = useCallback(async () => {
     if (!user || !unlikeConfirmation.pending) return;
@@ -233,12 +228,17 @@ export function useContentActions({ contentId, isCourse = false, hasAccess = tru
       const reversal = await reverseReward(user.id, contentId, "LIKE");
       if (!reversal) throw new Error("Reward reversal failed");
       setIsLiked(false);
-      setLikesCount((prev) => Math.max(0, prev - 1));
+      if (reversal.action_removed) {
+        setLikesCount((prev) => Math.max(0, prev - 1));
+      }
       await refreshLikesCountEventually();
-      
+
+      const revertedPoints = Number(reversal.points || 0);
       toast({
         title: "Like removido",
-        description: `${Math.floor(unlikeConfirmation.rewardValue)} Points deduzidos`,
+        description: revertedPoints > 0
+          ? `${revertedPoints} Points deduzidos`
+          : "O like foi removido",
       });
     } catch (error) {
       console.error("Error confirming unlike:", error);
@@ -268,20 +268,15 @@ export function useContentActions({ contentId, isCourse = false, hasAccess = tru
 
     try {
       if (isSaved) {
+        const reversal = await reverseReward(user.id, contentId, "SAVE");
+        if (!reversal) throw new Error("Reward reversal failed");
         setIsSaved(false);
-        const { error } = await supabase
-          .from("saved_contents")
-          .delete()
-          .eq("user_id", user.id)
-          .eq(isCourse ? "course_id" : "content_id", contentId);
-
-        if (error) {
-          setIsSaved(true);
-          throw error;
-        }
+        const revertedPoints = Number(reversal.points || 0);
         toast({
           title: "Removido dos salvos",
-          description: "Conteúdo removido da sua lista",
+          description: revertedPoints > 0
+            ? `${revertedPoints} Points deduzidos e conteúdo removido da sua lista`
+            : "Conteúdo removido da sua lista",
         });
       } else {
         setIsSaved(true);
@@ -304,7 +299,7 @@ export function useContentActions({ contentId, isCourse = false, hasAccess = tru
         variant: "destructive",
       });
     }
-  }, [user, isSaved, contentId, isCourse, rewardSave, trackContentInterest]);
+  }, [user, isSaved, contentId, isCourse, rewardSave, reverseReward, trackContentInterest]);
 
   const toggleFavorite = useCallback(async () => {
     if (!user) {
@@ -318,20 +313,15 @@ export function useContentActions({ contentId, isCourse = false, hasAccess = tru
 
     try {
       if (isFavorited) {
+        const reversal = await reverseReward(user.id, contentId, "FAVORITE");
+        if (!reversal) throw new Error("Reward reversal failed");
         setIsFavorited(false);
-        const { error } = await supabase
-          .from("favorites")
-          .delete()
-          .eq("user_id", user.id)
-          .eq(isCourse ? "course_id" : "content_id", contentId);
-
-        if (error) {
-          setIsFavorited(true);
-          throw error;
-        }
+        const revertedPoints = Number(reversal.points || 0);
         toast({
           title: "Removido dos favoritos",
-          description: "Conteúdo removido dos seus favoritos",
+          description: revertedPoints > 0
+            ? `${revertedPoints} Points deduzidos e conteúdo removido dos favoritos`
+            : "Conteúdo removido dos seus favoritos",
         });
       } else {
         setIsFavorited(true);
@@ -354,7 +344,7 @@ export function useContentActions({ contentId, isCourse = false, hasAccess = tru
         variant: "destructive",
       });
     }
-  }, [user, isFavorited, contentId, isCourse, rewardFavorite, trackContentInterest]);
+  }, [user, isFavorited, contentId, isCourse, rewardFavorite, reverseReward, trackContentInterest]);
 
   const formatCount = (count: number) => {
     if (count >= 1000000) {
