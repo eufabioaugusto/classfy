@@ -92,7 +92,7 @@ function DotBurst({ isActive }: { isActive: boolean }) {
 }
 
 export function ContentRewardProgress({ contentId, refreshTrigger, liveStates, studyId, studyTitle }: Props) {
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
   const navigate = useNavigate();
   const [actions, setActions] = useState<ActionState[]>([]);
   const [earnedPoints, setEarnedPoints] = useState(0);
@@ -103,6 +103,9 @@ export function ContentRewardProgress({ contentId, refreshTrigger, liveStates, s
   const [studyLoading, setStudyLoading] = useState(false);
   const [pointBurst, setPointBurst] = useState<{ id: number; points: number } | null>(null);
   const pointBurstSequence = useRef(0);
+  const optimisticActionPointsRef = useRef<Map<string, number>>(new Map());
+  const liveIsLiked = liveStates?.isLiked;
+  const liveIsSaved = liveStates?.isSaved;
 
   // Keep a ref to current actions for use inside async load
   const actionsRef = useRef<ActionState[]>([]);
@@ -149,13 +152,21 @@ export function ContentRewardProgress({ contentId, refreshTrigger, liveStates, s
     const unsubscribe = subscribeToRewardEarned((reward) => {
       if (reward.userId !== user.id || reward.contentId !== contentId || reward.points <= 0) return;
 
-      pointBurstSequence.current += 1;
-      setPointBurst({ id: pointBurstSequence.current, points: reward.points });
-      setEarnedPoints((current) => Math.round((current + reward.points) * 10) / 10);
+      const optimisticPoints = optimisticActionPointsRef.current.get(reward.actionKey);
+      optimisticActionPointsRef.current.delete(reward.actionKey);
+
+      if (optimisticPoints === undefined) {
+        pointBurstSequence.current += 1;
+        setPointBurst({ id: pointBurstSequence.current, points: reward.points });
+        setEarnedPoints((current) => Math.round((current + reward.points) * 10) / 10);
+        triggerBurst([reward.actionKey]);
+      } else if (optimisticPoints !== reward.points) {
+        setEarnedPoints((current) => Math.round((current + reward.points - optimisticPoints) * 10) / 10);
+      }
+
       setActions((current) => current.map((action) => (
         action.key === reward.actionKey ? { ...action, earned: true } : action
       )));
-      triggerBurst([reward.actionKey]);
 
       window.clearTimeout(animationTimer);
       animationTimer = window.setTimeout(() => setPointBurst(null), 900);
@@ -224,10 +235,12 @@ export function ContentRewardProgress({ contentId, refreshTrigger, liveStates, s
     };
   }, [resolvedStudyTitle, studyId, studyTitle, user?.id, refreshTrigger]);
 
-  // Live dot update for LIKE/SAVE — detect gain and burst instantly
+  // LIKE e SAVE aparecem assim que a evidencia da acao foi persistida.
+  // O evento confirmado do servidor corrige qualquer diferenca e o load
+  // posterior reconcilia o total definitivo do ledger.
   useEffect(() => {
     if (studyId) return;
-    if (!liveStates || actionsRef.current.length === 0) return;
+    if (liveIsLiked === undefined || liveIsSaved === undefined || actionsRef.current.length === 0) return;
 
     const prev = actionsRef.current;
     const toTrigger: string[] = [];
@@ -235,23 +248,36 @@ export function ContentRewardProgress({ contentId, refreshTrigger, liveStates, s
     const wasLiked = prev.find(a => a.key === "LIKE")?.earned ?? false;
     const wasSaved = prev.find(a => a.key === "SAVE")?.earned ?? false;
 
-    if (!wasLiked && liveStates.isLiked) toTrigger.push("LIKE");
-    if (!wasSaved && liveStates.isSaved) toTrigger.push("SAVE");
+    if (!wasLiked && liveIsLiked) toTrigger.push("LIKE");
+    if (!wasSaved && liveIsSaved) toTrigger.push("SAVE");
+
+    const optimisticPoints = toTrigger.reduce((sum, actionKey) => {
+      const points = prev.find((action) => action.key === actionKey)?.points || 0;
+      if (points > 0) optimisticActionPointsRef.current.set(actionKey, points);
+      return sum + points;
+    }, 0);
+
+    if (optimisticPoints > 0) {
+      pointBurstSequence.current += 1;
+      setPointBurst({ id: pointBurstSequence.current, points: optimisticPoints });
+      setEarnedPoints((current) => Math.round((current + optimisticPoints) * 10) / 10);
+      window.setTimeout(() => setPointBurst(null), 900);
+    }
 
     setActions(current => current.map(a => {
-      if (a.key === "LIKE") return { ...a, earned: liveStates.isLiked };
-      if (a.key === "SAVE") return { ...a, earned: liveStates.isSaved };
+      if (a.key === "LIKE") return { ...a, earned: liveIsLiked };
+      if (a.key === "SAVE") return { ...a, earned: liveIsSaved };
       return a;
     }));
 
     triggerBurst(toTrigger);
-  }, [liveStates?.isLiked, liveStates?.isSaved]);
+  }, [liveIsLiked, liveIsSaved, studyId, triggerBurst]);
 
   async function load(isInitial: boolean) {
     try {
       const uid = user!.id;
 
-      const [configResult, eventsResult, likeResult, saveResult, commentResult, trackingResult] = await Promise.all([
+      const [configResult, eventsResult, likeResult, saveResult, commentResult, trackingResult, settingsResult] = await Promise.all([
         supabase
           .from("reward_actions_config")
           .select("action_key, points_user")
@@ -270,10 +296,21 @@ export function ContentRewardProgress({ contentId, refreshTrigger, liveStates, s
           .select("action_key")
           .eq("user_id", uid)
           .like("action_key", `%${contentId}%`),
+        supabase.rpc("get_economic_v1_settings"),
       ]);
 
+      const settings = settingsResult.data && typeof settingsResult.data === "object"
+        ? settingsResult.data as { user_points_multipliers?: Record<string, number> }
+        : null;
+      const plan = profile?.plan === "pro" || profile?.plan === "premium" ? profile.plan : "free";
+      const configuredMultiplier = Number(settings?.user_points_multipliers?.[plan] ?? 1);
+      const pointsMultiplier = Number.isFinite(configuredMultiplier) && configuredMultiplier > 0
+        ? configuredMultiplier
+        : 1;
       const configMap: Record<string, number> = {};
-      (configResult.data || []).forEach(r => { configMap[r.action_key] = r.points_user; });
+      (configResult.data || []).forEach(r => {
+        configMap[r.action_key] = Math.round(Number(r.points_user || 0) * pointsMultiplier * 100) / 100;
+      });
 
       const permanentKeys = new Set(
         (trackingResult.data || []).map(r => r.action_key.split(`_${contentId}`)[0])
@@ -313,6 +350,7 @@ export function ContentRewardProgress({ contentId, refreshTrigger, liveStates, s
 
       setActions(built);
       setEarnedPoints(Math.round(totalPoints * 10) / 10);
+      optimisticActionPointsRef.current.clear();
     } finally {
       if (isInitial) setInitialLoading(false);
     }
@@ -467,7 +505,7 @@ export function ContentRewardProgress({ contentId, refreshTrigger, liveStates, s
         <>
           <div className="w-px h-4 bg-border/60 shrink-0" />
           <span className="text-xs text-muted-foreground shrink-0">
-            Ganhe até +{availablePoints} Points
+            Ainda disponíveis: +{availablePoints} Points
           </span>
         </>
       )}

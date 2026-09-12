@@ -3,7 +3,6 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { useMiniPlayer } from "@/contexts/MiniPlayerContext";
 import { useRewardSystem } from "@/hooks/useRewardSystem";
-import { useContentMetrics } from "@/hooks/useContentMetrics";
 import { useContentActions } from "@/hooks/useContentActions";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
@@ -180,18 +179,6 @@ function WatchContent() {
   const [unlikeConfirmation, setUnlikeConfirmation] = useState<{ pending: boolean; rewardValue: number }>({
     pending: false,
     rewardValue: 0,
-  });
-
-  // Centralized content metrics hook — replaces inline metric tracking
-  const {
-    handleTimeUpdate: handleMetricsTimeUpdate,
-    registerView,
-    registerCourseView,
-    resetMetrics,
-    metricsRecorded,
-  } = useContentMetrics({
-    contentId: id || "",
-    duration: content?.duration_seconds || 0,
   });
 
   // Store content ref for cleanup
@@ -667,14 +654,11 @@ function WatchContent() {
   };
 
   // Unified time update handler — delegates to centralized hook
-  const handleTimeUpdate = async (currentTime: number) => {
+  const handleTimeUpdate = (currentTime: number) => {
     if (!content || !user) return;
-    
+
     // Store current time for mini player
     currentPlaybackTime.current = currentTime;
-
-    // Delegate all metric tracking to the centralized hook
-    await handleMetricsTimeUpdate(currentTime);
   };
 
   // Handle video end - show autoplay overlay

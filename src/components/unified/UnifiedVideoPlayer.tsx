@@ -392,7 +392,9 @@ export function UnifiedVideoPlayer({
       onVideoEnded?.();
     };
 
-    const onPause = () => saveCurrentPosition(media.currentTime);
+    const onPause = () => {
+      if (!media.ended) saveCurrentPosition(media.currentTime);
+    };
 
     media.addEventListener("loadedmetadata", onLoadedMetadata);
     media.addEventListener("timeupdate", onTimeUpdateEv);
@@ -415,17 +417,41 @@ export function UnifiedVideoPlayer({
   }, [content.id, content.content_id, user, duration, onTimeUpdate, onVideoEnded, trackMetrics]);
 
   const saveCurrentPosition = useCallback(async (time: number) => {
-    if (!user || !content.id || !time || time < 1) return;
-    await supabase.from("user_progress").upsert(
-      {
+    if (!user || !content.id || !time || time < 1 || duration <= 0) return;
+
+    const contentId = content.content_id ?? content.id;
+    const currentPercent = Math.min(Math.floor((time / duration) * 100), 100);
+    const { data: existing, error: progressReadError } = await supabase
+      .from("user_progress")
+      .select("id, progress_percent, completed, completed_at")
+      .eq("user_id", user.id)
+      .eq("content_id", contentId)
+      .maybeSingle();
+
+    if (progressReadError) {
+      console.error("Error reading playback progress:", progressReadError);
+      return;
+    }
+
+    const progressPercent = Math.max(existing?.progress_percent || 0, currentPercent);
+    const completed = Boolean(existing?.completed) || progressPercent >= 90;
+    const progressData = {
         user_id: user.id,
-        content_id: content.content_id ?? content.id,
+        content_id: contentId,
         last_position_seconds: Math.floor(time),
-        progress_percent: duration > 0 ? Math.floor((time / duration) * 100) : 0,
+        progress_percent: progressPercent,
+        completed,
+        completed_at: completed ? existing?.completed_at || new Date().toISOString() : null,
         updated_at: new Date().toISOString(),
-      },
-      { onConflict: "user_id,content_id" }
-    );
+    };
+
+    if (existing?.id) {
+      const { error } = await supabase.from("user_progress").update(progressData).eq("id", existing.id);
+      if (error) console.error("Error updating playback progress:", error);
+    } else {
+      const { error } = await supabase.from("user_progress").insert(progressData);
+      if (error) console.error("Error creating playback progress:", error);
+    }
   }, [user, content.id, content.content_id, duration]);
 
   // ── Controls ──────────────────────────────────────────────────────────────

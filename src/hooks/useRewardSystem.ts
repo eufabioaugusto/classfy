@@ -283,12 +283,14 @@ export function useRewardSystem() {
 
       try {
         // Check if user already has progress record
-        const { data: existingProgress } = await supabase
+        const { data: existingProgress, error: progressReadError } = await supabase
           .from('user_progress')
           .select('*')
           .eq('user_id', userId)
           .eq('content_id', contentId)
-          .single();
+          .maybeSingle();
+
+        if (progressReadError) throw progressReadError;
 
         // Clamp percent to 100
         const clampedPercent = Math.min(Math.floor(currentPercent), 100);
@@ -305,17 +307,23 @@ export function useRewardSystem() {
         if (existingProgress) {
           // Only update if new progress is higher (prevent regression on re-watch)
           if (clampedPercent > (existingProgress.progress_percent || 0)) {
-            await supabase
+            const { error: progressUpdateError } = await supabase
               .from('user_progress')
               .update(progressData)
               .eq('id', existingProgress.id);
+            if (progressUpdateError) throw progressUpdateError;
           }
         } else {
-          await supabase.from('user_progress').insert(progressData);
+          const { error: progressInsertError } = await supabase
+            .from('user_progress')
+            .insert(progressData);
+          if (progressInsertError) throw progressInsertError;
         }
 
-        // Trigger rewards based on progress (only if not already at that milestone)
-        if (currentPercent >= 50 && (!existingProgress || existingProgress.progress_percent < 50)) {
+        // Sempre pedir o processamento ao cruzar o milestone. O ledger e o
+        // tracking do servidor sao a fonte de idempotencia, nao user_progress.
+        // Assim um progresso antigo nao bloqueia uma recompensa ainda ausente.
+        if (currentPercent >= 50) {
           await processReward({
             actionKey: 'WATCH_50',
             userId,
@@ -324,7 +332,7 @@ export function useRewardSystem() {
           });
         }
 
-        if (currentPercent >= 90 && (!existingProgress || existingProgress.progress_percent < 90)) {
+        if (currentPercent >= 90) {
           await processReward({
             actionKey: 'WATCH_100',
             userId,

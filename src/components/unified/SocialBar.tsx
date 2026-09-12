@@ -123,7 +123,10 @@ export function SocialBar({
             <Button
               variant="secondary"
               size="sm"
-              onClick={() => { toggleLike(); onAction?.(); }}
+              onClick={async () => {
+                await toggleLike();
+                onAction?.();
+              }}
               className={cn(
                 "gap-1.5 sm:gap-2 rounded-full h-8 sm:h-9",
                 compact ? "px-2.5" : "px-3 sm:px-4"
@@ -171,7 +174,10 @@ export function SocialBar({
           <Button
             variant="secondary"
             size="sm"
-            onClick={() => { toggleSave(); onAction?.(); }}
+            onClick={async () => {
+              await toggleSave();
+              onAction?.();
+            }}
             className={cn(
               "gap-1.5 sm:gap-2 rounded-full h-8 sm:h-9",
               compact ? "px-2.5" : "px-3 sm:px-4",
@@ -189,7 +195,10 @@ export function SocialBar({
           <Button
             variant="secondary"
             size="sm"
-            onClick={() => { toggleFavorite(); onAction?.(); }}
+            onClick={async () => {
+              await toggleFavorite();
+              onAction?.();
+            }}
             className={cn(
               "gap-1.5 sm:gap-2 rounded-full h-8 sm:h-9",
               compact ? "px-2.5" : "px-3 sm:px-4",
