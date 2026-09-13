@@ -1010,18 +1010,25 @@
 }
 
 .course-builder-layout {
-  display: grid;
-  grid-template-columns: 17.5rem minmax(30rem, 1fr) 19rem;
-  align-items: start;
-  gap: var(--cf2-space-4);
+  min-height: 0;
+  padding: 1rem clamp(1rem, 3vw, 2.25rem) 2rem;
+  flex: 1;
+  overflow-y: auto;
+  background: var(--cf2-canvas-soft);
 }
-.course-outline,
-.course-publish-panel {
-  position: sticky;
-  top: 1rem;
+.studio-wizard-steps--course ol {
+  max-width: 34rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 .course-outline {
-  max-height: calc(100vh - 2rem);
+  position: sticky;
+  top: 0;
+  z-index: 4;
+}
+.course-outline {
+  width: min(100%, 68rem);
+  max-height: 15rem;
+  margin: 0 auto 1rem;
   overflow: auto;
   border: 1px solid var(--cf2-border);
   border-radius: var(--cf2-radius-lg);
@@ -1155,7 +1162,9 @@
 }
 .course-unit-editor {
   display: grid;
+  width: min(100%, 58rem);
   min-width: 0;
+  margin: 0 auto;
   gap: var(--cf2-space-4);
 }
 .course-unit-editor > .cf2-card > .cf2-card__header,
@@ -1166,6 +1175,10 @@
   margin: 0;
   color: var(--cf2-ink);
   font-size: 0.92rem;
+}
+.course-publish-panel {
+  width: min(100%, 52rem);
+  margin: 0 auto;
 }
 .course-publish-panel .cf2-card {
   overflow: hidden;
@@ -1179,6 +1192,11 @@
   color: var(--cf2-ink-muted);
   font-size: 0.66rem;
   line-height: 1.45;
+}
+.course-wizard-footer {
+  position: relative;
+  margin-top: 0;
+  flex: none;
 }
 .course-more-issues {
   margin: 0.6rem 0 0;

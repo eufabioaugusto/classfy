@@ -26,6 +26,8 @@ import {
   Archive,
   BookOpen,
   Check,
+  ChevronLeft,
+  ChevronRight,
   CircleAlert,
   Cloud,
   CloudOff,
@@ -44,12 +46,12 @@ import {
   Settings2,
   Trash2,
   UploadCloud,
+  X,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
 import { AppShell, PageHeader } from "@/components/layout";
 import { CreatorTemplate } from "@/components/templates";
-import { StudioNavigation } from "@/components/studio/StudioNavigation";
 import {
   V2Badge,
   V2Button,
@@ -150,6 +152,7 @@ function StudioUploadCurso() {
   const [sourceLoaded, setSourceLoaded] = useState(!editId);
   const [originalStatus, setOriginalStatus] = useState<string | null>(null);
   const [selection, setSelection] = useState<Selection>({ type: "course" });
+  const [courseStep, setCourseStep] = useState(0);
   const [previewOpen, setPreviewOpen] = useState(false);
   const [discardOpen, setDiscardOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -862,6 +865,32 @@ function StudioUploadCurso() {
     setDiscardOpen(false);
     navigate("/studio/contents");
   };
+  const closeCourseWizard = async () => {
+    if (
+      ["preparing", "uploading"].includes(mediaUpload.state) ||
+      compression.isCompressing ||
+      materialUploading
+    ) {
+      toast.info("Aguarde o envio terminar antes de fechar esta janela.");
+      return;
+    }
+    const hasCourseProgress = Boolean(
+      draft.draftId ||
+      title.trim() ||
+      description.trim() ||
+      thumbnailUrl ||
+      modules.some(
+        (module) =>
+          module.title.trim() ||
+          module.description.trim() ||
+          module.lessons.length ||
+          module.quizzes.length ||
+          module.materials.length,
+      ),
+    );
+    if (hasCourseProgress) await draft.saveNow();
+    navigate("/studio/contents");
+  };
 
   if (loading || !sourceLoaded)
     return (
@@ -914,17 +943,55 @@ function StudioUploadCurso() {
                 : "Organize módulos, aulas, quizzes e materiais sem perder o progresso."
             }
             action={
-              <span className="studio-draft-state" data-state={draft.state}>
-                {saveIcon}
-                {draft.label}
-              </span>
+              <div className="studio-wizard-header-actions">
+                <span className="studio-draft-state" data-state={draft.state}>
+                  {saveIcon}
+                  {draft.label}
+                </span>
+                <button
+                  type="button"
+                  className="studio-wizard-close studio-wizard-discard"
+                  aria-label="Descartar rascunho"
+                  onClick={() => setDiscardOpen(true)}
+                >
+                  <Trash2 />
+                </button>
+                <button
+                  type="button"
+                  className="studio-wizard-close"
+                  aria-label="Fechar criação do curso"
+                  onClick={() => void closeCourseWizard()}
+                >
+                  <X />
+                </button>
+              </div>
             }
           />
         }
-        toolbar={<StudioNavigation />}
       >
-        <div className="course-builder-layout">
-          <aside className="course-outline">
+        <nav
+          className="studio-wizard-steps studio-wizard-steps--course"
+          aria-label="Etapas da criação do curso"
+        >
+          <ol>
+            {["Estrutura e informações", "Revisão e publicação"].map(
+              (step, index) => (
+                <li
+                  key={step}
+                  data-active={index === courseStep || undefined}
+                  data-complete={index < courseStep || undefined}
+                >
+                  <span>{index < courseStep ? <Check /> : index + 1}</span>
+                  <strong>{step}</strong>
+                </li>
+              ),
+            )}
+          </ol>
+        </nav>
+        <div className="course-builder-layout" data-step={courseStep}>
+          <aside
+            className={`course-outline ${courseStep !== 0 ? "studio-wizard-hidden" : ""}`}
+          >
             <div className="course-outline-header">
               <div>
                 <strong>Estrutura</strong>
@@ -1114,7 +1181,9 @@ function StudioUploadCurso() {
             </DndContext>
           </aside>
 
-          <section className="course-unit-editor">
+          <section
+            className={`course-unit-editor ${courseStep !== 0 ? "studio-wizard-hidden" : ""}`}
+          >
             {selection.type === "course" && (
               <CourseInfoEditor
                 payload={payload}
@@ -1395,13 +1464,16 @@ function StudioUploadCurso() {
               )}
           </section>
 
-          <aside className="course-publish-panel">
+          <aside
+            className={`course-publish-panel ${courseStep !== 1 ? "studio-wizard-hidden" : ""}`}
+          >
             <V2Card elevation="raised">
               <V2CardHeader>
                 <div>
-                  <h2>Publicação</h2>
+                  <h2>Revise e envie seu curso</h2>
                   <p>
-                    O curso pode ficar incompleto enquanto estiver em rascunho.
+                    Confira a estrutura, o acesso e o que ainda falta antes da
+                    análise.
                   </p>
                 </div>
               </V2CardHeader>
@@ -1461,7 +1533,52 @@ function StudioUploadCurso() {
                   </div>
                 </dl>
               </V2CardContent>
-              <div className="studio-review-actions">
+            </V2Card>
+          </aside>
+        </div>
+        <footer className="studio-wizard-footer course-wizard-footer">
+          <div className="studio-wizard-footer__status">
+            <Layers3 />
+            <div>
+              <strong>
+                {modules.length} {modules.length === 1 ? "módulo" : "módulos"} ·{" "}
+                {totalUnits} {totalUnits === 1 ? "unidade" : "unidades"}
+              </strong>
+              <span>
+                {courseStep === 0
+                  ? "Organize o curso e preencha as informações."
+                  : issues.length
+                    ? "Revise as pendências antes de enviar."
+                    : "Tudo pronto para enviar à análise."}
+              </span>
+            </div>
+          </div>
+          <div className="studio-wizard-footer__actions">
+            <V2Button
+              variant="quiet"
+              leadingIcon={<Save />}
+              onClick={() => void draft.saveNow()}
+            >
+              Salvar rascunho
+            </V2Button>
+            {courseStep === 1 && (
+              <V2Button
+                variant="secondary"
+                leadingIcon={<ChevronLeft />}
+                onClick={() => setCourseStep(0)}
+              >
+                Voltar
+              </V2Button>
+            )}
+            {courseStep === 0 ? (
+              <V2Button
+                trailingIcon={<ChevronRight />}
+                onClick={() => setCourseStep(1)}
+              >
+                Revisar curso
+              </V2Button>
+            ) : (
+              <>
                 <V2Button
                   variant="secondary"
                   leadingIcon={<Eye />}
@@ -1482,24 +1599,10 @@ function StudioUploadCurso() {
                 >
                   {submitting ? "Enviando..." : "Enviar para análise"}
                 </V2Button>
-                <V2Button
-                  variant="quiet"
-                  leadingIcon={<Save />}
-                  onClick={() => void draft.saveNow()}
-                >
-                  Salvar rascunho
-                </V2Button>
-                <V2Button
-                  variant="quiet"
-                  leadingIcon={<Trash2 />}
-                  onClick={() => setDiscardOpen(true)}
-                >
-                  Descartar rascunho
-                </V2Button>
-              </div>
-            </V2Card>
-          </aside>
-        </div>
+              </>
+            )}
+          </div>
+        </footer>
       </CreatorTemplate>
       <Dialog open={previewOpen} onOpenChange={setPreviewOpen}>
         <DialogContent className="studio-preview-dialog course-preview-dialog">
