@@ -14,7 +14,6 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { formatDistanceToNow } from "date-fns";
 import { ptBR } from "date-fns/locale";
-import { toast } from "@/hooks/use-toast";
 
 interface Notification {
   id: string;
@@ -39,27 +38,20 @@ export function NotificationBell() {
 
     // Subscribe to new notifications in real-time
     const channel = supabase
-      .channel('notifications')
+      .channel("notifications")
       .on(
-        'postgres_changes',
+        "postgres_changes",
         {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'notifications',
+          event: "INSERT",
+          schema: "public",
+          table: "notifications",
           filter: `user_id=eq.${user.id}`,
         },
         (payload) => {
           const newNotification = payload.new as Notification;
           setNotifications((prev) => [newNotification, ...prev]);
           setUnreadCount((prev) => prev + 1);
-          
-          // Show toast notification
-          toast({
-            title: newNotification.title,
-            description: newNotification.message,
-            duration: 5000,
-          });
-        }
+        },
       )
       .subscribe();
 
@@ -72,10 +64,10 @@ export function NotificationBell() {
     if (!user) return;
 
     const { data, error } = await supabase
-      .from('notifications')
-      .select('*')
-      .eq('user_id', user.id)
-      .order('created_at', { ascending: false })
+      .from("notifications")
+      .select("*")
+      .eq("user_id", user.id)
+      .order("created_at", { ascending: false })
       .limit(50);
 
     if (!error && data) {
@@ -86,13 +78,15 @@ export function NotificationBell() {
 
   const markAsRead = async (notificationId: string) => {
     const { error } = await supabase
-      .from('notifications')
+      .from("notifications")
       .update({ is_read: true })
-      .eq('id', notificationId);
+      .eq("id", notificationId);
 
     if (!error) {
       setNotifications((prev) =>
-        prev.map((n) => (n.id === notificationId ? { ...n, is_read: true } : n))
+        prev.map((n) =>
+          n.id === notificationId ? { ...n, is_read: true } : n,
+        ),
       );
       setUnreadCount((prev) => Math.max(0, prev - 1));
     }
@@ -102,10 +96,10 @@ export function NotificationBell() {
     if (!user) return;
 
     const { error } = await supabase
-      .from('notifications')
+      .from("notifications")
       .update({ is_read: true })
-      .eq('user_id', user.id)
-      .eq('is_read', false);
+      .eq("user_id", user.id)
+      .eq("is_read", false);
 
     if (!error) {
       setNotifications((prev) => prev.map((n) => ({ ...n, is_read: true })));
@@ -115,14 +109,14 @@ export function NotificationBell() {
 
   const getNotificationIcon = (type: string) => {
     switch (type) {
-      case 'reward':
-        return '🎁';
-      case 'creator':
-        return '🎬';
-      case 'admin':
-        return '⚙️';
+      case "reward":
+        return "🎁";
+      case "creator":
+        return "🎬";
+      case "admin":
+        return "⚙️";
       default:
-        return '📢';
+        return "📢";
     }
   };
 
@@ -138,7 +132,7 @@ export function NotificationBell() {
               variant="destructive"
               className="absolute -top-1 -right-1 h-5 w-5 flex items-center justify-center p-0 text-xs"
             >
-              {unreadCount > 9 ? '9+' : unreadCount}
+              {unreadCount > 9 ? "9+" : unreadCount}
             </Badge>
           )}
         </Button>
@@ -146,11 +140,13 @@ export function NotificationBell() {
       <SheetContent side="right" className="w-full sm:w-[400px] p-0">
         <SheetHeader className="px-6 py-5 border-b border-border/50">
           <div className="flex items-center justify-between">
-            <SheetTitle className="text-lg font-semibold">Notificações</SheetTitle>
+            <SheetTitle className="text-lg font-semibold">
+              Notificações
+            </SheetTitle>
             {unreadCount > 0 && (
-              <Button 
-                variant="ghost" 
-                size="sm" 
+              <Button
+                variant="ghost"
+                size="sm"
                 onClick={markAllAsRead}
                 className="text-xs h-8 px-3 text-muted-foreground hover:text-foreground"
               >
@@ -170,11 +166,13 @@ export function NotificationBell() {
               notifications.map((notification) => (
                 <div
                   key={notification.id}
-                  onClick={() => !notification.is_read && markAsRead(notification.id)}
+                  onClick={() =>
+                    !notification.is_read && markAsRead(notification.id)
+                  }
                   className={`px-6 py-4 cursor-pointer transition-all duration-200 border-b border-border/30 last:border-b-0 ${
-                    !notification.is_read 
-                      ? 'bg-muted/20 hover:bg-muted/30' 
-                      : 'hover:bg-muted/10'
+                    !notification.is_read
+                      ? "bg-muted/20 hover:bg-muted/30"
+                      : "hover:bg-muted/10"
                   }`}
                 >
                   <div className="flex gap-4">
@@ -183,25 +181,36 @@ export function NotificationBell() {
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-start justify-between gap-3 mb-1.5">
-                        <h4 className={`font-semibold text-[13px] leading-snug ${
-                          !notification.is_read ? 'text-foreground' : 'text-foreground/90'
-                        }`}>
+                        <h4
+                          className={`font-semibold text-[13px] leading-snug ${
+                            !notification.is_read
+                              ? "text-foreground"
+                              : "text-foreground/90"
+                          }`}
+                        >
                           {notification.title}
                         </h4>
                         {!notification.is_read && (
                           <div className="h-2 w-2 rounded-full bg-accent flex-shrink-0 mt-1.5" />
                         )}
                       </div>
-                      <p className={`text-[13px] leading-relaxed mb-2 ${
-                        !notification.is_read ? 'text-foreground/70' : 'text-muted-foreground'
-                      }`}>
+                      <p
+                        className={`text-[13px] leading-relaxed mb-2 ${
+                          !notification.is_read
+                            ? "text-foreground/70"
+                            : "text-muted-foreground"
+                        }`}
+                      >
                         {notification.message}
                       </p>
                       <p className="text-[11px] text-muted-foreground/80">
-                        {formatDistanceToNow(new Date(notification.created_at), {
-                          addSuffix: true,
-                          locale: ptBR,
-                        })}
+                        {formatDistanceToNow(
+                          new Date(notification.created_at),
+                          {
+                            addSuffix: true,
+                            locale: ptBR,
+                          },
+                        )}
                       </p>
                     </div>
                   </div>
