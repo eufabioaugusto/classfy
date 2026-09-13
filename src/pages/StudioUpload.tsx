@@ -126,6 +126,7 @@ function StudioUpload() {
   const [tags, setTags] = useState<string[]>([]);
   const [fileUrl, setFileUrl] = useState("");
   const [filePreview, setFilePreview] = useState("");
+  const [remoteVideoPreview, setRemoteVideoPreview] = useState("");
   const [fileName, setFileName] = useState("");
   const [duration, setDuration] = useState(0);
   const [sourceDuration, setSourceDuration] = useState(0);
@@ -420,6 +421,29 @@ function StudioUpload() {
     if (draft.state !== "loading" && !draft.draftId)
       setIsResolvingResume(false);
   }, [draft.draftId, draft.state]);
+
+  useEffect(() => {
+    if (
+      contentType === "podcast" ||
+      !mediaAssetId ||
+      filePreview.startsWith("blob:")
+    ) {
+      setRemoteVideoPreview("");
+      return;
+    }
+    let active = true;
+    videoService
+      .getPlaybackSource(mediaAssetId)
+      .then((source) => {
+        if (active) setRemoteVideoPreview(source.url);
+      })
+      .catch(() => {
+        if (active) setRemoteVideoPreview("");
+      });
+    return () => {
+      active = false;
+    };
+  }, [contentType, filePreview, mediaAssetId, mediaUpload.state]);
 
   useEffect(() => {
     const taskId = activeBackgroundTaskRef.current;
@@ -1303,10 +1327,11 @@ function StudioUpload() {
                       onConfirm={(file) => uploadCover(file)}
                       onCancel={() => setGalleryCoverFile(null)}
                     />
-                  ) : filePreview && contentType !== "podcast" ? (
+                  ) : (filePreview || remoteVideoPreview) &&
+                    contentType !== "podcast" ? (
                     <StandaloneCoverSelector
-                      key={filePreview}
-                      videoSrc={filePreview}
+                      key={filePreview || remoteVideoPreview}
+                      videoSrc={filePreview || remoteVideoPreview}
                       targetAspect={coverAspect}
                       selectionMode="confirm"
                       confirmLabel="Confirmar capa"

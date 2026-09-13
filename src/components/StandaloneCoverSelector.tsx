@@ -1,5 +1,7 @@
 import { useRef, useState, useEffect } from "react";
+import Hls from "hls.js";
 import { CoverFrameSelector } from "@/components/CoverFrameSelector";
+import { releaseMediaElement, standardHlsConfig } from "@/lib/video/hlsConfig";
 
 /**
  * Standalone wrapper for CoverFrameSelector that creates its own video element.
@@ -31,6 +33,7 @@ export function StandaloneCoverSelector({
     const v = videoRef.current;
     if (!v || !videoSrc) return;
     setCaptureReady(false);
+    let hls: Hls | null = null;
 
     const onLoaded = () => {
       setDuration(v.duration);
@@ -41,10 +44,28 @@ export function StandaloneCoverSelector({
     };
 
     v.addEventListener("loadeddata", onLoaded);
-    v.src = videoSrc;
-    v.load();
+    const isHls = videoSrc.includes(".m3u8");
+    if (isHls && Hls.isSupported()) {
+      hls = new Hls(standardHlsConfig);
+      hls.loadSource(videoSrc);
+      hls.attachMedia(v);
+      hls.on(Hls.Events.ERROR, (_event, data) => {
+        if (!data.fatal) return;
+        if (data.type === Hls.ErrorTypes.NETWORK_ERROR) hls?.startLoad();
+        else if (data.type === Hls.ErrorTypes.MEDIA_ERROR)
+          hls?.recoverMediaError();
+        else hls?.destroy();
+      });
+    } else {
+      v.src = videoSrc;
+      v.load();
+    }
 
-    return () => v.removeEventListener("loadeddata", onLoaded);
+    return () => {
+      v.removeEventListener("loadeddata", onLoaded);
+      hls?.destroy();
+      releaseMediaElement(v);
+    };
   }, [videoSrc]);
 
   return (
@@ -54,6 +75,7 @@ export function StandaloneCoverSelector({
         muted
         playsInline
         preload="auto"
+        crossOrigin="anonymous"
         className="hidden"
       />
       <CoverFrameSelector
