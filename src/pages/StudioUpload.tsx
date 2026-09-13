@@ -1,5 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Navigate, useNavigate, useSearchParams } from "react-router-dom";
+import {
+  Navigate,
+  useLocation,
+  useNavigate,
+  useSearchParams,
+} from "react-router-dom";
 import {
   Check,
   ChevronLeft,
@@ -50,8 +55,10 @@ import { useMediaUpload } from "@/hooks/useMediaUpload";
 import { usePublicationDraft } from "@/hooks/usePublicationDraft";
 import { compressImage } from "@/utils/imageCompression";
 import {
+  createNewPublicationDraftKey,
   getStandaloneDraftIssues,
   isPersistedPublicationDraft,
+  isNewPublicationDraftKey,
   publicationRules,
   visibilityOptions,
   type PublicationKind,
@@ -82,10 +89,10 @@ function mediaStatusCopy(
   return "Nenhum arquivo enviado";
 }
 
-export default function StudioUpload() {
+function StudioUpload() {
   const { user, role, profile, loading } = useAuth();
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const editId = searchParams.get("edit");
   const [contentType, setContentType] = useState<StandaloneKind>(() =>
     requestedKind(searchParams),
@@ -279,7 +286,32 @@ export default function StudioUpload() {
     [mediaUpload.resumeProcessing, mediaUpload.setState],
   );
 
-  const draftKey = `${contentType}:${editId ? `edit:${editId}` : "new"}`;
+  const requestedDraftKey = searchParams.get("draft");
+  const canResumeRequestedDraft =
+    !editId && isNewPublicationDraftKey(contentType, requestedDraftKey);
+  const [generatedDraftKey] = useState(() =>
+    createNewPublicationDraftKey(contentType),
+  );
+
+  const draftKey = editId
+    ? `${contentType}:edit:${editId}`
+    : canResumeRequestedDraft
+      ? requestedDraftKey!
+      : generatedDraftKey;
+
+  useEffect(() => {
+    if (editId || canResumeRequestedDraft) return;
+    const nextParams = new URLSearchParams(searchParams);
+    nextParams.set("draft", generatedDraftKey);
+    setSearchParams(nextParams, { replace: true });
+  }, [
+    canResumeRequestedDraft,
+    editId,
+    generatedDraftKey,
+    searchParams,
+    setSearchParams,
+  ]);
+
   const draft = usePublicationDraft({
     userId: user?.id,
     draftKey,
@@ -1400,4 +1432,9 @@ export default function StudioUpload() {
       />
     </AppShell>
   );
+}
+
+export default function StudioUploadRoute() {
+  const location = useLocation();
+  return <StudioUpload key={`${location.pathname}${location.search}`} />;
 }

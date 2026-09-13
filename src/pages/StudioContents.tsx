@@ -128,10 +128,14 @@ const editRoute = (content: Content) =>
     ? content.content_type === "curso"
       ? content.source_id
         ? `/studio/upload/curso?edit=${content.source_id}`
-        : "/studio/upload/curso"
+        : content.draft_key
+          ? `/studio/upload/curso?draft=${encodeURIComponent(content.draft_key)}`
+          : "/studio/upload/curso"
       : content.source_id
         ? `/studio/upload?type=${content.content_type}&edit=${content.source_id}`
-        : `/studio/upload?type=${content.content_type}`
+        : content.draft_key
+          ? `/studio/upload?type=${content.content_type}&draft=${encodeURIComponent(content.draft_key)}`
+          : `/studio/upload?type=${content.content_type}`
     : content.content_type === "curso"
       ? `/studio/upload/curso?edit=${content.id}`
       : `/studio/upload?type=${content.content_type}&edit=${content.id}`;

@@ -108,6 +108,23 @@ export const visibilityOptions = [
   { id: "paid" as const, label: "Pago", description: "Vendido separadamente" },
 ];
 
+export function createNewPublicationDraftKey(
+  kind: PublicationKind,
+  id = crypto.randomUUID(),
+) {
+  return `${kind}:new:${id}`;
+}
+
+export function isNewPublicationDraftKey(
+  kind: PublicationKind,
+  draftKey: string | null | undefined,
+) {
+  return Boolean(
+    draftKey &&
+    (draftKey === `${kind}:new` || draftKey.startsWith(`${kind}:new:`)),
+  );
+}
+
 export function getStandaloneDraftIssues(
   kind: Exclude<PublicationKind, "curso">,
   draft: StandalonePublicationDraft,

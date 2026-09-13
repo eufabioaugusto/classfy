@@ -1,5 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Navigate, useNavigate, useSearchParams } from "react-router-dom";
+import {
+  Navigate,
+  useLocation,
+  useNavigate,
+  useSearchParams,
+} from "react-router-dom";
 import {
   DndContext,
   KeyboardSensor,
@@ -69,7 +74,9 @@ import { usePublicationDraft } from "@/hooks/usePublicationDraft";
 import { useVideoCompression } from "@/hooks/useVideoCompression";
 import { compressImage } from "@/utils/imageCompression";
 import {
+  createNewPublicationDraftKey,
   isPersistedPublicationDraft,
+  isNewPublicationDraftKey,
   visibilityOptions,
   type PublicationVisibility,
 } from "@/lib/studio/publication";
@@ -135,10 +142,10 @@ const formatDuration = (seconds: number) =>
     ? `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`
     : "Sem duração";
 
-export default function StudioUploadCurso() {
+function StudioUploadCurso() {
   const { user, role, profile, loading } = useAuth();
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const editId = searchParams.get("edit");
   const [sourceLoaded, setSourceLoaded] = useState(!editId);
   const [originalStatus, setOriginalStatus] = useState<string | null>(null);
@@ -254,7 +261,32 @@ export default function StudioUploadCurso() {
     setModules(saved.modules?.length ? saved.modules : [emptyCourseModule()]);
   }, []);
 
-  const draftKey = `curso:${editId ? `edit:${editId}` : "new"}`;
+  const requestedDraftKey = searchParams.get("draft");
+  const canResumeRequestedDraft =
+    !editId && isNewPublicationDraftKey("curso", requestedDraftKey);
+  const [generatedDraftKey] = useState(() =>
+    createNewPublicationDraftKey("curso"),
+  );
+
+  const draftKey = editId
+    ? `curso:edit:${editId}`
+    : canResumeRequestedDraft
+      ? requestedDraftKey!
+      : generatedDraftKey;
+
+  useEffect(() => {
+    if (editId || canResumeRequestedDraft) return;
+    const nextParams = new URLSearchParams(searchParams);
+    nextParams.set("draft", generatedDraftKey);
+    setSearchParams(nextParams, { replace: true });
+  }, [
+    canResumeRequestedDraft,
+    editId,
+    generatedDraftKey,
+    searchParams,
+    setSearchParams,
+  ]);
+
   const draft = usePublicationDraft({
     userId: user?.id,
     draftKey,
@@ -490,8 +522,8 @@ export default function StudioUploadCurso() {
   const removeModule = (moduleId: string) => {
     const removed = modules.find((item) => item.id === moduleId);
     removed?.lessons.forEach((lesson) => abandonAsset(lesson.mediaAssetId));
-    removed?.materials.forEach((material) =>
-      void removeStoredCourseFile(material.fileUrl),
+    removed?.materials.forEach(
+      (material) => void removeStoredCourseFile(material.fileUrl),
     );
     setModules((items) => items.filter((item) => item.id !== moduleId));
     setSelection({ type: "course" });
@@ -622,7 +654,10 @@ export default function StudioUploadCurso() {
         draftId: saved?.id ?? draft.draftId,
         slotKey: `lesson:${lesson.id}`,
         onTargetCreated: (target) => {
-          if (lesson.mediaAssetId && lesson.mediaAssetId !== target.mediaAssetId)
+          if (
+            lesson.mediaAssetId &&
+            lesson.mediaAssetId !== target.mediaAssetId
+          )
             abandonAsset(lesson.mediaAssetId);
           updateModule(moduleId, (module) => ({
             ...module,
@@ -1513,14 +1548,18 @@ export default function StudioUploadCurso() {
           <DialogHeader>
             <DialogTitle>Descartar este curso?</DialogTitle>
             <DialogDescription>
-              A estrutura que ainda não foi enviada e os arquivos vinculados ao rascunho serão removidos.
+              A estrutura que ainda não foi enviada e os arquivos vinculados ao
+              rascunho serão removidos.
             </DialogDescription>
           </DialogHeader>
           <div className="studio-dialog-actions">
             <V2Button variant="secondary" onClick={() => setDiscardOpen(false)}>
               Continuar editando
             </V2Button>
-            <V2Button leadingIcon={<Trash2 />} onClick={() => void discardCourseDraft()}>
+            <V2Button
+              leadingIcon={<Trash2 />}
+              onClick={() => void discardCourseDraft()}
+            >
               Descartar rascunho
             </V2Button>
           </div>
@@ -1528,6 +1567,11 @@ export default function StudioUploadCurso() {
       </Dialog>
     </AppShell>
   );
+}
+
+export default function StudioUploadCursoRoute() {
+  const location = useLocation();
+  return <StudioUploadCurso key={`${location.pathname}${location.search}`} />;
 }
 
 function CourseInfoEditor(props: {
