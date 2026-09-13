@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   beginBackgroundUpload,
   getBackgroundUploadsSnapshot,
@@ -63,5 +63,26 @@ describe("envios em segundo plano", () => {
     expect(
       getBackgroundUploadsSnapshot().find((task) => task.id === id),
     ).toMatchObject({ state: "ready", progress: 100 });
+  });
+
+  it("preserva o percentual quando o módulo é recarregado entre rotas", async () => {
+    const id = beginBackgroundUpload({
+      draftId: "draft-route-change",
+      title: "troca-de-rota.mp4",
+    });
+    updateBackgroundUpload(id, {
+      mediaAssetId: "asset-route-change",
+      state: "uploading",
+      progress: 63,
+    });
+
+    vi.resetModules();
+    const reloadedStore = await import("@/lib/studio/backgroundUploads");
+
+    expect(
+      reloadedStore
+        .getBackgroundUploadsSnapshot()
+        .find((task) => task.id === id),
+    ).toMatchObject({ state: "uploading", progress: 63 });
   });
 });

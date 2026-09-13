@@ -15,12 +15,25 @@ export interface BackgroundUploadTask {
   updatedAt: number;
 }
 
-const tasks = new Map<string, BackgroundUploadTask>();
-const listeners = new Set<() => void>();
-let snapshot: BackgroundUploadTask[] = [];
+interface BackgroundUploadStore {
+  tasks: Map<string, BackgroundUploadTask>;
+  listeners: Set<() => void>;
+  snapshot: BackgroundUploadTask[];
+}
+
+const globalUploadStore = globalThis as typeof globalThis & {
+  __classfyBackgroundUploads?: BackgroundUploadStore;
+};
+
+const store = (globalUploadStore.__classfyBackgroundUploads ??= {
+  tasks: new Map<string, BackgroundUploadTask>(),
+  listeners: new Set<() => void>(),
+  snapshot: [],
+});
+const { tasks, listeners } = store;
 
 const publish = () => {
-  snapshot = Array.from(tasks.values());
+  store.snapshot = Array.from(tasks.values());
   listeners.forEach((listener) => listener());
 };
 
@@ -86,5 +99,5 @@ export function subscribeBackgroundUploads(listener: () => void) {
 }
 
 export function getBackgroundUploadsSnapshot() {
-  return snapshot;
+  return store.snapshot;
 }

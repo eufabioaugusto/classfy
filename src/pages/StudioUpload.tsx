@@ -118,6 +118,9 @@ function StudioUpload() {
     requestedKind(searchParams),
   );
   const [sourceLoaded, setSourceLoaded] = useState(!editId);
+  const [isResolvingResume, setIsResolvingResume] = useState(() =>
+    Boolean(searchParams.get("draft")),
+  );
   const [isEditMode, setIsEditMode] = useState(Boolean(editId));
   const [originalStatus, setOriginalStatus] = useState<string | null>(null);
   const [title, setTitle] = useState("");
@@ -314,44 +317,49 @@ function StudioUpload() {
         setWizardStep(2);
         if (restored.uploadState === "ready") mediaUpload.setState("ready");
         else mediaUpload.resumeProcessing(restored.mediaAssetId);
+        setIsResolvingResume(false);
         return;
       }
       void (async () => {
-        let { data: linkedAsset } = await (supabase as any)
-          .from("media_assets")
-          .select("id, status, duration_seconds")
-          .eq("publication_draft_id", record.id)
-          .is("abandoned_at", null)
-          .order("created_at", { ascending: false })
-          .limit(1)
-          .maybeSingle();
-        if (!linkedAsset) {
-          const { data: draftAsset } = await (supabase as any)
-            .from("publication_draft_assets")
-            .select("media_asset_id")
-            .eq("draft_id", record.id)
+        try {
+          let { data: linkedAsset } = await (supabase as any)
+            .from("media_assets")
+            .select("id, status, duration_seconds")
+            .eq("publication_draft_id", record.id)
+            .is("abandoned_at", null)
             .order("created_at", { ascending: false })
             .limit(1)
             .maybeSingle();
-          if (draftAsset?.media_asset_id) {
-            const result = await (supabase as any)
-              .from("media_assets")
-              .select("id, status, duration_seconds")
-              .eq("id", draftAsset.media_asset_id)
+          if (!linkedAsset) {
+            const { data: draftAsset } = await (supabase as any)
+              .from("publication_draft_assets")
+              .select("media_asset_id")
+              .eq("draft_id", record.id)
+              .order("created_at", { ascending: false })
+              .limit(1)
               .maybeSingle();
-            linkedAsset = result.data;
+            if (draftAsset?.media_asset_id) {
+              const result = await (supabase as any)
+                .from("media_assets")
+                .select("id, status, duration_seconds")
+                .eq("id", draftAsset.media_asset_id)
+                .maybeSingle();
+              linkedAsset = result.data;
+            }
           }
+          if (!linkedAsset?.id) return;
+          setFileUrl(`media:${linkedAsset.id}`);
+          setMediaAssetId(linkedAsset.id);
+          if (linkedAsset.duration_seconds)
+            setDuration(linkedAsset.duration_seconds);
+          setWizardStep(2);
+          if (linkedAsset.status === "ready") mediaUpload.setState("ready");
+          else if (linkedAsset.status === "failed")
+            mediaUpload.setState("failed");
+          else mediaUpload.resumeProcessing(linkedAsset.id);
+        } finally {
+          setIsResolvingResume(false);
         }
-        if (!linkedAsset?.id) return;
-        setFileUrl(`media:${linkedAsset.id}`);
-        setMediaAssetId(linkedAsset.id);
-        if (linkedAsset.duration_seconds)
-          setDuration(linkedAsset.duration_seconds);
-        setWizardStep(2);
-        if (linkedAsset.status === "ready") mediaUpload.setState("ready");
-        else if (linkedAsset.status === "failed")
-          mediaUpload.setState("failed");
-        else mediaUpload.resumeProcessing(linkedAsset.id);
       })();
     },
     [mediaUpload.resumeProcessing, mediaUpload.setState],
@@ -393,6 +401,11 @@ function StudioUpload() {
     enabled: sourceLoaded,
     onRestore: restoreDraft,
   });
+
+  useEffect(() => {
+    if (draft.state !== "loading" && !draft.draftId)
+      setIsResolvingResume(false);
+  }, [draft.draftId, draft.state]);
 
   useEffect(() => {
     const guard = (event: BeforeUnloadEvent) => {
@@ -898,6 +911,7 @@ function StudioUpload() {
   ];
   const mediaAlreadySent = Boolean(mediaAssetId || fileUrl);
   const coverAspect = contentType === "short" ? 9 / 16 : 16 / 9;
+  const draftIsHydrating = draft.state === "loading" || isResolvingResume;
 
   return (
     <AppShell
@@ -907,6 +921,7 @@ function StudioUpload() {
     >
       <CreatorTemplate
         className="studio-template studio-publish-template"
+        data-restoring={draftIsHydrating || undefined}
         width="wide"
         density="comfortable"
         header={
@@ -949,6 +964,15 @@ function StudioUpload() {
           />
         }
       >
+        {draftIsHydrating && (
+          <div className="studio-draft-loading" role="status">
+            <LoaderCircle className="animate-spin" />
+            <div>
+              <strong>Carregando seu rascunho</strong>
+              <span>Retomando do ponto em que você parou.</span>
+            </div>
+          </div>
+        )}
         <nav className="studio-wizard-steps" aria-label="Etapas da publicação">
           <ol>
             {wizardSteps.map((step, index) => (

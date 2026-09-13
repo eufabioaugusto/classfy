@@ -31,7 +31,7 @@ export function useMediaUpload({
   const watchUntilReady = useCallback(
     async (mediaAssetId: string) => {
       stopPolling();
-      setState("processing");
+      if (mountedRef.current) setState("processing");
       const poll = async () => {
         const { data, error: queryError } = await (supabase as any)
           .from("media_assets")
@@ -43,7 +43,7 @@ export function useMediaUpload({
           return;
         }
         if (data?.status === "ready") {
-          setState("ready");
+          if (mountedRef.current) setState("ready");
           updateBackgroundUploadByMediaAsset(mediaAssetId, {
             state: "ready",
             progress: 100,
@@ -52,11 +52,12 @@ export function useMediaUpload({
           return;
         }
         if (["failed", "deleted", "missing"].includes(data?.status)) {
-          setState("failed");
+          if (mountedRef.current) setState("failed");
           updateBackgroundUploadByMediaAsset(mediaAssetId, { state: "failed" });
-          setError(
-            "A mídia não pôde ser processada. Substitua o arquivo e tente novamente.",
-          );
+          if (mountedRef.current)
+            setError(
+              "A mídia não pôde ser processada. Substitua o arquivo e tente novamente.",
+            );
           stopPolling();
           return;
         }
@@ -196,7 +197,8 @@ export function useMediaUpload({
           state: "processing",
           progress: 100,
         });
-        if (mountedRef.current) void watchUntilReady(target.mediaAssetId);
+        if (mountedRef.current || keepTransferOnUnmount)
+          void watchUntilReady(target.mediaAssetId);
         return result;
       } catch (uploadError) {
         if (
@@ -219,7 +221,7 @@ export function useMediaUpload({
         tusRef.current = null;
       }
     },
-    [watchUntilReady],
+    [keepTransferOnUnmount, watchUntilReady],
   );
 
   const cancel = useCallback(() => {
@@ -246,8 +248,8 @@ export function useMediaUpload({
     mountedRef.current = true;
     return () => {
       mountedRef.current = false;
-      stopPolling();
       if (keepTransferOnUnmount) return;
+      stopPolling();
       xhrRef.current?.abort();
       tusRef.current?.abort();
     };

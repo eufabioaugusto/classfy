@@ -61,6 +61,38 @@
   flex-direction: column;
 }
 
+.studio-publish-template[data-restoring] .studio-wizard-steps,
+.studio-publish-template[data-restoring] .studio-publish-layout {
+  display: none;
+}
+
+.studio-draft-loading {
+  display: grid;
+  min-height: 0;
+  flex: 1;
+  place-content: center;
+  justify-items: center;
+  gap: 0.8rem;
+  padding: 2rem;
+  color: var(--cf2-ink-muted);
+  text-align: center;
+}
+.studio-draft-loading > svg {
+  width: 2rem;
+  height: 2rem;
+  color: var(--cf2-accent);
+}
+.studio-draft-loading > div {
+  display: grid;
+  gap: 0.25rem;
+}
+.studio-draft-loading strong {
+  color: var(--cf2-ink);
+}
+.studio-draft-loading span {
+  font-size: 0.78rem;
+}
+
 .studio-publish-loading,
 .studio-access-state {
   display: grid;
