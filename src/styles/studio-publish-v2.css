@@ -1010,9 +1010,13 @@
 }
 
 .course-builder-layout {
+  --course-editor-width: 58rem;
+  display: flex;
   min-height: 0;
-  padding: 1rem clamp(1rem, 3vw, 2.25rem) 2rem;
+  padding: 1.25rem clamp(1rem, 3vw, 2.25rem) 2rem;
   flex: 1;
+  flex-direction: column;
+  gap: var(--cf2-space-4);
   overflow-y: auto;
   background: var(--cf2-canvas-soft);
 }
@@ -1020,20 +1024,23 @@
   max-width: 34rem;
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
+.course-builder-layout > .course-outline,
+.course-builder-layout > .course-unit-editor,
+.course-builder-layout > .course-publish-panel {
+  flex: none;
+}
 .course-outline {
   position: sticky;
   top: 0;
   z-index: 4;
-}
-.course-outline {
-  width: min(100%, 68rem);
+  width: min(100%, var(--course-editor-width));
   max-height: 15rem;
-  margin: 0 auto 1rem;
+  margin: 0 auto;
   overflow: auto;
   border: 1px solid var(--cf2-border);
-  border-radius: var(--cf2-radius-lg);
+  border-radius: var(--cf2-radius-card);
   background: var(--cf2-surface);
-  box-shadow: var(--cf2-shadow-panel);
+  box-shadow: none;
 }
 .course-outline-header {
   display: flex;
@@ -1162,10 +1169,17 @@
 }
 .course-unit-editor {
   display: grid;
-  width: min(100%, 58rem);
+  width: min(100%, var(--course-editor-width));
   min-width: 0;
   margin: 0 auto;
   gap: var(--cf2-space-4);
+}
+.course-unit-editor > .cf2-card,
+.course-publish-panel > .cf2-card {
+  border-color: var(--cf2-border);
+  border-radius: var(--cf2-radius-card);
+  background: var(--cf2-surface);
+  box-shadow: none;
 }
 .course-unit-editor > .cf2-card > .cf2-card__header,
 .course-unit-editor > .cf2-card > .cf2-card__content {
@@ -1177,7 +1191,7 @@
   font-size: 0.92rem;
 }
 .course-publish-panel {
-  width: min(100%, 52rem);
+  width: min(100%, var(--course-editor-width));
   margin: 0 auto;
 }
 .course-publish-panel .cf2-card {
@@ -1531,12 +1545,8 @@
   .studio-review-actions {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
-  .course-builder-layout {
-    grid-template-columns: 15rem minmax(0, 1fr);
-  }
   .course-publish-panel {
     position: static;
-    grid-column: 1 / -1;
   }
   .course-publish-panel .studio-review-actions {
     grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -1650,9 +1660,6 @@
   .studio-cover-editor__actions .cf2-button,
   .studio-cover-editor__selector-actions .cf2-button {
     width: 100%;
-  }
-  .course-builder-layout {
-    grid-template-columns: minmax(0, 1fr);
   }
   .course-outline,
   .course-publish-panel {
