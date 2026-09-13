@@ -53,8 +53,14 @@ export function seekAndCapture(
       }
     };
 
+    const targetTime = Math.max(0, Math.min(time, video.duration - 0.05));
     video.addEventListener("seeked", onSeeked);
-    video.currentTime = Math.max(0, Math.min(time, video.duration - 0.05));
+    if (
+      video.readyState >= 2 &&
+      Math.abs(video.currentTime - targetTime) < 0.02
+    )
+      onSeeked();
+    else video.currentTime = targetTime;
   });
 }
 
@@ -111,8 +117,14 @@ export function seekAndCaptureCover(
       setTimeout(doCapture, 80);
     };
 
+    const targetTime = Math.max(0, Math.min(time, video.duration - 0.05));
     video.addEventListener("seeked", onSeeked);
-    video.currentTime = Math.max(0, Math.min(time, video.duration - 0.05));
+    if (
+      video.readyState >= 2 &&
+      Math.abs(video.currentTime - targetTime) < 0.02
+    )
+      onSeeked();
+    else video.currentTime = targetTime;
   });
 }
 

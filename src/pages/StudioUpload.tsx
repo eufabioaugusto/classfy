@@ -51,10 +51,15 @@ import { TagsInput } from "@/components/TagsInput";
 import { StandaloneCoverSelector } from "@/components/StandaloneCoverSelector";
 import { CoverImageCropper } from "@/components/CoverImageCropper";
 import { VideoTrimBar } from "@/components/video-lobby/VideoTrimBar";
+import {
+  dataURLtoFile,
+  seekAndCaptureCover,
+} from "@/components/video-lobby/seekAndCapture";
 import { useVideoCompression } from "@/hooks/useVideoCompression";
 import { useMediaUpload } from "@/hooks/useMediaUpload";
 import { usePublicationDraft } from "@/hooks/usePublicationDraft";
 import { compressImage } from "@/utils/imageCompression";
+import { coverTargetSize } from "@/lib/media/coverCrop";
 import {
   createNewPublicationDraftKey,
   getStandaloneDraftIssues,
@@ -71,7 +76,6 @@ import "@/styles/studio-v2.css";
 import "@/styles/studio-publish-v2.css";
 
 type StandaloneKind = Exclude<PublicationKind, "curso">;
-type PreparationMode = "trim" | "cover";
 
 function requestedKind(params: URLSearchParams): StandaloneKind {
   const value = params.get("type");
@@ -120,8 +124,6 @@ function StudioUpload() {
   const [thumbnailUploading, setThumbnailUploading] = useState(false);
   const [galleryCoverFile, setGalleryCoverFile] = useState<File | null>(null);
   const [coverEditorOpen, setCoverEditorOpen] = useState(false);
-  const [preparationMode, setPreparationMode] =
-    useState<PreparationMode>("trim");
   const [trimStart, setTrimStart] = useState(0);
   const [trimEnd, setTrimEnd] = useState(0);
   const [captureReady, setCaptureReady] = useState(false);
@@ -386,8 +388,7 @@ function StudioUpload() {
   const removeCover = () => {
     setThumbnailUrl("");
     setThumbnailPreview("");
-    setCoverEditorOpen(contentType !== "podcast" && Boolean(filePreview));
-    setPreparationMode("cover");
+    setCoverEditorOpen(false);
     setGalleryCoverFile(null);
     if (coverFileInputRef.current) coverFileInputRef.current.value = "";
     toast.success("Capa removida do rascunho.");
@@ -483,8 +484,7 @@ function StudioUpload() {
     setCaptureReady(false);
     setFileName(file.name);
     setFilePreview(url);
-    setCoverEditorOpen(contentType !== "podcast" && !thumbnailPreview);
-    setPreparationMode(contentType === "podcast" ? "cover" : "trim");
+    setCoverEditorOpen(false);
     mediaUpload.reset();
     if (!title.trim()) {
       setTitle(
@@ -541,6 +541,39 @@ function StudioUpload() {
       setDuration(Math.max(0, trimEnd - trimStart));
     }
     setWizardStep(2);
+    if (
+      contentType !== "podcast" &&
+      !thumbnailPreview &&
+      captureReady &&
+      captureVideoRef.current
+    ) {
+      const video = captureVideoRef.current;
+      const targetAspect = contentType === "short" ? 9 / 16 : 16 / 9;
+      const target = coverTargetSize(targetAspect);
+      const playbackTime = visibleVideoRef.current?.currentTime ?? trimStart;
+      const lastFrame = Math.max(trimStart, trimEnd - 0.1);
+      const defaultTime = trimStart + Math.max(0, trimEnd - trimStart) * 0.25;
+      const currentTime =
+        playbackTime > trimStart + 0.1 ? playbackTime : defaultTime;
+      const selectedTime = Math.min(
+        Math.max(currentTime, trimStart),
+        lastFrame,
+      );
+      void seekAndCaptureCover(
+        video,
+        selectedTime,
+        target.width,
+        target.height,
+        { x: 50, y: 50 },
+        0.92,
+      ).then((dataUrl) => {
+        const cover = dataURLtoFile(
+          dataUrl,
+          `capa_${contentType}_${Date.now()}.jpg`,
+        );
+        void uploadCover(cover);
+      });
+    }
     const started = await startUpload(
       file,
       contentType === "podcast" ? undefined : trimStart,
@@ -720,7 +753,12 @@ function StudioUpload() {
     if (title || description || hasSelectedMedia) await draft.saveNow();
     navigate("/studio/contents");
   };
-  const wizardSteps = ["Arquivo", "Preparar", "Detalhes", "Acesso e revisão"];
+  const wizardSteps = [
+    "Arquivo",
+    contentType === "podcast" ? "Revisar áudio" : "Ajustar vídeo",
+    "Detalhes",
+    "Publicação",
+  ];
   const mediaAlreadySent = Boolean(mediaAssetId || fileUrl);
   const coverAspect = contentType === "short" ? 9 / 16 : 16 / 9;
 
@@ -799,22 +837,30 @@ function StudioUpload() {
               elevation="panel"
             >
               <V2CardHeader>
-                <div className="studio-preparation-header">
+                <div className="studio-adjustment-header">
                   <div className="studio-publish-heading">
                     <span className="studio-icon" data-tone="accent">
-                      <MediaIcon />
+                      {wizardStep === 1 && contentType !== "podcast" ? (
+                        <Scissors />
+                      ) : (
+                        <MediaIcon />
+                      )}
                     </span>
                     <div>
                       <h2>
                         {wizardStep === 1
-                          ? `Prepare ${contentType === "aula" ? "sua aula" : contentType === "short" ? "seu short" : "seu episódio"}`
+                          ? contentType === "podcast"
+                            ? "Confira seu episódio"
+                            : "Ajuste seu vídeo"
                           : contentType === "podcast"
                             ? "Áudio do episódio"
                             : "Vídeo do conteúdo"}
                       </h2>
                       <p>
                         {wizardStep === 1
-                          ? "Ajuste a mídia e defina como ela será apresentada."
+                          ? contentType === "podcast"
+                            ? "Ouça o arquivo e avance quando estiver tudo certo."
+                            : "Reproduza o vídeo e corte apenas se precisar."
                           : contentType === "short"
                             ? "Vídeo vertical com até 3 minutos."
                             : contentType === "podcast"
@@ -823,91 +869,19 @@ function StudioUpload() {
                       </p>
                     </div>
                   </div>
-                  {wizardStep === 1 && hasSelectedMedia ? (
-                    <div className="studio-preparation-header__controls">
-                      {contentType !== "podcast" && (
-                        <div
-                          className="studio-preparation-tabs"
-                          role="tablist"
-                          aria-label="Ferramentas de preparação"
-                        >
-                          <button
-                            type="button"
-                            role="tab"
-                            aria-selected={preparationMode === "trim"}
-                            data-active={
-                              preparationMode === "trim" || undefined
-                            }
-                            onClick={() => setPreparationMode("trim")}
-                          >
-                            <Scissors /> Corte
-                          </button>
-                          <button
-                            type="button"
-                            role="tab"
-                            aria-selected={preparationMode === "cover"}
-                            data-active={
-                              preparationMode === "cover" || undefined
-                            }
-                            onClick={() => setPreparationMode("cover")}
-                          >
-                            <ImagePlus /> Capa
-                          </button>
-                        </div>
-                      )}
-                      {preparationMode === "cover" && (
-                        <div className="studio-cover-toolbar">
-                          {contentType !== "podcast" && filePreview && (
-                            <V2Button
-                              type="button"
-                              variant="secondary"
-                              size="sm"
-                              onClick={() => {
-                                setGalleryCoverFile(null);
-                                setCoverEditorOpen(true);
-                              }}
-                            >
-                              Frame do vídeo
-                            </V2Button>
-                          )}
-                          <V2Button
-                            type="button"
-                            variant="secondary"
-                            size="sm"
-                            leadingIcon={<ImagePlus />}
-                            onClick={() => coverFileInputRef.current?.click()}
-                            disabled={thumbnailUploading}
-                          >
-                            Inserir da galeria
-                          </V2Button>
-                          {thumbnailPreview && (
-                            <V2Button
-                              type="button"
-                              variant="quiet"
-                              size="sm"
-                              leadingIcon={<Trash2 />}
-                              onClick={removeCover}
-                              disabled={thumbnailUploading}
-                            >
-                              Remover
-                            </V2Button>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  ) : (
-                    <V2Badge
-                      variant={
-                        mediaUpload.state === "ready"
-                          ? "success"
-                          : mediaUpload.state === "failed"
-                            ? "danger"
-                            : "neutral"
-                      }
-                    >
-                      {mediaStatus}
-                    </V2Badge>
-                  )}
+                  <V2Badge
+                    variant={
+                      mediaUpload.state === "ready"
+                        ? "success"
+                        : mediaUpload.state === "failed"
+                          ? "danger"
+                          : "neutral"
+                    }
+                  >
+                    {wizardStep === 1 && contentType !== "podcast"
+                      ? "Corte opcional"
+                      : mediaStatus}
+                  </V2Badge>
                 </div>
               </V2CardHeader>
               <V2CardContent>
@@ -1031,12 +1005,16 @@ function StudioUpload() {
                       </p>
                     )}
 
-                    {wizardStep === 1 && preparationMode === "trim" && (
+                    {wizardStep === 1 && (
                       <>
                         <div
                           className={`studio-media-preview studio-media-preview--${contentType}`}
                         >
-                          {hasPlayablePreview && filePreview ? (
+                          {hasPlayablePreview &&
+                          filePreview &&
+                          contentType === "podcast" ? (
+                            <audio src={filePreview} controls />
+                          ) : hasPlayablePreview && filePreview ? (
                             <video
                               ref={visibleVideoRef}
                               src={filePreview}
@@ -1106,112 +1084,120 @@ function StudioUpload() {
                           )}
                       </>
                     )}
-
-                    {wizardStep === 1 && preparationMode === "cover" && (
-                      <div className="studio-cover-workbench">
-                        {contentType === "podcast" && hasPlayablePreview && (
-                          <audio
-                            className="studio-cover-workbench__audio"
-                            src={filePreview}
-                            controls
-                          />
-                        )}
-                        <div
-                          className="studio-cover-editor"
-                          data-format={contentType}
-                          aria-busy={thumbnailUploading}
-                        >
-                          {galleryCoverFile ? (
-                            <CoverImageCropper
-                              file={galleryCoverFile}
-                              targetAspect={coverAspect}
-                              onConfirm={(file) => uploadCover(file)}
-                              onCancel={() => setGalleryCoverFile(null)}
-                            />
-                          ) : coverEditorOpen &&
-                            filePreview &&
-                            contentType !== "podcast" ? (
-                            <StandaloneCoverSelector
-                              key={filePreview}
-                              videoSrc={filePreview}
-                              targetAspect={coverAspect}
-                              selectionMode="confirm"
-                              confirmLabel="Usar como capa"
-                              onFrameSelect={(file) => void uploadCover(file)}
-                              className="studio-cover-selector"
-                            />
-                          ) : thumbnailPreview ? (
-                            <div className="studio-cover-editor__current">
-                              <div
-                                className="studio-cover-editor__preview"
-                                style={{ aspectRatio: coverAspect }}
-                              >
-                                <img src={thumbnailPreview} alt="Capa atual" />
-                                <span>Capa atual</span>
-                              </div>
-                            </div>
-                          ) : (
-                            <div className="studio-cover-editor__empty">
-                              <span className="studio-cover-editor__empty-icon">
-                                <ImagePlus />
-                              </span>
-                              <div>
-                                <strong>Adicione uma capa</strong>
-                                <span>
-                                  Use um frame do vídeo ou uma imagem JPG, PNG
-                                  ou WebP.
-                                </span>
-                              </div>
-                            </div>
-                          )}
-                          {thumbnailUploading && (
-                            <span className="studio-cover-editor__loading">
-                              <LoaderCircle className="animate-spin" />
-                              Preparando capa em alta qualidade...
-                            </span>
-                          )}
-                          <input
-                            ref={coverFileInputRef}
-                            className="studio-cover-editor__input"
-                            type="file"
-                            accept="image/jpeg,image/png,image/webp"
-                            aria-label="Escolher imagem da galeria"
-                            onChange={(event) => {
-                              const file = event.target.files?.[0];
-                              if (!file) return;
-                              setGalleryCoverFile(file);
-                              setCoverEditorOpen(false);
-                              event.currentTarget.value = "";
-                            }}
-                          />
-                        </div>
-                      </div>
-                    )}
-
-                    {wizardStep !== 1 && (
-                      <div
-                        className={`studio-media-preview studio-media-preview--${contentType}`}
-                      >
-                        {hasPlayablePreview && contentType === "podcast" ? (
-                          <audio src={filePreview} controls />
-                        ) : hasPlayablePreview && filePreview ? (
-                          <video
-                            src={filePreview}
-                            controls
-                            preload="metadata"
-                          />
-                        ) : (
-                          <MediaIcon />
-                        )}
-                      </div>
-                    )}
                   </div>
                 )}
               </V2CardContent>
             </V2Card>
 
             <V2Card
-              className={`studio-publish-card ${wizardStep !== 2 ? "studio-wizard-hidden" : ""}`}
+              className={`studio-publish-card studio-cover-stage ${wizardStep !== 2 || !coverEditorOpen ? "studio-wizard-hidden" : ""}`}
+              elevation="panel"
+            >
+              <V2CardHeader>
+                <div className="studio-cover-stage__header">
+                  <div className="studio-publish-heading">
+                    <span className="studio-icon">
+                      <ImagePlus />
+                    </span>
+                    <div>
+                      <h2>Editar capa</h2>
+                      <p>
+                        Escolha um frame do vídeo ou envie uma imagem da sua
+                        galeria.
+                      </p>
+                    </div>
+                  </div>
+                  <div className="studio-cover-stage__actions">
+                    <V2Button
+                      type="button"
+                      variant="secondary"
+                      size="sm"
+                      leadingIcon={<ImagePlus />}
+                      onClick={() => coverFileInputRef.current?.click()}
+                      disabled={thumbnailUploading}
+                    >
+                      Inserir da galeria
+                    </V2Button>
+                    <button
+                      type="button"
+                      className="studio-wizard-close"
+                      aria-label="Fechar editor de capa"
+                      onClick={() => {
+                        setGalleryCoverFile(null);
+                        setCoverEditorOpen(false);
+                      }}
+                    >
+                      <X />
+                    </button>
+                  </div>
+                </div>
+              </V2CardHeader>
+              <V2CardContent>
+                <div
+                  className="studio-cover-editor"
+                  data-format={contentType}
+                  aria-busy={thumbnailUploading}
+                >
+                  {galleryCoverFile ? (
+                    <CoverImageCropper
+                      file={galleryCoverFile}
+                      targetAspect={coverAspect}
+                      onConfirm={(file) => uploadCover(file)}
+                      onCancel={() => setGalleryCoverFile(null)}
+                    />
+                  ) : filePreview && contentType !== "podcast" ? (
+                    <StandaloneCoverSelector
+                      key={filePreview}
+                      videoSrc={filePreview}
+                      targetAspect={coverAspect}
+                      selectionMode="confirm"
+                      confirmLabel="Confirmar capa"
+                      onFrameSelect={(file) => void uploadCover(file)}
+                      className="studio-cover-selector"
+                    />
+                  ) : (
+                    <div className="studio-cover-editor__empty">
+                      <span className="studio-cover-editor__empty-icon">
+                        <ImagePlus />
+                      </span>
+                      <div>
+                        <strong>Escolha uma imagem para a capa</strong>
+                        <span>Use uma imagem JPG, PNG ou WebP.</span>
+                      </div>
+                      <V2Button
+                        type="button"
+                        leadingIcon={<ImagePlus />}
+                        onClick={() => coverFileInputRef.current?.click()}
+                      >
+                        Abrir galeria
+                      </V2Button>
+                    </div>
+                  )}
+                  {thumbnailUploading && (
+                    <span className="studio-cover-editor__loading">
+                      <LoaderCircle className="animate-spin" />
+                      Preparando capa em alta qualidade...
+                    </span>
+                  )}
+                  <input
+                    ref={coverFileInputRef}
+                    className="studio-cover-editor__input"
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp"
+                    aria-label="Escolher imagem da galeria"
+                    onChange={(event) => {
+                      const file = event.target.files?.[0];
+                      if (!file) return;
+                      setGalleryCoverFile(file);
+                      event.currentTarget.value = "";
+                    }}
+                  />
+                </div>
+              </V2CardContent>
+            </V2Card>
+
+            <V2Card
+              className={`studio-publish-card studio-details-card ${wizardStep !== 2 || coverEditorOpen ? "studio-wizard-hidden" : ""}`}
               elevation="panel"
             >
               <V2CardHeader>
@@ -1226,6 +1212,67 @@ function StudioUpload() {
                 </div>
               </V2CardHeader>
               <V2CardContent className="studio-publish-fields">
+                <section
+                  className="studio-details-cover"
+                  data-format={contentType}
+                >
+                  <div
+                    className="studio-details-cover__preview"
+                    style={{ aspectRatio: coverAspect }}
+                  >
+                    {thumbnailPreview ? (
+                      <img src={thumbnailPreview} alt="Capa selecionada" />
+                    ) : thumbnailUploading ? (
+                      <LoaderCircle className="animate-spin" />
+                    ) : (
+                      <ImagePlus />
+                    )}
+                  </div>
+                  <div className="studio-details-cover__copy">
+                    <span>Capa do conteúdo</span>
+                    <h3>
+                      {thumbnailUploading
+                        ? "Preparando a capa..."
+                        : thumbnailPreview
+                          ? "Sua capa está pronta"
+                          : "Escolha uma capa"}
+                    </h3>
+                    <p>
+                      {thumbnailPreview
+                        ? "Ela será usada no catálogo e na página do conteúdo."
+                        : contentType === "podcast"
+                          ? "Adicione uma imagem que represente o episódio."
+                          : "Selecionamos um frame inicial. Você pode escolher outro ou enviar uma imagem."}
+                    </p>
+                    <div>
+                      <V2Button
+                        type="button"
+                        variant="secondary"
+                        size="sm"
+                        leadingIcon={<ImagePlus />}
+                        onClick={() => {
+                          setGalleryCoverFile(null);
+                          setCoverEditorOpen(true);
+                        }}
+                        disabled={thumbnailUploading}
+                      >
+                        {thumbnailPreview ? "Alterar capa" : "Escolher capa"}
+                      </V2Button>
+                      {thumbnailPreview && (
+                        <V2Button
+                          type="button"
+                          variant="quiet"
+                          size="sm"
+                          leadingIcon={<Trash2 />}
+                          onClick={removeCover}
+                          disabled={thumbnailUploading}
+                        >
+                          Remover
+                        </V2Button>
+                      )}
+                    </div>
+                  </div>
+                </section>
                 <V2Input
                   label="Título"
                   value={title}
@@ -1388,7 +1435,7 @@ function StudioUpload() {
               </div>
             </div>
             <div className="studio-wizard-footer__actions">
-              {wizardStep > 0 && (
+              {wizardStep > 0 && !coverEditorOpen && (
                 <V2Button
                   variant="secondary"
                   leadingIcon={<ChevronLeft />}
@@ -1408,10 +1455,10 @@ function StudioUpload() {
                     mediaUpload.state === "uploading"
                   }
                 >
-                  {mediaAlreadySent ? "Ir para detalhes" : "Confirmar e enviar"}
+                  {mediaAlreadySent ? "Ir para detalhes" : "Avançar"}
                 </V2Button>
               )}
-              {wizardStep === 2 && (
+              {wizardStep === 2 && !coverEditorOpen && (
                 <V2Button
                   trailingIcon={<ChevronRight />}
                   onClick={() => setWizardStep(3)}
