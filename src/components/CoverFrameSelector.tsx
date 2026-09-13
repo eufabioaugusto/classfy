@@ -3,10 +3,11 @@ import { cn } from "@/lib/utils";
 import { Loader2, ImageIcon, AlertCircle, Check } from "lucide-react";
 import { motion } from "framer-motion";
 import {
-  seekAndCapture,
+  seekAndCaptureCover,
   generateFramesProgressive,
   dataURLtoFile,
 } from "@/components/video-lobby/seekAndCapture";
+import { coverTargetSize } from "@/lib/media/coverCrop";
 
 interface CoverFrameSelectorProps {
   /** Hidden capture video ref — never the visible player */
@@ -14,6 +15,7 @@ interface CoverFrameSelectorProps {
   captureReady: boolean;
   duration: number;
   videoAspect: number;
+  targetAspect?: number;
   onFrameSelect: (file: File, previewUrl: string) => void;
   selectionMode?: "immediate" | "confirm";
   confirmLabel?: string;
@@ -32,6 +34,7 @@ export function CoverFrameSelector({
   captureReady,
   duration,
   videoAspect,
+  targetAspect = 16 / 9,
   onFrameSelect,
   selectionMode = "immediate",
   confirmLabel = "Usar este frame",
@@ -48,6 +51,7 @@ export function CoverFrameSelector({
   const [currentPreview, setCurrentPreview] = useState<string>("");
   const [loading, setLoading] = useState(true);
   const [capturing, setCapturing] = useState(false);
+  const [cropPosition, setCropPosition] = useState(50);
   const [error, setError] = useState(false);
   const isDragging = useRef(false);
   const capturingRef = useRef(false);
@@ -71,7 +75,7 @@ export function CoverFrameSelector({
     const video = captureVideoRef.current;
 
     const startGeneration = () => {
-      const thumbWidth = Math.min(320, window.innerWidth / 2);
+      const thumbWidth = Math.min(720, window.innerWidth * 0.72);
 
       // 8s total timeout
       timeoutRef.current = setTimeout(() => {
@@ -106,6 +110,7 @@ export function CoverFrameSelector({
             return abortRef.current;
           },
         },
+        0.78,
       ).then((generated) => {
         clearTimeout(timeoutRef.current);
         if (abortRef.current) return;
@@ -152,14 +157,18 @@ export function CoverFrameSelector({
       capturingRef.current = true;
       setCapturing(true);
       try {
-        const hqWidth = 1280;
-        const hqHeight = Math.round(hqWidth / videoAspect);
-        const dataUrl = await seekAndCapture(
+        const target = coverTargetSize(targetAspect);
+        const cropsVertically = videoAspect < targetAspect;
+        const dataUrl = await seekAndCaptureCover(
           video,
           time,
-          hqWidth,
-          hqHeight,
-          0.85,
+          target.width,
+          target.height,
+          {
+            x: cropsVertically ? 50 : cropPosition,
+            y: cropsVertically ? cropPosition : 50,
+          },
+          0.92,
         );
         setCurrentPreview(dataUrl);
         const file = dataURLtoFile(dataUrl, `cover_${Date.now()}.jpg`);
@@ -171,7 +180,15 @@ export function CoverFrameSelector({
         setCapturing(false);
       }
     },
-    [duration, videoAspect, captureVideoRef, onFrameSelect, FRAME_COUNT],
+    [
+      duration,
+      videoAspect,
+      targetAspect,
+      cropPosition,
+      captureVideoRef,
+      onFrameSelect,
+      FRAME_COUNT,
+    ],
   );
 
   const selectIndex = useCallback(
@@ -231,6 +248,27 @@ export function CoverFrameSelector({
   };
 
   const hasAnyFrame = frames.some(Boolean);
+  const cropAxis =
+    Math.abs(videoAspect - targetAspect) < 0.01
+      ? null
+      : videoAspect < targetAspect
+        ? "vertical"
+        : "horizontal";
+  const objectPosition =
+    cropAxis === "vertical"
+      ? `50% ${cropPosition}%`
+      : cropAxis === "horizontal"
+        ? `${cropPosition}% 50%`
+        : "50% 50%";
+  const selectedTime =
+    selectedIndex < 0
+      ? 0
+      : Math.min((duration / FRAME_COUNT) * selectedIndex + 0.1, duration);
+  const formatTime = (seconds: number) => {
+    const minutes = Math.floor(seconds / 60);
+    const remainder = Math.floor(seconds % 60);
+    return `${minutes}:${String(remainder).padStart(2, "0")}`;
+  };
 
   if (loading && !hasAnyFrame) {
     return (
@@ -258,29 +296,48 @@ export function CoverFrameSelector({
     <motion.div
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
-      className={cn("flex flex-col h-full", className)}
+      className={cn("studio-frame-selector", className)}
     >
+      <div className="studio-frame-selector__toolbar">
+        <div>
+          <strong>Frame em {formatTime(selectedTime)}</strong>
+          <span>A prévia representa exatamente a capa final.</span>
+        </div>
+        {selectionMode === "confirm" && (
+          <button
+            type="button"
+            className="studio-frame-selector__confirm"
+            disabled={selectedIndex < 0 || capturing}
+            onClick={() => void captureAndSelect(selectedIndexRef.current)}
+          >
+            {capturing ? <Loader2 className="animate-spin" /> : <Check />}
+            {capturing ? "Preparando capa..." : confirmLabel}
+          </button>
+        )}
+      </div>
+
       {currentPreview && (
-        <div className="flex-1 relative bg-black flex items-center justify-center min-h-0">
+        <div
+          className="studio-frame-selector__preview"
+          style={{ aspectRatio: targetAspect }}
+        >
           <img
             src={currentPreview}
             alt="Capa selecionada"
-            className={cn(
-              "max-w-full max-h-full object-contain",
-              videoAspect < 1 ? "h-full w-auto" : "w-full h-auto",
-            )}
+            style={{ objectPosition }}
           />
-          <div className="absolute top-3 left-3 px-2.5 py-1 rounded-lg bg-black/60 backdrop-blur-sm text-white text-xs font-medium flex items-center gap-1.5">
-            <ImageIcon className="w-3 h-3" />
+          <div className="studio-frame-selector__label">
+            <ImageIcon />
             Capa do vídeo
           </div>
         </div>
       )}
 
-      <div className="p-3 space-y-2 shrink-0">
-        <p className="text-xs text-white/60">
-          Arraste para escolher o frame da capa
-        </p>
+      <div className="studio-frame-selector__controls">
+        <div className="studio-frame-selector__instruction">
+          <span>Arraste para procurar o melhor momento</span>
+          <strong>{formatTime(selectedTime)}</strong>
+        </div>
         <div
           ref={stripRef}
           role="slider"
@@ -297,21 +354,21 @@ export function CoverFrameSelector({
             isDragging.current = false;
           }}
           onKeyDown={handleKeyDown}
-          className="relative flex h-14 rounded-lg overflow-hidden cursor-grab active:cursor-grabbing touch-none select-none"
+          className="studio-frame-selector__strip"
         >
           {frames.map((frame, i) => (
             <div
               key={i}
               className={cn(
-                "flex-1 relative border-r border-black/20 last:border-r-0 bg-white/5",
-                selectedIndex === i && "ring-2 ring-accent ring-inset z-10",
+                "studio-frame-selector__frame",
+                selectedIndex === i && "is-selected",
               )}
             >
               {frame && (
                 <img
                   src={frame}
                   alt=""
-                  className="w-full h-full object-cover pointer-events-none animate-in fade-in duration-300"
+                  className="animate-in fade-in duration-300"
                   draggable={false}
                 />
               )}
@@ -319,23 +376,28 @@ export function CoverFrameSelector({
           ))}
           {selectedIndex >= 0 && (
             <div
-              className="absolute top-0 bottom-0 w-0.5 bg-accent shadow-[0_0_6px_rgba(var(--accent),0.5)] z-20 pointer-events-none transition-all duration-100"
+              className="studio-frame-selector__playhead"
               style={{
                 left: `${((selectedIndex + 0.5) / FRAME_COUNT) * 100}%`,
               }}
             />
           )}
         </div>
-        {selectionMode === "confirm" && (
-          <button
-            type="button"
-            className="studio-frame-selector__confirm"
-            disabled={selectedIndex < 0 || capturing}
-            onClick={() => void captureAndSelect(selectedIndexRef.current)}
-          >
-            {capturing ? <Loader2 className="animate-spin" /> : <Check />}
-            {capturing ? "Preparando capa..." : confirmLabel}
-          </button>
+        {cropAxis && (
+          <label className="studio-frame-selector__reposition">
+            <span>
+              Enquadramento{" "}
+              {cropAxis === "vertical" ? "vertical" : "horizontal"}
+            </span>
+            <input
+              type="range"
+              min="0"
+              max="100"
+              value={cropPosition}
+              onChange={(event) => setCropPosition(Number(event.target.value))}
+              aria-label={`Ajustar enquadramento ${cropAxis}`}
+            />
+          </label>
         )}
       </div>
     </motion.div>

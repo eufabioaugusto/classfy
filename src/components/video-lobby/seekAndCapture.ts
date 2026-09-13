@@ -1,3 +1,8 @@
+import {
+  getCoverCropRect,
+  type CoverCropPosition,
+} from "@/lib/media/coverCrop";
+
 /**
  * Shared utility: seek a video element to a specific time and capture a frame via canvas.
  * Uses the SAME video element (no createElement) — safe for iOS Safari.
@@ -7,7 +12,7 @@ export function seekAndCapture(
   time: number,
   width: number,
   height: number,
-  quality = 0.6
+  quality = 0.6,
 ): Promise<string> {
   return new Promise((resolve) => {
     const timeout = setTimeout(() => {
@@ -36,13 +41,74 @@ export function seekAndCapture(
         }
       };
       if (video.paused && video.readyState < 3) {
-        video.play().then(() => {
-          video.pause();
-          setTimeout(doCapture, 80);
-        }).catch(() => setTimeout(doCapture, 80));
+        video
+          .play()
+          .then(() => {
+            video.pause();
+            setTimeout(doCapture, 80);
+          })
+          .catch(() => setTimeout(doCapture, 80));
       } else {
         setTimeout(doCapture, 80);
       }
+    };
+
+    video.addEventListener("seeked", onSeeked);
+    video.currentTime = Math.max(0, Math.min(time, video.duration - 0.05));
+  });
+}
+
+/** Capture a frame already cropped to the exact final cover ratio. */
+export function seekAndCaptureCover(
+  video: HTMLVideoElement,
+  time: number,
+  width: number,
+  height: number,
+  position: CoverCropPosition = { x: 50, y: 50 },
+  quality = 0.9,
+): Promise<string> {
+  return new Promise((resolve) => {
+    const timeout = setTimeout(() => {
+      video.removeEventListener("seeked", onSeeked);
+      resolve(createGreyPlaceholder(width, height));
+    }, 3000);
+
+    const onSeeked = () => {
+      video.removeEventListener("seeked", onSeeked);
+      const doCapture = () => {
+        clearTimeout(timeout);
+        try {
+          const canvas = document.createElement("canvas");
+          canvas.width = width;
+          canvas.height = height;
+          const context = canvas.getContext("2d");
+          if (!context) {
+            resolve(createGreyPlaceholder(width, height));
+            return;
+          }
+          const crop = getCoverCropRect(
+            video.videoWidth,
+            video.videoHeight,
+            width / height,
+            position,
+          );
+          context.drawImage(
+            video,
+            crop.sx,
+            crop.sy,
+            crop.sw,
+            crop.sh,
+            0,
+            0,
+            width,
+            height,
+          );
+          resolve(canvas.toDataURL("image/jpeg", quality));
+        } catch {
+          resolve(createGreyPlaceholder(width, height));
+        }
+      };
+      setTimeout(doCapture, 80);
     };
 
     video.addEventListener("seeked", onSeeked);
@@ -71,21 +137,29 @@ export async function generateFramesProgressive(
   frameCount: number,
   thumbWidth: number,
   onFrame: (index: number, dataUrl: string) => void,
-  abortSignal?: { aborted: boolean }
+  abortSignal?: { aborted: boolean },
+  quality = 0.5,
 ): Promise<string[]> {
   const dur = video.duration;
   if (!dur || dur <= 0) return [];
 
-  const aspect = video.videoWidth && video.videoHeight
-    ? video.videoWidth / video.videoHeight
-    : 16 / 9;
+  const aspect =
+    video.videoWidth && video.videoHeight
+      ? video.videoWidth / video.videoHeight
+      : 16 / 9;
   const thumbHeight = Math.round(thumbWidth / aspect);
   const frames: string[] = [];
 
   for (let i = 0; i < frameCount; i++) {
     if (abortSignal?.aborted) return frames;
     const time = (dur / frameCount) * i + 0.1;
-    const dataUrl = await seekAndCapture(video, time, thumbWidth, thumbHeight, 0.5);
+    const dataUrl = await seekAndCapture(
+      video,
+      time,
+      thumbWidth,
+      thumbHeight,
+      quality,
+    );
     frames.push(dataUrl);
     onFrame(i, dataUrl);
   }
@@ -100,9 +174,15 @@ export async function generateFramesFromRef(
   video: HTMLVideoElement,
   frameCount: number,
   thumbWidth: number,
-  abortSignal?: { aborted: boolean }
+  abortSignal?: { aborted: boolean },
 ): Promise<string[]> {
-  return generateFramesProgressive(video, frameCount, thumbWidth, () => {}, abortSignal);
+  return generateFramesProgressive(
+    video,
+    frameCount,
+    thumbWidth,
+    () => {},
+    abortSignal,
+  );
 }
 
 export function dataURLtoFile(dataUrl: string, filename: string): File {

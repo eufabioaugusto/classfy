@@ -8,6 +8,7 @@ import { CoverFrameSelector } from "@/components/CoverFrameSelector";
 interface StandaloneCoverSelectorProps {
   videoSrc: string;
   onFrameSelect: (file: File, previewUrl: string) => void;
+  targetAspect?: number;
   selectionMode?: "immediate" | "confirm";
   confirmLabel?: string;
   className?: string;
@@ -16,6 +17,7 @@ interface StandaloneCoverSelectorProps {
 export function StandaloneCoverSelector({
   videoSrc,
   onFrameSelect,
+  targetAspect,
   selectionMode,
   confirmLabel,
   className,
@@ -59,6 +61,7 @@ export function StandaloneCoverSelector({
         captureReady={captureReady}
         duration={duration}
         videoAspect={videoAspect}
+        targetAspect={targetAspect}
         onFrameSelect={onFrameSelect}
         selectionMode={selectionMode}
         confirmLabel={confirmLabel}
