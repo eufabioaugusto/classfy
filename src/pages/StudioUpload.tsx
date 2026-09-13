@@ -1143,7 +1143,6 @@ function StudioUpload() {
                   <div className="studio-cover-stage__actions">
                     <V2Button
                       type="button"
-                      variant="secondary"
                       size="sm"
                       leadingIcon={<ImagePlus />}
                       onClick={() => coverFileInputRef.current?.click()}

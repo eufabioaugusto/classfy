@@ -75,7 +75,10 @@ export function CoverFrameSelector({
     const video = captureVideoRef.current;
 
     const startGeneration = () => {
-      const thumbWidth = Math.min(720, window.innerWidth * 0.72);
+      const previewWidth = window.innerWidth * window.devicePixelRatio * 0.75;
+      const thumbWidth = Math.round(
+        Math.min(1920, Math.max(1280, previewWidth)),
+      );
 
       // 8s total timeout
       timeoutRef.current = setTimeout(() => {
@@ -110,7 +113,7 @@ export function CoverFrameSelector({
             return abortRef.current;
           },
         },
-        0.78,
+        0.92,
       ).then((generated) => {
         clearTimeout(timeoutRef.current);
         if (abortRef.current) return;
@@ -275,7 +278,7 @@ export function CoverFrameSelector({
       <div className={cn("flex-1 flex items-center justify-center", className)}>
         <div className="flex flex-col items-center gap-3 text-muted-foreground">
           <Loader2 className="w-6 h-6 animate-spin" />
-          <span className="text-sm">Gerando preview de capa...</span>
+          <span className="text-sm">Gerando prévia da capa...</span>
         </div>
       </div>
     );

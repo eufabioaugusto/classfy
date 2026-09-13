@@ -752,15 +752,16 @@
   align-items: center;
   justify-content: center;
   gap: 0.45rem;
-  border: 0;
+  border: 1px solid rgb(255 255 255 / 0.16);
   border-radius: var(--cf2-radius-control);
   color: #fff;
-  background: var(--cf2-accent);
+  background: transparent;
   font: 650 0.7rem/1 var(--cf2-font-sans);
   cursor: pointer;
 }
 .studio-frame-selector__confirm:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--cf2-accent) 88%, #000);
+  border-color: rgb(255 255 255 / 0.3);
+  background: rgb(255 255 255 / 0.06);
 }
 .studio-frame-selector__confirm:focus-visible {
   outline: none;
@@ -773,6 +774,7 @@
 .studio-frame-selector__confirm svg {
   width: 0.9rem;
   height: 0.9rem;
+  color: var(--cf2-accent);
 }
 .studio-media-editor {
   display: grid;
