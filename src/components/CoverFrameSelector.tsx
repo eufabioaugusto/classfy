@@ -313,7 +313,9 @@ export function CoverFrameSelector({
             disabled={selectedIndex < 0 || capturing}
             onClick={() => void captureAndSelect(selectedIndexRef.current)}
           >
-            {capturing ? <Loader2 className="animate-spin" /> : <Check />}
+            <span className="studio-frame-selector__confirm-icon">
+              {capturing ? <Loader2 className="animate-spin" /> : <Check />}
+            </span>
             {capturing ? "Preparando capa..." : confirmLabel}
           </button>
         )}
