@@ -246,6 +246,10 @@
   min-height: calc(100% - 4.75rem);
   place-content: stretch;
 }
+.studio-publish-layout[data-step="1"] .studio-publish-main {
+  min-height: calc(100% - 4.75rem);
+  align-content: safe center;
+}
 .studio-wizard-hidden {
   display: none !important;
 }
@@ -460,6 +464,13 @@
   flex: none;
   align-items: center;
   gap: 0.35rem;
+}
+.studio-media-progress__copy .studio-media-progress__selection-status {
+  margin: 0;
+  color: var(--cf2-ink-muted);
+  font-size: 0.67rem;
+  font-weight: 590;
+  letter-spacing: 0;
 }
 .studio-upload-progress {
   height: 0.3rem;

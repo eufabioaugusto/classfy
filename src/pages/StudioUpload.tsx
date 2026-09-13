@@ -869,19 +869,6 @@ function StudioUpload() {
                       </p>
                     </div>
                   </div>
-                  <V2Badge
-                    variant={
-                      mediaUpload.state === "ready"
-                        ? "success"
-                        : mediaUpload.state === "failed"
-                          ? "danger"
-                          : "neutral"
-                    }
-                  >
-                    {wizardStep === 1 && contentType !== "podcast"
-                      ? "Corte opcional"
-                      : mediaStatus}
-                  </V2Badge>
                 </div>
               </V2CardHeader>
               <V2CardContent>
@@ -950,23 +937,14 @@ function StudioUpload() {
                         </strong>
                         <span>
                           {duration > 0
-                            ? `${Math.floor(duration / 60)}:${String(duration % 60).padStart(2, "0")} · `
-                            : ""}
-                          {mediaStatus}
+                            ? `${Math.floor(duration / 60)}:${String(duration % 60).padStart(2, "0")}`
+                            : "Duração sendo identificada"}
                         </span>
                       </div>
                       <div className="studio-media-progress__actions">
-                        <V2Badge
-                          variant={
-                            mediaUpload.state === "ready"
-                              ? "success"
-                              : mediaUpload.state === "failed"
-                                ? "danger"
-                                : "neutral"
-                          }
-                        >
-                          {mediaStatus}
-                        </V2Badge>
+                        <span className="studio-media-progress__selection-status">
+                          Arquivo selecionado
+                        </span>
                         <V2Button
                           variant="quiet"
                           size="sm"
