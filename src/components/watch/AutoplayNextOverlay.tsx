@@ -85,7 +85,7 @@ export function AutoplayNextOverlay({
 
             {/* Header */}
             <p className="text-white/70 text-sm">Próximo vídeo em</p>
-            
+
             {/* Countdown Circle */}
             <div className="relative w-20 h-20">
               <svg className="w-full h-full -rotate-90">
@@ -106,7 +106,10 @@ export function AutoplayNextOverlay({
                   strokeWidth="4"
                   strokeLinecap="round"
                   strokeDasharray={226}
-                  strokeDashoffset={226 - (226 * (countdownSeconds - countdown)) / countdownSeconds}
+                  strokeDashoffset={
+                    226 -
+                    (226 * (countdownSeconds - countdown)) / countdownSeconds
+                  }
                   className="transition-all duration-1000 ease-linear"
                 />
               </svg>
@@ -131,9 +134,11 @@ export function AutoplayNextOverlay({
                 <p className="text-white font-medium text-sm line-clamp-2">
                   {nextContent.title}
                 </p>
-                {(nextContent.profiles?.display_name || nextContent.creator?.display_name) && (
+                {(nextContent.profiles?.display_name ||
+                  nextContent.creator?.display_name) && (
                   <p className="text-white/60 text-xs mt-1">
-                    {nextContent.profiles?.display_name || nextContent.creator?.display_name}
+                    {nextContent.profiles?.display_name ||
+                      nextContent.creator?.display_name}
                   </p>
                 )}
               </div>
@@ -144,11 +149,14 @@ export function AutoplayNextOverlay({
               <Button
                 variant="outline"
                 onClick={onCancel}
-                className="flex-1 border-white/30 text-foreground bg-white hover:bg-white/90"
+                className="flex-1 border-white/35 bg-white text-slate-950 shadow-sm hover:bg-white/90 hover:text-slate-950 dark:bg-white dark:text-slate-950 dark:hover:bg-white/90 dark:hover:text-slate-950"
               >
                 Cancelar
               </Button>
-              <Button onClick={handlePlayNow} className="flex-1 bg-accent hover:bg-accent/90 text-accent-foreground">
+              <Button
+                onClick={handlePlayNow}
+                className="flex-1 bg-accent hover:bg-accent/90 text-accent-foreground"
+              >
                 <Play className="w-4 h-4 mr-2" />
                 Assistir agora
               </Button>

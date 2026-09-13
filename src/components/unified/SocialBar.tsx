@@ -44,7 +44,11 @@ interface SocialBarProps {
   showCreator?: boolean;
   compact?: boolean;
   onAction?: () => void;
-  onStateChange?: (states: { isLiked: boolean; isSaved: boolean; isFavorited: boolean }) => void;
+  onStateChange?: (states: {
+    isLiked: boolean;
+    isSaved: boolean;
+    isFavorited: boolean;
+  }) => void;
 }
 
 export function SocialBar({
@@ -65,6 +69,8 @@ export function SocialBar({
   const { processReward } = useRewardSystem();
   const navigate = useNavigate();
   const [showDMModal, setShowDMModal] = useState(false);
+  const activeActionClass =
+    "bg-red-500/15 text-red-500 ring-1 ring-inset ring-red-500/35 shadow-[0_0_16px_rgba(239,68,68,0.10)] hover:bg-red-500/20 hover:text-red-500";
 
   const recordDirectShare = async () => {
     if (!user) return;
@@ -104,22 +110,39 @@ export function SocialBar({
 
   return (
     <>
-      <div className={cn(
-        "flex items-center gap-3 flex-wrap",
-        compact ? "gap-2" : "justify-between"
-      )}>
+      <div
+        className={cn(
+          "flex items-center gap-3 flex-wrap",
+          compact ? "gap-2" : "justify-between",
+        )}
+      >
         {/* Left - Creator info */}
         {showCreator && creator && (
           <div
             className="flex items-center gap-2 sm:gap-3 cursor-pointer"
-            onClick={() => navigate(creator.channel_name ? `/@${creator.channel_name}` : `/@${creator.display_name}`)}
+            onClick={() =>
+              navigate(
+                creator.channel_name
+                  ? `/@${creator.channel_name}`
+                  : `/@${creator.display_name}`,
+              )
+            }
           >
-            <Avatar className={cn(compact ? "h-8 w-8" : "h-8 w-8 sm:h-10 sm:w-10")}>
+            <Avatar
+              className={cn(compact ? "h-8 w-8" : "h-8 w-8 sm:h-10 sm:w-10")}
+            >
               <AvatarImage src={creator.avatar_url || ""} />
-              <AvatarFallback>{creator.display_name?.[0] || "C"}</AvatarFallback>
+              <AvatarFallback>
+                {creator.display_name?.[0] || "C"}
+              </AvatarFallback>
             </Avatar>
             <div className="mr-1 sm:mr-2">
-              <p className={cn("font-semibold flex items-center gap-1 hover:text-primary transition-colors", compact ? "text-xs" : "text-xs sm:text-sm")}>
+              <p
+                className={cn(
+                  "font-semibold flex items-center gap-1 hover:text-primary transition-colors",
+                  compact ? "text-xs" : "text-xs sm:text-sm",
+                )}
+              >
                 {creator.display_name || "Criador"}
                 <FeaturedBadge creatorId={creator.id} size="sm" />
               </p>
@@ -132,35 +155,43 @@ export function SocialBar({
         )}
 
         {/* Right - Actions */}
-        <div className={cn(
-          "flex items-center gap-1.5 sm:gap-2 flex-nowrap",
-          !showCreator && "w-full justify-center sm:justify-start"
-        )}>
+        <div
+          className={cn(
+            "flex items-center gap-1.5 sm:gap-2 flex-nowrap",
+            !showCreator && "w-full justify-center sm:justify-start",
+          )}
+        >
           {/* Like */}
           <div className="relative">
             <ParticleBurst isActive={isLikeBursting} color="primary" />
             <Button
               variant="secondary"
               size="sm"
+              aria-pressed={isLiked}
               onClick={async () => {
                 await toggleLike();
                 onAction?.();
               }}
               className={cn(
                 "gap-1.5 sm:gap-2 rounded-full h-8 sm:h-9",
-                compact ? "px-2.5" : "px-3 sm:px-4"
+                compact ? "px-2.5" : "px-3 sm:px-4",
+                isLiked && activeActionClass,
               )}
             >
               <motion.div
                 animate={isLikeBursting ? { scale: [1, 1.3, 1] } : {}}
                 transition={{ duration: 0.3, ease: "easeOut" }}
               >
-                <ThumbsUp className={cn(
-                  "h-3.5 w-3.5 sm:h-4 sm:w-4",
-                  isLiked && "fill-current"
-                )} />
+                <ThumbsUp
+                  className={cn(
+                    "h-3.5 w-3.5 sm:h-4 sm:w-4",
+                    isLiked && "fill-current",
+                  )}
+                />
               </motion.div>
-              <span className="text-xs sm:text-sm">{formatCount(likesCount)}</span>
+              <span className="text-xs sm:text-sm">
+                {formatCount(likesCount)}
+              </span>
             </Button>
           </div>
 
@@ -172,11 +203,15 @@ export function SocialBar({
               onClick={() => setShowDMModal(true)}
               className={cn(
                 "gap-1.5 sm:gap-2 rounded-full h-8 sm:h-9",
-                compact ? "px-2.5" : "px-3 sm:px-4"
+                compact ? "px-2.5" : "px-3 sm:px-4",
               )}
             >
               <Send className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
-              {!compact && <span className="hidden sm:inline text-xs sm:text-sm">Enviar</span>}
+              {!compact && (
+                <span className="hidden sm:inline text-xs sm:text-sm">
+                  Enviar
+                </span>
+              )}
             </Button>
           )}
 
@@ -194,6 +229,7 @@ export function SocialBar({
           <Button
             variant="secondary"
             size="sm"
+            aria-pressed={isSaved}
             onClick={async () => {
               await toggleSave();
               onAction?.();
@@ -201,20 +237,27 @@ export function SocialBar({
             className={cn(
               "gap-1.5 sm:gap-2 rounded-full h-8 sm:h-9",
               compact ? "px-2.5" : "px-3 sm:px-4",
-              isSaved && "bg-primary text-primary-foreground hover:bg-primary/90"
+              isSaved && activeActionClass,
             )}
           >
-            <Bookmark className={cn(
-              "h-3.5 w-3.5 sm:h-4 sm:w-4",
-              isSaved && "fill-current"
-            )} />
-            {!compact && <span className="hidden sm:inline text-xs sm:text-sm">Salvar</span>}
+            <Bookmark
+              className={cn(
+                "h-3.5 w-3.5 sm:h-4 sm:w-4",
+                isSaved && "fill-current",
+              )}
+            />
+            {!compact && (
+              <span className="hidden sm:inline text-xs sm:text-sm">
+                Salvar
+              </span>
+            )}
           </Button>
 
           {/* Favorite */}
           <Button
             variant="secondary"
             size="sm"
+            aria-pressed={isFavorited}
             onClick={async () => {
               await toggleFavorite();
               onAction?.();
@@ -222,14 +265,20 @@ export function SocialBar({
             className={cn(
               "gap-1.5 sm:gap-2 rounded-full h-8 sm:h-9",
               compact ? "px-2.5" : "px-3 sm:px-4",
-              isFavorited && "bg-yellow-500/20 text-yellow-500"
+              isFavorited && activeActionClass,
             )}
           >
-            <Star className={cn(
-              "h-3.5 w-3.5 sm:h-4 sm:w-4",
-              isFavorited && "fill-current"
-            )} />
-            {!compact && <span className="hidden sm:inline text-xs sm:text-sm">Favoritos</span>}
+            <Star
+              className={cn(
+                "h-3.5 w-3.5 sm:h-4 sm:w-4",
+                isFavorited && "fill-current",
+              )}
+            />
+            {!compact && (
+              <span className="hidden sm:inline text-xs sm:text-sm">
+                Favoritos
+              </span>
+            )}
           </Button>
 
           {/* Add to Study */}
@@ -240,28 +289,47 @@ export function SocialBar({
               onClick={onAddToStudy}
               className={cn(
                 "gap-1.5 sm:gap-2 rounded-full h-8 sm:h-9",
-                compact ? "px-2.5" : "px-3 sm:px-4"
+                compact ? "px-2.5" : "px-3 sm:px-4",
               )}
             >
               <BookOpen className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
-              {!compact && <span className="hidden sm:inline text-xs sm:text-sm">Estudo</span>}
+              {!compact && (
+                <span className="hidden sm:inline text-xs sm:text-sm">
+                  Estudo
+                </span>
+              )}
             </Button>
           )}
         </div>
       </div>
 
       {/* Unlike Confirmation Dialog */}
-      <AlertDialog open={unlikeConfirmation.pending} onOpenChange={(open) => !open && cancelUnlike()}>
+      <AlertDialog
+        open={unlikeConfirmation.pending}
+        onOpenChange={(open) => !open && cancelUnlike()}
+      >
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Tem certeza disso?</AlertDialogTitle>
             <AlertDialogDescription>
-              Ao remover o like, você perderá <span className="font-bold text-destructive">{unlikeConfirmation.rewardValue} Points</span>.
+              Ao remover o like, você perderá{" "}
+              <span className="font-bold text-destructive">
+                {unlikeConfirmation.rewardValue} Points
+              </span>
+              .
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel onClick={cancelUnlike}>Cancelar</AlertDialogCancel>
-            <AlertDialogAction onClick={() => { confirmUnlike(); onAction?.(); }} className="bg-destructive hover:bg-destructive/90">
+            <AlertDialogCancel onClick={cancelUnlike}>
+              Cancelar
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                confirmUnlike();
+                onAction?.();
+              }}
+              className="bg-destructive hover:bg-destructive/90"
+            >
               Remover like
             </AlertDialogAction>
           </AlertDialogFooter>
