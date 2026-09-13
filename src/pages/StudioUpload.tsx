@@ -31,6 +31,7 @@ import {
   V2Card,
   V2CardContent,
   V2CardHeader,
+  V2ConfirmDialog,
   V2Input,
   V2Textarea,
 } from "@/components/v2";
@@ -108,7 +109,7 @@ export default function StudioUpload() {
   const [thumbnailUrl, setThumbnailUrl] = useState("");
   const [thumbnailPreview, setThumbnailPreview] = useState("");
   const [thumbnailUploading, setThumbnailUploading] = useState(false);
-  const [manualThumbnail, setManualThumbnail] = useState(false);
+  const [coverEditorOpen, setCoverEditorOpen] = useState(false);
   const [trimStart, setTrimStart] = useState(0);
   const [trimEnd, setTrimEnd] = useState(0);
   const [captureReady, setCaptureReady] = useState(false);
@@ -120,6 +121,7 @@ export default function StudioUpload() {
   const [isGeneratingTags, setIsGeneratingTags] = useState(false);
   const pendingFileRef = useRef<File | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const coverFileInputRef = useRef<HTMLInputElement>(null);
   const visibleVideoRef = useRef<HTMLVideoElement>(null);
   const captureVideoRef = useRef<HTMLVideoElement>(null);
   const mediaUpload = useMediaUpload();
@@ -199,7 +201,6 @@ export default function StudioUpload() {
       setDuration(data.duration_seconds ?? 0);
       setThumbnailUrl(data.thumbnail_url ?? "");
       setThumbnailPreview(data.thumbnail_url ?? "");
-      setManualThumbnail(Boolean(data.thumbnail_url));
       if (data.media_asset_id) {
         setWizardStep(2);
         const { data: asset } = await (supabase as any)
@@ -307,9 +308,10 @@ export default function StudioUpload() {
 
   const uploadCover = async (file: File) => {
     if (!user) return;
+    const previousPreview = thumbnailPreview;
+    const localPreview = URL.createObjectURL(file);
     setThumbnailUploading(true);
-    setThumbnailPreview(URL.createObjectURL(file));
-    setManualThumbnail(true);
+    setThumbnailPreview(localPreview);
     try {
       const isShort = contentType === "short";
       const compressed = await compressImage(
@@ -326,17 +328,29 @@ export default function StudioUpload() {
       if (error) throw error;
       const { data } = supabase.storage.from("contents").getPublicUrl(path);
       setThumbnailUrl(data.publicUrl);
+      setThumbnailPreview(data.publicUrl);
+      setCoverEditorOpen(false);
       toast.success("Capa pronta.");
     } catch (coverError) {
-      setThumbnailPreview(thumbnailUrl);
+      setThumbnailPreview(previousPreview);
       toast.error(
         coverError instanceof Error
           ? coverError.message
           : "Não foi possível enviar a capa.",
       );
     } finally {
+      URL.revokeObjectURL(localPreview);
       setThumbnailUploading(false);
+      if (coverFileInputRef.current) coverFileInputRef.current.value = "";
     }
+  };
+
+  const removeCover = () => {
+    setThumbnailUrl("");
+    setThumbnailPreview("");
+    setCoverEditorOpen(contentType !== "podcast" && Boolean(filePreview));
+    if (coverFileInputRef.current) coverFileInputRef.current.value = "";
+    toast.success("Capa removida do rascunho.");
   };
 
   const startUpload = async (
@@ -429,6 +443,7 @@ export default function StudioUpload() {
     setCaptureReady(false);
     setFileName(file.name);
     setFilePreview(url);
+    setCoverEditorOpen(contentType !== "podcast" && !thumbnailPreview);
     mediaUpload.reset();
     if (!title.trim()) {
       setTitle(
@@ -957,17 +972,6 @@ export default function StudioUpload() {
                       )}
                   </div>
                 )}
-                {filePreview &&
-                  wizardStep === 1 &&
-                  contentType !== "podcast" &&
-                  !manualThumbnail && (
-                    <StandaloneCoverSelector
-                      key={filePreview}
-                      videoSrc={filePreview}
-                      onFrameSelect={(file) => void uploadCover(file)}
-                      className="studio-cover-selector"
-                    />
-                  )}
               </V2CardContent>
             </V2Card>
 
@@ -1026,39 +1030,131 @@ export default function StudioUpload() {
                     <ImagePlus />
                   </span>
                   <div>
-                    <h2>Capa</h2>
-                    <p>Use uma imagem nítida no formato {rules.coverRatio}.</p>
+                    <h2>Escolha a capa</h2>
+                    <p>
+                      {contentType === "podcast"
+                        ? `Use uma imagem nítida no formato ${rules.coverRatio}.`
+                        : "Escolha um frame do vídeo ou use uma imagem da galeria."}
+                    </p>
                   </div>
                 </div>
               </V2CardHeader>
               <V2CardContent>
-                <label
-                  className={`studio-cover-upload ${thumbnailPreview ? "has-image" : ""}`}
+                <div
+                  className="studio-cover-editor"
+                  data-format={contentType}
+                  aria-busy={thumbnailUploading}
                 >
-                  {thumbnailPreview ? (
-                    <img src={thumbnailPreview} alt="Prévia da capa" />
+                  {coverEditorOpen &&
+                  filePreview &&
+                  contentType !== "podcast" ? (
+                    <div className="studio-cover-editor__selector">
+                      <StandaloneCoverSelector
+                        key={filePreview}
+                        videoSrc={filePreview}
+                        selectionMode="confirm"
+                        confirmLabel="Usar este frame"
+                        onFrameSelect={(file) => void uploadCover(file)}
+                        className="studio-cover-selector"
+                      />
+                      <div className="studio-cover-editor__selector-actions">
+                        <V2Button
+                          type="button"
+                          variant="secondary"
+                          size="sm"
+                          leadingIcon={<ImagePlus />}
+                          onClick={() => coverFileInputRef.current?.click()}
+                          disabled={thumbnailUploading}
+                        >
+                          Inserir da galeria
+                        </V2Button>
+                        {thumbnailUrl && (
+                          <V2Button
+                            type="button"
+                            variant="quiet"
+                            size="sm"
+                            onClick={() => setCoverEditorOpen(false)}
+                            disabled={thumbnailUploading}
+                          >
+                            Manter capa atual
+                          </V2Button>
+                        )}
+                      </div>
+                    </div>
+                  ) : thumbnailPreview ? (
+                    <div className="studio-cover-editor__current">
+                      <div className="studio-cover-editor__preview">
+                        <img src={thumbnailPreview} alt="Capa atual" />
+                        <span>Capa atual</span>
+                      </div>
+                      <div className="studio-cover-editor__actions">
+                        {contentType !== "podcast" && filePreview && (
+                          <V2Button
+                            type="button"
+                            variant="secondary"
+                            size="sm"
+                            onClick={() => setCoverEditorOpen(true)}
+                          >
+                            Escolher outro frame
+                          </V2Button>
+                        )}
+                        <V2Button
+                          type="button"
+                          variant="secondary"
+                          size="sm"
+                          leadingIcon={<ImagePlus />}
+                          onClick={() => coverFileInputRef.current?.click()}
+                        >
+                          Trocar imagem
+                        </V2Button>
+                        <V2Button
+                          type="button"
+                          variant="quiet"
+                          size="sm"
+                          leadingIcon={<Trash2 />}
+                          onClick={removeCover}
+                        >
+                          Remover capa
+                        </V2Button>
+                      </div>
+                    </div>
                   ) : (
-                    <>
-                      <ImagePlus />
-                      <strong>Adicionar capa</strong>
-                      <span>Imagem JPG, PNG ou WebP.</span>
-                    </>
+                    <div className="studio-cover-editor__empty">
+                      <span className="studio-cover-editor__empty-icon">
+                        <ImagePlus />
+                      </span>
+                      <div>
+                        <strong>Adicione uma capa</strong>
+                        <span>Imagem JPG, PNG ou WebP.</span>
+                      </div>
+                      <V2Button
+                        type="button"
+                        variant="secondary"
+                        size="sm"
+                        onClick={() => coverFileInputRef.current?.click()}
+                      >
+                        Inserir da galeria
+                      </V2Button>
+                    </div>
                   )}
                   {thumbnailUploading && (
-                    <span className="studio-cover-upload__loading">
+                    <span className="studio-cover-editor__loading">
                       <LoaderCircle className="animate-spin" />
-                      Enviando...
+                      Preparando capa...
                     </span>
                   )}
                   <input
+                    ref={coverFileInputRef}
+                    className="studio-cover-editor__input"
                     type="file"
                     accept="image/jpeg,image/png,image/webp"
+                    aria-label="Escolher imagem da galeria"
                     onChange={(event) =>
                       event.target.files?.[0] &&
                       void uploadCover(event.target.files[0])
                     }
                   />
-                </label>
+                </div>
               </V2CardContent>
             </V2Card>
 
@@ -1292,31 +1388,16 @@ export default function StudioUpload() {
           </div>
         </DialogContent>
       </Dialog>
-      <Dialog open={discardOpen} onOpenChange={setDiscardOpen}>
-        <DialogContent
-          className="studio-preview-dialog studio-discard-dialog z-[91]"
-          overlayClassName="z-[90]"
-        >
-          <DialogHeader>
-            <DialogTitle>Descartar este rascunho?</DialogTitle>
-            <DialogDescription>
-              Os dados que ainda não foram enviados para análise e a mídia
-              vinculada serão removidos.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="studio-dialog-actions">
-            <V2Button variant="secondary" onClick={() => setDiscardOpen(false)}>
-              Continuar editando
-            </V2Button>
-            <V2Button
-              leadingIcon={<Trash2 />}
-              onClick={() => void discardDraft()}
-            >
-              Descartar rascunho
-            </V2Button>
-          </div>
-        </DialogContent>
-      </Dialog>
+      <V2ConfirmDialog
+        open={discardOpen}
+        onOpenChange={setDiscardOpen}
+        title="Descartar este rascunho?"
+        description="As informações ainda não enviadas para análise serão removidas. A mídia temporária vinculada também será descartada."
+        confirmLabel="Descartar rascunho"
+        cancelLabel="Continuar editando"
+        layer="nested"
+        onConfirm={discardDraft}
+      />
     </AppShell>
   );
 }

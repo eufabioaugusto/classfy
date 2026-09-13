@@ -472,11 +472,40 @@
   margin-left: auto;
 }
 .studio-cover-selector {
-  margin-top: 1rem;
+  min-height: 24rem;
   overflow: hidden;
   border: 1px solid rgb(255 255 255 / 0.12);
   border-radius: var(--cf2-radius-lg);
   background: #0b0b0d;
+}
+.studio-frame-selector__confirm {
+  display: inline-flex;
+  min-height: 2.4rem;
+  padding: 0.55rem 0.85rem;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  border: 0;
+  border-radius: var(--cf2-radius-control);
+  color: #fff;
+  background: var(--cf2-accent);
+  font: 650 0.7rem/1 var(--cf2-font-sans);
+  cursor: pointer;
+}
+.studio-frame-selector__confirm:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--cf2-accent) 88%, #000);
+}
+.studio-frame-selector__confirm:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--cf2-accent) 24%, transparent);
+}
+.studio-frame-selector__confirm:disabled {
+  opacity: 0.55;
+  cursor: wait;
+}
+.studio-frame-selector__confirm svg {
+  width: 0.9rem;
+  height: 0.9rem;
 }
 .studio-media-editor {
   display: grid;
@@ -599,6 +628,115 @@
 .studio-cover-upload__loading svg {
   width: 1rem;
   height: 1rem;
+}
+
+.studio-cover-editor {
+  position: relative;
+}
+.studio-cover-editor__selector {
+  display: grid;
+  gap: 0.75rem;
+}
+.studio-cover-editor__selector-actions,
+.studio-cover-editor__actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+.studio-cover-editor__current {
+  display: grid;
+  gap: 0.85rem;
+}
+.studio-cover-editor__preview {
+  position: relative;
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  border: 1px solid var(--cf2-border);
+  border-radius: var(--cf2-radius-lg);
+  background: #090a0c;
+}
+.studio-cover-editor[data-format="short"] .studio-cover-editor__preview {
+  width: min(100%, 20rem);
+  aspect-ratio: 9 / 16;
+}
+.studio-cover-editor__preview img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.studio-cover-editor__preview > span {
+  position: absolute;
+  top: 0.75rem;
+  left: 0.75rem;
+  padding: 0.35rem 0.55rem;
+  border-radius: var(--cf2-radius-pill);
+  color: #fff;
+  background: rgb(0 0 0 / 0.68);
+  font: 650 0.6rem/1 var(--cf2-font-sans);
+  backdrop-filter: blur(8px);
+}
+.studio-cover-editor__empty {
+  display: grid;
+  min-height: 12rem;
+  padding: 1.5rem;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.85rem;
+  border: 1px dashed var(--cf2-border-strong);
+  border-radius: var(--cf2-radius-lg);
+  background: var(--cf2-canvas-soft);
+}
+.studio-cover-editor__empty-icon {
+  display: grid;
+  width: 2.75rem;
+  height: 2.75rem;
+  place-items: center;
+  border-radius: 50%;
+  color: var(--cf2-accent);
+  background: var(--cf2-accent-soft);
+}
+.studio-cover-editor__empty-icon svg {
+  width: 1.1rem;
+  height: 1.1rem;
+}
+.studio-cover-editor__empty strong,
+.studio-cover-editor__empty span {
+  display: block;
+}
+.studio-cover-editor__empty strong {
+  color: var(--cf2-ink);
+  font: 650 0.78rem/1.3 var(--cf2-font-sans);
+}
+.studio-cover-editor__empty div > span {
+  margin-top: 0.25rem;
+  color: var(--cf2-ink-muted);
+  font: 450 0.66rem/1.45 var(--cf2-font-sans);
+}
+.studio-cover-editor__loading {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  border-radius: var(--cf2-radius-lg);
+  color: #fff;
+  background: rgb(5 6 8 / 0.78);
+  font: 650 0.72rem/1 var(--cf2-font-sans);
+  backdrop-filter: blur(6px);
+}
+.studio-cover-editor__loading svg {
+  width: 1rem;
+  height: 1rem;
+}
+.studio-cover-editor__input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
 }
 
 .studio-access-options {
@@ -1476,6 +1614,24 @@
   .studio-media-progress__actions {
     width: 100%;
     justify-content: flex-end;
+  }
+  .studio-cover-selector {
+    min-height: 20rem;
+  }
+  .studio-cover-editor__empty {
+    min-height: 14rem;
+    grid-template-columns: 1fr;
+    justify-items: center;
+    text-align: center;
+  }
+  .studio-cover-editor__actions,
+  .studio-cover-editor__selector-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .studio-cover-editor__actions .cf2-button,
+  .studio-cover-editor__selector-actions .cf2-button {
+    width: 100%;
   }
   .course-builder-layout {
     grid-template-columns: minmax(0, 1fr);

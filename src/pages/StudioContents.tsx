@@ -42,6 +42,7 @@ import { StudioNavigation } from "@/components/studio/StudioNavigation";
 import {
   V2Button,
   V2Card,
+  V2ConfirmDialog,
   V2EmptyState,
   V2SectionHeader,
   V2Table,
@@ -63,16 +64,6 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Checkbox } from "@/components/ui/checkbox";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
 import "@/styles/studio-v2.css";
 
 const BoostModal = lazy(() =>
@@ -1035,50 +1026,24 @@ export default function StudioContents() {
         </Suspense>
       )}
 
-      <AlertDialog
+      <V2ConfirmDialog
         open={deleteSelectionOpen}
-        onOpenChange={(open) => {
-          if (!isBulkWorking) setDeleteSelectionOpen(open);
-        }}
-      >
-        <AlertDialogContent className="studio-delete-dialog">
-          <AlertDialogHeader>
-            <AlertDialogTitle>
-              {selectedContents.length === 1
-                ? "Excluir este item?"
-                : `Excluir ${selectedContents.length} itens?`}
-            </AlertDialogTitle>
-            <AlertDialogDescription>
-              Esta ação remove os conteúdos selecionados e não pode ser
-              desfeita. Rascunhos também terão suas mídias temporárias
-              descartadas.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <ul className="studio-delete-dialog__list">
-            {selectedContents.slice(0, 4).map((content) => (
-              <li key={selectionKey(content)}>{content.title}</li>
-            ))}
-            {selectedContents.length > 4 && (
-              <li>e mais {selectedContents.length - 4} itens</li>
-            )}
-          </ul>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={isBulkWorking}>
-              Cancelar
-            </AlertDialogCancel>
-            <AlertDialogAction
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-              disabled={isBulkWorking || selectedContents.length === 0}
-              onClick={(event) => {
-                event.preventDefault();
-                void confirmDeleteSelection();
-              }}
-            >
-              {isBulkWorking ? "Excluindo..." : "Excluir definitivamente"}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+        onOpenChange={setDeleteSelectionOpen}
+        title={
+          selectedContents.length === 1
+            ? "Excluir este item?"
+            : `Excluir ${selectedContents.length} itens?`
+        }
+        description="Os conteúdos selecionados sairão do seu catálogo. Essa ação não pode ser desfeita."
+        summary={`${selectedContents.length} ${selectedContents.length === 1 ? "item será removido" : "itens serão removidos"}`}
+        items={selectedContents.slice(0, 5).map((content) => content.title)}
+        hiddenItemCount={Math.max(0, selectedContents.length - 5)}
+        confirmLabel="Excluir definitivamente"
+        workingLabel="Excluindo..."
+        isWorking={isBulkWorking}
+        confirmDisabled={selectedContents.length === 0}
+        onConfirm={confirmDeleteSelection}
+      />
     </AppShell>
   );
 }

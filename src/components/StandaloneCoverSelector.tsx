@@ -8,10 +8,18 @@ import { CoverFrameSelector } from "@/components/CoverFrameSelector";
 interface StandaloneCoverSelectorProps {
   videoSrc: string;
   onFrameSelect: (file: File, previewUrl: string) => void;
+  selectionMode?: "immediate" | "confirm";
+  confirmLabel?: string;
   className?: string;
 }
 
-export function StandaloneCoverSelector({ videoSrc, onFrameSelect, className }: StandaloneCoverSelectorProps) {
+export function StandaloneCoverSelector({
+  videoSrc,
+  onFrameSelect,
+  selectionMode,
+  confirmLabel,
+  className,
+}: StandaloneCoverSelectorProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [captureReady, setCaptureReady] = useState(false);
   const [duration, setDuration] = useState(0);
@@ -24,7 +32,9 @@ export function StandaloneCoverSelector({ videoSrc, onFrameSelect, className }: 
 
     const onLoaded = () => {
       setDuration(v.duration);
-      setVideoAspect(v.videoWidth && v.videoHeight ? v.videoWidth / v.videoHeight : 16 / 9);
+      setVideoAspect(
+        v.videoWidth && v.videoHeight ? v.videoWidth / v.videoHeight : 16 / 9,
+      );
       setCaptureReady(true);
     };
 
@@ -50,6 +60,8 @@ export function StandaloneCoverSelector({ videoSrc, onFrameSelect, className }: 
         duration={duration}
         videoAspect={videoAspect}
         onFrameSelect={onFrameSelect}
+        selectionMode={selectionMode}
+        confirmLabel={confirmLabel}
         className={className}
       />
     </>

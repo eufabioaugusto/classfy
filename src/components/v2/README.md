@@ -31,6 +31,7 @@ Não duplicar cores ou decisões visuais em páginas. Quando uma necessidade rec
 - `PageContainer` controla largura e respiro; `PageHeader` e `SectionHeader` controlam hierarquia.
 - Estados recorrentes usam `LoadingState`, `ErrorState` e `EmptyState`.
 - Cards, métricas, badges, tabelas, dialogs e sheets devem ser importados de `@/components/v2` quando a página for migrada.
+- Confirmações destrutivas ou irreversíveis usam `V2ConfirmDialog`; não montar `AlertDialogContent` diretamente na página. O padrão oferece superfície sólida, consequência explícita, resumo compacto dos itens e ações fixas no rodapé. Dentro de outro modal, usar `layer="nested"` para preservar overlay, foco e ordem visual.
 - Watch, Shorts, Study, Auth e Lives mantêm shells próprios por serem experiências imersivas.
 - `AdminLayout` existe apenas como adaptador temporário para páginas administrativas antigas; não deve ser usado em novas páginas.
 

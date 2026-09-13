@@ -374,6 +374,25 @@ textarea.cf2-input { min-height: 7rem; padding-top: var(--cf2-space-3); resize: 
 
 /* Modal/sheet surfaces are visual primitives; behavior stays with Radix. */
 .cf2-dialog-surface { border: 1px solid var(--cf2-border-strong); border-radius: var(--cf2-radius-panel); color: var(--cf2-ink); background: var(--cf2-surface); box-shadow: var(--cf2-shadow-panel); }
+.cf2-confirm-dialog { width: min(32rem, calc(100vw - 2rem)); max-width: 32rem; padding: 0; gap: 0; overflow: hidden; border: 1px solid var(--cf2-border-strong); border-radius: var(--cf2-radius-panel); color: var(--cf2-ink); background: var(--cf2-surface); box-shadow: var(--cf2-shadow-panel); }
+.cf2-confirm-dialog__top { display: grid; padding: var(--cf2-space-6); grid-template-columns: auto minmax(0, 1fr); align-items: flex-start; gap: var(--cf2-space-4); }
+.cf2-confirm-dialog__icon { display: grid; width: 2.75rem; height: 2.75rem; place-items: center; border-radius: 50%; color: var(--cf2-accent); background: var(--cf2-accent-soft); }
+.cf2-confirm-dialog[data-tone="danger"] .cf2-confirm-dialog__icon { color: var(--cf2-danger); background: var(--cf2-danger-soft); }
+.cf2-confirm-dialog__icon svg { width: 1.15rem; height: 1.15rem; }
+.cf2-confirm-dialog__header { gap: var(--cf2-space-2); text-align: left; }
+.cf2-confirm-dialog__header h2 { color: var(--cf2-ink); font: 650 1.1rem/1.25 var(--cf2-font-sans); letter-spacing: -0.025em; }
+.cf2-confirm-dialog__header p { max-width: 26rem; color: var(--cf2-ink-muted); font: 450 var(--cf2-type-small)/1.55 var(--cf2-font-sans); }
+.cf2-confirm-dialog__summary { margin: 0 var(--cf2-space-6) var(--cf2-space-6); overflow: hidden; border: 1px solid var(--cf2-border); border-radius: var(--cf2-radius-card); background: var(--cf2-canvas-soft); }
+.cf2-confirm-dialog__summary > strong { display: block; padding: var(--cf2-space-3) var(--cf2-space-4); border-bottom: 1px solid var(--cf2-border); color: var(--cf2-ink-secondary); font: 650 var(--cf2-type-small)/1.4 var(--cf2-font-sans); }
+.cf2-confirm-dialog__summary ul { max-height: 12rem; margin: 0; padding: 0; overflow-y: auto; list-style: none; }
+.cf2-confirm-dialog__summary li { display: flex; min-height: 2.65rem; padding: 0 var(--cf2-space-4); align-items: center; border-top: 1px solid var(--cf2-border); color: var(--cf2-ink-secondary); font: 500 var(--cf2-type-small)/1.4 var(--cf2-font-sans); }
+.cf2-confirm-dialog__summary li:first-child { border-top: 0; }
+.cf2-confirm-dialog__summary li::before { width: 0.38rem; height: 0.38rem; margin-right: var(--cf2-space-3); flex: 0 0 auto; border-radius: 50%; background: var(--cf2-ink-subtle); content: ""; }
+.cf2-confirm-dialog__summary .cf2-confirm-dialog__more { color: var(--cf2-ink-muted); font-weight: 600; }
+.cf2-confirm-dialog__footer { padding: var(--cf2-space-4) var(--cf2-space-6); align-items: center; justify-content: flex-end; gap: var(--cf2-space-2); border-top: 1px solid var(--cf2-border); background: var(--cf2-canvas-soft); }
+.cf2-confirm-dialog__footer .cf2-button { margin: 0; }
+.cf2-confirm-dialog[data-tone="danger"] .cf2-confirm-dialog__footer .cf2-button--danger { border-color: var(--cf2-danger); color: #fff; background: var(--cf2-danger); }
+.cf2-confirm-dialog[data-tone="danger"] .cf2-confirm-dialog__footer .cf2-button--danger:hover { background: color-mix(in srgb, var(--cf2-danger) 88%, #000); }
 .cf2-sheet-surface { border-left: 1px solid var(--cf2-border-strong); color: var(--cf2-ink); background: var(--cf2-surface); box-shadow: var(--cf2-shadow-panel); }
 
 /* Media rules: portraits and creator identity lead; UI only frames them. */
@@ -426,4 +445,8 @@ textarea.cf2-input { min-height: 7rem; padding-top: var(--cf2-space-3); resize: 
 @media (max-width: 640px) {
   .cf2-page-header { align-items: flex-start; flex-direction: column; }
   .cf2-page-header__action { width: 100%; }
+  .cf2-confirm-dialog__top { padding: var(--cf2-space-5); grid-template-columns: 1fr; }
+  .cf2-confirm-dialog__summary { margin: 0 var(--cf2-space-5) var(--cf2-space-5); }
+  .cf2-confirm-dialog__footer { padding: var(--cf2-space-4) var(--cf2-space-5); flex-direction: column-reverse; }
+  .cf2-confirm-dialog__footer .cf2-button { width: 100%; }
 }

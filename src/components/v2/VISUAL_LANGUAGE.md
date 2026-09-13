@@ -18,7 +18,8 @@ Esta especificação é a referência oficial para qualquer evolução visual da
 | Inputs | Mesma altura, label, hint, erro, foco e estado disabled. Placeholder nunca substitui label quando a informação precisa permanecer visível. |
 | Badges | Informam plano, estado ou categoria. Não são decoração. Texto curto, contraste validado e sem coleção de cores aleatórias. |
 | Menus | Ação + contexto + consequência previsível. Itens perigosos separados e explicitamente identificados. |
-| Dialogs e sheets | Radix mantém comportamento/acessibilidade; V2 mantém overlay, superfície, espaçamento e hierarquia. Dialog para decisão; Sheet para contexto complementar ou edição lateral. |
+| Dialogs e sheets | Radix mantém comportamento/acessibilidade; V2 mantém overlay, superfície sólida, espaçamento e hierarquia. Dialog para decisão; Sheet para contexto complementar ou edição lateral. Confirmações destrutivas usam `V2ConfirmDialog`, com consequência clara, itens afetados e ações ancoradas no rodapé. |
+| Seleção de capa | Buscar um frame nunca confirma a escolha durante o arraste. A capa é uma única superfície com frame do vídeo ou imagem da galeria e sempre oferece confirmação, troca e remoção explícitas. |
 | Estados | `LoadingState`, `EmptyState` e `ErrorState` preservam o espaço da experiência, explicam o estado e oferecem a próxima ação quando existe. |
 | Feedback | Toast confirma ação transitória; estado persistente fica na própria tela. Erro financeiro, publicação ou permissão nunca depende apenas de toast. |
 | Dark/light | Mesma hierarquia semântica nos dois temas, com valores próprios de canvas, superfície, tinta, borda, overlay e sombra. Não inverter cores mecanicamente. |

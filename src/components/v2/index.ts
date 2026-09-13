@@ -40,6 +40,7 @@ export {
 } from "./Overlays";
 
 export { ErrorState, LoadingState } from "./States";
+export { V2ConfirmDialog } from "./ConfirmDialog";
 
 export {
   V2Badge as Badge,
