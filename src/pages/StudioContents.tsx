@@ -9,8 +9,10 @@ import {
 import { Navigate, useNavigate } from "react-router-dom";
 import {
   BookOpen,
+  ChevronDown,
   Edit,
   Eye,
+  Globe2,
   Library,
   MoreVertical,
   Plus,
@@ -19,6 +21,7 @@ import {
   Search,
   Trash2,
   Video,
+  X,
   Zap,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
@@ -28,6 +31,8 @@ import { useBoostContent } from "@/hooks/useBoostContent";
 import type { BoostItemType } from "@/hooks/useBoostContent";
 import {
   publicationDraftService,
+  type PublicationKind,
+  type PublicationVisibility,
   type StandalonePublicationDraft,
 } from "@/lib/studio/publication";
 import { AppShell, PageHeader } from "@/components/layout";
@@ -57,6 +62,17 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Checkbox } from "@/components/ui/checkbox";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import "@/styles/studio-v2.css";
 
 const BoostModal = lazy(() =>
@@ -80,6 +96,7 @@ interface Content {
   draft_key?: string;
   source_id?: string | null;
   source_type?: string | null;
+  draft_payload?: Partial<StandalonePublicationDraft>;
 }
 
 const typeLabels: Record<string, string> = {
@@ -112,6 +129,22 @@ const typeIcons = {
   curso: BookOpen,
 };
 
+const selectionKey = (content: Content) =>
+  `${content.record_type}:${content.id}`;
+
+const editRoute = (content: Content) =>
+  content.record_type === "draft"
+    ? content.content_type === "curso"
+      ? content.source_id
+        ? `/studio/upload/curso?edit=${content.source_id}`
+        : "/studio/upload/curso"
+      : content.source_id
+        ? `/studio/upload?type=${content.content_type}&edit=${content.source_id}`
+        : `/studio/upload?type=${content.content_type}`
+    : content.content_type === "curso"
+      ? `/studio/upload/curso?edit=${content.id}`
+      : `/studio/upload?type=${content.content_type}&edit=${content.id}`;
+
 export default function StudioContents() {
   const { user, role, loading } = useAuth();
   const navigate = useNavigate();
@@ -121,6 +154,9 @@ export default function StudioContents() {
   const [filterType, setFilterType] = useState("all");
   const [filterStatus, setFilterStatus] = useState("all");
   const [search, setSearch] = useState("");
+  const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
+  const [deleteSelectionOpen, setDeleteSelectionOpen] = useState(false);
+  const [isBulkWorking, setIsBulkWorking] = useState(false);
   const { isBoostModalOpen, selectedContent, openBoostModal, closeBoostModal } =
     useBoostContent();
   const contentRoute = (content: Content) =>
@@ -200,6 +236,7 @@ export default function StudioContents() {
             draft_key: record.draft_key,
             source_id: record.source_id,
             source_type: record.source_type,
+            draft_payload: payload,
           },
         ];
       });
@@ -294,53 +331,163 @@ export default function StudioContents() {
     [contents],
   );
 
-  const handleDelete = async (contentId: string, contentType: string) => {
-    if (
-      !window.confirm("Excluir este conteúdo? Esta ação não pode ser desfeita.")
-    )
-      return;
-    try {
-      const table = contentType === "curso" ? "courses" : "contents";
-      const { error } = await supabase.from(table).delete().eq("id", contentId);
-      if (error) throw error;
-      toast({
-        title: "Conteúdo excluído",
-        description: "O item foi removido do catálogo.",
+  const selectedContents = useMemo(
+    () => contents.filter((content) => selectedKeys.has(selectionKey(content))),
+    [contents, selectedKeys],
+  );
+  const selectedVisibleCount = filteredContents.filter((content) =>
+    selectedKeys.has(selectionKey(content)),
+  ).length;
+  const allVisibleSelected =
+    filteredContents.length > 0 &&
+    selectedVisibleCount === filteredContents.length;
+  const someVisibleSelected = selectedVisibleCount > 0 && !allVisibleSelected;
+
+  useEffect(() => {
+    const availableKeys = new Set(contents.map(selectionKey));
+    setSelectedKeys((current) => {
+      const next = new Set(
+        Array.from(current).filter((key) => availableKeys.has(key)),
+      );
+      return next.size === current.size ? current : next;
+    });
+  }, [contents]);
+
+  const toggleSelection = (content: Content, checked: boolean) => {
+    const key = selectionKey(content);
+    setSelectedKeys((current) => {
+      const next = new Set(current);
+      if (checked) next.add(key);
+      else next.delete(key);
+      return next;
+    });
+  };
+
+  const toggleAllVisible = (checked: boolean) => {
+    setSelectedKeys((current) => {
+      const next = new Set(current);
+      filteredContents.forEach((content) => {
+        const key = selectionKey(content);
+        if (checked) next.add(key);
+        else next.delete(key);
       });
-      await fetchContents();
-    } catch (error) {
-      console.error("Error deleting content:", error);
+      return next;
+    });
+  };
+
+  const requestDelete = (items: Content[]) => {
+    setSelectedKeys(new Set(items.map(selectionKey)));
+    setDeleteSelectionOpen(true);
+  };
+
+  const deleteOne = async (content: Content) => {
+    if (content.record_type === "draft") {
+      if (!user || !content.draft_key)
+        throw new Error("Rascunho sem identificação");
+      await publicationDraftService.discard(user.id, content.draft_key);
+      return;
+    }
+    const request =
+      content.record_type === "course"
+        ? supabase.from("courses").delete().eq("id", content.id)
+        : supabase.from("contents").delete().eq("id", content.id);
+    const { error } = await request;
+    if (error) throw error;
+  };
+
+  const confirmDeleteSelection = async () => {
+    if (selectedContents.length === 0) return;
+    setIsBulkWorking(true);
+    const items = [...selectedContents];
+    const results = await Promise.allSettled(items.map(deleteOne));
+    const failedKeys = new Set<string>();
+    results.forEach((result, index) => {
+      if (result.status === "rejected") {
+        failedKeys.add(selectionKey(items[index]));
+        console.error("Error deleting catalog item:", result.reason);
+      }
+    });
+    const removedCount = items.length - failedKeys.size;
+    setSelectedKeys(failedKeys);
+    setDeleteSelectionOpen(false);
+    setIsBulkWorking(false);
+    await fetchContents();
+
+    if (removedCount > 0) {
+      toast({
+        title:
+          removedCount === 1
+            ? "1 item removido"
+            : `${removedCount} itens removidos`,
+        description:
+          failedKeys.size > 0
+            ? `${failedKeys.size} ${failedKeys.size === 1 ? "item não pôde" : "itens não puderam"} ser removido${failedKeys.size === 1 ? "" : "s"}.`
+            : "O catálogo foi atualizado.",
+      });
+    } else {
       toast({
         title: "Não foi possível excluir",
-        description: "Revise o conteúdo e tente novamente.",
+        description: "Revise os itens selecionados e tente novamente.",
         variant: "destructive",
       });
     }
   };
 
-  const handleDiscardDraft = async (content: Content) => {
-    if (!user || !content.draft_key) return;
-    if (
-      !window.confirm(
-        "Descartar este rascunho? A mídia temporária vinculada também será removida.",
-      )
-    )
-      return;
-    try {
-      await publicationDraftService.discard(user.id, content.draft_key);
-      toast({
-        title: "Rascunho descartado",
-        description: "O item foi removido do Studio.",
+  const updateOneVisibility = async (
+    content: Content,
+    visibility: PublicationVisibility,
+  ) => {
+    if (content.record_type === "draft") {
+      if (!user || !content.draft_key)
+        throw new Error("Rascunho sem identificação");
+      const result = await publicationDraftService.save({
+        ownerId: user.id,
+        draftKey: content.draft_key,
+        kind: content.content_type as PublicationKind,
+        sourceType:
+          content.source_type === "course" || content.source_type === "content"
+            ? content.source_type
+            : null,
+        sourceId: content.source_id,
+        payload: { ...content.draft_payload, visibility },
       });
-      await fetchContents();
-    } catch (error) {
-      console.error("Error discarding draft:", error);
+      if (!result.remote) throw new Error("Alteração salva apenas localmente");
+      return;
+    }
+    const request =
+      content.record_type === "course"
+        ? supabase.from("courses").update({ visibility }).eq("id", content.id)
+        : supabase.from("contents").update({ visibility }).eq("id", content.id);
+    const { error } = await request;
+    if (error) throw error;
+  };
+
+  const changeSelectedVisibility = async (
+    visibility: PublicationVisibility,
+  ) => {
+    if (selectedContents.length === 0) return;
+    setIsBulkWorking(true);
+    const selectionSize = selectedContents.length;
+    const results = await Promise.allSettled(
+      selectedContents.map((content) =>
+        updateOneVisibility(content, visibility),
+      ),
+    );
+    const failed = results.filter((result) => result.status === "rejected");
+    setIsBulkWorking(false);
+    await fetchContents();
+    if (failed.length > 0) {
       toast({
-        title: "Não foi possível descartar",
-        description: "Tente novamente em alguns instantes.",
+        title: "Parte da alteração não foi concluída",
+        description: `${selectionSize - failed.length} de ${selectionSize} itens foram atualizados.`,
         variant: "destructive",
       });
+      return;
     }
+    toast({
+      title: "Acesso atualizado",
+      description: `${selectionSize} ${selectionSize === 1 ? "item foi atualizado" : "itens foram atualizados"} para ${visibilityLabels[visibility]}.`,
+    });
   };
 
   const formatDate = (value: string) =>
@@ -390,34 +537,14 @@ export default function StudioContents() {
             Impulsionar
           </DropdownMenuItem>
         )}
-        <DropdownMenuItem
-          onClick={() =>
-            navigate(
-              content.record_type === "draft"
-                ? content.content_type === "curso"
-                  ? content.source_id
-                    ? `/studio/upload/curso?edit=${content.source_id}`
-                    : "/studio/upload/curso"
-                  : content.source_id
-                    ? `/studio/upload?type=${content.content_type}&edit=${content.source_id}`
-                    : `/studio/upload?type=${content.content_type}`
-                : content.content_type === "curso"
-                  ? `/studio/upload/curso?edit=${content.id}`
-                  : `/studio/upload?type=${content.content_type}&edit=${content.id}`,
-            )
-          }
-        >
+        <DropdownMenuItem onClick={() => navigate(editRoute(content))}>
           <Edit className="mr-2 h-4 w-4" />
           {content.record_type === "draft" ? "Continuar" : "Editar"}
         </DropdownMenuItem>
         <DropdownMenuSeparator />
         <DropdownMenuItem
           className="text-destructive focus:text-destructive"
-          onClick={() =>
-            content.record_type === "draft"
-              ? void handleDiscardDraft(content)
-              : void handleDelete(content.id, content.content_type)
-          }
+          onClick={() => requestDelete([content])}
         >
           <Trash2 className="mr-2 h-4 w-4" />
           {content.record_type === "draft" ? "Descartar" : "Excluir"}
@@ -542,8 +669,125 @@ export default function StudioContents() {
             <V2SectionHeader
               eyebrow="Publicações"
               title="Gerencie seu catálogo"
-              description="Abra um conteúdo para revisar ou use o menu para editar, impulsionar e excluir."
+              description="Selecione um ou mais conteúdos para editar o acesso ou excluir tudo de uma vez."
             />
+            {selectedContents.length > 0 && (
+              <div
+                className="studio-bulk-bar"
+                role="toolbar"
+                aria-label="Ações para conteúdos selecionados"
+              >
+                <div className="studio-bulk-bar__selection">
+                  <strong>
+                    {selectedContents.length}{" "}
+                    {selectedContents.length === 1
+                      ? "item selecionado"
+                      : "itens selecionados"}
+                  </strong>
+                  <button
+                    type="button"
+                    className="studio-bulk-bar__clear"
+                    onClick={() => setSelectedKeys(new Set())}
+                  >
+                    Limpar seleção
+                  </button>
+                </div>
+                <div className="studio-bulk-bar__actions">
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <button
+                        type="button"
+                        className="studio-bulk-action"
+                        disabled={
+                          selectedContents.length !== 1 || isBulkWorking
+                        }
+                      >
+                        <Edit />
+                        Editar
+                        <ChevronDown />
+                      </button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="start">
+                      <DropdownMenuItem
+                        onClick={() => navigate(editRoute(selectedContents[0]))}
+                      >
+                        <Edit className="mr-2 h-4 w-4" />
+                        Abrir editor completo
+                      </DropdownMenuItem>
+                      {selectedContents[0]?.record_type !== "draft" && (
+                        <DropdownMenuItem
+                          onClick={() =>
+                            navigate(contentRoute(selectedContents[0]))
+                          }
+                        >
+                          <Eye className="mr-2 h-4 w-4" />
+                          Ver como está publicado
+                        </DropdownMenuItem>
+                      )}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <button
+                        type="button"
+                        className="studio-bulk-action"
+                        disabled={isBulkWorking}
+                      >
+                        <Globe2 />
+                        Alterar acesso
+                        <ChevronDown />
+                      </button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="start">
+                      {(["free", "pro", "premium"] as const).map(
+                        (visibility) => (
+                          <DropdownMenuItem
+                            key={visibility}
+                            onClick={() =>
+                              void changeSelectedVisibility(visibility)
+                            }
+                          >
+                            {visibilityLabels[visibility]}
+                          </DropdownMenuItem>
+                        ),
+                      )}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <button
+                        type="button"
+                        className="studio-bulk-action"
+                        disabled={isBulkWorking}
+                      >
+                        Mais ações
+                        <ChevronDown />
+                      </button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      <DropdownMenuItem
+                        className="text-destructive focus:text-destructive"
+                        onClick={() => setDeleteSelectionOpen(true)}
+                      >
+                        <Trash2 className="mr-2 h-4 w-4" />
+                        Excluir selecionados
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+
+                  <button
+                    type="button"
+                    className="studio-bulk-bar__close"
+                    aria-label="Fechar ações em lote"
+                    onClick={() => setSelectedKeys(new Set())}
+                  >
+                    <X />
+                  </button>
+                </div>
+              </div>
+            )}
             {isLoading ? (
               <div className="cf2-state">
                 <span className="cf2-state__spinner" />
@@ -589,6 +833,25 @@ export default function StudioContents() {
                   <V2Table>
                     <thead>
                       <tr>
+                        <th className="studio-table-select">
+                          <Checkbox
+                            checked={
+                              allVisibleSelected
+                                ? true
+                                : someVisibleSelected
+                                  ? "indeterminate"
+                                  : false
+                            }
+                            onCheckedChange={(checked) =>
+                              toggleAllVisible(checked === true)
+                            }
+                            aria-label={
+                              allVisibleSelected
+                                ? "Desmarcar todos os itens visíveis"
+                                : "Selecionar todos os itens visíveis"
+                            }
+                          />
+                        </th>
                         <th>Conteúdo</th>
                         <th>Visibilidade</th>
                         <th>Status</th>
@@ -601,12 +864,23 @@ export default function StudioContents() {
                     </thead>
                     <tbody>
                       {filteredContents.map((content) => {
+                        const key = selectionKey(content);
+                        const isSelected = selectedKeys.has(key);
                         const TypeIcon =
                           typeIcons[
                             content.content_type as keyof typeof typeIcons
                           ] || Video;
                         return (
-                          <tr key={content.id}>
+                          <tr key={key} data-selected={isSelected || undefined}>
+                            <td className="studio-table-select">
+                              <Checkbox
+                                checked={isSelected}
+                                onCheckedChange={(checked) =>
+                                  toggleSelection(content, checked === true)
+                                }
+                                aria-label={`Selecionar ${content.title}`}
+                              />
+                            </td>
                             <td>
                               <div className="studio-content-cell">
                                 {content.thumbnail_url ? (
@@ -680,12 +954,27 @@ export default function StudioContents() {
 
                 <div className="studio-mobile-list">
                   {filteredContents.map((content) => {
+                    const key = selectionKey(content);
+                    const isSelected = selectedKeys.has(key);
                     const TypeIcon =
                       typeIcons[
                         content.content_type as keyof typeof typeIcons
                       ] || Video;
                     return (
-                      <V2Card className="studio-mobile-card" key={content.id}>
+                      <V2Card
+                        className="studio-mobile-card"
+                        key={key}
+                        data-selected={isSelected || undefined}
+                      >
+                        <div className="studio-mobile-card__select">
+                          <Checkbox
+                            checked={isSelected}
+                            onCheckedChange={(checked) =>
+                              toggleSelection(content, checked === true)
+                            }
+                            aria-label={`Selecionar ${content.title}`}
+                          />
+                        </div>
                         {content.thumbnail_url ? (
                           <img
                             className="studio-mobile-card__media"
@@ -745,6 +1034,51 @@ export default function StudioContents() {
           />
         </Suspense>
       )}
+
+      <AlertDialog
+        open={deleteSelectionOpen}
+        onOpenChange={(open) => {
+          if (!isBulkWorking) setDeleteSelectionOpen(open);
+        }}
+      >
+        <AlertDialogContent className="studio-delete-dialog">
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {selectedContents.length === 1
+                ? "Excluir este item?"
+                : `Excluir ${selectedContents.length} itens?`}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              Esta ação remove os conteúdos selecionados e não pode ser
+              desfeita. Rascunhos também terão suas mídias temporárias
+              descartadas.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <ul className="studio-delete-dialog__list">
+            {selectedContents.slice(0, 4).map((content) => (
+              <li key={selectionKey(content)}>{content.title}</li>
+            ))}
+            {selectedContents.length > 4 && (
+              <li>e mais {selectedContents.length - 4} itens</li>
+            )}
+          </ul>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isBulkWorking}>
+              Cancelar
+            </AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              disabled={isBulkWorking || selectedContents.length === 0}
+              onClick={(event) => {
+                event.preventDefault();
+                void confirmDeleteSelection();
+              }}
+            >
+              {isBulkWorking ? "Excluindo..." : "Excluir definitivamente"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </AppShell>
   );
 }
