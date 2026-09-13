@@ -19,6 +19,7 @@ import {
   CircleAlert,
   Cloud,
   CloudOff,
+  Crown,
   Eye,
   FileAudio,
   FileVideo,
@@ -47,13 +48,6 @@ import {
   V2Input,
   V2Textarea,
 } from "@/components/v2";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 import { TagsInput } from "@/components/TagsInput";
 import { StandaloneCoverSelector } from "@/components/StandaloneCoverSelector";
 import { CoverImageCropper } from "@/components/CoverImageCropper";
@@ -145,7 +139,6 @@ function StudioUpload() {
   const [trimStart, setTrimStart] = useState(0);
   const [trimEnd, setTrimEnd] = useState(0);
   const [captureReady, setCaptureReady] = useState(false);
-  const [previewOpen, setPreviewOpen] = useState(false);
   const [discardOpen, setDiscardOpen] = useState(false);
   const [wizardStep, setWizardStep] = useState(0);
   const [isDraggingFile, setIsDraggingFile] = useState(false);
@@ -1494,12 +1487,18 @@ function StudioUpload() {
                   <button
                     key={option.id}
                     type="button"
+                    data-access={option.id}
                     data-selected={visibility === option.id || undefined}
                     onClick={() => setVisibility(option.id)}
                   >
                     <span>{visibility === option.id && <Check />}</span>
                     <div>
-                      <strong>{option.label}</strong>
+                      <strong>
+                        {option.label}
+                        {(option.id === "pro" || option.id === "premium") && (
+                          <Crown aria-hidden="true" />
+                        )}
+                      </strong>
                       <small>{option.description}</small>
                     </div>
                   </button>
@@ -1534,61 +1533,112 @@ function StudioUpload() {
           >
             <V2Card elevation="raised">
               <V2CardHeader>
-                <div>
-                  <h2>Antes de enviar</h2>
-                  <p>Confira o que ainda precisa de atenção.</p>
+                <div className="studio-publish-heading">
+                  <span className="studio-icon">
+                    <Eye />
+                  </span>
+                  <div>
+                    <h2>Prévia da publicação</h2>
+                    <p>Veja exatamente como o conteúdo será apresentado.</p>
+                  </div>
                 </div>
               </V2CardHeader>
-              <V2CardContent>
-                <div
-                  className="studio-review-status"
-                  data-complete={!issues.length || undefined}
+              <V2CardContent className="studio-review-content">
+                <section
+                  className={`studio-review-preview studio-review-preview--${contentType}`}
                 >
-                  {issues.length ? <CircleAlert /> : <Check />}
-                  <strong>
-                    {issues.length
-                      ? `${issues.length} ${issues.length === 1 ? "pendência" : "pendências"}`
-                      : "Tudo pronto"}
-                  </strong>
-                </div>
-                <ul className="studio-review-list">
-                  {issues.length ? (
-                    issues.map((issue) => (
-                      <li key={issue}>
-                        <span />
-                        {issue}
-                      </li>
-                    ))
-                  ) : (
-                    <li>
-                      <Check />
-                      Seu material pode ser enviado para análise.
-                    </li>
-                  )}
-                </ul>
-                <dl className="studio-review-summary">
-                  <div>
-                    <dt>Formato</dt>
-                    <dd>{rules.label}</dd>
+                  <div className="studio-review-preview__media">
+                    {thumbnailPreview ? (
+                      <img src={thumbnailPreview} alt="Capa da publicação" />
+                    ) : (
+                      <div className="studio-preview-placeholder">
+                        <ImagePlus />
+                      </div>
+                    )}
+                    <div className="studio-review-preview__shade" />
+                    <V2Badge>{rules.label}</V2Badge>
                   </div>
-                  <div>
-                    <dt>Acesso</dt>
-                    <dd>
-                      {
-                        visibilityOptions.find((item) => item.id === visibility)
-                          ?.label
-                      }
-                    </dd>
+                  <div className="studio-review-preview__copy">
+                    <span className="studio-review-preview__eyebrow">
+                      Visão da audiência
+                    </span>
+                    <h3>{title || "Título do conteúdo"}</h3>
+                    <p>{description || "Sua descrição aparecerá aqui."}</p>
+                    <div
+                      className="studio-review-preview__access"
+                      data-access={visibility}
+                    >
+                      {(visibility === "pro" || visibility === "premium") && (
+                        <Crown aria-hidden="true" />
+                      )}
+                      <span>
+                        {
+                          visibilityOptions.find(
+                            (item) => item.id === visibility,
+                          )?.label
+                        }
+                      </span>
+                    </div>
                   </div>
+                </section>
+
+                <section className="studio-review-inspection">
                   <div>
-                    <dt>Revisão</dt>
-                    <dd>
-                      {originalStatus === "approved"
-                        ? "Nova versão"
-                        : "Primeiro envio"}
-                    </dd>
+                    <span className="studio-review-kicker">
+                      Antes de enviar
+                    </span>
+                    <div
+                      className="studio-review-status"
+                      data-complete={!issues.length || undefined}
+                    >
+                      {issues.length ? <CircleAlert /> : <Check />}
+                      <strong>
+                        {issues.length
+                          ? `${issues.length} ${issues.length === 1 ? "pendência" : "pendências"}`
+                          : "Tudo pronto"}
+                      </strong>
+                    </div>
+                    <ul className="studio-review-list">
+                      {issues.length ? (
+                        issues.map((issue) => (
+                          <li key={issue}>
+                            <span />
+                            {issue}
+                          </li>
+                        ))
+                      ) : (
+                        <li>
+                          <Check />
+                          Seu material pode ser enviado para análise.
+                        </li>
+                      )}
+                    </ul>
                   </div>
-                </dl>
+                  <dl className="studio-review-summary">
+                    <div>
+                      <dt>Formato</dt>
+                      <dd>{rules.label}</dd>
+                    </div>
+                    <div>
+                      <dt>Acesso</dt>
+                      <dd>
+                        {
+                          visibilityOptions.find(
+                            (item) => item.id === visibility,
+                          )?.label
+                        }
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>Revisão</dt>
+                      <dd>
+                        {originalStatus === "approved"
+                          ? "Nova versão"
+                          : "Primeiro envio"}
+                      </dd>
+                    </div>
+                  </dl>
+                </section>
               </V2CardContent>
             </V2Card>
           </aside>
@@ -1640,70 +1690,24 @@ function StudioUpload() {
                 </V2Button>
               )}
               {wizardStep === 3 && (
-                <>
-                  <V2Button
-                    variant="secondary"
-                    leadingIcon={<Eye />}
-                    onClick={() => setPreviewOpen(true)}
-                    disabled={!title && !thumbnailPreview}
-                  >
-                    Pré-visualizar
-                  </V2Button>
-                  <V2Button
-                    type="submit"
-                    leadingIcon={
-                      submitting ? (
-                        <LoaderCircle className="animate-spin" />
-                      ) : (
-                        <Send />
-                      )
-                    }
-                    disabled={submitting || issues.length > 0}
-                  >
-                    {submitting ? "Enviando..." : "Enviar para análise"}
-                  </V2Button>
-                </>
+                <V2Button
+                  type="submit"
+                  leadingIcon={
+                    submitting ? (
+                      <LoaderCircle className="animate-spin" />
+                    ) : (
+                      <Send />
+                    )
+                  }
+                  disabled={submitting || issues.length > 0}
+                >
+                  {submitting ? "Enviando..." : "Enviar para análise"}
+                </V2Button>
               )}
             </div>
           </footer>
         </form>
       </CreatorTemplate>
-
-      <Dialog open={previewOpen} onOpenChange={setPreviewOpen}>
-        <DialogContent
-          className="studio-preview-dialog z-[91]"
-          overlayClassName="z-[90]"
-        >
-          <DialogHeader>
-            <DialogTitle>Prévia da publicação</DialogTitle>
-            <DialogDescription>
-              Esta é a apresentação básica que sua audiência verá.
-            </DialogDescription>
-          </DialogHeader>
-          <div
-            className={`studio-preview-card studio-preview-card--${contentType}`}
-          >
-            {thumbnailPreview ? (
-              <img src={thumbnailPreview} alt="" />
-            ) : (
-              <div className="studio-preview-placeholder">
-                <ImagePlus />
-              </div>
-            )}
-            <div>
-              <V2Badge>{rules.label}</V2Badge>
-              <h2>{title || "Título do conteúdo"}</h2>
-              <p>{description || "Sua descrição aparecerá aqui."}</p>
-              <span>
-                {
-                  visibilityOptions.find((item) => item.id === visibility)
-                    ?.label
-                }
-              </span>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
       <V2ConfirmDialog
         open={discardOpen}
         onOpenChange={setDiscardOpen}
