@@ -760,12 +760,11 @@ function StudioUpload() {
         }
       })();
     }
-    const started = await startUpload(
+    await startUpload(
       file,
       contentType === "podcast" ? undefined : trimStart,
       contentType === "podcast" ? undefined : trimEnd,
     );
-    if (!started) setWizardStep(1);
   };
 
   const removeMedia = () => {
@@ -1657,11 +1656,11 @@ function StudioUpload() {
               </div>
             </div>
             <div className="studio-wizard-footer__actions">
-              {wizardStep > 1 && !coverEditorOpen && (
+              {wizardStep === 3 && !coverEditorOpen && (
                 <V2Button
                   variant="secondary"
                   leadingIcon={<ChevronLeft />}
-                  onClick={() => setWizardStep((step) => Math.max(1, step - 1))}
+                  onClick={() => setWizardStep(2)}
                 >
                   Voltar
                 </V2Button>
