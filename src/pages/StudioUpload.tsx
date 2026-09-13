@@ -70,6 +70,7 @@ import { coverTargetSize } from "@/lib/media/coverCrop";
 import { videoService } from "@/lib/video/service";
 import {
   beginBackgroundUpload,
+  getBackgroundUploadsSnapshot,
   updateBackgroundUpload,
 } from "@/lib/studio/backgroundUploads";
 import {
@@ -112,7 +113,7 @@ function mediaStatusCopy(
 function StudioUpload() {
   const { user, role, profile, loading } = useAuth();
   const navigate = useNavigate();
-  const [searchParams, setSearchParams] = useSearchParams();
+  const [searchParams] = useSearchParams();
   const editId = searchParams.get("edit");
   const [contentType, setContentType] = useState<StandaloneKind>(() =>
     requestedKind(searchParams),
@@ -151,6 +152,7 @@ function StudioUpload() {
   const [submitting, setSubmitting] = useState(false);
   const [isGeneratingTags, setIsGeneratingTags] = useState(false);
   const pendingFileRef = useRef<File | null>(null);
+  const activeBackgroundTaskRef = useRef<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const coverFileInputRef = useRef<HTMLInputElement>(null);
   const visibleVideoRef = useRef<HTMLVideoElement>(null);
@@ -315,9 +317,31 @@ function StudioUpload() {
       setVideoProvider(restored.videoProvider ?? null);
       if (restored.mediaAssetId) {
         setWizardStep(2);
-        if (restored.uploadState === "ready") mediaUpload.setState("ready");
-        else mediaUpload.resumeProcessing(restored.mediaAssetId);
-        setIsResolvingResume(false);
+        void (async () => {
+          try {
+            const { data: asset } = await (supabase as any)
+              .from("media_assets")
+              .select("status")
+              .eq("id", restored.mediaAssetId)
+              .maybeSingle();
+            const liveTask = getBackgroundUploadsSnapshot().find(
+              (task) =>
+                task.draftId === record.id ||
+                task.mediaAssetId === restored.mediaAssetId,
+            );
+            if (liveTask) {
+              mediaUpload.setState(liveTask.state);
+            } else if (asset?.status === "ready") {
+              mediaUpload.setState("ready");
+            } else if (asset?.status === "processing") {
+              mediaUpload.resumeProcessing(restored.mediaAssetId);
+            } else {
+              mediaUpload.setState("failed");
+            }
+          } finally {
+            setIsResolvingResume(false);
+          }
+        })();
         return;
       }
       void (async () => {
@@ -354,9 +378,11 @@ function StudioUpload() {
             setDuration(linkedAsset.duration_seconds);
           setWizardStep(2);
           if (linkedAsset.status === "ready") mediaUpload.setState("ready");
+          else if (linkedAsset.status === "processing")
+            mediaUpload.resumeProcessing(linkedAsset.id);
           else if (linkedAsset.status === "failed")
             mediaUpload.setState("failed");
-          else mediaUpload.resumeProcessing(linkedAsset.id);
+          else mediaUpload.setState("failed");
         } finally {
           setIsResolvingResume(false);
         }
@@ -380,16 +406,11 @@ function StudioUpload() {
 
   useEffect(() => {
     if (editId || canResumeRequestedDraft) return;
-    const nextParams = new URLSearchParams(searchParams);
+    const nextParams = new URLSearchParams(window.location.search);
     nextParams.set("draft", generatedDraftKey);
-    setSearchParams(nextParams, { replace: true });
-  }, [
-    canResumeRequestedDraft,
-    editId,
-    generatedDraftKey,
-    searchParams,
-    setSearchParams,
-  ]);
+    const nextUrl = `${window.location.pathname}?${nextParams.toString()}${window.location.hash}`;
+    window.history.replaceState(window.history.state, "", nextUrl);
+  }, [canResumeRequestedDraft, editId, generatedDraftKey]);
 
   const draft = usePublicationDraft({
     userId: user?.id,
@@ -406,6 +427,21 @@ function StudioUpload() {
     if (draft.state !== "loading" && !draft.draftId)
       setIsResolvingResume(false);
   }, [draft.draftId, draft.state]);
+
+  useEffect(() => {
+    const taskId = activeBackgroundTaskRef.current;
+    if (
+      !taskId ||
+      !["loading", "analyzing", "compressing", "finalizing"].includes(
+        compression.stage,
+      )
+    )
+      return;
+    updateBackgroundUpload(taskId, {
+      state: "preparing",
+      progress: compression.progress,
+    });
+  }, [compression.progress, compression.stage]);
 
   useEffect(() => {
     const guard = (event: BeforeUnloadEvent) => {
@@ -533,6 +569,7 @@ function StudioUpload() {
         draftId: savedDraft.id,
         title: file.name,
       });
+      activeBackgroundTaskRef.current = backgroundTaskId;
       const target = await videoService.createUpload(title || file.name, {
         mediaType: rules.mediaType,
         draftId: savedDraft.id,
@@ -557,30 +594,26 @@ function StudioUpload() {
         uploadState: "preparing",
       });
       let prepared = file;
-      if (contentType !== "podcast") {
-        const requiresTrim =
-          (trimStart !== undefined && trimStart > 0.5) ||
+      const requiresTrim =
+        contentType !== "podcast" &&
+        ((trimStart !== undefined && trimStart > 0.5) ||
           (trimEnd !== undefined &&
             sourceDuration > 0 &&
-            trimEnd < sourceDuration - 0.5);
-        try {
-          prepared = await compression.compressVideo(file, {
-            quality: "balanced",
-            maxWidth: contentType === "short" ? 1080 : 1920,
-            maxHeight: contentType === "short" ? 1920 : 1080,
-            trimStart,
-            trimEnd,
-          });
-          if (requiresTrim && prepared === file) {
-            throw new Error(
-              "Não conseguimos aplicar o corte. Revise o arquivo ou tente novamente.",
-            );
-          }
-          if (prepared !== file) setFilePreview(URL.createObjectURL(prepared));
-        } catch (preparationError) {
-          if (requiresTrim) throw preparationError;
-          prepared = file;
+            trimEnd < sourceDuration - 0.5));
+      if (requiresTrim) {
+        prepared = await compression.compressVideo(file, {
+          quality: "balanced",
+          maxWidth: contentType === "short" ? 1080 : 1920,
+          maxHeight: contentType === "short" ? 1920 : 1080,
+          trimStart,
+          trimEnd,
+        });
+        if (prepared === file) {
+          throw new Error(
+            "Não conseguimos aplicar o corte. Revise o arquivo ou tente novamente.",
+          );
         }
+        setFilePreview(URL.createObjectURL(prepared));
       }
       const result = await mediaUpload.upload({
         file: prepared,
@@ -886,7 +919,7 @@ function StudioUpload() {
       compression.stage,
     );
   const mediaStatus = isPreparingLocally
-    ? "Processando"
+    ? "Preparando o corte"
     : mediaUpload.state === "idle"
       ? hasSelectedMedia
         ? "Aguardando envio"
@@ -911,7 +944,11 @@ function StudioUpload() {
   ];
   const mediaAlreadySent = Boolean(mediaAssetId || fileUrl);
   const coverAspect = contentType === "short" ? 9 / 16 : 16 / 9;
-  const draftIsHydrating = draft.state === "loading" || isResolvingResume;
+  const draftIsHydrating = isResolvingResume;
+  const draftStatusLabel =
+    draft.state === "loading" && !isResolvingResume
+      ? "Novo conteúdo"
+      : draft.label;
 
   return (
     <AppShell
@@ -941,7 +978,7 @@ function StudioUpload() {
               <div className="studio-wizard-header-actions">
                 <span className="studio-draft-state" data-state={draft.state}>
                   {saveIcon}
-                  {draft.label}
+                  {draftStatusLabel}
                 </span>
                 <button
                   type="button"

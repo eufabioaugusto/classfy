@@ -143,10 +143,13 @@ function resolveDraftMedia(
         upload.mediaAssetId === content.draft_payload.mediaAssetId),
   );
   const persisted = content.media_asset_status;
+  const interruptedUpload = !live && persisted === "uploading";
   let state: BackgroundUploadState | null = null;
   let progress: number | null = null;
 
-  if (live?.state === "failed") {
+  if (interruptedUpload) {
+    state = "failed";
+  } else if (live?.state === "failed") {
     state = "failed";
     progress = live.progress;
   } else if (persisted === "ready" || persisted === "failed") {
@@ -154,7 +157,9 @@ function resolveDraftMedia(
     progress = persisted === "ready" ? 100 : null;
   } else if (live) {
     state = live.state;
-    progress = live.state === "uploading" ? live.progress : null;
+    progress = ["preparing", "uploading"].includes(live.state)
+      ? live.progress
+      : null;
   } else if (persisted) {
     state =
       persisted === "uploading"
@@ -180,9 +185,12 @@ function resolveDraftMedia(
   }
 
   if (!state) return null;
-  const label =
-    state === "preparing"
-      ? "Preparando"
+  const label = interruptedUpload
+    ? "Envio interrompido"
+    : state === "preparing"
+      ? progress !== null
+        ? `Preparando ${progress}%`
+        : "Preparando"
       : state === "uploading"
         ? progress !== null
           ? `Enviando ${progress}%`
