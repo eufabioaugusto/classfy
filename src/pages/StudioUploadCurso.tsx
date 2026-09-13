@@ -29,6 +29,7 @@ import {
   ChevronLeft,
   ChevronRight,
   CircleAlert,
+  Clock3,
   Cloud,
   CloudOff,
   Eye,
@@ -37,6 +38,7 @@ import {
   FileText,
   FileVideo,
   GripVertical,
+  GraduationCap,
   ImagePlus,
   Layers3,
   LoaderCircle,
@@ -53,7 +55,6 @@ import { supabase } from "@/integrations/supabase/client";
 import { AppShell, PageHeader } from "@/components/layout";
 import { CreatorTemplate } from "@/components/templates";
 import {
-  V2Badge,
   V2Button,
   V2Card,
   V2CardContent,
@@ -141,8 +142,165 @@ function SortableItem({
 
 const formatDuration = (seconds: number) =>
   seconds
-    ? `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`
+    ? `${Math.floor(seconds / 60)}:${String(Math.floor(seconds % 60)).padStart(2, "0")}`
     : "Sem duração";
+
+const formatFileSize = (bytes: number) => {
+  if (!bytes) return "Arquivo";
+  if (bytes >= 1024 * 1024)
+    return `${(bytes / (1024 * 1024)).toFixed(1).replace(".0", "")} MB`;
+  return `${Math.ceil(bytes / 1024)} KB`;
+};
+
+function CourseExperiencePreview({
+  course,
+  mode = "review",
+}: {
+  course: CoursePublicationDraft;
+  mode?: "review" | "dialog";
+}) {
+  const lessons = course.modules.flatMap((module) => module.lessons);
+  const totalDuration = lessons.reduce(
+    (total, lesson) => total + lesson.duration,
+    0,
+  );
+  const access =
+    visibilityOptions.find((item) => item.id === course.visibility)?.label ??
+    "Gratuito";
+
+  return (
+    <section className="course-experience" data-mode={mode}>
+      <div className="course-experience__hero">
+        {course.thumbnailUrl ? (
+          <img
+            src={course.thumbnailUrl}
+            alt={`Capa de ${course.title || "novo curso"}`}
+          />
+        ) : (
+          <div className="course-experience__placeholder" aria-hidden="true">
+            <GraduationCap />
+          </div>
+        )}
+        <div className="course-experience__veil" />
+        <div className="course-experience__content">
+          <div className="course-experience__context">
+            <span>Como o aluno verá</span>
+            <span className="course-experience__access">{access}</span>
+          </div>
+          <div>
+            <p className="course-experience__type">Curso Classfy</p>
+            <h2>{course.title || "Seu curso começa a ganhar forma aqui"}</h2>
+            <p className="course-experience__description">
+              {course.description ||
+                "Adicione uma descrição para apresentar a transformação e convidar o aluno a começar."}
+            </p>
+          </div>
+          <div className="course-experience__metrics">
+            <span>
+              <Layers3 /> {course.modules.length}{" "}
+              {course.modules.length === 1 ? "módulo" : "módulos"}
+            </span>
+            <span>
+              <BookOpen /> {lessons.length}{" "}
+              {lessons.length === 1 ? "aula" : "aulas"}
+            </span>
+            <span>
+              <Clock3 /> {formatDuration(totalDuration)}
+            </span>
+          </div>
+        </div>
+      </div>
+
+      <div className="course-experience__curriculum">
+        <header>
+          <div>
+            <span>Conteúdo do curso</span>
+            <h3>Uma jornada clara, módulo por módulo</h3>
+          </div>
+          <strong>
+            {course.modules.reduce(
+              (total, module) =>
+                total +
+                module.lessons.length +
+                module.quizzes.length +
+                module.materials.length,
+              0,
+            )}{" "}
+            itens
+          </strong>
+        </header>
+
+        <div className="course-experience__modules">
+          {course.modules.map((module, moduleIndex) => {
+            const items = [
+              ...module.lessons.map((lesson) => ({
+                id: lesson.id,
+                icon:
+                  lesson.lessonType === "audio" ? (
+                    <FileAudio />
+                  ) : lesson.lessonType === "text" ? (
+                    <FileText />
+                  ) : (
+                    <FileVideo />
+                  ),
+                title: lesson.title || "Aula sem título",
+                meta:
+                  lesson.lessonType === "text"
+                    ? "Leitura"
+                    : formatDuration(lesson.duration),
+              })),
+              ...module.quizzes.map((quiz) => ({
+                id: quiz.id,
+                icon: <Archive />,
+                title: quiz.title || "Quiz sem título",
+                meta: `${quiz.questions.length} ${quiz.questions.length === 1 ? "questão" : "questões"}`,
+              })),
+              ...module.materials.map((material) => ({
+                id: material.id,
+                icon: <File />,
+                title: material.title || "Material sem título",
+                meta: formatFileSize(material.fileSize),
+              })),
+            ];
+
+            return (
+              <article className="course-experience__module" key={module.id}>
+                <div className="course-experience__module-heading">
+                  <span>{String(moduleIndex + 1).padStart(2, "0")}</span>
+                  <div>
+                    <h4>{module.title || `Módulo ${moduleIndex + 1}`}</h4>
+                    <p>
+                      {module.description ||
+                        `${items.length} ${items.length === 1 ? "item" : "itens"} nesta etapa`}
+                    </p>
+                  </div>
+                </div>
+                {items.length ? (
+                  <ol>
+                    {items.map((item) => (
+                      <li key={item.id}>
+                        <span className="course-experience__item-icon">
+                          {item.icon}
+                        </span>
+                        <strong>{item.title}</strong>
+                        <small>{item.meta}</small>
+                      </li>
+                    ))}
+                  </ol>
+                ) : (
+                  <div className="course-experience__module-empty">
+                    <Plus />
+                    As aulas e materiais deste módulo aparecerão aqui.
+                  </div>
+                )}
+              </article>
+            );
+          })}
+        </div>
+      </div>
+    </section>
+  );
+}
 
 function StudioUploadCurso() {
   const { user, role, profile, loading } = useAuth();
@@ -805,10 +963,6 @@ function StudioUploadCurso() {
     }
   };
   const issues = useMemo(() => getCourseDraftIssues(payload), [payload]);
-  const totalLessons = modules.reduce(
-    (total, module) => total + module.lessons.length,
-    0,
-  );
   const totalUnits = modules.reduce(
     (total, module) => total + module.lessons.length + module.quizzes.length,
     0,
@@ -1467,73 +1621,75 @@ function StudioUploadCurso() {
           <aside
             className={`course-publish-panel ${courseStep !== 1 ? "studio-wizard-hidden" : ""}`}
           >
-            <V2Card elevation="raised">
-              <V2CardHeader>
-                <div>
-                  <h2>Revise e envie seu curso</h2>
-                  <p>
-                    Confira a estrutura, o acesso e o que ainda falta antes da
-                    análise.
-                  </p>
-                </div>
-              </V2CardHeader>
-              <V2CardContent>
-                <div
-                  className="studio-review-status"
-                  data-complete={!issues.length || undefined}
-                >
-                  {issues.length ? <CircleAlert /> : <Check />}
-                  <strong>
-                    {issues.length
-                      ? `${issues.length} ${issues.length === 1 ? "pendência" : "pendências"}`
-                      : "Pronto para análise"}
-                  </strong>
-                </div>
-                <ul className="studio-review-list">
-                  {issues.length ? (
-                    issues.slice(0, 6).map((issue) => (
-                      <li key={issue}>
-                        <span />
-                        {issue}
+            <div className="course-final-review">
+              <CourseExperiencePreview course={payload} />
+              <V2Card className="course-readiness-card">
+                <V2CardHeader>
+                  <div>
+                    <h2>Pronto para apresentar?</h2>
+                    <p>
+                      Confira o que ainda falta. O curso só entra em análise
+                      quando estiver completo.
+                    </p>
+                  </div>
+                  <div
+                    className="studio-review-status"
+                    data-complete={!issues.length || undefined}
+                  >
+                    {issues.length ? <CircleAlert /> : <Check />}
+                    <strong>
+                      {issues.length
+                        ? `${issues.length} ${issues.length === 1 ? "pendência" : "pendências"}`
+                        : "Tudo certo"}
+                    </strong>
+                  </div>
+                </V2CardHeader>
+                <V2CardContent>
+                  <ul className="studio-review-list">
+                    {issues.length ? (
+                      issues.map((issue) => (
+                        <li key={issue}>
+                          <span />
+                          {issue}
+                        </li>
+                      ))
+                    ) : (
+                      <li>
+                        <Check />
+                        Seu curso será enviado como uma única versão para
+                        análise.
                       </li>
-                    ))
-                  ) : (
-                    <li>
-                      <Check />
-                      Todo o curso será criado em uma única operação.
-                    </li>
-                  )}
-                </ul>
-                {issues.length > 6 && (
-                  <p className="course-more-issues">
-                    e mais {issues.length - 6}
-                  </p>
-                )}
-                <dl className="studio-review-summary">
-                  <div>
-                    <dt>Módulos</dt>
-                    <dd>{modules.length}</dd>
-                  </div>
-                  <div>
-                    <dt>Unidades</dt>
-                    <dd>{totalUnits}</dd>
-                  </div>
-                  <div>
-                    <dt>Duração em mídia</dt>
-                    <dd>{formatDuration(totalDuration)}</dd>
-                  </div>
-                  <div>
-                    <dt>Acesso</dt>
-                    <dd>
-                      {
-                        visibilityOptions.find((item) => item.id === visibility)
-                          ?.label
-                      }
-                    </dd>
-                  </div>
-                </dl>
-              </V2CardContent>
-            </V2Card>
+                    )}
+                  </ul>
+                  <dl className="studio-review-summary">
+                    <div>
+                      <dt>Acesso</dt>
+                      <dd>
+                        {
+                          visibilityOptions.find(
+                            (item) => item.id === visibility,
+                          )?.label
+                        }
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>Ordem das aulas</dt>
+                      <dd>
+                        {lessonOrder === "sequential" ? "Sequencial" : "Livre"}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>Certificado</dt>
+                      <dd>{issueCertificate ? "Incluído" : "Não incluído"}</dd>
+                    </div>
+                    <div>
+                      <dt>Duração em mídia</dt>
+                      <dd>{formatDuration(totalDuration)}</dd>
+                    </div>
+                  </dl>
+                </V2CardContent>
+              </V2Card>
+            </div>
           </aside>
         </div>
         <footer className="studio-wizard-footer course-wizard-footer">
@@ -1605,49 +1761,24 @@ function StudioUploadCurso() {
         </footer>
       </CreatorTemplate>
       <Dialog open={previewOpen} onOpenChange={setPreviewOpen}>
-        <DialogContent className="studio-preview-dialog course-preview-dialog">
-          <DialogHeader>
+        <DialogContent
+          className="studio-preview-dialog course-preview-dialog"
+          overlayClassName="studio-preview-overlay"
+        >
+          <DialogHeader className="course-preview-dialog__header">
             <DialogTitle>Prévia do curso</DialogTitle>
             <DialogDescription>
-              Confira a apresentação e a ordem que o aluno encontrará.
+              Esta é a apresentação que o aluno encontrará antes de começar.
             </DialogDescription>
           </DialogHeader>
-          <div className="course-preview">
-            <div className="course-preview-hero">
-              {thumbnailPreview ? (
-                <img src={thumbnailPreview} alt="" />
-              ) : (
-                <div className="studio-preview-placeholder">
-                  <ImagePlus />
-                </div>
-              )}
-              <div>
-                <V2Badge>Curso</V2Badge>
-                <h2>{title || "Título do curso"}</h2>
-                <p>{description || "A descrição do curso aparecerá aqui."}</p>
-                <span>
-                  {totalLessons} aulas · {formatDuration(totalDuration)}
-                </span>
-              </div>
-            </div>
-            <ol>
-              {modules.map((module, index) => (
-                <li key={module.id}>
-                  <strong>
-                    {index + 1}. {module.title || "Módulo sem título"}
-                  </strong>
-                  <span>
-                    {module.lessons.length} aulas · {module.quizzes.length}{" "}
-                    quizzes · {module.materials.length} materiais
-                  </span>
-                </li>
-              ))}
-            </ol>
-          </div>
+          <CourseExperiencePreview course={payload} mode="dialog" />
         </DialogContent>
       </Dialog>
       <Dialog open={discardOpen} onOpenChange={setDiscardOpen}>
-        <DialogContent className="studio-preview-dialog studio-discard-dialog">
+        <DialogContent
+          className="studio-preview-dialog studio-discard-dialog"
+          overlayClassName="studio-preview-overlay"
+        >
           <DialogHeader>
             <DialogTitle>Descartar este curso?</DialogTitle>
             <DialogDescription>
