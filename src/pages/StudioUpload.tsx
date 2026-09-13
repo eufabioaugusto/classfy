@@ -142,6 +142,8 @@ function StudioUpload() {
   const [captureReady, setCaptureReady] = useState(false);
   const [discardOpen, setDiscardOpen] = useState(false);
   const [wizardStep, setWizardStep] = useState(0);
+  const [detailsValidationVisible, setDetailsValidationVisible] =
+    useState(false);
   const [isDraggingFile, setIsDraggingFile] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [isGeneratingTags, setIsGeneratingTags] = useState(false);
@@ -149,6 +151,8 @@ function StudioUpload() {
   const activeBackgroundTaskRef = useRef<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const coverFileInputRef = useRef<HTMLInputElement>(null);
+  const titleInputRef = useRef<HTMLInputElement>(null);
+  const descriptionInputRef = useRef<HTMLTextAreaElement>(null);
   const visibleVideoRef = useRef<HTMLVideoElement>(null);
   const captureVideoRef = useRef<HTMLVideoElement>(null);
   const mediaUpload = useMediaUpload({ keepTransferOnUnmount: true });
@@ -952,6 +956,38 @@ function StudioUpload() {
         "O envio continuará em segundo plano. Você pode acompanhar pelo rascunho.",
       );
   };
+  const advanceFromDetails = () => {
+    setDetailsValidationVisible(true);
+
+    if (!title.trim()) {
+      titleInputRef.current?.focus();
+      titleInputRef.current?.scrollIntoView({
+        behavior: "smooth",
+        block: "center",
+      });
+      toast.error("Informe o título para continuar.");
+      return;
+    }
+
+    if (contentType !== "short" && !description.trim()) {
+      descriptionInputRef.current?.focus();
+      descriptionInputRef.current?.scrollIntoView({
+        behavior: "smooth",
+        block: "center",
+      });
+      toast.error("Escreva uma descrição para continuar.");
+      return;
+    }
+
+    if (!thumbnailUrl) {
+      toast.error("Escolha uma capa para continuar.");
+      setGalleryCoverFile(null);
+      setCoverEditorOpen(true);
+      return;
+    }
+
+    setWizardStep(3);
+  };
   const wizardSteps = [
     "Arquivo",
     contentType === "podcast" ? "Revisar áudio" : "Ajustar vídeo",
@@ -1463,18 +1499,32 @@ function StudioUpload() {
                   </div>
                 </section>
                 <V2Input
+                  ref={titleInputRef}
                   label="Título"
                   value={title}
                   onChange={(event) => setTitle(event.target.value)}
                   maxLength={120}
+                  required
+                  error={
+                    detailsValidationVisible && !title.trim()
+                      ? "Informe um título para continuar."
+                      : undefined
+                  }
                   placeholder="Um título direto e fácil de entender"
                 />
                 {contentType !== "short" && (
                   <V2Textarea
+                    ref={descriptionInputRef}
                     label="Descrição"
                     value={description}
                     onChange={(event) => setDescription(event.target.value)}
                     rows={5}
+                    required
+                    error={
+                      detailsValidationVisible && !description.trim()
+                        ? "Escreva uma descrição para continuar."
+                        : undefined
+                    }
                     placeholder="Conte o que será aprendido e para quem este material é indicado"
                   />
                 )}
@@ -1707,8 +1757,8 @@ function StudioUpload() {
               {wizardStep === 2 && !coverEditorOpen && (
                 <V2Button
                   trailingIcon={<ChevronRight />}
-                  onClick={() => setWizardStep(3)}
-                  disabled={!hasSelectedMedia}
+                  onClick={advanceFromDetails}
+                  disabled={!hasSelectedMedia || thumbnailUploading}
                 >
                   Avançar
                 </V2Button>
