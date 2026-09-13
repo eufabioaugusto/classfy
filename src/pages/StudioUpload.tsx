@@ -104,6 +104,35 @@ function mediaStatusCopy(
   return "Nenhum arquivo enviado";
 }
 
+function submissionErrorCopy(error: unknown) {
+  const message =
+    error &&
+    typeof error === "object" &&
+    "message" in error &&
+    typeof error.message === "string"
+      ? error.message
+      : error instanceof Error
+        ? error.message
+        : "";
+
+  if (message.includes("draft_not_found"))
+    return "Este rascunho não está mais disponível. Atualize a página e tente novamente.";
+  if (message.includes("media_not_ready"))
+    return "A mídia ainda está sendo processada. Aguarde mais um momento.";
+  if (message.includes("media_required"))
+    return "Envie a mídia para continuar.";
+  if (message.includes("thumbnail_required"))
+    return "Escolha uma capa para continuar.";
+  if (message.includes("title_required"))
+    return "Informe o título para continuar.";
+  if (message.includes("short_too_long"))
+    return "Reduza o short para até 3 minutos.";
+  if (message.includes("valid_price_required"))
+    return "Informe um preço válido para continuar.";
+  if (message.includes("Conecte-se à internet")) return message;
+  return "Não foi possível enviar para análise. Tente novamente.";
+}
+
 function StudioUpload() {
   const { user, role, profile, loading } = useAuth();
   const navigate = useNavigate();
@@ -267,7 +296,9 @@ function StudioUpload() {
       fileName,
       fileUrl,
       thumbnailUrl,
-      duration,
+      duration: Number.isFinite(duration)
+        ? Math.ceil(Math.max(0, duration))
+        : 0,
       mediaAssetId,
       videoProvider,
       uploadState: mediaUpload.state,
@@ -885,11 +916,8 @@ function StudioUpload() {
       );
       navigate("/studio/contents");
     } catch (submitError) {
-      toast.error(
-        submitError instanceof Error
-          ? submitError.message
-          : "Não foi possível enviar para análise.",
-      );
+      console.error("Falha ao enviar publicação para análise", submitError);
+      toast.error(submissionErrorCopy(submitError));
     } finally {
       setSubmitting(false);
     }
