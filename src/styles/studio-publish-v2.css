@@ -515,15 +515,15 @@
   border-bottom: 1px solid rgb(255 255 255 / 0.1);
   background: rgb(255 255 255 / 0.025);
 }
-.studio-frame-selector__toolbar strong,
-.studio-frame-selector__toolbar span {
+.studio-frame-selector__toolbar > div > strong,
+.studio-frame-selector__toolbar > div > span {
   display: block;
 }
-.studio-frame-selector__toolbar strong {
+.studio-frame-selector__toolbar > div > strong {
   font-size: 0.72rem;
   font-weight: 650;
 }
-.studio-frame-selector__toolbar span {
+.studio-frame-selector__toolbar > div > span {
   margin-top: 0.22rem;
   color: rgb(255 255 255 / 0.55);
   font-size: 0.6rem;

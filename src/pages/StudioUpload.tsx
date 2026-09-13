@@ -72,6 +72,7 @@ import {
   getStandaloneDraftIssues,
   isPersistedPublicationDraft,
   isNewPublicationDraftKey,
+  publicationDraftService,
   publicationRules,
   visibilityOptions,
   type PublicationKind,
@@ -145,7 +146,7 @@ function StudioUpload() {
   const coverFileInputRef = useRef<HTMLInputElement>(null);
   const visibleVideoRef = useRef<HTMLVideoElement>(null);
   const captureVideoRef = useRef<HTMLVideoElement>(null);
-  const mediaUpload = useMediaUpload();
+  const mediaUpload = useMediaUpload({ keepTransferOnUnmount: true });
   const compression = useVideoCompression();
   const hasSelectedMedia = Boolean(
     filePreview ||
@@ -278,6 +279,8 @@ function StudioUpload() {
       visibility,
     ],
   );
+  const latestPayloadRef = useRef(payload);
+  latestPayloadRef.current = payload;
 
   const restoreDraft = useCallback(
     (restored: StandalonePublicationDraft) => {
@@ -497,10 +500,25 @@ function StudioUpload() {
         mediaType: rules.mediaType,
         draftId: savedDraft?.id ?? draft.draftId,
         slotKey: `${contentType}:primary`,
-        onTargetCreated: (target) => {
+        onTargetCreated: async (target) => {
           setFileUrl(target.fileUrl);
           setMediaAssetId(target.mediaAssetId);
           setVideoProvider(target.provider);
+          if (!user) return;
+          await publicationDraftService.save({
+            ownerId: user.id,
+            draftKey,
+            kind: contentType,
+            sourceType: editId ? "content" : null,
+            sourceId: editId,
+            payload: {
+              ...latestPayloadRef.current,
+              fileUrl: target.fileUrl,
+              mediaAssetId: target.mediaAssetId,
+              videoProvider: target.provider,
+              uploadState: "uploading",
+            },
+          });
         },
       });
       setFileUrl(result.fileUrl);
@@ -803,19 +821,15 @@ function StudioUpload() {
         : "Aguardando arquivo"
       : mediaStatusCopy(mediaUpload.state, mediaUpload.progress);
   const closeWizard = async () => {
+    if (title || description || hasSelectedMedia) await draft.saveNow();
+    navigate("/studio/contents");
     if (
       ["preparing", "uploading"].includes(mediaUpload.state) ||
       isPreparingLocally
-    ) {
-      toast.info("Aguarde o envio terminar antes de fechar esta janela.");
-      return;
-    }
-    if (pendingFileRef.current && !mediaAssetId) {
-      toast.info("Confirme a preparação da mídia antes de fechar.");
-      return;
-    }
-    if (title || description || hasSelectedMedia) await draft.saveNow();
-    navigate("/studio/contents");
+    )
+      toast.success(
+        "O envio continuará em segundo plano. Você pode acompanhar pelo rascunho.",
+      );
   };
   const wizardSteps = [
     "Arquivo",
