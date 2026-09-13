@@ -73,10 +73,10 @@ export function seekAndCaptureCover(
   position: CoverCropPosition = { x: 50, y: 50 },
   quality = 0.9,
 ): Promise<string> {
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     const timeout = setTimeout(() => {
       video.removeEventListener("seeked", onSeeked);
-      resolve(createGreyPlaceholder(width, height));
+      reject(new Error("Não foi possível capturar este frame do vídeo."));
     }, 3000);
 
     const onSeeked = () => {
@@ -89,7 +89,7 @@ export function seekAndCaptureCover(
           canvas.height = height;
           const context = canvas.getContext("2d");
           if (!context) {
-            resolve(createGreyPlaceholder(width, height));
+            reject(new Error("Não foi possível preparar a imagem da capa."));
             return;
           }
           const crop = getCoverCropRect(
@@ -110,8 +110,12 @@ export function seekAndCaptureCover(
             height,
           );
           resolve(canvas.toDataURL("image/jpeg", quality));
-        } catch {
-          resolve(createGreyPlaceholder(width, height));
+        } catch (error) {
+          reject(
+            error instanceof Error
+              ? error
+              : new Error("Não foi possível capturar este frame do vídeo."),
+          );
         }
       };
       setTimeout(doCapture, 80);

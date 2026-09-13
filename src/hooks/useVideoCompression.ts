@@ -59,7 +59,7 @@ export function useVideoCompression() {
   const loadFFmpeg = useCallback(async () => {
     if (ffmpegRef.current?.loaded) return ffmpegRef.current;
 
-    setState(prev => ({ ...prev, isLoading: true, stage: 'loading', message: 'Carregando compressor...' }));
+    setState(prev => ({ ...prev, isLoading: true, stage: 'loading', message: 'Processando...' }));
 
     const ffmpeg = new FFmpeg();
     ffmpegRef.current = ffmpeg;
@@ -69,7 +69,7 @@ export function useVideoCompression() {
       setState(prev => ({
         ...prev,
         progress: percent,
-        message: `Comprimindo... ${percent}%`,
+        message: `Processando... ${percent}%`,
       }));
     });
 
@@ -93,7 +93,7 @@ export function useVideoCompression() {
         ...prev,
         isLoading: false,
         stage: 'error',
-        message: 'Erro ao carregar compressor. Usando upload direto.',
+        message: 'Não foi possível otimizar o arquivo. Usando upload direto.',
       }));
       throw error;
     }
@@ -217,7 +217,7 @@ export function useVideoCompression() {
         isCompressing: true,
         stage: 'compressing',
         progress: 0,
-        message: needsTrim ? 'Cortando e processando...' : 'Iniciando compressão...',
+        message: 'Processando...',
       }));
 
       const inputName = 'input' + file.name.substring(file.name.lastIndexOf('.'));
@@ -339,7 +339,7 @@ export function useVideoCompression() {
       ...prev,
       isCompressing: false,
       stage: 'idle',
-      message: 'Compressão cancelada',
+      message: 'Processamento cancelado',
       progress: 0,
     }));
   }, []);

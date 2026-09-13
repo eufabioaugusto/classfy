@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type SyntheticEvent,
+} from "react";
 import {
   Navigate,
   useLocation,
@@ -405,6 +412,48 @@ function StudioUpload() {
     toast.success("Capa removida do rascunho.");
   };
 
+  const invalidateCoverPreview = () => {
+    setThumbnailUrl("");
+    setThumbnailPreview("");
+    toast.info("Escolha outro frame ou uma imagem da galeria para a capa.");
+  };
+
+  const validateCoverPreview = (event: SyntheticEvent<HTMLImageElement>) => {
+    const image = event.currentTarget;
+    try {
+      const canvas = document.createElement("canvas");
+      canvas.width = 8;
+      canvas.height = 8;
+      const context = canvas.getContext("2d", { willReadFrequently: true });
+      if (!context) return;
+      context.drawImage(image, 0, 0, canvas.width, canvas.height);
+      const pixels = context.getImageData(
+        0,
+        0,
+        canvas.width,
+        canvas.height,
+      ).data;
+      let minimum = 255;
+      let maximum = 0;
+      let total = 0;
+      let samples = 0;
+      for (let index = 0; index < pixels.length; index += 4) {
+        for (let channel = 0; channel < 3; channel += 1) {
+          const value = pixels[index + channel];
+          minimum = Math.min(minimum, value);
+          maximum = Math.max(maximum, value);
+          total += value;
+          samples += 1;
+        }
+      }
+      const average = total / samples;
+      if (maximum - minimum <= 8 && average >= 25 && average <= 45)
+        invalidateCoverPreview();
+    } catch {
+      // A imagem continua válida quando o provedor não permite leitura via canvas.
+    }
+  };
+
   const startUpload = async (
     file: File,
     trimStart?: number,
@@ -551,17 +600,18 @@ function StudioUpload() {
     if (contentType !== "podcast") {
       setDuration(Math.max(0, trimEnd - trimStart));
     }
+    const defaultCoverVideo =
+      visibleVideoRef.current ?? captureVideoRef.current;
     setWizardStep(2);
     if (
       contentType !== "podcast" &&
       !thumbnailPreview &&
-      captureReady &&
-      captureVideoRef.current
+      defaultCoverVideo &&
+      defaultCoverVideo.readyState >= 2
     ) {
-      const video = captureVideoRef.current;
       const targetAspect = contentType === "short" ? 9 / 16 : 16 / 9;
       const target = coverTargetSize(targetAspect);
-      const playbackTime = visibleVideoRef.current?.currentTime ?? trimStart;
+      const playbackTime = defaultCoverVideo.currentTime || trimStart;
       const lastFrame = Math.max(trimStart, trimEnd - 0.1);
       const defaultTime = trimStart + Math.max(0, trimEnd - trimStart) * 0.25;
       const currentTime =
@@ -570,20 +620,29 @@ function StudioUpload() {
         Math.max(currentTime, trimStart),
         lastFrame,
       );
-      void seekAndCaptureCover(
-        video,
-        selectedTime,
-        target.width,
-        target.height,
-        { x: 50, y: 50 },
-        0.92,
-      ).then((dataUrl) => {
-        const cover = dataURLtoFile(
-          dataUrl,
-          `capa_${contentType}_${Date.now()}.jpg`,
-        );
-        void uploadCover(cover);
-      });
+      setThumbnailUploading(true);
+      void (async () => {
+        try {
+          const dataUrl = await seekAndCaptureCover(
+            defaultCoverVideo,
+            selectedTime,
+            target.width,
+            target.height,
+            { x: 50, y: 50 },
+            0.92,
+          );
+          const cover = dataURLtoFile(
+            dataUrl,
+            `capa_${contentType}_${Date.now()}.jpg`,
+          );
+          await uploadCover(cover);
+        } catch {
+          setThumbnailUploading(false);
+          toast.info(
+            "Não conseguimos gerar a capa automática. Escolha outro frame ou uma imagem da galeria.",
+          );
+        }
+      })();
     }
     const started = await startUpload(
       file,
@@ -737,7 +796,7 @@ function StudioUpload() {
       compression.stage,
     );
   const mediaStatus = isPreparingLocally
-    ? compression.message || "Preparando o arquivo..."
+    ? "Processando"
     : mediaUpload.state === "idle"
       ? hasSelectedMedia
         ? "Aguardando envio"
@@ -1195,7 +1254,13 @@ function StudioUpload() {
                     style={{ aspectRatio: coverAspect }}
                   >
                     {thumbnailPreview ? (
-                      <img src={thumbnailPreview} alt="Capa selecionada" />
+                      <img
+                        src={thumbnailPreview}
+                        alt="Capa selecionada"
+                        crossOrigin="anonymous"
+                        onLoad={validateCoverPreview}
+                        onError={invalidateCoverPreview}
+                      />
                     ) : thumbnailUploading ? (
                       <LoaderCircle className="animate-spin" />
                     ) : (
@@ -1216,7 +1281,7 @@ function StudioUpload() {
                         ? "Ela será usada no catálogo e na página do conteúdo."
                         : contentType === "podcast"
                           ? "Adicione uma imagem que represente o episódio."
-                          : "Selecionamos um frame inicial. Você pode escolher outro ou enviar uma imagem."}
+                          : "Escolha um frame do vídeo ou envie uma imagem da galeria."}
                     </p>
                     <div>
                       <V2Button
