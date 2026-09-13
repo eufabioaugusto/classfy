@@ -779,8 +779,9 @@
 }
 .studio-frame-selector__confirm-icon {
   display: inline-grid;
-  width: 1.45rem;
-  height: 1.45rem;
+  width: 1.6rem;
+  height: 1.6rem;
+  margin: 0;
   flex: none;
   place-items: center;
   border-radius: 50%;
@@ -790,9 +791,10 @@
     color-mix(in srgb, var(--cf2-accent) 16%, transparent);
 }
 .studio-frame-selector__confirm-icon svg {
-  width: 0.76rem;
-  height: 0.76rem;
-  stroke-width: 2.6;
+  display: block;
+  width: 0.95rem;
+  height: 0.95rem;
+  stroke-width: 3.2;
 }
 .studio-media-editor {
   display: grid;
