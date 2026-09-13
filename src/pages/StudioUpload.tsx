@@ -68,6 +68,10 @@ import { usePublicationDraft } from "@/hooks/usePublicationDraft";
 import { compressImage } from "@/utils/imageCompression";
 import { coverTargetSize } from "@/lib/media/coverCrop";
 import {
+  beginBackgroundUpload,
+  updateBackgroundUpload,
+} from "@/lib/studio/backgroundUploads";
+import {
   createNewPublicationDraftKey,
   getStandaloneDraftIssues,
   isPersistedPublicationDraft,
@@ -462,12 +466,17 @@ function StudioUpload() {
     trimStart?: number,
     trimEnd?: number,
   ) => {
+    let backgroundTaskId: string | null = null;
     try {
       const savedDraft = await draft.saveNow();
       if (!isPersistedPublicationDraft(savedDraft))
         throw new Error(
           "Conecte-se à internet para iniciar o envio. Seus dados continuam salvos neste dispositivo.",
         );
+      backgroundTaskId = beginBackgroundUpload({
+        draftId: savedDraft.id,
+        title: file.name,
+      });
       let prepared = file;
       if (contentType !== "podcast") {
         const requiresTrim =
@@ -500,6 +509,7 @@ function StudioUpload() {
         mediaType: rules.mediaType,
         draftId: savedDraft?.id ?? draft.draftId,
         slotKey: `${contentType}:primary`,
+        backgroundTaskId,
         onTargetCreated: async (target) => {
           setFileUrl(target.fileUrl);
           setMediaAssetId(target.mediaAssetId);
@@ -531,6 +541,8 @@ function StudioUpload() {
       );
       return true;
     } catch (uploadError) {
+      if (backgroundTaskId)
+        updateBackgroundUpload(backgroundTaskId, { state: "failed" });
       if (!(
         uploadError instanceof DOMException && uploadError.name === "AbortError"
       ))

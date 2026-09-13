@@ -5,15 +5,19 @@ import {
   useEffect,
   useMemo,
   useState,
+  useSyncExternalStore,
 } from "react";
 import { Navigate, useNavigate } from "react-router-dom";
 import {
   BookOpen,
   ChevronDown,
+  CircleAlert,
+  CircleCheck,
   Edit,
   Eye,
   Globe2,
   Library,
+  LoaderCircle,
   MoreVertical,
   Plus,
   Podcast,
@@ -29,6 +33,12 @@ import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { useBoostContent } from "@/hooks/useBoostContent";
 import type { BoostItemType } from "@/hooks/useBoostContent";
+import {
+  getBackgroundUploadsSnapshot,
+  subscribeBackgroundUploads,
+  type BackgroundUploadTask,
+  type BackgroundUploadState,
+} from "@/lib/studio/backgroundUploads";
 import {
   publicationDraftService,
   type PublicationKind,
@@ -88,6 +98,14 @@ interface Content {
   source_id?: string | null;
   source_type?: string | null;
   draft_payload?: Partial<StandalonePublicationDraft>;
+  media_asset_status?: string | null;
+}
+
+interface DraftMediaPresentation {
+  state: BackgroundUploadState;
+  label: string;
+  progress: number | null;
+  active: boolean;
 }
 
 const typeLabels: Record<string, string> = {
@@ -104,6 +122,112 @@ const statusLabels: Record<string, string> = {
   rejected: "Revisão necessária",
   draft: "Rascunho",
 };
+
+const mediaStatusPriority: Record<string, number> = {
+  failed: 5,
+  uploading: 4,
+  processing: 3,
+  created: 2,
+  ready: 1,
+};
+
+function resolveDraftMedia(
+  content: Content,
+  uploads: BackgroundUploadTask[],
+): DraftMediaPresentation | null {
+  if (content.record_type !== "draft") return null;
+  const live = uploads.find(
+    (upload) =>
+      upload.draftId === content.id ||
+      (content.draft_payload?.mediaAssetId &&
+        upload.mediaAssetId === content.draft_payload.mediaAssetId),
+  );
+  const persisted = content.media_asset_status;
+  let state: BackgroundUploadState | null = null;
+  let progress: number | null = null;
+
+  if (live?.state === "failed") {
+    state = "failed";
+    progress = live.progress;
+  } else if (persisted === "ready" || persisted === "failed") {
+    state = persisted;
+    progress = persisted === "ready" ? 100 : null;
+  } else if (live) {
+    state = live.state;
+    progress = live.state === "uploading" ? live.progress : null;
+  } else if (persisted) {
+    state =
+      persisted === "uploading"
+        ? "uploading"
+        : persisted === "processing"
+          ? "processing"
+          : persisted === "ready"
+            ? "ready"
+            : persisted === "failed"
+              ? "failed"
+              : "preparing";
+  } else if (
+    content.draft_payload?.uploadState &&
+    content.draft_payload.uploadState !== "idle"
+  ) {
+    const draftState = content.draft_payload.uploadState;
+    if (
+      ["preparing", "uploading", "processing", "ready", "failed"].includes(
+        draftState,
+      )
+    )
+      state = draftState as BackgroundUploadState;
+  }
+
+  if (!state) return null;
+  const label =
+    state === "preparing"
+      ? "Preparando"
+      : state === "uploading"
+        ? progress !== null
+          ? `Enviando ${progress}%`
+          : "Enviando"
+        : state === "processing"
+          ? "Processando"
+          : state === "ready"
+            ? "Mídia pronta"
+            : "Falha no envio";
+  return {
+    state,
+    label,
+    progress,
+    active: ["preparing", "uploading", "processing"].includes(state),
+  };
+}
+
+function DraftMediaStatus({ media }: { media: DraftMediaPresentation }) {
+  const Icon =
+    media.state === "ready"
+      ? CircleCheck
+      : media.state === "failed"
+        ? CircleAlert
+        : LoaderCircle;
+  return (
+    <span className="studio-status" data-status={`media-${media.state}`}>
+      <Icon className={media.active ? "animate-spin" : undefined} />
+      {media.label}
+    </span>
+  );
+}
+
+function DraftMediaProgress({ media }: { media: DraftMediaPresentation }) {
+  if (!media.active) return null;
+  const determinate = media.state === "uploading" && media.progress !== null;
+  return (
+    <div
+      className="studio-draft-progress"
+      data-indeterminate={!determinate || undefined}
+      aria-label={media.label}
+    >
+      <span style={{ width: determinate ? `${media.progress}%` : "38%" }} />
+    </div>
+  );
+}
 
 const visibilityLabels: Record<string, string> = {
   free: "Público",
@@ -152,6 +276,11 @@ export default function StudioContents() {
   const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
   const [deleteSelectionOpen, setDeleteSelectionOpen] = useState(false);
   const [isBulkWorking, setIsBulkWorking] = useState(false);
+  const backgroundUploads = useSyncExternalStore(
+    subscribeBackgroundUploads,
+    getBackgroundUploadsSnapshot,
+    getBackgroundUploadsSnapshot,
+  );
   const { isBoostModalOpen, selectedContent, openBoostModal, closeBoostModal } =
     useBoostContent();
   const contentRoute = (content: Content) =>
@@ -183,6 +312,67 @@ export default function StudioContents() {
       if (contentsRes.error) throw contentsRes.error;
       if (coursesRes.error) throw coursesRes.error;
       if (draftsRes.error) throw draftsRes.error;
+
+      const draftIds = (draftsRes.data || []).map((draft) => draft.id);
+      const currentAssetByDraft = new Map<string, string>();
+      const draftByCurrentAsset = new Map<string, string>();
+      (draftsRes.data || []).forEach((draft) => {
+        const payload = (draft.payload ||
+          {}) as unknown as Partial<StandalonePublicationDraft>;
+        if (payload.mediaAssetId) {
+          currentAssetByDraft.set(draft.id, payload.mediaAssetId);
+          draftByCurrentAsset.set(payload.mediaAssetId, draft.id);
+        }
+      });
+      const draftAssetStatuses = new Map<string, string>();
+      if (draftIds.length) {
+        const assetIds = Array.from(currentAssetByDraft.values());
+        const queries = [
+          (supabase as any)
+            .from("media_assets")
+            .select("id, publication_draft_id, status")
+            .in("publication_draft_id", draftIds),
+        ];
+        if (assetIds.length)
+          queries.push(
+            (supabase as any)
+              .from("media_assets")
+              .select("id, publication_draft_id, status")
+              .in("id", assetIds),
+          );
+        const assetResults = await Promise.all(queries);
+        const assets = new Map<
+          string,
+          {
+            id: string;
+            publication_draft_id: string | null;
+            status: string;
+          }
+        >();
+        assetResults.forEach((result) =>
+          (result.error ? [] : result.data || []).forEach(
+            (asset: {
+              id: string;
+              publication_draft_id: string | null;
+              status: string;
+            }) => assets.set(asset.id, asset),
+          ),
+        );
+        assets.forEach((asset) => {
+          const matchingDraft =
+            draftByCurrentAsset.get(asset.id) || asset.publication_draft_id;
+          if (!matchingDraft) return;
+          const preferredAsset = currentAssetByDraft.get(matchingDraft);
+          if (preferredAsset && preferredAsset !== asset.id) return;
+          const current = draftAssetStatuses.get(matchingDraft);
+          if (
+            !current ||
+            (mediaStatusPriority[asset.status] || 0) >
+              (mediaStatusPriority[current] || 0)
+          )
+            draftAssetStatuses.set(matchingDraft, asset.status);
+        });
+      }
 
       const mappedContents = (contentsRes.data || []).map((content) => ({
         ...content,
@@ -232,6 +422,7 @@ export default function StudioContents() {
             source_id: record.source_id,
             source_type: record.source_type,
             draft_payload: payload,
+            media_asset_status: draftAssetStatuses.get(record.id) || null,
           },
         ];
       });
@@ -284,6 +475,16 @@ export default function StudioContents() {
           event: "*",
           schema: "public",
           table: "publication_drafts",
+          filter: `owner_id=eq.${user.id}`,
+        },
+        () => void fetchContents(),
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "media_assets",
           filter: `owner_id=eq.${user.id}`,
         },
         () => void fetchContents(),
@@ -865,8 +1066,18 @@ export default function StudioContents() {
                           typeIcons[
                             content.content_type as keyof typeof typeIcons
                           ] || Video;
+                        const draftMedia = resolveDraftMedia(
+                          content,
+                          backgroundUploads,
+                        );
                         return (
-                          <tr key={key} data-selected={isSelected || undefined}>
+                          <tr
+                            key={key}
+                            className="studio-content-row"
+                            data-selected={isSelected || undefined}
+                            data-media-active={draftMedia?.active || undefined}
+                            data-media-state={draftMedia?.state}
+                          >
                             <td className="studio-table-select">
                               <Checkbox
                                 checked={isSelected}
@@ -896,6 +1107,9 @@ export default function StudioContents() {
                                         : " · rascunho"
                                       : ""}
                                   </span>
+                                  {draftMedia && (
+                                    <DraftMediaProgress media={draftMedia} />
+                                  )}
                                 </div>
                               </div>
                             </td>
@@ -904,13 +1118,17 @@ export default function StudioContents() {
                                 "Público"}
                             </td>
                             <td>
-                              <span
-                                className="studio-status"
-                                data-status={content.status || "unknown"}
-                              >
-                                {statusLabels[content.status || ""] ||
-                                  "Não informado"}
-                              </span>
+                              {draftMedia ? (
+                                <DraftMediaStatus media={draftMedia} />
+                              ) : (
+                                <span
+                                  className="studio-status"
+                                  data-status={content.status || "unknown"}
+                                >
+                                  {statusLabels[content.status || ""] ||
+                                    "Não informado"}
+                                </span>
+                              )}
                             </td>
                             <td>{formatDate(content.updated_at)}</td>
                             <td>
@@ -955,11 +1173,17 @@ export default function StudioContents() {
                       typeIcons[
                         content.content_type as keyof typeof typeIcons
                       ] || Video;
+                    const draftMedia = resolveDraftMedia(
+                      content,
+                      backgroundUploads,
+                    );
                     return (
                       <V2Card
                         className="studio-mobile-card"
                         key={key}
                         data-selected={isSelected || undefined}
+                        data-media-active={draftMedia?.active || undefined}
+                        data-media-state={draftMedia?.state}
                       >
                         <div className="studio-mobile-card__select">
                           <Checkbox
@@ -987,17 +1211,24 @@ export default function StudioContents() {
                               {typeLabels[content.content_type] ||
                                 content.content_type}
                             </span>
-                            <span
-                              className="studio-status"
-                              data-status={content.status || "unknown"}
-                            >
-                              {statusLabels[content.status || ""] ||
-                                "Não informado"}
-                            </span>
+                            {draftMedia ? (
+                              <DraftMediaStatus media={draftMedia} />
+                            ) : (
+                              <span
+                                className="studio-status"
+                                data-status={content.status || "unknown"}
+                              >
+                                {statusLabels[content.status || ""] ||
+                                  "Não informado"}
+                              </span>
+                            )}
                           </div>
                           <h3 className="studio-mobile-card__title">
                             {content.title}
                           </h3>
+                          {draftMedia && (
+                            <DraftMediaProgress media={draftMedia} />
+                          )}
                           <div className="studio-mobile-card__meta">
                             <span>{formatDate(content.updated_at)}</span>
                             <span>

@@ -4,6 +4,11 @@ import { supabase } from "@/integrations/supabase/client";
 import { videoService } from "@/lib/video/service";
 import type { VideoUploadTarget } from "@/lib/video/types";
 import type { MediaUploadState } from "@/lib/studio/publication";
+import {
+  beginBackgroundUpload,
+  updateBackgroundUpload,
+  updateBackgroundUploadByMediaAsset,
+} from "@/lib/studio/backgroundUploads";
 
 type UploadResult = VideoUploadTarget & { fileUrl: string };
 
@@ -39,11 +44,16 @@ export function useMediaUpload({
         }
         if (data?.status === "ready") {
           setState("ready");
+          updateBackgroundUploadByMediaAsset(mediaAssetId, {
+            state: "ready",
+            progress: 100,
+          });
           stopPolling();
           return;
         }
         if (["failed", "deleted", "missing"].includes(data?.status)) {
           setState("failed");
+          updateBackgroundUploadByMediaAsset(mediaAssetId, { state: "failed" });
           setError(
             "A mídia não pôde ser processada. Substitua o arquivo e tente novamente.",
           );
@@ -64,6 +74,7 @@ export function useMediaUpload({
       mediaType,
       draftId,
       slotKey,
+      backgroundTaskId,
       onTargetCreated,
     }: {
       file: File;
@@ -71,19 +82,43 @@ export function useMediaUpload({
       mediaType: "video" | "audio";
       draftId?: string | null;
       slotKey?: string | null;
+      backgroundTaskId?: string | null;
       onTargetCreated?: (target: UploadResult) => void | Promise<void>;
     }): Promise<UploadResult> => {
+      const taskId =
+        backgroundTaskId ||
+        beginBackgroundUpload({ draftId, title: file.name });
       setError(null);
       setProgress(0);
       setState("preparing");
-      const target = await videoService.createUpload(title || file.name, {
-        mediaType,
-        draftId,
-        slotKey,
-      });
-      const result = { ...target, fileUrl: `media:${target.mediaAssetId}` };
-      await onTargetCreated?.(result);
-      setState("uploading");
+      let target: VideoUploadTarget;
+      let result: UploadResult;
+      try {
+        target = await videoService.createUpload(title || file.name, {
+          mediaType,
+          draftId,
+          slotKey,
+        });
+        result = { ...target, fileUrl: `media:${target.mediaAssetId}` };
+        updateBackgroundUpload(taskId, {
+          draftId: draftId ?? null,
+          mediaAssetId: target.mediaAssetId,
+          title: title || file.name,
+          state: "uploading",
+          progress: 0,
+        });
+        await onTargetCreated?.(result);
+        setState("uploading");
+      } catch (uploadError) {
+        setState("failed");
+        updateBackgroundUpload(taskId, { state: "failed" });
+        setError(
+          uploadError instanceof Error
+            ? uploadError.message
+            : "Não foi possível preparar o envio.",
+        );
+        throw uploadError;
+      }
 
       try {
         if (target.method === "TUS") {
@@ -97,8 +132,15 @@ export function useMediaUpload({
                 filetype: file.type,
                 title: title || file.name,
               },
-              onProgress: (sent, total) =>
-                setProgress(total > 0 ? Math.round((sent / total) * 100) : 0),
+              onProgress: (sent, total) => {
+                const nextProgress =
+                  total > 0 ? Math.round((sent / total) * 100) : 0;
+                setProgress(nextProgress);
+                updateBackgroundUpload(taskId, {
+                  state: "uploading",
+                  progress: nextProgress,
+                });
+              },
               onSuccess: resolve,
               onError: reject,
             });
@@ -109,9 +151,17 @@ export function useMediaUpload({
           await new Promise<void>((resolve, reject) => {
             const request = new XMLHttpRequest();
             xhrRef.current = request;
-            request.upload.onprogress = (event) =>
-              event.lengthComputable &&
-              setProgress(Math.round((event.loaded / event.total) * 100));
+            request.upload.onprogress = (event) => {
+              if (!event.lengthComputable) return;
+              const nextProgress = Math.round(
+                (event.loaded / event.total) * 100,
+              );
+              setProgress(nextProgress);
+              updateBackgroundUpload(taskId, {
+                state: "uploading",
+                progress: nextProgress,
+              });
+            };
             request.onload = () =>
               request.status >= 200 && request.status < 300
                 ? resolve()
@@ -135,6 +185,10 @@ export function useMediaUpload({
         }
 
         setProgress(100);
+        updateBackgroundUpload(taskId, {
+          state: "processing",
+          progress: 100,
+        });
         if (mountedRef.current) void watchUntilReady(target.mediaAssetId);
         return result;
       } catch (uploadError) {
@@ -145,6 +199,7 @@ export function useMediaUpload({
           setState("cancelled");
         } else {
           setState("failed");
+          updateBackgroundUpload(taskId, { state: "failed" });
           setError(
             uploadError instanceof Error
               ? uploadError.message
