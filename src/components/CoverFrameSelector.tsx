@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { cn } from "@/lib/utils";
-import { Loader2, ImageIcon, AlertCircle, Check } from "lucide-react";
+import { Loader2, ImageIcon, AlertCircle } from "lucide-react";
 import { motion } from "framer-motion";
 import {
   seekAndCaptureCover,
@@ -314,7 +314,17 @@ export function CoverFrameSelector({
             onClick={() => void captureAndSelect(selectedIndexRef.current)}
           >
             <span className="studio-frame-selector__confirm-icon">
-              {capturing ? <Loader2 className="animate-spin" /> : <Check />}
+              {capturing ? (
+                <Loader2 className="animate-spin" />
+              ) : (
+                <svg
+                  className="studio-frame-selector__check"
+                  viewBox="0 0 24 24"
+                  aria-hidden="true"
+                >
+                  <path d="M6 12.25 10.2 16.25 18 7.75" />
+                </svg>
+              )}
             </span>
             {capturing ? "Preparando capa..." : confirmLabel}
           </button>

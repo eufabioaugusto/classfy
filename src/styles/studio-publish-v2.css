@@ -794,7 +794,13 @@
   display: block;
   width: 0.95rem;
   height: 0.95rem;
-  stroke-width: 3.2;
+}
+.studio-frame-selector__confirm-icon .studio-frame-selector__check {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 3.4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 .studio-media-editor {
   display: grid;
