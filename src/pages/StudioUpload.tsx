@@ -140,6 +140,13 @@ function StudioUpload() {
   const captureVideoRef = useRef<HTMLVideoElement>(null);
   const mediaUpload = useMediaUpload();
   const compression = useVideoCompression();
+  const hasSelectedMedia = Boolean(
+    filePreview ||
+    fileUrl ||
+    mediaAssetId ||
+    fileName ||
+    mediaUpload.state !== "idle",
+  );
   const [rules, setRules] = useState(publicationRules[contentType]);
   const newPublicationLabel =
     contentType === "aula"
@@ -344,6 +351,10 @@ function StudioUpload() {
     window.addEventListener("beforeunload", guard);
     return () => window.removeEventListener("beforeunload", guard);
   }, [compression.isCompressing, compression.stage, mediaUpload.state]);
+
+  useEffect(() => {
+    if (hasSelectedMedia && wizardStep === 0) setWizardStep(1);
+  }, [hasSelectedMedia, wizardStep]);
 
   const uploadCover = async (file: File) => {
     if (!user) return;
@@ -720,13 +731,6 @@ function StudioUpload() {
     );
   const hasPlayablePreview =
     filePreview.startsWith("blob:") || filePreview.startsWith("http");
-  const hasSelectedMedia = Boolean(
-    filePreview ||
-    fileUrl ||
-    mediaAssetId ||
-    fileName ||
-    mediaUpload.state !== "idle",
-  );
   const isPreparingLocally =
     compression.isCompressing ||
     ["loading", "analyzing", "compressing", "finalizing"].includes(
@@ -1405,11 +1409,11 @@ function StudioUpload() {
               </div>
             </div>
             <div className="studio-wizard-footer__actions">
-              {wizardStep > 0 && !coverEditorOpen && (
+              {wizardStep > 1 && !coverEditorOpen && (
                 <V2Button
                   variant="secondary"
                   leadingIcon={<ChevronLeft />}
-                  onClick={() => setWizardStep((step) => Math.max(0, step - 1))}
+                  onClick={() => setWizardStep((step) => Math.max(1, step - 1))}
                 >
                   Voltar
                 </V2Button>
