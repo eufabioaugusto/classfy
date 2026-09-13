@@ -36,6 +36,7 @@ export function usePublicationDraft<TPayload>({
   const payloadRef = useRef(payload);
   const lastSavedPayloadRef = useRef<string | null>(null);
   const restoreRef = useRef(onRestore);
+  const saveQueueRef = useRef<Promise<void>>(Promise.resolve());
   payloadRef.current = payload;
   restoreRef.current = onRestore;
 
@@ -72,28 +73,52 @@ export function usePublicationDraft<TPayload>({
     };
   }, [draftKey, enabled, userId]);
 
-  const saveNow = useCallback(async () => {
-    if (!enabled || !userId || !hydratedRef.current) return null;
-    setState("saving");
-    try {
-      const result = await publicationDraftService.save({
-        ownerId: userId,
-        draftKey,
-        kind,
-        sourceType,
-        sourceId,
-        payload: payloadRef.current,
+  const enqueueSave = useCallback(
+    (nextPayload: TPayload) => {
+      if (!enabled || !userId || !hydratedRef.current)
+        return Promise.resolve(null);
+      const queued = saveQueueRef.current.then(async () => {
+        setState("saving");
+        try {
+          const result = await publicationDraftService.save({
+            ownerId: userId,
+            draftKey,
+            kind,
+            sourceType,
+            sourceId,
+            payload: nextPayload,
+          });
+          setDraftId(result.record.id);
+          setSavedAt(new Date(result.record.updated_at));
+          lastSavedPayloadRef.current = JSON.stringify(result.record.payload);
+          setState(result.remote ? "saved" : "offline");
+          return result.record;
+        } catch {
+          setState("error");
+          return null;
+        }
       });
-      setDraftId(result.record.id);
-      setSavedAt(new Date(result.record.updated_at));
-      lastSavedPayloadRef.current = JSON.stringify(result.record.payload);
-      setState(result.remote ? "saved" : "offline");
-      return result.record;
-    } catch {
-      setState("error");
-      return null;
-    }
-  }, [draftKey, enabled, kind, sourceId, sourceType, userId]);
+      saveQueueRef.current = queued.then(
+        () => undefined,
+        () => undefined,
+      );
+      return queued;
+    },
+    [draftKey, enabled, kind, sourceId, sourceType, userId],
+  );
+
+  const saveNow = useCallback(
+    () => enqueueSave(payloadRef.current),
+    [enqueueSave],
+  );
+
+  const savePayload = useCallback(
+    (nextPayload: TPayload) => {
+      payloadRef.current = nextPayload;
+      return enqueueSave(nextPayload);
+    },
+    [enqueueSave],
+  );
 
   useEffect(() => {
     if (!enabled || !userId || !hydratedRef.current) return;
@@ -128,5 +153,14 @@ export function usePublicationDraft<TPayload>({
     () => formatSaveStatus(state, savedAt),
     [savedAt, state],
   );
-  return { draftId, state, savedAt, label, saveNow, discard, clearLocal };
+  return {
+    draftId,
+    state,
+    savedAt,
+    label,
+    saveNow,
+    savePayload,
+    discard,
+    clearLocal,
+  };
 }

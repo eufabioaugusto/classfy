@@ -75,6 +75,7 @@ export function useMediaUpload({
       draftId,
       slotKey,
       backgroundTaskId,
+      preparedTarget,
       onTargetCreated,
     }: {
       file: File;
@@ -83,6 +84,7 @@ export function useMediaUpload({
       draftId?: string | null;
       slotKey?: string | null;
       backgroundTaskId?: string | null;
+      preparedTarget?: UploadResult | null;
       onTargetCreated?: (target: UploadResult) => void | Promise<void>;
     }): Promise<UploadResult> => {
       const taskId =
@@ -94,12 +96,17 @@ export function useMediaUpload({
       let target: VideoUploadTarget;
       let result: UploadResult;
       try {
-        target = await videoService.createUpload(title || file.name, {
-          mediaType,
-          draftId,
-          slotKey,
-        });
-        result = { ...target, fileUrl: `media:${target.mediaAssetId}` };
+        target =
+          preparedTarget ??
+          (await videoService.createUpload(title || file.name, {
+            mediaType,
+            draftId,
+            slotKey,
+          }));
+        result = preparedTarget ?? {
+          ...target,
+          fileUrl: `media:${target.mediaAssetId}`,
+        };
         updateBackgroundUpload(taskId, {
           draftId: draftId ?? null,
           mediaAssetId: target.mediaAssetId,

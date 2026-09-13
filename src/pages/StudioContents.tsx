@@ -326,7 +326,26 @@ export default function StudioContents() {
       });
       const draftAssetStatuses = new Map<string, string>();
       if (draftIds.length) {
-        const assetIds = Array.from(currentAssetByDraft.values());
+        const linkedAssetByDraft = new Map<string, string>();
+        const draftByLinkedAsset = new Map<string, string>();
+        const { data: draftAssetLinks } = await (supabase as any)
+          .from("publication_draft_assets")
+          .select("draft_id, media_asset_id, created_at")
+          .in("draft_id", draftIds)
+          .order("created_at", { ascending: false });
+        (draftAssetLinks || []).forEach(
+          (link: { draft_id: string; media_asset_id: string }) => {
+            if (linkedAssetByDraft.has(link.draft_id)) return;
+            linkedAssetByDraft.set(link.draft_id, link.media_asset_id);
+            draftByLinkedAsset.set(link.media_asset_id, link.draft_id);
+          },
+        );
+        const assetIds = Array.from(
+          new Set([
+            ...currentAssetByDraft.values(),
+            ...linkedAssetByDraft.values(),
+          ]),
+        );
         const queries = [
           (supabase as any)
             .from("media_assets")
@@ -360,9 +379,13 @@ export default function StudioContents() {
         );
         assets.forEach((asset) => {
           const matchingDraft =
-            draftByCurrentAsset.get(asset.id) || asset.publication_draft_id;
+            draftByCurrentAsset.get(asset.id) ||
+            draftByLinkedAsset.get(asset.id) ||
+            asset.publication_draft_id;
           if (!matchingDraft) return;
-          const preferredAsset = currentAssetByDraft.get(matchingDraft);
+          const preferredAsset =
+            currentAssetByDraft.get(matchingDraft) ||
+            linkedAssetByDraft.get(matchingDraft);
           if (preferredAsset && preferredAsset !== asset.id) return;
           const current = draftAssetStatuses.get(matchingDraft);
           if (
