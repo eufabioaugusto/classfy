@@ -732,12 +732,13 @@ function StudioUpload() {
     ["loading", "analyzing", "compressing", "finalizing"].includes(
       compression.stage,
     );
-  const mediaStatus =
-    wizardStep === 1 && mediaUpload.state === "idle"
-      ? "Arquivo selecionado"
-      : isPreparingLocally
-        ? compression.message || "Preparando o arquivo..."
-        : mediaStatusCopy(mediaUpload.state, mediaUpload.progress);
+  const mediaStatus = isPreparingLocally
+    ? compression.message || "Preparando o arquivo..."
+    : mediaUpload.state === "idle"
+      ? hasSelectedMedia
+        ? "Aguardando envio"
+        : "Aguardando arquivo"
+      : mediaStatusCopy(mediaUpload.state, mediaUpload.progress);
   const closeWizard = async () => {
     if (
       ["preparing", "uploading"].includes(mediaUpload.state) ||
@@ -932,19 +933,10 @@ function StudioUpload() {
                   <div className="studio-media-progress">
                     <div className="studio-media-progress__copy">
                       <div>
-                        <strong>
-                          {fileName || `${rules.label} vinculada`}
-                        </strong>
-                        <span>
-                          {duration > 0
-                            ? `${Math.floor(duration / 60)}:${String(duration % 60).padStart(2, "0")}`
-                            : "Duração sendo identificada"}
-                        </span>
+                        <strong>Arquivo selecionado</strong>
+                        <span>{fileName || title || rules.label}</span>
                       </div>
                       <div className="studio-media-progress__actions">
-                        <span className="studio-media-progress__selection-status">
-                          Arquivo selecionado
-                        </span>
                         <V2Button
                           variant="quiet"
                           size="sm"
