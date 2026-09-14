@@ -30,6 +30,10 @@ import { cn } from "@/lib/utils";
 import Hls from "hls.js";
 import { usePlaybackSource } from "@/hooks/usePlaybackSource";
 import { releaseMediaElement, standardHlsConfig } from "@/lib/video/hlsConfig";
+import {
+  resolveResumePosition,
+  shouldRestartFromBeginning,
+} from "@/lib/video/resumePosition";
 
 export interface UnifiedVideoPlayerProps {
   content: {
@@ -97,7 +101,7 @@ export function UnifiedVideoPlayer({
   const [volume, setVolume] = useState(1);
   const [showVolumeSlider, setShowVolumeSlider] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
-  const [duration, setDuration] = useState(0);
+  const [duration, setDuration] = useState(content.duration_seconds || 0);
   const [buffered, setBuffered] = useState(0);
   const [isBuffering, setIsBuffering] = useState(false);
   const [showControls, setShowControls] = useState(true);
@@ -146,12 +150,19 @@ export function UnifiedVideoPlayer({
   const mediaRef = content.content_type === "podcast" ? audioRef : videoRef;
   const isVideo = content.content_type !== "podcast";
   const playback = usePlaybackSource(content, !isVideo || playbackRequested);
+  const pendingResumePositionRef = useRef<number | null>(null);
+  const hasUserRequestedPlaybackRef = useRef(false);
 
   useEffect(() => {
     setPlaybackRequested(false);
     setIsPlaying(false);
+    setCurrentTime(0);
+    setDuration(content.duration_seconds || 0);
+    setBuffered(0);
+    pendingResumePositionRef.current = null;
+    hasUserRequestedPlaybackRef.current = false;
     resetCourseProgress();
-  }, [content.id, courseProgress?.lessonId, resetCourseProgress]);
+  }, [content.id, content.duration_seconds, courseProgress?.lessonId, resetCourseProgress]);
 
   // ── Keyboard shortcuts ─────────────────────────────────────────────────────
   useEffect(() => {
@@ -342,40 +353,60 @@ export function UnifiedVideoPlayer({
 
   // ── Load saved position ───────────────────────────────────────────────────
   useEffect(() => {
+    const applySavedPosition = (
+      savedPosition?: number | null,
+      completed?: boolean | null,
+    ) => {
+      if (hasUserRequestedPlaybackRef.current) return;
+
+      const media = mediaRef.current;
+      const resumePosition = resolveResumePosition({
+        savedPosition,
+        completed,
+        duration: content.duration_seconds,
+      });
+
+      pendingResumePositionRef.current = resumePosition;
+      setCurrentTime(resumePosition);
+
+      if (media && media.readyState >= 1) {
+        const finalPosition = resolveResumePosition({
+          savedPosition: resumePosition,
+          completed,
+          duration: media.duration,
+        });
+        media.currentTime = finalPosition;
+        setCurrentTime(finalPosition);
+        pendingResumePositionRef.current = null;
+      }
+    };
+
     const load = async () => {
       if (!user || !content.id) return;
       if (courseProgress) {
         const { data } = await supabase
           .from("course_lesson_progress")
-          .select("last_position_seconds")
+          .select("last_position_seconds, completed")
           .eq("user_id", user.id)
           .eq("lesson_id", courseProgress.lessonId)
           .maybeSingle();
-        if (data?.last_position_seconds && data.last_position_seconds > 0) {
-          const media = mediaRef.current;
-          if (media) {
-            media.currentTime = data.last_position_seconds;
-            setCurrentTime(data.last_position_seconds);
-          }
+        if (data) {
+          applySavedPosition(data.last_position_seconds, data.completed);
         }
         return;
       }
       const { data } = await supabase
         .from("user_progress")
-        .select("last_position_seconds")
+        .select("last_position_seconds, completed")
         .eq("user_id", user.id)
         .eq("content_id", content.content_id ?? content.id)
         .maybeSingle();
-      if (data?.last_position_seconds && data.last_position_seconds > 0) {
-        const media = mediaRef.current;
-        if (media) {
-          media.currentTime = data.last_position_seconds;
-          setCurrentTime(data.last_position_seconds);
-        }
+      if (data) {
+        applySavedPosition(data.last_position_seconds, data.completed);
       }
     };
-    load();
-  }, [content.id, courseProgress?.lessonId, user]);
+    void load();
+  }, [content.id, content.content_id, content.duration_seconds, courseProgress?.lessonId, user]);
 
   // ── Load note markers ─────────────────────────────────────────────────────
   useEffect(() => {
@@ -411,7 +442,23 @@ export function UnifiedVideoPlayer({
     const media = mediaRef.current;
     if (!media) return;
 
-    const onLoadedMetadata = () => setDuration(media.duration);
+    const onLoadedMetadata = () => {
+      const loadedDuration =
+        Number.isFinite(media.duration) && media.duration > 0
+          ? media.duration
+          : content.duration_seconds || 0;
+      setDuration(loadedDuration);
+
+      if (pendingResumePositionRef.current !== null) {
+        const resumePosition = resolveResumePosition({
+          savedPosition: pendingResumePositionRef.current,
+          duration: loadedDuration,
+        });
+        media.currentTime = resumePosition;
+        setCurrentTime(resumePosition);
+        pendingResumePositionRef.current = null;
+      }
+    };
 
     const onTimeUpdateEv = () => {
       const t = media.currentTime;
@@ -462,7 +509,7 @@ export function UnifiedVideoPlayer({
       media.removeEventListener("ended", onEnded);
       media.removeEventListener("pause", onPause);
     };
-  }, [content.id, content.content_id, user, duration, onTimeUpdate, onVideoEnded, trackMetrics, trackCourseProgress, courseProgress, completeLesson, flushProgress]);
+  }, [content.id, content.content_id, content.duration_seconds, user, duration, onTimeUpdate, onVideoEnded, trackMetrics, trackCourseProgress, courseProgress, completeLesson, flushProgress]);
 
   const saveCurrentPosition = useCallback(async (time: number) => {
     if (!user || !content.id || !time || time < 1 || duration <= 0) return;
@@ -478,11 +525,28 @@ export function UnifiedVideoPlayer({
   const togglePlay = useCallback(() => {
     const media = mediaRef.current;
     if (!media) return;
+    hasUserRequestedPlaybackRef.current = true;
     if (isPlaying) {
       media.pause();
       setIsPlaying(false);
       triggerClickAnim("pause");
     } else {
+      const knownDuration =
+        Number.isFinite(media.duration) && media.duration > 0
+          ? media.duration
+          : duration;
+      if (
+        shouldRestartFromBeginning({
+          currentTime,
+          duration: knownDuration,
+          ended: media.ended,
+        })
+      ) {
+        media.currentTime = 0;
+        setCurrentTime(0);
+        pendingResumePositionRef.current = 0;
+      }
+
       if (isVideo && !playbackRequested) {
         setPlaybackRequested(true);
         setIsPlaying(true);
@@ -504,7 +568,7 @@ export function UnifiedVideoPlayer({
         triggerClickAnim("play");
       }
     }
-  }, [isPlaying, isVideo, playbackRequested]);
+  }, [currentTime, duration, isPlaying, isVideo, playbackRequested]);
 
   const skip = useCallback((seconds: number) => {
     const media = mediaRef.current;
