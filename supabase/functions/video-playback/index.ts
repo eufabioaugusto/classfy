@@ -1,5 +1,6 @@
 import { corsHeaders, json, serviceClient } from "../_shared/video/http.ts";
 import { getVideoProvider } from "../_shared/video/provider.ts";
+import { getVerifiedUserId } from "../_shared/auth.ts";
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -8,11 +9,8 @@ Deno.serve(async (req) => {
   try {
     const client = serviceClient();
     const authorization = req.headers.get("Authorization") || "";
-    const token = authorization.replace("Bearer ", "");
-    const { data: authData } = token
-      ? await client.auth.getUser(token)
-      : { data: { user: null } };
-    const user = authData.user;
+    const userId = await getVerifiedUserId(client, authorization);
+    const user = userId ? { id: userId } : null;
     const { mediaAssetId } = await req.json();
     const { data: asset, error } = await client
       .from("media_assets")

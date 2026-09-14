@@ -5,6 +5,7 @@ import {
   normalizePlan,
 } from "../_shared/economy.ts";
 import { excludesEconomicRewards } from "../_shared/reward-contract.ts";
+import { getVerifiedUserId } from "../_shared/auth.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -302,11 +303,12 @@ Deno.serve(async (req) => {
         return json({ error: "Server-only reward action" }, 403);
       }
       const authClient = createClient(supabaseUrl, anonKey);
-      const { data: { user }, error } = await authClient.auth.getUser(
-        authHeader.replace("Bearer ", ""),
+      const authenticatedUserId = await getVerifiedUserId(
+        authClient,
+        authHeader,
       );
-      if (error || !user) return json({ error: "Unauthorized" }, 401);
-      if (user.id !== userId) {
+      if (!authenticatedUserId) return json({ error: "Unauthorized" }, 401);
+      if (authenticatedUserId !== userId) {
         return json({ error: "User identity mismatch" }, 403);
       }
       if (
