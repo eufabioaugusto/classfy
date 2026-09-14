@@ -4,7 +4,6 @@ import {
   Heart,
   Bookmark,
   MessageCircle,
-  Check,
   CheckCircle2,
   PlayCircle,
   Zap,
@@ -727,22 +726,9 @@ export function ContentRewardProgress({
                 }}
               />
             )}
-            <motion.span
-              aria-hidden="true"
-              className="relative grid h-4 w-4 place-items-center rounded-full bg-emerald-500 text-white shadow-[0_0_10px_rgba(16,185,129,0.45)]"
-              animate={reduceMotion ? undefined : { scale: [1, 1.08, 1] }}
-              transition={{
-                duration: 2.8,
-                ease: "easeInOut",
-                repeat: Infinity,
-              }}
-            >
-              <Check className="h-3 w-3 stroke-[3.25]" />
-            </motion.span>
             <span className="relative text-xs font-bold tracking-wide">
               Completo
             </span>
-            <Sparkles aria-hidden="true" className="relative h-3 w-3" />
           </motion.div>
         </>
       )}

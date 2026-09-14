@@ -20,6 +20,7 @@ import {
 import { useStudies } from "@/hooks/useStudies";
 import { useNotificationToasts } from "@/hooks/useNotificationToasts";
 import { creatorActions } from "@/config/navigation";
+import { cn } from "@/lib/utils";
 
 export interface HeaderProps {
   variant?: "home" | "studio";
@@ -27,9 +28,10 @@ export interface HeaderProps {
   showSearch?: boolean;
   isExploreMode?: boolean;
   onModeChange?: (isExplore: boolean) => void;
+  className?: string;
 }
 
-export function Header({ variant = "home", title, showSearch = false, isExploreMode = false, onModeChange }: HeaderProps) {
+export function Header({ variant = "home", title, showSearch = false, isExploreMode = false, onModeChange, className }: HeaderProps) {
   const { user, signOut, profile, role } = useAuth();
   const { theme, toggleTheme } = useTheme();
   const navigate = useNavigate();
@@ -46,7 +48,7 @@ export function Header({ variant = "home", title, showSearch = false, isExploreM
   };
 
   return (
-    <header className="cf2-app-header sticky top-0 z-50 border-b border-border/20 bg-background/95 backdrop-blur-xl">
+    <header className={cn("cf2-app-header sticky top-0 z-50 border-b border-border/20 bg-background/95 backdrop-blur-xl", className)}>
       <div className="flex items-center justify-between gap-2 px-3 sm:px-6 py-3 sm:py-4">
         <div className="flex items-center gap-2 sm:gap-4 flex-shrink-0">
           <SidebarTrigger />

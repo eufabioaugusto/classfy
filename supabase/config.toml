@@ -84,6 +84,9 @@ verify_jwt = true
 [functions.reverse-reward]
 verify_jwt = true
 
+[functions.delete-comment]
+verify_jwt = true
+
 [functions.claim-creator-milestone]
 verify_jwt = true
 

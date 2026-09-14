@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
-import { UserPlus, UserMinus } from "lucide-react";
+import { UserCheck, UserPlus } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { useRewardSystem } from "@/hooks/useRewardSystem";
@@ -128,7 +128,7 @@ export function FollowButton({ creatorId, size = "default", variant = "outline" 
               animate={isBursting ? { scale: [1, 1.3, 1] } : {}}
               transition={{ duration: 0.3, ease: "easeOut" }}
             >
-              <UserMinus className="h-4 w-4" />
+              <UserCheck className="h-4 w-4" />
             </motion.div>
             Seguindo
           </>

@@ -1,10 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ChevronDown,
+  Loader2,
   MessageCircle,
+  MoreHorizontal,
+  Pencil,
   Send,
   Smile,
   Sparkles,
+  Trash2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -14,6 +18,22 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { useRewardSystem } from "@/hooks/useRewardSystem";
@@ -38,6 +58,7 @@ interface Comment {
   id: string;
   text: string;
   created_at: string;
+  updated_at: string;
   user_id: string;
   profiles: {
     display_name: string;
@@ -51,12 +72,21 @@ interface ContentCommentsProps {
 
 export function ContentComments({ contentId }: ContentCommentsProps) {
   const { user } = useAuth();
-  const { handleComment } = useRewardSystem();
+  const { deleteComment, handleComment } = useRewardSystem();
   const [comments, setComments] = useState<Comment[]>([]);
   const [newComment, setNewComment] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showComments, setShowComments] = useState(true);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+  const [editingCommentId, setEditingCommentId] = useState<string | null>(null);
+  const [editingText, setEditingText] = useState("");
+  const [isSavingEdit, setIsSavingEdit] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<{
+    comment: Comment;
+    rewardValue: number;
+    keepsReward: boolean;
+  } | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const fetchComments = useCallback(async () => {
@@ -160,6 +190,132 @@ export function ContentComments({ contentId }: ContentCommentsProps) {
       }
     } finally {
       setIsSubmitting(false);
+    }
+  };
+
+  const startEditing = (comment: Comment) => {
+    setEditingCommentId(comment.id);
+    setEditingText(comment.text);
+  };
+
+  const cancelEditing = () => {
+    setEditingCommentId(null);
+    setEditingText("");
+  };
+
+  const saveEdit = async (commentId: string) => {
+    if (!user) return;
+    setIsSavingEdit(true);
+
+    try {
+      const validated = commentSchema.parse({ text: editingText });
+      const { data, error } = await supabase
+        .from("comments")
+        .update({ text: validated.text })
+        .eq("id", commentId)
+        .eq("user_id", user.id)
+        .select("id, text, updated_at")
+        .single();
+
+      if (error) throw error;
+      setComments((current) =>
+        current.map((comment) =>
+          comment.id === commentId
+            ? { ...comment, text: data.text, updated_at: data.updated_at }
+            : comment,
+        ),
+      );
+      cancelEditing();
+      toast({
+        title: "Comentário atualizado",
+        description: "A edição foi salva sem alterar seus Points.",
+      });
+    } catch (error) {
+      console.error("Error updating comment:", error);
+      toast({
+        title: "Não foi possível editar",
+        description: error instanceof z.ZodError
+          ? error.errors[0]?.message
+          : "Tente novamente em instantes.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsSavingEdit(false);
+    }
+  };
+
+  const requestDelete = async (comment: Comment) => {
+    if (!user) return;
+
+    let rewardValue = 0;
+    let ownCommentCount = 1;
+    try {
+      const [commentsResult, rewardResult] = await Promise.all([
+        supabase
+          .from("comments")
+          .select("id", { count: "exact", head: true })
+          .eq("user_id", user.id)
+          .eq("content_id", contentId),
+        supabase
+          .from("reward_events")
+          .select("points")
+          .eq("user_id", user.id)
+          .eq("content_id", contentId)
+          .eq("action_key", "COMMENT")
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .maybeSingle(),
+      ]);
+      if (commentsResult.error) throw commentsResult.error;
+      ownCommentCount = commentsResult.count || 1;
+      if (!rewardResult.error && ownCommentCount <= 1) {
+        rewardValue = Number(rewardResult.data?.points || 0);
+      }
+    } catch (error) {
+      console.warn("Could not calculate comment deletion impact:", error);
+    }
+
+    setDeleteTarget({
+      comment,
+      rewardValue,
+      keepsReward: ownCommentCount > 1,
+    });
+  };
+
+  const confirmDelete = async () => {
+    if (!user || !deleteTarget) return;
+    setIsDeleting(true);
+
+    try {
+      const result = await deleteComment(
+        user.id,
+        deleteTarget.comment.id,
+        contentId,
+      );
+      setComments((current) =>
+        current.filter((comment) => comment.id !== deleteTarget.comment.id),
+      );
+      if (editingCommentId === deleteTarget.comment.id) cancelEditing();
+
+      const revertedPoints = Number(result?.points || 0);
+      toast({
+        title: "Comentário excluído",
+        description: revertedPoints > 0
+          ? `${revertedPoints} Points foram deduzidos do seu saldo.`
+          : result?.other_comments_remaining
+            ? "Seus Points permanecem porque você ainda comentou neste conteúdo."
+            : "O comentário foi removido.",
+      });
+      setDeleteTarget(null);
+    } catch (error) {
+      console.error("Error deleting comment:", error);
+      toast({
+        title: "Não foi possível excluir",
+        description: "O comentário e seus Points foram preservados.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsDeleting(false);
     }
   };
 
@@ -290,7 +446,7 @@ export function ContentComments({ contentId }: ContentCommentsProps) {
                     {comment.profiles?.display_name?.[0]?.toUpperCase() || "U"}
                   </AvatarFallback>
                 </Avatar>
-                <div className="flex-1 space-y-1">
+                <div className="min-w-0 flex-1 space-y-1">
                   <div className="flex items-center gap-2">
                     <span className="font-semibold text-sm">
                       {comment.profiles?.display_name || "Usuário"}
@@ -298,8 +454,85 @@ export function ContentComments({ contentId }: ContentCommentsProps) {
                     <span className="text-xs text-muted-foreground">
                       {new Date(comment.created_at).toLocaleDateString("pt-BR")}
                     </span>
+                    {comment.updated_at !== comment.created_at && (
+                      <span className="text-[10px] text-muted-foreground/70">
+                        editado
+                      </span>
+                    )}
+                    {user?.id === comment.user_id && (
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            aria-label="Opções do comentário"
+                            className="ml-auto h-7 w-7 rounded-full text-muted-foreground"
+                          >
+                            <MoreHorizontal className="h-4 w-4" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end" className="w-40">
+                          <DropdownMenuItem
+                            className="gap-2"
+                            onSelect={() => startEditing(comment)}
+                          >
+                            <Pencil className="h-4 w-4" />
+                            Editar
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            className="gap-2 text-destructive focus:text-destructive"
+                            onSelect={() => void requestDelete(comment)}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                            Excluir
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    )}
                   </div>
-                  <p className="text-sm text-foreground">{comment.text}</p>
+                  {editingCommentId === comment.id ? (
+                    <div className="space-y-2 pt-1">
+                      <Textarea
+                        value={editingText}
+                        onChange={(event) => setEditingText(event.target.value)}
+                        className="min-h-[88px] resize-y bg-background/70 text-sm focus-visible:ring-red-500/35"
+                        maxLength={1000}
+                        autoFocus
+                      />
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="text-[10px] tabular-nums text-muted-foreground">
+                          {editingText.length}/1000
+                        </span>
+                        <div className="flex items-center gap-2">
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            onClick={cancelEditing}
+                            disabled={isSavingEdit}
+                            className="rounded-full"
+                          >
+                            Cancelar
+                          </Button>
+                          <Button
+                            type="button"
+                            size="sm"
+                            onClick={() => void saveEdit(comment.id)}
+                            disabled={isSavingEdit || !editingText.trim()}
+                            className="rounded-full bg-red-500 text-white hover:bg-red-500/90"
+                          >
+                            {isSavingEdit && <Loader2 className="h-4 w-4 animate-spin" />}
+                            Salvar edição
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <p className="whitespace-pre-wrap break-words text-sm text-foreground">
+                      {comment.text}
+                    </p>
+                  )}
                 </div>
               </article>
             ))}
@@ -316,6 +549,48 @@ export function ContentComments({ contentId }: ContentCommentsProps) {
           </div>
         </div>
       )}
+
+      <AlertDialog
+        open={Boolean(deleteTarget)}
+        onOpenChange={(open) => {
+          if (!open && !isDeleting) setDeleteTarget(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Excluir este comentário?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {deleteTarget?.rewardValue ? (
+                <>
+                  O comentário será removido e você perderá{" "}
+                  <span className="font-bold text-destructive">
+                    {deleteTarget.rewardValue} Points
+                  </span>
+                  .
+                </>
+              ) : deleteTarget?.keepsReward ? (
+                "O comentário será removido. Seus Points permanecem porque você ainda possui outro comentário neste conteúdo."
+              ) : (
+                "O comentário será removido permanentemente."
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isDeleting}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={isDeleting}
+              onClick={(event) => {
+                event.preventDefault();
+                void confirmDelete();
+              }}
+              className="bg-destructive hover:bg-destructive/90"
+            >
+              {isDeleting && <Loader2 className="h-4 w-4 animate-spin" />}
+              Excluir comentário
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </section>
   );
 }

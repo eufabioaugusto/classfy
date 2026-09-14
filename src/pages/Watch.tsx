@@ -1312,7 +1312,7 @@ function WatchContent() {
       <AppSidebar />
 
       <div className="flex-1 flex flex-col">
-        <Header />
+        <Header className="!border-border/10" />
 
         <UpgradeModal
           open={showUpgradeModal}

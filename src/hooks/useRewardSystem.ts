@@ -185,6 +185,41 @@ export function useRewardSystem() {
     }
   }, []);
 
+  const deleteComment = useCallback(async (
+    userId: string,
+    commentId: string,
+    contentId: string,
+  ) => {
+    const rewardKey = `COMMENT_${userId}_${contentId}`;
+
+    const { data, error } = await supabase.functions.invoke("delete-comment", {
+      body: { userId, commentId },
+    });
+    if (error) throw error;
+
+    if (!data?.removed) {
+      throw new Error(data?.error || "Não foi possível excluir o comentário");
+    }
+
+    if (data?.tracking_released || data?.reversed) {
+      sessionRewardTracker.delete(rewardKey);
+      processingRewards.current.delete(rewardKey);
+    }
+
+    const revertedPoints = Number(data?.points || 0);
+    if (data?.reversed && revertedPoints > 0) {
+      dispatchRewardEarned({
+        actionKey: "COMMENT",
+        userId,
+        contentId,
+        points: -revertedPoints,
+        pointType: "user",
+      });
+    }
+
+    return data;
+  }, []);
+
   const handleLike = async (userId: string, contentId: string, isLiking: boolean) => {
     if (!isLiking) return; // Only reward on like, not unlike
     
@@ -480,6 +515,7 @@ export function useRewardSystem() {
   return {
     processReward,
     reverseReward,
+    deleteComment,
     trackProgress,
     trackProgressSession,
     handleLike,
