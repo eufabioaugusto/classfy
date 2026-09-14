@@ -60,7 +60,7 @@ type RecentReward = {
 };
 
 const rewardLabels: Record<string, string> = {
-  FIRST_CONTENT_WEEK: "Primeira publicação da semana",
+  FIRST_CONTENT_WEEK: "Primeiro conteúdo assistido na semana",
   FIRST_UPLOAD: "Primeiro conteúdo enviado",
   CONTENT_APPROVED: "Conteúdo aprovado",
   CREATOR_MILESTONE: "Meta de creator alcançada",

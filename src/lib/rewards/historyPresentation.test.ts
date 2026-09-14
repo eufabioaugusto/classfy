@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildUserRewardActionSummary,
   getRewardActionFilterLabel,
   getRewardActionLabel,
   getRewardPointTypeLabel,
@@ -47,5 +48,49 @@ describe("apresentação do histórico de recompensas", () => {
 
     expect(isCreatorEngagementEvent(event)).toBe(true);
     expect(getRewardActionLabel(event)).toBe("Seu conteúdo foi concluído");
+  });
+
+  it("descreve o bônus semanal como consumo, não como publicação", () => {
+    const event = { action_key: "FIRST_CONTENT_WEEK", point_type: "user" };
+
+    expect(getRewardActionLabel(event)).toBe(
+      "Assistiu ao primeiro conteúdo da semana",
+    );
+    expect(getRewardActionFilterLabel("FIRST_CONTENT_WEEK")).toBe(
+      "Primeiro conteúdo assistido na semana",
+    );
+  });
+
+  it("reconcilia todas as origens dos Points e preserva ações ainda zeradas", () => {
+    const summary = buildUserRewardActionSummary(
+      [
+        { action_key: "DAILY_LOGIN", points: 2 },
+        { action_key: "DAILY_LOGIN", points: 2 },
+        { action_key: "DAILY_LOGIN", points: 2 },
+        { action_key: "FIRST_CONTENT_WEEK", points: 4 },
+      ],
+      [
+        { action_key: "DAILY_LOGIN", points_user: 2, active: true },
+        { action_key: "FIRST_CONTENT_WEEK", points_user: 4, active: true },
+        { action_key: "LIKE", points_user: 2, active: true },
+        { action_key: "CONTENT_APPROVED", points_user: 0, active: true },
+      ],
+    );
+
+    expect(summary).toEqual([
+      {
+        actionKey: "DAILY_LOGIN",
+        label: "Acesso diário",
+        count: 3,
+        points: 6,
+      },
+      {
+        actionKey: "FIRST_CONTENT_WEEK",
+        label: "Primeiro conteúdo assistido na semana",
+        count: 1,
+        points: 4,
+      },
+      { actionKey: "LIKE", label: "Curtida", count: 0, points: 0 },
+    ]);
   });
 });

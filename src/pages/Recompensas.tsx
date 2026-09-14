@@ -4,18 +4,23 @@ import {
   Award,
   BarChart3,
   Bookmark,
+  BookOpenCheck,
   Eye,
   Flame,
   Heart,
   History,
   MessageSquare,
+  PlayCircle,
+  Share2,
   Sparkles,
   Star,
   Target,
   Trophy,
+  UserPlus,
   Video,
   Wallet,
   Zap,
+  type LucideIcon,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
@@ -34,6 +39,10 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { CreatorAchievementBadge } from "@/components/CreatorAchievementBadge";
 import { LeaderboardSection } from "@/components/LeaderboardSection";
 import { useCreatorMilestones } from "@/hooks/useCreatorMilestones";
+import {
+  buildUserRewardActionSummary,
+  type UserRewardActionSummary,
+} from "@/lib/rewards/historyPresentation";
 import "@/styles/economy-v2.css";
 
 interface UserStats {
@@ -49,12 +58,8 @@ interface UserStats {
   cycleUserPoints: number;
   cycleCreatorPoints: number;
   cycleDaysRemaining: number;
-  engagementStats: {
-    likes: number;
-    saves: number;
-    comments: number;
-    completedContents: number;
-  };
+  completedContents: number;
+  rewardActions: UserRewardActionSummary[];
   creatorStats?: {
     totalContents: number;
     totalViews: number;
@@ -87,11 +92,11 @@ export default function Recompensas() {
 
     const fetchStats = async () => {
       try {
-        const [rewardEventsRes, walletRes, streaksRes, engagementRes] =
+        const [rewardEventsRes, walletRes, streaksRes, actionConfigsRes] =
           await Promise.all([
             supabase
               .from("reward_events")
-              .select("points, point_type")
+              .select("action_key, points, point_type, cycle_id")
               .eq("user_id", user.id)
               .eq("point_type", "user"),
             supabase
@@ -105,15 +110,15 @@ export default function Recompensas() {
               .eq("user_id", user.id)
               .maybeSingle(),
             supabase
-              .from("reward_events")
-              .select("action_key")
-              .eq("user_id", user.id)
-              .eq("point_type", "user"),
+              .from("reward_actions_config")
+              .select("action_key, points_user, active")
+              .eq("active", true)
+              .gt("points_user", 0),
           ]);
 
+        const userRewardEvents = rewardEventsRes.data || [];
         const totalPoints =
-          rewardEventsRes.data?.reduce((sum, event) => sum + event.points, 0) ||
-          0;
+          userRewardEvents.reduce((sum, event) => sum + event.points, 0) || 0;
         const getPointsForLevel = (level: number) =>
           (500 * level * (level - 1)) / 2;
         let level = 1;
@@ -129,18 +134,9 @@ export default function Recompensas() {
         const progressPercent =
           (pointsInCurrentLevel / pointsNeededForNext) * 100;
 
-        const actions = engagementRes.data || [];
-        const engagementStats = {
-          likes: actions.filter((action) => action.action_key === "LIKE")
-            .length,
-          saves: actions.filter((action) => action.action_key === "SAVE")
-            .length,
-          comments: actions.filter((action) => action.action_key === "COMMENT")
-            .length,
-          completedContents: actions.filter(
-            (action) => action.action_key === "WATCH_100",
-          ).length,
-        };
+        const completedContents = userRewardEvents.filter(
+          (event) => event.action_key === "WATCH_100",
+        ).length;
 
         let creatorStats: UserStats["creatorStats"];
         if (role === "creator" || role === "admin") {
@@ -200,6 +196,7 @@ export default function Recompensas() {
         let cyclePoints = 0;
         let cycleUserPoints = 0;
         let cycleCreatorPoints = 0;
+        let rewardActions: UserRewardActionSummary[] = [];
         if (cycle) {
           const { data: userCycle } = await supabase
             .from("economic_cycle_users")
@@ -210,6 +207,15 @@ export default function Recompensas() {
           cyclePoints = Number(userCycle?.cycle_points || 0);
           cycleUserPoints = Number(userCycle?.user_points || 0);
           cycleCreatorPoints = Number(userCycle?.creator_points || 0);
+          rewardActions = buildUserRewardActionSummary(
+            userRewardEvents.filter((event) => event.cycle_id === cycle.id),
+            actionConfigsRes.data || [],
+          );
+        } else {
+          rewardActions = buildUserRewardActionSummary(
+            [],
+            actionConfigsRes.data || [],
+          );
         }
 
         setStats({
@@ -225,7 +231,8 @@ export default function Recompensas() {
           cycleUserPoints,
           cycleCreatorPoints,
           cycleDaysRemaining,
-          engagementStats,
+          completedContents,
+          rewardActions,
           creatorStats,
         });
       } catch (error) {
@@ -258,20 +265,22 @@ export default function Recompensas() {
       ? "O ciclo fecha hoje"
       : `O ciclo fecha em ${stats.cycleDaysRemaining} ${stats.cycleDaysRemaining === 1 ? "dia" : "dias"}`;
 
-  const engagementRows = [
-    { Icon: Heart, label: "Curtidas", value: stats.engagementStats.likes },
-    { Icon: Bookmark, label: "Salvos", value: stats.engagementStats.saves },
-    {
-      Icon: MessageSquare,
-      label: "Comentários",
-      value: stats.engagementStats.comments,
-    },
-    {
-      Icon: Target,
-      label: "Conteúdos concluídos",
-      value: stats.engagementStats.completedContents,
-    },
-  ];
+  const rewardActionIcons: Record<string, LucideIcon> = {
+    DAILY_LOGIN: Flame,
+    WEEKLY_STREAK: Trophy,
+    FIRST_CONTENT_WEEK: PlayCircle,
+    VIEW_15S: Eye,
+    WATCH_50: PlayCircle,
+    WATCH_100: Target,
+    LIKE: Heart,
+    SAVE: Bookmark,
+    FAVORITE: Star,
+    COMMENT: MessageSquare,
+    SHARE: Share2,
+    SUBSCRIBE_CREATOR: UserPlus,
+    COMPLETE_COURSE: BookOpenCheck,
+    PROFILE_COMPLETE: Award,
+  };
 
   const creatorRows = stats.creatorStats
     ? [
@@ -448,7 +457,7 @@ export default function Recompensas() {
               {
                 Icon: Target,
                 label: "Conteúdos concluídos",
-                value: stats.engagementStats.completedContents,
+                value: stats.completedContents,
                 detail: "Assistidos até o fim",
               },
             ].map(({ Icon, label, value, detail }) => (
@@ -613,25 +622,44 @@ export default function Recompensas() {
                     <Zap aria-hidden="true" />
                   </span>
                   <div>
-                    <h2 className="economy-panel-title">Ações registradas</h2>
+                    <h2 className="economy-panel-title">
+                      Origem dos seus Points
+                    </h2>
                     <p className="economy-panel-copy">
-                      Curtidas, salvos, comentários e conclusões
+                      Tudo que compõe os{" "}
+                      {stats.cycleUserPoints.toLocaleString("pt-BR")} Points de
+                      estudo deste ciclo
                     </p>
                   </div>
                 </div>
               </V2CardHeader>
-              <V2CardContent className="economy-stat-list">
-                {engagementRows.map(({ Icon, label, value }) => (
-                  <div className="economy-stat-row" key={label}>
-                    <span className="economy-stat-row__label">
-                      <Icon />
-                      {label}
-                    </span>
-                    <strong className="economy-stat-row__value">
-                      {value.toLocaleString("pt-BR")}
-                    </strong>
-                  </div>
-                ))}
+              <V2CardContent className="economy-stat-list economy-stat-list--scrollable">
+                {stats.rewardActions.map(
+                  ({ actionKey, label, count, points }) => {
+                    const Icon = rewardActionIcons[actionKey] || Zap;
+                    return (
+                      <div className="economy-stat-row" key={actionKey}>
+                        <span className="economy-stat-row__label">
+                          <Icon />
+                          <span className="economy-stat-row__copy">
+                            {label}
+                            <small>
+                              {count > 0
+                                ? `${count} ${count === 1 ? "registro" : "registros"}`
+                                : "Ainda não realizada"}
+                            </small>
+                          </span>
+                        </span>
+                        <strong
+                          className={`economy-stat-row__value${points > 0 ? " economy-stat-row__value--earned" : ""}`}
+                        >
+                          {points > 0 ? "+" : ""}
+                          {points.toLocaleString("pt-BR")} <small>Points</small>
+                        </strong>
+                      </div>
+                    );
+                  },
+                )}
               </V2CardContent>
             </V2Card>
 

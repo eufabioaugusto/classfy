@@ -16,7 +16,7 @@ const actionLabels: Record<string, string> = {
   COMPLETE_COURSE: "Concluiu um curso",
   DAILY_LOGIN: "Acessou a Classfy no dia",
   WEEKLY_STREAK: "Completou 7 dias seguidos",
-  FIRST_CONTENT_WEEK: "Publicou o primeiro conteúdo da semana",
+  FIRST_CONTENT_WEEK: "Assistiu ao primeiro conteúdo da semana",
   BINGE_WATCH: "Completou uma maratona",
   PROFILE_COMPLETE: "Completou o perfil",
   SUBSCRIBE_CREATOR: "Começou a seguir um creator",
@@ -63,7 +63,7 @@ const actionFilterLabels: Record<string, string> = {
   COMPLETE_COURSE: "Curso concluído",
   DAILY_LOGIN: "Acesso diário",
   WEEKLY_STREAK: "Sequência semanal",
-  FIRST_CONTENT_WEEK: "Primeiro conteúdo da semana",
+  FIRST_CONTENT_WEEK: "Primeiro conteúdo assistido na semana",
   BINGE_WATCH: "Maratona",
   PROFILE_COMPLETE: "Perfil completo",
   SUBSCRIBE_CREATOR: "Nova assinatura",
@@ -117,3 +117,57 @@ export const getRewardPointTypeLabel = (
 
 export const getRewardPointUnit = (event: RewardEventPresentationInput) =>
   event.point_type === "creator" ? "Creator Points" : "Points";
+
+export interface UserRewardSummaryEvent {
+  action_key: string;
+  points: number;
+}
+
+export interface UserRewardSummaryConfig {
+  action_key: string;
+  points_user: number;
+  active?: boolean;
+}
+
+export interface UserRewardActionSummary {
+  actionKey: string;
+  label: string;
+  count: number;
+  points: number;
+}
+
+export const buildUserRewardActionSummary = (
+  events: UserRewardSummaryEvent[],
+  configs: UserRewardSummaryConfig[],
+): UserRewardActionSummary[] => {
+  const totals = new Map<string, { count: number; points: number }>();
+
+  events.forEach((event) => {
+    const current = totals.get(event.action_key) || { count: 0, points: 0 };
+    totals.set(event.action_key, {
+      count: current.count + 1,
+      points: current.points + Number(event.points || 0),
+    });
+  });
+
+  const actionKeys = new Set([
+    ...configs
+      .filter((config) => config.active !== false && config.points_user > 0)
+      .map((config) => config.action_key),
+    ...events.map((event) => event.action_key),
+  ]);
+
+  return [...actionKeys]
+    .map((actionKey) => ({
+      actionKey,
+      label: getRewardActionFilterLabel(actionKey),
+      count: totals.get(actionKey)?.count || 0,
+      points: totals.get(actionKey)?.points || 0,
+    }))
+    .sort(
+      (a, b) =>
+        Number(b.points > 0) - Number(a.points > 0) ||
+        b.points - a.points ||
+        a.label.localeCompare(b.label, "pt-BR"),
+    );
+};

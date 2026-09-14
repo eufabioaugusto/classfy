@@ -56,7 +56,7 @@ const actionLabels: Record<string, string> = {
   WATCH_50: "Assistiu à metade",
   WATCH_100: "Concluiu o conteúdo",
   DAILY_LOGIN: "Acessou a Classfy no dia",
-  FIRST_CONTENT_WEEK: "Publicou o primeiro conteúdo da semana",
+  FIRST_CONTENT_WEEK: "Assistiu ao primeiro conteúdo da semana",
   WEEKLY_STREAK: "Completou 7 dias seguidos",
   PROFILE_COMPLETE: "Completou o perfil",
   REFERRAL_SIGNUP: "Convidou um novo usuário",
