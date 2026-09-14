@@ -39,6 +39,15 @@ export function useRewardSystem() {
     currentPosition: number;
   }>>(new Map());
   const progressDrains = useRef<Map<string, Promise<void>>>(new Map());
+  const pendingSessionProgress = useRef<Map<string, {
+    userId: string;
+    contentId: string;
+    sessionId: string;
+    watchedSeconds: number;
+    currentPosition: number;
+    isEnded: boolean;
+  }>>(new Map());
+  const sessionProgressDrains = useRef<Map<string, Promise<void>>>(new Map());
 
   const processReward = useCallback(async ({
     actionKey,
@@ -381,10 +390,98 @@ export function useRewardSystem() {
     }
   }, [processReward]);
 
+  const trackProgressSession = useCallback(async (
+    userId: string,
+    contentId: string,
+    sessionId: string,
+    watchedSeconds: number,
+    currentPosition: number,
+    isEnded = false,
+  ) => {
+    const progressKey = `progress_session_${sessionId}`;
+    const queued = pendingSessionProgress.current.get(progressKey);
+    if (!queued || watchedSeconds >= queued.watchedSeconds) {
+      pendingSessionProgress.current.set(progressKey, {
+        userId,
+        contentId,
+        sessionId,
+        watchedSeconds,
+        currentPosition,
+        isEnded: isEnded || Boolean(queued?.isEnded),
+      });
+    }
+
+    let drain = sessionProgressDrains.current.get(progressKey);
+    if (!drain) {
+      drain = (async () => {
+        while (pendingSessionProgress.current.has(progressKey)) {
+          const request = pendingSessionProgress.current.get(progressKey)!;
+          pendingSessionProgress.current.delete(progressKey);
+
+          try {
+            const { data, error } = await supabase.rpc("record_content_progress_v2", {
+              p_content_id: request.contentId,
+              p_session_id: request.sessionId,
+              p_session_watched_seconds: Math.floor(request.watchedSeconds),
+              p_last_position_seconds: Math.floor(request.currentPosition),
+              p_is_ended: request.isEnded,
+            });
+            if (error) throw error;
+
+            const result = data as {
+              progress_percent?: number;
+            } | null;
+            const serverProgress = Number(result?.progress_percent || 0);
+
+            if (serverProgress >= 50) {
+              await processReward({
+                actionKey: "WATCH_50",
+                userId: request.userId,
+                contentId: request.contentId,
+                metadata: { progress: 50, sessionId: request.sessionId },
+              });
+            }
+
+            if (serverProgress >= 100) {
+              await processReward({
+                actionKey: "WATCH_100",
+                userId: request.userId,
+                contentId: request.contentId,
+                metadata: { progress: 100, sessionId: request.sessionId },
+              });
+            }
+          } catch (error) {
+            console.error("Error tracking session progress:", error);
+          }
+        }
+      })().finally(() => {
+        sessionProgressDrains.current.delete(progressKey);
+      });
+      sessionProgressDrains.current.set(progressKey, drain);
+    }
+
+    await drain;
+
+    // Preserva o ultimo checkpoint quando ele chega no limite entre o loop e
+    // o finally. O total cumulativo torna essa repeticao idempotente no banco.
+    const pending = pendingSessionProgress.current.get(progressKey);
+    if (pending && !sessionProgressDrains.current.has(progressKey)) {
+      await trackProgressSession(
+        pending.userId,
+        pending.contentId,
+        pending.sessionId,
+        pending.watchedSeconds,
+        pending.currentPosition,
+        pending.isEnded,
+      );
+    }
+  }, [processReward]);
+
   return {
     processReward,
     reverseReward,
     trackProgress,
+    trackProgressSession,
     handleLike,
     handleSave,
     handleFavorite,

@@ -4824,6 +4824,16 @@ export type Database = {
         }
         Returns: Json
       }
+      record_content_progress_v2: {
+        Args: {
+          p_content_id: string
+          p_is_ended?: boolean
+          p_last_position_seconds: number
+          p_session_id: string
+          p_session_watched_seconds: number
+        }
+        Returns: Json
+      }
       record_content_sale_v1: {
         Args: {
           p_checkout_session_id: string

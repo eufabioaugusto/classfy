@@ -486,7 +486,7 @@ export function UnifiedVideoPlayer({
       if (courseProgress) {
         await completeLesson();
       } else {
-        await flushProgress(media.currentTime);
+        await flushProgress(media.currentTime, true);
       }
       onVideoEnded?.();
     };

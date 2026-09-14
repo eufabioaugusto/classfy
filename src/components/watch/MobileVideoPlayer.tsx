@@ -220,7 +220,7 @@ export function MobileVideoPlayer({
     const handleEnded = () => {
       setIsPlaying(false);
       if (courseProgress) void completeLesson();
-      else void flushProgress(media.currentTime);
+      else void flushProgress(media.currentTime, true);
     };
     const handlePlay = () => setIsPlaying(true);
     const handlePause = () => {

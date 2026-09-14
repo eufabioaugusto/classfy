@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
 import { useRewardSystem } from "@/hooks/useRewardSystem";
@@ -20,7 +20,7 @@ interface UseContentMetricsProps {
 
 export function useContentMetrics({ contentId, duration, enabled = true, onMilestone }: UseContentMetricsProps) {
   const { user } = useAuth();
-  const { processReward, trackProgress } = useRewardSystem();
+  const { processReward, trackProgressSession } = useRewardSystem();
   const [metricsRecorded, setMetricsRecorded] = useState<MetricsState>({
     start: false,
     half: false,
@@ -42,8 +42,16 @@ export function useContentMetrics({ contentId, duration, enabled = true, onMiles
   const accumulatedWatchTimeRef = useRef(0);
   // The previous timeupdate value, used to detect seeks
   const previousTimeRef = useRef(0);
+  const watchSessionIdRef = useRef<string>(globalThis.crypto.randomUUID());
   // Max allowed jump between two timeupdate events before it's considered a seek (seconds)
   const MAX_NATURAL_JUMP = 3;
+
+  useEffect(() => {
+    watchSessionIdRef.current = globalThis.crypto.randomUUID();
+    lastProgressUpdateRef.current = 0;
+    accumulatedWatchTimeRef.current = 0;
+    previousTimeRef.current = 0;
+  }, [contentId, user?.id]);
 
   const recordMetric = useCallback(async (event: "start" | "half" | "complete") => {
     if (!enabled || metricsRecordedRef.current[event] || !user || !contentId) return;
@@ -125,7 +133,13 @@ export function useContentMetrics({ contentId, duration, enabled = true, onMiles
     const floorRealTime = Math.floor(realWatchTime);
     if (floorRealTime >= lastProgressUpdateRef.current + 5 && realWatchTime > 0.5) {
       lastProgressUpdateRef.current = floorRealTime;
-      await trackProgress(user.id, contentId, realPercent, realWatchTime, currentTime);
+      await trackProgressSession(
+        user.id,
+        contentId,
+        watchSessionIdRef.current,
+        realWatchTime,
+        currentTime,
+      );
       await checkFirstContentWeek();
     }
 
@@ -167,14 +181,21 @@ export function useContentMetrics({ contentId, duration, enabled = true, onMiles
       onMilestone?.();
     }
 
-  }, [contentId, user, duration, enabled, recordMetric, processReward, trackProgress, checkFirstContentWeek, trackContentInterest, onMilestone]);
+  }, [contentId, user, duration, enabled, recordMetric, processReward, trackProgressSession, checkFirstContentWeek, trackContentInterest, onMilestone]);
 
-  const flushProgress = useCallback(async (currentPosition: number) => {
+  const flushProgress = useCallback(async (currentPosition: number, isEnded = false) => {
     if (!enabled || !user || !contentId || duration <= 0) return;
     const realWatchTime = accumulatedWatchTimeRef.current;
-    const realPercent = (realWatchTime / duration) * 100;
-    await trackProgress(user.id, contentId, realPercent, realWatchTime, currentPosition);
-  }, [contentId, duration, enabled, trackProgress, user]);
+    if (realWatchTime <= 0) return;
+    await trackProgressSession(
+      user.id,
+      contentId,
+      watchSessionIdRef.current,
+      realWatchTime,
+      currentPosition,
+      isEnded,
+    );
+  }, [contentId, duration, enabled, trackProgressSession, user]);
 
   const registerView = useCallback(async () => {
     if (!user || !contentId) return;
@@ -214,6 +235,7 @@ export function useContentMetrics({ contentId, duration, enabled = true, onMiles
     lastProgressUpdateRef.current = 0;
     accumulatedWatchTimeRef.current = 0;
     previousTimeRef.current = 0;
+    watchSessionIdRef.current = globalThis.crypto.randomUUID();
     interestMilestonesRef.current = { half: false, complete: false };
   }, []);
 
