@@ -44,6 +44,10 @@ import { MobileNotesSheet } from "@/components/watch/MobileNotesSheet";
 import { MobileWatchOverlay } from "@/components/watch/MobileWatchOverlay";
 import { MobileCurriculumSheet } from "@/components/watch/MobileCurriculumSheet";
 import { ContentRewardProgress } from "@/components/watch/ContentRewardProgress";
+import {
+  evaluateContentEntitlement,
+  type ContentEntitlement,
+} from "@/lib/access/contentEntitlement";
 import { StudyQuiz } from "@/components/StudyQuiz";
 import { StudyNotes } from "@/components/StudyNotes";
 import { HighlightedText } from "@/components/chat/HighlightedText";
@@ -91,6 +95,22 @@ interface Content {
   level?: string;
   what_you_learn?: string;
   requirements?: string;
+}
+
+interface NextContent {
+  id: string;
+  title: string;
+  thumbnail_url?: string | null;
+  duration_seconds?: number | null;
+  views_count?: number | null;
+  visibility?: Content["visibility"] | null;
+  price?: number | null;
+  creator_id: string;
+  creator?: { display_name?: string | null } | null;
+}
+
+interface NextContentAccess extends ContentEntitlement {
+  checking: boolean;
 }
 
 // Helper function to format view counts
@@ -168,8 +188,16 @@ function WatchContent() {
 
   // Autoplay next video state
   const [showAutoplayOverlay, setShowAutoplayOverlay] = useState(false);
-  const [nextContent, setNextContent] = useState<any>(null);
+  const [nextContent, setNextContent] = useState<NextContent | null>(null);
+  const [nextContentAccess, setNextContentAccess] =
+    useState<NextContentAccess>({
+      checking: false,
+      hasAccess: false,
+      reason: null,
+      requiredPlan: "pro",
+    });
   const [autoplayCancelled, setAutoplayCancelled] = useState(false);
+  const [purchaseTarget, setPurchaseTarget] = useState<NextContent | null>(null);
 
   // Theater mode state
   const [theaterMode, setTheaterMode] = useState(false);
@@ -269,6 +297,11 @@ function WatchContent() {
   }, [id, loading]);
 
   const fetchContent = async () => {
+    setLoadingContent(true);
+    setHasAccess(false);
+    setAccessBlockedReason(null);
+    setIsPurchased(false);
+
     try {
       // Fetch content and course in parallel for speed
       const [contentResult, courseResult] = await Promise.all([
@@ -315,7 +348,7 @@ function WatchContent() {
 
         setIsCourse(false);
         setContent(data);
-        checkAccess(data);
+        await checkAccess(data, "content");
 
         // Register view in background (don't await)
         const isAdminPreview = role === "admin" && data.status === "pending";
@@ -371,7 +404,7 @@ function WatchContent() {
           category_id: null,
         } as Content);
 
-        checkAccess(courseData as any);
+        await checkAccess(courseData as any, "course");
 
         // Register view in background
         const isAdminPreview =
@@ -457,7 +490,7 @@ function WatchContent() {
     const { data } = await supabase
       .from("contents")
       .select(
-        "id, title, thumbnail_url, duration_seconds, views_count, creator:profiles!creator_id(display_name)",
+        "id, title, thumbnail_url, duration_seconds, views_count, visibility, price, creator_id, creator:profiles!creator_id(display_name)",
       )
       .eq("status", "approved")
       .neq("id", content.id)
@@ -653,102 +686,57 @@ function WatchContent() {
     }
   }, [content]);
 
-  const checkAccess = async (content: Content) => {
-    // Reset access state
+  const checkAccess = async (
+    item: Content,
+    itemType: "content" | "course",
+  ) => {
+    setHasAccess(false);
     setAccessBlockedReason(null);
+    setIsPurchased(false);
 
-    if (!profile || !user) {
-      // User not logged in - block access for non-free content
-      if (content.visibility !== "free") {
-        setHasAccess(false);
-        if (content.visibility === "paid") {
-          setAccessBlockedReason("purchase");
-        } else {
-          setAccessBlockedReason("plan");
-          setRequiredUpgradePlan(
-            content.visibility === "premium" ? "premium" : "pro",
-          );
-        }
-      } else {
-        setHasAccess(true);
-      }
-      return;
-    }
+    let purchased = false;
 
-    // Admins always have access
-    if (role === "admin") {
-      setHasAccess(true);
-      return;
-    }
-
-    // Creator always has access to own content
-    if (content.creator_id === user.id) {
-      setHasAccess(true);
-      return;
-    }
-
-    const userPlan = profile.plan || "free";
-
-    // Check if content is paid and user has purchased/enrolled
-    if (content.visibility === "paid") {
-      if (isCourse) {
-        // For courses, check enrollment instead of purchased_contents
+    if (user && item.visibility === "paid" && item.creator_id !== user.id) {
+      if (itemType === "course") {
         const { data: enrollment } = await supabase
           .from("course_enrollments")
           .select("id")
           .eq("user_id", user.id)
-          .eq("course_id", content.id)
+          .eq("course_id", item.id)
           .maybeSingle();
-
-        if (enrollment) {
-          setIsPurchased(true);
-          setHasAccess(true);
-          return;
-        }
+        purchased = Boolean(enrollment);
       } else {
         const { data: purchase } = await supabase
           .from("purchased_contents")
           .select("id")
           .eq("user_id", user.id)
-          .eq("content_id", content.id)
+          .eq("content_id", item.id)
           .in("status", ["confirmed", "legacy_confirmed"])
           .maybeSingle();
-
-        if (purchase) {
-          setIsPurchased(true);
-          setHasAccess(true);
-          return;
-        }
+        purchased = Boolean(purchase);
       }
-
-      setIsPurchased(false);
-      setHasAccess(false);
-      setAccessBlockedReason("purchase");
-      return;
     }
 
-    // Check plan-based access
-    if (content.visibility === "free") {
-      setHasAccess(true);
-    } else if (content.visibility === "pro") {
-      if (["pro", "premium"].includes(userPlan)) {
-        setHasAccess(true);
-      } else {
-        setHasAccess(false);
-        setRequiredUpgradePlan("pro");
-        setAccessBlockedReason("plan");
-      }
-    } else if (content.visibility === "premium") {
-      if (userPlan === "premium") {
-        setHasAccess(true);
-      } else {
-        setHasAccess(false);
-        setRequiredUpgradePlan("premium");
-        setAccessBlockedReason("plan");
-      }
-    } else {
-      setHasAccess(false);
-    }
+    const entitlement = evaluateContentEntitlement({
+      visibility: item.visibility,
+      userPlan: profile?.plan,
+      isAuthenticated: Boolean(user),
+      isOwner: Boolean(user && item.creator_id === user.id),
+      isAdmin: role === "admin",
+      isModerationPreview: role === "admin" && item.status !== "approved",
+      isPurchased: purchased,
+    });
+
+    setIsPurchased(purchased);
+    setHasAccess(entitlement.hasAccess);
+    setRequiredUpgradePlan(entitlement.requiredPlan);
+    setAccessBlockedReason(
+      entitlement.reason === "plan" || entitlement.reason === "purchase"
+        ? entitlement.reason
+        : null,
+    );
+
+    return entitlement;
   };
 
   // Unified time update handler — delegates to centralized hook
@@ -778,11 +766,122 @@ function WatchContent() {
   // Update nextContent whenever relatedContents changes
   useEffect(() => {
     if (relatedContents.length > 0) {
+      setNextContentAccess({
+        checking: true,
+        hasAccess: false,
+        reason: null,
+        requiredPlan: "pro",
+      });
       setNextContent(relatedContents[0]);
     } else {
       setNextContent(null);
+      setNextContentAccess({
+        checking: false,
+        hasAccess: false,
+        reason: null,
+        requiredPlan: "pro",
+      });
     }
   }, [relatedContents]);
+
+  useEffect(() => {
+    let active = true;
+
+    const resolveNextContentAccess = async () => {
+      if (!nextContent) return;
+
+      setNextContentAccess((current) => ({
+        ...current,
+        checking: true,
+        hasAccess: false,
+      }));
+
+      let purchased = false;
+      if (
+        user &&
+        nextContent.visibility === "paid" &&
+        nextContent.creator_id !== user.id
+      ) {
+        const { data: purchase } = await supabase
+          .from("purchased_contents")
+          .select("id")
+          .eq("user_id", user.id)
+          .eq("content_id", nextContent.id)
+          .in("status", ["confirmed", "legacy_confirmed"])
+          .maybeSingle();
+        purchased = Boolean(purchase);
+      }
+
+      const entitlement = evaluateContentEntitlement({
+        visibility: nextContent.visibility,
+        userPlan: profile?.plan,
+        isAuthenticated: Boolean(user),
+        isOwner: Boolean(user && nextContent.creator_id === user.id),
+        isAdmin: role === "admin",
+        isModerationPreview: false,
+        isPurchased: purchased,
+      });
+
+      if (active) {
+        setNextContentAccess({ ...entitlement, checking: false });
+      }
+    };
+
+    void resolveNextContentAccess();
+    return () => {
+      active = false;
+    };
+  }, [nextContent, profile?.plan, role, user]);
+
+  const handleFindAccessibleContent = () => {
+    setShowAutoplayOverlay(false);
+    setAutoplayCancelled(true);
+
+    const alternative = relatedContents.find((item) => {
+      if (item.id === nextContent?.id || item.visibility === "paid") {
+        return false;
+      }
+      return evaluateContentEntitlement({
+        visibility: item.visibility,
+        userPlan: profile?.plan,
+        isAuthenticated: Boolean(user),
+        isOwner: Boolean(user && item.creator_id === user.id),
+        isAdmin: role === "admin",
+        isModerationPreview: false,
+      }).hasAccess;
+    });
+
+    navigate(alternative ? `/watch/${alternative.id}` : "/?mode=explore");
+  };
+
+  const openCurrentPurchase = () => {
+    setPurchaseTarget(null);
+    setShowPurchaseModal(true);
+  };
+
+  const openNextPurchase = () => {
+    if (!nextContent) return;
+    setPurchaseTarget(nextContent);
+    setShowPurchaseModal(true);
+  };
+
+  const handlePurchaseModalChange = (open: boolean) => {
+    setShowPurchaseModal(open);
+    if (!open) setPurchaseTarget(null);
+  };
+
+  const handlePurchaseComplete = () => {
+    const purchasedNextId = purchaseTarget?.id;
+    setShowPurchaseModal(false);
+    setPurchaseTarget(null);
+
+    if (purchasedNextId) {
+      navigate(`/watch/${purchasedNextId}`);
+      return;
+    }
+
+    void fetchContent();
+  };
 
   const handleApprove = async () => {
     if (!content) return;
@@ -959,7 +1058,7 @@ function WatchContent() {
               price={content.price}
               thumbnail={content.thumbnail_url}
               onUpgradeClick={() => setShowUpgradeModal(true)}
-              onPurchaseClick={() => setShowPurchaseModal(true)}
+              onPurchaseClick={openCurrentPurchase}
             />
           ) : (
             <MobileVideoPlayer
@@ -1010,19 +1109,20 @@ function WatchContent() {
           />
           <PurchaseModal
             open={showPurchaseModal}
-            onOpenChange={setShowPurchaseModal}
+            onOpenChange={handlePurchaseModalChange}
             content={{
-              id: content.id,
-              title: content.title,
-              thumbnail_url: content.thumbnail_url,
-              price: content.price,
+              id: purchaseTarget?.id || content.id,
+              title: purchaseTarget?.title || content.title,
+              thumbnail_url:
+                purchaseTarget?.thumbnail_url || content.thumbnail_url,
+              price: purchaseTarget?.price || content.price,
               discount: 0,
-              creator_name: content.creator?.display_name || "Criador",
+              creator_name:
+                purchaseTarget?.creator?.display_name ||
+                content.creator?.display_name ||
+                "Criador",
             }}
-            onPurchaseComplete={() => {
-              setShowPurchaseModal(false);
-              fetchContent();
-            }}
+            onPurchaseComplete={handlePurchaseComplete}
           />
           <AddToStudyModal
             open={showAddToStudyModal}
@@ -1223,19 +1323,20 @@ function WatchContent() {
         {content && (
           <PurchaseModal
             open={showPurchaseModal}
-            onOpenChange={setShowPurchaseModal}
+            onOpenChange={handlePurchaseModalChange}
             content={{
-              id: content.id,
-              title: content.title,
-              thumbnail_url: content.thumbnail_url,
-              price: content.price,
+              id: purchaseTarget?.id || content.id,
+              title: purchaseTarget?.title || content.title,
+              thumbnail_url:
+                purchaseTarget?.thumbnail_url || content.thumbnail_url,
+              price: purchaseTarget?.price || content.price,
               discount: 0,
-              creator_name: content.creator?.display_name || "Criador",
+              creator_name:
+                purchaseTarget?.creator?.display_name ||
+                content.creator?.display_name ||
+                "Criador",
             }}
-            onPurchaseComplete={() => {
-              setShowPurchaseModal(false);
-              fetchContent();
-            }}
+            onPurchaseComplete={handlePurchaseComplete}
           />
         )}
 
@@ -1262,7 +1363,7 @@ function WatchContent() {
                     price={content.price}
                     thumbnail={content.thumbnail_url}
                     onUpgradeClick={() => setShowUpgradeModal(true)}
-                    onPurchaseClick={() => setShowPurchaseModal(true)}
+                    onPurchaseClick={openCurrentPurchase}
                   />
                 ) : isCourse && currentLesson ? (
                   <UnifiedVideoPlayer
@@ -1345,6 +1446,23 @@ function WatchContent() {
                     <AutoplayNextOverlay
                       nextContent={nextContent}
                       show={showAutoplayOverlay}
+                      canPlay={nextContentAccess.hasAccess}
+                      checkingAccess={nextContentAccess.checking}
+                      blockReason={
+                        nextContentAccess.reason === "plan" ||
+                        nextContentAccess.reason === "purchase"
+                          ? nextContentAccess.reason
+                          : null
+                      }
+                      requiredPlan={nextContentAccess.requiredPlan}
+                      onUpgradeClick={() => {
+                        setRequiredUpgradePlan(
+                          nextContentAccess.requiredPlan,
+                        );
+                        setShowUpgradeModal(true);
+                      }}
+                      onPurchaseClick={openNextPurchase}
+                      onFindFree={handleFindAccessibleContent}
                       onCancel={() => {
                         setShowAutoplayOverlay(false);
                         setAutoplayCancelled(true);

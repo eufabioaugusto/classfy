@@ -1,6 +1,7 @@
 import { useAuth } from "@/contexts/AuthContext";
 import { useState, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { evaluateContentEntitlement } from "@/lib/access/contentEntitlement";
 
 interface ContentAccessParams {
   visibility?: "free" | "pro" | "premium" | "paid";
@@ -29,11 +30,6 @@ export function useContentAccess() {
         return false;
       }
 
-      // Admins always have access
-      if (role === "admin") {
-        return true;
-      }
-
       // Check if content is paid
       if (visibility === "paid") {
         // If already marked as purchased, allow
@@ -55,18 +51,14 @@ export function useContentAccess() {
         return false;
       }
 
-      // Check plan-based access
-      if (visibility === "free") {
-        return true;
-      } else if (visibility === "pro") {
-        return ["pro", "premium"].includes(userPlan);
-      } else if (visibility === "premium") {
-        return userPlan === "premium";
-      }
-
-      return true;
+      return evaluateContentEntitlement({
+        visibility,
+        userPlan,
+        isAuthenticated: true,
+        isAdmin: role === "admin",
+      }).hasAccess;
     },
-    [user, userPlan, role]
+    [user, userPlan, role],
   );
 
   const checkAndHandleAccess = useCallback(
@@ -76,7 +68,11 @@ export function useContentAccess() {
       isPurchased = false,
       price = 0,
     }: ContentAccessParams & { price?: number }): Promise<boolean> => {
-      const hasAccess = await checkAccess({ visibility, contentId, isPurchased });
+      const hasAccess = await checkAccess({
+        visibility,
+        contentId,
+        isPurchased,
+      });
 
       if (!hasAccess) {
         setPendingContentId(contentId || null);
@@ -96,7 +92,7 @@ export function useContentAccess() {
 
       return true;
     },
-    [checkAccess]
+    [checkAccess],
   );
 
   const closeModals = useCallback(() => {

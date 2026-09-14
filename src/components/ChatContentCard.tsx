@@ -9,6 +9,7 @@ import { toast } from "sonner";
 import { useState, useEffect } from "react";
 import { UpgradeModal } from "@/components/UpgradeModal";
 import { PurchaseModal } from "@/components/PurchaseModal";
+import { evaluateContentEntitlement } from "@/lib/access/contentEntitlement";
 
 interface ChatContentCardProps {
   id: string;
@@ -77,24 +78,14 @@ export const ChatContentCard = ({
   };
 
   const checkAccess = (): boolean => {
-    // Admins always have access
-    if (role === "admin") return true;
-
-    // Check paid content
-    if (visibility === "paid") {
-      return isPurchased;
-    }
-
-    // Check plan-based access
-    if (visibility === "free") {
-      return true;
-    } else if (visibility === "pro") {
-      return ["pro", "premium"].includes(userPlan);
-    } else if (visibility === "premium") {
-      return userPlan === "premium";
-    }
-
-    return true;
+    return evaluateContentEntitlement({
+      visibility,
+      userPlan,
+      // A rota de consumo cuida do login; este card decide apenas o entitlement.
+      isAuthenticated: true,
+      isAdmin: role === "admin",
+      isPurchased,
+    }).hasAccess;
   };
 
   const handleWatch = () => {
@@ -116,7 +107,8 @@ export const ChatContentCard = ({
     if (onPlay) {
       onPlay(id);
     } else {
-      const route = content_type === "podcast" ? `/listen/${id}` : `/watch/${id}`;
+      const route =
+        content_type === "podcast" ? `/listen/${id}` : `/watch/${id}`;
       navigate(route);
     }
   };
@@ -286,7 +278,10 @@ export const ChatContentCard = ({
   // Default full card - Uniform height design
   return (
     <>
-      <Card className="overflow-hidden bg-card/80 backdrop-blur-sm border border-border/30 hover:border-primary/40 hover:shadow-xl hover:shadow-primary/5 transition-all duration-300 group cursor-pointer h-full flex flex-col" onClick={handleWatch}>
+      <Card
+        className="overflow-hidden bg-card/80 backdrop-blur-sm border border-border/30 hover:border-primary/40 hover:shadow-xl hover:shadow-primary/5 transition-all duration-300 group cursor-pointer h-full flex flex-col"
+        onClick={handleWatch}
+      >
         {/* Thumbnail */}
         <div className="relative overflow-hidden bg-muted aspect-[16/9] flex-shrink-0">
           <img
@@ -304,25 +299,29 @@ export const ChatContentCard = ({
               />
             </div>
           )}
-          
+
           {/* Badges */}
           <div className="absolute top-2 left-2 flex gap-1.5 flex-wrap max-w-[calc(100%-4rem)]">
             <Badge className="bg-primary/95 backdrop-blur-md text-primary-foreground text-[10px] font-medium px-2 py-0.5 shadow-md">
               {contentTypeLabel[content_type]}
             </Badge>
             {relevanceScore && relevanceScore >= 50 && (
-              <Badge 
+              <Badge
                 className={`backdrop-blur-md text-white text-[10px] font-medium px-2 py-0.5 shadow-md ${
-                  relevanceScore >= 85 ? 'bg-green-600/95' : 
-                  relevanceScore >= 70 ? 'bg-emerald-500/95' : 
-                  'bg-amber-500/95'
+                  relevanceScore >= 85
+                    ? "bg-green-600/95"
+                    : relevanceScore >= 70
+                      ? "bg-emerald-500/95"
+                      : "bg-amber-500/95"
                 }`}
               >
                 {relevanceScore}% match
               </Badge>
             )}
-            {required_plan && required_plan !== 'free' && (
-              <Badge className={`${getPlanBadgeColor(required_plan)} backdrop-blur-md text-white text-[10px] font-medium px-2 py-0.5 shadow-md`}>
+            {required_plan && required_plan !== "free" && (
+              <Badge
+                className={`${getPlanBadgeColor(required_plan)} backdrop-blur-md text-white text-[10px] font-medium px-2 py-0.5 shadow-md`}
+              >
                 {required_plan.toUpperCase()}
               </Badge>
             )}
@@ -367,7 +366,7 @@ export const ChatContentCard = ({
             </h3>
             {/* Description with fixed height - always reserve space */}
             <p className="text-xs text-muted-foreground line-clamp-2 leading-relaxed min-h-[2rem]">
-              {description || '\u00A0'}
+              {description || "\u00A0"}
             </p>
           </div>
 
@@ -401,7 +400,9 @@ export const ChatContentCard = ({
               disabled={loading}
               title={isSaved ? "Remover dos salvos" : "Salvar"}
             >
-              <Bookmark className={`w-3.5 h-3.5 ${isSaved ? "fill-current" : ""}`} />
+              <Bookmark
+                className={`w-3.5 h-3.5 ${isSaved ? "fill-current" : ""}`}
+              />
             </Button>
             <Button
               onClick={handleFavorite}
@@ -411,7 +412,9 @@ export const ChatContentCard = ({
               disabled={loading}
               title={isFavorited ? "Remover dos favoritos" : "Favoritar"}
             >
-              <Heart className={`w-3.5 h-3.5 ${isFavorited ? "fill-current text-red-500" : ""}`} />
+              <Heart
+                className={`w-3.5 h-3.5 ${isFavorited ? "fill-current text-red-500" : ""}`}
+              />
             </Button>
           </div>
         </div>
