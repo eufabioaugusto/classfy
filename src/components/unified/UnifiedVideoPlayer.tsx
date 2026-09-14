@@ -14,6 +14,7 @@ import {
   SkipBack,
   SkipForward,
   Loader2,
+  RefreshCw,
   Settings,
   ChevronLeft,
   ChevronRight,
@@ -96,7 +97,6 @@ export function UnifiedVideoPlayer({
   const progressRef = useRef<HTMLDivElement>(null);
 
   const [isPlaying, setIsPlaying] = useState(false);
-  const [playbackRequested, setPlaybackRequested] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
   const [volume, setVolume] = useState(1);
   const [showVolumeSlider, setShowVolumeSlider] = useState(false);
@@ -104,6 +104,7 @@ export function UnifiedVideoPlayer({
   const [duration, setDuration] = useState(content.duration_seconds || 0);
   const [buffered, setBuffered] = useState(0);
   const [isBuffering, setIsBuffering] = useState(false);
+  const [isSourceAttached, setIsSourceAttached] = useState(false);
   const [showControls, setShowControls] = useState(true);
   const [playbackRate, setPlaybackRate] = useState(1);
   const [showSettingsMenu, setShowSettingsMenu] = useState(false);
@@ -149,16 +150,16 @@ export function UnifiedVideoPlayer({
 
   const mediaRef = content.content_type === "podcast" ? audioRef : videoRef;
   const isVideo = content.content_type !== "podcast";
-  const playback = usePlaybackSource(content, !isVideo || playbackRequested);
+  const playback = usePlaybackSource(content);
   const pendingResumePositionRef = useRef<number | null>(null);
   const hasUserRequestedPlaybackRef = useRef(false);
 
   useEffect(() => {
-    setPlaybackRequested(false);
     setIsPlaying(false);
     setCurrentTime(0);
     setDuration(content.duration_seconds || 0);
     setBuffered(0);
+    setIsSourceAttached(false);
     pendingResumePositionRef.current = null;
     hasUserRequestedPlaybackRef.current = false;
     resetCourseProgress();
@@ -231,14 +232,16 @@ export function UnifiedVideoPlayer({
   // ── HLS Stream Loading ──────────────────────────────────────────────────────
   useEffect(() => {
     const video = videoRef.current;
+    setIsSourceAttached(false);
     if (!video || !playback.url) return;
 
     let hls: Hls | null = null;
     const isHls = playback.url.includes(".m3u8") || Boolean(content.media_asset_id) || content.video_provider === "bunny";
 
     if (isHls && Hls.isSupported()) {
-      hls = new Hls(standardHlsConfig);
+      hls = new Hls({ ...standardHlsConfig, autoStartLoad: false });
 
+      hls.on(Hls.Events.MEDIA_ATTACHED, () => setIsSourceAttached(true));
       hls.loadSource(playback.url);
       hls.attachMedia(video);
       hlsRef.current = hls;
@@ -251,7 +254,6 @@ export function UnifiedVideoPlayer({
           })).reverse();
           setAvailableQualities(qualities);
         }
-        if (isPlaying) video.play().catch(() => setIsPlaying(false));
       });
 
       hls.on(Hls.Events.LEVEL_SWITCHED, (event, data) => {
@@ -282,13 +284,13 @@ export function UnifiedVideoPlayer({
     } else if (isHls && video.canPlayType("application/vnd.apple.mpegurl")) {
       // Native HLS fallback (Safari/iOS)
       video.src = playback.url;
-      if (isPlaying) video.play().catch(() => setIsPlaying(false));
+      setIsSourceAttached(true);
       setAvailableQualities([]);
       setCurrentQualityLabel("Auto");
     } else {
       // Standard MP4 fallback
       video.src = playback.url;
-      if (isPlaying) video.play().catch(() => setIsPlaying(false));
+      setIsSourceAttached(true);
       setAvailableQualities([]);
       setCurrentQualityLabel("Padrão");
     }
@@ -312,8 +314,10 @@ export function UnifiedVideoPlayer({
       hls = new Hls(standardHlsConfig);
       hls.loadSource(playback.url);
       hls.attachMedia(audio);
+      setIsSourceAttached(true);
     } else {
       audio.src = playback.url;
+      setIsSourceAttached(true);
     }
 
     return () => {
@@ -525,6 +529,7 @@ export function UnifiedVideoPlayer({
   const togglePlay = useCallback(() => {
     const media = mediaRef.current;
     if (!media) return;
+    if (playback.loading || !playback.url || !isSourceAttached) return;
     hasUserRequestedPlaybackRef.current = true;
     if (isPlaying) {
       media.pause();
@@ -547,11 +552,7 @@ export function UnifiedVideoPlayer({
         pendingResumePositionRef.current = 0;
       }
 
-      if (isVideo && !playbackRequested) {
-        setPlaybackRequested(true);
-        setIsPlaying(true);
-        return;
-      }
+      hlsRef.current?.startLoad(-1);
       const playPromise = media.play();
       if (playPromise !== undefined) {
         playPromise
@@ -568,7 +569,7 @@ export function UnifiedVideoPlayer({
         triggerClickAnim("play");
       }
     }
-  }, [currentTime, duration, isPlaying, isVideo, playbackRequested]);
+  }, [currentTime, duration, isPlaying, isSourceAttached, playback.loading, playback.url]);
 
   const skip = useCallback((seconds: number) => {
     const media = mediaRef.current;
@@ -763,6 +764,7 @@ export function UnifiedVideoPlayer({
   const displayPct = isDragging ? dragPct * 100 : (duration > 0 ? (currentTime / duration) * 100 : 0);
   const playedPct = displayPct;
   const bufferedPct = duration > 0 ? (buffered / duration) * 100 : 0;
+  const playbackUnavailable = !playback.loading && !playback.url;
 
   return (
     <>
@@ -825,10 +827,37 @@ export function UnifiedVideoPlayer({
           </div>
         )}
 
-        {/* Buffering spinner */}
-        {isBuffering && (
+        {/* Source resolution / buffering spinner */}
+        {(
+          playback.loading ||
+          (Boolean(playback.url) && !isSourceAttached) ||
+          isBuffering
+        ) && !playback.error && (
           <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
             <Loader2 className="w-12 h-12 text-white animate-spin opacity-80" />
+          </div>
+        )}
+
+        {(playback.error || playbackUnavailable) && (
+          <div className="absolute inset-0 z-30 flex items-center justify-center bg-black/70 px-6 text-center">
+            <div className="max-w-sm space-y-3">
+              <p className="text-sm font-semibold text-white">
+                Não foi possível carregar o vídeo
+              </p>
+              <p className="text-xs text-white/65">
+                A reprodução não foi iniciada. Tente carregar a mídia novamente.
+              </p>
+              <Button
+                type="button"
+                size="sm"
+                variant="secondary"
+                onClick={playback.retry}
+                className="mx-auto gap-2"
+              >
+                <RefreshCw className="h-4 w-4" />
+                Tentar novamente
+              </Button>
+            </div>
           </div>
         )}
 
@@ -941,6 +970,12 @@ export function UnifiedVideoPlayer({
                   size="icon"
                   variant="ghost"
                   onClick={togglePlay}
+                  disabled={
+                    playback.loading ||
+                    !isSourceAttached ||
+                    Boolean(playback.error) ||
+                    playbackUnavailable
+                  }
                   className="text-white hover:bg-white/20 h-8 w-8 sm:h-9 sm:w-9 flex-shrink-0"
                 >
                   {isPlaying ? <Pause className="w-4 h-4 sm:w-5 sm:h-5" /> : <Play className="w-4 h-4 sm:w-5 sm:h-5" />}

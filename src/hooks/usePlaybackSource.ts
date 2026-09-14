@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { videoService } from "@/lib/video/service";
 import type { VideoContentReference } from "@/lib/video/types";
 
@@ -12,6 +12,7 @@ export function usePlaybackSource(content: VideoContentReference, enabled = true
   const [poster, setPoster] = useState(content.thumbnail_url ?? "");
   const [loading, setLoading] = useState(Boolean(content.media_asset_id));
   const [error, setError] = useState<string | null>(null);
+  const [retryCount, setRetryCount] = useState(0);
 
   useEffect(() => {
     let active = true;
@@ -42,8 +43,10 @@ export function usePlaybackSource(content: VideoContentReference, enabled = true
       .catch(reason => active && setError(reason instanceof Error ? reason.message : "Vídeo indisponível"))
       .finally(() => active && setLoading(false));
     return () => { active = false; };
-  }, [enabled, content.media_asset_id, content.file_url, content.thumbnail_url]);
+  }, [enabled, content.media_asset_id, content.file_url, content.thumbnail_url, retryCount]);
 
   const resolvedUrl = content.media_asset_id && resolvedMediaAssetId !== content.media_asset_id ? "" : url;
-  return { url: resolvedUrl, poster, loading, error };
+  const retry = useCallback(() => setRetryCount((current) => current + 1), []);
+
+  return { url: resolvedUrl, poster, loading, error, retry };
 }
