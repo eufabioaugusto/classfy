@@ -41,10 +41,14 @@ import { EditableAvatar } from "@/components/EditableAvatar";
 import { useProfileComplete } from "@/hooks/useProfileComplete";
 import { CoverUpload } from "@/components/CoverUpload";
 import { AppShell } from "@/components/layout";
+import { PageHeader } from "@/components/layout";
+import { LibraryTemplate } from "@/components/templates";
+import { V2Badge } from "@/components/v2";
 import { Separator } from "@/components/ui/separator";
 import { MessagePrivacySettings } from "@/components/settings/MessagePrivacySettings";
 import { useCreatorMilestones } from "@/hooks/useCreatorMilestones";
 import { CreatorAchievementBadge } from "@/components/CreatorAchievementBadge";
+import "@/styles/account-v2.css";
 
 export default function Conta() {
   const { user, loading: authLoading, role, profile: userProfile, refreshProfile } = useAuth();
@@ -319,54 +323,53 @@ export default function Conta() {
 
   return (
     <AppShell title="Configurações">
-      <div className="container mx-auto p-6 max-w-7xl space-y-6">
-        {/* Page Header */}
-        <div className="space-y-1">
-          <h1 className="text-3xl font-bold tracking-tight">Configurações</h1>
-          <p className="text-muted-foreground">
-            Gerencie suas preferências, perfil e informações da conta
-          </p>
-        </div>
+      <LibraryTemplate className="account-v2" width="contained" header={
+        <PageHeader
+          eyebrow="Sua conta"
+          title="Configurações"
+          description="Cuide do seu perfil, canal, assinatura e preferências em um só lugar."
+        />
+      }>
 
         {/* Main Tabs */}
-        <Tabs defaultValue="profile" className="space-y-6">
-          <TabsList className="grid w-full grid-cols-5 lg:w-auto lg:inline-grid bg-muted/50 p-1">
-            <TabsTrigger value="profile" className="gap-2">
+        <Tabs defaultValue="profile" className="account-v2__tabs">
+          <TabsList className="account-v2__nav" aria-label="Seções de configurações">
+            <TabsTrigger value="profile" className="account-v2__nav-item">
               <User className="w-4 h-4" />
-              <span className="hidden sm:inline">Perfil</span>
+              <span>Perfil</span>
             </TabsTrigger>
             {isCreator && (
-              <TabsTrigger value="channel" className="gap-2">
+              <TabsTrigger value="channel" className="account-v2__nav-item">
                 <Video className="w-4 h-4" />
-                <span className="hidden sm:inline">Canal</span>
+                <span>Canal</span>
               </TabsTrigger>
             )}
-            <TabsTrigger value="wallet" className="gap-2">
+            <TabsTrigger value="wallet" className="account-v2__nav-item">
               <Wallet className="w-4 h-4" />
-              <span className="hidden sm:inline">Carteira</span>
+              <span>Carteira</span>
             </TabsTrigger>
-            <TabsTrigger value="plan" className="gap-2">
+            <TabsTrigger value="plan" className="account-v2__nav-item">
               <Trophy className="w-4 h-4" />
-              <span className="hidden sm:inline">Plano</span>
+              <span>Plano</span>
             </TabsTrigger>
-            <TabsTrigger value="account" className="gap-2">
+            <TabsTrigger value="account" className="account-v2__nav-item">
               <SettingsIcon className="w-4 h-4" />
-              <span className="hidden sm:inline">Conta</span>
+              <span>Conta</span>
             </TabsTrigger>
           </TabsList>
 
           {/* Profile Tab */}
           <TabsContent value="profile" className="space-y-6">
-            <Card>
+            <Card className="account-v2__profile-card">
               <CardHeader>
-                <CardTitle>Informações do Perfil</CardTitle>
+                <CardTitle>Seu perfil</CardTitle>
                 <CardDescription>
-                  Gerencie como você aparece na plataforma
+                  Estas informações aparecem para outras pessoas na Classfy.
                 </CardDescription>
               </CardHeader>
-              <CardContent className="space-y-6">
-                <div className="flex flex-col sm:flex-row items-start gap-6">
-                  <div className="flex flex-col items-center gap-4">
+              <CardContent>
+                <div className="account-v2__profile-layout">
+                  <div className="account-v2__identity">
                     <EditableAvatar 
                       userId={user?.id || ""} 
                       avatarUrl={profile?.avatar_url}
@@ -380,23 +383,16 @@ export default function Conta() {
                         }));
                       }}
                     />
-                    <div className="text-center">
-                      <p className="font-semibold text-lg">{profile?.display_name}</p>
-                      <Badge variant="secondary" className="mt-1 uppercase text-xs">
+                    <div className="account-v2__identity-copy">
+                      <p className="account-v2__identity-name">{profile?.display_name}</p>
+                      <V2Badge variant={profile?.plan === "premium" ? "premium" : profile?.plan === "pro" ? "accent" : "success"}>
                         {profile?.plan || "free"}
-                      </Badge>
+                      </V2Badge>
                     </div>
                   </div>
 
-                  <div className="flex-1 space-y-4 w-full">
-                    <div className="space-y-2">
-                      <Label>Conquistas & Badges</Label>
-                      <AchievementsSection userId={user?.id} />
-                    </div>
-
-                    <Separator />
-
-                    <div className="grid gap-4">
+                  <div className="account-v2__profile-fields">
+                    <div className="grid gap-5">
                       <div className="grid gap-2">
                         <Label htmlFor="email">Email</Label>
                         <Input 
@@ -436,7 +432,7 @@ export default function Conta() {
                         />
                       </div>
 
-                      <div className="flex gap-2">
+                      <div className="flex flex-wrap gap-2 pt-2">
                         {!isEditingProfile ? (
                           <Button
                             variant="outline"
@@ -476,6 +472,16 @@ export default function Conta() {
                 </div>
               </CardContent>
             </Card>
+            <section className="account-v2__achievements" aria-labelledby="account-achievements-title">
+              <div className="account-v2__section-heading">
+                <div>
+                  <h2 id="account-achievements-title">Conquistas</h2>
+                  <p>Acompanhe os selos que você já conquistou e os próximos objetivos.</p>
+                </div>
+                <Trophy className="h-5 w-5" aria-hidden="true" />
+              </div>
+              <AchievementsSection userId={user?.id} />
+            </section>
           </TabsContent>
 
           {/* Channel Tab (Creator Only) */}
@@ -877,16 +883,16 @@ export default function Conta() {
               </CardHeader>
               <CardContent className="space-y-6">
                 {/* Current Plan Badge */}
-                <div className="p-4 rounded-lg bg-gradient-to-br from-primary/10 to-primary/5 border border-primary/20">
+                <div className="account-v2__current-plan">
                   <div className="flex items-center justify-between">
                     <div className="space-y-1">
                       <div className="flex items-center gap-2">
                         <h3 className="text-xl font-bold">
                           Plano {profile?.plan?.toUpperCase() || "FREE"}
                         </h3>
-                        <Badge className="bg-primary text-primary-foreground text-xs">
+                        <V2Badge variant={profile?.plan === "premium" ? "premium" : profile?.plan === "pro" ? "accent" : "success"}>
                           Atual
-                        </Badge>
+                        </V2Badge>
                       </div>
                       {profile?.plan_expires_at && (
                         <p className="text-xs text-muted-foreground flex items-center gap-1">
@@ -925,11 +931,7 @@ export default function Conta() {
                 {/* Plan Cards Comparison */}
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   {/* Free Plan */}
-                  <div className={`p-4 rounded-lg border-2 transition-all ${
-                    profile?.plan === "free" 
-                      ? "border-primary bg-primary/5" 
-                      : "border-border hover:border-muted-foreground/30"
-                  }`}>
+                  <div className="account-v2__plan-option" data-current={profile?.plan === "free"} data-plan="free">
                     <div className="flex items-center justify-between mb-3">
                       <div>
                         <h4 className="font-semibold">Gratuito</h4>
@@ -956,11 +958,7 @@ export default function Conta() {
                   </div>
 
                   {/* Pro Plan */}
-                  <div className={`p-4 rounded-lg border-2 transition-all ${
-                    profile?.plan === "pro" 
-                      ? "border-primary bg-primary/5" 
-                      : "border-border hover:border-yellow-500/50"
-                  }`}>
+                  <div className="account-v2__plan-option" data-current={profile?.plan === "pro"} data-plan="pro">
                     <div className="flex items-center justify-between mb-3">
                       <div>
                         <h4 className="font-semibold flex items-center gap-1">
@@ -994,7 +992,7 @@ export default function Conta() {
                     {profile?.plan === "free" && (
                       <Button 
                         size="sm"
-                        className="w-full bg-gradient-to-r from-yellow-500 to-amber-600 hover:opacity-90"
+                        className="w-full account-v2__plan-action"
                         onClick={async () => {
                           try {
                             const { data, error } = await supabase.functions.invoke('create-subscription-checkout', {
@@ -1044,14 +1042,10 @@ export default function Conta() {
                   </div>
 
                   {/* Premium Plan */}
-                  <div className={`p-4 rounded-lg border-2 transition-all relative ${
-                    profile?.plan === "premium" 
-                      ? "border-primary bg-primary/5" 
-                      : "border-red-500/50 hover:border-red-500"
-                  }`}>
-                    <Badge className="absolute -top-2.5 left-1/2 -translate-x-1/2 bg-red-500">
+                  <div className="account-v2__plan-option" data-current={profile?.plan === "premium"} data-plan="premium">
+                    <V2Badge variant="premium" className="account-v2__recommended">
                       Recomendado
-                    </Badge>
+                    </V2Badge>
                     <div className="flex items-center justify-between mb-3 pt-1">
                       <div>
                         <h4 className="font-semibold flex items-center gap-1">
@@ -1085,7 +1079,7 @@ export default function Conta() {
                     {(profile?.plan === "free" || profile?.plan === "pro") && (
                       <Button 
                         size="sm"
-                        className="w-full bg-gradient-to-r from-red-500 to-rose-600 hover:opacity-90"
+                        className="w-full account-v2__plan-action"
                         disabled={submitting}
                         onClick={async () => {
                           try {
@@ -1262,7 +1256,7 @@ export default function Conta() {
             )}
           </TabsContent>
         </Tabs>
-      </div>
+      </LibraryTemplate>
 
       <BecomeCreatorModal 
         open={creatorModalOpen} 
