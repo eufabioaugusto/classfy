@@ -31,6 +31,7 @@ async function approvedCreator(client: ReturnType<typeof serviceClient>, userId:
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response(null, { headers: corsHeaders });
   if (req.method !== 'POST') return json({ error: 'Method not allowed' }, 405);
+  let stage = 'authenticate';
   try {
     const { user, client } = await requireUser(req);
     const body = await req.json();
@@ -38,24 +39,30 @@ Deno.serve(async (req) => {
     const liveId = typeof body.liveId === 'string' ? body.liveId : '';
 
     if (action === 'create') {
+      stage = 'authorize creator';
       if (!await approvedCreator(client, user.id)) return json({ error: 'Approved creator access required' }, 403);
       const title = String(body.title || '').trim().slice(0, 150);
       const description = String(body.description || '').trim().slice(0, 1000);
       if (title.length < 3) return json({ error: 'Title is required' }, 400);
+      stage = 'configure LiveKit';
       liveKitConfig(); // Fail before allocating a Mux stream.
+      stage = 'check open lives';
       const { data: openLives, error: openError } = await client.from('lives').select('id')
         .eq('creator_id', user.id).in('status', ['waiting', 'live']).limit(1);
       if (openError) throw openError;
       if (openLives?.length) return json({ error: 'Finish your open live first' }, 409);
       const newId = crypto.randomUUID();
+      stage = 'create Mux stream';
       const mux = await createMuxLiveStream(title, newId);
       try {
+        stage = 'save live';
         const { error: liveError } = await client.from('lives').insert({
           id: newId, creator_id: user.id, title, description: description || null,
           status: 'waiting', visibility: 'free', gifts_enabled: false,
           mux_live_stream_id: mux.id, mux_live_playback_id: mux.playbackId,
         });
         if (liveError) throw liveError;
+        stage = 'save stream key';
         const { error: secretError } = await client.from('live_stream_secrets').insert({
           live_id: newId, mux_stream_key: mux.streamKey,
         });
@@ -65,6 +72,7 @@ Deno.serve(async (req) => {
         await client.from('lives').delete().eq('id', newId);
         throw error;
       }
+      stage = 'create creator token';
       return json({ liveId: newId, ...(await creatorToken(newId, user.id)) });
     }
 
@@ -147,7 +155,8 @@ Deno.serve(async (req) => {
     return json({ error: 'Unknown action' }, 400);
   } catch (error) {
     // Provider exceptions can embed URLs or tokens. Do not return/log raw messages.
-    console.error('[live-control]', error instanceof Error ? error.name : 'unknown error');
+    const muxStatus = error instanceof Error ? /^Mux Live API returned (\d{3})$/.exec(error.message)?.[1] : undefined;
+    console.error('[live-control]', stage, error instanceof Error ? error.name : 'unknown error', muxStatus ?? '');
     return json({ error: 'Live operation failed. Check provider configuration and plan.' }, 502);
   }
 });

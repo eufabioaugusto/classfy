@@ -13,7 +13,7 @@ async function muxLiveRequest(path: string, init: RequestInit = {}) {
     headers: { Authorization: muxAuthorization(), 'Content-Type': 'application/json', ...init.headers },
   });
   if (!response.ok) {
-    // Never include a Mux response body: it may contain a stream key.
+    // Never log or return a Mux response body: it may contain a stream key.
     throw new Error(`Mux Live API returned ${response.status}`);
   }
   return response.status === 204 ? null : (await response.json()).data;
@@ -26,14 +26,10 @@ export async function createMuxLiveStream(title: string, liveId: string) {
       playback_policies: ['signed'],
       new_asset_settings: {
         playback_policies: ['signed'],
-        video_quality: 'plus',
-        passthrough: liveId,
         meta: { title, external_id: liveId },
       },
-      latency_mode: 'reduced',
-      reconnect_window: 30,
+      passthrough: liveId,
       max_continuous_duration: 3600,
-      meta: { title, external_id: liveId },
     }),
   });
   if (!data?.id || !data?.stream_key || !data?.playback_ids?.[0]?.id) {
