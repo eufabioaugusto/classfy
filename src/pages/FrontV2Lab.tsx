@@ -48,9 +48,9 @@ type ButtonTone = "primary" | "secondary" | "quiet";
 type BadgeTone = "neutral" | "accent" | "premium" | "success";
 
 const themeTokens = [
-  { name: "Canvas", dark: "#08090B", light: "#F5F4F1" },
+  { name: "Canvas", dark: "#08090B", light: "#FFFFFF" },
   { name: "Surface", dark: "#111317", light: "#FFFFFF" },
-  { name: "Elevated", dark: "#181B20", light: "#F0EFEC" },
+  { name: "Elevated", dark: "#181B20", light: "#F3F3F3" },
   { name: "Ink", dark: "#F5F6F7", light: "#17181B" },
   { name: "Muted", dark: "#969CA6", light: "#686C73" },
   { name: "Classfy", dark: "#F04F64", light: "#D93E55" },

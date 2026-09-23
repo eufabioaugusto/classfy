@@ -74,13 +74,13 @@ All colors MUST be HSL.
     --badge-premium: 45 93% 47%;
 
     /* Official navigation surface tokens. */
-    --sidebar-background: 40 11% 96%;
+    --sidebar-background: 0 0% 98%;
     --sidebar-foreground: 225 8% 19%;
     --sidebar-primary: 347 77% 50%;
     --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 40 8% 90%;
+    --sidebar-accent: 0 0% 95%;
     --sidebar-accent-foreground: 225 8% 13%;
-    --sidebar-border: 225 8% 84%;
+    --sidebar-border: 0 0% 90%;
     --sidebar-ring: 347 77% 50%;
 
     /* Plans are semantic states, not decorative colors. */

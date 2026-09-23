@@ -101,11 +101,11 @@
   --cf2-warning-soft: rgba(155, 104, 30, 0.1);
   --cf2-danger: #c63d50;
   --cf2-danger-soft: rgba(198, 61, 80, 0.1);
-  --cf2-canvas: #f5f4f1;
-  --cf2-canvas-soft: #eceae6;
+  --cf2-canvas: #ffffff;
+  --cf2-canvas-soft: #fafafa;
   --cf2-surface: #ffffff;
-  --cf2-surface-raised: #f0efec;
-  --cf2-surface-strong: #e6e4df;
+  --cf2-surface-raised: #f3f3f3;
+  --cf2-surface-strong: #eaeaea;
   --cf2-ink: #17181b;
   --cf2-ink-secondary: #464a50;
   --cf2-ink-muted: #686c73;
@@ -114,8 +114,8 @@
   --cf2-border-strong: rgba(23, 24, 27, 0.18);
   --cf2-overlay: rgba(18, 18, 18, 0.58);
   --cf2-focus: 0 0 0 3px rgba(217, 62, 85, 0.16);
-  --cf2-shadow-soft: 0 12px 34px rgba(27, 25, 20, 0.09);
-  --cf2-shadow-panel: 0 24px 70px rgba(27, 25, 20, 0.13);
+  --cf2-shadow-soft: 0 12px 34px rgba(0, 0, 0, 0.07);
+  --cf2-shadow-panel: 0 24px 70px rgba(0, 0, 0, 0.11);
   color-scheme: light;
 }
 
