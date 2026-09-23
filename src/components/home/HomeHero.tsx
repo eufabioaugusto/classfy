@@ -1,6 +1,5 @@
 import { ArrowRight, Clock, Play, Sparkles } from "lucide-react";
-import { HOME_EDITORIAL } from "@/config/home";
-import { HomeHeroPreview } from "./HomeHeroPreview";
+import heroFallbackImage from "@/assets/front-v2/hero-educadora.jpg";
 
 type CreatorProfile = {
   display_name?: string | null;
@@ -63,14 +62,7 @@ export function HomeHero({ content, onPlay, onOpenFocus, primaryLabel = "Assisti
   return (
     <section className="cf2-home-hero" aria-labelledby="home-hero-title">
       <div className="cf2-home-hero__media" aria-hidden="true">
-        {content.media_asset_id || content.file_url || !content.id.startsWith("creator-") ? (
-          <HomeHeroPreview
-            content={content}
-            maxDurationSeconds={HOME_EDITORIAL.heroPreviewSeconds}
-          />
-        ) : content.thumbnail_url ? (
-          <img src={content.thumbnail_url} alt="" loading="eager" />
-        ) : null}
+        <img src={content.thumbnail_url || heroFallbackImage} alt="" loading="eager" />
       </div>
       <div className="cf2-home-hero__shade" aria-hidden="true" />
 
