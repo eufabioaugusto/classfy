@@ -65,6 +65,7 @@ export function useMediaDevices(): UseMediaDevicesReturn {
   const audioContextRef = useRef<AudioContext | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
   const animationFrameRef = useRef<number | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
 
   // Enumerate available devices
   const enumerateDevices = useCallback(async () => {
@@ -163,6 +164,7 @@ export function useMediaDevices(): UseMediaDevicesReturn {
       );
       
       setStream(mediaStream);
+      streamRef.current = mediaStream;
       setHasPermission(true);
       setIsCameraOn(true);
       setIsMicOn(true);
@@ -209,10 +211,9 @@ export function useMediaDevices(): UseMediaDevicesReturn {
 
   // Stop media stream
   const stopStream = useCallback(() => {
-    if (stream) {
-      stream.getTracks().forEach(track => track.stop());
-      setStream(null);
-    }
+    streamRef.current?.getTracks().forEach(track => track.stop());
+    streamRef.current = null;
+    setStream(null);
     
     if (animationFrameRef.current) {
       cancelAnimationFrame(animationFrameRef.current);
@@ -224,7 +225,7 @@ export function useMediaDevices(): UseMediaDevicesReturn {
     }
     
     setAudioLevel(0);
-  }, [stream]);
+  }, []);
 
   // Toggle camera
   const toggleCamera = useCallback(() => {

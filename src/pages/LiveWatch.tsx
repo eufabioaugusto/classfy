@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
@@ -22,6 +22,7 @@ interface Live {
   started_at: string | null;
   viewer_count: number;
   creator_id: string;
+  replay_published_at?: string | null;
   creator?: {
     id: string;
     display_name: string;
@@ -36,6 +37,9 @@ export default function LiveWatch() {
   const [gifts, setGifts] = useState<LiveGift[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [showGifts, setShowGifts] = useState(false);
+  const [playbackUrl, setPlaybackUrl] = useState("");
+  const [playbackError, setPlaybackError] = useState(false);
+  const videoRef = useRef<HTMLVideoElement>(null);
 
   const { messages, pinnedMessage, isLoading: chatLoading, isSending, sendMessage } = useLiveChat(id || null);
   const { viewerCount, joinLive, leaveLive } = useLiveViewers(id || null);
@@ -53,6 +57,7 @@ export default function LiveWatch() {
 
       if (error || !data) {
         toast.error("Live não encontrada");
+        setIsLoading(false);
         return;
       }
 
@@ -111,6 +116,41 @@ export default function LiveWatch() {
     toast.info("Presentes ainda não estão disponíveis. Nenhuma cobrança foi realizada.");
   };
 
+  useEffect(() => {
+    if (!live || !user || (live.status !== "live" && !live.replay_published_at)) {
+      setPlaybackUrl("");
+      return;
+    }
+    let active = true;
+    setPlaybackError(false);
+    void supabase.functions.invoke("live-control", { body: { action: "playback", liveId: live.id } })
+      .then(({ data, error }) => {
+        if (!active) return;
+        if (error || !data?.url) { setPlaybackError(true); return; }
+        setPlaybackUrl(data.url);
+      });
+    return () => { active = false; };
+  }, [live?.id, live?.status, live?.replay_published_at, user]);
+
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video || !playbackUrl) return;
+    let active = true;
+    let hls: import("hls.js").default | null = null;
+    void import("hls.js").then(({ default: Hls }) => {
+      if (!active) return;
+      if (Hls.isSupported()) {
+        hls = new Hls({ liveSyncDurationCount: 3 });
+        hls.loadSource(playbackUrl);
+        hls.attachMedia(video);
+        hls.on(Hls.Events.ERROR, (_, data) => { if (data.fatal) setPlaybackError(true); });
+      } else if (video.canPlayType("application/vnd.apple.mpegurl")) {
+        video.src = playbackUrl;
+      } else setPlaybackError(true);
+    });
+    return () => { active = false; hls?.destroy(); video.removeAttribute("src"); video.load(); };
+  }, [playbackUrl]);
+
   if (isLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
@@ -142,11 +182,13 @@ export default function LiveWatch() {
       <div className="flex-1 flex flex-col">
         {/* Video Area */}
         <div className="aspect-video bg-black relative flex items-center justify-center">
-          {isEnded ? (
+          {playbackUrl ? (
+            <video ref={videoRef} controls playsInline autoPlay={live.status === "live"} className="w-full h-full object-contain" aria-label={live.status === "live" ? "Transmissão ao vivo" : "Gravação da live"} />
+          ) : isEnded ? (
             <div className="text-center text-white">
               <Radio className="w-16 h-16 mx-auto mb-4 opacity-50" />
-              <h2 className="text-xl font-bold">Transmissão Encerrada</h2>
-              <p className="text-muted-foreground mt-2">Esta live já foi finalizada</p>
+              <h2 className="text-xl font-bold">{live.replay_published_at ? "Carregando gravação" : "Transmissão encerrada"}</h2>
+              <p className="text-muted-foreground mt-2">{playbackError ? "Não foi possível carregar o vídeo." : live.replay_published_at ? "Preparando o replay..." : "O replay aguarda publicação."}</p>
             </div>
           ) : (
             <>
@@ -154,9 +196,7 @@ export default function LiveWatch() {
                 <div className="text-center">
                   <Radio className="w-20 h-20 mx-auto mb-4 text-accent animate-pulse" />
                   <p className="text-lg">Transmissão em andamento</p>
-                  <p className="text-sm text-muted-foreground mt-1">
-                    (Integração com stream de vídeo pendente)
-                  </p>
+                  <p className="text-sm text-muted-foreground mt-1">{playbackError ? "O sinal está indisponível. Tente atualizar a página." : "Aguardando sinal de vídeo..."}</p>
                 </div>
               </div>
               

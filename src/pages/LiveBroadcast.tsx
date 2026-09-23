@@ -1,344 +1,130 @@
-import { useEffect } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useEffect, useRef, useState } from "react";
+import { Link, useNavigate, useParams } from "react-router-dom";
+import { Room } from "livekit-client";
+import { Camera, Copy, Loader2, Mic, MicOff, Radio, VideoOff } from "lucide-react";
+import { toast } from "sonner";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
-import { Button } from "@/components/ui/button";
-import { toast } from "sonner";
-import { Users, Gift, PhoneOff, Loader2, MessageCircle, X, Video, VideoOff, Mic, MicOff, RefreshCw } from "lucide-react";
-import { useState } from "react";
 import { useMediaDevices } from "@/hooks/useMediaDevices";
 import { useLiveChat } from "@/hooks/useLiveChat";
 import { useLiveViewers } from "@/hooks/useLiveViewers";
-import { CameraPreview } from "@/components/live/CameraPreview";
 import { LiveChat } from "@/components/live/LiveChat";
-import { cn } from "@/lib/utils";
-import { motion, AnimatePresence } from "framer-motion";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
+import { Button } from "@/components/ui/button";
 
-interface Live {
-  id: string;
-  title: string;
-  description: string | null;
-  status: string;
-  started_at: string | null;
-  viewer_count: number;
-  peak_viewers: number;
-  total_gifts_value: number;
-  creator_id: string;
-}
+type Live = { id: string; creator_id: string; title: string; status: "waiting" | "live" | "ended" | "cancelled"; started_at: string | null };
 
 export default function LiveBroadcast() {
   const { id } = useParams();
   const navigate = useNavigate();
   const { user } = useAuth();
   const [live, setLive] = useState<Live | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [isEnding, setIsEnding] = useState(false);
-  const [showEndDialog, setShowEndDialog] = useState(false);
-  const [showChat, setShowChat] = useState(false);
-  const [duration, setDuration] = useState(0);
-
-  const {
-    stream,
-    isCameraOn,
-    isMicOn,
-    audioLevel,
-    cameras,
-    microphones,
-    selectedCamera,
-    selectedMicrophone,
-    toggleCamera,
-    toggleMic,
-    flipCamera,
-    selectCamera,
-    selectMicrophone,
-    startStream,
-    stopStream,
-  } = useMediaDevices();
-
+  const [loading, setLoading] = useState(true);
+  const [starting, setStarting] = useState(false);
+  const [ending, setEnding] = useState(false);
+  const [publishing, setPublishing] = useState(false);
+  const [now, setNow] = useState(Date.now());
+  const roomRef = useRef<Room | null>(null);
+  const previewRef = useRef<HTMLVideoElement>(null);
+  const { stream, isCameraOn, isMicOn, startStream, stopStream, toggleCamera, toggleMic } = useMediaDevices();
   const { messages, pinnedMessage, isLoading: chatLoading, isSending, sendMessage, deleteMessage, pinMessage, unpinMessage } = useLiveChat(id || null);
-  const { viewerCount, peakViewers } = useLiveViewers(id || null);
+  const { viewerCount } = useLiveViewers(id || null);
 
-  // Fetch live data
   useEffect(() => {
     if (!id || !user) return;
-
-    const fetchLive = async () => {
-      const { data, error } = await supabase
-        .from("lives")
-        .select("*")
-        .eq("id", id)
-        .single();
-
-      if (error || !data) {
-        toast.error("Live não encontrada");
-        navigate("/studio");
+    let active = true;
+    void supabase.from("lives").select("id, creator_id, title, status, started_at").eq("id", id).single().then(({ data, error }) => {
+      if (!active) return;
+      if (error || !data || data.creator_id !== user.id) {
+        toast.error("Transmissão indisponível para esta conta.");
+        navigate("/studio/live");
         return;
       }
+      setLive(data as Live);
+      setLoading(false);
+    });
+    const channel = supabase.channel(`broadcast-status-${id}`).on("postgres_changes", {
+      event: "UPDATE", schema: "public", table: "lives", filter: `id=eq.${id}`,
+    }, (payload) => setLive(payload.new as Live)).subscribe();
+    return () => { active = false; void supabase.removeChannel(channel); roomRef.current?.disconnect(); };
+  }, [id, user, navigate]);
 
-      if (data.creator_id !== user.id) {
-        toast.error("Você não é o dono desta live");
-        navigate("/studio");
-        return;
-      }
-
-      setLive(data);
-      setIsLoading(false);
-      startStream();
-    };
-
-    fetchLive();
-
-    return () => {
-      stopStream();
-    };
-  }, [id, user]);
-
-  // Duration timer
   useEffect(() => {
-    if (!live?.started_at) return;
+    if (!previewRef.current) return;
+    previewRef.current.srcObject = stream;
+  }, [stream]);
+  useEffect(() => { const timer = window.setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(timer); }, []);
 
-    const startTime = new Date(live.started_at).getTime();
-    const interval = setInterval(() => {
-      setDuration(Math.floor((Date.now() - startTime) / 1000));
-    }, 1000);
-
-    return () => clearInterval(interval);
-  }, [live?.started_at]);
-
-  const formatDuration = (seconds: number) => {
-    const h = Math.floor(seconds / 3600);
-    const m = Math.floor((seconds % 3600) / 60);
-    const s = seconds % 60;
-    return h > 0
-      ? `${h}:${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}`
-      : `${m}:${s.toString().padStart(2, "0")}`;
-  };
-
-  const handleEndLive = async () => {
-    if (!id) return;
-
-    setIsEnding(true);
-
+  const begin = async () => {
+    if (!id || !stream || starting || !live) return;
+    setStarting(true);
     try {
-      await supabase
-        .from("lives")
-        .update({
-          status: "ended",
-          ended_at: new Date().toISOString(),
-        })
-        .eq("id", id);
-
-      stopStream();
-      toast.success("Live encerrada!");
-      navigate("/studio/contents");
-    } catch (error: any) {
-      toast.error(error.message || "Erro ao encerrar live");
-    } finally {
-      setIsEnding(false);
-      setShowEndDialog(false);
-    }
+      const { data, error } = await supabase.functions.invoke("live-control", { body: { action: "connect", liveId: id } });
+      if (error || !data?.url || !data?.token) throw new Error("Não foi possível abrir a sala");
+      const room = new Room({ adaptiveStream: false, dynacast: false });
+      await room.connect(data.url, data.token);
+      roomRef.current = room;
+      const tracks = stream.getTracks().filter((track) => track.readyState === "live");
+      if (!tracks.some((track) => track.kind === "video") || !tracks.some((track) => track.kind === "audio")) throw new Error("Câmera e microfone são necessários");
+      for (const track of tracks) await room.localParticipant.publishTrack(track);
+      setPublishing(true);
+      if (live.status === "waiting") {
+        const result = await supabase.functions.invoke("live-control", { body: { action: "start", liveId: id } });
+        if (result.error) throw result.error;
+      }
+    } catch {
+      roomRef.current?.disconnect();
+      roomRef.current = null;
+      setPublishing(false);
+      toast.error("Não foi possível iniciar a transmissão. Confira a conexão e tente novamente.");
+    } finally { setStarting(false); }
   };
 
-  // Count unread messages (simple approximation - messages received while chat is closed)
-  const unreadCount = !showChat ? messages.length : 0;
+  const end = async () => {
+    if (!id || ending) return;
+    if (!window.confirm("Encerrar a live agora? A gravação ficará disponível após o processamento.")) return;
+    setEnding(true);
+    try {
+      const { error } = await supabase.functions.invoke("live-control", { body: { action: "end", liveId: id } });
+      if (error) throw error;
+      roomRef.current?.disconnect();
+      stopStream();
+      toast.success("Transmissão encerrada. Aguarde a gravação no Studio.");
+      navigate("/studio/live");
+    } catch { toast.error("Não foi possível encerrar a live. Tente novamente."); }
+    finally { setEnding(false); }
+  };
 
-  if (isLoading) {
-    return (
-      <div className="h-screen w-screen flex items-center justify-center bg-black">
-        <Loader2 className="w-8 h-8 animate-spin text-white" />
-      </div>
-    );
-  }
+  const copyLink = async () => {
+    await navigator.clipboard.writeText(`${window.location.origin}/live/${id}`);
+    toast.success("Link da transmissão copiado.");
+  };
 
-  return (
-    <div className="h-screen w-screen overflow-hidden bg-black text-white relative">
-      {/* Fullscreen Video */}
-      <div className="absolute inset-0">
-        <CameraPreview
-          stream={stream}
-          isCameraOn={isCameraOn}
-          isMicOn={isMicOn}
-          audioLevel={audioLevel}
-          cameras={cameras}
-          microphones={microphones}
-          selectedCamera={selectedCamera}
-          selectedMicrophone={selectedMicrophone}
-          onToggleCamera={toggleCamera}
-          onToggleMic={toggleMic}
-          onFlipCamera={flipCamera}
-          onSelectCamera={selectCamera}
-          onSelectMicrophone={selectMicrophone}
-          size="full"
-          className="w-full h-full"
-          showControls={false}
-        />
-      </div>
+  if (loading) return <div className="min-h-screen grid place-items-center bg-black text-white"><Loader2 className="animate-spin" /></div>;
+  if (!live) return null;
+  const elapsed = live.started_at ? Math.max(0, Math.floor((now - new Date(live.started_at).getTime()) / 1000)) : 0;
+  const timer = `${String(Math.floor(elapsed / 60)).padStart(2, "0")}:${String(elapsed % 60).padStart(2, "0")}`;
 
-      {/* Top Bar Overlay */}
-      <div className="absolute top-0 left-0 right-0 z-10 flex items-center justify-between p-4 bg-gradient-to-b from-black/70 to-transparent">
-        <div className="flex items-center gap-4">
-          <div className="flex items-center gap-2 px-3 py-1.5 bg-destructive rounded-full">
-            <span className="w-2 h-2 bg-white rounded-full animate-pulse" />
-            <span className="text-sm font-medium">AO VIVO</span>
-          </div>
-          <span className="text-sm text-white/80">{formatDuration(duration)}</span>
+  return <main className="min-h-screen bg-[#0c0d0f] text-white p-4 lg:p-6">
+    <div className="max-w-7xl mx-auto grid gap-5 lg:grid-cols-[minmax(0,1fr)_340px]">
+      <div className="min-w-0 space-y-4">
+        <header className="flex flex-wrap items-center justify-between gap-3"><div><Link to="/studio/live" className="text-sm text-white/60 hover:text-white">← Voltar ao Studio</Link><h1 className="text-xl font-semibold mt-2">{live.title}</h1></div><div className="flex items-center gap-3"><span className="rounded-full bg-white/10 px-3 py-1 text-sm">{live.status === "live" ? `AO VIVO · ${timer}` : live.status === "waiting" ? "Preparando transmissão" : "Encerrada"}</span><span className="text-sm text-white/60">{viewerCount} assistindo</span></div></header>
+        <div className="relative aspect-video rounded-2xl overflow-hidden bg-black border border-white/10 grid place-items-center">
+          {stream ? <video ref={previewRef} autoPlay muted playsInline className="w-full h-full object-cover scale-x-[-1]" /> : <div className="text-center text-white/60"><Camera className="w-10 h-10 mx-auto mb-3" /><p>Ative sua câmera para ver a prévia.</p></div>}
+          {live.status === "live" && <span className="absolute top-4 left-4 rounded-full bg-red-600 px-3 py-1 text-xs font-bold tracking-wide">AO VIVO</span>}
+          {stream && !isCameraOn && <div className="absolute inset-0 bg-black/90 grid place-items-center"><VideoOff /><span>Câmera desligada</span></div>}
         </div>
-
-        <div className="flex items-center gap-4">
-          <div className="flex items-center gap-2 text-sm bg-black/40 px-3 py-1.5 rounded-full">
-            <Users className="w-4 h-4" />
-            <span>{viewerCount}</span>
-          </div>
-          <div className="flex items-center gap-2 text-sm text-yellow-500 bg-black/40 px-3 py-1.5 rounded-full">
-            <Gift className="w-4 h-4" />
-            <span>R$ {(live?.total_gifts_value || 0).toFixed(2)}</span>
-          </div>
+        <div className="flex flex-wrap items-center gap-2">
+          {!stream && <Button onClick={() => void startStream()}><Camera className="w-4 h-4 mr-2" /> Ativar câmera e microfone</Button>}
+          {stream && !publishing && <Button disabled={starting || !isCameraOn || !isMicOn} onClick={() => void begin()}><Radio className="w-4 h-4 mr-2" />{starting ? "Conectando..." : live.status === "live" ? "Retomar transmissão" : "Iniciar live"}</Button>}
+          {publishing && <span className="text-sm text-white/70">{live.status === "live" ? "Seu sinal está no ar" : "Enviando sinal; aguardando confirmação do Mux..."}</span>}
+          {stream && <Button variant="outline" onClick={toggleCamera}>{isCameraOn ? <Camera className="w-4 h-4" /> : <VideoOff className="w-4 h-4" />}</Button>}
+          {stream && <Button variant="outline" onClick={toggleMic}>{isMicOn ? <Mic className="w-4 h-4" /> : <MicOff className="w-4 h-4" />}</Button>}
+          <Button variant="outline" onClick={() => void copyLink()}><Copy className="w-4 h-4 mr-2" /> Copiar link</Button>
+          <Button variant="destructive" disabled={ending} onClick={() => void end()}>{ending ? "Encerrando..." : "Encerrar live"}</Button>
         </div>
+        <p className="text-sm text-white/50">O indicador “Ao vivo” aparece somente depois que o Mux confirma o sinal. A gravação é enviada para revisão após o encerramento.</p>
       </div>
-
-      {/* Bottom Controls Overlay */}
-      <div className="absolute bottom-0 left-0 right-0 z-10 p-4 pb-6 bg-gradient-to-t from-black/80 to-transparent">
-        <div className="flex items-center justify-center gap-3">
-          {/* Chat Toggle Button */}
-          <Button
-            variant="outline"
-            size="default"
-            onClick={() => setShowChat(!showChat)}
-            className={cn(
-              "gap-2 bg-black/50 border-white/20 hover:bg-white/20 text-white relative",
-              showChat && "bg-white/20"
-            )}
-          >
-            <MessageCircle className="w-4 h-4" />
-            Chat
-            {unreadCount > 0 && !showChat && (
-              <span className="absolute -top-1 -right-1 w-5 h-5 bg-accent text-accent-foreground text-xs rounded-full flex items-center justify-center">
-                {unreadCount > 9 ? "9+" : unreadCount}
-              </span>
-            )}
-          </Button>
-
-          {/* Camera Controls */}
-          <Button
-            variant="outline"
-            size="icon"
-            onClick={toggleCamera}
-            className={cn(
-              "bg-black/50 border-white/20 hover:bg-white/20 text-white",
-              !isCameraOn && "bg-destructive border-destructive hover:bg-destructive/80"
-            )}
-          >
-            {isCameraOn ? <Video className="w-4 h-4" /> : <VideoOff className="w-4 h-4" />}
-          </Button>
-
-          <Button
-            variant="outline"
-            size="icon"
-            onClick={toggleMic}
-            className={cn(
-              "bg-black/50 border-white/20 hover:bg-white/20 text-white",
-              !isMicOn && "bg-destructive border-destructive hover:bg-destructive/80"
-            )}
-          >
-            {isMicOn ? <Mic className="w-4 h-4" /> : <MicOff className="w-4 h-4" />}
-          </Button>
-
-          {cameras.length > 1 && (
-            <Button
-              variant="outline"
-              size="icon"
-              onClick={flipCamera}
-              className="bg-black/50 border-white/20 hover:bg-white/20 text-white"
-            >
-              <RefreshCw className="w-4 h-4" />
-            </Button>
-          )}
-
-          {/* End Live Button */}
-          <Button
-            variant="destructive"
-            size="default"
-            onClick={() => setShowEndDialog(true)}
-            className="gap-2"
-          >
-            <PhoneOff className="w-4 h-4" />
-            Encerrar Live
-          </Button>
-        </div>
-      </div>
-
-      {/* Chat Overlay Panel */}
-      <AnimatePresence>
-        {showChat && (
-          <motion.div
-            initial={{ x: "100%", opacity: 0 }}
-            animate={{ x: 0, opacity: 1 }}
-            exit={{ x: "100%", opacity: 0 }}
-            transition={{ type: "spring", damping: 25, stiffness: 300 }}
-            className="absolute top-0 right-0 bottom-0 w-80 z-20 flex flex-col bg-card/95 backdrop-blur-lg border-l border-border"
-          >
-            {/* Chat Header */}
-            <div className="flex items-center justify-between p-3 border-b">
-              <div>
-                <h3 className="font-semibold text-sm">{live?.title}</h3>
-                <p className="text-xs text-muted-foreground">Pico: {peakViewers} espectadores</p>
-              </div>
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={() => setShowChat(false)}
-                className="h-8 w-8"
-              >
-                <X className="w-4 h-4" />
-              </Button>
-            </div>
-
-            {/* Chat Content */}
-            <div className="flex-1 overflow-hidden">
-              <LiveChat
-                messages={messages}
-                pinnedMessage={pinnedMessage}
-                isLoading={chatLoading}
-                isSending={isSending}
-                onSendMessage={sendMessage}
-                onDeleteMessage={deleteMessage}
-                onPinMessage={pinMessage}
-                onUnpinMessage={unpinMessage}
-                isCreator={true}
-                className="h-full"
-              />
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      {/* End Live Dialog */}
-      <AlertDialog open={showEndDialog} onOpenChange={setShowEndDialog}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Encerrar Transmissão?</AlertDialogTitle>
-            <AlertDialogDescription>
-              Sua live será finalizada. Você poderá publicar a gravação depois.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Continuar Live</AlertDialogCancel>
-            <AlertDialogAction onClick={handleEndLive} disabled={isEnding} className="bg-destructive hover:bg-destructive/90">
-              {isEnding ? <Loader2 className="w-4 h-4 animate-spin" /> : "Encerrar"}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <div className="h-[70vh] min-h-[420px] overflow-hidden"><LiveChat messages={messages} pinnedMessage={pinnedMessage} isLoading={chatLoading} isSending={isSending} onSendMessage={sendMessage} onDeleteMessage={deleteMessage} onPinMessage={pinMessage} onUnpinMessage={unpinMessage} isCreator className="h-full" /></div>
     </div>
-  );
+  </main>;
 }

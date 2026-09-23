@@ -256,7 +256,9 @@ const selectionKey = (content: Content) =>
   `${content.record_type}:${content.id}`;
 
 const editRoute = (content: Content) =>
-  content.record_type === "draft"
+  content.content_type === "live"
+    ? "/studio/live"
+    : content.record_type === "draft"
     ? content.content_type === "curso"
       ? content.source_id
         ? `/studio/upload/curso?edit=${content.source_id}`

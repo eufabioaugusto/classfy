@@ -54,6 +54,9 @@ verify_jwt = false
 [functions.mux-webhook]
 verify_jwt = false
 
+[functions.live-control]
+verify_jwt = true
+
 [functions.bunny-webhook]
 verify_jwt = false
 
