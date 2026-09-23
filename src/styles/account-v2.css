@@ -115,11 +115,9 @@
 .account-v2__section-heading h2 { margin: 0; color: var(--cf2-ink); font: 620 var(--cf2-type-section)/1.2 var(--cf2-font-sans); letter-spacing: -0.035em; }
 .account-v2__section-heading p { margin: var(--cf2-space-2) 0 0; color: var(--cf2-ink-muted); font-size: var(--cf2-type-small); }
 .account-v2__section-heading svg { color: var(--cf2-ink-subtle); }
-.account-v2__achievements > div:last-child { border-color: var(--cf2-border); border-radius: var(--cf2-radius-card); background: var(--cf2-surface); box-shadow: none; }
-.account-v2__achievements [role="tablist"],
-.account-v2 [role="tabpanel"] [role="tablist"] { height: auto; min-height: 2.5rem; border-radius: var(--cf2-radius-control); background: var(--cf2-surface-raised); }
-.account-v2__achievements [role="tab"][data-state="active"],
-.account-v2 [role="tabpanel"] [role="tab"][data-state="active"] { border-radius: calc(var(--cf2-radius-control) - 2px); color: var(--cf2-ink); background: var(--cf2-surface); box-shadow: none; }
+.account-v2__achievements-panel { max-width: 52rem; }
+.account-v2 [role="tabpanel"] [role="tablist"]:not(.economy-tabs-list) { height: auto; min-height: 2.5rem; border-radius: var(--cf2-radius-control); background: var(--cf2-surface-raised); }
+.account-v2 [role="tabpanel"] [role="tablist"]:not(.economy-tabs-list) [role="tab"][data-state="active"] { border-radius: calc(var(--cf2-radius-control) - 2px); color: var(--cf2-ink); background: var(--cf2-surface); box-shadow: none; }
 
 .account-v2 [role="tabpanel"] .bg-gradient-to-br { background: var(--cf2-surface-raised); border-color: var(--cf2-border); }
 .account-v2 [role="tabpanel"] .text-green-600,

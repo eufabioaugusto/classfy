@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { 
+  Award,
   Wallet, 
   TrendingUp, 
   DollarSign, 
@@ -43,11 +44,12 @@ import { CoverUpload } from "@/components/CoverUpload";
 import { AppShell } from "@/components/layout";
 import { PageHeader } from "@/components/layout";
 import { LibraryTemplate } from "@/components/templates";
-import { V2Badge } from "@/components/v2";
+import { V2Badge, V2Card, V2CardContent, V2CardHeader } from "@/components/v2";
 import { Separator } from "@/components/ui/separator";
 import { MessagePrivacySettings } from "@/components/settings/MessagePrivacySettings";
 import { useCreatorMilestones } from "@/hooks/useCreatorMilestones";
 import { CreatorAchievementBadge } from "@/components/CreatorAchievementBadge";
+import "@/styles/economy-v2.css";
 import "@/styles/account-v2.css";
 
 export default function Conta() {
@@ -475,8 +477,8 @@ export default function Conta() {
             <section className="account-v2__achievements" aria-labelledby="account-achievements-title">
               <div className="account-v2__section-heading">
                 <div>
-                  <h2 id="account-achievements-title">Conquistas</h2>
-                  <p>Acompanhe os selos que você já conquistou e os próximos objetivos.</p>
+                  <h2 id="account-achievements-title">Metas e conquistas</h2>
+                  <p>Complete metas para desbloquear conquistas e acompanhar tudo o que já alcançou.</p>
                 </div>
                 <Trophy className="h-5 w-5" aria-hidden="true" />
               </div>
@@ -1282,60 +1284,61 @@ function AchievementsSection({ userId }: { userId?: string }) {
   }
 
   return (
-    <Card className="p-4">
-      <Tabs defaultValue="unlocked">
-        <TabsList className="w-full grid grid-cols-2 mb-4">
-          <TabsTrigger value="unlocked" className="gap-1.5">
-            Desbloqueadas
-            <span className="bg-primary/20 text-primary px-1.5 py-0.5 rounded-full text-xs">
-              {unlockedMilestones.length}
-            </span>
-          </TabsTrigger>
-          <TabsTrigger value="locked" className="gap-1.5">
-            Bloqueadas
-            <span className="bg-muted px-1.5 py-0.5 rounded-full text-xs">
-              {lockedMilestones.length}
-            </span>
-          </TabsTrigger>
-        </TabsList>
+    <V2Card className="economy-panel account-v2__achievements-panel">
+      <V2CardHeader>
+        <div className="economy-panel-heading">
+          <span className="economy-icon"><Award aria-hidden="true" /></span>
+          <div>
+            <h3 className="economy-panel-title">Conquistas</h3>
+            <p className="economy-panel-copy">{unlockedMilestones.length} desbloqueadas de {milestones.length}</p>
+          </div>
+        </div>
+      </V2CardHeader>
+      <V2CardContent>
+        <Tabs defaultValue="unlocked">
+          <TabsList className="economy-tabs-list">
+            <TabsTrigger value="unlocked">
+              Desbloqueadas · {unlockedMilestones.length}
+            </TabsTrigger>
+            <TabsTrigger value="locked">
+              Em progresso · {lockedMilestones.length}
+            </TabsTrigger>
+          </TabsList>
 
-        <TabsContent value="unlocked" className="mt-0">
-          {unlockedMilestones.length > 0 ? (
-            <div className="grid grid-cols-3 sm:grid-cols-4 gap-4">
-              {unlockedMilestones.map((milestone) => (
+          <TabsContent value="unlocked" className="mt-5">
+            {unlockedMilestones.length > 0 ? (
+              <div className="economy-achievement-grid">
+                {unlockedMilestones.map((milestone) => (
+                  <CreatorAchievementBadge
+                    key={milestone.id}
+                    milestone={milestone}
+                    size="sm"
+                    variant="economy"
+                  />
+                ))}
+              </div>
+            ) : (
+              <div className="py-10 text-center">
+                <p className="economy-panel-title">Sua primeira conquista está próxima</p>
+                <p className="economy-panel-copy">Complete metas para marcar o início da sua coleção.</p>
+              </div>
+            )}
+          </TabsContent>
+
+          <TabsContent value="locked" className="mt-5">
+            <div className="economy-achievement-grid">
+              {lockedMilestones.slice(0, 8).map((milestone) => (
                 <CreatorAchievementBadge
                   key={milestone.id}
                   milestone={milestone}
                   size="sm"
+                  variant="economy"
                 />
               ))}
             </div>
-          ) : (
-            <div className="text-center py-8 text-muted-foreground">
-              <Trophy className="w-12 h-12 mx-auto mb-3 opacity-30" />
-              <p className="text-sm">Nenhuma conquista desbloqueada ainda</p>
-              <p className="text-xs mt-1">Complete metas para ganhar selos!</p>
-            </div>
-          )}
-        </TabsContent>
-
-        <TabsContent value="locked" className="mt-0">
-          <div className="grid grid-cols-3 sm:grid-cols-4 gap-4">
-            {lockedMilestones.slice(0, 8).map((milestone) => (
-              <CreatorAchievementBadge
-                key={milestone.id}
-                milestone={milestone}
-                size="sm"
-              />
-            ))}
-          </div>
-          {lockedMilestones.length > 8 && (
-            <p className="text-center text-xs text-muted-foreground mt-4">
-              +{lockedMilestones.length - 8} conquistas restantes
-            </p>
-          )}
-        </TabsContent>
-      </Tabs>
-    </Card>
+          </TabsContent>
+        </Tabs>
+      </V2CardContent>
+    </V2Card>
   );
 }
