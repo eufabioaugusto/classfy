@@ -9,7 +9,7 @@ import { AffiliateModal } from "@/components/AffiliateModal";
 import { GlobalSearch } from "@/components/GlobalSearch";
 import { useState } from "react";
 import { Moon, Sun, Plus, BookOpen, LogIn, LogOut, Settings, Gift, User } from "lucide-react";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { RewardAvatar } from "@/components/RewardAvatar";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -42,10 +42,6 @@ export function Header({ variant = "home", title, showSearch = false, isExploreM
   
   const currentPlan = profile?.plan || 'free';
   const limitText = limits.studies === Infinity ? 'ilimitados' : `${activeCount}/${limits.studies}`;
-
-  const getInitials = (name: string) => {
-    return name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2);
-  };
 
   return (
     <header className={cn("cf2-app-header sticky top-0 z-50 border-b border-border/20 bg-background/95 backdrop-blur-xl", className)}>
@@ -135,12 +131,7 @@ export function Header({ variant = "home", title, showSearch = false, isExploreM
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant="ghost" size="icon" className="text-foreground rounded-full p-0 h-9 w-9">
-                  <Avatar className="h-8 w-8">
-                    <AvatarImage src={profile?.avatar_url || undefined} alt={profile?.display_name || 'Usuário'} />
-                    <AvatarFallback className="bg-primary/10 text-primary text-xs">
-                      {getInitials(profile?.display_name || 'U')}
-                    </AvatarFallback>
-                  </Avatar>
+                  <RewardAvatar placement="header" />
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-56">

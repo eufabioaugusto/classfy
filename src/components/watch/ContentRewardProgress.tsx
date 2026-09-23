@@ -188,6 +188,7 @@ export function ContentRewardProgress({
       if (
         reward.userId !== user.id ||
         reward.contentId !== contentId ||
+        reward.pointType === "creator" ||
         reward.points === 0
       )
         return;

@@ -3,6 +3,7 @@ import { User, Session } from "@supabase/supabase-js";
 import { supabase } from "@/integrations/supabase/client";
 import { useNavigate } from "react-router-dom";
 import { useRewardSystem } from "@/hooks/useRewardSystem";
+import { useRewardLedgerSync } from "@/hooks/useRewardLedgerSync";
 import { getSafeErrorPayload, logAppEvent } from "@/lib/appLogger";
 
 type AppRole = 'user' | 'creator' | 'admin';
@@ -40,6 +41,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const navigate = useNavigate();
   const { checkDailyLogin } = useRewardSystem();
+  useRewardLedgerSync(user?.id);
   
   // Track if we've already processed the initial session
   const hasProcessedSession = useRef(false);
@@ -49,6 +51,8 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const dailyLoginInFlightUserId = useRef<string | null>(null);
   // Track a user whose daily login should only run once the tab becomes visible
   const pendingVisibleDailyLoginUserId = useRef<string | null>(null);
+  const dailyLoginRetryTimer = useRef<number>();
+  const dailyLoginRetryCount = useRef(0);
 
   const fetchUserProfile = async (userId: string) => {
     try {
@@ -121,6 +125,17 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       const processed = await checkDailyLogin(userId);
       if (processed !== false) {
         lastDailyLoginUserId.current = userId;
+        dailyLoginRetryCount.current = 0;
+      } else if (dailyLoginRetryCount.current < 2) {
+        dailyLoginRetryCount.current++;
+        window.clearTimeout(dailyLoginRetryTimer.current);
+        dailyLoginRetryTimer.current = window.setTimeout(() => {
+          if (document.visibilityState === 'visible') {
+            void handleDailyLogin(userId);
+          } else {
+            pendingVisibleDailyLoginUserId.current = userId;
+          }
+        }, 1500 * dailyLoginRetryCount.current);
       }
     } finally {
       if (dailyLoginInFlightUserId.current === userId) {
@@ -191,6 +206,8 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
           lastDailyLoginUserId.current = null;
           dailyLoginInFlightUserId.current = null;
           pendingVisibleDailyLoginUserId.current = null;
+          dailyLoginRetryCount.current = 0;
+          window.clearTimeout(dailyLoginRetryTimer.current);
         }
       }
     );
@@ -220,6 +237,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
     return () => {
       subscription.unsubscribe();
+      window.clearTimeout(dailyLoginRetryTimer.current);
       document.removeEventListener('visibilitychange', processPendingVisibleDailyLogin);
       window.removeEventListener('focus', processPendingVisibleDailyLogin);
     };

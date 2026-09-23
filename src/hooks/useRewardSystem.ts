@@ -121,6 +121,7 @@ export function useRewardSystem() {
           const pts = Number(userReward.points);
           const ptsDisplay = pts % 1 === 0 ? pts.toString() : pts.toFixed(2);
           dispatchRewardEarned({
+            eventId: userReward.id,
             actionKey,
             userId,
             contentId,

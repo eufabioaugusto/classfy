@@ -220,11 +220,12 @@ export function useCreatorMilestones(creatorId?: string) {
       if (claimError) throw claimError;
 
       const awardedMilestone = claimData?.evaluation?.awarded?.find(
-        (award: { milestone_id: string; points: number }) => award.milestone_id === milestone.id,
+        (award: { milestone_id: string; points: number; reward_event_id?: string }) => award.milestone_id === milestone.id,
       );
       const earnedPoints = Number(awardedMilestone?.points || 0);
       if (earnedPoints > 0) {
         dispatchRewardEarned({
+          eventId: awardedMilestone.reward_event_id,
           actionKey: 'CREATOR_MILESTONE',
           userId: creatorId,
           points: earnedPoints,

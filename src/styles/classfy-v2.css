@@ -437,6 +437,7 @@ textarea.cf2-input { min-height: 7rem; padding-top: var(--cf2-space-3); resize: 
 .cf2-reward-avatar__gain[data-type="creator"] { border-color: #d99b51; color: #d98e2f; }
 .cf2-reward-avatar__gain small { font-size: 0.58rem; font-weight: 700; }
 .cf2-reward-avatar--collapsed .cf2-reward-avatar__gain { left: 0; top: -0.7rem; }
+.cf2-reward-avatar--header .cf2-reward-avatar__gain { left: auto; right: 2.2rem; top: -0.55rem; }
 .cf2-reward-card__pulse { animation: cf2-reward-pulse 1s ease-out both; }
 @keyframes cf2-reward-orbit { from { transform: rotate(0); opacity: .25; } 30% { opacity: 1; } to { transform: rotate(360deg); opacity: 0; } }
 @keyframes cf2-reward-gain { 0% { transform: translateY(9px) scale(.65); opacity: 0; } 18% { transform: translateY(0) scale(1.12); opacity: 1; } 38% { transform: translateY(-2px) scale(1); opacity: 1; } 72% { opacity: 1; } 100% { transform: translateY(-23px) scale(.94); opacity: 0; } }

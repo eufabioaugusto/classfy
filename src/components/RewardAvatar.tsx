@@ -6,9 +6,10 @@ import { ProfileAvatar } from "@/components/ProfileAvatar";
 
 interface RewardAvatarProps {
   collapsed?: boolean;
+  placement?: "sidebar" | "header";
 }
 
-export function RewardAvatar({ collapsed = false }: RewardAvatarProps) {
+export function RewardAvatar({ collapsed = false, placement = "sidebar" }: RewardAvatarProps) {
   const { user } = useAuth();
   const [gain, setGain] = useState<(RewardEarnedDetail & { key: number }) | null>(null);
 
@@ -19,7 +20,7 @@ export function RewardAvatar({ collapsed = false }: RewardAvatarProps) {
       window.clearTimeout(timer);
       setGain({ ...reward, key: Date.now() + Math.random() });
       timer = window.setTimeout(() => setGain(null), 1750);
-    });
+    }, user?.id);
     return () => {
       unsubscribe();
       window.clearTimeout(timer);
@@ -28,7 +29,7 @@ export function RewardAvatar({ collapsed = false }: RewardAvatarProps) {
 
   const label = gain?.pointType === "creator" ? "Creator Points" : "Points";
   return (
-    <span className={`cf2-reward-avatar ${collapsed ? "cf2-reward-avatar--collapsed" : ""}`}>
+    <span className={`cf2-reward-avatar ${collapsed ? "cf2-reward-avatar--collapsed" : ""} ${placement === "header" ? "cf2-reward-avatar--header" : ""}`}>
       {gain && <span key={`ring-${gain.key}`} className="cf2-reward-avatar__ring" data-type={gain.pointType} aria-hidden="true" />}
       <ProfileAvatar size="sm" className="cf2-reward-avatar__image" />
       <ParticleBurst key={`burst-${gain?.key ?? "idle"}`} isActive={Boolean(gain)} color={gain?.pointType === "creator" ? "gold" : "primary"} particleCount={6} />
