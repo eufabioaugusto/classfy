@@ -7,7 +7,7 @@ import { toShortTitle } from "@/lib/study/getStudyJourneySummary";
 import { supabase } from "@/integrations/supabase/client";
 import { BecomeCreatorModal } from "@/components/BecomeCreatorModal";
 import { UpgradeModal } from "@/components/UpgradeModal";
-import { ProfileAvatar } from "@/components/ProfileAvatar";
+import { RewardAvatar } from "@/components/RewardAvatar";
 import { CreatorStatsCard } from "@/components/CreatorStatsCard";
 import { Badge } from "@/components/ui/badge";
 import { useEffect, useMemo, useState } from "react";
@@ -304,7 +304,7 @@ export function AppSidebar() {
                   className="flex items-center gap-3 p-3 rounded-xl bg-muted/40 hover:bg-muted/60 cursor-pointer transition-colors"
                   onClick={() => navigate("/conta")}
                 >
-                  <ProfileAvatar size="sm" />
+                  <RewardAvatar />
                   <div className="flex flex-col gap-0.5 leading-none flex-1 min-w-0">
                     <span className="text-sm font-medium truncate">{profile?.display_name}</span>
                     <span className="text-xs text-muted-foreground capitalize flex items-center gap-1.5">
@@ -318,9 +318,7 @@ export function AppSidebar() {
 
 
                 {/* Creator Stats Card */}
-                {(role === "creator" || role === "admin") && (
-                  <CreatorStatsCard userId={user.id} collapsed={collapsed} />
-                )}
+                <CreatorStatsCard userId={user.id} collapsed={collapsed} showCreatorStats={role === "creator" || role === "admin"} />
               </>
             )}
 
@@ -332,11 +330,11 @@ export function AppSidebar() {
                   onClick={() => navigate("/conta")}
                   title={profile?.display_name}
                 >
-                  <ProfileAvatar size="sm" />
+                  <RewardAvatar collapsed />
                 </div>
 
                 {/* Creator Stats Mini */}
-                {(role === "creator" || role === "admin") && <CreatorStatsCard userId={user.id} collapsed={true} />}
+                <CreatorStatsCard userId={user.id} collapsed={true} showCreatorStats={role === "creator" || role === "admin"} />
               </div>
             )}
           </div>

@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
+import { dispatchRewardEarned } from '@/lib/rewards/events';
 
 export interface CreatorMilestone {
   id: string;
@@ -218,10 +219,23 @@ export function useCreatorMilestones(creatorId?: string) {
       });
       if (claimError) throw claimError;
 
+      const awardedMilestone = claimData?.evaluation?.awarded?.find(
+        (award: { milestone_id: string; points: number }) => award.milestone_id === milestone.id,
+      );
+      const earnedPoints = Number(awardedMilestone?.points || 0);
+      if (earnedPoints > 0) {
+        dispatchRewardEarned({
+          actionKey: 'CREATOR_MILESTONE',
+          userId: creatorId,
+          points: earnedPoints,
+          pointType: 'creator',
+        });
+      }
+
       toast({
         title: '🎉 Meta alcançada!',
-        description: Number(claimData?.points || 0) > 0
-          ? `Você recebeu +${Number(claimData.points).toLocaleString('pt-BR')} Creator Points.`
+        description: earnedPoints > 0
+          ? `Você recebeu +${earnedPoints.toLocaleString('pt-BR')} Creator Points.`
           : 'Conquista registrada no seu perfil.',
       });
 

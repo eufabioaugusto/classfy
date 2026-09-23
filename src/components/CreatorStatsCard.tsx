@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Play, Wallet, Zap } from "lucide-react";
 import { subscribeToRewardEarned } from "@/lib/rewards/events";
@@ -6,6 +6,7 @@ import { subscribeToRewardEarned } from "@/lib/rewards/events";
 interface CreatorStatsCardProps {
   userId: string;
   collapsed?: boolean;
+  showCreatorStats?: boolean;
 }
 
 interface StatsData {
@@ -18,11 +19,17 @@ interface StatsData {
 
 const getPointsForLevel = (n: number) => 500 * n * (n - 1) / 2;
 
-export const CreatorStatsCard = ({ userId, collapsed }: CreatorStatsCardProps) => {
+export const CreatorStatsCard = ({ userId, collapsed, showCreatorStats = true }: CreatorStatsCardProps) => {
   const [stats, setStats] = useState<StatsData | null>(null);
+  const [highlight, setHighlight] = useState<"user" | "creator" | null>(null);
+  const requestVersion = useRef(0);
+  const statsRef = useRef<StatsData | null>(null);
+  const highlightTimer = useRef<number>();
+  const reconcileTimer = useRef<number>();
 
   const loadStats = useCallback(async () => {
       if (!userId) return;
+      const version = ++requestVersion.current;
       const [walletRes, eventsRes, contentsRes] = await Promise.all([
         supabase.from("wallets").select("balance").eq("user_id", userId).single(),
         supabase.from("reward_events").select("points, point_type").eq("user_id", userId),
@@ -30,39 +37,58 @@ export const CreatorStatsCard = ({ userId, collapsed }: CreatorStatsCardProps) =
       ]);
 
       const totalPoints = eventsRes.data
-        ?.filter((event: any) => event.point_type === 'user')
+        ?.filter((event) => event.point_type === 'user')
         .reduce((sum, event) => sum + (event.points || 0), 0) || 0;
       const creatorPoints = eventsRes.data
-        ?.filter((event: any) => event.point_type === 'creator')
+        ?.filter((event) => event.point_type === 'creator')
         .reduce((sum, event) => sum + (event.points || 0), 0) || 0;
 
       let level = 1;
       while (getPointsForLevel(level + 1) <= totalPoints) level++;
 
-      setStats({
+      if (version !== requestVersion.current || eventsRes.error) return;
+      const nextStats = {
         totalPoints,
         creatorPoints,
         level,
         contentCount: contentsRes.count || 0,
         balance: walletRes.data?.balance || 0,
-      });
+      };
+      statsRef.current = nextStats;
+      setStats(nextStats);
   }, [userId]);
 
   useEffect(() => {
+    const versionRef = requestVersion;
+    statsRef.current = null;
+    setStats(null);
     void loadStats();
 
     const unsubscribe = subscribeToRewardEarned((reward) => {
       if (reward.userId !== userId) return;
-      setStats((current) => current ? {
-        ...current,
-        totalPoints: reward.pointType === "creator"
-          ? current.totalPoints
-          : current.totalPoints + reward.points,
-        creatorPoints: reward.pointType === "creator"
-          ? current.creatorPoints + reward.points
-          : current.creatorPoints,
-      } : current);
-      window.setTimeout(() => void loadStats(), 250);
+      // Invalidar leituras iniciadas antes do evento: elas podem conter o saldo antigo.
+      versionRef.current++;
+      const current = statsRef.current;
+      if (current) {
+        const totalPoints = reward.pointType === "creator" ? current.totalPoints : current.totalPoints + reward.points;
+        let level = 1;
+        while (getPointsForLevel(level + 1) <= totalPoints) level++;
+        const nextStats = {
+          ...current,
+          level,
+          totalPoints,
+          creatorPoints: reward.pointType === "creator" ? current.creatorPoints + reward.points : current.creatorPoints,
+        };
+        statsRef.current = nextStats;
+        setStats(nextStats);
+      }
+      if (reward.points > 0) {
+        setHighlight(reward.pointType === "creator" ? "creator" : "user");
+        window.clearTimeout(highlightTimer.current);
+        highlightTimer.current = window.setTimeout(() => setHighlight(null), 1100);
+      }
+      window.clearTimeout(reconcileTimer.current);
+      reconcileTimer.current = window.setTimeout(() => void loadStats(), 900);
     });
 
     const channel = supabase
@@ -76,6 +102,9 @@ export const CreatorStatsCard = ({ userId, collapsed }: CreatorStatsCardProps) =
       .subscribe();
 
     return () => {
+      versionRef.current++;
+      window.clearTimeout(highlightTimer.current);
+      window.clearTimeout(reconcileTimer.current);
       unsubscribe();
       void supabase.removeChannel(channel);
     };
@@ -94,7 +123,7 @@ export const CreatorStatsCard = ({ userId, collapsed }: CreatorStatsCardProps) =
   if (collapsed) {
     return (
       <div className="cf-v2 flex flex-col items-center gap-1.5 px-1">
-        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-[var(--cf2-accent-soft)]">
+        <div className={`flex h-8 w-8 items-center justify-center rounded-lg bg-[var(--cf2-accent-soft)] ${highlight === "user" ? "cf2-reward-card__pulse" : ""}`}>
           <span className="text-[11px] font-bold text-[var(--cf2-accent)]">N{stats.level}</span>
         </div>
         <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-[var(--cf2-surface-raised)]">
@@ -106,7 +135,7 @@ export const CreatorStatsCard = ({ userId, collapsed }: CreatorStatsCardProps) =
 
   return (
     <section className="cf-v2 cf2-sidebar-progress" aria-label={`Nível ${stats.level}, evolução e saldo`}>
-      <div className="cf2-sidebar-progress__level">
+      <div className={`cf2-sidebar-progress__level ${highlight === "user" ? "cf2-reward-card__pulse" : ""}`}>
         <span className="cf2-sidebar-progress__badge">N{stats.level}</span>
         <div className="cf2-sidebar-progress__level-copy">
           <strong>Nível {stats.level}</strong>
@@ -123,20 +152,20 @@ export const CreatorStatsCard = ({ userId, collapsed }: CreatorStatsCardProps) =
       </div>
 
       <div className="cf2-sidebar-progress__metrics">
-        <div>
+        {showCreatorStats && <div className={highlight === "creator" ? "cf2-reward-card__pulse" : ""}>
           <span><Zap aria-hidden="true" /> Creator Points</span>
           <strong>{stats.creatorPoints.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}</strong>
-        </div>
+        </div>}
         <div>
           <span><Wallet aria-hidden="true" /> Saldo</span>
           <strong>
             R$&nbsp;{stats.balance.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
           </strong>
         </div>
-        <div>
+        {showCreatorStats && <div>
           <span><Play aria-hidden="true" /> Publicações</span>
           <strong>{stats.contentCount}</strong>
-        </div>
+        </div>}
       </div>
     </section>
   );

@@ -129,7 +129,7 @@ export function useRewardSystem() {
           });
           toast({
             title: "🎉 Recompensa recebida!",
-            description: `+${ptsDisplay} Points`,
+            description: `+${ptsDisplay} ${userReward.point_type === "creator" ? "Creator Points" : "Points"}`,
           });
         }
       }
