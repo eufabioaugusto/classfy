@@ -1295,7 +1295,7 @@ function AchievementsSection({ userId }: { userId?: string }) {
         </div>
       </V2CardHeader>
       <V2CardContent>
-        <Tabs defaultValue="unlocked">
+        <Tabs defaultValue={unlockedMilestones.length > 0 ? "unlocked" : "locked"}>
           <TabsList className="economy-tabs-list">
             <TabsTrigger value="unlocked">
               Desbloqueadas · {unlockedMilestones.length}
