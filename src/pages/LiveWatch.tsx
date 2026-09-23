@@ -174,7 +174,7 @@ export default function LiveWatch() {
     );
   }
 
-  const isEnded = live.status === "ended";
+  const isEnded = live.status === "ended" || live.status === "cancelled";
 
   return (
     <div className="min-h-screen bg-background flex flex-col lg:flex-row">
@@ -195,13 +195,13 @@ export default function LiveWatch() {
               <div className="absolute inset-0 bg-gradient-to-br from-accent/20 to-background flex items-center justify-center">
                 <div className="text-center">
                   <Radio className="w-20 h-20 mx-auto mb-4 text-accent animate-pulse" />
-                  <p className="text-lg">Transmissão em andamento</p>
+                  <p className="text-lg">{live.status === "live" ? "Transmissão em andamento" : "Aguardando o início da live"}</p>
                   <p className="text-sm text-muted-foreground mt-1">{playbackError ? "O sinal está indisponível. Tente atualizar a página." : "Aguardando sinal de vídeo..."}</p>
                 </div>
               </div>
               
               {/* Live Badge */}
-              <div className="absolute top-4 left-4 flex items-center gap-3">
+              {live.status === "live" && <div className="absolute top-4 left-4 flex items-center gap-3">
                 <div className="flex items-center gap-2 px-3 py-1.5 bg-destructive rounded-full text-white">
                   <span className="w-2 h-2 bg-white rounded-full animate-pulse" />
                   <span className="text-sm font-medium">AO VIVO</span>
@@ -210,7 +210,7 @@ export default function LiveWatch() {
                   <Users className="w-4 h-4" />
                   <span className="text-sm">{viewerCount}</span>
                 </div>
-              </div>
+              </div>}
             </>
           )}
         </div>
