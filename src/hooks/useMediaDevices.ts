@@ -200,8 +200,11 @@ export function useMediaDevices(): UseMediaDevicesReturn {
       
       const dataArray = new Uint8Array(analyserRef.current.frequencyBinCount);
       
-      const updateLevel = () => {
-        if (analyserRef.current) {
+      let lastSample = 0;
+      const updateLevel = (time: number) => {
+        // A 60 fps React update can compete with video encoding on mobile devices.
+        if (analyserRef.current && time - lastSample >= 120) {
+          lastSample = time;
           analyserRef.current.getByteFrequencyData(dataArray);
           const average = dataArray.reduce((a, b) => a + b, 0) / dataArray.length;
           setAudioLevel(average / 255);
@@ -209,7 +212,7 @@ export function useMediaDevices(): UseMediaDevicesReturn {
         animationFrameRef.current = requestAnimationFrame(updateLevel);
       };
       
-      updateLevel();
+      animationFrameRef.current = requestAnimationFrame(updateLevel);
     } catch (err) {
       console.error("Error setting up audio monitoring:", err);
     }

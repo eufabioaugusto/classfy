@@ -19,6 +19,14 @@ async function creatorToken(liveId: string, userId: string) {
   return { url, token: await token.toJwt() };
 }
 
+async function viewerToken(liveId: string, userId: string) {
+  const { url, key, secret } = liveKitConfig();
+  // A unique identity keeps two devices on the same account from disconnecting each other.
+  const token = new AccessToken(key, secret, { identity: `viewer-${userId}-${crypto.randomUUID()}`, ttl: '2h' });
+  token.addGrant({ roomJoin: true, room: `classfy-live-${liveId}`, canPublish: false, canSubscribe: true, canPublishData: false });
+  return { url, token: await token.toJwt() };
+}
+
 async function approvedCreator(client: ReturnType<typeof serviceClient>, userId: string) {
   const [{ data: roles }, { data: profile }] = await Promise.all([
     client.from('user_roles').select('role').eq('user_id', userId).in('role', ['creator', 'admin']),
@@ -92,6 +100,11 @@ Deno.serve(async (req) => {
       return json(source);
     }
 
+    if (action === 'viewer-connect') {
+      if (live.status !== 'live' || !live.livekit_egress_id) return json({ error: 'Live not available' }, 409);
+      return json(await viewerToken(liveId, user.id));
+    }
+
     if (!owner) return json({ error: 'Forbidden' }, 403);
     if (action === 'connect') {
       if (!['waiting', 'live'].includes(live.status)) return json({ error: 'Live is closed' }, 409);
@@ -148,8 +161,7 @@ Deno.serve(async (req) => {
     if (action === 'end') {
       if (!['waiting', 'live'].includes(live.status)) return json({ error: 'Live is already closed' }, 409);
       if (!live.mux_live_stream_id) return json({ error: 'Stream is not configured' }, 409);
-      // Close Mux ingest first so a failed bridge stop cannot keep billing for video.
-      await disableMuxLiveStream(live.mux_live_stream_id);
+      // Let the bridge flush its final audio/video packets before closing ingest.
       if (live.livekit_egress_id) {
         try {
           await liveKitConfig().api.egress.stopEgress(live.livekit_egress_id);
@@ -158,11 +170,13 @@ Deno.serve(async (req) => {
           console.warn('[live-control] egress was already unavailable during end');
         }
       }
-      if (live.status === 'waiting') {
-        // No Mux active/idle webhook is guaranteed when ingest never connected.
-        const { error } = await client.from('lives').update({ status: 'cancelled', ended_at: new Date().toISOString() }).eq('id', liveId);
-        if (error) throw error;
-      }
+      await disableMuxLiveStream(live.mux_live_stream_id);
+      // Publish the end state before the host disconnects, so real-time viewers
+      // can play the final frames and backup viewers can drain their HLS buffer.
+      const { error } = await client.from('lives').update({
+        status: live.status === 'waiting' ? 'cancelled' : 'ended', ended_at: new Date().toISOString(),
+      }).eq('id', liveId).in('status', ['waiting', 'live']);
+      if (error) throw error;
       return json({ ending: true });
     }
     if (action === 'publish') {

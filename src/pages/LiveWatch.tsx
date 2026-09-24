@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Users, Radio, Loader2, Volume2, VolumeX, Play } from "lucide-react";
 import { LiveChat } from "@/components/live/LiveChat";
+import { LiveRealtimePlayer } from "@/components/live/LiveRealtimePlayer";
 import { LiveGiftPanel } from "@/components/live/LiveGiftPanel";
 import { FollowButton } from "@/components/FollowButton";
 import { toast } from "sonner";
@@ -44,7 +45,11 @@ export default function LiveWatch() {
   const [isMuted, setIsMuted] = useState(true);
   const [isPlaying, setIsPlaying] = useState(false);
   const [playBlocked, setPlayBlocked] = useState(false);
+  const [realtimeState, setRealtimeState] = useState<"connecting" | "playing" | "failed">("connecting");
+  const [playbackIsLive, setPlaybackIsLive] = useState(false);
+  const [tailComplete, setTailComplete] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
+  const requestedPlaybackRef = useRef("");
 
   const { messages, pinnedMessage, isLoading: chatLoading, isSending, sendMessage } = useLiveChat(id || null);
   const { viewerCount, joinLive, leaveLive } = useLiveViewers(id || null);
@@ -130,21 +135,33 @@ export default function LiveWatch() {
     toast.info("Presentes ainda não estão disponíveis. Nenhuma cobrança foi realizada.");
   };
 
+  const draining = live?.status === "ended" && !tailComplete && (realtimeState === "playing" || (playbackIsLive && !!playbackUrl));
   useEffect(() => {
-    if (!live || !user || (live.status !== "live" && !live.replay_published_at) || (live.status === "live" && !live.mux_live_stream_id)) {
+    if (draining) return;
+    if (!live || !user || (live.status !== "live" && !live.replay_published_at) || (live.status === "live" && (realtimeState !== "failed" || !live.mux_live_stream_id))) {
+      requestedPlaybackRef.current = "";
       setPlaybackUrl("");
       return;
     }
-    let active = true;
+    const requestKey = `${live.id}:${live.status}:${live.replay_published_at ?? ""}:${playbackAttempt}`;
+    if (requestedPlaybackRef.current === requestKey) return;
+    requestedPlaybackRef.current = requestKey;
     setPlaybackError(false);
     void supabase.functions.invoke("live-control", { body: { action: "playback", liveId: live.id } })
       .then(({ data, error }) => {
-        if (!active) return;
+        if (requestedPlaybackRef.current !== requestKey) return;
         if (error || !data?.url) { setPlaybackError(true); return; }
+        setPlaybackIsLive(live.status === "live");
         setPlaybackUrl(data.url);
       });
-    return () => { active = false; };
-  }, [live?.id, live?.status, live?.replay_published_at, user, playbackAttempt]);
+  }, [live, user, playbackAttempt, realtimeState, draining]);
+
+  useEffect(() => {
+    if (!draining) return;
+    // Leave room for buffered HLS segments if the viewer had to use the backup player.
+    const timer = window.setTimeout(() => setTailComplete(true), realtimeState === "playing" ? 5000 : 18000);
+    return () => window.clearTimeout(timer);
+  }, [draining, realtimeState]);
 
   useEffect(() => {
     const video = videoRef.current;
@@ -152,13 +169,13 @@ export default function LiveWatch() {
     let active = true;
     let hls: import("hls.js").default | null = null;
     const tryPlay = () => {
-      if (live?.status !== "live") return;
+      if (!playbackIsLive) return;
       void video.play().then(() => setPlayBlocked(false)).catch(() => setPlayBlocked(true));
     };
     void import("hls.js").then(({ default: Hls }) => {
       if (!active) return;
       if (Hls.isSupported()) {
-        hls = new Hls({ lowLatencyMode: true, maxLiveSyncPlaybackRate: 1.25 });
+        hls = new Hls({ lowLatencyMode: true });
         hls.loadSource(playbackUrl);
         hls.attachMedia(video);
         hls.on(Hls.Events.MANIFEST_PARSED, tryPlay);
@@ -169,7 +186,7 @@ export default function LiveWatch() {
       } else setPlaybackError(true);
     });
     return () => { active = false; hls?.destroy(); video.removeEventListener("canplay", tryPlay); video.removeAttribute("src"); video.load(); };
-  }, [playbackUrl, playbackAttempt, live?.status]);
+  }, [playbackUrl, playbackAttempt, playbackIsLive]);
 
   if (isLoading) {
     return (
@@ -196,6 +213,7 @@ export default function LiveWatch() {
 
   const isLegacyLive = live.status === "live" && !live.mux_live_stream_id;
   const isEnded = live.status === "ended" || live.status === "cancelled" || isLegacyLive;
+  const showRealtime = realtimeState !== "failed" && (live.status === "live" || draining);
 
   return (
     <div className="min-h-screen w-full min-w-0 overflow-x-hidden bg-background pb-24 flex flex-col lg:flex-row lg:pb-0">
@@ -203,10 +221,17 @@ export default function LiveWatch() {
       <div className="min-w-0 flex-1 flex flex-col">
         {/* Video Area */}
         <div className="relative flex aspect-video w-full min-w-0 items-center justify-center overflow-hidden bg-black">
-          {playbackUrl ? (
+          {showRealtime ? (
             <>
-              <video ref={videoRef} controls playsInline autoPlay={live.status === "live"} muted={live.status === "live" && isMuted} onPlaying={() => { setIsPlaying(true); setPlayBlocked(false); setPlaybackError(false); }} onPause={() => setIsPlaying(false)} className="absolute inset-0 h-full w-full object-contain" aria-label={live.status === "live" ? "Transmissão ao vivo" : "Gravação da live"} />
-              {live.status === "live" && <Button type="button" size="sm" className="absolute right-3 top-3 z-10 bg-black/75 text-white hover:bg-black/90" onClick={() => { const video = videoRef.current; if (!video) return; video.muted = !isMuted; setIsMuted(!isMuted); if (video.paused) void video.play().catch(() => setPlayBlocked(true)); }}>{isMuted ? <VolumeX className="mr-2 h-4 w-4" /> : <Volume2 className="mr-2 h-4 w-4" />}{isMuted ? "Ativar som" : "Silenciar"}</Button>}
+              <LiveRealtimePlayer liveId={live.id} creatorId={live.creator_id} ending={live.status === "ended"} onReady={() => setRealtimeState("playing")} onFallback={() => setRealtimeState("failed")} onComplete={() => setTailComplete(true)} />
+              {realtimeState === "connecting" && <div className="absolute inset-0 grid place-items-center bg-black text-center text-white"><div><Loader2 className="mx-auto mb-3 h-8 w-8 animate-spin" /><p>Preparando o vídeo ao vivo...</p></div></div>}
+              {draining && <span className="absolute bottom-3 left-3 rounded-full bg-black/70 px-3 py-1.5 text-xs text-white">Reproduzindo os últimos segundos...</span>}
+            </>
+          ) : playbackUrl ? (
+            <>
+              <video ref={videoRef} controls playsInline autoPlay={playbackIsLive} muted={playbackIsLive && isMuted} onEnded={() => setTailComplete(true)} onPlaying={() => { setIsPlaying(true); setPlayBlocked(false); setPlaybackError(false); }} onPause={() => setIsPlaying(false)} className="absolute inset-0 h-full w-full object-contain" aria-label={playbackIsLive ? "Transmissão ao vivo" : "Gravação da live"} />
+              {playbackIsLive && <Button type="button" size="sm" className="absolute right-3 top-3 z-10 bg-black/75 text-white hover:bg-black/90" onClick={() => { const video = videoRef.current; if (!video) return; video.muted = !isMuted; setIsMuted(!isMuted); if (video.paused) void video.play().catch(() => setPlayBlocked(true)); }}>{isMuted ? <VolumeX className="mr-2 h-4 w-4" /> : <Volume2 className="mr-2 h-4 w-4" />}{isMuted ? "Ativar som" : "Silenciar"}</Button>}
+              {draining && <span className="absolute bottom-3 left-3 rounded-full bg-black/70 px-3 py-1.5 text-xs text-white">Reproduzindo os últimos segundos...</span>}
               {playbackError && !isPlaying && <button type="button" onClick={() => { setPlaybackError(false); setPlaybackAttempt(value => value + 1); }} className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-2 bg-black/75 px-5 text-center text-white"><Radio className="h-9 w-9" /><span className="font-semibold">O sinal ainda não carregou</span><span className="text-sm text-white/70">Toque para tentar novamente</span></button>}
               {live.status === "live" && playBlocked && !isPlaying && <button type="button" onClick={() => { const video = videoRef.current; if (video) void video.play().then(() => setPlayBlocked(false)).catch(() => setPlayBlocked(true)); }} className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 bg-black/70 text-white"><Play className="h-10 w-10 fill-white" /><span className="font-semibold">Toque para assistir ao vivo</span></button>}
             </>
