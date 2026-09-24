@@ -64,8 +64,12 @@ export default function LiveBroadcast() {
   useEffect(() => {
     if (!id || !publishing || live?.status !== "waiting") return;
     const timer = window.setInterval(() => {
-      void supabase.from("lives").select("id, creator_id, title, status, started_at, mux_live_stream_id").eq("id", id).single()
-        .then(({ data }) => { if (data) setLive(data as Live); });
+      void supabase.functions.invoke("live-control", { body: { action: "sync", liveId: id } })
+        .then(({ data, error }) => {
+          if (error || data?.status !== "live") return;
+          void supabase.from("lives").select("id, creator_id, title, status, started_at, mux_live_stream_id").eq("id", id).single()
+            .then(({ data: refreshed }) => { if (refreshed) setLive(refreshed as Live); });
+        });
     }, 2000);
     return () => window.clearInterval(timer);
   }, [id, publishing, live?.status]);

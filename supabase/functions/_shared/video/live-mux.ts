@@ -47,6 +47,11 @@ export async function deleteMuxLiveStream(id: string) {
   await muxLiveRequest(`/live-streams/${encodeURIComponent(id)}`, { method: 'DELETE' });
 }
 
+export async function getMuxLiveStreamStatus(id: string) {
+  const data = await muxLiveRequest(`/live-streams/${encodeURIComponent(id)}`);
+  return { status: String(data?.status ?? ''), activeAssetId: data?.active_asset_id ? String(data.active_asset_id) : null };
+}
+
 export async function disableMuxLiveStream(id: string) {
   await muxLiveRequest(`/live-streams/${encodeURIComponent(id)}/disable`, { method: 'PUT' });
 }

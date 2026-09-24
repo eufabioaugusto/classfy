@@ -7,7 +7,7 @@ import { useLiveViewers } from "@/hooks/useLiveViewers";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { Users, Radio, Loader2 } from "lucide-react";
+import { Users, Radio, Loader2, Volume2, VolumeX, Play } from "lucide-react";
 import { LiveChat } from "@/components/live/LiveChat";
 import { LiveGiftPanel } from "@/components/live/LiveGiftPanel";
 import { FollowButton } from "@/components/FollowButton";
@@ -40,6 +40,10 @@ export default function LiveWatch() {
   const [showGifts, setShowGifts] = useState(false);
   const [playbackUrl, setPlaybackUrl] = useState("");
   const [playbackError, setPlaybackError] = useState(false);
+  const [playbackAttempt, setPlaybackAttempt] = useState(0);
+  const [isMuted, setIsMuted] = useState(true);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [playBlocked, setPlayBlocked] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
 
   const { messages, pinnedMessage, isLoading: chatLoading, isSending, sendMessage } = useLiveChat(id || null);
@@ -113,6 +117,15 @@ export default function LiveWatch() {
     };
   }, [id]);
 
+  useEffect(() => {
+    if (!id || live?.status !== "waiting") return;
+    const timer = window.setInterval(() => {
+      void supabase.from("lives").select("status, started_at, mux_live_stream_id, replay_published_at").eq("id", id).single()
+        .then(({ data }) => { if (data) setLive(prev => prev ? { ...prev, ...data } : prev); });
+    }, 2000);
+    return () => window.clearInterval(timer);
+  }, [id, live?.status]);
+
   const handleSendGift = async (gift: LiveGift, quantity: number) => {
     toast.info("Presentes ainda não estão disponíveis. Nenhuma cobrança foi realizada.");
   };
@@ -131,26 +144,32 @@ export default function LiveWatch() {
         setPlaybackUrl(data.url);
       });
     return () => { active = false; };
-  }, [live?.id, live?.status, live?.replay_published_at, user]);
+  }, [live?.id, live?.status, live?.replay_published_at, user, playbackAttempt]);
 
   useEffect(() => {
     const video = videoRef.current;
     if (!video || !playbackUrl) return;
     let active = true;
     let hls: import("hls.js").default | null = null;
+    const tryPlay = () => {
+      if (live?.status !== "live") return;
+      void video.play().then(() => setPlayBlocked(false)).catch(() => setPlayBlocked(true));
+    };
     void import("hls.js").then(({ default: Hls }) => {
       if (!active) return;
       if (Hls.isSupported()) {
         hls = new Hls({ lowLatencyMode: true, maxLiveSyncPlaybackRate: 1.25 });
         hls.loadSource(playbackUrl);
         hls.attachMedia(video);
+        hls.on(Hls.Events.MANIFEST_PARSED, tryPlay);
         hls.on(Hls.Events.ERROR, (_, data) => { if (data.fatal) setPlaybackError(true); });
       } else if (video.canPlayType("application/vnd.apple.mpegurl")) {
+        video.addEventListener("canplay", tryPlay);
         video.src = playbackUrl;
       } else setPlaybackError(true);
     });
-    return () => { active = false; hls?.destroy(); video.removeAttribute("src"); video.load(); };
-  }, [playbackUrl]);
+    return () => { active = false; hls?.destroy(); video.removeEventListener("canplay", tryPlay); video.removeAttribute("src"); video.load(); };
+  }, [playbackUrl, playbackAttempt, live?.status]);
 
   if (isLoading) {
     return (
@@ -185,7 +204,12 @@ export default function LiveWatch() {
         {/* Video Area */}
         <div className="relative flex aspect-video w-full min-w-0 items-center justify-center overflow-hidden bg-black">
           {playbackUrl ? (
-            <video ref={videoRef} controls playsInline autoPlay={live.status === "live"} className="absolute inset-0 h-full w-full object-contain" aria-label={live.status === "live" ? "Transmissão ao vivo" : "Gravação da live"} />
+            <>
+              <video ref={videoRef} controls playsInline autoPlay={live.status === "live"} muted={live.status === "live" && isMuted} onPlaying={() => { setIsPlaying(true); setPlayBlocked(false); setPlaybackError(false); }} onPause={() => setIsPlaying(false)} className="absolute inset-0 h-full w-full object-contain" aria-label={live.status === "live" ? "Transmissão ao vivo" : "Gravação da live"} />
+              {live.status === "live" && <Button type="button" size="sm" className="absolute right-3 top-3 z-10 bg-black/75 text-white hover:bg-black/90" onClick={() => { const video = videoRef.current; if (!video) return; video.muted = !isMuted; setIsMuted(!isMuted); if (video.paused) void video.play().catch(() => setPlayBlocked(true)); }}>{isMuted ? <VolumeX className="mr-2 h-4 w-4" /> : <Volume2 className="mr-2 h-4 w-4" />}{isMuted ? "Ativar som" : "Silenciar"}</Button>}
+              {playbackError && !isPlaying && <button type="button" onClick={() => { setPlaybackError(false); setPlaybackAttempt(value => value + 1); }} className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-2 bg-black/75 px-5 text-center text-white"><Radio className="h-9 w-9" /><span className="font-semibold">O sinal ainda não carregou</span><span className="text-sm text-white/70">Toque para tentar novamente</span></button>}
+              {live.status === "live" && playBlocked && !isPlaying && <button type="button" onClick={() => { const video = videoRef.current; if (video) void video.play().then(() => setPlayBlocked(false)).catch(() => setPlayBlocked(true)); }} className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 bg-black/70 text-white"><Play className="h-10 w-10 fill-white" /><span className="font-semibold">Toque para assistir ao vivo</span></button>}
+            </>
           ) : isEnded ? (
             <div className="text-center text-white">
               <Radio className="w-16 h-16 mx-auto mb-4 opacity-50" />
@@ -199,6 +223,7 @@ export default function LiveWatch() {
                   <Radio className="w-20 h-20 mx-auto mb-4 text-accent animate-pulse" />
                   <p className="text-lg">{live.status === "live" ? "Transmissão em andamento" : "Aguardando o início da live"}</p>
                   <p className="text-sm text-muted-foreground mt-1">{playbackError ? "O sinal está indisponível. Tente atualizar a página." : "Aguardando sinal de vídeo..."}</p>
+                  {playbackError && <Button className="mt-4" onClick={() => { setPlaybackError(false); setPlaybackAttempt(value => value + 1); }}>Tentar novamente</Button>}
                 </div>
               </div>
               

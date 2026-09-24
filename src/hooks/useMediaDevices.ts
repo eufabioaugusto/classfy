@@ -44,6 +44,8 @@ interface UseMediaDevicesReturn {
   requestPermissions: () => Promise<boolean>;
 }
 
+const widescreen = { width: { ideal: 1280 }, height: { ideal: 720 }, aspectRatio: { ideal: 16 / 9 } };
+
 export function useMediaDevices(): UseMediaDevicesReturn {
   const [stream, setStream] = useState<MediaStream | null>(null);
   const [cameras, setCameras] = useState<MediaDevice[]>([]);
@@ -156,8 +158,8 @@ export function useMediaDevices(): UseMediaDevicesReturn {
       
       const defaultConstraints: MediaStreamConstraints = {
         video: selectedCamera
-          ? { deviceId: { exact: selectedCamera }, facingMode: isFacingUser ? "user" : "environment" }
-          : { facingMode: isFacingUser ? "user" : "environment" },
+          ? { ...widescreen, deviceId: { exact: selectedCamera }, facingMode: isFacingUser ? "user" : "environment" }
+          : { ...widescreen, facingMode: isFacingUser ? "user" : "environment" },
         audio: selectedMicrophone
           ? { deviceId: { exact: selectedMicrophone } }
           : true,
@@ -259,7 +261,7 @@ export function useMediaDevices(): UseMediaDevicesReturn {
     
     if (stream) {
       await startStream({
-        video: { facingMode: !isFacingUser ? "user" : "environment" },
+        video: { ...widescreen, facingMode: !isFacingUser ? "user" : "environment" },
         audio: selectedMicrophone
           ? { deviceId: { exact: selectedMicrophone } }
           : true,
@@ -273,7 +275,7 @@ export function useMediaDevices(): UseMediaDevicesReturn {
     
     if (stream) {
       await startStream({
-        video: { deviceId: { exact: deviceId } },
+        video: { ...widescreen, deviceId: { exact: deviceId } },
         audio: selectedMicrophone
           ? { deviceId: { exact: selectedMicrophone } }
           : true,
@@ -288,8 +290,8 @@ export function useMediaDevices(): UseMediaDevicesReturn {
     if (stream) {
       await startStream({
         video: selectedCamera
-          ? { deviceId: { exact: selectedCamera } }
-          : true,
+          ? { ...widescreen, deviceId: { exact: selectedCamera } }
+          : widescreen,
         audio: { deviceId: { exact: deviceId } },
       });
     }

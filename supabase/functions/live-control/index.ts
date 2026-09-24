@@ -1,6 +1,6 @@
 import { AccessToken, EncodingOptionsPreset, LiveKitAPI, StreamOutput, StreamProtocol } from 'npm:livekit-server-sdk@2.19.1';
 import { corsHeaders, json, requireUser, serviceClient } from '../_shared/video/http.ts';
-import { createMuxLiveStream, deleteMuxLiveStream, disableMuxLiveStream, getMuxLiveAsset } from '../_shared/video/live-mux.ts';
+import { createMuxLiveStream, deleteMuxLiveStream, disableMuxLiveStream, getMuxLiveAsset, getMuxLiveStreamStatus } from '../_shared/video/live-mux.ts';
 import { MuxVideoProvider } from '../_shared/video/mux.ts';
 
 function liveKitConfig() {
@@ -97,6 +97,19 @@ Deno.serve(async (req) => {
       if (!['waiting', 'live'].includes(live.status)) return json({ error: 'Live is closed' }, 409);
       return json(await creatorToken(liveId, user.id));
     }
+    if (action === 'sync') {
+      if (live.status !== 'waiting' || !live.livekit_egress_id || !live.mux_live_stream_id) return json({ status: live.status });
+      stage = 'check Mux live status';
+      const mux = await getMuxLiveStreamStatus(live.mux_live_stream_id);
+      if (mux.status === 'active') {
+        const { error } = await client.from('lives').update({
+          status: 'live', started_at: new Date().toISOString(), mux_recording_asset_id: mux.activeAssetId,
+        }).eq('id', liveId).eq('status', 'waiting');
+        if (error) throw error;
+        return json({ status: 'live' });
+      }
+      return json({ status: 'waiting' });
+    }
     if (action === 'start') {
       if (live.status !== 'waiting' || live.livekit_egress_id) return json({ error: 'Live has already started' }, 409);
       const { data: secretRow, error: secretError } = await client.from('live_stream_secrets')
@@ -107,8 +120,8 @@ Deno.serve(async (req) => {
         protocol: StreamProtocol.RTMP,
         urls: [`rtmps://global-live.mux.com:443/app/${secretRow.mux_stream_key}`],
       });
-      const egress = await api.egress.startRoomCompositeEgress(`classfy-live-${liveId}`, { stream: output }, {
-        layout: 'single-speaker', encodingOptions: EncodingOptionsPreset.H264_720P_30,
+      const egress = await api.egress.startParticipantEgress(`classfy-live-${liveId}`, user.id, { stream: output }, {
+        encodingOptions: EncodingOptionsPreset.H264_720P_30,
       });
       const { data: claimed, error: updateError } = await client.from('lives')
         .update({ livekit_egress_id: egress.egressId }).eq('id', liveId)
