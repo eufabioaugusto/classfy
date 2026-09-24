@@ -23,6 +23,7 @@ import { ContentCardSkeleton } from "@/components/ContentCardSkeleton";
 import { boostContentList, getTopInterests, trackUserInteraction } from "@/lib/personalization/interests";
 import { AppShell } from "@/components/layout";
 import { HomeHero, PremiumCollection, type HomeHeroContent } from "@/components/home";
+import { HomeLiveSection } from "@/components/home/HomeLiveSection";
 import { isConfiguredHomeHero } from "@/config/home";
 import type { Database } from "@/integrations/supabase/types";
 import "@/styles/home-v2.css";
@@ -495,6 +496,8 @@ export default function Index() {
                       onOpenFocus={() => setMode(false)}
                       primaryLabel={featuredContentHero ? "Assistir agora" : "Conhecer creator"}
                     />
+
+                    <HomeLiveSection authenticated={Boolean(user)} />
 
                     {/* Featured Creators Section */}
                     <FeaturedCreators creators={featuredCreators} />

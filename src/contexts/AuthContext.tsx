@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useEffect, useState, useRef } from "react";
 import { User, Session } from "@supabase/supabase-js";
 import { supabase } from "@/integrations/supabase/client";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { useRewardSystem } from "@/hooks/useRewardSystem";
 import { useRewardLedgerSync } from "@/hooks/useRewardLedgerSync";
 import { getSafeErrorPayload, logAppEvent } from "@/lib/appLogger";
@@ -34,6 +34,7 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
+  const location = useLocation();
   const [user, setUser] = useState<User | null>(null);
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
@@ -250,7 +251,11 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     });
     
     if (!error) {
-      navigate("/");
+      const requestedPath = (location.state as { from?: unknown } | null)?.from;
+      const destination = typeof requestedPath === 'string'
+        && requestedPath.startsWith('/') && !requestedPath.startsWith('//')
+        && !requestedPath.startsWith('/auth') ? requestedPath : '/';
+      navigate(destination, { replace: true });
     }
     
     return { error };

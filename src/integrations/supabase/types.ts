@@ -4698,6 +4698,19 @@ export type Database = {
         Returns: string
       }
       get_public_home_catalog: { Args: never; Returns: Json }
+      get_public_home_lives: {
+        Args: never
+        Returns: {
+          id: string
+          title: string
+          description: string | null
+          thumbnail_url: string | null
+          started_at: string
+          viewer_count: number
+          creator_name: string
+          creator_avatar_url: string | null
+        }[]
+      }
       get_public_profile: {
         Args: { profile_id: string }
         Returns: {
