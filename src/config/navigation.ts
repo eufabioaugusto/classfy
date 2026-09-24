@@ -50,6 +50,7 @@ export const studioNavigation: NavigationItem[] = [
   { title: "Analytics", url: "/studio/analytics", icon: TrendingUp },
   { title: "Meus Conteúdos", url: "/studio/contents", icon: Video },
   { title: "Meus Boosts", url: "/studio/boosts", icon: Megaphone },
+  { title: "Lives", url: "/studio/live", icon: Radio },
 ];
 
 export const adminNavigation: AdminNavigationItem[] = [

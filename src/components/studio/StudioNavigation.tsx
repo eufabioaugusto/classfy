@@ -1,4 +1,4 @@
-import { BarChart3, LayoutDashboard, Library, Rocket, Target } from "lucide-react";
+import { BarChart3, LayoutDashboard, Library, Radio, Rocket, Target } from "lucide-react";
 import { useLocation, useNavigate } from "react-router-dom";
 
 const studioRoutes = [
@@ -7,6 +7,7 @@ const studioRoutes = [
   { label: "Conteúdos", path: "/studio/contents", Icon: Library },
   { label: "Metas", path: "/studio/goals", Icon: Target },
   { label: "Boosts", path: "/studio/boosts", Icon: Rocket },
+  { label: "Lives", path: "/studio/live", Icon: Radio },
 ];
 
 export function StudioNavigation() {

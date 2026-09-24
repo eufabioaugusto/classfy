@@ -1,6 +1,6 @@
 import { AccessToken, EncodingOptionsPreset, LiveKitAPI, StreamOutput, StreamProtocol } from 'npm:livekit-server-sdk@2.19.1';
 import { corsHeaders, json, requireUser, serviceClient } from '../_shared/video/http.ts';
-import { createMuxLiveStream, deleteMuxLiveStream, disableMuxLiveStream, getMuxLiveAsset, getMuxLiveStreamStatus } from '../_shared/video/live-mux.ts';
+import { createMuxLiveStream, deleteMuxLiveAsset, deleteMuxLiveStream, disableMuxLiveStream, getMuxLiveAsset, getMuxLiveStreamStatus, listMuxLiveAssetIds } from '../_shared/video/live-mux.ts';
 import { MuxVideoProvider } from '../_shared/video/mux.ts';
 
 function liveKitConfig() {
@@ -250,6 +250,47 @@ Deno.serve(async (req) => {
       }).eq('id', liveId).in('status', ['waiting', 'live']);
       if (error) throw error;
       return json({ ending: true });
+    }
+    if (action === 'discard') {
+      if (!owner) return json({ error: 'Forbidden' }, 403);
+      if (live.replay_content_id || live.replay_published_at) return json({ error: 'Published or submitted replays cannot be discarded here' }, 409);
+      if (!['waiting', 'ended', 'cancelled'].includes(live.status) || (live.status === 'waiting' && live.livekit_egress_id)) {
+        return json({ error: 'End the live before discarding it' }, 409);
+      }
+      const { count: giftCount, error: giftError } = await client.from('live_gift_transactions')
+        .select('id', { count: 'exact', head: true }).eq('live_id', liveId);
+      if (giftError) throw giftError;
+      if (giftCount) return json({ error: 'Live with gift transactions cannot be discarded' }, 409);
+
+      stage = 'find live recordings';
+      const assetIds = new Set<string>(live.mux_recording_asset_id ? [live.mux_recording_asset_id] : []);
+      if (live.mux_live_stream_id) {
+        for (const assetId of await listMuxLiveAssetIds(live.mux_live_stream_id)) assetIds.add(assetId);
+      }
+      if (live.started_at && live.status === 'ended' && !assetIds.size) {
+        return json({ error: 'Recording is still being prepared' }, 409);
+      }
+      // Block publication and late provider webhooks before deleting resources.
+      const { error: stateError } = await client.from('lives').update({ status: 'cancelled' })
+        .eq('id', liveId).in('status', ['waiting', 'ended', 'cancelled']);
+      if (stateError) throw stateError;
+      stage = 'discard recording';
+      for (const assetId of assetIds) await deleteMuxLiveAsset(assetId);
+      stage = 'discard live stream';
+      if (live.mux_live_stream_id) await deleteMuxLiveStream(live.mux_live_stream_id);
+      stage = 'discard live room';
+      if (live.mux_live_stream_id) {
+        try {
+          await liveKitConfig().api.room.deleteRoom(`classfy-live-${liveId}`);
+        } catch (error) {
+          const code = (error as { code?: number | string }).code;
+          if (code !== 5 && code !== 404 && !/not.?found|does not exist/i.test(error instanceof Error ? error.message : '')) throw error;
+        }
+      }
+      stage = 'discard live record';
+      const { error: deleteError } = await client.from('lives').delete().eq('id', liveId);
+      if (deleteError) throw deleteError;
+      return json({ discarded: true });
     }
     if (action === 'publish') {
       if (live.status !== 'ended' || !live.recording_ready_at || !live.mux_recording_asset_id || !live.mux_recording_playback_id) {

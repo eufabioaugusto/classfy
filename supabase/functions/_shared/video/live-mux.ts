@@ -43,8 +43,40 @@ export async function createMuxLiveStream(title: string, liveId: string) {
   };
 }
 
+async function deleteMuxResource(path: string) {
+  const response = await fetch(`${apiBase}${path}`, {
+    method: 'DELETE',
+    headers: { Authorization: muxAuthorization() },
+  });
+  // Deletion is retried when a later cleanup step fails.
+  if (response.status !== 204 && response.status !== 404) throw new Error(`Mux Live API returned ${response.status}`);
+}
+
 export async function deleteMuxLiveStream(id: string) {
-  await muxLiveRequest(`/live-streams/${encodeURIComponent(id)}`, { method: 'DELETE' });
+  await deleteMuxResource(`/live-streams/${encodeURIComponent(id)}`);
+}
+
+export async function deleteMuxLiveAsset(id: string) {
+  await deleteMuxResource(`/assets/${encodeURIComponent(id)}`);
+}
+
+export async function listMuxLiveAssetIds(streamId: string) {
+  const ids: string[] = [];
+  let cursor: string | null = null;
+  for (let page = 0; page < 20; page += 1) {
+    const query = new URLSearchParams({ live_stream_id: streamId, limit: '100' });
+    if (cursor) query.set('cursor', cursor);
+    const response = await fetch(`${apiBase}/assets?${query}`, {
+      headers: { Authorization: muxAuthorization() },
+    });
+    if (!response.ok) throw new Error(`Mux Live API returned ${response.status}`);
+    const result = await response.json();
+    if (!Array.isArray(result.data)) throw new Error('Mux returned an invalid asset list');
+    for (const asset of result.data) if (typeof asset.id === 'string') ids.push(asset.id);
+    cursor = typeof result.next_cursor === 'string' && result.next_cursor ? result.next_cursor : null;
+    if (!cursor) return ids;
+  }
+  throw new Error('Mux asset list exceeded pagination limit');
 }
 
 export async function getMuxLiveStreamStatus(id: string) {

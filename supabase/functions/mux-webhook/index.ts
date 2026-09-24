@@ -18,6 +18,7 @@ Deno.serve(async (req) => {
         .eq('mux_live_stream_id', streamId).maybeSingle();
       if (liveError) throw liveError;
       if (!live) return json({ received: true, unmatched: true });
+      if (live.status === 'cancelled') return json({ received: true, discarded: true });
       if (payload.type === 'video.live_stream.active' && live.status === 'waiting') {
         const { error } = await client.from('lives').update({ status: 'live', started_at: new Date().toISOString(),
           mux_recording_asset_id: data.active_asset_id ?? null }).eq('id', live.id);
