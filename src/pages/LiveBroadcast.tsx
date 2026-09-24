@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { Room, RoomEvent } from "livekit-client";
-import { Camera, Copy, Loader2, Mic, MicOff, Radio, RotateCw, VideoOff } from "lucide-react";
+import { ArrowLeft, Camera, Copy, Loader2, MessageCircle, Mic, MicOff, Radio, RotateCw, Users, VideoOff, X } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
@@ -14,6 +14,7 @@ import { LiveDiagnosticsPanel } from "@/components/live/LiveDiagnosticsPanel";
 import { LiveLoadingScreen } from "@/components/live/LiveLoadingScreen";
 import { useLiveDiagnostics } from "@/hooks/useLiveDiagnostics";
 import { sampleLiveRtcStats } from "@/lib/liveRtcStats";
+import "@/styles/live-broadcast.css";
 
 type Live = { id: string; creator_id: string; title: string; status: "waiting" | "live" | "ended" | "cancelled"; started_at: string | null; mux_live_stream_id: string | null; livekit_egress_id: string | null };
 
@@ -26,6 +27,7 @@ export default function LiveBroadcast() {
   const [starting, setStarting] = useState(false);
   const [ending, setEnding] = useState(false);
   const [publishing, setPublishing] = useState(false);
+  const [chatOpen, setChatOpen] = useState(false);
   const [countdownEndsAt, setCountdownEndsAt] = useState<number | null>(null);
   const [signalWaitStartedAt, setSignalWaitStartedAt] = useState<number | null>(null);
   const [now, setNow] = useState(Date.now());
@@ -236,53 +238,76 @@ export default function LiveBroadcast() {
   const countdown = countdownEndsAt && live.status === "waiting" ? Math.max(0, Math.ceil((countdownEndsAt - now) / 1000)) : 0;
   const showLiveIntro = live.status === "live" && live.started_at && now - new Date(live.started_at).getTime() < 3000;
 
-  return <main className="min-h-screen bg-[#0c0d0f] text-white p-4 lg:p-6">
-    <div className="max-w-7xl mx-auto grid gap-5 lg:grid-cols-[minmax(0,1fr)_340px]">
-      <div className="min-w-0 space-y-4">
-        <header className="flex flex-wrap items-center justify-between gap-3"><div><Link to="/studio/live" className="text-sm text-white/60 hover:text-white">← Voltar ao Studio</Link><h1 className="text-xl font-semibold mt-2">{live.title}</h1></div><div className="flex items-center gap-3"><span className="rounded-full bg-white/10 px-3 py-1 text-sm">{live.status === "live" ? `AO VIVO · ${timer}` : live.status === "waiting" ? "Preparando transmissão" : "Encerrada"}</span><span className="text-sm text-white/60">{viewerCount} assistindo</span></div></header>
-        <div className="relative aspect-video min-h-[280px] rounded-2xl overflow-hidden bg-[#090a0c] border border-white/10 grid place-items-center">
-          {stream ? <video ref={previewRef} autoPlay muted playsInline className="w-full h-full object-cover scale-x-[-1]" /> : <div className="flex max-w-sm flex-col items-center px-6 text-center" role="status" aria-live="polite">
-            <div className="mb-5 grid h-16 w-16 place-items-center rounded-2xl border border-white/15 bg-white/[0.07]">{mediaLoading ? <Loader2 className="h-8 w-8 animate-spin text-white" /> : <Camera className="h-8 w-8 text-white/80" />}</div>
-            <h2 className="text-xl font-semibold text-white">{mediaLoading ? "Preparando sua prévia" : mediaError ? "Câmera e microfone não disponíveis" : "Prepare sua câmera e microfone"}</h2>
-            <p className="mt-2 text-sm leading-relaxed text-white/60">{mediaLoading ? "Autorize o acesso na janela do navegador para ver e ouvir seus dispositivos antes de entrar ao vivo." : mediaError ? "Verifique a permissão de câmera e microfone deste site no navegador. Depois, tente novamente." : "A prévia é privada. Seus espectadores só verão a transmissão depois que você clicar em Iniciar live."}</p>
-            {!mediaLoading && <Button className="mt-6 bg-white text-[#111] hover:bg-white/90" onClick={() => void startStream()}>{mediaError ? <RotateCw className="mr-2 h-4 w-4" /> : <Camera className="mr-2 h-4 w-4" />}{mediaError ? "Tentar novamente" : "Ativar câmera e microfone"}</Button>}
-          </div>}
-          {stream && live.status !== "live" && <span className="absolute left-4 top-4 rounded-full border border-white/20 bg-black/55 px-3 py-1.5 text-xs font-medium text-white backdrop-blur">Prévia privada · ainda não está ao vivo</span>}
-          {live.status === "live" && <span className="absolute top-4 left-4 rounded-full bg-red-600 px-3 py-1 text-xs font-bold tracking-wide">AO VIVO</span>}
-          {stream && !isCameraOn && <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/90 text-white/70"><VideoOff className="h-9 w-9" /><span>Câmera desligada</span></div>}
-          {stream && countdown > 0 && <div className="pointer-events-none absolute inset-0 z-10 flex flex-col items-center justify-center bg-black/55" aria-live="polite"><span className="text-[clamp(5rem,18vw,10rem)] font-bold leading-none tabular-nums text-white">{countdown}</span><span className="mt-3 text-sm font-medium text-white/80">Preparando a transmissão</span></div>}
-          {stream && countdown === 0 && live.status === "waiting" && (starting || publishing) && <div className="pointer-events-none absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 bg-black/45 px-5 text-center backdrop-blur-[2px]"><Loader2 className="h-9 w-9 animate-spin text-white" /><span className="text-lg font-semibold text-white">Preparando sua live</span><span className="max-w-sm text-sm text-white/80">Sua câmera está pronta. Estamos abrindo a transmissão para o público.</span></div>}
-          {showLiveIntro && <div className="pointer-events-none absolute inset-0 z-20 grid place-items-center bg-black/35"><span className="rounded-2xl bg-red-600 px-7 py-4 text-3xl font-bold tracking-wide text-white shadow-xl">AO VIVO</span></div>}
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          {stream && !publishing && <Button disabled={starting || !isCameraOn || !isMicOn} onClick={() => void begin()}><Radio className="w-4 h-4 mr-2" />{starting ? "Conectando..." : live.status === "live" ? "Retomar transmissão" : "Iniciar live"}</Button>}
-          {publishing && <span className="text-sm text-white/70">{live.status === "live" ? "Seu sinal está no ar" : "Preparando a transmissão para o público..."}</span>}
-          {publishing && live.status === "waiting" && signalWaitStartedAt && now - signalWaitStartedAt > 15000 && <Button variant="outline" disabled={starting} className="border-white/20 bg-white/5 text-white hover:bg-white/10 hover:text-white" onClick={() => void retrySignal()}>{starting ? "Reconectando..." : "Reconectar sinal"}</Button>}
-          {stream && <Button variant="outline" className="border-white/20 bg-white/5 text-white hover:bg-white/10 hover:text-white" onClick={toggleCamera} aria-label={isCameraOn ? "Desligar câmera" : "Ligar câmera"}>{isCameraOn ? <Camera className="w-4 h-4" /> : <VideoOff className="w-4 h-4" />}</Button>}
-          {stream && <Button variant="outline" className="border-white/20 bg-white/5 text-white hover:bg-white/10 hover:text-white" onClick={toggleMic} aria-label={isMicOn ? "Desligar microfone" : "Ligar microfone"}>{isMicOn ? <Mic className="w-4 h-4" /> : <MicOff className="w-4 h-4" />}</Button>}
-          <Button variant="outline" className="border-white/20 bg-white/5 text-white hover:bg-white/10 hover:text-white" onClick={() => void copyLink()}><Copy className="w-4 h-4 mr-2" /> Copiar link</Button>
-          <Button variant="destructive" disabled={ending} onClick={() => void end()}>{ending ? "Encerrando..." : "Encerrar live"}</Button>
-        </div>
-        <LiveDiagnosticsPanel report={diagnostics.report} lastSavedAt={diagnostics.lastSavedAt} saveError={diagnostics.saveError} dark />
-        <div className="grid gap-3 sm:grid-cols-2">
-          <label className="grid gap-1.5 text-sm text-white/70">Câmera
-            <select value={selectedCamera ?? ""} disabled={!cameras.length || publishing || mediaLoading} onChange={(event) => void selectCamera(event.target.value)} className="w-full rounded-lg border border-white/20 bg-[#1c1e22] px-3 py-2 text-white disabled:opacity-60">
-              <option value="">{stream ? "Selecione uma câmera" : "Ative a câmera para listar dispositivos"}</option>
-              {cameras.map((device, index) => <option key={device.deviceId || index} value={device.deviceId}>{device.label || `Câmera ${index + 1}`}</option>)}
-            </select>
-          </label>
-          <label className="grid gap-1.5 text-sm text-white/70">Microfone
-            <select value={selectedMicrophone ?? ""} disabled={!microphones.length || publishing || mediaLoading} onChange={(event) => void selectMicrophone(event.target.value)} className="w-full rounded-lg border border-white/20 bg-[#1c1e22] px-3 py-2 text-white disabled:opacity-60">
-              <option value="">{stream ? "Selecione um microfone" : "Ative o microfone para listar dispositivos"}</option>
-              {microphones.map((device, index) => <option key={device.deviceId || index} value={device.deviceId}>{device.label || `Microfone ${index + 1}`}</option>)}
-            </select>
-          </label>
-        </div>
-        {mediaError && <p role="alert" className="rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-200">Não foi possível acessar câmera ou microfone: {mediaError}. Verifique a permissão do site no navegador e tente novamente.</p>}
-        {publishing && <p className="text-xs text-white/50">Para trocar de dispositivo durante a transmissão, encerre esta live e crie outra.</p>}
-        <p className="text-sm text-white/50">O indicador “Ao vivo” aparece quando o público já pode assistir. A gravação é enviada para revisão após o encerramento.</p>
-      </div>
-      <div className="h-[70vh] min-h-[420px] overflow-hidden"><LiveChat messages={messages} pinnedMessage={pinnedMessage} isLoading={chatLoading} isSending={isSending} onSendMessage={sendMessage} onDeleteMessage={deleteMessage} onPinMessage={pinMessage} onUnpinMessage={unpinMessage} isCreator className="h-full" /></div>
+  const isWaiting = live.status === "waiting";
+  const isConnecting = isWaiting && (starting || publishing);
+  const chat = <LiveChat messages={messages} pinnedMessage={pinnedMessage} isLoading={chatLoading} isSending={isSending} onSendMessage={sendMessage} onDeleteMessage={deleteMessage} onPinMessage={pinMessage} onUnpinMessage={unpinMessage} isCreator className="live-broadcast__chat-inner" />;
+
+  return <main className="live-broadcast" data-chat-open={chatOpen}>
+    <div className="live-broadcast__stage" aria-hidden="true">
+      {stream && <video ref={previewRef} autoPlay muted playsInline className="live-broadcast__video" />}
+      {(!stream || !isCameraOn) && <div className="live-broadcast__camera-off"><VideoOff aria-hidden="true" /><span>{mediaLoading ? "Preparando a câmera" : "Câmera desligada"}</span></div>}
     </div>
+    <div className="live-broadcast__shade" aria-hidden="true" />
+
+    <header className="live-broadcast__header">
+      <div className="live-broadcast__identity">
+        <Link to="/studio/live" className="live-broadcast__back"><ArrowLeft aria-hidden="true" /> Studio</Link>
+        <div className="live-broadcast__title"><span className="live-broadcast__brand">CLASSFY LIVE</span><h1>{live.title}</h1></div>
+      </div>
+      <div className="live-broadcast__telemetry">
+        <span className={`live-broadcast__chip ${live.status === "live" ? "live-broadcast__chip--live" : ""}`}><span className="live-broadcast__status-dot" />{live.status === "live" ? `AO VIVO · ${timer}` : "PRÉVIA PRIVADA"}</span>
+        <span className="live-broadcast__chip"><Users aria-hidden="true" />{viewerCount} assistindo</span>
+      </div>
+    </header>
+
+    <div className="live-broadcast__diagnostics"><LiveDiagnosticsPanel report={diagnostics.report} lastSavedAt={diagnostics.lastSavedAt} saveError={diagnostics.saveError} dark /></div>
+
+    {isWaiting && !isConnecting && <section className="live-broadcast__setup" aria-labelledby="live-setup-title">
+      <span className="live-broadcast__setup-eyebrow"><span className="live-broadcast__status-dot" /> ANTES DE ENTRAR AO VIVO</span>
+      <h2 id="live-setup-title">Seu espaço está pronto.</h2>
+      <p>Confira imagem e som. A prévia é só sua até você iniciar a transmissão.</p>
+      {!stream && <div className="live-broadcast__permission" role="status" aria-live="polite">
+        <Camera aria-hidden="true" />
+        <span>{mediaLoading ? "Autorize câmera e microfone no navegador para ver sua prévia." : mediaError ? "Não conseguimos acessar seus dispositivos." : "Ative câmera e microfone para começar."}</span>
+        {!mediaLoading && <button type="button" onClick={() => void startStream()}>{mediaError ? <RotateCw aria-hidden="true" /> : <Camera aria-hidden="true" />}{mediaError ? "Tentar novamente" : "Ativar dispositivos"}</button>}
+      </div>}
+      <div className="live-broadcast__devices">
+        <label><span><Camera aria-hidden="true" /> Câmera</span>
+          <select value={selectedCamera ?? ""} disabled={!cameras.length || publishing || mediaLoading} onChange={(event) => void selectCamera(event.target.value)}>
+            <option value="">{stream ? "Selecione uma câmera" : "Aguardando câmera"}</option>
+            {cameras.map((device, index) => <option key={device.deviceId || index} value={device.deviceId}>{device.label || `Câmera ${index + 1}`}</option>)}
+          </select>
+        </label>
+        <label><span><Mic aria-hidden="true" /> Microfone</span>
+          <select value={selectedMicrophone ?? ""} disabled={!microphones.length || publishing || mediaLoading} onChange={(event) => void selectMicrophone(event.target.value)}>
+            <option value="">{stream ? "Selecione um microfone" : "Aguardando microfone"}</option>
+            {microphones.map((device, index) => <option key={device.deviceId || index} value={device.deviceId}>{device.label || `Microfone ${index + 1}`}</option>)}
+          </select>
+        </label>
+      </div>
+      {mediaError && <p role="alert" className="live-broadcast__device-error">Verifique a permissão de câmera e microfone deste site no navegador e tente novamente.</p>}
+      <span className="live-broadcast__setup-note">A transmissão só aparece ao público quando o sinal estiver confirmado.</span>
+    </section>}
+
+    {stream && countdown > 0 && <div className="live-broadcast__transition" aria-live="polite"><strong>{countdown}</strong><span>Preparando sua transmissão</span></div>}
+    {stream && countdown === 0 && isConnecting && <div className="live-broadcast__transition" role="status"><Loader2 className="live-broadcast__spinner" aria-hidden="true" /><strong>Estamos abrindo sua live</strong><span>Sua câmera está pronta. Em instantes o público poderá assistir.</span></div>}
+    {showLiveIntro && <div className="live-broadcast__transition live-broadcast__transition--live"><strong>AO VIVO</strong></div>}
+
+    <aside className="live-broadcast__chat" aria-label="Chat ao vivo">
+      <button type="button" className="live-broadcast__chat-close" onClick={() => setChatOpen(false)} aria-label="Fechar chat"><X aria-hidden="true" /></button>
+      {chat}
+    </aside>
+
+    <div className="live-broadcast__dock-wrap"><div className="live-broadcast__dock" role="toolbar" aria-label="Controles da transmissão">
+      {stream && !publishing && <button type="button" className="live-broadcast__start" disabled={starting || !isCameraOn || !isMicOn} onClick={() => void begin()}><Radio aria-hidden="true" />{starting ? "Conectando..." : live.status === "live" ? "Retomar live" : "Iniciar live"}</button>}
+      {publishing && <span className="live-broadcast__onair-note"><span className="live-broadcast__status-dot" />{live.status === "live" ? "Seu sinal está no ar" : "Preparando para o público"}</span>}
+      {publishing && isWaiting && signalWaitStartedAt && now - signalWaitStartedAt > 15000 && <button type="button" className="live-broadcast__dock-action" disabled={starting} onClick={() => void retrySignal()}><RotateCw aria-hidden="true" />{starting ? "Reconectando" : "Reconectar"}</button>}
+      {stream && <button type="button" className="live-broadcast__dock-action" data-off={!isCameraOn} onClick={toggleCamera} aria-label={isCameraOn ? "Desligar câmera" : "Ligar câmera"} title={isCameraOn ? "Desligar câmera" : "Ligar câmera"}>{isCameraOn ? <Camera aria-hidden="true" /> : <VideoOff aria-hidden="true" />}</button>}
+      {stream && <button type="button" className="live-broadcast__dock-action" data-off={!isMicOn} onClick={toggleMic} aria-label={isMicOn ? "Desligar microfone" : "Ligar microfone"} title={isMicOn ? "Desligar microfone" : "Ligar microfone"}>{isMicOn ? <Mic aria-hidden="true" /> : <MicOff aria-hidden="true" />}</button>}
+      <button type="button" className="live-broadcast__dock-action live-broadcast__dock-copy" onClick={() => void copyLink()} aria-label="Copiar link da live" title="Copiar link"><Copy aria-hidden="true" /><span>Copiar link</span></button>
+      <button type="button" className="live-broadcast__dock-action live-broadcast__dock-chat" onClick={() => setChatOpen((open) => !open)} aria-label={chatOpen ? "Fechar chat" : "Abrir chat"} aria-expanded={chatOpen}><MessageCircle aria-hidden="true" /></button>
+      <span className="live-broadcast__dock-divider" aria-hidden="true" />
+      <button type="button" className="live-broadcast__end" disabled={ending} onClick={() => void end()}>{ending ? "Encerrando..." : "Encerrar"}</button>
+    </div></div>
   </main>;
 }
