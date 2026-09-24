@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { Room } from "livekit-client";
-import { Camera, Copy, Loader2, Mic, MicOff, Radio, VideoOff } from "lucide-react";
+import { Camera, Copy, Loader2, Mic, MicOff, Radio, RotateCw, VideoOff } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
@@ -25,6 +25,7 @@ export default function LiveBroadcast() {
   const [now, setNow] = useState(Date.now());
   const roomRef = useRef<Room | null>(null);
   const previewRef = useRef<HTMLVideoElement>(null);
+  const requestedPreviewRef = useRef<string | null>(null);
   const { stream, cameras, microphones, selectedCamera, selectedMicrophone, isLoading: mediaLoading, error: mediaError,
     isCameraOn, isMicOn, startStream, stopStream, toggleCamera, toggleMic, selectCamera, selectMicrophone } = useMediaDevices();
   const { messages, pinnedMessage, isLoading: chatLoading, isSending, sendMessage, deleteMessage, pinMessage, unpinMessage } = useLiveChat(id || null);
@@ -53,6 +54,11 @@ export default function LiveBroadcast() {
     if (!previewRef.current) return;
     previewRef.current.srcObject = stream;
   }, [stream]);
+  useEffect(() => {
+    if (!live?.mux_live_stream_id || live.status === "ended" || live.status === "cancelled" || requestedPreviewRef.current === live.id) return;
+    requestedPreviewRef.current = live.id;
+    void startStream();
+  }, [live?.id, live?.mux_live_stream_id, live?.status, startStream]);
   useEffect(() => { const timer = window.setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(timer); }, []);
 
   const begin = async () => {
@@ -111,13 +117,18 @@ export default function LiveBroadcast() {
     <div className="max-w-7xl mx-auto grid gap-5 lg:grid-cols-[minmax(0,1fr)_340px]">
       <div className="min-w-0 space-y-4">
         <header className="flex flex-wrap items-center justify-between gap-3"><div><Link to="/studio/live" className="text-sm text-white/60 hover:text-white">← Voltar ao Studio</Link><h1 className="text-xl font-semibold mt-2">{live.title}</h1></div><div className="flex items-center gap-3"><span className="rounded-full bg-white/10 px-3 py-1 text-sm">{live.status === "live" ? `AO VIVO · ${timer}` : live.status === "waiting" ? "Preparando transmissão" : "Encerrada"}</span><span className="text-sm text-white/60">{viewerCount} assistindo</span></div></header>
-        <div className="relative aspect-video rounded-2xl overflow-hidden bg-black border border-white/10 grid place-items-center">
-          {stream ? <video ref={previewRef} autoPlay muted playsInline className="w-full h-full object-cover scale-x-[-1]" /> : <div className="text-center text-white/60"><Camera className="w-10 h-10 mx-auto mb-3" /><p>Ative sua câmera para ver a prévia.</p></div>}
+        <div className="relative aspect-video min-h-[280px] rounded-2xl overflow-hidden bg-[#090a0c] border border-white/10 grid place-items-center">
+          {stream ? <video ref={previewRef} autoPlay muted playsInline className="w-full h-full object-cover scale-x-[-1]" /> : <div className="flex max-w-sm flex-col items-center px-6 text-center" role="status" aria-live="polite">
+            <div className="mb-5 grid h-16 w-16 place-items-center rounded-2xl border border-white/15 bg-white/[0.07]">{mediaLoading ? <Loader2 className="h-8 w-8 animate-spin text-white" /> : <Camera className="h-8 w-8 text-white/80" />}</div>
+            <h2 className="text-xl font-semibold text-white">{mediaLoading ? "Preparando sua prévia" : mediaError ? "Câmera e microfone não disponíveis" : "Prepare sua câmera e microfone"}</h2>
+            <p className="mt-2 text-sm leading-relaxed text-white/60">{mediaLoading ? "Autorize o acesso na janela do navegador para ver e ouvir seus dispositivos antes de entrar ao vivo." : mediaError ? "Verifique a permissão de câmera e microfone deste site no navegador. Depois, tente novamente." : "A prévia é privada. Seus espectadores só verão a transmissão depois que você clicar em Iniciar live."}</p>
+            {!mediaLoading && <Button className="mt-6 bg-white text-[#111] hover:bg-white/90" onClick={() => void startStream()}>{mediaError ? <RotateCw className="mr-2 h-4 w-4" /> : <Camera className="mr-2 h-4 w-4" />}{mediaError ? "Tentar novamente" : "Ativar câmera e microfone"}</Button>}
+          </div>}
+          {stream && live.status !== "live" && <span className="absolute left-4 top-4 rounded-full border border-white/20 bg-black/55 px-3 py-1.5 text-xs font-medium text-white backdrop-blur">Prévia privada · ainda não está ao vivo</span>}
           {live.status === "live" && <span className="absolute top-4 left-4 rounded-full bg-red-600 px-3 py-1 text-xs font-bold tracking-wide">AO VIVO</span>}
-          {stream && !isCameraOn && <div className="absolute inset-0 bg-black/90 grid place-items-center"><VideoOff /><span>Câmera desligada</span></div>}
+          {stream && !isCameraOn && <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/90 text-white/70"><VideoOff className="h-9 w-9" /><span>Câmera desligada</span></div>}
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          {!stream && <Button disabled={mediaLoading} onClick={() => void startStream()}><Camera className="w-4 h-4 mr-2" /> {mediaLoading ? "Acessando dispositivos..." : "Ativar câmera e microfone"}</Button>}
           {stream && !publishing && <Button disabled={starting || !isCameraOn || !isMicOn} onClick={() => void begin()}><Radio className="w-4 h-4 mr-2" />{starting ? "Conectando..." : live.status === "live" ? "Retomar transmissão" : "Iniciar live"}</Button>}
           {publishing && <span className="text-sm text-white/70">{live.status === "live" ? "Seu sinal está no ar" : "Enviando sinal; aguardando confirmação do Mux..."}</span>}
           {stream && <Button variant="outline" className="border-white/20 bg-white/5 text-white hover:bg-white/10 hover:text-white" onClick={toggleCamera} aria-label={isCameraOn ? "Desligar câmera" : "Ligar câmera"}>{isCameraOn ? <Camera className="w-4 h-4" /> : <VideoOff className="w-4 h-4" />}</Button>}
