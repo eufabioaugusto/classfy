@@ -22,6 +22,7 @@ export default function LiveBroadcast() {
   const [starting, setStarting] = useState(false);
   const [ending, setEnding] = useState(false);
   const [publishing, setPublishing] = useState(false);
+  const [countdownEndsAt, setCountdownEndsAt] = useState<number | null>(null);
   const [now, setNow] = useState(Date.now());
   const roomRef = useRef<Room | null>(null);
   const previewRef = useRef<HTMLVideoElement>(null);
@@ -60,10 +61,20 @@ export default function LiveBroadcast() {
     void startStream();
   }, [live?.id, live?.mux_live_stream_id, live?.status, startStream]);
   useEffect(() => { const timer = window.setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(timer); }, []);
+  useEffect(() => {
+    if (!id || !publishing || live?.status !== "waiting") return;
+    const timer = window.setInterval(() => {
+      void supabase.from("lives").select("id, creator_id, title, status, started_at, mux_live_stream_id").eq("id", id).single()
+        .then(({ data }) => { if (data) setLive(data as Live); });
+    }, 2000);
+    return () => window.clearInterval(timer);
+  }, [id, publishing, live?.status]);
 
   const begin = async () => {
     if (!id || !stream || starting || !live) return;
     setStarting(true);
+    setNow(Date.now());
+    setCountdownEndsAt(live.status === "waiting" ? Date.now() + 5000 : null);
     try {
       const { data, error } = await supabase.functions.invoke("live-control", { body: { action: "connect", liveId: id } });
       if (error || !data?.url || !data?.token) throw new Error("Não foi possível abrir a sala");
@@ -82,6 +93,7 @@ export default function LiveBroadcast() {
       roomRef.current?.disconnect();
       roomRef.current = null;
       setPublishing(false);
+      setCountdownEndsAt(null);
       toast.error("Não foi possível iniciar a transmissão. Confira a conexão e tente novamente.");
     } finally { setStarting(false); }
   };
@@ -112,6 +124,8 @@ export default function LiveBroadcast() {
   if (live.status === "ended" || live.status === "cancelled") return <main className="min-h-screen grid place-items-center bg-[#0c0d0f] p-6 text-white"><div className="max-w-md text-center space-y-4"><Radio className="mx-auto h-10 w-10 text-white/50" /><h1 className="text-2xl font-semibold">Transmissão encerrada</h1><p className="text-white/60">Confira a gravação no Studio quando o Mux terminar o processamento.</p><Button onClick={() => navigate("/studio/live")}>Voltar ao Studio</Button></div></main>;
   const elapsed = live.started_at ? Math.max(0, Math.floor((now - new Date(live.started_at).getTime()) / 1000)) : 0;
   const timer = `${String(Math.floor(elapsed / 60)).padStart(2, "0")}:${String(elapsed % 60).padStart(2, "0")}`;
+  const countdown = countdownEndsAt && live.status === "waiting" ? Math.max(0, Math.ceil((countdownEndsAt - now) / 1000)) : 0;
+  const showLiveIntro = live.status === "live" && live.started_at && now - new Date(live.started_at).getTime() < 3000;
 
   return <main className="min-h-screen bg-[#0c0d0f] text-white p-4 lg:p-6">
     <div className="max-w-7xl mx-auto grid gap-5 lg:grid-cols-[minmax(0,1fr)_340px]">
@@ -127,6 +141,9 @@ export default function LiveBroadcast() {
           {stream && live.status !== "live" && <span className="absolute left-4 top-4 rounded-full border border-white/20 bg-black/55 px-3 py-1.5 text-xs font-medium text-white backdrop-blur">Prévia privada · ainda não está ao vivo</span>}
           {live.status === "live" && <span className="absolute top-4 left-4 rounded-full bg-red-600 px-3 py-1 text-xs font-bold tracking-wide">AO VIVO</span>}
           {stream && !isCameraOn && <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/90 text-white/70"><VideoOff className="h-9 w-9" /><span>Câmera desligada</span></div>}
+          {stream && countdown > 0 && <div className="pointer-events-none absolute inset-0 z-10 flex flex-col items-center justify-center bg-black/55" aria-live="polite"><span className="text-[clamp(5rem,18vw,10rem)] font-bold leading-none tabular-nums text-white">{countdown}</span><span className="mt-3 text-sm font-medium text-white/80">Preparando a transmissão</span></div>}
+          {stream && countdown === 0 && live.status === "waiting" && (starting || publishing) && <div className="pointer-events-none absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 bg-black/60 px-5 text-center"><Loader2 className="h-10 w-10 animate-spin text-white" /><span className="text-lg font-semibold text-white">{starting ? "Conectando seu sinal" : "Aguardando confirmação do Mux"}</span><span className="text-sm text-white/70">A live aparecerá para o público assim que o vídeo estiver pronto.</span></div>}
+          {showLiveIntro && <div className="pointer-events-none absolute inset-0 z-20 grid place-items-center bg-black/35"><span className="rounded-2xl bg-red-600 px-7 py-4 text-3xl font-bold tracking-wide text-white shadow-xl">AO VIVO</span></div>}
         </div>
         <div className="flex flex-wrap items-center gap-2">
           {stream && !publishing && <Button disabled={starting || !isCameraOn || !isMicOn} onClick={() => void begin()}><Radio className="w-4 h-4 mr-2" />{starting ? "Conectando..." : live.status === "live" ? "Retomar transmissão" : "Iniciar live"}</Button>}

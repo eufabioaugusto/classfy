@@ -24,6 +24,7 @@ export async function createMuxLiveStream(title: string, liveId: string) {
     method: 'POST',
     body: JSON.stringify({
       playback_policies: ['signed'],
+      latency_mode: 'low',
       new_asset_settings: {
         playback_policies: ['signed'],
         meta: { title, external_id: liveId },

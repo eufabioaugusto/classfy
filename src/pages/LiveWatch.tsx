@@ -7,7 +7,7 @@ import { useLiveViewers } from "@/hooks/useLiveViewers";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { Users, Radio, Gift, Loader2 } from "lucide-react";
+import { Users, Radio, Loader2 } from "lucide-react";
 import { LiveChat } from "@/components/live/LiveChat";
 import { LiveGiftPanel } from "@/components/live/LiveGiftPanel";
 import { FollowButton } from "@/components/FollowButton";
@@ -141,7 +141,7 @@ export default function LiveWatch() {
     void import("hls.js").then(({ default: Hls }) => {
       if (!active) return;
       if (Hls.isSupported()) {
-        hls = new Hls({ liveSyncDurationCount: 3 });
+        hls = new Hls({ lowLatencyMode: true, maxLiveSyncPlaybackRate: 1.25 });
         hls.loadSource(playbackUrl);
         hls.attachMedia(video);
         hls.on(Hls.Events.ERROR, (_, data) => { if (data.fatal) setPlaybackError(true); });
@@ -179,13 +179,13 @@ export default function LiveWatch() {
   const isEnded = live.status === "ended" || live.status === "cancelled" || isLegacyLive;
 
   return (
-    <div className="min-h-screen bg-background flex flex-col lg:flex-row">
+    <div className="min-h-screen w-full min-w-0 overflow-x-hidden bg-background pb-24 flex flex-col lg:flex-row lg:pb-0">
       {/* Main Content */}
-      <div className="flex-1 flex flex-col">
+      <div className="min-w-0 flex-1 flex flex-col">
         {/* Video Area */}
-        <div className="aspect-video bg-black relative flex items-center justify-center">
+        <div className="relative flex aspect-video w-full min-w-0 items-center justify-center overflow-hidden bg-black">
           {playbackUrl ? (
-            <video ref={videoRef} controls playsInline autoPlay={live.status === "live"} className="w-full h-full object-contain" aria-label={live.status === "live" ? "Transmissão ao vivo" : "Gravação da live"} />
+            <video ref={videoRef} controls playsInline autoPlay={live.status === "live"} className="absolute inset-0 h-full w-full object-contain" aria-label={live.status === "live" ? "Transmissão ao vivo" : "Gravação da live"} />
           ) : isEnded ? (
             <div className="text-center text-white">
               <Radio className="w-16 h-16 mx-auto mb-4 opacity-50" />
@@ -218,31 +218,25 @@ export default function LiveWatch() {
         </div>
 
         {/* Info */}
-        <div className="p-4 border-b">
-          <h1 className="text-xl font-bold">{live.title}</h1>
+        <div className="min-w-0 border-b p-4">
+          <h1 className="break-words text-xl font-bold">{live.title}</h1>
           {live.description && (
             <p className="text-muted-foreground mt-1">{live.description}</p>
           )}
 
-          <div className="flex items-center justify-between mt-4">
-            <div className="flex items-center gap-3">
-              <Avatar>
+          <div className="mt-4 flex min-w-0 flex-wrap items-center gap-3 sm:justify-between">
+            <div className="flex min-w-0 flex-1 items-center gap-3">
+              <Avatar className="shrink-0">
                 <AvatarImage src={live.creator?.avatar_url || ""} />
                 <AvatarFallback>{live.creator?.display_name?.charAt(0)}</AvatarFallback>
               </Avatar>
-              <div>
-                <p className="font-medium">{live.creator?.display_name}</p>
+              <div className="min-w-0">
+                <p className="break-words font-medium">{live.creator?.display_name}</p>
               </div>
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="min-w-0 shrink-0">
               {live.creator && <FollowButton creatorId={live.creator.id} />}
-              {!isEnded && (
-                <Button variant="outline" disabled title="Pagamento seguro ainda não disponível">
-                  <Gift className="w-4 h-4 mr-2" />
-                  Enviar Presente
-                </Button>
-              )}
             </div>
           </div>
         </div>
@@ -256,7 +250,7 @@ export default function LiveWatch() {
       </div>
 
       {/* Sidebar */}
-      <div className="w-full lg:w-96 border-l flex flex-col">
+      <div className="flex w-full min-w-0 flex-col border-l lg:w-96 lg:shrink-0">
         {/* Gift Panel (Desktop) */}
         <div className="hidden lg:block border-b">
           <LiveGiftPanel gifts={gifts} isLoading={false} onSendGift={handleSendGift} />

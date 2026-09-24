@@ -108,7 +108,7 @@ Deno.serve(async (req) => {
         urls: [`rtmps://global-live.mux.com:443/app/${secretRow.mux_stream_key}`],
       });
       const egress = await api.egress.startRoomCompositeEgress(`classfy-live-${liveId}`, { stream: output }, {
-        layout: 'speaker', encodingOptions: EncodingOptionsPreset.H264_720P_30,
+        layout: 'single-speaker', encodingOptions: EncodingOptionsPreset.H264_720P_30,
       });
       const { data: claimed, error: updateError } = await client.from('lives')
         .update({ livekit_egress_id: egress.egressId }).eq('id', liveId)
