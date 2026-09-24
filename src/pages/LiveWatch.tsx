@@ -22,6 +22,7 @@ interface Live {
   started_at: string | null;
   viewer_count: number;
   creator_id: string;
+  mux_live_stream_id?: string | null;
   replay_published_at?: string | null;
   creator?: {
     id: string;
@@ -117,7 +118,7 @@ export default function LiveWatch() {
   };
 
   useEffect(() => {
-    if (!live || !user || (live.status !== "live" && !live.replay_published_at)) {
+    if (!live || !user || (live.status !== "live" && !live.replay_published_at) || (live.status === "live" && !live.mux_live_stream_id)) {
       setPlaybackUrl("");
       return;
     }
@@ -174,7 +175,8 @@ export default function LiveWatch() {
     );
   }
 
-  const isEnded = live.status === "ended" || live.status === "cancelled";
+  const isLegacyLive = live.status === "live" && !live.mux_live_stream_id;
+  const isEnded = live.status === "ended" || live.status === "cancelled" || isLegacyLive;
 
   return (
     <div className="min-h-screen bg-background flex flex-col lg:flex-row">
@@ -187,8 +189,8 @@ export default function LiveWatch() {
           ) : isEnded ? (
             <div className="text-center text-white">
               <Radio className="w-16 h-16 mx-auto mb-4 opacity-50" />
-              <h2 className="text-xl font-bold">{live.replay_published_at ? "Carregando gravação" : "Transmissão encerrada"}</h2>
-              <p className="text-muted-foreground mt-2">{playbackError ? "Não foi possível carregar o vídeo." : live.replay_published_at ? "Preparando o replay..." : "O replay aguarda publicação."}</p>
+              <h2 className="text-xl font-bold">{isLegacyLive ? "Transmissão indisponível" : live.replay_published_at ? "Carregando gravação" : "Transmissão encerrada"}</h2>
+              <p className="text-muted-foreground mt-2">{isLegacyLive ? "Esta live foi criada antes da integração de vídeo." : playbackError ? "Não foi possível carregar o vídeo." : live.replay_published_at ? "Preparando o replay..." : "O replay aguarda publicação."}</p>
             </div>
           ) : (
             <>

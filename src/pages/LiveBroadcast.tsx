@@ -11,7 +11,7 @@ import { useLiveViewers } from "@/hooks/useLiveViewers";
 import { LiveChat } from "@/components/live/LiveChat";
 import { Button } from "@/components/ui/button";
 
-type Live = { id: string; creator_id: string; title: string; status: "waiting" | "live" | "ended" | "cancelled"; started_at: string | null };
+type Live = { id: string; creator_id: string; title: string; status: "waiting" | "live" | "ended" | "cancelled"; started_at: string | null; mux_live_stream_id: string | null };
 
 export default function LiveBroadcast() {
   const { id } = useParams();
@@ -25,14 +25,15 @@ export default function LiveBroadcast() {
   const [now, setNow] = useState(Date.now());
   const roomRef = useRef<Room | null>(null);
   const previewRef = useRef<HTMLVideoElement>(null);
-  const { stream, isCameraOn, isMicOn, startStream, stopStream, toggleCamera, toggleMic } = useMediaDevices();
+  const { stream, cameras, microphones, selectedCamera, selectedMicrophone, isLoading: mediaLoading, error: mediaError,
+    isCameraOn, isMicOn, startStream, stopStream, toggleCamera, toggleMic, selectCamera, selectMicrophone } = useMediaDevices();
   const { messages, pinnedMessage, isLoading: chatLoading, isSending, sendMessage, deleteMessage, pinMessage, unpinMessage } = useLiveChat(id || null);
   const { viewerCount } = useLiveViewers(id || null);
 
   useEffect(() => {
     if (!id || !user) return;
     let active = true;
-    void supabase.from("lives").select("id, creator_id, title, status, started_at").eq("id", id).single().then(({ data, error }) => {
+    void supabase.from("lives").select("id, creator_id, title, status, started_at, mux_live_stream_id").eq("id", id).single().then(({ data, error }) => {
       if (!active) return;
       if (error || !data || data.creator_id !== user.id) {
         toast.error("Transmissão indisponível para esta conta.");
@@ -101,6 +102,8 @@ export default function LiveBroadcast() {
 
   if (loading) return <div className="min-h-screen grid place-items-center bg-black text-white"><Loader2 className="animate-spin" /></div>;
   if (!live) return null;
+  if (!live.mux_live_stream_id) return <main className="min-h-screen grid place-items-center bg-[#0c0d0f] p-6 text-white"><div className="max-w-md text-center space-y-4"><Radio className="mx-auto h-10 w-10 text-white/50" /><h1 className="text-2xl font-semibold">Esta live antiga não tem sinal de vídeo</h1><p className="text-white/60">Ela foi criada antes da integração com o Mux. Prepare uma nova transmissão no Studio para usar câmera e microfone.</p><Button onClick={() => navigate("/studio/live")}>Criar nova live</Button></div></main>;
+  if (live.status === "ended" || live.status === "cancelled") return <main className="min-h-screen grid place-items-center bg-[#0c0d0f] p-6 text-white"><div className="max-w-md text-center space-y-4"><Radio className="mx-auto h-10 w-10 text-white/50" /><h1 className="text-2xl font-semibold">Transmissão encerrada</h1><p className="text-white/60">Confira a gravação no Studio quando o Mux terminar o processamento.</p><Button onClick={() => navigate("/studio/live")}>Voltar ao Studio</Button></div></main>;
   const elapsed = live.started_at ? Math.max(0, Math.floor((now - new Date(live.started_at).getTime()) / 1000)) : 0;
   const timer = `${String(Math.floor(elapsed / 60)).padStart(2, "0")}:${String(elapsed % 60).padStart(2, "0")}`;
 
@@ -114,14 +117,30 @@ export default function LiveBroadcast() {
           {stream && !isCameraOn && <div className="absolute inset-0 bg-black/90 grid place-items-center"><VideoOff /><span>Câmera desligada</span></div>}
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          {!stream && <Button onClick={() => void startStream()}><Camera className="w-4 h-4 mr-2" /> Ativar câmera e microfone</Button>}
+          {!stream && <Button disabled={mediaLoading} onClick={() => void startStream()}><Camera className="w-4 h-4 mr-2" /> {mediaLoading ? "Acessando dispositivos..." : "Ativar câmera e microfone"}</Button>}
           {stream && !publishing && <Button disabled={starting || !isCameraOn || !isMicOn} onClick={() => void begin()}><Radio className="w-4 h-4 mr-2" />{starting ? "Conectando..." : live.status === "live" ? "Retomar transmissão" : "Iniciar live"}</Button>}
           {publishing && <span className="text-sm text-white/70">{live.status === "live" ? "Seu sinal está no ar" : "Enviando sinal; aguardando confirmação do Mux..."}</span>}
-          {stream && <Button variant="outline" onClick={toggleCamera}>{isCameraOn ? <Camera className="w-4 h-4" /> : <VideoOff className="w-4 h-4" />}</Button>}
-          {stream && <Button variant="outline" onClick={toggleMic}>{isMicOn ? <Mic className="w-4 h-4" /> : <MicOff className="w-4 h-4" />}</Button>}
-          <Button variant="outline" onClick={() => void copyLink()}><Copy className="w-4 h-4 mr-2" /> Copiar link</Button>
+          {stream && <Button variant="outline" className="border-white/20 bg-white/5 text-white hover:bg-white/10 hover:text-white" onClick={toggleCamera} aria-label={isCameraOn ? "Desligar câmera" : "Ligar câmera"}>{isCameraOn ? <Camera className="w-4 h-4" /> : <VideoOff className="w-4 h-4" />}</Button>}
+          {stream && <Button variant="outline" className="border-white/20 bg-white/5 text-white hover:bg-white/10 hover:text-white" onClick={toggleMic} aria-label={isMicOn ? "Desligar microfone" : "Ligar microfone"}>{isMicOn ? <Mic className="w-4 h-4" /> : <MicOff className="w-4 h-4" />}</Button>}
+          <Button variant="outline" className="border-white/20 bg-white/5 text-white hover:bg-white/10 hover:text-white" onClick={() => void copyLink()}><Copy className="w-4 h-4 mr-2" /> Copiar link</Button>
           <Button variant="destructive" disabled={ending} onClick={() => void end()}>{ending ? "Encerrando..." : "Encerrar live"}</Button>
         </div>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <label className="grid gap-1.5 text-sm text-white/70">Câmera
+            <select value={selectedCamera ?? ""} disabled={!cameras.length || publishing || mediaLoading} onChange={(event) => void selectCamera(event.target.value)} className="w-full rounded-lg border border-white/20 bg-[#1c1e22] px-3 py-2 text-white disabled:opacity-60">
+              <option value="">{stream ? "Selecione uma câmera" : "Ative a câmera para listar dispositivos"}</option>
+              {cameras.map((device, index) => <option key={device.deviceId || index} value={device.deviceId}>{device.label || `Câmera ${index + 1}`}</option>)}
+            </select>
+          </label>
+          <label className="grid gap-1.5 text-sm text-white/70">Microfone
+            <select value={selectedMicrophone ?? ""} disabled={!microphones.length || publishing || mediaLoading} onChange={(event) => void selectMicrophone(event.target.value)} className="w-full rounded-lg border border-white/20 bg-[#1c1e22] px-3 py-2 text-white disabled:opacity-60">
+              <option value="">{stream ? "Selecione um microfone" : "Ative o microfone para listar dispositivos"}</option>
+              {microphones.map((device, index) => <option key={device.deviceId || index} value={device.deviceId}>{device.label || `Microfone ${index + 1}`}</option>)}
+            </select>
+          </label>
+        </div>
+        {mediaError && <p role="alert" className="rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-200">Não foi possível acessar câmera ou microfone: {mediaError}. Verifique a permissão do site no navegador e tente novamente.</p>}
+        {publishing && <p className="text-xs text-white/50">Para trocar de dispositivo durante a transmissão, encerre esta live e crie outra.</p>}
         <p className="text-sm text-white/50">O indicador “Ao vivo” aparece somente depois que o Mux confirma o sinal. A gravação é enviada para revisão após o encerramento.</p>
       </div>
       <div className="h-[70vh] min-h-[420px] overflow-hidden"><LiveChat messages={messages} pinnedMessage={pinnedMessage} isLoading={chatLoading} isSending={isSending} onSendMessage={sendMessage} onDeleteMessage={deleteMessage} onPinMessage={pinMessage} onUnpinMessage={unpinMessage} isCreator className="h-full" /></div>

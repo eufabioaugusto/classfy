@@ -146,9 +146,13 @@ export function useMediaDevices(): UseMediaDevicesReturn {
       setError(null);
       
       // Stop existing stream
-      if (stream) {
-        stream.getTracks().forEach(track => track.stop());
-      }
+      streamRef.current?.getTracks().forEach(track => track.stop());
+      streamRef.current = null;
+      setStream(null);
+      if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
+      animationFrameRef.current = null;
+      if (audioContextRef.current) void audioContextRef.current.close();
+      audioContextRef.current = null;
       
       const defaultConstraints: MediaStreamConstraints = {
         video: selectedCamera
@@ -181,7 +185,7 @@ export function useMediaDevices(): UseMediaDevicesReturn {
     } finally {
       setIsLoading(false);
     }
-  }, [stream, selectedCamera, selectedMicrophone, isFacingUser, enumerateDevices]);
+  }, [selectedCamera, selectedMicrophone, isFacingUser, enumerateDevices]);
 
   // Setup audio level monitoring
   const setupAudioMonitoring = useCallback((mediaStream: MediaStream) => {

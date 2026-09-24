@@ -15,6 +15,7 @@ type StudioLiveRow = {
   id: string;
   title: string;
   status: "waiting" | "live" | "ended" | "cancelled";
+  mux_live_stream_id: string | null;
   created_at: string;
   recording_ready_at: string | null;
   replay_content_id: string | null;
@@ -72,7 +73,7 @@ export default function StudioLive() {
 
   if (loading) return <div className="cf-v2 studio-publish-loading"><strong>Preparando o Studio...</strong></div>;
   if (!user || (role !== "creator" && role !== "admin")) return <Navigate to="/" replace />;
-  const openLive = lives.find((live) => live.status === "waiting" || live.status === "live");
+  const openLive = lives.find((live) => live.mux_live_stream_id && (live.status === "waiting" || live.status === "live"));
 
   return <AppShell variant="studio" title="Transmissões ao vivo" contentClassName="studio-page-shell">
     <CreatorTemplate className="studio-template" width="wide" density="comfortable"
@@ -85,7 +86,7 @@ export default function StudioLive() {
               <label htmlFor="live-description">Descrição <span>(opcional)</span></label><textarea id="live-description" value={description} maxLength={1000} onChange={(event) => setDescription(event.target.value)} placeholder="Sobre o que vamos conversar?" rows={3} />
               <V2Button disabled={creating || title.trim().length < 3} onClick={() => void createLive()}>{creating ? <Loader2 className="animate-spin" /> : <Video />} Preparar live</V2Button></div>}</V2CardContent></V2Card>
         <V2Card elevation="panel"><V2CardHeader><div className="studio-publish-heading"><span className="studio-icon"><Clock3 /></span><div><h2>Suas gravações</h2><p>O Mux finaliza o vídeo após o encerramento.</p></div></div></V2CardHeader>
-          <V2CardContent>{lives.length ? <div className="live-beta-list">{lives.map((live) => <div className="live-beta-row" key={live.id}><div><strong>{live.title}</strong><small>{new Date(live.created_at).toLocaleDateString("pt-BR")} · {live.status === "live" ? "Ao vivo" : live.status === "waiting" ? "Aguardando" : live.status === "cancelled" ? "Cancelada" : live.recording_ready_at ? "Gravação pronta" : "Processando gravação"}</small></div>
+          <V2CardContent>{lives.length ? <div className="live-beta-list">{lives.map((live) => <div className="live-beta-row" key={live.id}><div><strong>{live.title}</strong><small>{new Date(live.created_at).toLocaleDateString("pt-BR")} · {!live.mux_live_stream_id ? "Registro antigo · sem transmissão" : live.status === "live" ? "Ao vivo" : live.status === "waiting" ? "Aguardando" : live.status === "cancelled" ? "Cancelada" : live.recording_ready_at ? "Gravação pronta" : "Processando gravação"}</small></div>
             {live.replay_content_id ? <span className="live-beta-done"><CheckCircle2 /> Em revisão</span> : live.status === "ended" && live.recording_ready_at ? <V2Button disabled={publishingId === live.id} onClick={() => void publishReplay(live.id)}>{publishingId === live.id ? "Enviando..." : "Enviar para revisão"}</V2Button> : null}</div>)}</div> : <p className="live-beta-empty">Você ainda não fez nenhuma live.</p>}</V2CardContent></V2Card>
       </div>
     </CreatorTemplate>

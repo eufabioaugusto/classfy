@@ -48,7 +48,8 @@ Deno.serve(async (req) => {
       liveKitConfig(); // Fail before allocating a Mux stream.
       stage = 'check open lives';
       const { data: openLives, error: openError } = await client.from('lives').select('id')
-        .eq('creator_id', user.id).in('status', ['waiting', 'live']).limit(1);
+        .eq('creator_id', user.id).in('status', ['waiting', 'live'])
+        .not('mux_live_stream_id', 'is', null).limit(1);
       if (openError) throw openError;
       if (openLives?.length) return json({ error: 'Finish your open live first' }, 409);
       const newId = crypto.randomUUID();
