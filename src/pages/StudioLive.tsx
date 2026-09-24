@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type DragEvent } from "react";
 import { Navigate, useNavigate } from "react-router-dom";
 import { Radio, Video, CheckCircle2, Clock3, Loader2, ArrowRight, Trash2, ImagePlus } from "lucide-react";
 import { toast } from "sonner";
@@ -29,6 +29,8 @@ type StudioLiveRow = {
   replay_published_at: string | null;
 };
 
+const MAX_LIVE_COVER_BYTES = 2 * 1024 * 1024;
+
 function statusFor(live: StudioLiveRow) {
   if (live.replay_published_at) return { label: "Publicada", tone: "success" as const };
   if (live.replay_content_id) return { label: "Em revisão", tone: "neutral" as const };
@@ -50,6 +52,8 @@ export default function StudioLive() {
   const [cropFile, setCropFile] = useState<File | null>(null);
   const [cropTargetId, setCropTargetId] = useState<string | null>(null);
   const [updatingCover, setUpdatingCover] = useState(false);
+  const [coverDragActive, setCoverDragActive] = useState(false);
+  const coverDragDepthRef = useRef(0);
   const coverInputRef = useRef<HTMLInputElement>(null);
   const [creating, setCreating] = useState(false);
   const [publishingId, setPublishingId] = useState<string | null>(null);
@@ -84,6 +88,7 @@ export default function StudioLive() {
 
   const uploadCover = async (file: File) => {
     if (!user) throw new Error("Faça login para enviar a capa.");
+    if (file.size > MAX_LIVE_COVER_BYTES) throw new Error("A capa deve ter até 2 MB.");
     const path = `thumbnails/${user.id}/lives/${crypto.randomUUID()}.jpg`;
     const { error } = await supabase.storage.from("contents").upload(path, file, {
       contentType: "image/jpeg", cacheControl: "31536000", upsert: false,
@@ -94,12 +99,37 @@ export default function StudioLive() {
 
   const chooseCover = (file: File | undefined, liveId: string | null) => {
     if (!file) return;
-    if (!["image/jpeg", "image/png", "image/webp"].includes(file.type) || file.size > 10 * 1024 * 1024) {
-      toast.error("Escolha uma imagem JPG, PNG ou WebP de até 10 MB.");
+    if (!["image/jpeg", "image/png", "image/webp"].includes(file.type) || file.size > MAX_LIVE_COVER_BYTES) {
+      toast.error("Escolha uma imagem JPG, PNG ou WebP de até 2 MB.");
       return;
     }
     setCropTargetId(liveId);
     setCropFile(file);
+  };
+
+  const handleCoverDrop = (event: DragEvent<HTMLDivElement>, liveId: string | null) => {
+    event.preventDefault();
+    coverDragDepthRef.current = 0;
+    setCoverDragActive(false);
+    if (creating || updatingCover) return;
+    chooseCover(event.dataTransfer.files[0], liveId);
+  };
+
+  const handleCoverDragOver = (event: DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "copy";
+  };
+
+  const handleCoverDragEnter = (event: DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    coverDragDepthRef.current += 1;
+    setCoverDragActive(true);
+  };
+
+  const handleCoverDragLeave = (event: DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    coverDragDepthRef.current = Math.max(0, coverDragDepthRef.current - 1);
+    if (!coverDragDepthRef.current) setCoverDragActive(false);
   };
 
   const confirmCover = async (file: File) => {
@@ -157,7 +187,7 @@ export default function StudioLive() {
     try {
       const { data, error } = await supabase.functions.invoke("live-control", { body: { action: "publish", liveId } });
       if (error || !data?.contentId) throw error || new Error("Falha ao enviar replay");
-      toast.success("Gravação enviada para revisão. Ela ficará pública após aprovação.");
+      toast.success("Gravação enviada para publicação. Ela aparecerá no catálogo após aprovação.");
       await loadLives();
     } catch { toast.error("A gravação ainda não está pronta para publicação."); }
     finally { setPublishingId(null); }
@@ -186,30 +216,34 @@ export default function StudioLive() {
   const history = lives.filter((live) => live.id !== openLive?.id);
   const readyCount = history.filter((live) => live.status === "ended" && live.recording_ready_at && !live.replay_content_id).length;
 
-  return <AppShell variant="studio" title="Transmissões ao vivo" contentClassName="studio-page-shell">
+  return <AppShell variant="studio" title="Lives" contentClassName="studio-page-shell">
     <CreatorTemplate className="studio-template" width="wide" density="comfortable"
-      header={<PageHeader eyebrow="Studio · Lives" title="Transmissões ao vivo" description="Entre ao vivo, converse com o público e escolha o destino da gravação depois." action={<V2Badge variant="accent">Beta</V2Badge>} />}
+      header={<PageHeader eyebrow="Studio · Lives" title="Suas lives" description="Crie uma live, converse com seu público e publique a gravação depois." action={<V2Badge variant="accent">Beta</V2Badge>} />}
       toolbar={<StudioNavigation />}>
       <div className="live-studio">
-        <section className="live-studio-intro" aria-label="Como funcionam as lives">
+        <section className="live-studio-intro" aria-label="Crie sua próxima live">
           <span className="live-studio-intro__icon"><Radio aria-hidden="true" /></span>
-          <div><strong>Da câmera para o público. Da gravação para você decidir.</strong><p>Depois de encerrar, envie a gravação para revisão ou descarte a live e o vídeo.</p></div>
+          <div><strong>Sua próxima live começa aqui</strong><p>Escolha um título e uma capa. Antes de entrar ao vivo, você poderá conferir tudo com calma.</p></div>
         </section>
         <div className="live-studio-grid">
           <V2Card className="live-studio-card live-studio-create">
             <V2CardHeader className="live-studio-card__header">
               <span className="live-studio-card__icon"><Video aria-hidden="true" /></span>
               <span className="live-studio-card__eyebrow">Comece por aqui</span>
-              <h2>{openLive ? "Continue sua live" : "Nova transmissão"}</h2>
-              <p>{openLive ? "Você já tem uma transmissão preparada." : "Defina o assunto. A câmera e o microfone serão preparados na próxima etapa."}</p>
+              <h2>{openLive ? "Continue sua live" : "Criar uma live"}</h2>
+              <p>{openLive ? "Sua live está pronta. Entre para começar quando quiser." : "Dê um nome à live e escolha uma capa para apresentá-la ao público."}</p>
             </V2CardHeader>
             <V2CardContent className="live-studio-card__body">
               {openLive ? <div className="live-studio-open">
                 <V2Badge variant={openLive.status === "live" ? "accent" : "warning"}>{openLive.status === "live" ? "Ao vivo" : "Aguardando início"}</V2Badge>
                 <strong>{openLive.title}</strong>
-                {openLive.status === "waiting" && <div className="live-studio-cover live-studio-cover--open">
-                  {openLive.thumbnail_url ? <img src={openLive.thumbnail_url} alt="Capa da live preparada" /> : <span className="live-studio-cover__empty"><ImagePlus aria-hidden="true" /> Esta live ainda não tem capa</span>}
-                  <button type="button" disabled={updatingCover} onClick={() => { setCropTargetId(openLive.id); coverInputRef.current?.click(); }}>{updatingCover ? "Enviando..." : openLive.thumbnail_url ? "Trocar capa" : "Adicionar capa"}</button>
+                {openLive.status === "waiting" && <div className={`live-studio-cover live-studio-cover--open ${coverDragActive ? "live-studio-cover--dragging" : ""}`} onDragEnter={handleCoverDragEnter} onDragOver={handleCoverDragOver} onDragLeave={handleCoverDragLeave} onDrop={(event) => handleCoverDrop(event, openLive.id)}>
+                  {openLive.thumbnail_url && <img src={openLive.thumbnail_url} alt="Capa da live preparada" />}
+                  <div className="live-studio-cover__content">
+                    {!openLive.thumbnail_url && <span className="live-studio-cover__empty"><ImagePlus aria-hidden="true" /> Arraste uma capa para cá</span>}
+                    <button type="button" disabled={updatingCover} onClick={() => { setCropTargetId(openLive.id); coverInputRef.current?.click(); }}>{openLive.thumbnail_url ? "Trocar capa" : "Adicionar capa"}</button>
+                  </div>
+                  {updatingCover && <span className="live-studio-cover__loading" role="status"><Loader2 className="animate-spin" aria-hidden="true" /> Enviando capa...</span>}
                 </div>}
                 <V2Button onClick={() => navigate(`/live/${openLive.id}/broadcast`)} trailingIcon={<ArrowRight aria-hidden="true" />}>Entrar na transmissão</V2Button>
                 {openLive.status === "waiting" && !openLive.livekit_egress_id && <V2Button variant="quiet" size="sm" leadingIcon={<Trash2 aria-hidden="true" />} onClick={() => setDiscardTarget(openLive)}>Descartar preparação</V2Button>}
@@ -219,11 +253,15 @@ export default function StudioLive() {
                 <label htmlFor="live-description">Descrição <span>(opcional)</span></label>
                 <textarea id="live-description" value={description} maxLength={1000} onChange={(event) => setDescription(event.target.value)} placeholder="O que o público vai encontrar nessa live?" rows={3} />
                 <label>Capa da live <span>· obrigatória · 16:9</span></label>
-                <div className="live-studio-cover">
-                  {coverPreview ? <img src={coverPreview} alt="Prévia da capa da live" /> : <span className="live-studio-cover__empty"><ImagePlus aria-hidden="true" /> Sua live começa com uma boa capa</span>}
-                  <button type="button" onClick={() => { setCropTargetId(null); coverInputRef.current?.click(); }}>{coverPreview ? "Trocar imagem" : "Escolher imagem"}</button>
+                <div className={`live-studio-cover ${coverDragActive ? "live-studio-cover--dragging" : ""}`} onDragEnter={handleCoverDragEnter} onDragOver={handleCoverDragOver} onDragLeave={handleCoverDragLeave} onDrop={(event) => handleCoverDrop(event, null)}>
+                  {coverPreview && <img src={coverPreview} alt="Prévia da capa da live" />}
+                  <div className="live-studio-cover__content">
+                    {!coverPreview && <span className="live-studio-cover__empty"><ImagePlus aria-hidden="true" /> Arraste sua capa para cá</span>}
+                    <button type="button" disabled={creating} onClick={() => { setCropTargetId(null); coverInputRef.current?.click(); }}>{coverPreview ? "Trocar imagem" : "Escolher imagem"}</button>
+                  </div>
+                  {creating && <span className="live-studio-cover__loading" role="status"><Loader2 className="animate-spin" aria-hidden="true" /> Enviando capa...</span>}
                 </div>
-                <p className="live-studio-cover__hint">JPG, PNG ou WebP até 10 MB. Ajuste o enquadramento antes de publicar.</p>
+                <p className="live-studio-cover__hint">JPG, PNG ou WebP · até 2 MB · proporção 16:9.</p>
                 <V2Button disabled={creating || title.trim().length < 3 || !coverFile} leadingIcon={creating ? <Loader2 className="animate-spin" /> : <Radio />} onClick={() => void createLive()}>{creating ? "Preparando..." : "Preparar live"}</V2Button>
               </div>}
             </V2CardContent>
@@ -231,7 +269,7 @@ export default function StudioLive() {
 
           <V2Card className="live-studio-card live-studio-history">
             <V2CardHeader className="live-studio-card__header live-studio-card__header--compact">
-              <div><span className="live-studio-card__eyebrow">Depois da transmissão</span><h2>Gravações e histórico</h2><p>{readyCount ? `${readyCount} ${readyCount === 1 ? "gravação pronta" : "gravações prontas"} para decidir.` : "Acompanhe o processamento e decida o que publicar."}</p></div>
+              <div><span className="live-studio-card__eyebrow">Depois da transmissão</span><h2>Gravações e histórico</h2><p>{readyCount ? `${readyCount} ${readyCount === 1 ? "gravação pronta" : "gravações prontas"} para publicar.` : "Suas lives encerradas aparecem aqui."}</p></div>
               <Clock3 aria-hidden="true" className="live-studio-history__clock" />
             </V2CardHeader>
             <V2CardContent className="live-studio-history__body">
@@ -243,8 +281,8 @@ export default function StudioLive() {
                   return <article className="live-studio-row" key={live.id}>
                     <div className="live-studio-row__main"><div className="live-studio-row__title"><strong>{live.title}</strong><V2Badge variant={status.tone}>{status.label}</V2Badge></div><span>{new Date(live.created_at).toLocaleDateString("pt-BR", { day: "2-digit", month: "short", year: "numeric" })}</span></div>
                     <div className="live-studio-row__actions">
-                      {live.replay_content_id ? <span className="live-studio-row__complete"><CheckCircle2 aria-hidden="true" /> {live.replay_published_at ? "No catálogo" : "Enviada"}</span> : live.status === "ended" && live.recording_ready_at ? <V2Button size="sm" disabled={Boolean(publishingId) || Boolean(discardingId)} onClick={() => void publishReplay(live.id)}>{publishingId === live.id ? "Enviando..." : "Enviar para revisão"}</V2Button> : null}
-                      {canDiscard && <V2Button variant="quiet" size="sm" disabled={Boolean(publishingId) || Boolean(discardingId)} leadingIcon={<Trash2 aria-hidden="true" />} onClick={() => setDiscardTarget(live)}>Descartar</V2Button>}
+                      {live.replay_content_id ? <span className="live-studio-row__complete"><CheckCircle2 aria-hidden="true" /> {live.replay_published_at ? "No catálogo" : "Enviada"}</span> : live.status === "ended" && live.recording_ready_at ? <V2Button size="sm" disabled={Boolean(publishingId) || Boolean(discardingId)} onClick={() => void publishReplay(live.id)}>{publishingId === live.id ? "Enviando..." : "Publicar"}</V2Button> : null}
+                      {canDiscard && <V2Button variant="quiet" size="icon" aria-label={`Descartar ${live.title}`} title="Descartar live" disabled={Boolean(publishingId) || Boolean(discardingId)} leadingIcon={<Trash2 aria-hidden="true" />} onClick={() => setDiscardTarget(live)} />}
                     </div>
                   </article>;
                 })}</div> : <div className="live-studio-empty"><Video aria-hidden="true" /><strong>Seu histórico começa na primeira live</strong><p>Depois da transmissão, a gravação e as opções de publicação aparecerão aqui.</p></div>}
@@ -255,7 +293,7 @@ export default function StudioLive() {
       </div>
     </CreatorTemplate>
     <input ref={coverInputRef} type="file" accept="image/jpeg,image/png,image/webp" className="live-studio-cover__input" aria-label="Selecionar capa da live" onChange={(event) => { chooseCover(event.target.files?.[0], cropTargetId); event.target.value = ""; }} />
-    {cropFile && <div className="live-studio-cover-editor" role="dialog" aria-modal="true" aria-label="Ajustar capa da live"><div className="live-studio-cover-editor__content"><CoverImageCropper file={cropFile} targetAspect={16 / 9} onConfirm={confirmCover} onCancel={() => { if (!updatingCover) setCropFile(null); }} /></div></div>}
+    {cropFile && <div className="live-studio-cover-editor" role="dialog" aria-modal="true" aria-label="Ajustar capa da live"><div className="live-studio-cover-editor__content"><CoverImageCropper file={cropFile} targetAspect={16 / 9} maxOutputBytes={MAX_LIVE_COVER_BYTES} onConfirm={confirmCover} onCancel={() => { if (!updatingCover) setCropFile(null); }} /></div></div>}
     <V2ConfirmDialog open={Boolean(discardTarget)} onOpenChange={(open) => { if (!open) setDiscardTarget(null); }}
       title="Descartar esta live?" description="A gravação, o chat e o histórico desta transmissão serão removidos permanentemente. Esta ação não pode ser desfeita."
       summary={discardTarget?.title} items={["Remover a gravação armazenada", "Encerrar e remover os recursos da transmissão", "Apagar o registro desta live na Classfy"]}

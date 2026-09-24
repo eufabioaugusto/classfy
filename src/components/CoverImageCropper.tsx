@@ -5,6 +5,7 @@ import { coverTargetSize, getCoverCropRect } from "@/lib/media/coverCrop";
 interface CoverImageCropperProps {
   file: File;
   targetAspect: number;
+  maxOutputBytes?: number;
   onConfirm: (file: File) => void | Promise<void>;
   onCancel: () => void;
 }
@@ -12,6 +13,7 @@ interface CoverImageCropperProps {
 export function CoverImageCropper({
   file,
   targetAspect,
+  maxOutputBytes,
   onConfirm,
   onCancel,
 }: CoverImageCropperProps) {
@@ -77,16 +79,20 @@ export function CoverImageCropper({
         target.width,
         target.height,
       );
-      const blob = await new Promise<Blob>((resolve, reject) => {
-        canvas.toBlob(
-          (result) =>
-            result
-              ? resolve(result)
-              : reject(new Error("Não foi possível gerar a capa.")),
-          "image/jpeg",
-          0.92,
-        );
-      });
+      let blob: Blob | null = null;
+      for (const quality of maxOutputBytes ? [0.9, 0.82, 0.74, 0.66, 0.58] : [0.92]) {
+        blob = await new Promise<Blob>((resolve, reject) => {
+          canvas.toBlob(
+            (result) => result ? resolve(result) : reject(new Error("Não foi possível gerar a capa.")),
+            "image/jpeg",
+            quality,
+          );
+        });
+        if (!maxOutputBytes || blob.size <= maxOutputBytes) break;
+      }
+      if (!blob || (maxOutputBytes && blob.size > maxOutputBytes)) {
+        throw new Error("A capa ficou maior que 2 MB. Escolha outra imagem.");
+      }
       await onConfirm(
         new File([blob], `capa_${Date.now()}.jpg`, { type: "image/jpeg" }),
       );

@@ -279,7 +279,7 @@
 .cf2-badge {
   display: inline-flex;
   width: max-content;
-  min-height: 1.375rem;
+  min-height: 1.5rem;
   padding: 0 0.4375rem;
   align-items: center;
   gap: var(--cf2-space-1);
@@ -287,9 +287,9 @@
   border-radius: 0.3125rem;
   color: var(--cf2-ink-muted);
   background: color-mix(in srgb, var(--cf2-surface-raised) 84%, transparent);
-  font: 800 0.5rem/1 var(--cf2-font-sans);
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  font: 700 0.6875rem/1.1 var(--cf2-font-sans);
+  letter-spacing: normal;
+  text-transform: none;
 }
 
 .cf2-badge--accent { color: var(--cf2-accent); border-color: color-mix(in srgb, var(--cf2-accent) 35%, transparent); background: var(--cf2-accent-soft); }
