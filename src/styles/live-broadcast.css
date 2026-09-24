@@ -40,7 +40,7 @@
 .live-broadcast__status-dot { width: .46rem; height: .46rem; flex: none; border-radius: 50%; background: #fa5067; box-shadow: 0 0 0 .2rem rgba(250,80,103,.16); }
 .live-broadcast__chip--live .live-broadcast__status-dot { background: #fff; box-shadow: 0 0 0 .2rem rgba(255,255,255,.18); animation: live-broadcast-pulse 1.8s infinite; }
 
-.live-broadcast__setup { position: absolute; z-index: 2; top: 50%; left: calc((100% - 25rem) / 2); width: min(28rem, calc(100% - 29rem)); max-height: calc(100dvh - 12rem); overflow: auto; transform: translate(-50%, -50%); padding: clamp(1.25rem, 2.5vw, 2rem); border: 1px solid rgba(255,255,255,.22); border-radius: 1.6rem; background: rgba(11,13,19,.76); box-shadow: 0 1.8rem 5rem #0008, inset 0 1px rgba(255,255,255,.08); backdrop-filter: blur(28px) saturate(115%); }
+.live-broadcast__setup { position: absolute; z-index: 2; top: 50%; left: 50%; width: min(28rem, calc(100% - 2rem)); max-height: calc(100dvh - 12rem); overflow: auto; transform: translate(-50%, -50%); padding: clamp(1.25rem, 2.5vw, 2rem); border: 1px solid rgba(255,255,255,.22); border-radius: 1.6rem; background: rgba(11,13,19,.76); box-shadow: 0 1.8rem 5rem #0008, inset 0 1px rgba(255,255,255,.08); backdrop-filter: blur(28px) saturate(115%); }
 .live-broadcast__setup-eyebrow { display: inline-flex; align-items: center; gap: .65rem; color: #ff7483; font-size: .65rem; font-weight: 800; letter-spacing: .13em; }
 .live-broadcast__setup h2 { margin: 1.25rem 0 .45rem; color: #fff; font-size: clamp(1.6rem, 2.4vw, 2.1rem); font-weight: 730; letter-spacing: -.045em; line-height: 1.12; }
 .live-broadcast__setup p { margin: 0; color: rgba(255,255,255,.66); font-size: .87rem; line-height: 1.55; }
@@ -102,12 +102,11 @@
 @keyframes live-broadcast-pulse { 50% { opacity: .45; } }
 @keyframes live-broadcast-spin { to { transform: rotate(360deg); } }
 
-@media (max-width: 900px) {
+@media (max-width: 1200px) {
   .live-broadcast__header { padding: max(1rem, env(safe-area-inset-top)) 1rem 0; }
   .live-broadcast__identity { gap: .65rem; }
   .live-broadcast__title h1 { max-width: 35vw; }
   .live-broadcast__telemetry .live-broadcast__chip:last-child { display: none; }
-  .live-broadcast__setup { left: 50%; width: min(28rem, calc(100% - 2rem)); }
   .live-broadcast__chat { display: none; right: 1rem; top: 4.75rem; bottom: 6.3rem; }
   .live-broadcast[data-chat-open="true"] .live-broadcast__chat { display: block; }
   .live-broadcast__chat-close { position: absolute; z-index: 2; top: .7rem; right: .7rem; display: grid; width: 2rem; height: 2rem; place-items: center; border-radius: 50%; background: rgba(255,255,255,.1); color: #fff; }
@@ -125,7 +124,7 @@
   .live-broadcast__back svg { flex: none; }
   .live-broadcast__title h1 { max-width: 42vw; font-size: .9rem; }
   .live-broadcast__chip { min-height: 2.2rem; padding: 0 .6rem; font-size: .61rem; }
-  .live-broadcast__setup { top: 45%; max-height: calc(100dvh - 12rem); padding: 1.3rem; border-radius: 1.25rem; }
+  .live-broadcast__setup { max-height: calc(100dvh - 12rem); padding: 1.3rem; border-radius: 1.25rem; }
   .live-broadcast__setup h2 { font-size: 1.6rem; }
   .live-broadcast__diagnostics { bottom: 5.75rem; }
   .live-broadcast__dock-wrap { bottom: max(.8rem, env(safe-area-inset-bottom)); padding: 0 .6rem; }
