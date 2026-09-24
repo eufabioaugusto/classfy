@@ -68,7 +68,8 @@ function AppContent() {
   const location = useLocation();
   const isMobile = useIsMobile();
   const backgroundLocation = isMobile ? (location.state as any)?.backgroundLocation : null;
-  const liveOpening = location.pathname.startsWith("/live/") && location.pathname.endsWith("/broadcast")
+  const isBroadcastRoute = /^\/live\/[^/]+\/broadcast\/?$/.test(location.pathname);
+  const liveOpening = isBroadcastRoute
     ? <LiveLoadingScreen title="Abrindo a transmissão" description="Preparando seu espaço antes de entrar ao vivo." dark />
     : location.pathname === "/studio/live"
       ? <LiveLoadingScreen title="Preparando seu Studio" description="Seu espaço para entrar ao vivo está quase pronto." />
@@ -165,8 +166,8 @@ function AppContent() {
           </Routes>
         )}
       </Suspense>
-      <MiniPlayer />
-      <MobileBottomNav />
+      {!isBroadcastRoute && <MiniPlayer />}
+      {!isBroadcastRoute && <MobileBottomNav />}
     </>
   );
 }
