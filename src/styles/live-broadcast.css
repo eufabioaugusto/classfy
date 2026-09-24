@@ -96,7 +96,7 @@
 .live-broadcast__transition:has(strong:first-child) strong { font-size: clamp(6rem, 18vw, 12rem); }
 .live-broadcast__transition span { max-width: 20rem; color: rgba(255,255,255,.72); font-size: .85rem; }
 .live-broadcast__spinner { width: 2.5rem; height: 2.5rem; color: #f85b70; animation: live-broadcast-spin 1s linear infinite; }
-.live-broadcast__transition--live { background: rgba(85,0,15,.48); }
+.live-broadcast__transition--live { background: transparent; backdrop-filter: none; }
 .live-broadcast__transition--live strong { padding: .6rem 1.2rem; border-radius: .7rem; background: #e74660; color: #fff; font-size: clamp(2rem, 6vw, 5rem) !important; }
 
 @keyframes live-broadcast-pulse { 50% { opacity: .45; } }

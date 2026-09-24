@@ -10,6 +10,7 @@ import { useLiveChat } from "@/hooks/useLiveChat";
 import { useLiveViewers } from "@/hooks/useLiveViewers";
 import { LiveChat } from "@/components/live/LiveChat";
 import { Button } from "@/components/ui/button";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { LiveDiagnosticsPanel } from "@/components/live/LiveDiagnosticsPanel";
 import { LiveLoadingScreen } from "@/components/live/LiveLoadingScreen";
 import { useLiveDiagnostics } from "@/hooks/useLiveDiagnostics";
@@ -26,6 +27,7 @@ export default function LiveBroadcast() {
   const [loading, setLoading] = useState(true);
   const [starting, setStarting] = useState(false);
   const [ending, setEnding] = useState(false);
+  const [endConfirmOpen, setEndConfirmOpen] = useState(false);
   const [publishing, setPublishing] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
   const [countdownEndsAt, setCountdownEndsAt] = useState<number | null>(null);
@@ -206,7 +208,6 @@ export default function LiveBroadcast() {
 
   const end = async () => {
     if (!id || ending) return;
-    if (!window.confirm("Encerrar a live agora? A gravação ficará disponível após o processamento.")) return;
     setEnding(true);
     mark("end_requested");
     try {
@@ -307,7 +308,20 @@ export default function LiveBroadcast() {
       <button type="button" className="live-broadcast__dock-action live-broadcast__dock-copy" onClick={() => void copyLink()} aria-label="Copiar link da live" title="Copiar link"><Copy aria-hidden="true" /><span>Copiar link</span></button>
       <button type="button" className="live-broadcast__dock-action live-broadcast__dock-chat" onClick={() => setChatOpen((open) => !open)} aria-label={chatOpen ? "Fechar chat" : "Abrir chat"} aria-expanded={chatOpen}><MessageCircle aria-hidden="true" /></button>
       <span className="live-broadcast__dock-divider" aria-hidden="true" />
-      <button type="button" className="live-broadcast__end" disabled={ending} onClick={() => void end()}>{ending ? "Encerrando..." : "Encerrar"}</button>
+      <button type="button" className="live-broadcast__end" disabled={ending} onClick={() => setEndConfirmOpen(true)}>{ending ? "Encerrando..." : "Encerrar"}</button>
     </div></div>
+    <AlertDialog open={endConfirmOpen} onOpenChange={(open) => { if (!ending) setEndConfirmOpen(open); }}>
+      <AlertDialogContent className="w-[calc(100%-2rem)] max-w-md rounded-2xl border-white/15 bg-[#15171e] p-7 text-white shadow-2xl" overlayClassName="bg-black/65 backdrop-blur-sm">
+        <AlertDialogHeader className="text-left">
+          <span className="mb-2 inline-flex w-fit items-center gap-2 rounded-full border border-[#e74660]/30 bg-[#e74660]/10 px-3 py-1 text-xs font-semibold text-[#ff8395]"><Radio className="h-3.5 w-3.5" /> CLASSFY LIVE</span>
+          <AlertDialogTitle className="text-2xl tracking-tight text-white">Encerrar transmissão?</AlertDialogTitle>
+          <AlertDialogDescription className="text-sm leading-relaxed text-white/60">A live terminará para todos. A gravação ficará disponível no Studio após o processamento.</AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter className="mt-4 gap-2 sm:gap-0">
+          <AlertDialogCancel disabled={ending} className="rounded-full border-white/15 bg-white/5 text-white hover:bg-white/10 hover:text-white">Continuar ao vivo</AlertDialogCancel>
+          <AlertDialogAction disabled={ending} onClick={(event) => { event.preventDefault(); void end(); }} className="rounded-full bg-[#e74660] text-white hover:bg-[#f45c72]">{ending ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Encerrando...</> : "Encerrar live"}</AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   </main>;
 }
