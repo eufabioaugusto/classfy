@@ -10,10 +10,12 @@ import { Card } from "@/components/ui/card";
 import { Users, Radio, Loader2, Volume2, VolumeX, Play } from "lucide-react";
 import { LiveChat } from "@/components/live/LiveChat";
 import { LiveRealtimePlayer } from "@/components/live/LiveRealtimePlayer";
+import { LiveDiagnosticsPanel } from "@/components/live/LiveDiagnosticsPanel";
 import { LiveGiftPanel } from "@/components/live/LiveGiftPanel";
 import { FollowButton } from "@/components/FollowButton";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { useLiveDiagnostics } from "@/hooks/useLiveDiagnostics";
 
 interface Live {
   id: string;
@@ -50,8 +52,12 @@ export default function LiveWatch() {
   const [tailComplete, setTailComplete] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
   const requestedPlaybackRef = useRef("");
+  const viewerLiveAtRef = useRef<number | null>(null);
+  const firstFrameRef = useRef(false);
+  const diagnostics = useLiveDiagnostics(id, "viewer", user?.id);
+  const { mark, setRoute, setMetrics, setQuality, flush, recordChat, recordStall } = diagnostics;
 
-  const { messages, pinnedMessage, isLoading: chatLoading, isSending, sendMessage } = useLiveChat(id || null);
+  const { messages, pinnedMessage, isLoading: chatLoading, isSending, sendMessage } = useLiveChat(id || null, recordChat);
   const { viewerCount, joinLive, leaveLive } = useLiveViewers(id || null);
 
   // Fetch live data
@@ -123,13 +129,36 @@ export default function LiveWatch() {
   }, [id]);
 
   useEffect(() => {
-    if (!id || live?.status !== "waiting") return;
+    if (!id || (live?.status !== "waiting" && live?.status !== "live")) return;
     const timer = window.setInterval(() => {
       void supabase.from("lives").select("status, started_at, mux_live_stream_id, replay_published_at").eq("id", id).single()
         .then(({ data }) => { if (data) setLive(prev => prev ? { ...prev, ...data } : prev); });
-    }, 2000);
+    }, live.status === "waiting" ? 2000 : 5000);
     return () => window.clearInterval(timer);
   }, [id, live?.status]);
+
+  useEffect(() => {
+    if (live?.status === "live" && viewerLiveAtRef.current === null) {
+      viewerLiveAtRef.current = performance.now();
+      mark("viewer_live");
+    }
+    if ((live?.status === "ended" || live?.status === "cancelled") && !tailComplete) mark("ended");
+  }, [live?.status, tailComplete, mark]);
+
+  useEffect(() => {
+    if (tailComplete && live?.status === "ended") {
+      setRoute("ended");
+      void flush();
+    }
+  }, [tailComplete, live?.status, setRoute, flush]);
+
+  const markFirstFrame = (route: "webrtc" | "hls") => {
+    if (firstFrameRef.current) return;
+    firstFrameRef.current = true;
+    setMetrics({ firstFrameMs: Math.round(performance.now() - (viewerLiveAtRef.current ?? performance.now())) });
+    mark(route === "webrtc" ? "rtc_first_frame" : "hls_first_frame");
+    void flush();
+  };
 
   const handleSendGift = async (gift: LiveGift, quantity: number) => {
     toast.info("Presentes ainda não estão disponíveis. Nenhuma cobrança foi realizada.");
@@ -179,14 +208,22 @@ export default function LiveWatch() {
         hls.loadSource(playbackUrl);
         hls.attachMedia(video);
         hls.on(Hls.Events.MANIFEST_PARSED, tryPlay);
-        hls.on(Hls.Events.ERROR, (_, data) => { if (data.fatal) setPlaybackError(true); });
+        hls.on(Hls.Events.ERROR, (_, data) => { if (data.fatal) { setPlaybackError(true); setRoute("hls", "hls_error"); } });
       } else if (video.canPlayType("application/vnd.apple.mpegurl")) {
         video.addEventListener("canplay", tryPlay);
         video.src = playbackUrl;
       } else setPlaybackError(true);
     });
-    return () => { active = false; hls?.destroy(); video.removeEventListener("canplay", tryPlay); video.removeAttribute("src"); video.load(); };
-  }, [playbackUrl, playbackAttempt, playbackIsLive]);
+    const statsTimer = window.setInterval(() => {
+      const end = video.buffered.length ? video.buffered.end(video.buffered.length - 1) : video.currentTime;
+      setMetrics({
+        bufferSeconds: Math.max(0, end - video.currentTime),
+        playbackLatencySeconds: hls?.latency && Number.isFinite(hls.latency) ? hls.latency : undefined,
+        droppedFrames: video.getVideoPlaybackQuality?.().droppedVideoFrames ?? 0,
+      });
+    }, 2000);
+    return () => { active = false; window.clearInterval(statsTimer); hls?.destroy(); video.removeEventListener("canplay", tryPlay); video.removeAttribute("src"); video.load(); };
+  }, [playbackUrl, playbackAttempt, playbackIsLive, setMetrics, setRoute]);
 
   if (isLoading) {
     return (
@@ -223,13 +260,13 @@ export default function LiveWatch() {
         <div className="relative flex aspect-video w-full min-w-0 items-center justify-center overflow-hidden bg-black">
           {showRealtime ? (
             <>
-              <LiveRealtimePlayer liveId={live.id} creatorId={live.creator_id} ending={live.status === "ended"} onReady={() => setRealtimeState("playing")} onFallback={() => setRealtimeState("failed")} onComplete={() => setTailComplete(true)} />
+              <LiveRealtimePlayer liveId={live.id} creatorId={live.creator_id} ending={live.status === "ended"} onReady={() => { setRealtimeState("playing"); setRoute("webrtc"); }} onFallback={(reason) => { setRoute("hls", reason); mark("fallback"); void flush(); setRealtimeState("failed"); }} onComplete={() => setTailComplete(true)} onEvent={mark} onMetrics={setMetrics} onQuality={setQuality} onFirstFrame={() => markFirstFrame("webrtc")} onStall={recordStall} />
               {realtimeState === "connecting" && <div className="absolute inset-0 grid place-items-center bg-black text-center text-white"><div><Loader2 className="mx-auto mb-3 h-8 w-8 animate-spin" /><p>Preparando o vídeo ao vivo...</p></div></div>}
               {draining && <span className="absolute bottom-3 left-3 rounded-full bg-black/70 px-3 py-1.5 text-xs text-white">Reproduzindo os últimos segundos...</span>}
             </>
           ) : playbackUrl ? (
             <>
-              <video ref={videoRef} controls playsInline autoPlay={playbackIsLive} muted={playbackIsLive && isMuted} onEnded={() => setTailComplete(true)} onPlaying={() => { setIsPlaying(true); setPlayBlocked(false); setPlaybackError(false); }} onPause={() => setIsPlaying(false)} className="absolute inset-0 h-full w-full object-contain" aria-label={playbackIsLive ? "Transmissão ao vivo" : "Gravação da live"} />
+              <video ref={videoRef} controls playsInline autoPlay={playbackIsLive} muted={playbackIsLive && isMuted} onEnded={() => setTailComplete(true)} onPlaying={() => { setIsPlaying(true); setPlayBlocked(false); setPlaybackError(false); if (playbackIsLive) markFirstFrame("hls"); }} onWaiting={() => { if (firstFrameRef.current && playbackIsLive) recordStall(); }} onPause={() => setIsPlaying(false)} className="absolute inset-0 h-full w-full object-contain" aria-label={playbackIsLive ? "Transmissão ao vivo" : "Gravação da live"} />
               {playbackIsLive && <Button type="button" size="sm" className="absolute right-3 top-3 z-10 bg-black/75 text-white hover:bg-black/90" onClick={() => { const video = videoRef.current; if (!video) return; video.muted = !isMuted; setIsMuted(!isMuted); if (video.paused) void video.play().catch(() => setPlayBlocked(true)); }}>{isMuted ? <VolumeX className="mr-2 h-4 w-4" /> : <Volume2 className="mr-2 h-4 w-4" />}{isMuted ? "Ativar som" : "Silenciar"}</Button>}
               {draining && <span className="absolute bottom-3 left-3 rounded-full bg-black/70 px-3 py-1.5 text-xs text-white">Reproduzindo os últimos segundos...</span>}
               {playbackError && !isPlaying && <button type="button" onClick={() => { setPlaybackError(false); setPlaybackAttempt(value => value + 1); }} className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-2 bg-black/75 px-5 text-center text-white"><Radio className="h-9 w-9" /><span className="font-semibold">O sinal ainda não carregou</span><span className="text-sm text-white/70">Toque para tentar novamente</span></button>}
@@ -266,6 +303,8 @@ export default function LiveWatch() {
             </>
           )}
         </div>
+
+        <div className="px-4 pt-3"><LiveDiagnosticsPanel report={diagnostics.report} lastSavedAt={diagnostics.lastSavedAt} saveError={diagnostics.saveError} /></div>
 
         {/* Info */}
         <div className="min-w-0 border-b p-4">

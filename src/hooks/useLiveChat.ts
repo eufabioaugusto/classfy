@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { RealtimeChannel } from "@supabase/supabase-js";
+import type { ChatTiming } from "@/hooks/useLiveDiagnostics";
 
 export interface LiveMessage {
   id: string;
@@ -40,7 +41,7 @@ interface UseLiveChatReturn {
   unpinMessage: () => Promise<void>;
 }
 
-export function useLiveChat(liveId: string | null): UseLiveChatReturn {
+export function useLiveChat(liveId: string | null, onTiming?: (timing: ChatTiming) => void): UseLiveChatReturn {
   const { user, profile } = useAuth();
   const [messages, setMessages] = useState<LiveMessage[]>([]);
   const [pinnedMessage, setPinnedMessage] = useState<LiveMessage | null>(null);
@@ -49,6 +50,8 @@ export function useLiveChat(liveId: string | null): UseLiveChatReturn {
   const [error, setError] = useState<string | null>(null);
   
   const channelRef = useRef<RealtimeChannel | null>(null);
+  const onTimingRef = useRef(onTiming);
+  onTimingRef.current = onTiming;
 
   // Fetch initial messages
   const fetchMessages = useCallback(async () => {
@@ -105,23 +108,33 @@ export function useLiveChat(liveId: string | null): UseLiveChatReturn {
           filter: `live_id=eq.${liveId}`,
         },
         async (payload) => {
-          // Fetch user info for new message
+          const clientObservedAt = new Date().toISOString();
+          const serverCreatedAt = String(payload.new.created_at ?? clientObservedAt);
+          onTimingRef.current?.({
+            direction: "received", messageId: String(payload.new.id), serverCreatedAt, clientObservedAt,
+            approximateTransitMs: Math.max(0, Date.now() - Date.parse(serverCreatedAt)),
+          });
+          const newMessage: LiveMessage = {
+            ...payload.new as any,
+            type: payload.new.type as LiveMessage["type"],
+          };
+          // Render on the realtime event; profile lookup must not delay chat.
+          setMessages(prev => prev.some(message => message.id === newMessage.id) ? prev : [
+            ...prev,
+            { ...newMessage, user: prev.find(message => message.user_id === newMessage.user_id && message.user)?.user },
+          ]);
+          
+          if (newMessage.is_pinned) {
+            setPinnedMessage(newMessage);
+          }
           const { data: userData } = await supabase
             .from("profiles")
             .select("display_name, avatar_url")
             .eq("id", payload.new.user_id)
             .single();
-          
-          const newMessage: LiveMessage = {
-            ...payload.new as any,
-            type: payload.new.type as LiveMessage["type"],
-            user: userData || undefined,
-          };
-          
-          setMessages(prev => [...prev, newMessage]);
-          
-          if (newMessage.is_pinned) {
-            setPinnedMessage(newMessage);
+          if (userData) {
+            setMessages(prev => prev.map(message => message.id === newMessage.id ? { ...message, user: userData } : message));
+            if (newMessage.is_pinned) setPinnedMessage({ ...newMessage, user: userData });
           }
         }
       )
@@ -181,21 +194,26 @@ export function useLiveChat(liveId: string | null): UseLiveChatReturn {
   // Send a text message
   const sendMessage = useCallback(async (content: string) => {
     if (!liveId || !user || !content.trim()) return;
+    const startedAt = performance.now();
     
     try {
       setIsSending(true);
       setError(null);
       
-      const { error: insertError } = await supabase
+      const { data: inserted, error: insertError } = await supabase
         .from("live_messages")
         .insert({
           live_id: liveId,
           user_id: user.id,
           content: content.trim(),
           type: "text",
-        });
+        }).select("id, created_at").single();
       
       if (insertError) throw insertError;
+      if (inserted) onTimingRef.current?.({
+        direction: "sent", messageId: inserted.id, serverCreatedAt: inserted.created_at,
+        clientObservedAt: new Date().toISOString(), acknowledgementMs: Math.round(performance.now() - startedAt),
+      });
     } catch (err: any) {
       console.error("Error sending message:", err);
       setError(err.message);

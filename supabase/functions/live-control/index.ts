@@ -36,6 +36,61 @@ async function approvedCreator(client: ReturnType<typeof serviceClient>, userId:
     (roles?.some(item => item.role === 'creator') && profile?.creator_status === 'approved');
 }
 
+const diagnosticEvents = new Set([
+  'page_opened', 'preview_ready', 'start_clicked', 'room_connected', 'tracks_published',
+  'bridge_started', 'bridge_stalled', 'bridge_restarted', 'public_live', 'viewer_live', 'rtc_connected', 'rtc_first_frame',
+  'hls_first_frame', 'fallback', 'reconnecting', 'reconnected', 'audio_blocked',
+  'chat_sent', 'chat_received', 'playback_stalled', 'end_requested', 'end_confirmed', 'ended',
+]);
+
+function diagnosticNumber(value: unknown, max = 3_600_000) {
+  if (value === null || value === undefined || value === '') return null;
+  const number = Number(value);
+  return Number.isFinite(number) && number >= 0 ? Math.min(number, max) : null;
+}
+
+function diagnosticTime(value: unknown) {
+  return typeof value === 'string' && !Number.isNaN(Date.parse(value)) ? new Date(value).toISOString() : null;
+}
+
+function safeChatTiming(value: unknown) {
+  const chat = value && typeof value === 'object' ? value as Record<string, unknown> : {};
+  return {
+    direction: ['sent', 'received'].includes(String(chat.direction)) ? chat.direction : null,
+    messageId: typeof chat.messageId === 'string' && /^[0-9a-f-]{36}$/i.test(chat.messageId) ? chat.messageId : null,
+    serverCreatedAt: diagnosticTime(chat.serverCreatedAt),
+    clientObservedAt: diagnosticTime(chat.clientObservedAt),
+    acknowledgementMs: diagnosticNumber(chat.acknowledgementMs, 60_000),
+    approximateTransitMs: diagnosticNumber(chat.approximateTransitMs, 60_000),
+  };
+}
+
+function safeDiagnosticReport(input: unknown) {
+  const source = input && typeof input === 'object' ? input as Record<string, unknown> : {};
+  const metrics = source.metrics && typeof source.metrics === 'object' ? source.metrics as Record<string, unknown> : {};
+  const events = Array.isArray(source.events) ? source.events : [];
+  return {
+    version: 1,
+    startedAt: diagnosticTime(source.startedAt),
+    deviceClass: source.deviceClass === 'mobile' ? 'mobile' : 'desktop',
+    networkHint: ['slow-2g', '2g', '3g', '4g'].includes(String(source.networkHint)) ? source.networkHint : 'unknown',
+    clockOffsetMs: source.clockOffsetMs !== null && source.clockOffsetMs !== undefined && Number.isFinite(Number(source.clockOffsetMs))
+      ? Math.max(-60_000, Math.min(60_000, Number(source.clockOffsetMs))) : null,
+    clockProbeMs: diagnosticNumber(source.clockProbeMs, 30_000),
+    quality: ['excellent', 'good', 'poor', 'lost', 'unknown'].includes(String(source.quality)) ? source.quality : 'unknown',
+    fallbackReason: ['token', 'connect', 'timeout', 'host_left', 'room_left', 'hls_error', 'none'].includes(String(source.fallbackReason)) ? source.fallbackReason : 'none',
+    metrics: Object.fromEntries(['firstFrameMs', 'roomConnectMs', 'bitrateKbps', 'packetsLost', 'jitterMs', 'rttMs', 'framesPerSecond', 'bufferSeconds', 'playbackLatencySeconds', 'droppedFrames', 'reconnects', 'stalls', 'audioBitrateKbps', 'audioPacketsLost', 'audioJitterMs'].map(key => [key, diagnosticNumber(metrics[key])])),
+    lastChatSent: safeChatTiming(source.lastChatSent),
+    lastChatReceived: safeChatTiming(source.lastChatReceived),
+    events: events.slice(-40).flatMap((event: unknown) => {
+      if (!event || typeof event !== 'object') return [];
+      const item = event as Record<string, unknown>;
+      const at = diagnosticTime(item.at);
+      return at && diagnosticEvents.has(String(item.type)) ? [{ at, type: item.type }] : [];
+    }),
+  };
+}
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response(null, { headers: corsHeaders });
   if (req.method !== 'POST') return json({ error: 'Method not allowed' }, 405);
@@ -91,6 +146,23 @@ Deno.serve(async (req) => {
     if (!live) return json({ error: 'Live not found' }, 404);
     const { data: adminRole } = await client.from('user_roles').select('role').eq('user_id', user.id).eq('role', 'admin').maybeSingle();
     const owner = live.creator_id === user.id || Boolean(adminRole);
+
+    if (action === 'clock') return json({ serverAt: new Date().toISOString() });
+
+    if (action === 'diagnostics') {
+      const sessionId = String(body.sessionId ?? '');
+      const role = body.role === 'host' ? 'host' : body.role === 'viewer' ? 'viewer' : null;
+      const route = ['waiting', 'webrtc', 'hls', 'replay', 'ended'].includes(String(body.route)) ? body.route : null;
+      if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(sessionId) || !role || !route || (role === 'host' && !owner)) {
+        return json({ error: 'Invalid diagnostic session' }, 400);
+      }
+      const { error } = await client.from('live_diagnostic_sessions').upsert({
+        session_id: sessionId, user_id: user.id, live_id: liveId, role, route,
+        report: safeDiagnosticReport(body.report), updated_at: new Date().toISOString(),
+      }, { onConflict: 'session_id,user_id' });
+      if (error) throw error;
+      return json({ saved: true });
+    }
 
     if (action === 'playback') {
       if (!owner && live.status !== 'live' && !live.replay_published_at) return json({ error: 'Live not available' }, 403);

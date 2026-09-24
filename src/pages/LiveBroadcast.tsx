@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { Room } from "livekit-client";
+import { Room, RoomEvent } from "livekit-client";
 import { Camera, Copy, Loader2, Mic, MicOff, Radio, RotateCw, VideoOff } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/contexts/AuthContext";
@@ -10,6 +10,9 @@ import { useLiveChat } from "@/hooks/useLiveChat";
 import { useLiveViewers } from "@/hooks/useLiveViewers";
 import { LiveChat } from "@/components/live/LiveChat";
 import { Button } from "@/components/ui/button";
+import { LiveDiagnosticsPanel } from "@/components/live/LiveDiagnosticsPanel";
+import { useLiveDiagnostics } from "@/hooks/useLiveDiagnostics";
+import { sampleLiveRtcStats } from "@/lib/liveRtcStats";
 
 type Live = { id: string; creator_id: string; title: string; status: "waiting" | "live" | "ended" | "cancelled"; started_at: string | null; mux_live_stream_id: string | null; livekit_egress_id: string | null };
 
@@ -26,11 +29,18 @@ export default function LiveBroadcast() {
   const [signalWaitStartedAt, setSignalWaitStartedAt] = useState<number | null>(null);
   const [now, setNow] = useState(Date.now());
   const roomRef = useRef<Room | null>(null);
+  const preparedRef = useRef<{ room: Room; url: string; token: string; at: number } | null>(null);
+  const statsTimerRef = useRef<number | null>(null);
+  const startClickedAtRef = useRef<number | null>(null);
+  const publicLiveMarkedRef = useRef(false);
+  const bridgeStallMarkedRef = useRef(false);
   const previewRef = useRef<HTMLVideoElement>(null);
   const requestedPreviewRef = useRef<string | null>(null);
   const { stream, cameras, microphones, selectedCamera, selectedMicrophone, isLoading: mediaLoading, error: mediaError,
     isCameraOn, isMicOn, startStream, stopStream, toggleCamera, toggleMic, selectCamera, selectMicrophone } = useMediaDevices();
-  const { messages, pinnedMessage, isLoading: chatLoading, isSending, sendMessage, deleteMessage, pinMessage, unpinMessage } = useLiveChat(id || null);
+  const diagnostics = useLiveDiagnostics(id, "host", user?.id);
+  const { mark, setRoute, setMetrics, setQuality, flush, recordChat } = diagnostics;
+  const { messages, pinnedMessage, isLoading: chatLoading, isSending, sendMessage, deleteMessage, pinMessage, unpinMessage } = useLiveChat(id || null, recordChat);
   const { viewerCount } = useLiveViewers(id || null);
 
   useEffect(() => {
@@ -49,7 +59,7 @@ export default function LiveBroadcast() {
     const channel = supabase.channel(`broadcast-status-${id}`).on("postgres_changes", {
       event: "UPDATE", schema: "public", table: "lives", filter: `id=eq.${id}`,
     }, (payload) => setLive(payload.new as Live)).subscribe();
-    return () => { active = false; void supabase.removeChannel(channel); roomRef.current?.disconnect(); };
+    return () => { active = false; void supabase.removeChannel(channel); roomRef.current?.disconnect(); if (statsTimerRef.current) window.clearInterval(statsTimerRef.current); };
   }, [id, user, navigate]);
 
   useEffect(() => {
@@ -61,7 +71,36 @@ export default function LiveBroadcast() {
     requestedPreviewRef.current = live.id;
     void startStream();
   }, [live?.id, live?.mux_live_stream_id, live?.status, startStream]);
+  useEffect(() => {
+    if (!id || !live?.mux_live_stream_id || !stream || preparedRef.current || roomRef.current) return;
+    let active = true;
+    void supabase.functions.invoke("live-control", { body: { action: "connect", liveId: id } })
+      .then(async ({ data, error }) => {
+        if (!active || error || !data?.url || !data?.token) return;
+        const room = new Room({ adaptiveStream: false, dynacast: true });
+        preparedRef.current = { room, url: data.url, token: data.token, at: Date.now() };
+        await room.prepareConnection(data.url, data.token).catch(() => undefined);
+      });
+    return () => { active = false; if (preparedRef.current && !roomRef.current) { void preparedRef.current.room.disconnect(); preparedRef.current = null; } };
+  }, [id, live?.mux_live_stream_id, stream]);
+  useEffect(() => {
+    if (stream) mark("preview_ready");
+  }, [stream, mark]);
+  useEffect(() => {
+    if (live?.status !== "live" || publicLiveMarkedRef.current) return;
+    publicLiveMarkedRef.current = true;
+    mark("public_live");
+    if (startClickedAtRef.current !== null) setMetrics({ firstFrameMs: Math.round(performance.now() - startClickedAtRef.current) });
+    void flush();
+  }, [live?.status, mark, setMetrics, flush]);
   useEffect(() => { const timer = window.setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(timer); }, []);
+  useEffect(() => {
+    if (live?.status === "waiting" && signalWaitStartedAt && now - signalWaitStartedAt >= 15000 && !bridgeStallMarkedRef.current) {
+      bridgeStallMarkedRef.current = true;
+      mark("bridge_stalled");
+      void flush();
+    }
+  }, [live?.status, signalWaitStartedAt, now, mark, flush]);
   useEffect(() => {
     if (!id || !publishing || live?.status !== "waiting") return;
     const timer = window.setInterval(() => {
@@ -77,30 +116,72 @@ export default function LiveBroadcast() {
 
   const begin = async () => {
     if (!id || !stream || starting || !live) return;
+    let connectingRoom: Room | null = null;
     setStarting(true);
+    startClickedAtRef.current = performance.now();
+    mark("start_clicked");
     setNow(Date.now());
     setCountdownEndsAt(live.status === "waiting" ? Date.now() + 5000 : null);
     try {
-      const { data, error } = await supabase.functions.invoke("live-control", { body: { action: "connect", liveId: id } });
-      if (error || !data?.url || !data?.token) throw new Error("Não foi possível abrir a sala");
-      const room = new Room({ adaptiveStream: false, dynacast: false });
-      await room.connect(data.url, data.token);
+      const prepared = preparedRef.current && Date.now() - preparedRef.current.at < 60 * 60 * 1000 ? preparedRef.current : null;
+      if (prepared) preparedRef.current = null;
+      if (!prepared && preparedRef.current) { void preparedRef.current.room.disconnect(); preparedRef.current = null; }
+      const connection = prepared ?? await (async () => {
+        const { data, error } = await supabase.functions.invoke("live-control", { body: { action: "connect", liveId: id } });
+        if (error || !data?.url || !data?.token) throw new Error("Não foi possível abrir a sala");
+        return { room: new Room({ adaptiveStream: false, dynacast: true }), url: data.url as string, token: data.token as string, at: Date.now() };
+      })();
+      const room = connection.room;
+      connectingRoom = room;
+      const connectingAt = performance.now();
+      await room.connect(connection.url, connection.token);
+      setMetrics({ roomConnectMs: Math.round(performance.now() - connectingAt), reconnects: 0 });
+      mark("room_connected");
       roomRef.current = room;
+      connectingRoom = null;
+      let reconnects = 0;
+      room.on(RoomEvent.Reconnecting, () => { reconnects += 1; setMetrics({ reconnects }); mark("reconnecting"); });
+      room.on(RoomEvent.Reconnected, () => mark("reconnected"));
+      room.on(RoomEvent.ConnectionQualityChanged, (quality, participant) => {
+        if (participant.identity === room.localParticipant.identity) setQuality(String(quality).toLowerCase() as "excellent" | "good" | "poor" | "lost" | "unknown");
+      });
       const tracks = stream.getTracks().filter((track) => track.readyState === "live");
       if (!tracks.some((track) => track.kind === "video") || !tracks.some((track) => track.kind === "audio")) throw new Error("Câmera e microfone são necessários");
       for (const track of tracks) await room.localParticipant.publishTrack(track);
+      mark("tracks_published");
+      setRoute("webrtc");
+      let previousCounter: { bytes: number; at: number } | undefined;
+      let previousAudioCounter: { bytes: number; at: number } | undefined;
+      if (statsTimerRef.current) window.clearInterval(statsTimerRef.current);
+      statsTimerRef.current = window.setInterval(() => {
+        const track = [...room.localParticipant.videoTrackPublications.values()][0]?.track;
+        if (track) void sampleLiveRtcStats(track, previousCounter).then(({ metrics, counter }) => {
+          previousCounter = counter;
+          setMetrics(metrics);
+        }).catch(() => undefined);
+        const audioTrack = [...room.localParticipant.audioTrackPublications.values()][0]?.track;
+        if (audioTrack) void sampleLiveRtcStats(audioTrack, previousAudioCounter, "audio").then(({ metrics, counter }) => {
+          previousAudioCounter = counter;
+          setMetrics(metrics);
+        }).catch(() => undefined);
+      }, 2000);
       setPublishing(true);
       if (live.status === "waiting") {
         const result = await supabase.functions.invoke("live-control", { body: { action: live.livekit_egress_id ? "restart" : "start", liveId: id } });
         if (result.error) throw result.error;
         setLive(previous => previous ? { ...previous, livekit_egress_id: result.data?.egressId ?? previous.livekit_egress_id } : previous);
         setSignalWaitStartedAt(Date.now());
+        bridgeStallMarkedRef.current = false;
+        mark("bridge_started");
       }
     } catch {
+      void connectingRoom?.disconnect();
       roomRef.current?.disconnect();
       roomRef.current = null;
+      if (statsTimerRef.current) { window.clearInterval(statsTimerRef.current); statsTimerRef.current = null; }
       setPublishing(false);
       setCountdownEndsAt(null);
+      setRoute("waiting", "connect");
       toast.error("Não foi possível iniciar a transmissão. Confira a conexão e tente novamente.");
     } finally { setStarting(false); }
   };
@@ -113,6 +194,8 @@ export default function LiveBroadcast() {
       if (error) throw error;
       setLive(previous => previous ? { ...previous, livekit_egress_id: data?.egressId ?? previous.livekit_egress_id } : previous);
       setSignalWaitStartedAt(Date.now());
+      bridgeStallMarkedRef.current = false;
+      mark("bridge_restarted");
       toast.info("Reconectando o sinal da live.");
     } catch { toast.error("Não foi possível reconectar. Encerre esta tentativa e crie outra live."); }
     finally { setStarting(false); }
@@ -122,10 +205,15 @@ export default function LiveBroadcast() {
     if (!id || ending) return;
     if (!window.confirm("Encerrar a live agora? A gravação ficará disponível após o processamento.")) return;
     setEnding(true);
+    mark("end_requested");
     try {
       const { error } = await supabase.functions.invoke("live-control", { body: { action: "end", liveId: id } });
       if (error) throw error;
+      mark("end_confirmed");
+      setRoute("ended");
+      await flush();
       roomRef.current?.disconnect();
+      if (statsTimerRef.current) window.clearInterval(statsTimerRef.current);
       stopStream();
       toast.success("Transmissão encerrada. Aguarde a gravação no Studio.");
       navigate("/studio/live");
@@ -174,6 +262,7 @@ export default function LiveBroadcast() {
           <Button variant="outline" className="border-white/20 bg-white/5 text-white hover:bg-white/10 hover:text-white" onClick={() => void copyLink()}><Copy className="w-4 h-4 mr-2" /> Copiar link</Button>
           <Button variant="destructive" disabled={ending} onClick={() => void end()}>{ending ? "Encerrando..." : "Encerrar live"}</Button>
         </div>
+        <LiveDiagnosticsPanel report={diagnostics.report} lastSavedAt={diagnostics.lastSavedAt} saveError={diagnostics.saveError} dark />
         <div className="grid gap-3 sm:grid-cols-2">
           <label className="grid gap-1.5 text-sm text-white/70">Câmera
             <select value={selectedCamera ?? ""} disabled={!cameras.length || publishing || mediaLoading} onChange={(event) => void selectCamera(event.target.value)} className="w-full rounded-lg border border-white/20 bg-[#1c1e22] px-3 py-2 text-white disabled:opacity-60">
