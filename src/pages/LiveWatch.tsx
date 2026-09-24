@@ -54,6 +54,7 @@ export default function LiveWatch() {
   const requestedPlaybackRef = useRef("");
   const viewerLiveAtRef = useRef<number | null>(null);
   const firstFrameRef = useRef(false);
+  const endedMarkedRef = useRef(false);
   const diagnostics = useLiveDiagnostics(id, "viewer", user?.id);
   const { mark, setRoute, setMetrics, setQuality, flush, recordChat, recordStall } = diagnostics;
 
@@ -137,8 +138,14 @@ export default function LiveWatch() {
       viewerLiveAtRef.current = performance.now();
       mark("viewer_live");
     }
-    if ((live?.status === "ended" || live?.status === "cancelled") && !tailComplete) mark("ended");
-  }, [live?.status, tailComplete, mark]);
+    if (live?.status === "ended" || live?.status === "cancelled") {
+      if (!endedMarkedRef.current) {
+        endedMarkedRef.current = true;
+        mark("ended");
+      }
+      if (realtimeState !== "playing" && !(playbackIsLive && playbackUrl)) setRoute("ended");
+    }
+  }, [live?.status, realtimeState, playbackIsLive, playbackUrl, mark, setRoute]);
 
   useEffect(() => {
     if (tailComplete && live?.status === "ended") {
