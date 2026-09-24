@@ -110,8 +110,20 @@ Deno.serve(async (req) => {
       }
       return json({ status: 'waiting' });
     }
-    if (action === 'start') {
-      if (live.status !== 'waiting' || live.livekit_egress_id) return json({ error: 'Live has already started' }, 409);
+    if (action === 'start' || action === 'restart') {
+      if (live.status !== 'waiting' || (action === 'start' && live.livekit_egress_id)) return json({ error: 'Live has already started' }, 409);
+      if (action === 'restart' && live.livekit_egress_id) {
+        stage = 'restart stalled bridge';
+        const mux = await getMuxLiveStreamStatus(live.mux_live_stream_id);
+        if (mux.status === 'active') return json({ error: 'Mux is already active' }, 409);
+        const { api } = liveKitConfig();
+        await api.egress.stopEgress(live.livekit_egress_id).catch(() => undefined);
+        const { data: released, error: releaseError } = await client.from('lives')
+          .update({ livekit_egress_id: null }).eq('id', liveId).eq('status', 'waiting')
+          .eq('livekit_egress_id', live.livekit_egress_id).select('id');
+        if (releaseError) throw releaseError;
+        if (!released?.length) return json({ error: 'Live state changed; try again' }, 409);
+      }
       const { data: secretRow, error: secretError } = await client.from('live_stream_secrets')
         .select('mux_stream_key').eq('live_id', liveId).single();
       if (secretError || !secretRow) return json({ error: 'Stream is not configured' }, 409);
@@ -120,8 +132,8 @@ Deno.serve(async (req) => {
         protocol: StreamProtocol.RTMP,
         urls: [`rtmps://global-live.mux.com:443/app/${secretRow.mux_stream_key}`],
       });
-      const egress = await api.egress.startParticipantEgress(`classfy-live-${liveId}`, user.id, { stream: output }, {
-        encodingOptions: EncodingOptionsPreset.H264_720P_30,
+      const egress = await api.egress.startRoomCompositeEgress(`classfy-live-${liveId}`, { stream: output }, {
+        layout: 'single-speaker', encodingOptions: EncodingOptionsPreset.H264_720P_30,
       });
       const { data: claimed, error: updateError } = await client.from('lives')
         .update({ livekit_egress_id: egress.egressId }).eq('id', liveId)
@@ -131,7 +143,7 @@ Deno.serve(async (req) => {
         if (updateError) throw updateError;
         return json({ error: 'Live has already started' }, 409);
       }
-      return json({ waitingForMux: true });
+      return json({ waitingForMux: true, egressId: egress.egressId });
     }
     if (action === 'end') {
       if (!['waiting', 'live'].includes(live.status)) return json({ error: 'Live is already closed' }, 409);

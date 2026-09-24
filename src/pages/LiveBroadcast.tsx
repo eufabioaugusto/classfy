@@ -11,7 +11,7 @@ import { useLiveViewers } from "@/hooks/useLiveViewers";
 import { LiveChat } from "@/components/live/LiveChat";
 import { Button } from "@/components/ui/button";
 
-type Live = { id: string; creator_id: string; title: string; status: "waiting" | "live" | "ended" | "cancelled"; started_at: string | null; mux_live_stream_id: string | null };
+type Live = { id: string; creator_id: string; title: string; status: "waiting" | "live" | "ended" | "cancelled"; started_at: string | null; mux_live_stream_id: string | null; livekit_egress_id: string | null };
 
 export default function LiveBroadcast() {
   const { id } = useParams();
@@ -23,6 +23,7 @@ export default function LiveBroadcast() {
   const [ending, setEnding] = useState(false);
   const [publishing, setPublishing] = useState(false);
   const [countdownEndsAt, setCountdownEndsAt] = useState<number | null>(null);
+  const [signalWaitStartedAt, setSignalWaitStartedAt] = useState<number | null>(null);
   const [now, setNow] = useState(Date.now());
   const roomRef = useRef<Room | null>(null);
   const previewRef = useRef<HTMLVideoElement>(null);
@@ -35,7 +36,7 @@ export default function LiveBroadcast() {
   useEffect(() => {
     if (!id || !user) return;
     let active = true;
-    void supabase.from("lives").select("id, creator_id, title, status, started_at, mux_live_stream_id").eq("id", id).single().then(({ data, error }) => {
+    void supabase.from("lives").select("id, creator_id, title, status, started_at, mux_live_stream_id, livekit_egress_id").eq("id", id).single().then(({ data, error }) => {
       if (!active) return;
       if (error || !data || data.creator_id !== user.id) {
         toast.error("Transmissão indisponível para esta conta.");
@@ -67,7 +68,7 @@ export default function LiveBroadcast() {
       void supabase.functions.invoke("live-control", { body: { action: "sync", liveId: id } })
         .then(({ data, error }) => {
           if (error || data?.status !== "live") return;
-          void supabase.from("lives").select("id, creator_id, title, status, started_at, mux_live_stream_id").eq("id", id).single()
+          void supabase.from("lives").select("id, creator_id, title, status, started_at, mux_live_stream_id, livekit_egress_id").eq("id", id).single()
             .then(({ data: refreshed }) => { if (refreshed) setLive(refreshed as Live); });
         });
     }, 2000);
@@ -90,8 +91,10 @@ export default function LiveBroadcast() {
       for (const track of tracks) await room.localParticipant.publishTrack(track);
       setPublishing(true);
       if (live.status === "waiting") {
-        const result = await supabase.functions.invoke("live-control", { body: { action: "start", liveId: id } });
+        const result = await supabase.functions.invoke("live-control", { body: { action: live.livekit_egress_id ? "restart" : "start", liveId: id } });
         if (result.error) throw result.error;
+        setLive(previous => previous ? { ...previous, livekit_egress_id: result.data?.egressId ?? previous.livekit_egress_id } : previous);
+        setSignalWaitStartedAt(Date.now());
       }
     } catch {
       roomRef.current?.disconnect();
@@ -100,6 +103,19 @@ export default function LiveBroadcast() {
       setCountdownEndsAt(null);
       toast.error("Não foi possível iniciar a transmissão. Confira a conexão e tente novamente.");
     } finally { setStarting(false); }
+  };
+
+  const retrySignal = async () => {
+    if (!id || starting || !publishing || live?.status !== "waiting") return;
+    setStarting(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("live-control", { body: { action: "restart", liveId: id } });
+      if (error) throw error;
+      setLive(previous => previous ? { ...previous, livekit_egress_id: data?.egressId ?? previous.livekit_egress_id } : previous);
+      setSignalWaitStartedAt(Date.now());
+      toast.info("Reconectando o sinal da live.");
+    } catch { toast.error("Não foi possível reconectar. Encerre esta tentativa e crie outra live."); }
+    finally { setStarting(false); }
   };
 
   const end = async () => {
@@ -152,6 +168,7 @@ export default function LiveBroadcast() {
         <div className="flex flex-wrap items-center gap-2">
           {stream && !publishing && <Button disabled={starting || !isCameraOn || !isMicOn} onClick={() => void begin()}><Radio className="w-4 h-4 mr-2" />{starting ? "Conectando..." : live.status === "live" ? "Retomar transmissão" : "Iniciar live"}</Button>}
           {publishing && <span className="text-sm text-white/70">{live.status === "live" ? "Seu sinal está no ar" : "Enviando sinal; aguardando confirmação do Mux..."}</span>}
+          {publishing && live.status === "waiting" && signalWaitStartedAt && now - signalWaitStartedAt > 15000 && <Button variant="outline" disabled={starting} className="border-white/20 bg-white/5 text-white hover:bg-white/10 hover:text-white" onClick={() => void retrySignal()}>{starting ? "Reconectando..." : "Reconectar sinal"}</Button>}
           {stream && <Button variant="outline" className="border-white/20 bg-white/5 text-white hover:bg-white/10 hover:text-white" onClick={toggleCamera} aria-label={isCameraOn ? "Desligar câmera" : "Ligar câmera"}>{isCameraOn ? <Camera className="w-4 h-4" /> : <VideoOff className="w-4 h-4" />}</Button>}
           {stream && <Button variant="outline" className="border-white/20 bg-white/5 text-white hover:bg-white/10 hover:text-white" onClick={toggleMic} aria-label={isMicOn ? "Desligar microfone" : "Ligar microfone"}>{isMicOn ? <Mic className="w-4 h-4" /> : <MicOff className="w-4 h-4" />}</Button>}
           <Button variant="outline" className="border-white/20 bg-white/5 text-white hover:bg-white/10 hover:text-white" onClick={() => void copyLink()}><Copy className="w-4 h-4 mr-2" /> Copiar link</Button>
