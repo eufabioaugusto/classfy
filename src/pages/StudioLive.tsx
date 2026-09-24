@@ -7,6 +7,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { AppShell, PageHeader } from "@/components/layout";
 import { CreatorTemplate } from "@/components/templates";
 import { StudioNavigation } from "@/components/studio/StudioNavigation";
+import { LiveLoadingScreen } from "@/components/live/LiveLoadingScreen";
 import { V2Badge, V2Button, V2Card, V2CardContent, V2CardHeader, V2ConfirmDialog } from "@/components/v2";
 import "@/styles/studio-v2.css";
 import "@/styles/live-beta.css";
@@ -109,7 +110,7 @@ export default function StudioLive() {
     } finally { setDiscardingId(null); }
   };
 
-  if (loading) return <div className="cf-v2 studio-publish-loading"><strong>Preparando o Studio...</strong></div>;
+  if (loading) return <LiveLoadingScreen title="Preparando seu Studio" description="Seu espaço para entrar ao vivo está quase pronto." />;
   if (!user || (role !== "creator" && role !== "admin")) return <Navigate to="/" replace />;
   const openLive = lives.find((live) => live.mux_live_stream_id && (live.status === "waiting" || live.status === "live"));
   const history = lives.filter((live) => live.id !== openLive?.id);
