@@ -16,6 +16,8 @@ type StudioLiveRow = {
   title: string;
   status: "waiting" | "live" | "ended" | "cancelled";
   mux_live_stream_id: string | null;
+  playback_url: string | null;
+  recording_url: string | null;
   livekit_egress_id: string | null;
   created_at: string;
   started_at: string | null;
@@ -50,7 +52,7 @@ export default function StudioLive() {
   const loadLives = useCallback(async () => {
     if (!user) return;
     const { data, error } = await supabase.from("lives")
-      .select("id,title,status,mux_live_stream_id,livekit_egress_id,created_at,started_at,recording_ready_at,replay_content_id,replay_published_at")
+      .select("id,title,status,mux_live_stream_id,playback_url,recording_url,livekit_egress_id,created_at,started_at,recording_ready_at,replay_content_id,replay_published_at")
       .eq("creator_id", user.id).order("created_at", { ascending: false }).limit(100);
     if (error) toast.error("Não foi possível carregar suas lives.");
     else setLives((data || []) as StudioLiveRow[]);
@@ -155,7 +157,8 @@ export default function StudioLive() {
               {loadingLives ? <div className="live-studio-empty"><Loader2 className="animate-spin" /><p>Carregando suas lives...</p></div> : history.length ?
                 <div className="live-studio-list">{history.map((live) => {
                   const status = statusFor(live);
-                  const canDiscard = !live.replay_content_id && !live.replay_published_at && (live.status === "ended" || live.status === "cancelled" || (live.status === "waiting" && !live.livekit_egress_id));
+                  const legacyWithoutMedia = !live.mux_live_stream_id && !live.recording_url && !live.playback_url;
+                  const canDiscard = !live.replay_content_id && !live.replay_published_at && (legacyWithoutMedia || (Boolean(live.mux_live_stream_id) && (live.status === "ended" || live.status === "cancelled" || (live.status === "waiting" && !live.livekit_egress_id))));
                   return <article className="live-studio-row" key={live.id}>
                     <div className="live-studio-row__main"><div className="live-studio-row__title"><strong>{live.title}</strong><V2Badge variant={status.tone}>{status.label}</V2Badge></div><span>{new Date(live.created_at).toLocaleDateString("pt-BR", { day: "2-digit", month: "short", year: "numeric" })}</span></div>
                     <div className="live-studio-row__actions">

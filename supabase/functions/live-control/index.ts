@@ -254,7 +254,9 @@ Deno.serve(async (req) => {
     if (action === 'discard') {
       if (!owner) return json({ error: 'Forbidden' }, 403);
       if (live.replay_content_id || live.replay_published_at) return json({ error: 'Published or submitted replays cannot be discarded here' }, 409);
-      if (!['waiting', 'ended', 'cancelled'].includes(live.status) || (live.status === 'waiting' && live.livekit_egress_id)) {
+      const legacyWithoutMedia = !live.mux_live_stream_id && !live.recording_url && !live.playback_url;
+      if (!live.mux_live_stream_id && !legacyWithoutMedia) return json({ error: 'Legacy media needs a separate removal flow' }, 409);
+      if ((!legacyWithoutMedia && !['waiting', 'ended', 'cancelled'].includes(live.status)) || (live.status === 'waiting' && live.livekit_egress_id)) {
         return json({ error: 'End the live before discarding it' }, 409);
       }
       const { count: giftCount, error: giftError } = await client.from('live_gift_transactions')
@@ -267,12 +269,12 @@ Deno.serve(async (req) => {
       if (live.mux_live_stream_id) {
         for (const assetId of await listMuxLiveAssetIds(live.mux_live_stream_id)) assetIds.add(assetId);
       }
-      if (live.started_at && live.status === 'ended' && !assetIds.size) {
+      if (live.mux_live_stream_id && live.started_at && live.status === 'ended' && !assetIds.size) {
         return json({ error: 'Recording is still being prepared' }, 409);
       }
       // Block publication and late provider webhooks before deleting resources.
       const { error: stateError } = await client.from('lives').update({ status: 'cancelled' })
-        .eq('id', liveId).in('status', ['waiting', 'ended', 'cancelled']);
+        .eq('id', liveId).in('status', ['scheduled', 'waiting', 'live', 'ended', 'cancelled']);
       if (stateError) throw stateError;
       stage = 'discard recording';
       for (const assetId of assetIds) await deleteMuxLiveAsset(assetId);
