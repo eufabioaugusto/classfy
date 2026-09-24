@@ -8,6 +8,7 @@ import { MiniPlayerProvider } from "./contexts/MiniPlayerContext";
 import { supabase } from "@/integrations/supabase/client";
 import { useEffect, Suspense, lazy, Fragment } from "react";
 import { GlobalLoader } from "./components/GlobalLoader";
+import { LiveLoadingScreen } from "./components/live/LiveLoadingScreen";
 import { MobileBottomNav } from "./components/MobileBottomNav";
 import { MiniPlayer } from "./components/MiniPlayer";
 import { useIsMobile } from "@/hooks/use-mobile";
@@ -67,6 +68,11 @@ function AppContent() {
   const location = useLocation();
   const isMobile = useIsMobile();
   const backgroundLocation = isMobile ? (location.state as any)?.backgroundLocation : null;
+  const liveOpening = location.pathname.startsWith("/live/") && location.pathname.endsWith("/broadcast")
+    ? <LiveLoadingScreen title="Abrindo a transmissão" description="Preparando seu espaço antes de entrar ao vivo." dark />
+    : location.pathname === "/studio/live"
+      ? <LiveLoadingScreen title="Preparando seu Studio" description="Seu espaço para entrar ao vivo está quase pronto." />
+      : <GlobalLoader />;
 
   // Track referral clicks
   useEffect(() => {
@@ -141,7 +147,7 @@ function AppContent() {
 
   return (
     <>
-      <Suspense fallback={<GlobalLoader />}>
+      <Suspense fallback={liveOpening}>
         {backgroundLocation ? (
           <>
             {/* Background page (previous route) */}

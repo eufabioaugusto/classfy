@@ -45,7 +45,8 @@ const eventNames: Record<string, string> = {
   end_confirmed: "Encerramento confirmado", ended: "Transmissão encerrada",
 };
 
-const number = (value: number | undefined, unit = "", digits = 0) => value === undefined ? "—" : `${value.toFixed(digits)}${unit}`;
+const number = (value: number | null | undefined, unit = "", digits = 0) =>
+  typeof value === "number" && Number.isFinite(value) ? `${value.toFixed(digits)}${unit}` : "—";
 const time = (value: string) => new Date(value).toLocaleTimeString("pt-BR", { hour12: false, hour: "2-digit", minute: "2-digit", second: "2-digit", fractionalSecondDigits: 3 });
 
 export function LiveDiagnosticsPanel({ report, lastSavedAt, saveError, dark = false }: Props) {
