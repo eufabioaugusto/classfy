@@ -40,6 +40,8 @@ const diagnosticEvents = new Set([
   'page_opened', 'preview_ready', 'start_clicked', 'room_connected', 'tracks_published',
   'bridge_started', 'bridge_stalled', 'bridge_restarted', 'public_live', 'viewer_live', 'rtc_connected', 'rtc_first_frame',
   'hls_first_frame', 'fallback', 'reconnecting', 'reconnected', 'audio_blocked',
+  'viewer_token_requested', 'viewer_token_ready', 'viewer_token_failed',
+  'rtc_connect_started', 'rtc_connect_failed', 'rtc_track_subscribed',
   'chat_sent', 'chat_received', 'playback_stalled', 'end_requested', 'end_confirmed', 'ended',
 ]);
 
@@ -79,7 +81,7 @@ function safeDiagnosticReport(input: unknown) {
     clockProbeMs: diagnosticNumber(source.clockProbeMs, 30_000),
     quality: ['excellent', 'good', 'poor', 'lost', 'unknown'].includes(String(source.quality)) ? source.quality : 'unknown',
     fallbackReason: ['token', 'connect', 'timeout', 'host_left', 'room_left', 'hls_error', 'none'].includes(String(source.fallbackReason)) ? source.fallbackReason : 'none',
-    metrics: Object.fromEntries(['firstFrameMs', 'roomConnectMs', 'bitrateKbps', 'packetsLost', 'jitterMs', 'rttMs', 'framesPerSecond', 'bufferSeconds', 'playbackLatencySeconds', 'droppedFrames', 'reconnects', 'stalls', 'audioBitrateKbps', 'audioPacketsLost', 'audioJitterMs'].map(key => [key, diagnosticNumber(metrics[key])])),
+    metrics: Object.fromEntries(['firstFrameMs', 'roomConnectMs', 'bitrateKbps', 'packetsLost', 'jitterMs', 'rttMs', 'framesPerSecond', 'bufferSeconds', 'playbackLatencySeconds', 'droppedFrames', 'reconnects', 'stalls', 'audioBitrateKbps', 'audioPacketsLost', 'audioJitterMs', 'viewerTokenMs', 'viewerTrackMs'].map(key => [key, diagnosticNumber(metrics[key])])),
     lastChatSent: safeChatTiming(source.lastChatSent),
     lastChatReceived: safeChatTiming(source.lastChatReceived),
     events: events.slice(-40).flatMap((event: unknown) => {
@@ -249,6 +251,12 @@ Deno.serve(async (req) => {
         status: live.status === 'waiting' ? 'cancelled' : 'ended', ended_at: new Date().toISOString(),
       }).eq('id', liveId).in('status', ['waiting', 'live']);
       if (error) throw error;
+      // Closing a live must also close presence for viewers who keep the page
+      // open or whose browser cannot send an unload request.
+      const { error: viewerError } = await client.from('live_viewers').update({
+        is_active: false, left_at: new Date().toISOString(),
+      }).eq('live_id', liveId).eq('is_active', true);
+      if (viewerError) console.warn('[live-control] could not close viewer presence');
       return json({ ending: true });
     }
     if (action === 'discard') {

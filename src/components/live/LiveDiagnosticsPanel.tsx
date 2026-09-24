@@ -14,7 +14,7 @@ const routeNames: Record<LiveDiagnosticReport["route"], string> = {
 };
 
 const fallbackNames: Record<LiveDiagnosticReport["fallbackReason"], string> = {
-  none: "—", token: "Acesso à sala", connect: "Conexão direta",
+  none: "—", token: "Acesso à sala demorou", connect: "Conexão direta demorou",
   timeout: "Vídeo demorou a chegar", host_left: "Host saiu da sala",
   room_left: "Sala desconectada", hls_error: "Reserva indisponível",
 };
@@ -38,6 +38,8 @@ const eventNames: Record<string, string> = {
   room_connected: "Sala conectada", tracks_published: "Câmera e microfone enviados",
   bridge_started: "Preparação da entrega iniciada", bridge_stalled: "Preparação demorando", bridge_restarted: "Entrega reiniciada", public_live: "Disponível ao público",
   viewer_live: "Live detectada", rtc_connected: "Conexão direta estabelecida",
+  viewer_token_requested: "Acesso direto solicitado", viewer_token_ready: "Acesso direto pronto", viewer_token_failed: "Acesso direto falhou",
+  rtc_connect_started: "Conectando à sala", rtc_connect_failed: "Conexão à sala falhou", rtc_track_subscribed: "Vídeo direto recebido",
   rtc_first_frame: "Primeiro quadro direto", hls_first_frame: "Primeiro quadro da reserva",
   fallback: "Reserva acionada", reconnecting: "Reconectando", reconnected: "Reconectado",
   audio_blocked: "Som bloqueado pelo navegador", chat_sent: "Mensagem enviada",
@@ -71,6 +73,9 @@ export function LiveDiagnosticsPanel({ report, lastSavedAt, saveError, dark = fa
         <div>Rota <strong className="block text-sm">{routeNames[report.route]}</strong></div>
         <div>Conexão <strong className="block text-sm">{qualityNames[report.quality]}</strong></div>
         <div>{report.role === "host" ? "Até ficar ao vivo" : "Primeiro vídeo"} <strong className="block text-sm">{number(report.metrics.firstFrameMs, " ms")}</strong></div>
+        {report.role === "viewer" && <div>Acesso à sala <strong className="block text-sm">{number(report.metrics.viewerTokenMs, " ms")}</strong></div>}
+        {report.role === "viewer" && <div>Conexão à sala <strong className="block text-sm">{number(report.metrics.roomConnectMs, " ms")}</strong></div>}
+        {report.role === "viewer" && <div>Vídeo direto recebido <strong className="block text-sm">{number(report.metrics.viewerTrackMs, " ms")}</strong></div>}
         <div>Taxa de vídeo <strong className="block text-sm">{number(report.metrics.bitrateKbps, " kb/s")}</strong></div>
         <div>Taxa de áudio <strong className="block text-sm">{number(report.metrics.audioBitrateKbps, " kb/s")}</strong></div>
         <div>Quadros/s <strong className="block text-sm">{number(report.metrics.framesPerSecond, "", 1)}</strong></div>

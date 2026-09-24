@@ -6,7 +6,7 @@ export type LiveDiagnosticMetrics = Partial<Record<
   "firstFrameMs" | "roomConnectMs" | "bitrateKbps" | "packetsLost" | "jitterMs" |
   "rttMs" | "framesPerSecond" | "bufferSeconds" | "playbackLatencySeconds" |
   "droppedFrames" | "reconnects" | "stalls" | "audioBitrateKbps" |
-  "audioPacketsLost" | "audioJitterMs", number
+  "audioPacketsLost" | "audioJitterMs" | "viewerTokenMs" | "viewerTrackMs", number
 >>;
 
 export type ChatTiming = {

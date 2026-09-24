@@ -10,6 +10,9 @@ type Props = {
   liveId: string;
   creatorId: string;
   ending: boolean;
+  standby: boolean;
+  muted: boolean;
+  onMutedChange: (muted: boolean) => void;
   onReady: () => void;
   onFallback: (reason: LiveDiagnosticReport["fallbackReason"]) => void;
   onComplete: () => void;
@@ -20,45 +23,74 @@ type Props = {
   onStall: () => void;
 };
 
-export function LiveRealtimePlayer({ liveId, creatorId, ending, onReady, onFallback, onComplete, onEvent, onMetrics, onQuality, onFirstFrame, onStall }: Props) {
+export function LiveRealtimePlayer({ liveId, creatorId, ending, standby, muted, onMutedChange, onReady, onFallback, onComplete, onEvent, onMetrics, onQuality, onFirstFrame, onStall }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const audioRef = useRef<HTMLAudioElement>(null);
   const roomRef = useRef<Room | null>(null);
   const endingRef = useRef(ending);
+  const standbyRef = useRef(standby);
+  const mutedRef = useRef(muted);
   const callbacksRef = useRef({ onReady, onFallback, onComplete, onEvent, onMetrics, onQuality, onFirstFrame, onStall });
   const firstFrameRef = useRef(false);
   const [ready, setReady] = useState(false);
-  const [muted, setMuted] = useState(true);
   const [audioBlocked, setAudioBlocked] = useState(false);
 
   useEffect(() => { endingRef.current = ending; }, [ending]);
+  useEffect(() => {
+    standbyRef.current = standby;
+    mutedRef.current = muted;
+    const audio = audioRef.current;
+    if (!audio) return;
+    audio.muted = standby || muted;
+    if (!standby && !muted && ready) {
+      void roomRef.current?.startAudio().then(() => audio.play()).catch(() => {
+        setAudioBlocked(true);
+        callbacksRef.current.onEvent("audio_blocked");
+      });
+    }
+  }, [standby, muted, ready]);
   useEffect(() => { callbacksRef.current = { onReady, onFallback, onComplete, onEvent, onMetrics, onQuality, onFirstFrame, onStall }; }, [onReady, onFallback, onComplete, onEvent, onMetrics, onQuality, onFirstFrame, onStall]);
 
   useEffect(() => {
     let active = true;
-    let receivedVideo = false;
     let departureTimer: number | undefined;
     let videoTrack: RemoteTrack | null = null;
     let audioTrack: RemoteTrack | null = null;
     let previousCounter: { bytes: number; at: number } | undefined;
     let previousAudioCounter: { bytes: number; at: number } | undefined;
     let reconnects = 0;
+    let tokenReady = false;
+    let connected = false;
+    let initialFallbackSignaled = false;
+    let playbackFallbackSignaled = false;
+    const startedAt = performance.now();
     const room = new Room({ adaptiveStream: true, dynacast: true });
     roomRef.current = room;
+    const fallback = (reason: LiveDiagnosticReport["fallbackReason"]) => {
+      if (!active) return;
+      if (firstFrameRef.current) {
+        if (playbackFallbackSignaled) return;
+        playbackFallbackSignaled = true;
+      } else {
+        if (initialFallbackSignaled) return;
+        initialFallbackSignaled = true;
+      }
+      callbacksRef.current.onFallback(reason);
+    };
     const attach = (track: RemoteTrack, participant: RemoteParticipant) => {
       if (participant.identity !== creatorId) return;
       if (track.kind === Track.Kind.Video && videoRef.current) {
         track.attach(videoRef.current);
         videoTrack = track;
-        receivedVideo = true;
         setReady(true);
-        callbacksRef.current.onReady();
+        callbacksRef.current.onEvent("rtc_track_subscribed");
+        callbacksRef.current.onMetrics({ viewerTrackMs: Math.round(performance.now() - startedAt) });
         void videoRef.current.play().catch(() => undefined);
       }
       if (track.kind === Track.Kind.Audio && audioRef.current) {
         track.attach(audioRef.current);
         audioTrack = track;
-        audioRef.current.muted = true;
+        audioRef.current.muted = standbyRef.current || mutedRef.current;
         void audioRef.current.play().catch(() => { setAudioBlocked(true); callbacksRef.current.onEvent("audio_blocked"); });
       }
     };
@@ -67,7 +99,7 @@ export function LiveRealtimePlayer({ liveId, creatorId, ending, onReady, onFallb
       departureTimer = window.setTimeout(() => {
         if (!active) return;
         if (endingRef.current) callbacksRef.current.onComplete();
-        else callbacksRef.current.onFallback("host_left");
+        else fallback("host_left");
       }, 1200);
     };
     const leave = (participant: RemoteParticipant) => {
@@ -79,7 +111,7 @@ export function LiveRealtimePlayer({ liveId, creatorId, ending, onReady, onFallb
     room.on(RoomEvent.Disconnected, () => {
       if (!active) return;
       if (endingRef.current) finishOrFallback();
-      else callbacksRef.current.onFallback("room_left");
+      else fallback("room_left");
     });
     room.on(RoomEvent.Reconnecting, () => {
       reconnects += 1;
@@ -105,25 +137,40 @@ export function LiveRealtimePlayer({ liveId, creatorId, ending, onReady, onFallb
         callbacksRef.current.onMetrics(metrics);
       }).catch(() => undefined);
     }, 2000);
-    const timer = window.setTimeout(() => {
-      if (active && !receivedVideo) callbacksRef.current.onFallback("timeout");
+    // Open the backup promptly, but keep the direct connection alive. The SDK's
+    // own connection timeout can exceed eight seconds, especially on mobile.
+    const backupTimer = window.setTimeout(() => {
+      if (!active || firstFrameRef.current) return;
+      fallback(!tokenReady ? "token" : !connected ? "connect" : "timeout");
     }, 8000);
+    callbacksRef.current.onEvent("viewer_token_requested");
     void supabase.functions.invoke("live-control", { body: { action: "viewer-connect", liveId } })
       .then(async ({ data, error }) => {
         if (!active) return;
         if (error || !data?.url || !data?.token) {
-          callbacksRef.current.onFallback("token");
+          callbacksRef.current.onEvent("viewer_token_failed");
+          fallback("token");
           return;
         }
+        tokenReady = true;
+        callbacksRef.current.onMetrics({ viewerTokenMs: Math.round(performance.now() - startedAt) });
+        callbacksRef.current.onEvent("viewer_token_ready");
         const connectingAt = performance.now();
+        callbacksRef.current.onEvent("rtc_connect_started");
         await room.connect(data.url, data.token);
+        if (!active) return;
+        connected = true;
         callbacksRef.current.onMetrics({ roomConnectMs: Math.round(performance.now() - connectingAt) });
         callbacksRef.current.onEvent("rtc_connected");
       })
-      .catch(() => { if (active) callbacksRef.current.onFallback("connect"); });
+      .catch(() => {
+        if (!active) return;
+        callbacksRef.current.onEvent("rtc_connect_failed");
+        fallback("connect");
+      });
     return () => {
       active = false;
-      window.clearTimeout(timer);
+      window.clearTimeout(backupTimer);
       window.clearInterval(statsTimer);
       window.clearTimeout(departureTimer);
       room.removeAllListeners();
@@ -135,26 +182,26 @@ export function LiveRealtimePlayer({ liveId, creatorId, ending, onReady, onFallb
   const toggleAudio = async () => {
     const audio = audioRef.current;
     if (!audio) return;
-    if (muted) {
+    if (muted || audioBlocked) {
       try {
         await roomRef.current?.startAudio();
         audio.muted = false;
         await audio.play();
-        setMuted(false);
+        onMutedChange(false);
         setAudioBlocked(false);
       } catch { setAudioBlocked(true); callbacksRef.current.onEvent("audio_blocked"); }
     } else {
       audio.muted = true;
-      setMuted(true);
+      onMutedChange(true);
     }
   };
 
   return <>
-    <video ref={videoRef} autoPlay playsInline muted onPlaying={() => { if (!firstFrameRef.current) { firstFrameRef.current = true; callbacksRef.current.onFirstFrame(); } }} onWaiting={() => { if (firstFrameRef.current) callbacksRef.current.onStall(); }} className="absolute inset-0 h-full w-full object-contain" aria-label="Transmissão ao vivo" />
+    <video ref={videoRef} autoPlay playsInline muted onPlaying={() => { if (!firstFrameRef.current) { firstFrameRef.current = true; callbacksRef.current.onFirstFrame(); callbacksRef.current.onReady(); } }} onWaiting={() => { if (firstFrameRef.current) callbacksRef.current.onStall(); }} className="absolute inset-0 h-full w-full object-contain" aria-label="Transmissão ao vivo" />
     <audio ref={audioRef} autoPlay muted />
-    {ready && <Button type="button" size="sm" className="absolute right-3 top-3 z-10 bg-black/75 text-white hover:bg-black/90" onClick={() => void toggleAudio()}>
+    {ready && !standby && <Button type="button" size="sm" className="absolute right-3 top-3 z-10 bg-black/75 text-white hover:bg-black/90" onClick={() => void toggleAudio()}>
       {muted ? <VolumeX className="mr-2 h-4 w-4" /> : <Volume2 className="mr-2 h-4 w-4" />}{muted ? "Ativar som" : "Silenciar"}
     </Button>}
-    {ready && audioBlocked && <button type="button" onClick={() => void toggleAudio()} className="absolute inset-x-4 bottom-4 z-10 rounded-lg bg-black/80 p-3 text-sm text-white">Toque para ativar o som</button>}
+    {ready && !standby && audioBlocked && <button type="button" onClick={() => void toggleAudio()} className="absolute inset-x-4 bottom-4 z-10 rounded-lg bg-black/80 p-3 text-sm text-white">Toque para ativar o som</button>}
   </>;
 }

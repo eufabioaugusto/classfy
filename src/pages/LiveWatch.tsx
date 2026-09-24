@@ -47,7 +47,7 @@ export default function LiveWatch() {
   const [isMuted, setIsMuted] = useState(true);
   const [isPlaying, setIsPlaying] = useState(false);
   const [playBlocked, setPlayBlocked] = useState(false);
-  const [realtimeState, setRealtimeState] = useState<"connecting" | "playing" | "failed">("connecting");
+  const [realtimeState, setRealtimeState] = useState<"connecting" | "playing" | "backup">("connecting");
   const [playbackIsLive, setPlaybackIsLive] = useState(false);
   const [tailComplete, setTailComplete] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -91,18 +91,13 @@ export default function LiveWatch() {
     };
 
     fetchLive();
+  }, [id]);
 
-    // Join as viewer
-    if (user) {
-      joinLive();
-    }
-
-    return () => {
-      if (user) {
-        leaveLive();
-      }
-    };
-  }, [id, user]);
+  useEffect(() => {
+    if (!id || !user?.id || (live?.status !== "waiting" && live?.status !== "live")) return;
+    void joinLive();
+    return () => { void leaveLive(); };
+  }, [id, user?.id, live?.status, joinLive, leaveLive]);
 
   // Subscribe to live status changes
   useEffect(() => {
@@ -156,7 +151,7 @@ export default function LiveWatch() {
     if (firstFrameRef.current) return;
     firstFrameRef.current = true;
     setMetrics({ firstFrameMs: Math.round(performance.now() - (viewerLiveAtRef.current ?? performance.now())) });
-    mark(route === "webrtc" ? "rtc_first_frame" : "hls_first_frame");
+    if (route === "hls") mark("hls_first_frame");
     void flush();
   };
 
@@ -167,7 +162,7 @@ export default function LiveWatch() {
   const draining = live?.status === "ended" && !tailComplete && (realtimeState === "playing" || (playbackIsLive && !!playbackUrl));
   useEffect(() => {
     if (draining) return;
-    if (!live || !user || (live.status !== "live" && !live.replay_published_at) || (live.status === "live" && (realtimeState !== "failed" || !live.mux_live_stream_id))) {
+    if (!live || !user || (live.status !== "live" && !live.replay_published_at) || (live.status === "live" && (realtimeState !== "backup" || !live.mux_live_stream_id))) {
       requestedPlaybackRef.current = "";
       setPlaybackUrl("");
       return;
@@ -250,7 +245,7 @@ export default function LiveWatch() {
 
   const isLegacyLive = live.status === "live" && !live.mux_live_stream_id;
   const isEnded = live.status === "ended" || live.status === "cancelled" || isLegacyLive;
-  const showRealtime = realtimeState !== "failed" && (live.status === "live" || draining);
+  const showRealtime = (!isLegacyLive && live.status === "live") || (draining && realtimeState === "playing");
 
   return (
     <div className="min-h-screen w-full min-w-0 overflow-x-hidden bg-background pb-24 flex flex-col lg:flex-row lg:pb-0">
@@ -258,27 +253,25 @@ export default function LiveWatch() {
       <div className="min-w-0 flex-1 flex flex-col">
         {/* Video Area */}
         <div className="relative flex aspect-video w-full min-w-0 items-center justify-center overflow-hidden bg-black">
-          {showRealtime ? (
-            <>
-              <LiveRealtimePlayer liveId={live.id} creatorId={live.creator_id} ending={live.status === "ended"} onReady={() => { setRealtimeState("playing"); setRoute("webrtc"); }} onFallback={(reason) => { setRoute("hls", reason); mark("fallback"); void flush(); setRealtimeState("failed"); }} onComplete={() => setTailComplete(true)} onEvent={mark} onMetrics={setMetrics} onQuality={setQuality} onFirstFrame={() => markFirstFrame("webrtc")} onStall={recordStall} />
-              {realtimeState === "connecting" && <div className="absolute inset-0 grid place-items-center bg-black text-center text-white"><div><Loader2 className="mx-auto mb-3 h-8 w-8 animate-spin" /><p>Preparando o vídeo ao vivo...</p></div></div>}
-              {draining && <span className="absolute bottom-3 left-3 rounded-full bg-black/70 px-3 py-1.5 text-xs text-white">Reproduzindo os últimos segundos...</span>}
-            </>
-          ) : playbackUrl ? (
+          {showRealtime && <div className={cn("absolute inset-0", realtimeState === "backup" && "pointer-events-none opacity-0")}>
+            <LiveRealtimePlayer liveId={live.id} creatorId={live.creator_id} ending={live.status === "ended"} standby={realtimeState === "backup"} muted={isMuted} onMutedChange={setIsMuted} onReady={() => { mark("rtc_first_frame"); setIsPlaying(false); setRoute("webrtc", "none"); setRealtimeState("playing"); void flush(); }} onFallback={(reason) => { setRoute("hls", reason); mark("fallback"); setRealtimeState("backup"); void flush(); }} onComplete={() => setTailComplete(true)} onEvent={mark} onMetrics={setMetrics} onQuality={setQuality} onFirstFrame={() => markFirstFrame("webrtc")} onStall={recordStall} />
+          </div>}
+          {showRealtime && realtimeState === "connecting" && <div className="absolute inset-0 grid place-items-center bg-black text-center text-white"><div><Loader2 className="mx-auto mb-3 h-8 w-8 animate-spin" /><p>Preparando o vídeo ao vivo...</p></div></div>}
+          {realtimeState === "backup" && live.status === "live" && !playbackUrl && <div className="absolute inset-0 grid place-items-center bg-black text-center text-white"><div><Loader2 className="mx-auto mb-3 h-8 w-8 animate-spin" /><p>Conectando o vídeo...</p></div></div>}
+          {(realtimeState === "backup" || !showRealtime) && playbackUrl ? (
             <>
               <video ref={videoRef} controls playsInline autoPlay={playbackIsLive} muted={playbackIsLive && isMuted} onEnded={() => setTailComplete(true)} onPlaying={() => { setIsPlaying(true); setPlayBlocked(false); setPlaybackError(false); if (playbackIsLive) markFirstFrame("hls"); }} onWaiting={() => { if (firstFrameRef.current && playbackIsLive) recordStall(); }} onPause={() => setIsPlaying(false)} className="absolute inset-0 h-full w-full object-contain" aria-label={playbackIsLive ? "Transmissão ao vivo" : "Gravação da live"} />
               {playbackIsLive && <Button type="button" size="sm" className="absolute right-3 top-3 z-10 bg-black/75 text-white hover:bg-black/90" onClick={() => { const video = videoRef.current; if (!video) return; video.muted = !isMuted; setIsMuted(!isMuted); if (video.paused) void video.play().catch(() => setPlayBlocked(true)); }}>{isMuted ? <VolumeX className="mr-2 h-4 w-4" /> : <Volume2 className="mr-2 h-4 w-4" />}{isMuted ? "Ativar som" : "Silenciar"}</Button>}
-              {draining && <span className="absolute bottom-3 left-3 rounded-full bg-black/70 px-3 py-1.5 text-xs text-white">Reproduzindo os últimos segundos...</span>}
               {playbackError && !isPlaying && <button type="button" onClick={() => { setPlaybackError(false); setPlaybackAttempt(value => value + 1); }} className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-2 bg-black/75 px-5 text-center text-white"><Radio className="h-9 w-9" /><span className="font-semibold">O sinal ainda não carregou</span><span className="text-sm text-white/70">Toque para tentar novamente</span></button>}
               {live.status === "live" && playBlocked && !isPlaying && <button type="button" onClick={() => { const video = videoRef.current; if (video) void video.play().then(() => setPlayBlocked(false)).catch(() => setPlayBlocked(true)); }} className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 bg-black/70 text-white"><Play className="h-10 w-10 fill-white" /><span className="font-semibold">Toque para assistir ao vivo</span></button>}
             </>
-          ) : isEnded ? (
+          ) : !showRealtime && isEnded ? (
             <div className="text-center text-white">
               <Radio className="w-16 h-16 mx-auto mb-4 opacity-50" />
               <h2 className="text-xl font-bold">{isLegacyLive ? "Transmissão indisponível" : live.replay_published_at ? "Carregando gravação" : "Transmissão encerrada"}</h2>
               <p className="text-muted-foreground mt-2">{isLegacyLive ? "Esta live foi criada antes da integração de vídeo." : playbackError ? "Não foi possível carregar o vídeo." : live.replay_published_at ? "Preparando o replay..." : "O replay aguarda publicação."}</p>
             </div>
-          ) : (
+          ) : !showRealtime ? (
             <>
               <div className="absolute inset-0 bg-gradient-to-br from-accent/20 to-background flex items-center justify-center">
                 <div className="text-center">
@@ -301,7 +294,8 @@ export default function LiveWatch() {
                 </div>
               </div>}
             </>
-          )}
+          ) : null}
+          {draining && <span className="absolute bottom-3 left-3 rounded-full bg-black/70 px-3 py-1.5 text-xs text-white">Reproduzindo os últimos segundos...</span>}
         </div>
 
         <div className="px-4 pt-3"><LiveDiagnosticsPanel report={diagnostics.report} lastSavedAt={diagnostics.lastSavedAt} saveError={diagnostics.saveError} /></div>

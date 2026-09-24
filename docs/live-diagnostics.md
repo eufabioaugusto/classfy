@@ -14,6 +14,8 @@ O botão **Diagnóstico da live** aparece nas telas de host e visitante. Cada ap
 
 - **Tempo real**: vídeo direto pela sala LiveKit. A métrica de rede mostra perda de pacotes, oscilação e quadros perdidos. Não mede sozinha o atraso completo entre câmera e tela.
 - **Reserva**: player HLS. O campo **Motivo da reserva** mostra por que a conexão direta falhou; **Atraso do player** mostra a distância estimada do vídeo à borda da live quando disponível.
+- A reserva pode entrar após 8 segundos sem primeiro quadro, mas a tentativa direta continua. Se o vídeo direto chegar depois, o player volta para **Tempo real**. Compare os eventos **Acesso direto solicitado/pronto**, **Conectando à sala**, **Conexão direta estabelecida** e **Primeiro quadro direto** para localizar a demora.
+- **Acesso à sala** mede a resposta do serviço que gera o acesso; **Conexão à sala** mede a entrada no LiveKit; **Vídeo direto recebido** mede o tempo desde a tentativa até a assinatura da faixa de vídeo. Uma etapa ausente indica onde a tentativa parou.
 - **Primeiro vídeo**: tempo entre a página detectar `live` e reproduzir o primeiro quadro no aparelho.
 - **Chat**: o horário do servidor é a referência comum. A chegada após registro é uma estimativa corrigida por uma sondagem do relógio; rede assimétrica e relógios de aparelhos ainda podem introduzir erro.
 - **Até ficar ao vivo** (host): tempo entre o clique em iniciar e o status público confirmado.
