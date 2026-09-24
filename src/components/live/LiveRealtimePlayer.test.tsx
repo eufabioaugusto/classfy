@@ -75,7 +75,10 @@ describe("LiveRealtimePlayer", () => {
     expect(mocks.rooms[0].connect).toHaveBeenCalledOnce();
     expect(onEvent).toHaveBeenCalledWith("rtc_connected");
 
-    await act(async () => mocks.rooms[0].emit("trackSubscribed", { kind: "video", attach: vi.fn() }, { identity: "host" }));
+    const attach = vi.fn();
+    await act(async () => mocks.rooms[0].emit("trackSubscribed", { kind: "video", attach }, { trackSid: "camera" }, { identity: "host" }));
+    expect(attach).toHaveBeenCalledWith(container.querySelector("video"));
+    expect(onEvent).toHaveBeenCalledWith("rtc_track_subscribed");
     await act(async () => container.querySelector("video")?.dispatchEvent(new Event("playing", { bubbles: true })));
     expect(onReady).toHaveBeenCalledOnce();
   });
@@ -89,7 +92,9 @@ describe("LiveRealtimePlayer", () => {
       onMutedChange: vi.fn(), onReady, onFallback, onComplete: vi.fn(), onEvent: vi.fn(),
       onMetrics: vi.fn(), onQuality: vi.fn(), onFirstFrame: vi.fn(), onStall: vi.fn(),
     })));
-    await act(async () => mocks.rooms[0].emit("trackSubscribed", { kind: "video", attach: vi.fn() }, { identity: "host" }));
+    const attach = vi.fn();
+    await act(async () => mocks.rooms[0].emit("trackSubscribed", { kind: "video", attach }, { trackSid: "camera" }, { identity: "host" }));
+    expect(attach).toHaveBeenCalledWith(container.querySelector("video"));
     await act(async () => container.querySelector("video")?.dispatchEvent(new Event("playing", { bubbles: true })));
     await act(async () => vi.advanceTimersByTime(8000));
     expect(onReady).toHaveBeenCalledOnce();

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Room, RoomEvent, Track, type RemoteParticipant, type RemoteTrack } from "livekit-client";
+import { Room, RoomEvent, Track, type RemoteParticipant, type RemoteTrack, type RemoteTrackPublication } from "livekit-client";
 import { Volume2, VolumeX } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -77,7 +77,7 @@ export function LiveRealtimePlayer({ liveId, creatorId, ending, standby, muted, 
       }
       callbacksRef.current.onFallback(reason);
     };
-    const attach = (track: RemoteTrack, participant: RemoteParticipant) => {
+    const attach = (track: RemoteTrack, _publication: RemoteTrackPublication, participant: RemoteParticipant) => {
       if (participant.identity !== creatorId) return;
       if (track.kind === Track.Kind.Video && videoRef.current) {
         track.attach(videoRef.current);
