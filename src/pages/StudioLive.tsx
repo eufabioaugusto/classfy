@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Navigate, useNavigate } from "react-router-dom";
-import { Radio, Video, CheckCircle2, Clock3, Loader2, ArrowRight, Trash2 } from "lucide-react";
+import { Radio, Video, CheckCircle2, Clock3, Loader2, ArrowRight, Trash2, ImagePlus } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
@@ -8,6 +8,7 @@ import { AppShell, PageHeader } from "@/components/layout";
 import { CreatorTemplate } from "@/components/templates";
 import { StudioNavigation } from "@/components/studio/StudioNavigation";
 import { LiveLoadingScreen } from "@/components/live/LiveLoadingScreen";
+import { CoverImageCropper } from "@/components/CoverImageCropper";
 import { V2Badge, V2Button, V2Card, V2CardContent, V2CardHeader, V2ConfirmDialog } from "@/components/v2";
 import "@/styles/studio-v2.css";
 import "@/styles/live-beta.css";
@@ -20,6 +21,7 @@ type StudioLiveRow = {
   playback_url: string | null;
   recording_url: string | null;
   livekit_egress_id: string | null;
+  thumbnail_url: string | null;
   created_at: string;
   started_at: string | null;
   recording_ready_at: string | null;
@@ -43,6 +45,12 @@ export default function StudioLive() {
   const navigate = useNavigate();
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
+  const [coverFile, setCoverFile] = useState<File | null>(null);
+  const [coverPreview, setCoverPreview] = useState("");
+  const [cropFile, setCropFile] = useState<File | null>(null);
+  const [cropTargetId, setCropTargetId] = useState<string | null>(null);
+  const [updatingCover, setUpdatingCover] = useState(false);
+  const coverInputRef = useRef<HTMLInputElement>(null);
   const [creating, setCreating] = useState(false);
   const [publishingId, setPublishingId] = useState<string | null>(null);
   const [discardingId, setDiscardingId] = useState<string | null>(null);
@@ -53,7 +61,7 @@ export default function StudioLive() {
   const loadLives = useCallback(async () => {
     if (!user) return;
     const { data, error } = await supabase.from("lives")
-      .select("id,title,status,mux_live_stream_id,playback_url,recording_url,livekit_egress_id,created_at,started_at,recording_ready_at,replay_content_id,replay_published_at")
+      .select("id,title,status,mux_live_stream_id,playback_url,recording_url,livekit_egress_id,thumbnail_url,created_at,started_at,recording_ready_at,replay_content_id,replay_published_at")
       .eq("creator_id", user.id).order("created_at", { ascending: false }).limit(100);
     if (error) toast.error("Não foi possível carregar suas lives.");
     else setLives((data || []) as StudioLiveRow[]);
@@ -67,17 +75,79 @@ export default function StudioLive() {
     }, () => { void loadLives(); }).subscribe();
     return () => { void supabase.removeChannel(channel); };
   }, [user, loadLives]);
+  useEffect(() => {
+    if (!coverFile) { setCoverPreview(""); return; }
+    const url = URL.createObjectURL(coverFile);
+    setCoverPreview(url);
+    return () => URL.revokeObjectURL(url);
+  }, [coverFile]);
+
+  const uploadCover = async (file: File) => {
+    if (!user) throw new Error("Faça login para enviar a capa.");
+    const path = `thumbnails/${user.id}/lives/${crypto.randomUUID()}.jpg`;
+    const { error } = await supabase.storage.from("contents").upload(path, file, {
+      contentType: "image/jpeg", cacheControl: "31536000", upsert: false,
+    });
+    if (error) throw error;
+    return { path, url: supabase.storage.from("contents").getPublicUrl(path).data.publicUrl };
+  };
+
+  const chooseCover = (file: File | undefined, liveId: string | null) => {
+    if (!file) return;
+    if (!["image/jpeg", "image/png", "image/webp"].includes(file.type) || file.size > 10 * 1024 * 1024) {
+      toast.error("Escolha uma imagem JPG, PNG ou WebP de até 10 MB.");
+      return;
+    }
+    setCropTargetId(liveId);
+    setCropFile(file);
+  };
+
+  const confirmCover = async (file: File) => {
+    if (!cropTargetId) {
+      setCoverFile(file);
+      setCropFile(null);
+      return;
+    }
+    setUpdatingCover(true);
+    let uploadedPath: string | null = null;
+    try {
+      const uploaded = await uploadCover(file);
+      uploadedPath = uploaded.path;
+      const { data, error } = await supabase.from("lives")
+        .update({ thumbnail_url: uploaded.url })
+        .eq("id", cropTargetId).eq("creator_id", user!.id).eq("status", "waiting")
+        .select("id").maybeSingle();
+      if (error || !data) throw error || new Error("A live não aceita mais alterações.");
+      setCropFile(null);
+      toast.success("Capa da live atualizada.");
+      await loadLives();
+    } catch {
+      if (uploadedPath) await supabase.storage.from("contents").remove([uploadedPath]);
+      toast.error("Não foi possível atualizar a capa. Tente novamente.");
+    } finally { setUpdatingCover(false); }
+  };
 
   const createLive = async () => {
-    if (!title.trim() || creating) return;
+    if (!title.trim() || !coverFile || creating) return;
     setCreating(true);
+    let uploadedPath: string | null = null;
+    let uploadedUrl: string | null = null;
     try {
+      const uploaded = await uploadCover(coverFile);
+      uploadedPath = uploaded.path;
+      uploadedUrl = uploaded.url;
       const { data, error } = await supabase.functions.invoke("live-control", {
-        body: { action: "create", title: title.trim(), description: description.trim() },
+        body: { action: "create", title: title.trim(), description: description.trim(), thumbnailUrl: uploaded.url },
       });
       if (error || !data?.liveId) throw error || new Error("Transmissão não criada");
       navigate(`/live/${data.liveId}/broadcast`);
     } catch {
+      if (uploadedPath && uploadedUrl) {
+        const { data: existing, error: lookupError } = await supabase.from("lives")
+          .select("id").eq("creator_id", user!.id).eq("thumbnail_url", uploadedUrl).maybeSingle();
+        if (existing?.id) { navigate(`/live/${existing.id}/broadcast`); return; }
+        if (!lookupError) await supabase.storage.from("contents").remove([uploadedPath]);
+      }
       toast.error("Não foi possível preparar a live agora. Tente novamente em instantes.");
     } finally { setCreating(false); }
   };
@@ -137,6 +207,10 @@ export default function StudioLive() {
               {openLive ? <div className="live-studio-open">
                 <V2Badge variant={openLive.status === "live" ? "accent" : "warning"}>{openLive.status === "live" ? "Ao vivo" : "Aguardando início"}</V2Badge>
                 <strong>{openLive.title}</strong>
+                {openLive.status === "waiting" && <div className="live-studio-cover live-studio-cover--open">
+                  {openLive.thumbnail_url ? <img src={openLive.thumbnail_url} alt="Capa da live preparada" /> : <span className="live-studio-cover__empty"><ImagePlus aria-hidden="true" /> Esta live ainda não tem capa</span>}
+                  <button type="button" disabled={updatingCover} onClick={() => { setCropTargetId(openLive.id); coverInputRef.current?.click(); }}>{updatingCover ? "Enviando..." : openLive.thumbnail_url ? "Trocar capa" : "Adicionar capa"}</button>
+                </div>}
                 <V2Button onClick={() => navigate(`/live/${openLive.id}/broadcast`)} trailingIcon={<ArrowRight aria-hidden="true" />}>Entrar na transmissão</V2Button>
                 {openLive.status === "waiting" && !openLive.livekit_egress_id && <V2Button variant="quiet" size="sm" leadingIcon={<Trash2 aria-hidden="true" />} onClick={() => setDiscardTarget(openLive)}>Descartar preparação</V2Button>}
               </div> : <div className="live-beta-form">
@@ -144,7 +218,13 @@ export default function StudioLive() {
                 <input id="live-title" value={title} maxLength={150} onChange={(event) => setTitle(event.target.value)} placeholder="Ex.: Apresentação do meu negócio" />
                 <label htmlFor="live-description">Descrição <span>(opcional)</span></label>
                 <textarea id="live-description" value={description} maxLength={1000} onChange={(event) => setDescription(event.target.value)} placeholder="O que o público vai encontrar nessa live?" rows={3} />
-                <V2Button disabled={creating || title.trim().length < 3} leadingIcon={creating ? <Loader2 className="animate-spin" /> : <Radio />} onClick={() => void createLive()}>{creating ? "Preparando..." : "Preparar live"}</V2Button>
+                <label>Capa da live <span>· obrigatória · 16:9</span></label>
+                <div className="live-studio-cover">
+                  {coverPreview ? <img src={coverPreview} alt="Prévia da capa da live" /> : <span className="live-studio-cover__empty"><ImagePlus aria-hidden="true" /> Sua live começa com uma boa capa</span>}
+                  <button type="button" onClick={() => { setCropTargetId(null); coverInputRef.current?.click(); }}>{coverPreview ? "Trocar imagem" : "Escolher imagem"}</button>
+                </div>
+                <p className="live-studio-cover__hint">JPG, PNG ou WebP até 10 MB. Ajuste o enquadramento antes de publicar.</p>
+                <V2Button disabled={creating || title.trim().length < 3 || !coverFile} leadingIcon={creating ? <Loader2 className="animate-spin" /> : <Radio />} onClick={() => void createLive()}>{creating ? "Preparando..." : "Preparar live"}</V2Button>
               </div>}
             </V2CardContent>
           </V2Card>
@@ -174,6 +254,8 @@ export default function StudioLive() {
         </div>
       </div>
     </CreatorTemplate>
+    <input ref={coverInputRef} type="file" accept="image/jpeg,image/png,image/webp" className="live-studio-cover__input" aria-label="Selecionar capa da live" onChange={(event) => { chooseCover(event.target.files?.[0], cropTargetId); event.target.value = ""; }} />
+    {cropFile && <div className="live-studio-cover-editor" role="dialog" aria-modal="true" aria-label="Ajustar capa da live"><div className="live-studio-cover-editor__content"><CoverImageCropper file={cropFile} targetAspect={16 / 9} onConfirm={confirmCover} onCancel={() => { if (!updatingCover) setCropFile(null); }} /></div></div>}
     <V2ConfirmDialog open={Boolean(discardTarget)} onOpenChange={(open) => { if (!open) setDiscardTarget(null); }}
       title="Descartar esta live?" description="A gravação, o chat e o histórico desta transmissão serão removidos permanentemente. Esta ação não pode ser desfeita."
       summary={discardTarget?.title} items={["Remover a gravação armazenada", "Encerrar e remover os recursos da transmissão", "Apagar o registro desta live na Classfy"]}

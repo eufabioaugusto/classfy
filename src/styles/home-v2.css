@@ -24,8 +24,9 @@
 .cf2-home-live { min-width: 0; padding: 0; overflow: hidden; border: 1px solid var(--cf2-border); border-radius: var(--cf2-radius-panel); color: var(--cf2-ink); background: var(--cf2-surface); text-align: left; cursor: pointer; transition: border-color 180ms ease, transform 180ms ease; }
 .cf2-home-live:hover { border-color: var(--cf2-accent); transform: translateY(-2px); }
 .cf2-home-live:focus-visible { outline: 2px solid var(--cf2-accent); outline-offset: 3px; }
-.cf2-home-live__visual { position: relative; display: grid; aspect-ratio: 16 / 8; place-items: center; overflow: hidden; background: radial-gradient(circle at 75% 20%, #6c202d 0, transparent 34%), linear-gradient(135deg, #25282e, #101115 70%); }
-.cf2-home-live__visual > img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; opacity: 0.58; }
+.cf2-home-live__visual { position: relative; display: grid; aspect-ratio: 16 / 9; place-items: center; overflow: hidden; background: radial-gradient(circle at 75% 20%, #6c202d 0, transparent 34%), linear-gradient(135deg, #25282e, #101115 70%); }
+.cf2-home-live__visual > img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.cf2-home-live__visual:has(img) .cf2-home-live__radio { display: none; }
 .cf2-home-live__radio { width: 2.5rem; height: 2.5rem; color: #fff; opacity: 0.75; }
 .cf2-home-live__badge { position: absolute; z-index: 1; top: 0.85rem; left: 0.85rem; display: inline-flex; align-items: center; gap: 0.4rem; padding: 0.35rem 0.6rem; border-radius: 0.4rem; color: #fff; background: #d6344d; font-size: 0.68rem; font-weight: 750; letter-spacing: 0.05em; }
 .cf2-home-live__badge > span { width: 0.4rem; height: 0.4rem; border-radius: 50%; background: #fff; box-shadow: 0 0 0 3px rgba(255,255,255,0.18); }
@@ -39,7 +40,7 @@
 .cf2-home-live__footer svg { width: 0.85rem; height: 0.85rem; }
 .cf2-home-live__footer > span:last-child { color: var(--cf2-accent); font-weight: 650; }
 @media (max-width: 900px) { .cf2-home-lives__grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-@media (max-width: 620px) { .cf2-home-lives__grid { grid-template-columns: 1fr; } .cf2-home-live__visual { aspect-ratio: 16 / 7; } }
+@media (max-width: 620px) { .cf2-home-lives__grid { grid-template-columns: 1fr; } }
 
 /* The Home opens with a real piece of content, not a promotional banner. */
 .cf2-home-hero {

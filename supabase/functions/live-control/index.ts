@@ -109,6 +109,13 @@ Deno.serve(async (req) => {
       const title = String(body.title || '').trim().slice(0, 150);
       const description = String(body.description || '').trim().slice(0, 1000);
       if (title.length < 3) return json({ error: 'Title is required' }, 400);
+      const thumbnailUrl = typeof body.thumbnailUrl === 'string' ? body.thumbnailUrl : '';
+      const storageOrigin = Deno.env.get('SUPABASE_URL');
+      const coverPath = storageOrigin && new URL(`storage/v1/object/public/contents/thumbnails/${user.id}/lives/`, `${storageOrigin.replace(/\/$/, '')}/`).toString();
+      if (!coverPath || !thumbnailUrl.startsWith(coverPath) ||
+        !/^[0-9a-f-]{36}\.jpg$/i.test(thumbnailUrl.slice(coverPath.length))) {
+        return json({ error: 'Live cover is required' }, 400);
+      }
       stage = 'configure LiveKit';
       liveKitConfig(); // Fail before allocating a Mux stream.
       stage = 'check open lives';
@@ -123,7 +130,7 @@ Deno.serve(async (req) => {
       try {
         stage = 'save live';
         const { error: liveError } = await client.from('lives').insert({
-          id: newId, creator_id: user.id, title, description: description || null,
+          id: newId, creator_id: user.id, title, description: description || null, thumbnail_url: thumbnailUrl,
           status: 'waiting', visibility: 'free', gifts_enabled: false,
           mux_live_stream_id: mux.id, mux_live_playback_id: mux.playbackId,
         });
@@ -300,6 +307,14 @@ Deno.serve(async (req) => {
       stage = 'discard live record';
       const { error: deleteError } = await client.from('lives').delete().eq('id', liveId);
       if (deleteError) throw deleteError;
+      const coverPrefix = `${Deno.env.get('SUPABASE_URL')?.replace(/\/$/, '')}/storage/v1/object/public/contents/`;
+      if (typeof live.thumbnail_url === 'string' && live.thumbnail_url.startsWith(coverPrefix)) {
+        const path = live.thumbnail_url.slice(coverPrefix.length);
+        if (new RegExp(`^thumbnails/${live.creator_id}/lives/[0-9a-f-]{36}\\.jpg$`, 'i').test(path)) {
+          const { error: coverError } = await client.storage.from('contents').remove([path]);
+          if (coverError) console.warn('[live-control] could not remove live cover');
+        }
+      }
       return json({ discarded: true });
     }
     if (action === 'publish') {
