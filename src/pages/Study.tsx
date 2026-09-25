@@ -246,9 +246,8 @@ const buildInitialAssistantReply = (
   const cleanTopic = sanitizeStudyTopic(studyTitle) || studyTitle;
 
   return [
-    `${greetingPrefix} Vamos estruturar seu estudo em ${cleanTopic}.`,
-    "Antes de eu te guiar, quero calibrar rapidinho seu ponto de partida.",
-    "Você já teve algum contato com esse tema, ou está começando do zero?",
+    `${greetingPrefix} Vamos estudar ${cleanTopic} do seu jeito.`,
+    "Você já conhece um pouco do assunto ou prefere começar do zero?",
   ].join("\n\n");
 };
 

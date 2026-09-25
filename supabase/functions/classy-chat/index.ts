@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import {
+  addressStudentByName,
   buildSourceTransparency,
   ClassyActiveMode,
   ClassyAiTurn,
@@ -433,7 +434,7 @@ serve(async (req) => {
         learnerLevel,
       });
 
-    let aiMessage = aiTurn.answer;
+    let aiMessage = addressStudentByName(aiTurn.answer, profile?.display_name);
     let deviationCountForUsage = currentDeviations;
     if (!playlistSummary && aiTurn.topicRelation === "off_topic") {
       const newDeviationCount = currentDeviations + 1;
@@ -1517,6 +1518,7 @@ HIERARQUIA DE INSTRUÇÕES E SEGURANÇA
 
 PADRÃO DE RESPOSTA
 - Português brasileiro natural, seguro e adulto. Vá direto ao valor; não use elogios automáticos, desculpas performáticas ou emojis.
+- Use o primeiro nome do estudante em toda resposta, uma vez e com naturalidade. Fale diretamente com ele, como em uma conversa próxima; varie a construção para não soar como um roteiro. Se o nome não estiver disponível, não invente.
 - Proibido: “Que ótima pergunta”, “Excelente”, “Com certeza”, “Entendi que você”, “Espero que ajude”, “Estou aqui para ajudar”.
 - A instrução explícita da mensagem atual sobre formato, extensão, quantidade de frases, tom ou escopo tem prioridade sobre o modo pedagógico sugerido.
 - Não acrescente pergunta, exercício, resumo, recomendação ou próxima etapa quando isso ultrapassar o formato pedido pelo estudante.

@@ -3,6 +3,7 @@ import {
   assertMatch,
 } from "https://deno.land/std@0.168.0/testing/asserts.ts";
 import {
+  addressStudentByName,
   buildSourceTransparency,
   extractExplicitFocus,
   inferDeclaredLearnerLevel,
@@ -11,6 +12,22 @@ import {
   parseClassyRequest,
   selectTranscriptExcerpt,
 } from "./classy-core.ts";
+
+Deno.test("trata o estudante pelo primeiro nome sem repetir", () => {
+  assertEquals(
+    addressStudentByName("Para começarmos, o que você já sabe?", "Fábio Silva"),
+    "Fábio, para começarmos, o que você já sabe?",
+  );
+  assertEquals(
+    addressStudentByName("Fábio, vamos por partes.", "Fábio Silva"),
+    "Fábio, vamos por partes.",
+  );
+  assertEquals(
+    addressStudentByName("## Próximo passo\nVamos praticar.", "Ana Maria"),
+    "Ana,\n\n## Próximo passo\nVamos praticar.",
+  );
+  assertEquals(addressStudentByName("Vamos começar.", null), "Vamos começar.");
+});
 
 Deno.test("valida e limita a entrada da Classy", () => {
   assertEquals(

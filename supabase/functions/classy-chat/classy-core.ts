@@ -5,6 +5,24 @@ export type ClassyActiveMode =
   | "practice"
   | "review"
   | "plan";
+
+export function addressStudentByName(answer: string, displayName?: string | null): string {
+  const firstName = displayName?.trim().split(/\s+/)[0];
+  if (!firstName || !/^[\p{L}][\p{L}'’-]*$/u.test(firstName) || !answer.trim()) {
+    return answer;
+  }
+
+  const escapedName = firstName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  if (new RegExp(`(?:^|[^\\p{L}])${escapedName}(?=$|[^\\p{L}])`, "iu").test(answer)) {
+    return answer;
+  }
+
+  const trimmedAnswer = answer.trimStart();
+  if (/^\p{Lu}\p{Ll}/u.test(trimmedAnswer)) {
+    return `${firstName}, ${trimmedAnswer[0].toLocaleLowerCase("pt-BR")}${trimmedAnswer.slice(1)}`;
+  }
+  return `${firstName},\n\n${trimmedAnswer}`;
+}
 export type ClassyLearnerLevel =
   | "beginner"
   | "intermediate"
