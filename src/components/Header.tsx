@@ -49,7 +49,7 @@ export function Header({ variant = "home", title, showSearch = false, isExploreM
         <div className="flex items-center gap-2 sm:gap-4 flex-shrink-0">
           <SidebarTrigger />
           {/* Logo visible only on mobile when menu is closed */}
-          <span className="text-xl font-bold text-foreground sm:hidden">Classfy</span>
+          <span className="classfy-wordmark text-xl text-foreground sm:hidden">Classfy</span>
           {title && <h1 className="text-lg sm:text-2xl font-bold text-foreground truncate max-w-[150px] sm:max-w-none hidden sm:block">{title}</h1>}
         </div>
 

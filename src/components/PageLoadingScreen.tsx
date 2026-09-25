@@ -10,7 +10,7 @@ export function PageLoadingScreen({ label = "Carregando", live = false }: Props)
   return <main className="classfy-page-loading" data-live={live} role="status" aria-label={label}>
     <span className="classfy-page-loading__progress" aria-hidden="true" />
     <div className="classfy-page-loading__center">
-      <span className="classfy-page-loading__brand">Classfy<span aria-hidden="true">.</span></span>
+      <span className="classfy-wordmark classfy-page-loading__brand">Classfy</span>
       {live && <span className="classfy-page-loading__context">Live</span>}
       <p>{label}</p>
     </div>

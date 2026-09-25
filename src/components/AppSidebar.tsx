@@ -292,8 +292,8 @@ export function AppSidebar() {
                 onClick={() => navigate("/")}
                 className={`flex items-center ${collapsed ? "h-10 w-10 justify-center" : ""}`}
               >
-                {!collapsed && <span className="text-xl font-bold text-foreground">Classfy</span>}
-                {collapsed && <span className="text-xl font-bold text-foreground">C</span>}
+                {!collapsed && <span className="classfy-wordmark text-xl text-foreground">Classfy</span>}
+                {collapsed && <span className="classfy-wordmark text-xl text-foreground">C</span>}
               </div>
             </div>
 
