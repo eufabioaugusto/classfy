@@ -1,0 +1,27 @@
+.classfy-page-loading {
+  position: fixed;
+  z-index: 50;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  background: hsl(var(--background));
+  color: hsl(var(--foreground));
+}
+
+.classfy-page-loading[data-live="true"] { background: #090b10; color: #f7f8fa; }
+.classfy-page-loading__progress { position: absolute; top: 0; left: 0; right: 0; height: 2px; overflow: hidden; background: rgba(228, 66, 91, .12); }
+.classfy-page-loading__progress::after { position: absolute; inset: 0 auto 0 0; width: 38%; background: #e4425b; content: ""; animation: classfy-page-loading-sweep 1.45s cubic-bezier(.45, 0, .55, 1) infinite; }
+.classfy-page-loading__center { display: grid; justify-items: center; gap: .45rem; animation: classfy-page-loading-reveal .3s ease-out .18s both; }
+.classfy-page-loading__brand { font-size: clamp(1.45rem, 3vw, 1.8rem); font-weight: 750; letter-spacing: -.06em; line-height: 1; }
+.classfy-page-loading__brand span { color: #e4425b; }
+.classfy-page-loading__context { margin-top: .05rem; color: #e4425b; font-size: .68rem; font-weight: 700; letter-spacing: .04em; }
+.classfy-page-loading p { margin: .5rem 0 0; color: hsl(var(--muted-foreground)); font-size: .82rem; font-weight: 450; }
+.classfy-page-loading[data-live="true"] p { color: rgba(247, 248, 250, .58); }
+
+@keyframes classfy-page-loading-sweep { from { transform: translateX(-105%); } to { transform: translateX(270%); } }
+@keyframes classfy-page-loading-reveal { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+@media (prefers-reduced-motion: reduce) {
+  .classfy-page-loading__progress::after, .classfy-page-loading__center { animation: none; }
+  .classfy-page-loading__progress::after { width: 100%; transform: none; }
+}

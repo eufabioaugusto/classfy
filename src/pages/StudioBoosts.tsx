@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
 import { AppShell, PageHeader } from "@/components/layout";
+import { GlobalLoader } from "@/components/GlobalLoader";
 import { CreatorTemplate } from "@/components/templates";
 import { StudioMetricCard } from "@/components/studio/StudioMetricCard";
 import { StudioNavigation } from "@/components/studio/StudioNavigation";
@@ -118,7 +119,7 @@ export default function StudioBoosts() {
     }
   };
 
-  if (authLoading) return <div className="cf-v2 min-h-screen grid place-items-center bg-[var(--cf2-canvas)]"><div className="cf2-state"><span className="cf2-state__spinner" /><strong>Carregando seus boosts...</strong></div></div>;
+  if (authLoading) return <GlobalLoader label="Carregando boosts" />;
   if (!user || (role !== "creator" && role !== "admin")) return <Navigate to="/" replace />;
 
   return (

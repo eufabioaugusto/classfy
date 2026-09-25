@@ -56,8 +56,8 @@ export function useCreatorMilestones(creatorId?: string) {
   const { toast } = useToast();
 
   const fetchCreatorStats = useCallback(async (userId: string): Promise<CreatorStats> => {
-    // Fetch total contents
-    const [{ count: contentsCount }, { count: coursesCount }] = await Promise.all([
+    // Start independent aggregates together instead of waiting through four stages.
+    const [contentsCountResult, coursesCountResult, followersResult, contentsResult, coursesResult, walletResult] = await Promise.all([
       supabase
         .from('contents')
         .select('*', { count: 'exact', head: true })
@@ -69,16 +69,7 @@ export function useCreatorMilestones(creatorId?: string) {
         .select('*', { count: 'exact', head: true })
         .eq('creator_id', userId)
         .eq('status', 'approved'),
-    ]);
-
-    // Fetch total followers
-    const { count: followersCount } = await supabase
-      .from('follows')
-      .select('*', { count: 'exact', head: true })
-      .eq('following_id', userId);
-
-    // Fetch total views
-    const [{ data: contentsData }, { data: coursesData }] = await Promise.all([
+      supabase.from('follows').select('*', { count: 'exact', head: true }).eq('following_id', userId),
       supabase
         .from('contents')
         .select('views_count, likes_count')
@@ -90,17 +81,17 @@ export function useCreatorMilestones(creatorId?: string) {
         .select('views_count')
         .eq('creator_id', userId)
         .eq('status', 'approved'),
+      supabase.from('wallets').select('total_earned').eq('user_id', userId).single(),
     ]);
+    const contentsCount = contentsCountResult.count;
+    const coursesCount = coursesCountResult.count;
+    const followersCount = followersResult.count;
+    const contentsData = contentsResult.data;
+    const coursesData = coursesResult.data;
+    const walletData = walletResult.data;
     
     const totalViews = (contentsData?.reduce((sum, c) => sum + (c.views_count || 0), 0) || 0)
       + (coursesData?.reduce((sum, c) => sum + (c.views_count || 0), 0) || 0);
-
-    // Fetch total earnings from wallet
-    const { data: walletData } = await supabase
-      .from('wallets')
-      .select('total_earned')
-      .eq('user_id', userId)
-      .single();
 
     // Calculate engagement rate (likes / views * 100)
     const totalLikes = contentsData?.reduce((sum, c) => sum + (c.likes_count || 0), 0) || 0;
@@ -120,26 +111,16 @@ export function useCreatorMilestones(creatorId?: string) {
 
     setLoading(true);
     try {
-      // Fetch creator stats
-      const creatorStats = await fetchCreatorStats(creatorId);
+      const [creatorStats, milestonesResult, progressResult] = await Promise.all([
+        fetchCreatorStats(creatorId),
+        supabase.from('creator_milestones').select('*').eq('active', true).order('order_index'),
+        supabase.from('creator_milestone_progress').select('*').eq('creator_id', creatorId),
+      ]);
       setStats(creatorStats);
-
-      // Fetch all active milestones
-      const { data: milestonesData, error: milestonesError } = await supabase
-        .from('creator_milestones')
-        .select('*')
-        .eq('active', true)
-        .order('order_index');
-
-      if (milestonesError) throw milestonesError;
-
-      // Fetch progress for this creator
-      const { data: progressData, error: progressError } = await supabase
-        .from('creator_milestone_progress')
-        .select('*')
-        .eq('creator_id', creatorId);
-
-      if (progressError) throw progressError;
+      if (milestonesResult.error) throw milestonesResult.error;
+      if (progressResult.error) throw progressResult.error;
+      const milestonesData = milestonesResult.data;
+      const progressData = progressResult.data;
 
       // Map milestones with progress
       const milestonesWithProgress: MilestoneWithProgress[] = (milestonesData || []).map((milestone) => {

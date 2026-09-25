@@ -21,6 +21,7 @@ import {
   useCreatorMilestones,
 } from "@/hooks/useCreatorMilestones";
 import { AppShell, PageHeader } from "@/components/layout";
+import { GlobalLoader } from "@/components/GlobalLoader";
 import { CreatorTemplate } from "@/components/templates";
 import { StudioNavigation } from "@/components/studio/StudioNavigation";
 import {
@@ -128,13 +129,7 @@ export default function StudioGoals() {
   );
   const remaining = Math.max(0, totals.total - totals.completed);
 
-  if (authLoading || loading) {
-    return (
-      <div className="cf-v2 min-h-screen grid place-items-center bg-[var(--cf2-canvas)]">
-        <div className="cf2-state"><span className="cf2-state__spinner" /><strong>Organizando suas metas...</strong></div>
-      </div>
-    );
-  }
+  if (authLoading || loading) return <GlobalLoader label="Carregando metas" />;
 
   if (!user || (role !== "creator" && role !== "admin")) return <Navigate to="/" replace />;
 

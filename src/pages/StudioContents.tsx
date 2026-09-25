@@ -29,6 +29,7 @@ import {
   Zap,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
+import { GlobalLoader } from "@/components/GlobalLoader";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { useBoostContent } from "@/hooks/useBoostContent";
@@ -726,15 +727,7 @@ export default function StudioContents() {
       year: "numeric",
     });
 
-  if (loading)
-    return (
-      <div className="cf-v2 min-h-screen grid place-items-center bg-[var(--cf2-canvas)]">
-        <div className="cf2-state">
-          <span className="cf2-state__spinner" />
-          <strong>Carregando seu catálogo...</strong>
-        </div>
-      </div>
-    );
+  if (loading) return <GlobalLoader label="Carregando conteúdos" />;
   if (!user || (role !== "creator" && role !== "admin"))
     return <Navigate to="/" replace />;
 

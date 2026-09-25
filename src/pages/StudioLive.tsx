@@ -210,7 +210,7 @@ export default function StudioLive() {
     } finally { setDiscardingId(null); }
   };
 
-  if (loading) return <LiveLoadingScreen title="Preparando seu Studio" description="Seu espaço para entrar ao vivo está quase pronto." />;
+  if (loading) return <LiveLoadingScreen title="Carregando suas lives" />;
   if (!user || (role !== "creator" && role !== "admin")) return <Navigate to="/" replace />;
   const openLive = lives.find((live) => live.mux_live_stream_id && (live.status === "waiting" || live.status === "live"));
   const history = lives.filter((live) => live.id !== openLive?.id);

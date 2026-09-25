@@ -257,7 +257,7 @@ export default function LiveBroadcast() {
     finally { setNotifyingFollowers(false); }
   };
 
-  if (loading) return <LiveLoadingScreen title="Abrindo a transmissão" description="Preparando seu espaço antes de entrar ao vivo." dark />;
+  if (loading) return <LiveLoadingScreen title="Abrindo sua live" dark />;
   if (!live) return null;
   if (!live.mux_live_stream_id) return <main className="min-h-screen grid place-items-center bg-[#0c0d0f] p-6 text-white"><div className="max-w-md text-center space-y-4"><Radio className="mx-auto h-10 w-10 text-white/50" /><h1 className="text-2xl font-semibold">Esta live antiga não tem sinal de vídeo</h1><p className="text-white/60">Ela foi criada antes da transmissão pelo navegador. Prepare uma nova live no Studio para usar câmera e microfone.</p><Button onClick={() => navigate("/studio/live")}>Criar nova live</Button></div></main>;
   if (live.status === "ended" || live.status === "cancelled") return <main className="min-h-screen grid place-items-center bg-[#0c0d0f] p-6 text-white"><div className="max-w-md text-center space-y-4"><Radio className="mx-auto h-10 w-10 text-white/50" /><h1 className="text-2xl font-semibold">Transmissão encerrada</h1><p className="text-white/60">Confira a gravação no Studio quando ela estiver pronta.</p><Button onClick={() => navigate("/studio/live")}>Voltar ao Studio</Button></div></main>;

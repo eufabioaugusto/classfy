@@ -15,6 +15,7 @@ import { BarChart3, Clock, Eye, Heart, MessageSquare, Plus, Target, Users } from
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
 import { AppShell, PageHeader } from "@/components/layout";
+import { GlobalLoader } from "@/components/GlobalLoader";
 import { CreatorTemplate } from "@/components/templates";
 import { StudioMetricCard } from "@/components/studio/StudioMetricCard";
 import { StudioNavigation } from "@/components/studio/StudioNavigation";
@@ -193,7 +194,7 @@ export default function StudioAnalytics() {
     void fetchAnalytics();
   }, [selectedContent, selectedPeriod, user]);
 
-  if (loading) return <div className="cf-v2 min-h-screen grid place-items-center bg-[var(--cf2-canvas)]"><div className="cf2-state"><span className="cf2-state__spinner" /><strong>Carregando Analytics...</strong></div></div>;
+  if (loading) return <GlobalLoader label="Carregando Analytics" />;
   if (!user || (role !== "creator" && role !== "admin")) return <Navigate to="/" replace />;
 
   const totalInteractions = totalStats.totalLikes + totalStats.totalSaves + totalStats.totalFavorites + totalStats.totalComments;

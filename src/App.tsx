@@ -69,11 +69,18 @@ function AppContent() {
   const isMobile = useIsMobile();
   const backgroundLocation = isMobile ? (location.state as any)?.backgroundLocation : null;
   const isBroadcastRoute = /^\/live\/[^/]+\/broadcast\/?$/.test(location.pathname);
+  const loadingLabels: Record<string, string> = {
+    "/studio": "Carregando Studio",
+    "/studio/goals": "Carregando metas",
+    "/studio/analytics": "Carregando Analytics",
+    "/studio/contents": "Carregando conteúdos",
+    "/studio/boosts": "Carregando boosts",
+  };
   const liveOpening = isBroadcastRoute
-    ? <LiveLoadingScreen title="Abrindo a transmissão" description="Preparando seu espaço antes de entrar ao vivo." dark />
+    ? <LiveLoadingScreen title="Abrindo sua live" dark />
     : location.pathname === "/studio/live"
-      ? <LiveLoadingScreen title="Preparando seu Studio" description="Seu espaço para entrar ao vivo está quase pronto." />
-      : <GlobalLoader />;
+      ? <LiveLoadingScreen title="Carregando suas lives" />
+      : <GlobalLoader label={loadingLabels[location.pathname]} />;
 
   // Track referral clicks
   useEffect(() => {

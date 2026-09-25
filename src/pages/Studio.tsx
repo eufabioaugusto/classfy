@@ -21,6 +21,7 @@ import { useIsMobile } from "@/hooks/use-mobile";
 import { useCreatorMilestones } from "@/hooks/useCreatorMilestones";
 import { supabase } from "@/integrations/supabase/client";
 import { AppShell, PageHeader } from "@/components/layout";
+import { GlobalLoader } from "@/components/GlobalLoader";
 import { CreatorTemplate } from "@/components/templates";
 import {
   V2Button,
@@ -209,13 +210,7 @@ export default function Studio() {
     };
   }, [stats.last7DaysViews, stats.pendingContents, stats.totalContents]);
 
-  if (loading || isLoading) {
-    return (
-      <div className="cf-v2 min-h-screen grid place-items-center bg-[var(--cf2-canvas)]">
-        <div className="cf2-state"><span className="cf2-state__spinner" /><strong>Preparando seu Studio...</strong></div>
-      </div>
-    );
-  }
+  if (loading || isLoading) return <GlobalLoader label="Carregando Studio" />;
 
   if (!user || (role !== "creator" && role !== "admin")) return <Navigate to="/" replace />;
 
