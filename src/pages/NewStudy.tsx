@@ -51,6 +51,7 @@ export default function NewStudy() {
       if (result?.error === "LIMIT_REACHED") { setUpgradeOpen(true); return; }
       if (!result || result.error || !result.data) throw result?.error || new Error("STUDY_CREATION_FAILED");
       void trackUserInteraction({ userId: user.id, action: "search", title: topic });
+      sessionStorage.setItem(`classfy:pending-study-prompt:${result.data.id}`, topic);
       navigate(`/c/${result.data.id}`, { replace: true, state: { initialPrompt: topic } });
     } catch (error) {
       console.error("Could not create study:", error);

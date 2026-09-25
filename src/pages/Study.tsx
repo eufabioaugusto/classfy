@@ -484,6 +484,7 @@ function StudyContent() {
 
   useEffect(() => {
     const isFreshStudy = Number(study?.message_count || 0) === 0;
+    const pendingPrompt = id ? sessionStorage.getItem(`classfy:pending-study-prompt:${id}`) : null;
 
     if (
       study &&
@@ -492,6 +493,7 @@ function StudyContent() {
       !initialMessageTriggeredRef.current &&
       !firstPromptTriggeredRef.current &&
       !location.state?.initialPrompt &&
+      !pendingPrompt &&
       !initialMessageSent &&
       !loading &&
       !sending
@@ -768,6 +770,7 @@ function StudyContent() {
       setMessages(fetchedMessages);
       if (fetchedMessages.length > 0) {
         setInitialMessageSent(true);
+        sessionStorage.removeItem(`classfy:pending-study-prompt:${id}`);
       }
 
       if (data) {
@@ -1002,10 +1005,10 @@ function StudyContent() {
   const handleSend = async (messageOverride?: string) => {
     if (isChatLocked) {
       toast.error("Limite atingido. Faça upgrade para continuar.");
-      return;
+      return false;
     }
     const resolvedMessage = (messageOverride ?? input).trim();
-    if (!resolvedMessage || !id || !user) return;
+    if (!resolvedMessage || !id || !user) return false;
 
     const userMessage = resolvedMessage;
     const optimisticUserMessage: StudyMessage = {
@@ -1066,7 +1069,9 @@ function StudyContent() {
           maxMessages: aiData.usage?.maxMessages || messageLimit,
         });
 
-        return;
+        setMessages((current) => current.filter((message) => message.id !== optimisticUserMessage.id));
+        setInput(userMessage);
+        return false;
       }
 
       // Update usage info
@@ -1099,26 +1104,42 @@ function StudyContent() {
       if (updatedStudy) {
         setStudy(updatedStudy);
       }
+      sessionStorage.removeItem(`classfy:pending-study-prompt:${id}`);
+      return true;
     } catch (error: any) {
       console.error("Error sending message:", error);
       setMessages((current) =>
         current.filter((message) => message.id !== optimisticUserMessage.id),
       );
-      toast.error("Erro ao enviar mensagem");
+      setInput(userMessage);
+      const response = error?.context;
+      let serviceMessage = "";
+      if (response instanceof Response) {
+        try {
+          serviceMessage = (await response.clone().json())?.error || "";
+        } catch {
+          // Keep the retry message if the service response is not JSON.
+        }
+      }
+      toast.error(serviceMessage.includes("AI gateway error: 503")
+        ? "A Classy está temporariamente indisponível. Sua mensagem foi preservada; tente novamente."
+        : "Não foi possível enviar. Sua mensagem foi preservada; tente novamente.");
+      return false;
     } finally {
       setSending(false);
     }
   };
 
   useEffect(() => {
-    const firstPrompt = (location.state as { initialPrompt?: string } | null)?.initialPrompt?.trim();
+    const firstPrompt = ((location.state as { initialPrompt?: string } | null)?.initialPrompt ||
+      (id ? sessionStorage.getItem(`classfy:pending-study-prompt:${id}`) : null))?.trim();
     if (!firstPrompt || firstPromptTriggeredRef.current || !study || loading || loadingMessages || messages.length > 0) return;
 
     firstPromptTriggeredRef.current = true;
     setInitialMessageSent(true);
     void handleSend(firstPrompt);
     navigate(location.pathname, { replace: true, state: null });
-  }, [study, loading, loadingMessages, messages.length, location.state, location.pathname, navigate, handleSend]);
+  }, [id, study, loading, loadingMessages, messages.length, location.state, location.pathname, navigate, handleSend]);
 
   const handleRename = async () => {
     if (!newTitle.trim() || !id) return;

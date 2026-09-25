@@ -28,6 +28,7 @@ const DEFAULT_LIMITS = {
 
 const MODELS = {
   main: Deno.env.get("CLASSY_MODEL") || "google/gemini-3.8-flash",
+  fallback: Deno.env.get("CLASSY_FALLBACK_MODEL") || "google/gemini-2.5-flash",
 };
 
 type AiProvider = "gemini" | "openrouter" | "lovable" | "none";
@@ -1581,7 +1582,7 @@ async function generateAiMessage(
     hasTranscript: boolean;
   },
 ): Promise<ClassyAiTurn> {
-  const completion = await requestAiCompletion({
+  const request = {
     model: MODELS.main,
     systemPrompt,
     messages: [
@@ -1591,7 +1592,17 @@ async function generateAiMessage(
     temperature: playlistSummary ? 0.35 : 0.45,
     maxTokens: 1_400,
     jsonMode: true,
-  });
+  };
+  let completion = await requestAiCompletion(request);
+  if ([502, 503, 504].includes(completion.response.status)) {
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    completion = await requestAiCompletion(request);
+  }
+  if ([502, 503, 504].includes(completion.response.status) &&
+    MODELS.fallback !== MODELS.main) {
+    console.warn(`Classy model ${MODELS.main} unavailable; trying ${MODELS.fallback}`);
+    completion = await requestAiCompletion({ ...request, model: MODELS.fallback });
+  }
 
   if (!completion.response.ok) {
     if (completion.response.status === 429) {
