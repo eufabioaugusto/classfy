@@ -25,6 +25,7 @@ interface Live {
   started_at: string | null;
   viewer_count: number;
   creator_id: string;
+  chat_enabled?: boolean | null;
   mux_live_stream_id?: string | null;
   replay_published_at?: string | null;
   creator?: {
@@ -127,7 +128,7 @@ export default function LiveWatch() {
   useEffect(() => {
     if (!id || (live?.status !== "waiting" && live?.status !== "live")) return;
     const timer = window.setInterval(() => {
-      void supabase.from("lives").select("status, started_at, mux_live_stream_id, replay_published_at").eq("id", id).single()
+      void supabase.from("lives").select("status, started_at, mux_live_stream_id, replay_published_at, chat_enabled").eq("id", id).single()
         .then(({ data }) => { if (data) setLive(prev => prev ? { ...prev, ...data } : prev); });
     }, live.status === "waiting" ? 2000 : 5000);
     return () => window.clearInterval(timer);
@@ -355,6 +356,7 @@ export default function LiveWatch() {
             isSending={isSending}
             onSendMessage={sendMessage}
             isCreator={false}
+            chatEnabled={live.chat_enabled !== false}
             className="h-full"
           />
         </div>

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { Room, RoomEvent } from "livekit-client";
-import { ArrowLeft, Camera, Copy, Loader2, MessageCircle, Mic, MicOff, Radio, RotateCw, Users, VideoOff, X } from "lucide-react";
+import { ArrowLeft, Bell, Camera, Copy, Loader2, MessageCircle, Mic, MicOff, Radio, RotateCw, Users, VideoOff, X } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
@@ -17,7 +17,7 @@ import { useLiveDiagnostics } from "@/hooks/useLiveDiagnostics";
 import { sampleLiveRtcStats } from "@/lib/liveRtcStats";
 import "@/styles/live-broadcast.css";
 
-type Live = { id: string; creator_id: string; title: string; status: "waiting" | "live" | "ended" | "cancelled"; started_at: string | null; mux_live_stream_id: string | null; livekit_egress_id: string | null };
+type Live = { id: string; creator_id: string; title: string; status: "waiting" | "live" | "ended" | "cancelled"; started_at: string | null; mux_live_stream_id: string | null; livekit_egress_id: string | null; chat_enabled: boolean | null; followers_notified_at: string | null };
 
 export default function LiveBroadcast() {
   const { id } = useParams();
@@ -27,6 +27,8 @@ export default function LiveBroadcast() {
   const [loading, setLoading] = useState(true);
   const [starting, setStarting] = useState(false);
   const [ending, setEnding] = useState(false);
+  const [togglingChat, setTogglingChat] = useState(false);
+  const [notifyingFollowers, setNotifyingFollowers] = useState(false);
   const [endConfirmOpen, setEndConfirmOpen] = useState(false);
   const [publishing, setPublishing] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
@@ -51,7 +53,7 @@ export default function LiveBroadcast() {
   useEffect(() => {
     if (!id || !user) return;
     let active = true;
-    void supabase.from("lives").select("id, creator_id, title, status, started_at, mux_live_stream_id, livekit_egress_id").eq("id", id).single().then(({ data, error }) => {
+    void supabase.from("lives").select("id, creator_id, title, status, started_at, mux_live_stream_id, livekit_egress_id, chat_enabled, followers_notified_at").eq("id", id).single().then(({ data, error }) => {
       if (!active) return;
       if (error || !data || data.creator_id !== user.id) {
         toast.error("Transmissão indisponível para esta conta.");
@@ -112,7 +114,7 @@ export default function LiveBroadcast() {
       void supabase.functions.invoke("live-control", { body: { action: "sync", liveId: id } })
         .then(({ data, error }) => {
           if (error || data?.status !== "live") return;
-          void supabase.from("lives").select("id, creator_id, title, status, started_at, mux_live_stream_id, livekit_egress_id").eq("id", id).single()
+          void supabase.from("lives").select("id, creator_id, title, status, started_at, mux_live_stream_id, livekit_egress_id, chat_enabled, followers_notified_at").eq("id", id).single()
             .then(({ data: refreshed }) => { if (refreshed) setLive(refreshed as Live); });
         });
     }, 2000);
@@ -230,6 +232,31 @@ export default function LiveBroadcast() {
     toast.success("Link da transmissão copiado.");
   };
 
+  const toggleChat = async () => {
+    if (!id || !live || togglingChat) return;
+    setTogglingChat(true);
+    try {
+      const enabled = live.chat_enabled === false;
+      const { data, error } = await supabase.functions.invoke("live-control", { body: { action: "set-chat", liveId: id, enabled } });
+      if (error || typeof data?.chatEnabled !== "boolean") throw error ?? new Error("Chat unavailable");
+      setLive(previous => previous ? { ...previous, chat_enabled: data.chatEnabled } : previous);
+      toast.success(data.chatEnabled ? "Chat ativado." : "Chat desativado.");
+    } catch { toast.error("Não foi possível alterar o chat."); }
+    finally { setTogglingChat(false); }
+  };
+
+  const notifyFollowers = async () => {
+    if (!id || live?.status !== "live" || live.followers_notified_at || notifyingFollowers) return;
+    setNotifyingFollowers(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("live-control", { body: { action: "notify-followers", liveId: id } });
+      if (error || typeof data?.notifiedCount !== "number") throw error ?? new Error("Notification unavailable");
+      setLive(previous => previous ? { ...previous, followers_notified_at: new Date().toISOString() } : previous);
+      toast.success(data.alreadyNotified ? "Seus seguidores já foram avisados." : data.notifiedCount ? `${data.notifiedCount} seguidores avisados.` : "Nenhum seguidor para avisar ainda.");
+    } catch { toast.error("Não foi possível avisar seus seguidores. Tente novamente."); }
+    finally { setNotifyingFollowers(false); }
+  };
+
   if (loading) return <LiveLoadingScreen title="Abrindo a transmissão" description="Preparando seu espaço antes de entrar ao vivo." dark />;
   if (!live) return null;
   if (!live.mux_live_stream_id) return <main className="min-h-screen grid place-items-center bg-[#0c0d0f] p-6 text-white"><div className="max-w-md text-center space-y-4"><Radio className="mx-auto h-10 w-10 text-white/50" /><h1 className="text-2xl font-semibold">Esta live antiga não tem sinal de vídeo</h1><p className="text-white/60">Ela foi criada antes da transmissão pelo navegador. Prepare uma nova live no Studio para usar câmera e microfone.</p><Button onClick={() => navigate("/studio/live")}>Criar nova live</Button></div></main>;
@@ -241,7 +268,7 @@ export default function LiveBroadcast() {
 
   const isWaiting = live.status === "waiting";
   const isConnecting = isWaiting && (starting || publishing);
-  const chat = <LiveChat messages={messages} pinnedMessage={pinnedMessage} isLoading={chatLoading} isSending={isSending} onSendMessage={sendMessage} onDeleteMessage={deleteMessage} onPinMessage={pinMessage} onUnpinMessage={unpinMessage} isCreator className="live-broadcast__chat-inner" />;
+  const chat = <LiveChat messages={messages} pinnedMessage={pinnedMessage} isLoading={chatLoading} isSending={isSending} onSendMessage={sendMessage} onDeleteMessage={deleteMessage} onPinMessage={pinMessage} onUnpinMessage={unpinMessage} isCreator chatEnabled={live.chat_enabled !== false} isTogglingChat={togglingChat} onToggleChat={() => void toggleChat()} className="live-broadcast__chat-inner" />;
 
   return <main className="live-broadcast" data-chat-open={chatOpen}>
     <div className="live-broadcast__stage" aria-hidden="true">
@@ -256,7 +283,7 @@ export default function LiveBroadcast() {
         <div className="live-broadcast__title"><span className="live-broadcast__brand">CLASSFY LIVE</span><h1>{live.title}</h1></div>
       </div>
       <div className="live-broadcast__telemetry">
-        <span className={`live-broadcast__chip ${live.status === "live" ? "live-broadcast__chip--live" : ""}`}><span className="live-broadcast__status-dot" />{live.status === "live" ? `AO VIVO · ${timer}` : "PRÉVIA PRIVADA"}</span>
+        <span className={`live-broadcast__chip ${live.status === "live" ? "live-broadcast__chip--live" : ""}`}><span className="live-broadcast__status-dot" />{live.status === "live" ? `AO VIVO · ${timer}` : "Preview"}</span>
         <span className="live-broadcast__chip"><Users aria-hidden="true" />{viewerCount} assistindo</span>
       </div>
     </header>
@@ -306,9 +333,10 @@ export default function LiveBroadcast() {
       {stream && <button type="button" className="live-broadcast__dock-action" data-off={!isCameraOn} onClick={toggleCamera} aria-label={isCameraOn ? "Desligar câmera" : "Ligar câmera"} title={isCameraOn ? "Desligar câmera" : "Ligar câmera"}>{isCameraOn ? <Camera aria-hidden="true" /> : <VideoOff aria-hidden="true" />}</button>}
       {stream && <button type="button" className="live-broadcast__dock-action" data-off={!isMicOn} onClick={toggleMic} aria-label={isMicOn ? "Desligar microfone" : "Ligar microfone"} title={isMicOn ? "Desligar microfone" : "Ligar microfone"}>{isMicOn ? <Mic aria-hidden="true" /> : <MicOff aria-hidden="true" />}</button>}
       <button type="button" className="live-broadcast__dock-action live-broadcast__dock-copy" onClick={() => void copyLink()} aria-label="Copiar link da live" title="Copiar link"><Copy aria-hidden="true" /><span>Copiar link</span></button>
+      <button type="button" className="live-broadcast__dock-action live-broadcast__dock-notify" disabled={live.status !== "live" || Boolean(live.followers_notified_at) || notifyingFollowers} onClick={() => void notifyFollowers()} aria-label={live.followers_notified_at ? "Seguidores avisados" : "Notificar seguidores"} title={live.status !== "live" ? "Disponível quando a live começar" : live.followers_notified_at ? "Seguidores avisados" : "Notificar seguidores"}><Bell aria-hidden="true" /><span>{live.followers_notified_at ? "Seguidores avisados" : notifyingFollowers ? "Avisando..." : "Notificar seguidores"}</span></button>
       <button type="button" className="live-broadcast__dock-action live-broadcast__dock-chat" onClick={() => setChatOpen((open) => !open)} aria-label={chatOpen ? "Fechar chat" : "Abrir chat"} aria-expanded={chatOpen}><MessageCircle aria-hidden="true" /></button>
       <span className="live-broadcast__dock-divider" aria-hidden="true" />
-      <button type="button" className="live-broadcast__end" disabled={ending} onClick={() => setEndConfirmOpen(true)}>{ending ? "Encerrando..." : "Encerrar"}</button>
+      <button type="button" className="live-broadcast__end" data-live={live.status === "live"} disabled={ending} onClick={() => setEndConfirmOpen(true)}>{ending ? "Encerrando..." : "Encerrar"}</button>
     </div></div>
     <AlertDialog open={endConfirmOpen} onOpenChange={(open) => { if (!ending) setEndConfirmOpen(open); }}>
       <AlertDialogContent className="w-[calc(100%-2rem)] max-w-md rounded-2xl border-white/15 bg-[#15171e] p-7 text-white shadow-2xl" overlayClassName="bg-black/65 backdrop-blur-sm">

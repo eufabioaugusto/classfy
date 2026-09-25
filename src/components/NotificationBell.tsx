@@ -14,6 +14,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { formatDistanceToNow } from "date-fns";
 import { ptBR } from "date-fns/locale";
+import { useNavigate } from "react-router-dom";
 
 interface Notification {
   id: string;
@@ -23,9 +24,11 @@ interface Notification {
   is_read: boolean;
   created_at: string;
   related_content_id: string | null;
+  related_live_id: string | null;
 }
 
 export function NotificationBell() {
+  const navigate = useNavigate();
   const { user } = useAuth();
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
@@ -109,6 +112,8 @@ export function NotificationBell() {
 
   const getNotificationIcon = (type: string) => {
     switch (type) {
+      case "live":
+        return "🔴";
       case "reward":
         return "🎁";
       case "creator":
@@ -166,9 +171,13 @@ export function NotificationBell() {
               notifications.map((notification) => (
                 <div
                   key={notification.id}
-                  onClick={() =>
-                    !notification.is_read && markAsRead(notification.id)
-                  }
+                  onClick={() => {
+                    if (!notification.is_read) void markAsRead(notification.id);
+                    if (notification.related_live_id) {
+                      setIsOpen(false);
+                      navigate(`/live/${notification.related_live_id}`);
+                    }
+                  }}
                   className={`px-6 py-4 cursor-pointer transition-all duration-200 border-b border-border/30 last:border-b-0 ${
                     !notification.is_read
                       ? "bg-muted/20 hover:bg-muted/30"

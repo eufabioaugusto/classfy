@@ -85,10 +85,13 @@
 .live-broadcast__dock-action:hover:not(:disabled) { background: rgba(255,255,255,.2); }
 .live-broadcast__dock-action[data-off="true"] { background: rgba(244,78,101,.24); color: #ff9ba8; }
 .live-broadcast__dock-copy { width: auto; padding: 0 1rem; }
+.live-broadcast__dock-notify { width: auto; padding: 0 1rem; white-space: nowrap; }
 .live-broadcast__dock-chat { display: none !important; }
 .live-broadcast__dock-divider { width: 1px; height: 2rem; margin: 0 .15rem; background: rgba(255,255,255,.16); }
 .live-broadcast__end { padding: 0 1rem; background: rgba(255,255,255,.1); }
 .live-broadcast__end:hover:not(:disabled) { background: rgba(244,78,101,.26); }
+.live-broadcast__end[data-live="true"] { background: #dc3653; box-shadow: 0 .4rem 1.2rem rgba(220,54,83,.28); }
+.live-broadcast__end[data-live="true"]:hover:not(:disabled) { background: #ed4963; }
 .live-broadcast__onair-note { display: inline-flex; align-items: center; gap: .7rem; max-width: 11rem; padding: 0 .8rem; color: rgba(255,255,255,.82); font-size: .76rem; font-weight: 650; }
 
 .live-broadcast__transition { position: absolute; z-index: 6; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1rem; padding: 2rem; background: rgba(6,8,13,.72); text-align: center; backdrop-filter: blur(8px); pointer-events: none; }
@@ -129,14 +132,18 @@
   .live-broadcast__diagnostics { bottom: 5.75rem; }
   .live-broadcast__dock-wrap { bottom: max(.8rem, env(safe-area-inset-bottom)); padding: 0 .6rem; }
   .live-broadcast__dock { gap: .25rem; min-height: 3.3rem; padding: .32rem; }
+  .live-broadcast__dock { justify-content: flex-start; overflow-x: auto; scrollbar-width: none; }
+  .live-broadcast__dock::-webkit-scrollbar { display: none; }
   .live-broadcast__dock button { height: 2.5rem; font-size: .7rem; }
   .live-broadcast__dock button svg { width: .95rem; height: .95rem; }
   .live-broadcast__start { padding: 0 .6rem; }
   .live-broadcast__dock-action { width: 2.5rem; }
   .live-broadcast__dock-copy { width: 2.5rem; padding: 0; }
   .live-broadcast__dock-copy span { display: none; }
+  .live-broadcast__dock-notify { width: 2.5rem; padding: 0; }
+  .live-broadcast__dock-notify span { display: none; }
   .live-broadcast__end { padding: 0 .55rem; }
-  .live-broadcast__onair-note { max-width: 7rem; padding: 0 .25rem; font-size: .64rem; }
+  .live-broadcast__onair-note { display: none; }
   .live-broadcast__dock-divider { height: 1.5rem; margin: 0; }
   .live-broadcast__chat { right: .6rem; bottom: 5.5rem; width: calc(100vw - 1.2rem); }
 }

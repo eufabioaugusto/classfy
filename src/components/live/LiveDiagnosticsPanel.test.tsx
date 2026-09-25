@@ -25,7 +25,7 @@ describe("LiveDiagnosticsPanel", () => {
     };
 
     const html = renderToStaticMarkup(<LiveDiagnosticsPanel report={report} lastSavedAt={null} saveError={false} dark />);
-    expect(html).toContain("Diagnóstico da live");
+    expect(html).toContain("Aguardando vídeo");
     expect(html).toContain("Teste do relógio");
     expect(html).not.toContain("NaN");
   });

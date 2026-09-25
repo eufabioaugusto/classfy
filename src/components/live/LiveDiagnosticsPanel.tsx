@@ -55,14 +55,14 @@ export function LiveDiagnosticsPanel({ report, lastSavedAt, saveError, dark = fa
   const copy = async () => {
     try {
       await navigator.clipboard.writeText(JSON.stringify(report, null, 2));
-      toast.success("Diagnóstico copiado. Envie o texto após o teste.");
-    } catch { toast.error("Não foi possível copiar o diagnóstico."); }
+      toast.success("Dados da conexão copiados.");
+    } catch { toast.error("Não foi possível copiar os dados da conexão."); }
   };
 
   return <details className={`min-w-0 rounded-xl border text-sm ${dark ? "border-white/15 bg-white/[0.04] text-white" : "border-border bg-card text-foreground"}`}>
     <summary className="flex cursor-pointer list-none items-center justify-between gap-2 p-3 font-medium [&::-webkit-details-marker]:hidden">
-      <span className="flex items-center gap-2"><Activity className="h-4 w-4" /> Diagnóstico da live</span>
-      <span className="text-xs opacity-70">{routeNames[report.route]}</span>
+      <span className="flex items-center gap-2"><Activity className="h-4 w-4" /> {routeNames[report.route]}</span>
+      <span className="text-xs opacity-70">Detalhes</span>
     </summary>
     <div className={`space-y-3 border-t p-3 ${dark ? "border-white/15" : "border-border"}`}>
       <p className="text-xs opacity-70">Dados técnicos para o beta. Não registra áudio, vídeo ou texto das mensagens.</p>
@@ -101,8 +101,8 @@ export function LiveDiagnosticsPanel({ report, lastSavedAt, saveError, dark = fa
         {report.events.slice(-12).map((event, index) => <p key={`${event.at}-${index}`}>{time(event.at)} · {eventNames[event.type] ?? event.type}</p>)}
       </div>
       <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
-        <span className="opacity-70">{saveError ? "Não foi possível salvar; copie o diagnóstico" : lastSavedAt ? `Salvo às ${time(lastSavedAt)}` : "Preparando registro..."}</span>
-        <button type="button" onClick={() => void copy()} className={`inline-flex items-center gap-1 rounded-lg border px-2.5 py-1.5 font-medium ${dark ? "border-white/25 hover:bg-white/10" : "border-border hover:bg-muted"}`}><Copy className="h-3.5 w-3.5" /> Copiar diagnóstico</button>
+        <span className="opacity-70">{saveError ? "Não foi possível salvar; copie os dados da conexão" : lastSavedAt ? `Salvo às ${time(lastSavedAt)}` : "Preparando registro..."}</span>
+        <button type="button" onClick={() => void copy()} className={`inline-flex items-center gap-1 rounded-lg border px-2.5 py-1.5 font-medium ${dark ? "border-white/25 hover:bg-white/10" : "border-border hover:bg-muted"}`}><Copy className="h-3.5 w-3.5" /> Copiar dados</button>
       </div>
     </div>
   </details>;

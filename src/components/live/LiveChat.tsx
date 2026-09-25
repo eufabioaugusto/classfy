@@ -3,7 +3,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { Send, Pin, Trash2, MoreVertical } from "lucide-react";
+import { Send, Pin, Trash2, MoreVertical, MessageCircleOff, MessageCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { LiveMessage, LiveGift } from "@/hooks/useLiveChat";
 import { useAuth } from "@/contexts/AuthContext";
@@ -26,6 +26,9 @@ interface LiveChatProps {
   onPinMessage?: (messageId: string) => Promise<void>;
   onUnpinMessage?: () => Promise<void>;
   isCreator?: boolean;
+  chatEnabled?: boolean;
+  isTogglingChat?: boolean;
+  onToggleChat?: () => void;
   className?: string;
 }
 
@@ -39,6 +42,9 @@ export function LiveChat({
   onPinMessage,
   onUnpinMessage,
   isCreator = false,
+  chatEnabled = true,
+  isTogglingChat = false,
+  onToggleChat,
   className,
 }: LiveChatProps) {
   const { user } = useAuth();
@@ -54,7 +60,7 @@ export function LiveChat({
   }, [messages]);
 
   const handleSend = async () => {
-    if (!message.trim() || isSending) return;
+    if (!message.trim() || isSending || !chatEnabled) return;
     
     const content = message;
     setMessage("");
@@ -89,9 +95,11 @@ export function LiveChat({
   return (
     <div className={cn("flex flex-col h-full bg-card rounded-lg", className)}>
       {/* Header */}
-      <div className="p-3 border-b">
+      <div className="flex items-center justify-between gap-2 p-3 border-b">
         <h3 className="font-semibold text-sm">Chat ao Vivo</h3>
+        {isCreator && onToggleChat && <button type="button" onClick={onToggleChat} disabled={isTogglingChat} aria-label={chatEnabled ? "Desativar chat" : "Ativar chat"} title={chatEnabled ? "Desativar chat" : "Ativar chat"} className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-border/60 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-50">{chatEnabled ? <MessageCircle className="h-4 w-4" /> : <MessageCircleOff className="h-4 w-4" />}</button>}
       </div>
+      {!chatEnabled && <p role="status" className="border-b border-border/50 px-3 py-2 text-xs text-muted-foreground">O chat está desativado pelo host.</p>}
       
       {/* Pinned Message */}
       {pinnedMessage && (
@@ -127,7 +135,7 @@ export function LiveChat({
             </div>
           ) : messages.length === 0 ? (
             <div className="text-center text-muted-foreground text-sm py-8">
-              Seja o primeiro a enviar uma mensagem!
+              {chatEnabled ? "Seja o primeiro a enviar uma mensagem!" : "O chat está desativado pelo host."}
             </div>
           ) : (
             messages.map((msg) => (
@@ -216,14 +224,14 @@ export function LiveChat({
             value={message}
             onChange={(e) => setMessage(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="Envie uma mensagem..."
+            placeholder={chatEnabled ? "Envie uma mensagem..." : "Chat desativado pelo host"}
             className="text-sm"
-            disabled={isSending || !user}
+            disabled={isSending || !user || !chatEnabled}
           />
           <Button
             size="icon"
             onClick={handleSend}
-            disabled={!message.trim() || isSending || !user}
+            disabled={!message.trim() || isSending || !user || !chatEnabled}
           >
             <Send className="w-4 h-4" />
           </Button>

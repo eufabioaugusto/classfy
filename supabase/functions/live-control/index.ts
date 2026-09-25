@@ -187,6 +187,19 @@ Deno.serve(async (req) => {
     }
 
     if (!owner) return json({ error: 'Forbidden' }, 403);
+    if (action === 'set-chat') {
+      if (!['waiting', 'live'].includes(live.status) || typeof body.enabled !== 'boolean') return json({ error: 'Chat cannot be changed' }, 409);
+      const { data, error } = await client.from('lives').update({ chat_enabled: body.enabled })
+        .eq('id', liveId).in('status', ['waiting', 'live']).select('chat_enabled').single();
+      if (error) throw error;
+      return json({ chatEnabled: data.chat_enabled });
+    }
+    if (action === 'notify-followers') {
+      if (live.status !== 'live') return json({ error: 'Live is not on air' }, 409);
+      const { data: count, error } = await client.rpc('notify_live_followers', { p_live_id: liveId, p_creator_id: live.creator_id });
+      if (error) throw error;
+      return json({ alreadyNotified: count === -1, notifiedCount: Math.max(0, count as number) });
+    }
     if (action === 'connect') {
       if (!['waiting', 'live'].includes(live.status)) return json({ error: 'Live is closed' }, 409);
       return json(await creatorToken(liveId, user.id));

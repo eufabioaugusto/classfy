@@ -2004,6 +2004,7 @@ export type Database = {
       lives: {
         Row: {
           chat_enabled: boolean | null
+          followers_notified_at: string | null
           created_at: string
           creator_id: string
           description: string | null
@@ -2027,6 +2028,7 @@ export type Database = {
         }
         Insert: {
           chat_enabled?: boolean | null
+          followers_notified_at?: string | null
           created_at?: string
           creator_id: string
           description?: string | null
@@ -2050,6 +2052,7 @@ export type Database = {
         }
         Update: {
           chat_enabled?: boolean | null
+          followers_notified_at?: string | null
           created_at?: string
           creator_id?: string
           description?: string | null
@@ -2345,6 +2348,7 @@ export type Database = {
           is_read: boolean
           message: string
           related_content_id: string | null
+          related_live_id: string | null
           related_reward_id: string | null
           title: string
           type: string
@@ -2356,6 +2360,7 @@ export type Database = {
           is_read?: boolean
           message: string
           related_content_id?: string | null
+          related_live_id?: string | null
           related_reward_id?: string | null
           title: string
           type?: string
@@ -2367,6 +2372,7 @@ export type Database = {
           is_read?: boolean
           message?: string
           related_content_id?: string | null
+          related_live_id?: string | null
           related_reward_id?: string | null
           title?: string
           type?: string
@@ -2378,6 +2384,13 @@ export type Database = {
             columns: ["related_content_id"]
             isOneToOne: false
             referencedRelation: "contents"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "notifications_related_live_id_fkey"
+            columns: ["related_live_id"]
+            isOneToOne: false
+            referencedRelation: "lives"
             referencedColumns: ["id"]
           },
           {
