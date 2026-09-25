@@ -337,6 +337,7 @@ function StudyContent() {
   const [playlistsCount, setPlaylistsCount] = useState(0);
   const [newestMessageId, setNewestMessageId] = useState<string | null>(null);
   const initialMessageTriggeredRef = useRef(false);
+  const firstPromptTriggeredRef = useRef(false);
   const autoplayTimerRef = useRef<NodeJS.Timeout | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -489,6 +490,8 @@ function StudyContent() {
       (isFreshStudy || !loadingMessages) &&
       messages.length === 0 &&
       !initialMessageTriggeredRef.current &&
+      !firstPromptTriggeredRef.current &&
+      !location.state?.initialPrompt &&
       !initialMessageSent &&
       !loading &&
       !sending
@@ -504,6 +507,7 @@ function StudyContent() {
     initialMessageSent,
     loading,
     sending,
+    location.state?.initialPrompt,
   ]);
 
   useEffect(() => {
@@ -1105,6 +1109,16 @@ function StudyContent() {
       setSending(false);
     }
   };
+
+  useEffect(() => {
+    const firstPrompt = (location.state as { initialPrompt?: string } | null)?.initialPrompt?.trim();
+    if (!firstPrompt || firstPromptTriggeredRef.current || !study || loading || loadingMessages || messages.length > 0) return;
+
+    firstPromptTriggeredRef.current = true;
+    setInitialMessageSent(true);
+    void handleSend(firstPrompt);
+    navigate(location.pathname, { replace: true, state: null });
+  }, [study, loading, loadingMessages, messages.length, location.state, location.pathname, navigate, handleSend]);
 
   const handleRename = async () => {
     if (!newTitle.trim() || !id) return;

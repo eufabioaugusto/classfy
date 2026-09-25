@@ -510,7 +510,7 @@ export function AppSidebar() {
                       )}
                       {limitsReady && canCreateMore && (
                         <SidebarMenuItem>
-                          <SidebarMenuButton onClick={() => navigate("/?mode=focus")}>
+                          <SidebarMenuButton onClick={() => navigate("/c/new")}>
                             <Plus className="h-4 w-4" />
                             <span>Novo Estudo</span>
                           </SidebarMenuButton>
