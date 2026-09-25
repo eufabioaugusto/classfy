@@ -31,7 +31,14 @@ export function StudyMapPanel({ title, state, summary, latestAssistantContent, o
   const completed = summary?.completedContentsCount || 0;
   const contentProgress = recommended > 0 ? Math.round((completed / recommended) * 100) : null;
   const contents = summary?.contentItems || [];
-  const steps = state?.activeMode === "plan" || recommended > 0
+  const allContentsCompleted = contents.length > 0 && contents.every((content) => content.completed);
+  const nextUnwatchedContent = contents.find((content) => !content.completed);
+  const nextStep = allContentsCompleted
+    ? "Você concluiu os vídeos desta trilha. Converse com a Classy para aprofundar o tema ou escolher o que estudar agora."
+    : nextUnwatchedContent
+    ? `Assista ${nextUnwatchedContent.title} para avançar no seu estudo.`
+    : question || (state?.activeMode === "onboard" ? "Conte à Classy o que você já sabe e o que quer alcançar. A conversa ajuda a definir sua trilha." : state?.nextBestAction || "Continue a conversa para construir sua trilha.");
+  const steps = !allContentsCompleted && (state?.activeMode === "plan" || recommended > 0)
     ? (state?.livePlanSteps || []).filter((step) => step !== state?.nextBestAction).slice(0, 3)
     : [];
 
@@ -59,9 +66,9 @@ export function StudyMapPanel({ title, state, summary, latestAssistantContent, o
 
         <section className="cf2-study-map-panel__section cf2-study-map-panel__next">
           <div className="cf2-study-map-panel__section-heading"><span className="cf2-study-map-panel__step-number">01</span><h3>Próximo passo</h3></div>
-          <p>{question || (state?.activeMode === "onboard" ? "Conte à Classy o que você já sabe e o que quer alcançar. A conversa ajuda a definir sua trilha." : state?.nextBestAction || "Continue a conversa para construir sua trilha.")}</p>
+          <p>{nextStep}</p>
           <button type="button" className="cf2-study-map-panel__continue" onClick={onContinue}>
-            {question ? "Responder na conversa" : "Continuar estudo"}<ArrowRight size={16} />
+            {allContentsCompleted ? "Conversar com a Classy" : question ? "Responder na conversa" : "Continuar estudo"}<ArrowRight size={16} />
           </button>
         </section>
 

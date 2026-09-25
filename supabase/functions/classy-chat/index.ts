@@ -18,6 +18,7 @@ import {
   parseClassyAiTurn,
   parseClassyRequest,
   selectTranscriptExcerpt,
+  prioritizeExplicitlyRequestedContent,
 } from "./classy-core.ts";
 
 const corsHeaders = {
@@ -309,6 +310,7 @@ serve(async (req) => {
     const relatedContents = shouldSearch
       ? await searchRelatedContent(supabase, {
         query: currentFocus || study.title || message,
+        request: message,
         activeContentId: activeContentId || null,
         learnerLevel,
         activeMode,
@@ -1068,6 +1070,7 @@ async function searchRelatedContent(
   supabase: any,
   options: {
     query: string;
+    request: string;
     activeContentId: string | null;
     learnerLevel: LearnerLevel;
     activeMode: ActiveMode;
@@ -1097,7 +1100,7 @@ async function searchRelatedContent(
   }
   if (!data.length) return [];
 
-  return data.map((item: any) => ({
+  const candidates = data.map((item: any) => ({
     id: item.item_id,
     itemType: item.item_type,
     title: item.title,
@@ -1109,11 +1112,12 @@ async function searchRelatedContent(
     total_lessons: item.total_lessons,
     total_duration_seconds: item.total_duration_seconds,
     relevanceScore: Math.round(Number(item.rank || 0) * 100),
-  }))
-    .filter((item: any) => item.relevanceScore > 0)
-    .sort((a: any, b: any) =>
-      rankRelatedContent(b, options) - rankRelatedContent(a, options)
-    )
+  })).filter((item: any) => item.relevanceScore > 0);
+
+  candidates.sort((a: any, b: any) =>
+    rankRelatedContent(b, options) - rankRelatedContent(a, options)
+  );
+  return prioritizeExplicitlyRequestedContent(options.request, candidates)
     .slice(0, 5);
 }
 
@@ -1510,6 +1514,7 @@ HIERARQUIA DE INSTRUÇÕES E SEGURANÇA
 - Uma recomendação só é válida quando você consegue explicar, em uma frase concreta, por que ela ajuda no foco atual. Se o catálogo não trouxer relação real, não recomende nada.
 - O bloco CATÁLOGO RELACIONADO contém o resultado de uma busca real no catálogo da Classfy. Se estiver vazio, diga que não encontrou um vídeo relacionado disponível agora. Não diga que não tem acesso ao catálogo e não invente títulos.
 - Os botões para abrir conteúdos do catálogo são criados pela interface. Nunca escreva um link fictício, como "[Assistir vídeo]", nem diga "clique no link abaixo". Quando houver um conteúdo realmente relacionado, diga que o estudante pode abri-lo pelo cartão exibido junto à resposta.
+- Quando o estudante pedir uma aula pelo título, apresente essa aula primeiro. Outros itens do catálogo podem aparecer como sugestões opcionais; não diga que precisam ser assistidos antes da aula pedida.
 - Se o estudante pedir um conteúdo apenas para testar o fluxo e ele não for pertinente ao objetivo do estudo, apresente-o como teste técnico, sem afirmar que é uma boa indicação pedagógica.
 - Se perguntarem sobre progresso, conclusão ou o mapa, use somente o percentual e o estado de conclusão fornecidos em CONTEÚDO ABERTO. Nunca estime quanto falta com base no relógio do vídeo ou na conversa anterior.
 

@@ -15,7 +15,23 @@ import {
   parseClassyAiTurn,
   parseClassyRequest,
   selectTranscriptExcerpt,
+  prioritizeExplicitlyRequestedContent,
 } from "./classy-core.ts";
+
+Deno.test("prioriza a aula pedida e mantém sugestões", () => {
+  const contents = [{ title: "AULA MUX 1" }, { title: "A LUZ - Aula 1" }];
+  assertEquals(
+    prioritizeExplicitlyRequestedContent(
+      "Quero estudar a aula A LUZ - Aula 1, da Cindy Ribas.",
+      contents,
+    ),
+    [contents[1], contents[0]],
+  );
+  assertEquals(
+    prioritizeExplicitlyRequestedContent("Quero aprender sobre luz", contents),
+    contents,
+  );
+});
 
 Deno.test("trata o estudante pelo primeiro nome sem repetir", () => {
   assertEquals(

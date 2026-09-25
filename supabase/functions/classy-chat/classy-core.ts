@@ -6,6 +6,26 @@ export type ClassyActiveMode =
   | "review"
   | "plan";
 
+export function prioritizeExplicitlyRequestedContent<T extends { title: string }>(
+  request: string,
+  contents: T[],
+): T[] {
+  const normalize = (value: string) => value.normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLocaleLowerCase("pt-BR")
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .trim();
+  const normalizedRequest = ` ${normalize(request)} `;
+  const exactMatches = contents.filter((content) => {
+    const title = normalize(content.title);
+    return title.length >= 8 && title.split(" ").length >= 2 &&
+      normalizedRequest.includes(` ${title} `);
+  });
+  return exactMatches.length
+    ? [...exactMatches, ...contents.filter((content) => !exactMatches.includes(content))]
+    : contents;
+}
+
 export function isStudyProgressQuestion(message: string): boolean {
   return /\b(mapa|progresso|registrad[oa]s?|conclu[ií]d[oa]|assistid[oa])\b/i.test(message) &&
     /\b(quanto|qual|como|o que|ficou|est[aá]|terminei|completei|assisti|conclu[ií])\b/i.test(message);

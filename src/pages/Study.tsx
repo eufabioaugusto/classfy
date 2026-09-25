@@ -1230,6 +1230,9 @@ function StudyContent() {
         return;
       }
 
+      // Opening a lesson from the map or a Classy card should reveal the full viewer.
+      setMiniPlayerActive(false);
+
       void trackClassyEvent("content_opened", {
         assistant_message_id: source?.sourceMessageId || null,
         content_id: contentId,
