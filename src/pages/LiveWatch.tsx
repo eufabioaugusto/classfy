@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { useParams, Link } from "react-router-dom";
+import { Link } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { useLiveChat, LiveGift } from "@/hooks/useLiveChat";
@@ -7,7 +7,7 @@ import { useLiveViewers } from "@/hooks/useLiveViewers";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { Users, Radio, Loader2, Volume2, VolumeX, Play } from "lucide-react";
+import { Users, Radio, Loader2, Volume2, VolumeX, Play, ChevronDown, X } from "lucide-react";
 import { LiveChat } from "@/components/live/LiveChat";
 import { LiveRealtimePlayer } from "@/components/live/LiveRealtimePlayer";
 import { LiveDiagnosticsPanel } from "@/components/live/LiveDiagnosticsPanel";
@@ -16,6 +16,9 @@ import { FollowButton } from "@/components/FollowButton";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { useLiveDiagnostics } from "@/hooks/useLiveDiagnostics";
+import { useIsMobile } from "@/hooks/use-mobile";
+import { animate, motion, useDragControls, useMotionValue, type PanInfo } from "framer-motion";
+import { shouldDismissMiniPlayer, shouldExpandMiniPlayer, shouldMinimizePlayer } from "@/lib/mobilePlayerGesture";
 
 interface Live {
   id: string;
@@ -35,9 +38,20 @@ interface Live {
   };
 }
 
-export default function LiveWatch() {
-  const { id } = useParams();
+interface LiveWatchProps {
+  liveId: string;
+  minimized: boolean;
+  onMinimize: () => void;
+  onExpand: () => void;
+  onClose: () => void;
+}
+
+export default function LiveWatch({ liveId: id, minimized, onMinimize, onExpand, onClose }: LiveWatchProps) {
   const { user } = useAuth();
+  const isMobile = useIsMobile();
+  const dragControls = useDragControls();
+  const dragY = useMotionValue(0);
+  const minimizingRef = useRef(false);
   const [live, setLive] = useState<Live | null>(null);
   const [gifts, setGifts] = useState<LiveGift[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -169,6 +183,43 @@ export default function LiveWatch() {
 
   const draining = live?.status === "ended" && !tailComplete && (realtimeState === "playing" || (playbackIsLive && !!playbackUrl));
   useEffect(() => {
+    if (minimized && !isLoading && !live) onClose();
+  }, [minimized, isLoading, live, onClose]);
+  useEffect(() => {
+    if (minimized && (live?.status === "ended" || live?.status === "cancelled") && !draining) onClose();
+  }, [minimized, live?.status, draining, onClose]);
+
+  useEffect(() => {
+    if (!isMobile || minimized) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => { document.body.style.overflow = previousOverflow; };
+  }, [isMobile, minimized]);
+
+  const minimize = () => {
+    if (minimizingRef.current) return;
+    minimizingRef.current = true;
+    void animate(dragY, window.innerHeight, { duration: 0.18, ease: "easeOut" }).then(() => {
+      dragY.set(0);
+      onMinimize();
+      minimizingRef.current = false;
+    });
+  };
+
+  const handleDragEnd = (_event: MouseEvent | TouchEvent | PointerEvent, info: PanInfo) => {
+    if (minimized) {
+      if (shouldExpandMiniPlayer(info.offset.y, info.velocity.y)) { dragY.set(0); onExpand(); }
+      else if (shouldDismissMiniPlayer(info.offset.y, info.velocity.y)) { dragY.set(0); onClose(); }
+      else void animate(dragY, 0, { type: "spring", stiffness: 420, damping: 36 });
+      return;
+    }
+    if (shouldMinimizePlayer(info.offset.y, info.velocity.y)) {
+      minimize();
+      return;
+    }
+    void animate(dragY, 0, { type: "spring", stiffness: 420, damping: 36 });
+  };
+  useEffect(() => {
     if (draining) return;
     if (!live || !user || (live.status !== "live" && !live.replay_published_at) || (live.status === "live" && (realtimeState !== "backup" || !live.mux_live_stream_id))) {
       requestedPlaybackRef.current = "";
@@ -229,6 +280,7 @@ export default function LiveWatch() {
   }, [playbackUrl, playbackAttempt, playbackIsLive, setMetrics, setRoute]);
 
   if (isLoading) {
+    if (minimized) return null;
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
         <Loader2 className="w-8 h-8 animate-spin" />
@@ -237,6 +289,7 @@ export default function LiveWatch() {
   }
 
   if (!live) {
+    if (minimized) return null;
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
         <Card className="p-8 text-center">
@@ -256,22 +309,48 @@ export default function LiveWatch() {
   const showRealtime = (!isLegacyLive && live.status === "live") || (draining && realtimeState === "playing");
 
   return (
-    <div className="min-h-screen w-full min-w-0 overflow-x-hidden bg-background pb-24 flex flex-col lg:flex-row lg:pb-0">
+    <motion.div
+      layout={isMobile}
+      drag={isMobile ? "y" : false}
+      dragControls={dragControls}
+      dragListener={minimized}
+      dragConstraints={{ top: 0, bottom: 0 }}
+      dragElastic={minimized ? 0.3 : { top: 0, bottom: 0.3 }}
+      dragMomentum={false}
+      onDragEnd={handleDragEnd}
+      style={{ y: dragY }}
+      transition={{ layout: { type: "spring", stiffness: 360, damping: 36 } }}
+      className={cn(
+        "w-full min-w-0 overflow-x-hidden bg-background flex",
+        minimized
+          ? "fixed bottom-[calc(4rem+env(safe-area-inset-bottom)+8px)] left-2 right-2 z-50 h-24 w-auto flex-row overflow-hidden rounded-2xl border border-border shadow-2xl lg:bottom-4 lg:left-auto lg:right-4 lg:w-[420px]"
+          : "min-h-screen flex-col pb-24 lg:flex-row lg:pb-0 max-lg:fixed max-lg:inset-0 max-lg:z-40 max-lg:overflow-y-auto max-lg:overscroll-contain",
+      )}
+    >
       {/* Main Content */}
-      <div className="min-w-0 flex-1 flex flex-col">
+      <div className={cn("min-w-0 flex-1 flex", minimized ? "flex-row items-center" : "flex-col")}>
         {/* Video Area */}
-        <div className="relative flex aspect-video w-full min-w-0 items-center justify-center overflow-hidden bg-black">
+        <div
+          className={cn("relative flex min-w-0 items-center justify-center overflow-hidden bg-black", minimized ? "h-full w-36 shrink-0 cursor-pointer" : "aspect-video w-full")}
+          onClick={(event) => { if (minimized && !(event.target as HTMLElement).closest("button")) onExpand(); }}
+        >
+          {isMobile && !minimized && (
+            <div className="absolute inset-x-0 top-0 z-30 flex h-11 touch-none items-center justify-center bg-gradient-to-b from-black/45 to-transparent" onPointerDown={(event) => dragControls.start(event)}>
+              <div className="h-1.5 w-11 rounded-full bg-white/70 shadow-sm" aria-hidden="true" />
+              <button type="button" aria-label="Minimizar live" onPointerDown={(event) => event.stopPropagation()} onClick={minimize} className="absolute left-3 top-1 flex h-9 w-9 items-center justify-center rounded-full bg-black/60 text-white"><ChevronDown className="h-5 w-5" /></button>
+            </div>
+          )}
           {showRealtime && <div className={cn("absolute inset-0", realtimeState === "backup" && "pointer-events-none opacity-0")}>
-            <LiveRealtimePlayer liveId={live.id} creatorId={live.creator_id} ending={live.status === "ended"} standby={realtimeState === "backup"} muted={isMuted} onMutedChange={setIsMuted} onReady={() => { mark("rtc_first_frame"); setIsPlaying(false); setRoute("webrtc", "none"); setRealtimeState("playing"); void flush(); }} onFallback={(reason) => { setRoute("hls", reason); mark("fallback"); setRealtimeState("backup"); void flush(); }} onComplete={() => setTailComplete(true)} onEvent={mark} onMetrics={setMetrics} onQuality={setQuality} onFirstFrame={() => markFirstFrame("webrtc")} onStall={recordStall} />
+            <LiveRealtimePlayer liveId={live.id} creatorId={live.creator_id} ending={live.status === "ended"} standby={realtimeState === "backup"} muted={isMuted} compact={minimized} onMutedChange={setIsMuted} onReady={() => { mark("rtc_first_frame"); setIsPlaying(false); setRoute("webrtc", "none"); setRealtimeState("playing"); void flush(); }} onFallback={(reason) => { setRoute("hls", reason); mark("fallback"); setRealtimeState("backup"); void flush(); }} onComplete={() => setTailComplete(true)} onEvent={mark} onMetrics={setMetrics} onQuality={setQuality} onFirstFrame={() => markFirstFrame("webrtc")} onStall={recordStall} />
           </div>}
-          {showRealtime && realtimeState === "connecting" && <div className="absolute inset-0 grid place-items-center bg-black text-center text-white"><div><Loader2 className="mx-auto mb-3 h-8 w-8 animate-spin" /><p>Preparando o vídeo ao vivo...</p></div></div>}
-          {realtimeState === "backup" && live.status === "live" && !playbackUrl && <div className="absolute inset-0 grid place-items-center bg-black text-center text-white"><div><Loader2 className="mx-auto mb-3 h-8 w-8 animate-spin" /><p>Conectando o vídeo...</p></div></div>}
+          {showRealtime && realtimeState === "connecting" && <div className="absolute inset-0 grid place-items-center bg-black text-center text-white"><div><Loader2 className={minimized ? "mx-auto h-5 w-5 animate-spin" : "mx-auto mb-3 h-8 w-8 animate-spin"} />{!minimized && <p>Preparando o vídeo ao vivo...</p>}</div></div>}
+          {realtimeState === "backup" && live.status === "live" && !playbackUrl && <div className="absolute inset-0 grid place-items-center bg-black text-center text-white"><div><Loader2 className={minimized ? "mx-auto h-5 w-5 animate-spin" : "mx-auto mb-3 h-8 w-8 animate-spin"} />{!minimized && <p>Conectando o vídeo...</p>}</div></div>}
           {(realtimeState === "backup" || !showRealtime) && playbackUrl ? (
             <>
-              <video ref={videoRef} controls playsInline autoPlay={playbackIsLive} muted={playbackIsLive && isMuted} onEnded={() => setTailComplete(true)} onPlaying={() => { setIsPlaying(true); setPlayBlocked(false); setPlaybackError(false); if (playbackIsLive) markFirstFrame("hls"); }} onWaiting={() => { if (firstFrameRef.current && playbackIsLive) recordStall(); }} onPause={() => setIsPlaying(false)} className="absolute inset-0 h-full w-full object-contain" aria-label={playbackIsLive ? "Transmissão ao vivo" : "Gravação da live"} />
-              {playbackIsLive && <Button type="button" size="sm" className="absolute right-3 top-3 z-10 bg-black/75 text-white hover:bg-black/90" onClick={() => { const video = videoRef.current; if (!video) return; video.muted = !isMuted; setIsMuted(!isMuted); if (video.paused) void video.play().catch(() => setPlayBlocked(true)); }}>{isMuted ? <VolumeX className="mr-2 h-4 w-4" /> : <Volume2 className="mr-2 h-4 w-4" />}{isMuted ? "Ativar som" : "Silenciar"}</Button>}
-              {playbackError && !isPlaying && <button type="button" onClick={() => { setPlaybackError(false); setPlaybackAttempt(value => value + 1); }} className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-2 bg-black/75 px-5 text-center text-white"><Radio className="h-9 w-9" /><span className="font-semibold">O sinal ainda não carregou</span><span className="text-sm text-white/70">Toque para tentar novamente</span></button>}
-              {live.status === "live" && playBlocked && !isPlaying && <button type="button" onClick={() => { const video = videoRef.current; if (video) void video.play().then(() => setPlayBlocked(false)).catch(() => setPlayBlocked(true)); }} className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 bg-black/70 text-white"><Play className="h-10 w-10 fill-white" /><span className="font-semibold">Toque para assistir ao vivo</span></button>}
+              <video ref={videoRef} controls={!minimized} playsInline autoPlay={playbackIsLive} muted={playbackIsLive && isMuted} onEnded={() => setTailComplete(true)} onPlaying={() => { setIsPlaying(true); setPlayBlocked(false); setPlaybackError(false); if (playbackIsLive) markFirstFrame("hls"); }} onWaiting={() => { if (firstFrameRef.current && playbackIsLive) recordStall(); }} onPause={() => setIsPlaying(false)} className="absolute inset-0 h-full w-full object-contain" aria-label={playbackIsLive ? "Transmissão ao vivo" : "Gravação da live"} />
+              {playbackIsLive && <Button type="button" size="sm" aria-label={isMuted ? "Ativar som" : "Silenciar"} className={minimized ? "absolute bottom-1 right-1 z-10 h-7 w-7 rounded-full bg-black/75 p-1 text-white" : "absolute right-3 top-3 z-10 bg-black/75 text-white hover:bg-black/90"} onPointerDown={(event) => event.stopPropagation()} onClick={() => { const video = videoRef.current; if (!video) return; video.muted = !isMuted; setIsMuted(!isMuted); if (video.paused) void video.play().catch(() => setPlayBlocked(true)); }}>{isMuted ? <VolumeX className={minimized ? "h-4 w-4" : "mr-2 h-4 w-4"} /> : <Volume2 className={minimized ? "h-4 w-4" : "mr-2 h-4 w-4"} />}{!minimized && (isMuted ? "Ativar som" : "Silenciar")}</Button>}
+              {playbackError && !isPlaying && <button type="button" onClick={() => { setPlaybackError(false); setPlaybackAttempt(value => value + 1); }} className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-2 bg-black/75 px-5 text-center text-white"><Radio className={minimized ? "h-5 w-5" : "h-9 w-9"} />{!minimized && <><span className="font-semibold">O sinal ainda não carregou</span><span className="text-sm text-white/70">Toque para tentar novamente</span></>}</button>}
+              {live.status === "live" && playBlocked && !isPlaying && <button type="button" onClick={() => { const video = videoRef.current; if (video) void video.play().then(() => setPlayBlocked(false)).catch(() => setPlayBlocked(true)); }} className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 bg-black/70 text-white"><Play className={minimized ? "h-6 w-6 fill-white" : "h-10 w-10 fill-white"} />{!minimized && <span className="font-semibold">Toque para assistir ao vivo</span>}</button>}
             </>
           ) : !showRealtime && isEnded ? (
             <div className="text-center text-white">
@@ -303,13 +382,17 @@ export default function LiveWatch() {
               </div>}
             </>
           ) : null}
-          {draining && <span className="absolute bottom-3 left-3 rounded-full bg-black/70 px-3 py-1.5 text-xs text-white">Reproduzindo os últimos segundos...</span>}
+          {draining && !minimized && <span className="absolute bottom-3 left-3 rounded-full bg-black/70 px-3 py-1.5 text-xs text-white">Reproduzindo os últimos segundos...</span>}
         </div>
 
-        <div className="px-4 pt-3"><LiveDiagnosticsPanel report={diagnostics.report} lastSavedAt={diagnostics.lastSavedAt} saveError={diagnostics.saveError} /></div>
+        {!minimized && <div className="px-4 pt-3"><LiveDiagnosticsPanel report={diagnostics.report} lastSavedAt={diagnostics.lastSavedAt} saveError={diagnostics.saveError} /></div>}
 
         {/* Info */}
-        <div className="min-w-0 border-b p-4">
+        <div className={cn("min-w-0 border-b p-4", minimized && "flex min-w-0 flex-1 items-center gap-2 border-0 px-3 py-2")}>
+          {minimized ? <>
+            <button type="button" onPointerDown={(event) => event.stopPropagation()} onClick={onExpand} className="min-w-0 flex-1 text-left" aria-label={`Expandir live ${live.title}`}><span className="block truncate text-sm font-semibold">{live.title}</span><span className="block truncate text-xs text-muted-foreground">{live.creator?.display_name} · {live.status === "live" ? "Ao vivo" : "Aguardando transmissão"}</span></button>
+            <button type="button" onPointerDown={(event) => event.stopPropagation()} onClick={onClose} aria-label="Fechar mini player da live" className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full hover:bg-muted"><X className="h-4 w-4" /></button>
+          </> : <>
           <h1 className="break-words text-xl font-bold">{live.title}</h1>
           {live.description && (
             <p className="text-muted-foreground mt-1">{live.description}</p>
@@ -330,10 +413,11 @@ export default function LiveWatch() {
               {live.creator && <FollowButton creatorId={live.creator.id} />}
             </div>
           </div>
+          </>}
         </div>
 
         {/* Gift Panel (Mobile) */}
-        {showGifts && (
+        {!minimized && showGifts && (
           <div className="lg:hidden border-b">
             <LiveGiftPanel gifts={gifts} isLoading={false} onSendGift={handleSendGift} />
           </div>
@@ -341,7 +425,7 @@ export default function LiveWatch() {
       </div>
 
       {/* Sidebar */}
-      <div className="flex w-full min-w-0 flex-col border-l lg:w-96 lg:shrink-0">
+      <div className={cn("flex w-full min-w-0 flex-col border-l lg:w-96 lg:shrink-0", minimized && "hidden")}>
         {/* Gift Panel (Desktop) */}
         <div className="hidden lg:block border-b">
           <LiveGiftPanel gifts={gifts} isLoading={false} onSendGift={handleSendGift} />
@@ -361,6 +445,6 @@ export default function LiveWatch() {
           />
         </div>
       </div>
-    </div>
+    </motion.div>
   );
 }

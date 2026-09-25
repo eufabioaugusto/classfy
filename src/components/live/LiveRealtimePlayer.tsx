@@ -12,6 +12,7 @@ type Props = {
   ending: boolean;
   standby: boolean;
   muted: boolean;
+  compact?: boolean;
   onMutedChange: (muted: boolean) => void;
   onReady: () => void;
   onFallback: (reason: LiveDiagnosticReport["fallbackReason"]) => void;
@@ -23,7 +24,7 @@ type Props = {
   onStall: () => void;
 };
 
-export function LiveRealtimePlayer({ liveId, creatorId, ending, standby, muted, onMutedChange, onReady, onFallback, onComplete, onEvent, onMetrics, onQuality, onFirstFrame, onStall }: Props) {
+export function LiveRealtimePlayer({ liveId, creatorId, ending, standby, muted, compact = false, onMutedChange, onReady, onFallback, onComplete, onEvent, onMetrics, onQuality, onFirstFrame, onStall }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const audioRef = useRef<HTMLAudioElement>(null);
   const roomRef = useRef<Room | null>(null);
@@ -199,9 +200,9 @@ export function LiveRealtimePlayer({ liveId, creatorId, ending, standby, muted, 
   return <>
     <video ref={videoRef} autoPlay playsInline muted onPlaying={() => { if (!firstFrameRef.current) { firstFrameRef.current = true; callbacksRef.current.onFirstFrame(); callbacksRef.current.onReady(); } }} onWaiting={() => { if (firstFrameRef.current) callbacksRef.current.onStall(); }} className="absolute inset-0 h-full w-full object-contain" aria-label="Transmissão ao vivo" />
     <audio ref={audioRef} autoPlay muted />
-    {ready && !standby && <Button type="button" size="sm" className="absolute right-3 top-3 z-10 bg-black/75 text-white hover:bg-black/90" onClick={() => void toggleAudio()}>
-      {muted ? <VolumeX className="mr-2 h-4 w-4" /> : <Volume2 className="mr-2 h-4 w-4" />}{muted ? "Ativar som" : "Silenciar"}
+    {ready && !standby && <Button type="button" size="sm" aria-label={muted ? "Ativar som" : "Silenciar"} className={compact ? "absolute bottom-1 right-1 z-10 h-7 w-7 rounded-full bg-black/75 p-1 text-white" : "absolute right-3 top-3 z-10 bg-black/75 text-white hover:bg-black/90"} onPointerDown={(event) => event.stopPropagation()} onClick={() => void toggleAudio()}>
+      {muted ? <VolumeX className={compact ? "h-4 w-4" : "mr-2 h-4 w-4"} /> : <Volume2 className={compact ? "h-4 w-4" : "mr-2 h-4 w-4"} />}{!compact && (muted ? "Ativar som" : "Silenciar")}
     </Button>}
-    {ready && !standby && audioBlocked && <button type="button" onClick={() => void toggleAudio()} className="absolute inset-x-4 bottom-4 z-10 rounded-lg bg-black/80 p-3 text-sm text-white">Toque para ativar o som</button>}
+    {ready && !standby && audioBlocked && !compact && <button type="button" onClick={() => void toggleAudio()} className="absolute inset-x-4 bottom-4 z-10 rounded-lg bg-black/80 p-3 text-sm text-white">Toque para ativar o som</button>}
   </>;
 }

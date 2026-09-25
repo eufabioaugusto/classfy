@@ -1,11 +1,10 @@
 import { useMiniPlayer } from "@/contexts/MiniPlayerContext";
 import { useNavigate, useLocation } from "react-router-dom";
 import { X, Play, Pause } from "lucide-react";
-import { motion, useMotionValue, useTransform, PanInfo, AnimatePresence } from "framer-motion";
+import { motion, useMotionValue, PanInfo, AnimatePresence, animate } from "framer-motion";
 import { useRef, useEffect, useCallback, useState } from "react";
 import { cn } from "@/lib/utils";
-
-const EXPAND_THRESHOLD = -80; // Drag up to expand
+import { shouldDismissMiniPlayer, shouldExpandMiniPlayer } from "@/lib/mobilePlayerGesture";
 
 export function MobileMiniPlayer() {
   const navigate = useNavigate();
@@ -22,9 +21,6 @@ export function MobileMiniPlayer() {
 
   const [isDragging, setIsDragging] = useState(false);
   const y = useMotionValue(0);
-  const progress = useTransform(
-    () => (state.duration > 0 ? (state.currentTime / state.duration) * 100 : 0)
-  );
 
   // Video event handlers
   useEffect(() => {
@@ -71,18 +67,19 @@ export function MobileMiniPlayer() {
       const { offset, velocity } = info;
 
       // Drag up to expand (go to watch page)
-      if (offset.y < EXPAND_THRESHOLD || velocity.y < -300) {
+      if (shouldExpandMiniPlayer(offset.y, velocity.y)) {
         if (state.content?.id) {
+          y.set(0);
           navigate(`/watch/${state.content.id}`, { state: { backgroundLocation: location } });
         }
       }
       // Drag down to dismiss
-      else if (offset.y > 60 || velocity.y > 300) {
+      else if (shouldDismissMiniPlayer(offset.y, velocity.y)) {
+        y.set(0);
         closeMiniPlayer();
+      } else {
+        void animate(y, 0, { type: "spring", stiffness: 420, damping: 36 });
       }
-      
-      // Snap back
-      y.set(0);
     },
     [state.content, navigate, closeMiniPlayer, y]
   );
@@ -110,8 +107,9 @@ export function MobileMiniPlayer() {
         exit={{ y: 100, opacity: 0 }}
         transition={{ type: "spring", damping: 25, stiffness: 300 }}
         drag="y"
-        dragConstraints={{ top: -100, bottom: 100 }}
-        dragElastic={0.2}
+        dragConstraints={{ top: 0, bottom: 0 }}
+        dragElastic={0.3}
+        dragMomentum={false}
         onDragStart={handleDragStart}
         onDragEnd={handleDragEnd}
       >
@@ -158,6 +156,9 @@ export function MobileMiniPlayer() {
           {/* Controls */}
           <div className="flex items-center gap-1 flex-shrink-0">
             <button
+              type="button"
+              aria-label={state.isPlaying ? "Pausar vídeo" : "Reproduzir vídeo"}
+              onPointerDown={(event) => event.stopPropagation()}
               onClick={(e) => {
                 e.stopPropagation();
                 togglePlay();
@@ -172,6 +173,9 @@ export function MobileMiniPlayer() {
             </button>
             
             <button
+              type="button"
+              aria-label="Fechar mini player"
+              onPointerDown={(event) => event.stopPropagation()}
               onClick={(e) => {
                 e.stopPropagation();
                 closeMiniPlayer();

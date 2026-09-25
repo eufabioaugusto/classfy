@@ -1,12 +1,12 @@
 import { AppNotifications } from "@/components/AppNotifications";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route, useLocation } from "react-router-dom";
+import { BrowserRouter, Routes, Route, useLocation, useNavigate } from "react-router-dom";
 import { AuthProvider } from "./contexts/AuthContext";
 import { ThemeProvider } from "./contexts/ThemeContext";
-import { MiniPlayerProvider } from "./contexts/MiniPlayerContext";
+import { MiniPlayerProvider, useMiniPlayer } from "./contexts/MiniPlayerContext";
 import { supabase } from "@/integrations/supabase/client";
-import { useEffect, Suspense, lazy, Fragment } from "react";
+import { useEffect, useRef, useState, Suspense, lazy, Fragment } from "react";
 import { GlobalLoader } from "./components/GlobalLoader";
 import { LiveLoadingScreen } from "./components/live/LiveLoadingScreen";
 import { MobileBottomNav } from "./components/MobileBottomNav";
@@ -68,9 +68,38 @@ const queryClient = new QueryClient();
 
 function AppContent() {
   const location = useLocation();
+  const navigate = useNavigate();
   const isMobile = useIsMobile();
+  const { closeMiniPlayer } = useMiniPlayer();
   const backgroundLocation = isMobile ? (location.state as any)?.backgroundLocation : null;
   const isBroadcastRoute = /^\/live\/[^/]+\/broadcast\/?$/.test(location.pathname);
+  const liveRouteId = /^\/live\/([^/]+)\/?$/.exec(location.pathname)?.[1] ?? null;
+  const [liveSessionId, setLiveSessionId] = useState<string | null>(liveRouteId);
+  const [liveReturnPath, setLiveReturnPath] = useState("/");
+  const previousLocation = useRef(location);
+
+  useEffect(() => {
+    if (isBroadcastRoute || location.pathname === "/auth") {
+      setLiveSessionId(null);
+    }
+    if (liveRouteId) {
+      if (!/^\/live\/[^/]+\/?$/.test(previousLocation.current.pathname)) {
+        const previous = previousLocation.current;
+        setLiveReturnPath(previous.pathname === "/auth" ? "/" : `${previous.pathname}${previous.search}${previous.hash}`);
+      }
+      setLiveSessionId(liveRouteId);
+    }
+    previousLocation.current = location;
+  }, [isBroadcastRoute, liveRouteId, location]);
+
+  const activeLiveId = isBroadcastRoute || location.pathname === "/auth" ? null : liveRouteId ?? liveSessionId;
+  useEffect(() => {
+    if (activeLiveId) closeMiniPlayer();
+  }, [activeLiveId, closeMiniPlayer]);
+  const closeLive = () => {
+    if (liveRouteId) navigate(liveReturnPath);
+    setLiveSessionId(null);
+  };
   const loadingLabels: Record<string, string> = {
     "/studio": "Carregando Studio",
     "/studio/goals": "Carregando metas",
@@ -147,7 +176,7 @@ function AppContent() {
       <Route path="/messages" element={<Messages />} />
       <Route path="/studio/live" element={<StudioLive />} />
       <Route path="/live/:id/broadcast" element={<LiveBroadcast />} />
-      <Route path="/live/:id" element={<LiveWatch />} />
+      <Route path="/live/:id" element={null} />
       <Route path="/creators/destaque/:slug" element={<FeaturedCreatorPage />} />
       <Route path="/lab/front-v2" element={<FrontV2Lab />} />
       <Route path="/:username" element={<CreatorProfile />} />
@@ -178,8 +207,20 @@ function AppContent() {
           )}
         </Suspense>
       </RouteLoadBoundary>
-      {!isBroadcastRoute && <MiniPlayer />}
-      {!isBroadcastRoute && <MobileBottomNav />}
+      {activeLiveId && (
+        <Suspense fallback={liveOpening}>
+          <LiveWatch
+            key={activeLiveId}
+            liveId={activeLiveId}
+            minimized={!liveRouteId}
+            onMinimize={() => navigate(liveReturnPath)}
+            onExpand={() => navigate(`/live/${activeLiveId}`)}
+            onClose={closeLive}
+          />
+        </Suspense>
+      )}
+      {!isBroadcastRoute && !activeLiveId && <MiniPlayer />}
+      {!isBroadcastRoute && !liveRouteId && <MobileBottomNav />}
     </>
   );
 }

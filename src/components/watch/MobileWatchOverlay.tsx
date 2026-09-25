@@ -10,6 +10,8 @@ import {
 import { useMiniPlayer } from "@/contexts/MiniPlayerContext";
 import { useNavigate } from "react-router-dom";
 import { cn } from "@/lib/utils";
+import { ChevronDown } from "lucide-react";
+import { shouldMinimizePlayer } from "@/lib/mobilePlayerGesture";
 
 interface MobileWatchOverlayProps {
   children: React.ReactNode;
@@ -25,9 +27,6 @@ interface MobileWatchOverlayProps {
   isVisible: boolean;
   onClose: () => void;
 }
-
-const MINIMIZE_THRESHOLD = 100; // px to drag before minimizing
-const DISMISS_VELOCITY = 500; // velocity to dismiss
 
 export function MobileWatchOverlay({
   children,
@@ -55,35 +54,31 @@ export function MobileWatchOverlay({
     setIsDragging(true);
   }, []);
 
+  const minimize = useCallback(() => {
+    startMiniPlayer({
+      id: content.id,
+      title: content.title,
+      file_url: content.file_url,
+      thumbnail_url: content.thumbnail_url,
+      duration_seconds: content.duration_seconds,
+      creator: content.creator ? { display_name: content.creator.display_name } : undefined,
+    }, currentTime);
+    onClose();
+  }, [content, currentTime, startMiniPlayer, onClose]);
+
   const handleDragEnd = useCallback(
     (event: MouseEvent | TouchEvent | PointerEvent, info: PanInfo) => {
       setIsDragging(false);
       
       const { offset, velocity } = info;
       
-      // If dragged past threshold or with high velocity, minimize to mini player
-      if (offset.y > MINIMIZE_THRESHOLD || velocity.y > DISMISS_VELOCITY) {
-        // Transition to mini player
-        startMiniPlayer(
-          {
-            id: content.id,
-            title: content.title,
-            file_url: content.file_url,
-            thumbnail_url: content.thumbnail_url,
-            duration_seconds: content.duration_seconds,
-            creator: content.creator ? { display_name: content.creator.display_name } : undefined,
-          },
-          currentTime
-        );
-        
-        // Navigate back
-        onClose();
+      if (shouldMinimizePlayer(offset.y, velocity.y)) {
+        minimize();
       } else {
-        // Snap back to original position
         y.set(0);
       }
     },
-    [content, currentTime, startMiniPlayer, onClose, y]
+    [minimize, y]
   );
 
   // Reset position when becoming visible and lock body scroll
@@ -142,13 +137,17 @@ export function MobileWatchOverlay({
             dragListener={false}
             dragConstraints={{ top: 0 }}
             dragElastic={{ top: 0, bottom: 0.5 }}
+            dragMomentum={false}
             onDragStart={handleDragStart}
             onDragEnd={handleDragEnd}
           >
             {/* Draggable area - only the player zone */}
             <motion.div
               className="flex-shrink-0 touch-none"
-              onPointerDown={(e) => dragControls.start(e)}
+              onPointerDown={(e) => {
+                if ((e.target as HTMLElement).closest("button, input, textarea, select")) return;
+                dragControls.start(e);
+              }}
             >
               {/* Drag indicator */}
               <div
@@ -158,6 +157,7 @@ export function MobileWatchOverlay({
                 )}
               >
                 <div className="w-10 h-1 rounded-full bg-white/30" />
+                <button type="button" aria-label="Minimizar vídeo" onClick={minimize} className="absolute left-3 top-1 flex h-9 w-9 items-center justify-center rounded-full bg-black/60 text-white"><ChevronDown className="h-5 w-5" /></button>
               </div>
 
               {/* Hint text when dragging */}
