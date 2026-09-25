@@ -1,4 +1,3 @@
-import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { ChevronDown, FileText } from "lucide-react";
 
@@ -43,7 +42,6 @@ export interface ClassyMessageMetadata {
 
 interface ClassyMessageExtrasProps {
   metadata?: ClassyMessageMetadata | null;
-  onSuggestionClick: (suggestion: string) => void;
   onCitationClick?: (seconds: number) => void;
   compact?: boolean;
 }
@@ -65,44 +63,22 @@ const groundingLabel: Record<string, string> = {
 
 export function ClassyMessageExtras({
   metadata,
-  onSuggestionClick,
   onCitationClick,
   compact = false,
 }: ClassyMessageExtrasProps) {
   if (!metadata) return null;
 
-  const suggestions = metadata.follow_up_suggestions || [];
   const citations = metadata.citations || [];
-  const isOnboarding =
-    metadata.active_mode === "onboard" || metadata.intent === "onboard";
-  const visibleSuggestions = isOnboarding ? suggestions.slice(0, 3) : [];
   const sourceDescription = metadata.source_transparency;
   const sourceKind =
     metadata.quality?.grounding || metadata.content_strategy || "";
   const sourceSummary = groundingLabel[sourceKind] || "Sobre esta resposta";
   const hasSourceDetails = Boolean(sourceDescription || citations.length > 0);
 
-  if (visibleSuggestions.length === 0 && !hasSourceDetails) return null;
+  if (!hasSourceDetails) return null;
 
   return (
     <div className={cn("space-y-2.5", compact && "space-y-2")}>
-      {visibleSuggestions.length > 0 && (
-        <div className="flex flex-col items-start gap-2 sm:flex-row sm:flex-wrap">
-          {visibleSuggestions.map((suggestion) => (
-            <Button
-              key={suggestion}
-              type="button"
-              variant="outline"
-              size="sm"
-              className="h-auto min-h-9 rounded-xl px-3 py-2 text-left text-xs font-medium"
-              onClick={() => onSuggestionClick(suggestion)}
-            >
-              {suggestion}
-            </Button>
-          ))}
-        </div>
-      )}
-
       {hasSourceDetails && (
         <details className="group w-fit max-w-full text-xs text-muted-foreground">
           <summary className="flex cursor-pointer list-none items-center gap-1.5 rounded-md py-1 transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">

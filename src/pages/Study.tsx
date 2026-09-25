@@ -170,12 +170,6 @@ const mapStudyStateRecord = (
 
 const STUDY_BOOTSTRAP_RETRY_LIMIT = 8;
 const STUDY_BOOTSTRAP_RETRY_DELAY_MS = 350;
-const INITIAL_ONBOARDING_SUGGESTIONS = [
-  "Quero começar do zero",
-  "Já sei o básico",
-  "Quero aplicar isso no trabalho",
-];
-
 const isTransientStudyBootstrapError = (error: any) => {
   const status = error?.context?.status ?? error?.status;
   const message = String(
@@ -253,7 +247,6 @@ const buildInitialAssistantReply = (
 
 const buildInitialAssistantMetadata = (): ClassyMessageMetadata => ({
   active_mode: "onboard",
-  follow_up_suggestions: INITIAL_ONBOARDING_SUGGESTIONS,
   citations: [],
   ui_blocks: [],
   checkpoint_generated: false,
@@ -963,7 +956,7 @@ function StudyContent() {
         active_mode: "onboard",
         next_best_action:
           "Entender seu nível atual antes de montar a melhor direção.",
-        open_questions: INITIAL_ONBOARDING_SUGGESTIONS,
+        open_questions: [],
       });
 
       await updateLastActivity(id);
@@ -1845,7 +1838,6 @@ function StudyContent() {
                           <div className="space-y-1">
                             <ClassyMessageExtras
                               metadata={getAssistantMetadata(message)}
-                              onSuggestionClick={handleSuggestionClick}
                               onCitationClick={handleSeekToTimestamp}
                               compact
                             />
@@ -3059,7 +3051,6 @@ function StudyContent() {
                             <div className="space-y-1">
                               <ClassyMessageExtras
                                 metadata={getAssistantMetadata(message)}
-                                onSuggestionClick={handleSuggestionClick}
                                 onCitationClick={handleSeekToTimestamp}
                               />
                               <ClassyMessageActions

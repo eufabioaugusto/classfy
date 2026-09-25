@@ -499,15 +499,6 @@ serve(async (req) => {
       nextBestAction,
     });
 
-    const followUpSuggestions = buildFollowUpSuggestions({
-      activeMode: resolvedActiveMode,
-      activeContent: activeContentData,
-      currentFocus: resolvedCurrentFocus,
-      relatedContents,
-      latestQuizAttempt,
-      recommendedPath,
-    });
-
     const citations = buildCitations({
       activeContent: activeContentData,
       currentVideoTime,
@@ -657,7 +648,7 @@ serve(async (req) => {
           : aiState.celebration_count,
       },
       uiBlocks,
-      followUpSuggestions,
+      followUpSuggestions: [],
       citations,
       relatedContents,
     };
@@ -670,7 +661,7 @@ serve(async (req) => {
         intent: resolvedActiveMode,
         active_mode: resolvedActiveMode,
         next_best_action: nextBestAction,
-        follow_up_suggestions: followUpSuggestions,
+        follow_up_suggestions: [],
         citations,
         ui_blocks: uiBlocks,
         content_strategy: contentStrategy,
@@ -1752,64 +1743,6 @@ function translateLearnerLevel(level: LearnerLevel) {
     default:
       return "indefinido";
   }
-}
-
-function buildFollowUpSuggestions(options: {
-  activeMode: ActiveMode;
-  activeContent: any | null;
-  currentFocus: string | null;
-  relatedContents: any[];
-  latestQuizAttempt: any;
-  recommendedPath: string[];
-}) {
-  if (options.activeMode === "practice") {
-    return [
-      "Me faça uma pergunta de revisão",
-      "Quero um exercício mais difícil",
-      "Mostre a resposta comentada",
-    ];
-  }
-
-  if (options.activeMode === "onboard") {
-    return [
-      "Quero começar do zero",
-      "Já sei o básico",
-      "Quero aplicar isso no trabalho",
-    ];
-  }
-
-  if (
-    options.activeMode === "review" ||
-    (options.latestQuizAttempt?.max_score &&
-      options.latestQuizAttempt.score / options.latestQuizAttempt.max_score <
-        0.7)
-  ) {
-    return [
-      "Resuma os pontos que eu errei",
-      "Explique isso passo a passo",
-      "Monte um mini plano de revisão",
-    ];
-  }
-
-  if (
-    options.recommendedPath.length > 0 || options.relatedContents.length > 0
-  ) {
-    return [];
-  }
-
-  if (options.activeContent) {
-    return [
-      "Resuma este trecho em 3 pontos",
-      "Me dê um exemplo prático",
-      "Crie uma pergunta para testar meu entendimento",
-    ];
-  }
-
-  return [
-    `Quero entender melhor ${options.currentFocus || "esse tema"}`,
-    "Me explique com um exemplo",
-    "Como eu aplico isso na prática?",
-  ];
 }
 
 function buildCitations(options: {
