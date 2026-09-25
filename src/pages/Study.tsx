@@ -22,7 +22,9 @@ import {
   ChevronLeft,
   ChevronRight,
   AlertCircle,
-  ChevronRight as ChevronRightIcon,
+  Compass,
+  PanelRightClose,
+  PanelRightOpen,
 } from "lucide-react";
 import { StudyMessage } from "@/hooks/useStudies";
 import { useStudies } from "@/hooks/useStudies";
@@ -36,7 +38,7 @@ import {
 import { ClassyMessageActions } from "@/components/chat/ClassyMessageActions";
 import { HighlightedText } from "@/components/chat/HighlightedText";
 import { ClassyStudyState } from "@/components/chat/ClassyStudyStateBar";
-import { StudyMapDialog } from "@/components/chat/StudyMapDialog";
+import { StudyMapPanel } from "@/components/chat/StudyMapPanel";
 import { UpgradePromptCard } from "@/components/chat/UpgradePromptCard";
 import { UnifiedVideoPlayer } from "@/components/unified/UnifiedVideoPlayer";
 import { SocialBar } from "@/components/unified/SocialBar";
@@ -335,6 +337,8 @@ function StudyContent() {
   const scrollRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messageInputRef = useRef<HTMLTextAreaElement>(null);
+  const mobileMessageInputRef = useRef<HTMLInputElement>(null);
+  const studyMapTriggerRef = useRef<HTMLButtonElement>(null);
   const latestMessagesRef = useRef<StudyMessage[]>([]);
 
   // Tool panels state - using unified ToolPanel type
@@ -362,7 +366,7 @@ function StudyContent() {
   const [studyAiState, setStudyAiState] = useState<ClassyStudyState | null>(
     null,
   );
-  const [studyMapDialogOpen, setStudyMapDialogOpen] = useState(false);
+  const [studyMapPanelOpen, setStudyMapPanelOpen] = useState(false);
 
   // Access control state
   const { checkAccess, hasAccess, blockReason, requiredPlan } =
@@ -1470,46 +1474,48 @@ function StudyContent() {
     </DropdownMenu>
   );
 
+  const closeStudyMap = () => {
+    setStudyMapPanelOpen(false);
+    requestAnimationFrame(() => studyMapTriggerRef.current?.focus());
+  };
+  const continueFromStudyMap = () => {
+    setStudyMapPanelOpen(false);
+    requestAnimationFrame(() => {
+      (isMobile ? mobileMessageInputRef.current : messageInputRef.current)?.focus();
+    });
+  };
   const studyMapCard = shouldShowStudyMap ? (
-    <div className="flex w-full items-center rounded-xl border border-border/70 bg-card px-2 py-1.5 shadow-sm">
+    <div className="cf-v2 flex min-w-0 flex-1 items-center gap-1.5">
       <button
+        ref={studyMapTriggerRef}
         type="button"
-        onClick={() => setStudyMapDialogOpen(true)}
-        className="group flex min-w-0 flex-1 items-center gap-3 rounded-lg px-2 py-1.5 text-left transition-colors hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-        aria-label={`Abrir plano do estudo ${compactStudyTitle}`}
+        onClick={() => setStudyMapPanelOpen((open) => !open)}
+        className="cf2-study-map-trigger"
+        aria-expanded={studyMapPanelOpen}
+        aria-controls={studyMapPanelOpen ? "study-map-panel" : undefined}
+        aria-label={`${studyMapPanelOpen ? "Fechar" : "Abrir"} mapa do estudo ${compactStudyTitle}`}
       >
-        <span className="min-w-0 flex-1 truncate text-sm font-semibold text-foreground">
-          {compactStudyTitle}
+        <span className="cf2-study-map-trigger__icon"><Compass size={17} strokeWidth={1.8} /></span>
+        <span className="cf2-study-map-trigger__copy">
+          <span className="cf2-study-map-trigger__label">Mapa do estudo</span>
+          <span className="cf2-study-map-trigger__title">{compactStudyTitle}</span>
         </span>
-        <span className="hidden shrink-0 text-xs text-muted-foreground min-[430px]:inline">
-          {compactStageLabel}
-        </span>
-        {contentProgress !== null && (
-          <span className="shrink-0 text-xs font-medium text-muted-foreground">
-            {contentProgress}%
-          </span>
-        )}
-        <span className="hidden shrink-0 items-center gap-1 text-xs font-medium text-foreground min-[520px]:inline-flex">
-          Ver plano
-          <ChevronRightIcon className="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5" />
-        </span>
+        <span className="cf2-study-map-trigger__stage">{compactStageLabel}{contentProgress !== null ? ` · ${contentProgress}%` : ""}</span>
+        {studyMapPanelOpen ? <PanelRightClose className="cf2-study-map-trigger__arrow" size={17} /> : <PanelRightOpen className="cf2-study-map-trigger__arrow" size={17} />}
       </button>
       <div className="shrink-0">{studyMapActions}</div>
     </div>
   ) : null;
 
-  const studyMapDialog = shouldShowStudyMap ? (
-    <StudyMapDialog
-      open={studyMapDialogOpen}
-      onOpenChange={setStudyMapDialogOpen}
-      onContinue={() => {
-        setStudyMapDialogOpen(false);
-        requestAnimationFrame(() => messageInputRef.current?.focus());
-      }}
+  const studyMapPanel = shouldShowStudyMap && studyMapPanelOpen && !activeContent ? (
+    <StudyMapPanel
       title={compactStudyTitle}
       state={studyAiState}
       summary={studyJourneySummary}
       latestAssistantContent={[...messages].reverse().find((item) => item.role === "assistant")?.content}
+      onClose={closeStudyMap}
+      onContinue={continueFromStudyMap}
+      mobile={isMobile}
     />
   ) : null;
 
@@ -1547,7 +1553,7 @@ function StudyContent() {
             <div className="mt-3 w-full max-w-3xl mx-auto">{studyMapCard}</div>
           )}
         </header>
-        {studyMapDialog}
+        {studyMapPanel && <div className="flex-1 min-h-0 overflow-hidden">{studyMapPanel}</div>}
 
         {/* Modals for access control */}
         <UpgradeModal
@@ -1593,7 +1599,7 @@ function StudyContent() {
         )}
 
         {/* Mobile Chat Area */}
-        <div className="flex-1 min-h-0 overflow-hidden w-full max-w-full">
+        <div className={cn("flex-1 min-h-0 overflow-hidden w-full max-w-full", studyMapPanel && "hidden")}>
           <ScrollArea className="h-full w-full max-w-full" ref={scrollRef}>
             <div className="py-4 space-y-4 px-3 w-full max-w-full">
               {loading || (messages.length === 0 && !initialMessageSent) ? (
@@ -1870,7 +1876,7 @@ function StudyContent() {
         </div>
 
         {/* Mobile Input - Fixed at bottom */}
-        <div className="border-t border-border bg-card px-3 py-3 flex-shrink-0 pb-safe">
+        <div className={cn("border-t border-border bg-card px-3 py-3 flex-shrink-0 pb-safe", studyMapPanel && "hidden")}>
           <form
             onSubmit={(e) => {
               e.preventDefault();
@@ -1879,6 +1885,7 @@ function StudyContent() {
             className="flex gap-2"
           >
             <Input
+              ref={mobileMessageInputRef}
               value={input}
               onChange={(e) => setInput(e.target.value)}
               placeholder={
@@ -2493,8 +2500,6 @@ function StudyContent() {
           </div>
         </div>
       </header>
-      {studyMapDialog}
-
       {/* Main Content Area - Responsive Layout based on sidebar state */}
       <div className="flex-1 flex min-w-0 overflow-hidden">
         {/* Left Panel - Video Player (when active and not minimized) */}
@@ -3145,6 +3150,7 @@ function StudyContent() {
             </div>
           </div>
         </div>
+        {studyMapPanel}
       </div>
 
       {/* Tool Panels - Sheets */}
