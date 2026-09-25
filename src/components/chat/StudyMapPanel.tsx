@@ -79,7 +79,7 @@ export function StudyMapPanel({ title, state, summary, latestAssistantContent, o
           {contents.length > 0 && (
             <>
               <div className="cf2-study-map-panel__earnings">
-                <div><span>Assistidos</span><strong>{summary?.watchedContentsCount || 0} de {contents.length}</strong></div>
+                <div><span>Iniciados</span><strong>{summary?.watchedContentsCount || 0} de {contents.length}</strong></div>
                 <div><span>Points nesses vídeos</span><strong>{(summary?.rewardPoints || 0).toLocaleString("pt-BR")}</strong></div>
               </div>
               <div className="cf2-study-map-panel__content-list">

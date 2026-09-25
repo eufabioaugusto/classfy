@@ -6,6 +6,22 @@ export type ClassyActiveMode =
   | "review"
   | "plan";
 
+export function isStudyProgressQuestion(message: string): boolean {
+  return /\b(mapa|progresso|registrad[oa]s?|conclu[ií]d[oa]|assistid[oa])\b/i.test(message) &&
+    /\b(quanto|qual|como|o que|ficou|est[aá]|terminei|completei|assisti|conclu[ií])\b/i.test(message);
+}
+
+export function buildVerifiedProgressAnswer(
+  title: string,
+  progressPercent: number,
+  completed: boolean,
+): string {
+  const progress = completed ? 100 : Math.max(0, Math.min(100, Math.round(progressPercent)));
+  return progress === 100
+    ? `O vídeo **${title}** está registrado como concluído (100%) no seu mapa de estudo. Você pode reabri-lo pelo mapa quando quiser.`
+    : `O vídeo **${title}** está registrado com ${progress}% de progresso no seu mapa de estudo. Você pode continuar de onde parou pelo mapa.`;
+}
+
 export function addressStudentByName(answer: string, displayName?: string | null): string {
   const firstName = displayName?.trim().split(/\s+/)[0];
   if (!firstName || !/^[\p{L}][\p{L}'’-]*$/u.test(firstName) || !answer.trim()) {
@@ -186,21 +202,31 @@ export function inferLearningStyle(
 }
 
 export function extractExplicitFocus(message: string): string | null {
-  const compact = message.replace(/\s+/g, " ").trim();
+  const sentences = message.replace(/\s+/g, " ").trim().split(/[.!?]+\s*/);
   const patterns = [
-    /(?:quero|gostaria de|preciso)\s+(?:aprender|entender|estudar|revisar|praticar)(?:\s+mais)?(?:\s+sobre)?\s+(.+)/i,
-    /(?:me explique|explique|fale|ensine)(?:\s+mais)?(?:\s+sobre)?\s+(.+)/i,
-    /(?:meu foco|o foco|tema)\s+(?:e|é|eh|sera|será)\s+(.+)/i,
+    /^(?:agora\s+)?(?:quero|gostaria de|preciso)\s+(?:aprender|entender|estudar|revisar|praticar)(?:\s+mais)?(?:\s+sobre)?\s+(.+)/i,
+    /^(?:me explique|explique|fale|ensine)(?:\s+mais)?(?:\s+sobre)?\s+(.+)/i,
+    /^(?:meu foco|o foco|tema)\s+(?:e|é|eh|sera|será)\s+(.+)/i,
   ];
 
-  for (const pattern of patterns) {
-    const match = compact.match(pattern);
-    if (!match?.[1]) continue;
-    const candidate = cleanFocus(match[1]);
-    if (candidate.length >= 3 && candidate.length <= 100) return candidate;
+  for (const sentence of sentences) {
+    const compact = sentence.trim();
+    for (const pattern of patterns) {
+      const match = compact.match(pattern);
+      if (!match?.[1]) continue;
+      const specificTopic = match[1].split(/\b(?:começando|iniciando)\s+(?:por|pela|pelo)\s+/i).at(-1) || match[1];
+      const candidate = cleanFocus(specificTopic);
+      if (/^(por que|por quê|como|o que)\b/i.test(candidate)) continue;
+      if (candidate.length >= 3 && candidate.length <= 100) return candidate;
+    }
   }
 
   return null;
+}
+
+export function isCompleteClassyAiTurn(raw: string): boolean {
+  const parsed = safeJsonParse(raw);
+  return typeof parsed?.answer === "string" && parsed.answer.trim().length > 0;
 }
 
 export function selectTranscriptExcerpt(

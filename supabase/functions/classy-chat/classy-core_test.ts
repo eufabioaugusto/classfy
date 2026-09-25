@@ -4,11 +4,14 @@ import {
 } from "https://deno.land/std@0.168.0/testing/asserts.ts";
 import {
   addressStudentByName,
+  buildVerifiedProgressAnswer,
   buildSourceTransparency,
   detectStudyIntent,
   extractExplicitFocus,
   inferDeclaredLearnerLevel,
   inferLearningStyle,
+  isCompleteClassyAiTurn,
+  isStudyProgressQuestion,
   parseClassyAiTurn,
   parseClassyRequest,
   selectTranscriptExcerpt,
@@ -80,6 +83,25 @@ Deno.test("extrai somente mudanças explícitas de foco", () => {
     "pesquisa com usuários",
   );
   assertEquals(extractExplicitFocus("E como isso funciona na prática?"), null);
+  assertEquals(
+    extractExplicitFocus("Quero aprender tecnologias emergentes começando por inteligência artificial generativa. Indique um vídeo disponível na Classfy para iniciantes, explique por que ele é relevante e adicione-o ao meu mapa do estudo."),
+    "inteligência artificial generativa",
+  );
+  assertEquals(extractExplicitFocus("Explique por que este vídeo é relevante."), null);
+});
+
+Deno.test("não aceita resposta estruturada interrompida", () => {
+  assertEquals(isCompleteClassyAiTurn('{"answer":"Resposta interrompida'), false);
+  assertEquals(isCompleteClassyAiTurn('{"answer":"Resposta completa."}'), true);
+});
+
+Deno.test("usa progresso confirmado em perguntas sobre o mapa", () => {
+  assertEquals(isStudyProgressQuestion("Terminei de assistir. O que ficou registrado no mapa?"), true);
+  assertEquals(isStudyProgressQuestion("Explique o tema desta aula"), false);
+  assertEquals(
+    buildVerifiedProgressAnswer("AULA MUX 1", 91, true),
+    "O vídeo **AULA MUX 1** está registrado como concluído (100%) no seu mapa de estudo. Você pode reabri-lo pelo mapa quando quiser.",
+  );
 });
 
 Deno.test("seleciona trecho da transcrição perto do momento assistido", () => {
