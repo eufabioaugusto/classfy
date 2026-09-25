@@ -408,8 +408,10 @@ function StudyContent() {
       const content = activeContentRef.current;
       const playbackTime = currentPlaybackTimeRef.current;
 
-      // Only activate if we have content and some playback progress
-      if (content && playbackTime > 0) {
+      // A aula concluída não deve reabrir em um mini player ao sair do estudo.
+      const canResume = content && playbackTime > 0 &&
+        (!content.duration_seconds || playbackTime < content.duration_seconds - 3);
+      if (canResume) {
         startMiniPlayer(
           {
             id: content.id,

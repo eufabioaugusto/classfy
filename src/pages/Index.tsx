@@ -493,7 +493,11 @@ export default function Index() {
                         }
 
                       }}
-                      onOpenFocus={() => setMode(false)}
+                      onOpenFocus={() => navigate("/c/new", {
+                        state: featuredContentHero?.title
+                          ? { contentTitle: featuredContentHero.title }
+                          : undefined,
+                      })}
                       primaryLabel={featuredContentHero ? "Assistir agora" : "Conhecer creator"}
                     />
 

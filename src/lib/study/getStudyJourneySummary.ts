@@ -115,6 +115,9 @@ const stripStudyLeadIn = (value: string) => {
     /^(ol[aá]|oi|opa|e ai|e aí|hey)\s*[!,.:\-–—]?\s*/i,
     /^quero aprender sobre\s+/i,
     /^quero aprender\s+/i,
+    /^quero estudar\s+(?:a aula|o v[ií]deo|o conte[uú]do|sobre)?\s*/i,
+    /^quero estudar\s+/i,
+    /^me ajude a (?:aprender|estudar)\s+(?:sobre)?\s*/i,
     /^aprender sobre\s+/i,
     /^aprender\s+/i,
     /^estudo sobre\s+/i,
@@ -146,10 +149,16 @@ export const toShortTitle = (title: string) => {
 
   if (!cleaned) return title.trim();
 
-  return cleaned
-    .split(/[:|-]/)[0]
+  const firstThought = cleaned
+    .split(/[.!?;\n]/)[0]
+    .replace(/,\s+(?:do|da|dos|das|mas|encontre|explique|coloque)\b.*$/i, "")
     .trim()
     .replace(/\s+/g, " ");
+
+  if (firstThought.length <= 72) return firstThought;
+
+  const shortened = firstThought.slice(0, 72).replace(/\s+\S*$/, "").trim();
+  return shortened || firstThought.slice(0, 72);
 };
 
 export const normalizeStudyTitle = (title: string) => {
@@ -161,7 +170,7 @@ export const normalizeStudyTitle = (title: string) => {
     .replace(/^(de|do|da|dos|das)\s+/i, "")
     .trim();
 
-  return normalizedShort ? `Aprender ${normalizedShort}` : `Aprender ${shortTitle}`;
+  return normalizedShort || shortTitle;
 };
 
 const extractContentIds = (messages: StudyMessageRow[]) => {

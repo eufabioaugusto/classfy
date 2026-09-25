@@ -1,4 +1,5 @@
 import { supabase } from "@/integrations/supabase/client";
+import { toShortTitle } from "@/lib/study/getStudyJourneySummary";
 
 export type InterestInteractionType = "search" | "click" | "like" | "save" | "favorite" | "watch_50" | "watch_100";
 
@@ -13,6 +14,21 @@ const ACTION_SCORES: Record<InterestInteractionType, number> = {
 };
 
 const normalizeInterest = (value: string) => value.toLowerCase().trim();
+const genericInterests = new Set([
+  "quero", "estudar", "aprender", "sobre", "aula", "aulas", "vídeo", "video",
+  "conteúdo", "conteudo", "classfy", "classy", "encontre", "explique", "meu", "minha",
+  "para", "como", "gostaria", "esse", "essa", "isso",
+]);
+
+export const isMeaningfulInterest = (value: string) => {
+  const normalized = normalizeInterest(value);
+  return normalized.length >= 2 && !genericInterests.has(normalized);
+};
+
+export const isDisplayableInterest = (value: string) =>
+  isMeaningfulInterest(value) &&
+  value.trim().length <= 48 &&
+  !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value.trim());
 
 const toStringArray = (value: unknown): string[] => {
   if (!Array.isArray(value)) return [];
@@ -33,7 +49,7 @@ export async function getTopInterests(userId?: string | null): Promise<string[]>
     return [];
   }
 
-  return toStringArray(data?.interests);
+  return toStringArray(data?.interests).filter(isMeaningfulInterest);
 }
 
 export async function getActiveDifficulties(userId?: string | null): Promise<string[]> {
@@ -127,7 +143,7 @@ export function boostContentList<T extends Record<string, any>>(contents: T[], t
   return [...contents].sort((a, b) => calculateContentScore(b, topInterests) - calculateContentScore(a, topInterests));
 }
 
-function extractInterestTerms(input: {
+export function extractInterestTerms(input: {
   tags?: string[] | string | null;
   categoryId?: string | null;
   title?: string | null;
@@ -142,9 +158,9 @@ function extractInterestTerms(input: {
   }
 
   if (categoryId) terms.push(categoryId);
-  if (title) terms.push(...title.split(/\s+/).filter((term) => term.length >= 4).slice(0, 4));
+  if (title) terms.push(toShortTitle(title));
 
-  return Array.from(new Set(terms.map(normalizeInterest).filter(Boolean)));
+  return Array.from(new Set(terms.map(normalizeInterest).filter(isMeaningfulInterest)));
 }
 
 function calculateContentScore(content: Record<string, any>, topInterests: string[]): number {

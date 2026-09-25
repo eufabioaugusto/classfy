@@ -257,8 +257,10 @@ function WatchContent() {
       const currentContent = contentRef.current;
       const playbackTime = currentPlaybackTime.current;
 
-      // Only activate if we have content and some playback progress
-      if (currentContent && playbackTime > 0) {
+      // Um vídeo concluído não precisa continuar em mini player.
+      const canResume = currentContent && playbackTime > 0 &&
+        (!currentContent.duration_seconds || playbackTime < currentContent.duration_seconds - 3);
+      if (canResume) {
         startMiniPlayer(
           {
             id: currentContent.id,

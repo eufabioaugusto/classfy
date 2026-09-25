@@ -9,7 +9,7 @@ import { UpgradeModal } from "@/components/UpgradeModal";
 import { SidebarProvider } from "@/components/ui/sidebar";
 import { useAuth } from "@/contexts/AuthContext";
 import { useStudies } from "@/hooks/useStudies";
-import { getTopInterests, trackUserInteraction } from "@/lib/personalization/interests";
+import { getTopInterests, isDisplayableInterest, trackUserInteraction } from "@/lib/personalization/interests";
 
 const starterTopics = ["Inteligência artificial", "Marketing digital", "Finanças pessoais", "Design de produto"];
 
@@ -31,7 +31,7 @@ export default function NewStudy() {
     let active = true;
     getTopInterests(user?.id).then((items) => {
       if (!active) return;
-      setInterests([...new Set(items.map((item) => item.trim()).filter((item) => item.length >= 4))].slice(0, 4));
+      setInterests([...new Set(items.map((item) => item.trim()).filter(isDisplayableInterest))].slice(0, 4));
     });
     return () => { active = false; };
   }, [user?.id]);
