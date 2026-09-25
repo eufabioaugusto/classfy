@@ -29,6 +29,7 @@ interface MobileStudyPlayerProps {
   onToolPanelChange: (panel: ToolPanel) => void;
   onMinimize: () => void;
   onVideoEnded: () => void;
+  onMilestone?: () => void;
   onNoteCreated: () => void;
   onCancelAutoplay: () => void;
   studyId?: string | null;
@@ -44,6 +45,7 @@ export function MobileStudyPlayer({
   onToolPanelChange,
   onMinimize,
   onVideoEnded,
+  onMilestone,
   onNoteCreated,
   onCancelAutoplay,
   studyId,
@@ -143,6 +145,7 @@ export function MobileStudyPlayer({
             mode="study"
             compact
             onVideoEnded={onVideoEnded}
+            onMilestone={onMilestone}
             onNoteCreated={onNoteCreated}
           />
         </div>

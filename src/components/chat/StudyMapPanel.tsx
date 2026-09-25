@@ -1,4 +1,4 @@
-import { ArrowLeft, ArrowRight, BookOpen, Check, Compass, X } from "lucide-react";
+import { ArrowLeft, ArrowRight, BookOpen, Check, Compass, Play, Sparkles, X } from "lucide-react";
 import type { ClassyStudyState } from "@/components/chat/ClassyStudyStateBar";
 import type { StudyJourneySummary } from "@/lib/study/getStudyJourneySummary";
 import "./study-map-v2.css";
@@ -10,6 +10,7 @@ interface StudyMapPanelProps {
   latestAssistantContent?: string | null;
   onClose: () => void;
   onContinue: () => void;
+  onOpenContent: (contentId: string) => void;
   mobile?: boolean;
 }
 
@@ -22,13 +23,14 @@ const stageLabels: Record<ClassyStudyState["activeMode"], string> = {
   plan: "Organizando a trilha",
 };
 
-export function StudyMapPanel({ title, state, summary, latestAssistantContent, onClose, onContinue, mobile = false }: StudyMapPanelProps) {
+export function StudyMapPanel({ title, state, summary, latestAssistantContent, onClose, onContinue, onOpenContent, mobile = false }: StudyMapPanelProps) {
   const focus = state?.currentFocus || state?.userGoal || summary?.currentFocus || title;
   const stage = state?.activeMode ? stageLabels[state.activeMode] : summary?.stageLabel || "Ponto de partida";
   const question = state?.openQuestions?.find((item) => latestAssistantContent?.includes(item)) || null;
   const recommended = summary?.totalRecommendedContents || 0;
   const completed = summary?.completedContentsCount || 0;
   const contentProgress = recommended > 0 ? Math.round((completed / recommended) * 100) : null;
+  const contents = summary?.contentItems || [];
   const steps = state?.activeMode === "plan" || recommended > 0
     ? (state?.livePlanSteps || []).filter((step) => step !== state?.nextBestAction).slice(0, 3)
     : [];
@@ -73,6 +75,27 @@ export function StudyMapPanel({ title, state, summary, latestAssistantContent, o
             </>
           ) : (
             <p className="cf2-study-map-panel__empty">Quando a Classy encontrar materiais relevantes para seu objetivo, sua trilha aparece aqui.</p>
+          )}
+          {contents.length > 0 && (
+            <>
+              <div className="cf2-study-map-panel__earnings">
+                <div><span>Assistidos</span><strong>{summary?.watchedContentsCount || 0} de {contents.length}</strong></div>
+                <div><span>Points nesses vídeos</span><strong>{(summary?.rewardPoints || 0).toLocaleString("pt-BR")}</strong></div>
+              </div>
+              <div className="cf2-study-map-panel__content-list">
+                {contents.map((content) => (
+                  <button key={content.id} type="button" className="cf2-study-map-panel__content" onClick={() => onOpenContent(content.id)} aria-label={`Abrir ${content.title} no visualizador`}>
+                    <span className="cf2-study-map-panel__content-play"><Play size={14} fill="currentColor" /></span>
+                    <span className="cf2-study-map-panel__content-copy">
+                      <strong>{content.title}</strong>
+                      <small>{content.completed ? "Concluído" : content.watchedSeconds > 0 || content.progressPercent > 0 ? `${Math.round(content.progressPercent)}% assistido` : "Ainda não assistido"}</small>
+                    </span>
+                    <span className="cf2-study-map-panel__content-points"><Sparkles size={13} />{content.earnedPoints.toLocaleString("pt-BR")}</span>
+                  </button>
+                ))}
+              </div>
+              <p className="cf2-study-map-panel__detail">O progresso e os Points vêm do seu histórico de reprodução. Um vídeo em mais de um estudo aparece nos dois mapas.</p>
+            </>
           )}
         </section>
 

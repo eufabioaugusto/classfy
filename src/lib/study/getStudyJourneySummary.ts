@@ -14,12 +14,14 @@ type StudyAiStateRow = Pick<
 
 type RewardEventRow = Pick<
   Database["public"]["Tables"]["reward_events"]["Row"],
-  "content_id" | "points"
+  "content_id" | "points" | "action_key"
 >;
+
+const CONTENT_REWARD_ACTIONS = ["VIEW_15S", "WATCH_50", "WATCH_100", "LIKE", "SAVE", "FAVORITE", "COMMENT", "SHARE"];
 
 type UserProgressRow = Pick<
   Database["public"]["Tables"]["user_progress"]["Row"],
-  "content_id" | "progress_percent" | "completed"
+  "content_id" | "progress_percent" | "completed" | "watched_seconds"
 >;
 
 type StudyNoteRow = Pick<
@@ -44,8 +46,17 @@ type QuizAttemptWithStudy = Pick<
 
 type ContentDurationRow = Pick<
   Database["public"]["Tables"]["contents"]["Row"],
-  "id" | "duration_seconds"
+  "id" | "title" | "duration_seconds"
 >;
+
+export interface StudyContentItem {
+  id: string;
+  title: string;
+  progressPercent: number;
+  watchedSeconds: number;
+  completed: boolean;
+  earnedPoints: number;
+}
 
 const modeLabels: Record<ClassyStudyState["activeMode"], string> = {
   onboard: "Ponto de partida",
@@ -86,6 +97,8 @@ export interface StudyJourneySummary {
   activeMode: ClassyStudyState["activeMode"];
   primaryContentId: string | null;
   recommendedContentIds: string[];
+  contentItems: StudyContentItem[];
+  watchedContentsCount: number;
 }
 
 export interface StudyJourneySummaryOverrides {
@@ -231,6 +244,7 @@ export async function fetchStudyJourneySummary(input: {
     notesResult,
     aiStateResult,
     quizAttemptsResult,
+    openedContentsResult,
   ] = await Promise.all([
     supabase
       .from("study_messages")
@@ -259,6 +273,12 @@ export async function fetchStudyJourneySummary(input: {
         "completed_at, quiz:study_quizzes!quiz_attempts_quiz_id_fkey(study_id, content_id)"
       )
       .eq("user_id", userId),
+    supabase
+      .from("study_ai_events")
+      .select("payload")
+      .eq("study_id", studyId)
+      .eq("user_id", userId)
+      .eq("event_key", "content_opened"),
   ]);
 
   if (messagesResult.error) throw messagesResult.error;
@@ -266,6 +286,7 @@ export async function fetchStudyJourneySummary(input: {
   if (notesResult.error) throw notesResult.error;
   if (aiStateResult.error) throw aiStateResult.error;
   if (quizAttemptsResult.error) throw quizAttemptsResult.error;
+  if (openedContentsResult.error) throw openedContentsResult.error;
 
   const messages = (messagesResult.data || []) as StudyMessageRow[];
   const playlists = (playlistsResult.data || []) as StudyPlaylistRow[];
@@ -274,6 +295,12 @@ export async function fetchStudyJourneySummary(input: {
   const quizAttempts = (quizAttemptsResult.data || []) as QuizAttemptWithStudy[];
 
   const { recommendedContentIds, primaryContentId } = extractContentIds(messages);
+  const openedContentIds = (openedContentsResult.data || []).flatMap((event) => {
+    const payload = event.payload;
+    if (!payload || typeof payload !== "object" || Array.isArray(payload)) return [];
+    return typeof payload.content_id === "string" ? [payload.content_id] : [];
+  });
+  const linkedContentIds = [...new Set([...recommendedContentIds, ...openedContentIds])];
   const totalRecommendedContents = recommendedContentIds.length;
 
   const studyQuizAttempts = quizAttempts.filter(
@@ -285,22 +312,24 @@ export async function fetchStudyJourneySummary(input: {
   let rewardRows: RewardEventRow[] = [];
   let contentDurations: ContentDurationRow[] = [];
 
-  if (recommendedContentIds.length > 0) {
+  if (linkedContentIds.length > 0) {
     const [progressResult, rewardsResult, contentsResult] = await Promise.all([
       supabase
         .from("user_progress")
-        .select("content_id, progress_percent, completed")
+        .select("content_id, progress_percent, completed, watched_seconds")
         .eq("user_id", userId)
-        .in("content_id", recommendedContentIds),
+        .in("content_id", linkedContentIds),
       supabase
         .from("reward_events")
-        .select("content_id, points")
+        .select("content_id, points, action_key")
         .eq("user_id", userId)
-        .in("content_id", recommendedContentIds),
+        .eq("point_type", "user")
+        .in("action_key", CONTENT_REWARD_ACTIONS)
+        .in("content_id", linkedContentIds),
       supabase
         .from("contents")
-        .select("id, duration_seconds")
-        .in("id", recommendedContentIds),
+        .select("id, title, duration_seconds")
+        .in("id", linkedContentIds),
     ]);
 
     if (progressResult.error) throw progressResult.error;
@@ -341,10 +370,27 @@ export async function fetchStudyJourneySummary(input: {
     }
   }
 
-  const rewardPoints = rewardRows.reduce(
-    (sum, row) => sum + Number(row.points || 0),
-    0
-  );
+  const progressById = new Map(progressRows.map((row) => [row.content_id, row]));
+  const pointsById = new Map<string, number>();
+  for (const row of rewardRows) {
+    if (row.content_id) pointsById.set(row.content_id, (pointsById.get(row.content_id) || 0) + Number(row.points || 0));
+  }
+  const contentById = new Map(contentDurations.map((content) => [content.id, content]));
+  const contentItems: StudyContentItem[] = linkedContentIds.flatMap((contentId) => {
+    const content = contentById.get(contentId);
+    if (!content) return [];
+    const progress = progressById.get(contentId);
+    return [{
+      id: contentId,
+      title: content.title,
+      progressPercent: Number(progress?.progress_percent || 0),
+      watchedSeconds: Number(progress?.watched_seconds || 0),
+      completed: Boolean(progress?.completed || (progress?.progress_percent || 0) >= 90),
+      earnedPoints: pointsById.get(contentId) || 0,
+    }];
+  });
+  const rewardPoints = contentItems.reduce((sum, item) => sum + item.earnedPoints, 0);
+  const watchedContentsCount = contentItems.filter((item) => item.watchedSeconds > 0 || item.progressPercent > 0).length;
 
   const durationById = new Map(
     contentDurations.map((content) => [content.id, Number(content.duration_seconds || 0)])
@@ -360,13 +406,15 @@ export async function fetchStudyJourneySummary(input: {
       ? Math.max(1, Math.round(estimatedMinutesFromDurations / 60))
       : totalRecommendedContents * 10 + Math.min(notesCount, 5) * 2;
 
+  const completedRecommendedCount = recommendedContentIds.filter((contentId) => completedContentIds.has(contentId)).length;
+  const engagedRecommendedCount = recommendedContentIds.filter((contentId) => engagedContentIds.has(contentId)).length;
   const completedRatio =
     totalRecommendedContents > 0
-      ? completedContentIds.size / totalRecommendedContents
+      ? completedRecommendedCount / totalRecommendedContents
       : 0;
   const engagedRatio =
     totalRecommendedContents > 0
-      ? engagedContentIds.size / totalRecommendedContents
+      ? engagedRecommendedCount / totalRecommendedContents
       : 0;
 
   const progressPercent =
@@ -417,8 +465,8 @@ export async function fetchStudyJourneySummary(input: {
     playlistsCount,
     videosCount: totalRecommendedContents,
     notesCount,
-    completedContentsCount: completedContentIds.size,
-    engagedContentsCount: engagedContentIds.size,
+    completedContentsCount: completedRecommendedCount,
+    engagedContentsCount: engagedRecommendedCount,
     totalRecommendedContents,
     estimatedMinutes,
     rewardPoints,
@@ -430,5 +478,7 @@ export async function fetchStudyJourneySummary(input: {
     activeMode,
     primaryContentId,
     recommendedContentIds,
+    contentItems,
+    watchedContentsCount,
   };
 }

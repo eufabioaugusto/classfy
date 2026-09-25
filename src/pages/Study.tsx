@@ -831,13 +831,14 @@ function StudyContent() {
     if (!user || !id) return;
 
     try {
-      await supabase.from("study_ai_events").insert({
+      const { error } = await supabase.from("study_ai_events").insert({
         user_id: user.id,
         study_id: id,
         assistant_message_id: assistantMessageId || null,
         event_key: eventKey,
         payload,
       });
+      if (error) throw error;
     } catch (error) {
       console.error("Error tracking classy event:", error);
     }
@@ -874,6 +875,10 @@ function StudyContent() {
       enabled: Boolean(id && user?.id && study),
     });
   const studyJourneyRefetchPrimedRef = useRef(false);
+
+  useEffect(() => {
+    if (studyMapPanelOpen) void refetchStudyJourneySummary();
+  }, [studyMapPanelOpen, refetchStudyJourneySummary]);
 
   useEffect(() => {
     if (!study || !user || !id) return;
@@ -1186,15 +1191,6 @@ function StudyContent() {
     },
   ) => {
     try {
-      if (source?.sourceMessageId) {
-        trackClassyEvent("content_opened", {
-          assistant_message_id: source.sourceMessageId,
-          content_id: contentId,
-          content_title: source.title || null,
-          relevance_score: source.relevanceScore ?? null,
-        });
-      }
-
       // Reset playback time for mini player tracking
       currentPlaybackTimeRef.current = 0;
 
@@ -1234,6 +1230,13 @@ function StudyContent() {
         return;
       }
 
+      void trackClassyEvent("content_opened", {
+        assistant_message_id: source?.sourceMessageId || null,
+        content_id: contentId,
+        content_title: source?.title || data.title,
+        relevance_score: source?.relevanceScore ?? null,
+      }).then(() => void refetchStudyJourneySummary());
+
       // Register view for metrics
       if (user) {
         await supabase.rpc("increment_content_view", {
@@ -1266,6 +1269,7 @@ function StudyContent() {
   };
 
   const handleVideoEnded = () => {
+    window.setTimeout(() => void refetchStudyJourneySummary(), 500);
     if (!activePlaylist) return;
 
     const playlistContents =
@@ -1484,6 +1488,10 @@ function StudyContent() {
       (isMobile ? mobileMessageInputRef.current : messageInputRef.current)?.focus();
     });
   };
+  const openContentFromStudyMap = (contentId: string) => {
+    setStudyMapPanelOpen(false);
+    void handlePlayContent(contentId);
+  };
   const studyMapCard = shouldShowStudyMap ? (
     <div className="cf-v2 flex min-w-0 flex-1 items-center gap-1.5">
       <button
@@ -1507,7 +1515,7 @@ function StudyContent() {
     </div>
   ) : null;
 
-  const studyMapPanel = shouldShowStudyMap && studyMapPanelOpen && !activeContent ? (
+  const studyMapPanel = shouldShowStudyMap && studyMapPanelOpen ? (
     <StudyMapPanel
       title={compactStudyTitle}
       state={studyAiState}
@@ -1515,6 +1523,7 @@ function StudyContent() {
       latestAssistantContent={[...messages].reverse().find((item) => item.role === "assistant")?.content}
       onClose={closeStudyMap}
       onContinue={continueFromStudyMap}
+      onOpenContent={openContentFromStudyMap}
       mobile={isMobile}
     />
   ) : null;
@@ -1549,12 +1558,10 @@ function StudyContent() {
               compact
             />
           </div>
-          {studyMapCard && !activeContent && (
+          {studyMapCard && (
             <div className="mt-3 w-full max-w-3xl mx-auto">{studyMapCard}</div>
           )}
         </header>
-        {studyMapPanel && <div className="flex-1 min-h-0 overflow-hidden">{studyMapPanel}</div>}
-
         {/* Modals for access control */}
         <UpgradeModal
           open={showUpgradeModal}
@@ -1591,12 +1598,15 @@ function StudyContent() {
             onToolPanelChange={setActiveToolPanel}
             onMinimize={() => setMiniPlayerActive(true)}
             onVideoEnded={handleVideoEnded}
+            onMilestone={() => void refetchStudyJourneySummary()}
             onNoteCreated={() => setNotesRefresh((prev) => prev + 1)}
             onCancelAutoplay={cancelAutoplay}
             studyId={id}
             studyTitle={studyTitleText}
           />
         )}
+
+        {studyMapPanel && <div className="flex-1 min-h-0 overflow-hidden">{studyMapPanel}</div>}
 
         {/* Mobile Chat Area */}
         <div className={cn("flex-1 min-h-0 overflow-hidden w-full max-w-full", studyMapPanel && "hidden")}>
@@ -1964,6 +1974,7 @@ function StudyContent() {
                 mode="study"
                 compact
                 onVideoEnded={handleVideoEnded}
+                onMilestone={() => void refetchStudyJourneySummary()}
               />
             </div>
           </div>
@@ -2401,7 +2412,7 @@ function StudyContent() {
         <div className="flex w-full items-center justify-between gap-4">
           <div className="flex min-w-0 flex-1 justify-center">
             <div className="w-full max-w-3xl">
-              {!activeContent && studyMapCard}
+              {studyMapCard}
             </div>
           </div>
 
@@ -2553,6 +2564,7 @@ function StudyContent() {
                         }}
                         mode="study"
                         onVideoEnded={handleVideoEnded}
+                        onMilestone={() => void refetchStudyJourneySummary()}
                         onNoteCreated={() =>
                           setNotesRefresh((prev) => prev + 1)
                         }
@@ -2805,7 +2817,7 @@ function StudyContent() {
 
         {/* Right Panel - Chat - flex-based width that adapts to remaining space */}
         <div
-          className={`flex flex-col overflow-hidden ${activeContent && !miniPlayerActive ? "border-l border-border" : ""}`}
+          className={cn("flex flex-col overflow-hidden", activeContent && !miniPlayerActive && "border-l border-border", activeContent && studyMapPanel && "hidden")}
           style={{
             flex: activeContent && !miniPlayerActive ? "3 1 0%" : "1 1 0%",
             minWidth: activeContent && !miniPlayerActive ? "260px" : undefined,
@@ -3239,6 +3251,7 @@ function StudyContent() {
               mode="study"
               compact
               onVideoEnded={handleVideoEnded}
+              onMilestone={() => void refetchStudyJourneySummary()}
             />
           </div>
 
