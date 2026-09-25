@@ -10,6 +10,7 @@ import { useEffect, Suspense, lazy, Fragment } from "react";
 import { GlobalLoader } from "./components/GlobalLoader";
 import { LiveLoadingScreen } from "./components/live/LiveLoadingScreen";
 import { MobileBottomNav } from "./components/MobileBottomNav";
+import { RouteLoadBoundary } from "./components/RouteLoadBoundary";
 import { MiniPlayer } from "./components/MiniPlayer";
 import { useIsMobile } from "@/hooks/use-mobile";
 
@@ -157,24 +158,26 @@ function AppContent() {
 
   return (
     <>
-      <Suspense fallback={liveOpening}>
-        {backgroundLocation ? (
-          <>
-            {/* Background page (previous route) */}
-            <Routes location={backgroundLocation}>{mainRoutes}</Routes>
+      <RouteLoadBoundary>
+        <Suspense fallback={liveOpening}>
+          {backgroundLocation ? (
+            <>
+              {/* Background page (previous route) */}
+              <Routes location={backgroundLocation}>{mainRoutes}</Routes>
 
-            {/* Overlay route (Watch) */}
-            <Routes location={location}>
+              {/* Overlay route (Watch) */}
+              <Routes location={location}>
+                <Route path="/watch/:id" element={<Watch />} />
+              </Routes>
+            </>
+          ) : (
+            <Routes>
+              {mainRoutes}
               <Route path="/watch/:id" element={<Watch />} />
             </Routes>
-          </>
-        ) : (
-          <Routes>
-            {mainRoutes}
-            <Route path="/watch/:id" element={<Watch />} />
-          </Routes>
-        )}
-      </Suspense>
+          )}
+        </Suspense>
+      </RouteLoadBoundary>
       {!isBroadcastRoute && <MiniPlayer />}
       {!isBroadcastRoute && <MobileBottomNav />}
     </>
