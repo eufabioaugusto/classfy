@@ -3,6 +3,7 @@ import { supabase } from "@/integrations/supabase/client";
 import type { Database } from "@/integrations/supabase/types";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
+import { dispatchAvatarActivity } from "@/lib/notifications/avatarActivity";
 
 type NotificationRow = Database["public"]["Tables"]["notifications"]["Row"];
 
@@ -40,6 +41,7 @@ export function useNotificationToasts() {
     const showNotification = (notification: NotificationRow) => {
       if (displayedIds.current.has(notification.id)) return;
       remember(notification);
+      dispatchAvatarActivity({ userId: user.id, source: "notification", id: notification.id });
       toast({
         title: notification.title || "Nova notificação",
         description: notification.message,

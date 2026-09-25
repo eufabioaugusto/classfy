@@ -431,8 +431,10 @@ textarea.cf2-input { min-height: 7rem; padding-top: var(--cf2-space-3); resize: 
 
 .cf2-reward-avatar { position: relative; display: inline-grid; width: 2rem; height: 2rem; flex: 0 0 auto; place-items: center; isolation: isolate; }
 .cf2-reward-avatar__image { position: relative; z-index: 1; border: 2px solid var(--cf2-surface); }
+.cf2-reward-avatar__image--active { animation: cf2-avatar-notice 1.5s ease-out both; }
 .cf2-reward-avatar__ring { position: absolute; z-index: 0; inset: -3px; border-radius: 50%; background: conic-gradient(from 0deg, transparent 0deg, var(--cf2-accent) 105deg, #f54f8e 220deg, #ffc668 320deg, transparent 360deg); animation: cf2-reward-orbit 1.15s cubic-bezier(.62, .04, .95, .52) both; }
 .cf2-reward-avatar__ring[data-type="creator"] { background: conic-gradient(from 0deg, transparent 0deg, #f7bd55 100deg, #ffdc89 220deg, #f28c54 320deg, transparent 360deg); }
+.cf2-reward-avatar__ring[data-type="notification"] { background: conic-gradient(from 0deg, transparent 0deg, #d1d5db 90deg, var(--cf2-accent) 210deg, #f54f8e 320deg, transparent 360deg); }
 .cf2-reward-avatar__gain { position: absolute; z-index: 3; left: 2.2rem; top: -0.55rem; display: inline-flex; align-items: center; gap: 0.25rem; padding: 0.24rem 0.4rem; border: 1px solid color-mix(in srgb, var(--cf2-accent) 48%, var(--cf2-border)); border-radius: 0.55rem; background: var(--cf2-surface-raised); box-shadow: 0 5px 16px rgba(0, 0, 0, .24); color: var(--cf2-accent); font-size: 0.73rem; font-weight: 800; font-variant-numeric: tabular-nums; line-height: 1; white-space: nowrap; pointer-events: none; animation: cf2-reward-gain 1.65s ease-out both; }
 .cf2-reward-avatar__gain[data-type="creator"] { border-color: #d99b51; color: #d98e2f; }
 .cf2-reward-avatar__gain small { font-size: 0.58rem; font-weight: 700; }
@@ -440,10 +442,11 @@ textarea.cf2-input { min-height: 7rem; padding-top: var(--cf2-space-3); resize: 
 .cf2-reward-avatar--header .cf2-reward-avatar__gain { left: auto; right: 2.2rem; top: -0.55rem; }
 .cf2-reward-card__pulse { animation: cf2-reward-pulse 1s ease-out both; }
 @keyframes cf2-reward-orbit { from { transform: rotate(0); opacity: .25; } 30% { opacity: 1; } to { transform: rotate(360deg); opacity: 0; } }
+@keyframes cf2-avatar-notice { 0%, 100% { transform: scale(1); } 24% { transform: scale(1.12); } 48% { transform: scale(1.03); } }
 @keyframes cf2-reward-gain { 0% { transform: translateY(9px) scale(.65); opacity: 0; } 18% { transform: translateY(0) scale(1.12); opacity: 1; } 38% { transform: translateY(-2px) scale(1); opacity: 1; } 72% { opacity: 1; } 100% { transform: translateY(-23px) scale(.94); opacity: 0; } }
 @keyframes cf2-reward-pulse { 0%, 100% { background-color: transparent; } 35% { background-color: var(--cf2-accent-soft); } }
 @media (prefers-reduced-motion: reduce) {
-  .cf2-reward-avatar__ring, .cf2-reward-card__pulse { animation: none; }
+  .cf2-reward-avatar__ring, .cf2-reward-avatar__image--active, .cf2-reward-card__pulse { animation: none; }
   .cf2-reward-avatar__gain { animation: none; }
 }
 

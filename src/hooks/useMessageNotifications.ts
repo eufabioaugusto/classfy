@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
+import { dispatchAvatarActivity } from "@/lib/notifications/avatarActivity";
 
 /**
  * Hook to show toast notifications for new messages
@@ -54,6 +55,7 @@ export function useMessageNotifications() {
         .single();
 
       if (sender) {
+        dispatchAvatarActivity({ userId: user.id, source: "message", id: message.id });
         // Força recarregar lista de conversas (coluna) em qualquer lugar aberto
         window.dispatchEvent(new CustomEvent("dm-conversations-changed"));
 

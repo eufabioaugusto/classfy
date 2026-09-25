@@ -4,11 +4,9 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { DirectMessagesModal } from "@/components/DirectMessagesModal";
 import { useUnreadMessages } from "@/hooks/useUnreadMessages";
-import { useMessageNotifications } from "@/hooks/useMessageNotifications";
 
 export const DirectMessagesButton = () => {
   const unreadCount = useUnreadMessages();
-  useMessageNotifications();
   const [isOpen, setIsOpen] = useState(false);
   const [recipientId, setRecipientId] = useState<string | undefined>(undefined);
 

@@ -18,7 +18,6 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useStudies } from "@/hooks/useStudies";
-import { useNotificationToasts } from "@/hooks/useNotificationToasts";
 import { creatorActions } from "@/config/navigation";
 import { cn } from "@/lib/utils";
 
@@ -37,8 +36,6 @@ export function Header({ variant = "home", title, showSearch = false, isExploreM
   const navigate = useNavigate();
   const { activeCount, limits } = useStudies();
   const [affiliateModalOpen, setAffiliateModalOpen] = useState(false);
-  
-  useNotificationToasts();
   
   const currentPlan = profile?.plan || 'free';
   const limitText = limits.studies === Infinity ? 'ilimitados' : `${activeCount}/${limits.studies}`;
