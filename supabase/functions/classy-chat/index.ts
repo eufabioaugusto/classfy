@@ -9,6 +9,7 @@ import {
   ClassyLearnerLevel,
   ClassyLearningStyle,
   extractExplicitFocus,
+  detectStudyIntent,
   inferDeclaredLearnerLevel,
   inferLearningStyle,
   parseClassyAiTurn,
@@ -256,12 +257,12 @@ serve(async (req) => {
         .eq("id", studyId);
     }
 
-    const intent = playlistSummary ? "recommend" : detectIntent(message, {
+    const intent = playlistSummary ? "recommend" : detectStudyIntent(message, {
       isFirstMessage,
-      activeContent: activeContentData,
+      hasActiveContent: Boolean(activeContentData),
     });
 
-    const baseActiveMode = mapIntentToMode(intent, isFirstMessage);
+    const baseActiveMode = mapIntentToMode(intent);
     const declaredLearnerLevel = inferDeclaredLearnerLevel(message);
     const learnerLevel = inferLearnerLevel(
       aiState,
@@ -488,7 +489,7 @@ serve(async (req) => {
         notesCount: ((recentNotes as any[]) || []).length,
         hasQuiz: Boolean(latestQuizAttempt?.max_score),
       });
-    const resolvedSessionSummary = buildSessionSummary({
+    const fallbackSessionSummary = buildSessionSummary({
       existingSummary: aiState.session_summary,
       currentFocus: resolvedCurrentFocus,
       learnerLevel: resolvedLearnerLevel,
@@ -498,6 +499,7 @@ serve(async (req) => {
       latestQuizAttempt,
       nextBestAction,
     });
+    const resolvedSessionSummary = aiTurn.conversationSummary || fallbackSessionSummary;
 
     const citations = buildCitations({
       activeContent: activeContentData,
@@ -532,8 +534,8 @@ serve(async (req) => {
       resolvedCurrentFocus,
     );
     const mergedOpenQuestions = aiTurn.unresolvedQuestion
-      ? mergeTopics(aiState.open_questions, [aiTurn.unresolvedQuestion])
-      : resolveAnsweredQuestions(aiState.open_questions, message);
+      ? [aiTurn.unresolvedQuestion]
+      : [];
 
     await supabase
       .from("study_ai_state")
@@ -966,47 +968,8 @@ function normalizeStateRow(
   };
 }
 
-function detectIntent(
-  message: string,
-  options: { isFirstMessage: boolean; activeContent: any | null },
-) {
-  const normalized = message.toLowerCase();
-
-  if (options.isFirstMessage) return "onboard";
-  if (
-    normalized.includes("quiz") || normalized.includes("exerc") ||
-    normalized.includes("pratic")
-  ) return "practice";
-  if (
-    normalized.includes("resum") || normalized.includes("revisa") ||
-    normalized.includes("recapitula")
-  ) return "review";
-  if (
-    normalized.includes("plano") || normalized.includes("trilha") ||
-    normalized.includes("ordem para estudar")
-  ) return "plan";
-  if (
-    normalized.includes("recomenda") ||
-    normalized.includes("indica") ||
-    normalized.includes("sugere") ||
-    normalized.includes("o que assistir")
-  ) return "recommend";
-  if (
-    options.activeContent && (
-      normalized.includes("vídeo") ||
-      normalized.includes("aula") ||
-      normalized.includes("conteúdo") ||
-      normalized.includes("o que ele") ||
-      normalized.includes("o que ela") ||
-      normalized.includes("explica")
-    )
-  ) return "explain";
-
-  return "explain";
-}
-
-function mapIntentToMode(intent: string, isFirstMessage: boolean): ActiveMode {
-  if (isFirstMessage) return "onboard";
+function mapIntentToMode(intent: string): ActiveMode {
+  if (intent === "onboard") return "onboard";
   if (intent === "practice") return "practice";
   if (intent === "review") return "review";
   if (intent === "plan") return "plan";
@@ -1062,9 +1025,6 @@ function shouldSearchRelatedContent(options: {
   latestQuizAttempt: any;
 }) {
   if (options.activeMode === "onboard") return false;
-  if (options.isFirstMessage || options.currentUserMessageCount < 1) {
-    return false;
-  }
   if (options.activeMode === "recommend" || options.activeMode === "plan") {
     return true;
   }
@@ -1543,7 +1503,7 @@ ENTREGA DESTA VEZ
 ${
     options.playlistSummary
       ? "Explique o valor prático da playlist com base apenas nos itens recebidos. Não use linguagem publicitária."
-      : options.isFirstMessage
+      : options.isFirstMessage && options.activeMode === "onboard"
       ? "Abra o estudo e faça uma pergunta diagnóstica específica. Não gere plano antes da resposta."
       : "Responda primeiro ao pedido atual. Mova o estudante adiante apenas se houver espaço no formato solicitado."
   }
@@ -1557,6 +1517,7 @@ Retorne SOMENTE um objeto JSON válido com este formato:
   "learner_level": "beginner|intermediate|advanced|unknown",
   "learning_style": "direct|step_by_step|analogy|mixed",
   "unresolved_question": "somente se uma questão realmente ficou pendente, senão null",
+  "conversation_summary": "memória curta e factual do objetivo, nível, preferências, conceitos vistos, dificuldades e próximo passo; atualize o resumo anterior sem inventar fatos",
   "grounding": "transcript|study_context|general_knowledge|mixed",
   "confidence": "high|medium|low"
 }`;
@@ -1579,7 +1540,7 @@ async function generateAiMessage(
     model: MODELS.main,
     systemPrompt,
     messages: [
-      ...conversationHistory.slice(-8),
+      ...conversationHistory.slice(-16).map((item) => ({ ...item, content: item.content.slice(0, 1800) })),
       { role: "user", content: message },
     ],
     temperature: playlistSummary ? 0.35 : 0.45,
@@ -1727,6 +1688,7 @@ function fallbackTurn(
     learnerLevel: options.learnerLevel,
     learningStyle: options.learningStyle,
     unresolvedQuestion: null,
+    conversationSummary: null,
     grounding: "study_context",
     confidence: "low",
   };
@@ -1959,18 +1921,6 @@ function reconcileTopicState(
       !normalizedMastered.has(topic.toLocaleLowerCase("pt-BR"))
     ),
   };
-}
-
-function resolveAnsweredQuestions(openQuestions: string[], message: string) {
-  if (!openQuestions.length) return [];
-  const explicitFocus = extractExplicitFocus(message);
-  if (!explicitFocus) return openQuestions.slice(0, 8);
-  const normalizedFocus = explicitFocus.toLocaleLowerCase("pt-BR");
-  return openQuestions
-    .filter((question) =>
-      !question.toLocaleLowerCase("pt-BR").includes(normalizedFocus)
-    )
-    .slice(0, 8);
 }
 
 function mapGroundingToContentStrategy(

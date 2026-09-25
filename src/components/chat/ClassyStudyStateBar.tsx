@@ -27,7 +27,7 @@ interface ClassyStudyStateBarProps {
 }
 
 const modeLabels: Record<ClassyStudyState["activeMode"], string> = {
-  onboard: "Onboarding",
+  onboard: "Ponto de partida",
   explain: "Explicando",
   recommend: "Curadoria",
   practice: "Prática",

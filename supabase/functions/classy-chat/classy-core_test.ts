@@ -5,6 +5,7 @@ import {
 import {
   addressStudentByName,
   buildSourceTransparency,
+  detectStudyIntent,
   extractExplicitFocus,
   inferDeclaredLearnerLevel,
   inferLearningStyle,
@@ -65,6 +66,14 @@ Deno.test("detecta nível e preferência declarados pelo estudante", () => {
   );
 });
 
+Deno.test("respeita pedido direto já na primeira mensagem", () => {
+  const first = { isFirstMessage: true, hasActiveContent: false };
+  assertEquals(detectStudyIntent("tecnologias emergentes", first), "onboard");
+  assertEquals(detectStudyIntent("Explique computação quântica em termos simples", first), "explain");
+  assertEquals(detectStudyIntent("Monte um plano para estudar IA", first), "plan");
+  assertEquals(detectStudyIntent("Me recomenda vídeos de UX", first), "recommend");
+});
+
 Deno.test("extrai somente mudanças explícitas de foco", () => {
   assertEquals(
     extractExplicitFocus("Quero entender pesquisa com usuários."),
@@ -93,6 +102,7 @@ Deno.test("normaliza resposta estruturada e impede fonte inexistente", () => {
       learner_level: "intermediate",
       learning_style: "analogy",
       unresolved_question: null,
+      conversation_summary: "Objetivo: aprender UX. Nível intermediário. Próximo passo: aplicar em um projeto.",
       grounding: "transcript",
       confidence: "high",
     }),
@@ -107,6 +117,7 @@ Deno.test("normaliza resposta estruturada e impede fonte inexistente", () => {
   assertEquals(turn.answer, "UX organiza a jornada.");
   assertEquals(turn.grounding, "general_knowledge");
   assertEquals(turn.learnerLevel, "intermediate");
+  assertEquals(turn.conversationSummary, "Objetivo: aprender UX. Nível intermediário. Próximo passo: aplicar em um projeto.");
 });
 
 Deno.test("recupera a resposta de JSON truncado sem expor o protocolo", () => {

@@ -36,6 +36,7 @@ import {
 import { ClassyMessageActions } from "@/components/chat/ClassyMessageActions";
 import { HighlightedText } from "@/components/chat/HighlightedText";
 import { ClassyStudyState } from "@/components/chat/ClassyStudyStateBar";
+import { StudyMapDialog } from "@/components/chat/StudyMapDialog";
 import { UpgradePromptCard } from "@/components/chat/UpgradePromptCard";
 import { UnifiedVideoPlayer } from "@/components/unified/UnifiedVideoPlayer";
 import { SocialBar } from "@/components/unified/SocialBar";
@@ -209,7 +210,7 @@ const getInitialConversationErrorMessage = (error: any) => {
 };
 
 const modeLabelMap: Record<ClassyStudyState["activeMode"], string> = {
-  onboard: "Diagnóstico",
+  onboard: "Ponto de partida",
   explain: "Explicando",
   recommend: "Trilha",
   practice: "Praticando",
@@ -816,19 +817,6 @@ function StudyContent() {
     }
 
     return message.metadata as ClassyMessageMetadata;
-  };
-
-  const handleSuggestionClick = async (suggestion: string) => {
-    trackClassyEvent("suggestion_clicked", {
-      suggestion,
-      current_focus: studyAiState?.currentFocus || null,
-    });
-    trackClassyEvent("followup_used", {
-      suggestion,
-      current_focus: studyAiState?.currentFocus || null,
-    });
-
-    await handleSend(suggestion);
   };
 
   const trackClassyEvent = async (
@@ -1438,26 +1426,11 @@ function StudyContent() {
     return null;
   }
 
-  const studyProgressPercent = studyJourneySummary?.progressPercent ?? 0;
-  const studyTotalMinutes = studyJourneySummary?.estimatedMinutes ?? 0;
-  const compactStudyTitle =
-    studyJourneySummary?.shortTitle || studyDisplayTitle;
-  const compactStageLabel =
-    studyJourneySummary?.stageLabel ||
-    (studyAiState?.activeMode
-      ? modeLabelMap[studyAiState.activeMode]
-      : "Diagnóstico");
-  const studyVideosCount = studyJourneySummary?.videosCount ?? 0;
-  const studyPlaylistsCount =
-    studyJourneySummary?.playlistsCount ?? savedPlaylists.size;
-  const studyNotesCount = studyJourneySummary?.notesCount ?? 0;
-  const studyRewardPoints = studyJourneySummary?.rewardPoints ?? 0;
-  const studyEngagedContentsCount =
-    studyJourneySummary?.engagedContentsCount ?? 0;
-  const studyCompletedContentsCount =
-    studyJourneySummary?.completedContentsCount ?? 0;
-  const studyRecommendedContentsCount =
-    studyJourneySummary?.totalRecommendedContents ?? 0;
+  const compactStudyTitle = studyJourneySummary?.shortTitle || studyDisplayTitle;
+  const compactStageLabel = studyJourneySummary?.stageLabel || (studyAiState?.activeMode ? modeLabelMap[studyAiState.activeMode] : "Ponto de partida");
+  const contentProgress = studyJourneySummary?.totalRecommendedContents
+    ? Math.round(100 * studyJourneySummary.completedContentsCount / studyJourneySummary.totalRecommendedContents)
+    : null;
 
   const studyMapActions = (
     <DropdownMenu>
@@ -1511,9 +1484,11 @@ function StudyContent() {
         <span className="hidden shrink-0 text-xs text-muted-foreground min-[430px]:inline">
           {compactStageLabel}
         </span>
-        <span className="shrink-0 text-xs font-medium text-muted-foreground">
-          {studyProgressPercent}%
-        </span>
+        {contentProgress !== null && (
+          <span className="shrink-0 text-xs font-medium text-muted-foreground">
+            {contentProgress}%
+          </span>
+        )}
         <span className="hidden shrink-0 items-center gap-1 text-xs font-medium text-foreground min-[520px]:inline-flex">
           Ver plano
           <ChevronRightIcon className="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5" />
@@ -1524,195 +1499,18 @@ function StudyContent() {
   ) : null;
 
   const studyMapDialog = shouldShowStudyMap ? (
-    <Dialog open={studyMapDialogOpen} onOpenChange={setStudyMapDialogOpen}>
-      <DialogContent className="max-h-[85vh] max-w-3xl overflow-hidden p-0">
-        <DialogHeader className="border-b border-border/60 px-6 py-5 text-left">
-          <DialogTitle>Mapa do estudo</DialogTitle>
-          <DialogDescription>
-            Foco, próximos passos e sinais da sua jornada com a Classy.
-          </DialogDescription>
-        </DialogHeader>
-        <ScrollArea className="max-h-[calc(85vh-88px)]">
-          <div className="space-y-4 p-6">
-            <div className="grid gap-3 md:grid-cols-3">
-              <div className="rounded-2xl border border-border/60 bg-muted/35 p-4">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-                  Foco
-                </p>
-                <p className="mt-2 text-sm font-medium text-foreground">
-                  {toShortTitle(
-                    studyAiState?.currentFocus ||
-                      studyAiState?.userGoal ||
-                      studyDisplayTitle,
-                  )}
-                </p>
-              </div>
-              <div className="rounded-2xl border border-border/60 bg-muted/35 p-4">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-                  Modo atual
-                </p>
-                <p className="mt-2 text-sm font-medium text-foreground">
-                  {studyAiState?.activeMode
-                    ? modeLabelMap[studyAiState.activeMode]
-                    : "Em andamento"}
-                </p>
-              </div>
-              <div className="rounded-2xl border border-primary/20 bg-primary/8 p-4">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-primary/80">
-                  Próximo passo
-                </p>
-                <p className="mt-2 text-sm font-medium text-foreground">
-                  {studyAiState?.nextBestAction ||
-                    "Continue a conversa para a Classy ajustar sua direção."}
-                </p>
-              </div>
-            </div>
-
-            <div className="grid gap-3 md:grid-cols-4">
-              <div className="rounded-2xl border border-border/60 bg-muted/35 p-4">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-                  Progresso
-                </p>
-                <p className="mt-2 text-lg font-semibold text-foreground">
-                  {studyProgressPercent}%
-                </p>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  {studyEngagedContentsCount} engajados de{" "}
-                  {studyRecommendedContentsCount || 0} sugeridos
-                </p>
-              </div>
-              <div className="rounded-2xl border border-border/60 bg-muted/35 p-4">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-                  Conteúdos
-                </p>
-                <p className="mt-2 text-lg font-semibold text-foreground">
-                  {studyCompletedContentsCount}/
-                  {studyRecommendedContentsCount || 0}
-                </p>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  {studyPlaylistsCount} playlists · {studyVideosCount} vídeos
-                </p>
-              </div>
-              <div className="rounded-2xl border border-border/60 bg-muted/35 p-4">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-                  Ganhos
-                </p>
-                <p className="mt-2 text-lg font-semibold text-foreground">
-                  {studyRewardPoints.toLocaleString("pt-BR")} Points
-                </p>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  Acumulados ao estudar
-                </p>
-              </div>
-              <div className="rounded-2xl border border-border/60 bg-muted/35 p-4">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-                  Ritmo
-                </p>
-                <p className="mt-2 text-lg font-semibold text-foreground">
-                  {studyTotalMinutes}min
-                </p>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  {studyNotesCount} anotações no estudo
-                </p>
-              </div>
-            </div>
-
-            {(studyAiState?.livePlanSteps?.length || 0) > 0 && (
-              <div className="rounded-3xl border border-border/60 bg-card p-5">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-primary/85">
-                  Rota sugerida
-                </p>
-                <div className="mt-4 space-y-2.5">
-                  {studyAiState?.livePlanSteps
-                    ?.slice(0, 4)
-                    .map((step, index) => (
-                      <div
-                        key={step}
-                        className="flex gap-3 rounded-2xl border border-border/50 bg-muted/25 px-4 py-3"
-                      >
-                        <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary/12 text-xs font-semibold text-primary">
-                          {index + 1}
-                        </div>
-                        <p className="text-sm leading-6 text-foreground">
-                          {step}
-                        </p>
-                      </div>
-                    ))}
-                </div>
-              </div>
-            )}
-
-            {((studyAiState?.masteredTopics?.length || 0) > 0 ||
-              (studyAiState?.weakTopics?.length || 0) > 0) && (
-              <div className="grid gap-3 md:grid-cols-2">
-                {(studyAiState?.masteredTopics?.length || 0) > 0 && (
-                  <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/8 p-4">
-                    <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-emerald-700">
-                      Já está firme
-                    </p>
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      {studyAiState?.masteredTopics
-                        ?.slice(0, 4)
-                        .map((topic) => (
-                          <span
-                            key={topic}
-                            className="rounded-full border border-emerald-500/20 bg-background/70 px-3 py-1 text-xs text-foreground"
-                          >
-                            {topic}
-                          </span>
-                        ))}
-                    </div>
-                  </div>
-                )}
-
-                {(studyAiState?.weakTopics?.length || 0) > 0 && (
-                  <div className="rounded-2xl border border-amber-500/20 bg-amber-500/8 p-4">
-                    <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-amber-700">
-                      Vale revisar
-                    </p>
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      {studyAiState?.weakTopics?.slice(0, 4).map((topic) => (
-                        <span
-                          key={topic}
-                          className="rounded-full border border-amber-500/20 bg-background/70 px-3 py-1 text-xs text-foreground"
-                        >
-                          {topic}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {(studyAiState?.openQuestions?.length || 0) > 0 && (
-              <div className="rounded-2xl border border-border/60 bg-card p-4">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-                  Próximos atalhos úteis
-                </p>
-                <div className="mt-3 flex flex-wrap gap-2">
-                  {studyAiState?.openQuestions?.slice(0, 3).map((question) => (
-                    <Button
-                      key={question}
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      className="h-8 rounded-full text-xs"
-                      onClick={() => {
-                        setStudyMapDialogOpen(false);
-                        handleSuggestionClick(question);
-                      }}
-                    >
-                      {question}
-                    </Button>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
-        </ScrollArea>
-      </DialogContent>
-    </Dialog>
+    <StudyMapDialog
+      open={studyMapDialogOpen}
+      onOpenChange={setStudyMapDialogOpen}
+      onContinue={() => {
+        setStudyMapDialogOpen(false);
+        requestAnimationFrame(() => messageInputRef.current?.focus());
+      }}
+      title={compactStudyTitle}
+      state={studyAiState}
+      summary={studyJourneySummary}
+      latestAssistantContent={[...messages].reverse().find((item) => item.role === "assistant")?.content}
+    />
   ) : null;
 
   // Mobile Layout

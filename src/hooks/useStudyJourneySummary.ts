@@ -18,7 +18,11 @@ export function useStudyJourneySummary(input: UseStudyJourneySummaryInput) {
   const [summary, setSummary] = useState<StudyJourneySummary | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<Error | null>(null);
-  const inFlightRef = useRef<Promise<StudyJourneySummary | null> | null>(null);
+  const inFlightRef = useRef<{
+    key: string;
+    promise: Promise<StudyJourneySummary | null>;
+  } | null>(null);
+  const requestVersionRef = useRef(0);
   const lastResolvedRef = useRef<{
     key: string;
     summary: StudyJourneySummary | null;
@@ -36,8 +40,9 @@ export function useStudyJourneySummary(input: UseStudyJourneySummaryInput) {
     nextBestAction,
   });
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (force = false) => {
     if (!enabled || !studyId || !userId || !title?.trim()) {
+      requestVersionRef.current += 1;
       setSummary(null);
       lastResolvedRef.current = null;
       return null;
@@ -45,17 +50,18 @@ export function useStudyJourneySummary(input: UseStudyJourneySummaryInput) {
 
     const cached = lastResolvedRef.current;
     if (
-      cached &&
+      !force && cached &&
       cached.key === requestKey &&
       Date.now() - cached.timestamp < 1500
     ) {
       setSummary(cached.summary);
       return cached.summary;
     }
-    if (inFlightRef.current) {
-      return inFlightRef.current;
+    if (!force && inFlightRef.current?.key === requestKey) {
+      return inFlightRef.current.promise;
     }
 
+    const requestVersion = ++requestVersionRef.current;
     setLoading(true);
     setError(null);
 
@@ -72,34 +78,42 @@ export function useStudyJourneySummary(input: UseStudyJourneySummaryInput) {
           },
         });
 
-        setSummary(nextSummary);
-        lastResolvedRef.current = {
-          key: requestKey,
-          summary: nextSummary,
-          timestamp: Date.now(),
-        };
+        if (requestVersion === requestVersionRef.current) {
+          setSummary(nextSummary);
+          lastResolvedRef.current = {
+            key: requestKey,
+            summary: nextSummary,
+            timestamp: Date.now(),
+          };
+        }
         return nextSummary;
       } catch (nextError: any) {
-        setError(nextError instanceof Error ? nextError : new Error(String(nextError)));
+        if (requestVersion === requestVersionRef.current) {
+          setError(nextError instanceof Error ? nextError : new Error(String(nextError)));
+        }
         return null;
       } finally {
-        inFlightRef.current = null;
-        setLoading(false);
+        if (requestVersion === requestVersionRef.current) {
+          inFlightRef.current = null;
+          setLoading(false);
+        }
       }
     })();
 
-    inFlightRef.current = request;
+    inFlightRef.current = { key: requestKey, promise: request };
     return request;
   }, [activeMode, currentFocus, enabled, nextBestAction, requestKey, studyId, title, userId]);
 
   useEffect(() => {
-    load();
+    void load();
   }, [load]);
+
+  const refetch = useCallback(() => load(true), [load]);
 
   return {
     summary,
     loading,
     error,
-    refetch: load,
+    refetch,
   };
 }

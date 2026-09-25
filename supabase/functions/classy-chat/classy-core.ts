@@ -59,6 +59,7 @@ export interface ClassyAiTurn {
   learnerLevel: ClassyLearnerLevel;
   learningStyle: ClassyLearningStyle;
   unresolvedQuestion: string | null;
+  conversationSummary: string | null;
   grounding: ClassyGrounding;
   confidence: ClassyConfidence;
   telemetry?: {
@@ -230,6 +231,47 @@ export function selectTranscriptExcerpt(
     .trim();
 }
 
+export function detectStudyIntent(
+  message: string,
+  options: { isFirstMessage: boolean; hasActiveContent: boolean },
+) {
+  const normalized = message.toLowerCase();
+
+  if (
+    normalized.includes("quiz") || normalized.includes("exerc") ||
+    normalized.includes("pratic")
+  ) return "practice";
+  if (
+    normalized.includes("resum") || normalized.includes("revisa") ||
+    normalized.includes("recapitula")
+  ) return "review";
+  if (
+    normalized.includes("plano") || normalized.includes("trilha") ||
+    normalized.includes("ordem para estudar")
+  ) return "plan";
+  if (
+    normalized.includes("recomenda") ||
+    normalized.includes("indica") ||
+    normalized.includes("sugere") ||
+    normalized.includes("o que assistir")
+  ) return "recommend";
+  if (
+    options.hasActiveContent && (
+      normalized.includes("vídeo") ||
+      normalized.includes("aula") ||
+      normalized.includes("conteúdo") ||
+      normalized.includes("o que ele") ||
+      normalized.includes("o que ela") ||
+      normalized.includes("explica")
+    )
+  ) return "explain";
+
+  if (options.isFirstMessage && normalized.split(/\s+/).length <= 7 &&
+    !/[?]/.test(normalized) &&
+    !/^(me |como |por que |o que |explique|ensine|mostre|compare|quero saber)/.test(normalized)) return "onboard";
+  return "explain";
+}
+
 export function parseClassyAiTurn(
   raw: string,
   fallback: {
@@ -287,6 +329,9 @@ export function parseClassyAiTurn(
     unresolvedQuestion: typeof parsed?.unresolved_question === "string" &&
         parsed.unresolved_question.trim()
       ? parsed.unresolved_question.replace(/\s+/g, " ").trim().slice(0, 180)
+      : null,
+    conversationSummary: typeof parsed?.conversation_summary === "string" && parsed.conversation_summary.trim()
+      ? parsed.conversation_summary.replace(/\s+/g, " ").trim().slice(0, 800)
       : null,
     grounding: requestedGrounding === "transcript" && !fallback.hasTranscript
       ? "general_knowledge"

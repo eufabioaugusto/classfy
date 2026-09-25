@@ -48,7 +48,7 @@ type ContentDurationRow = Pick<
 >;
 
 const modeLabels: Record<ClassyStudyState["activeMode"], string> = {
-  onboard: "Diagnóstico",
+  onboard: "Ponto de partida",
   explain: "Explicando",
   recommend: "Trilha",
   practice: "Praticando",
@@ -412,7 +412,7 @@ export async function fetchStudyJourneySummary(input: {
     title,
     shortTitle,
     progressPercent,
-    stageLabel: modeLabels[activeMode] || "Diagnóstico",
+    stageLabel: modeLabels[activeMode] || "Ponto de partida",
     completionLabel: `${progressPercent}%`,
     playlistsCount,
     videosCount: totalRecommendedContents,
