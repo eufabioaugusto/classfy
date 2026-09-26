@@ -17,16 +17,24 @@ const emptyStats: UserMilestoneStats = { totalPoints: 0, completedContents: 0, l
 function MilestoneCard({ milestone }: { milestone: UserMilestone }) {
   const Icon = milestone.kind === "content" ? BookOpenCheck : milestone.kind === "streak" ? Flame : Star;
   const progress = Math.min(100, (milestone.current / milestone.target) * 100);
+  const targetLabel = milestone.kind === "level" ? "N2" : milestone.target.toLocaleString("pt-BR");
 
   return (
-    <div className={`economy-user-milestone${milestone.unlocked ? " economy-user-milestone--unlocked" : ""}`}>
-      <span className="economy-user-milestone__icon"><Icon aria-hidden="true" /></span>
-      <strong>{milestone.title}</strong>
-      <p>{milestone.description}</p>
-      <div className="economy-user-milestone__progress" role="progressbar" aria-label={milestone.title} aria-valuemin={0} aria-valuemax={milestone.target} aria-valuenow={Math.min(milestone.current, milestone.target)}>
-        <span style={{ width: `${progress}%` }} />
+    <div className={`economy-achievement economy-achievement--user${milestone.unlocked ? "" : " economy-achievement--locked"}`}>
+      <div className="economy-achievement__mark">
+        <Icon aria-hidden="true" />
+        <strong>{targetLabel}</strong>
       </div>
-      <small>{milestone.unlocked ? "Conquistado" : `${milestone.current.toLocaleString("pt-BR")} de ${milestone.target.toLocaleString("pt-BR")}`}</small>
+      <div className="economy-achievement__copy">
+        <span title={milestone.title}>{milestone.title}</span>
+        <small>{milestone.description}</small>
+        <small>{milestone.unlocked ? "Conquistado" : `${milestone.current.toLocaleString("pt-BR")} de ${milestone.target.toLocaleString("pt-BR")}`}</small>
+      </div>
+      {!milestone.unlocked && (
+        <div className="economy-achievement__progress" role="progressbar" aria-label={milestone.title} aria-valuemin={0} aria-valuemax={milestone.target} aria-valuenow={Math.min(milestone.current, milestone.target)}>
+          <span style={{ width: `${progress}%` }} />
+        </div>
+      )}
     </div>
   );
 }
@@ -101,20 +109,16 @@ export function UserAchievementsCard({ userId }: { userId: string }) {
         ) : failed ? (
           <p className="economy-panel-copy py-8 text-center">Não foi possível carregar seu progresso agora.</p>
         ) : (
-          <Tabs defaultValue="all">
-            <TabsList className="economy-tabs-list economy-user-milestones__tabs">
-              <TabsTrigger value="all">Todas · {milestones.length}</TabsTrigger>
-              <TabsTrigger value="unlocked">Conquistadas · {unlocked.length}</TabsTrigger>
-              <TabsTrigger value="progress">Em andamento · {inProgress.length}</TabsTrigger>
+          <Tabs defaultValue="progress">
+            <TabsList className="economy-tabs-list">
+              <TabsTrigger value="unlocked">Desbloqueadas · {unlocked.length}</TabsTrigger>
+              <TabsTrigger value="progress">Em progresso · {inProgress.length}</TabsTrigger>
             </TabsList>
-            <TabsContent value="all" className="mt-5">
-              <div className="economy-user-milestones__grid">{milestones.map((milestone) => <MilestoneCard key={milestone.id} milestone={milestone} />)}</div>
-            </TabsContent>
             <TabsContent value="unlocked" className="mt-5">
-              {unlocked.length ? <div className="economy-user-milestones__grid">{unlocked.map((milestone) => <MilestoneCard key={milestone.id} milestone={milestone} />)}</div> : <p className="economy-panel-copy py-8 text-center">Seu primeiro marco está próximo.</p>}
+              {unlocked.length ? <div className="economy-achievement-grid">{unlocked.map((milestone) => <MilestoneCard key={milestone.id} milestone={milestone} />)}</div> : <p className="economy-panel-copy py-8 text-center">Seu primeiro marco está próximo.</p>}
             </TabsContent>
             <TabsContent value="progress" className="mt-5">
-              {inProgress.length ? <div className="economy-user-milestones__grid">{inProgress.map((milestone) => <MilestoneCard key={milestone.id} milestone={milestone} />)}</div> : <p className="economy-panel-copy py-8 text-center">Você alcançou todos os marcos desta etapa.</p>}
+              {inProgress.length ? <div className="economy-achievement-grid">{inProgress.map((milestone) => <MilestoneCard key={milestone.id} milestone={milestone} />)}</div> : <p className="economy-panel-copy py-8 text-center">Você alcançou todos os marcos desta etapa.</p>}
             </TabsContent>
             {badges.length > 0 && (
               <div className="economy-user-achievements mt-5">
