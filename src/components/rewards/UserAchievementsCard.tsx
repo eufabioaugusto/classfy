@@ -1,7 +1,9 @@
 import { useEffect, useState } from "react";
-import { Award } from "lucide-react";
+import { Award, BookOpenCheck, Flame, Star } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { V2Card, V2CardContent, V2CardHeader } from "@/components/v2";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { buildUserMilestones, type UserMilestone, type UserMilestoneStats } from "@/lib/rewards/userMilestones";
 
 interface UserBadge {
   id: string;
@@ -10,8 +12,28 @@ interface UserBadge {
   iconUrl: string | null;
 }
 
+const emptyStats: UserMilestoneStats = { totalPoints: 0, completedContents: 0, longestStreak: 0 };
+
+function MilestoneCard({ milestone }: { milestone: UserMilestone }) {
+  const Icon = milestone.kind === "content" ? BookOpenCheck : milestone.kind === "streak" ? Flame : Star;
+  const progress = Math.min(100, (milestone.current / milestone.target) * 100);
+
+  return (
+    <div className={`economy-user-milestone${milestone.unlocked ? " economy-user-milestone--unlocked" : ""}`}>
+      <span className="economy-user-milestone__icon"><Icon aria-hidden="true" /></span>
+      <strong>{milestone.title}</strong>
+      <p>{milestone.description}</p>
+      <div className="economy-user-milestone__progress" role="progressbar" aria-label={milestone.title} aria-valuemin={0} aria-valuemax={milestone.target} aria-valuenow={Math.min(milestone.current, milestone.target)}>
+        <span style={{ width: `${progress}%` }} />
+      </div>
+      <small>{milestone.unlocked ? "Conquistado" : `${milestone.current.toLocaleString("pt-BR")} de ${milestone.target.toLocaleString("pt-BR")}`}</small>
+    </div>
+  );
+}
+
 export function UserAchievementsCard({ userId }: { userId: string }) {
   const [badges, setBadges] = useState<UserBadge[]>([]);
+  const [stats, setStats] = useState<UserMilestoneStats>(emptyStats);
   const [loading, setLoading] = useState(true);
   const [failed, setFailed] = useState(false);
 
@@ -21,28 +43,32 @@ export function UserAchievementsCard({ userId }: { userId: string }) {
     setFailed(false);
 
     void (async () => {
-      const { data, error } = await supabase
-        .from("user_badges")
-        .select("id, badges(name, description, icon_url)")
-        .eq("user_id", userId)
-        .order("earned_at", { ascending: false });
+      const [eventsResult, streakResult, badgesResult] = await Promise.all([
+        supabase.from("reward_events").select("id, action_key, content_id, points").eq("user_id", userId).eq("point_type", "user"),
+        supabase.from("user_login_streaks").select("current_streak, longest_streak").eq("user_id", userId).maybeSingle(),
+        supabase.from("user_badges").select("id, badges(name, description, icon_url)").eq("user_id", userId).order("earned_at", { ascending: false }),
+      ]);
 
       if (!active) return;
-      if (error) {
-        console.error("Error fetching user achievements:", error);
+      if (eventsResult.error || streakResult.error) {
+        console.error("Error fetching user milestone progress:", eventsResult.error || streakResult.error);
         setFailed(true);
         setLoading(false);
         return;
       }
+
+      const events = eventsResult.data || [];
+      setStats({
+        totalPoints: events.reduce((sum, event) => sum + event.points, 0),
+        completedContents: new Set(events.filter((event) => event.action_key === "WATCH_100").map((event) => event.content_id || event.id)).size,
+        longestStreak: Math.max(streakResult.data?.longest_streak || 0, streakResult.data?.current_streak || 0),
+      });
+
+      if (badgesResult.error) console.error("Error fetching user badges:", badgesResult.error);
       setBadges(
-        (data || []).flatMap((entry) =>
+        (badgesResult.data || []).flatMap((entry) =>
           entry.badges
-            ? [{
-                id: entry.id,
-                name: entry.badges.name,
-                description: entry.badges.description,
-                iconUrl: entry.badges.icon_url,
-              }]
+            ? [{ id: entry.id, name: entry.badges.name, description: entry.badges.description, iconUrl: entry.badges.icon_url }]
             : [],
         ),
       );
@@ -52,44 +78,55 @@ export function UserAchievementsCard({ userId }: { userId: string }) {
     return () => { active = false; };
   }, [userId]);
 
+  const milestones = buildUserMilestones(stats);
+  const unlocked = milestones.filter((milestone) => milestone.unlocked);
+  const inProgress = milestones.filter((milestone) => !milestone.unlocked);
+
   return (
     <V2Card className="economy-panel">
       <V2CardHeader>
         <div className="economy-panel-heading">
           <span className="economy-icon"><Award aria-hidden="true" /></span>
           <div>
-            <h2 className="economy-panel-title">Suas conquistas</h2>
+            <h2 className="economy-panel-title">Conquistas de aprendizado</h2>
             <p className="economy-panel-copy">
-              {loading ? "Carregando conquistas..." : failed ? "Não foi possível carregar" : `${badges.length} ${badges.length === 1 ? "conquista desbloqueada" : "conquistas desbloqueadas"}`}
+              {loading ? "Carregando seu progresso..." : failed ? "Não foi possível carregar" : `${unlocked.length} de ${milestones.length} marcos alcançados`}
             </p>
           </div>
         </div>
       </V2CardHeader>
       <V2CardContent>
         {loading ? (
-          <div className="py-10 text-center text-sm text-muted-foreground">Carregando...</div>
+          <div className="py-10 text-center text-sm text-muted-foreground">Carregando conquistas...</div>
         ) : failed ? (
-          <p className="economy-panel-copy py-8 text-center">Não foi possível carregar suas conquistas agora.</p>
-        ) : badges.length ? (
-          <div className="economy-user-achievements">
-            {badges.map((badge) => (
-              <div className="economy-user-achievement" key={badge.id}>
-                <span className="economy-user-achievement__icon">
-                  {badge.iconUrl ? <img src={badge.iconUrl} alt="" /> : <Award aria-hidden="true" />}
-                </span>
-                <div>
-                  <strong>{badge.name}</strong>
-                  {badge.description && <p>{badge.description}</p>}
-                </div>
-              </div>
-            ))}
-          </div>
+          <p className="economy-panel-copy py-8 text-center">Não foi possível carregar seu progresso agora.</p>
         ) : (
-          <div className="economy-user-achievements__empty">
-            <span className="economy-user-achievements__empty-icon"><Award aria-hidden="true" /></span>
-            <strong>Suas conquistas aparecem aqui</strong>
-            <p>Quando você desbloquear uma conquista, poderá vê-la neste espaço.</p>
-          </div>
+          <Tabs defaultValue="all">
+            <TabsList className="economy-tabs-list economy-user-milestones__tabs">
+              <TabsTrigger value="all">Todas · {milestones.length}</TabsTrigger>
+              <TabsTrigger value="unlocked">Conquistadas · {unlocked.length}</TabsTrigger>
+              <TabsTrigger value="progress">Em andamento · {inProgress.length}</TabsTrigger>
+            </TabsList>
+            <TabsContent value="all" className="mt-5">
+              <div className="economy-user-milestones__grid">{milestones.map((milestone) => <MilestoneCard key={milestone.id} milestone={milestone} />)}</div>
+            </TabsContent>
+            <TabsContent value="unlocked" className="mt-5">
+              {unlocked.length ? <div className="economy-user-milestones__grid">{unlocked.map((milestone) => <MilestoneCard key={milestone.id} milestone={milestone} />)}</div> : <p className="economy-panel-copy py-8 text-center">Seu primeiro marco está próximo.</p>}
+            </TabsContent>
+            <TabsContent value="progress" className="mt-5">
+              {inProgress.length ? <div className="economy-user-milestones__grid">{inProgress.map((milestone) => <MilestoneCard key={milestone.id} milestone={milestone} />)}</div> : <p className="economy-panel-copy py-8 text-center">Você alcançou todos os marcos desta etapa.</p>}
+            </TabsContent>
+            {badges.length > 0 && (
+              <div className="economy-user-achievements mt-5">
+                {badges.map((badge) => (
+                  <div className="economy-user-achievement" key={badge.id}>
+                    <span className="economy-user-achievement__icon">{badge.iconUrl ? <img src={badge.iconUrl} alt="" /> : <Award aria-hidden="true" />}</span>
+                    <div><strong>{badge.name}</strong>{badge.description && <p>{badge.description}</p>}</div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </Tabs>
         )}
       </V2CardContent>
     </V2Card>

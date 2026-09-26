@@ -545,16 +545,25 @@
 }
 .economy-user-achievements { display: grid; gap: var(--cf2-space-3); }
 .economy-user-achievement { display: flex; align-items: center; gap: var(--cf2-space-3); }
-.economy-user-achievement__icon,
-.economy-user-achievements__empty-icon { display: grid; width: 2.75rem; height: 2.75rem; flex: 0 0 auto; place-items: center; border-radius: 0.75rem; background: var(--cf2-accent-soft); color: var(--cf2-accent); }
+.economy-user-achievement__icon { display: grid; width: 2.75rem; height: 2.75rem; flex: 0 0 auto; place-items: center; border-radius: 0.75rem; background: var(--cf2-accent-soft); color: var(--cf2-accent); }
 .economy-user-achievement__icon img,
-.economy-user-achievement__icon svg,
-.economy-user-achievements__empty-icon svg { width: 1.35rem; height: 1.35rem; object-fit: contain; }
-.economy-user-achievement strong,
-.economy-user-achievements__empty strong { color: var(--cf2-ink); font-size: var(--cf2-type-small); font-weight: 700; }
-.economy-user-achievement p,
-.economy-user-achievements__empty p { margin: 0.2rem 0 0; color: var(--cf2-ink-muted); font-size: var(--cf2-type-small); line-height: 1.5; }
-.economy-user-achievements__empty { display: grid; min-height: 12rem; justify-items: center; align-content: center; gap: 0.45rem; text-align: center; }
+.economy-user-achievement__icon svg { width: 1.35rem; height: 1.35rem; object-fit: contain; }
+.economy-user-achievement strong { color: var(--cf2-ink); font-size: var(--cf2-type-small); font-weight: 700; }
+.economy-user-achievement p { margin: 0.2rem 0 0; color: var(--cf2-ink-muted); font-size: var(--cf2-type-small); line-height: 1.5; }
+.economy-tabs-list.economy-user-milestones__tabs { width: 100%; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.economy-user-milestones__tabs > * { min-width: 0; }
+.economy-user-milestones__grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--cf2-space-2); }
+.economy-user-milestone { display: flex; min-width: 0; min-height: 10rem; padding: var(--cf2-space-3); flex-direction: column; align-items: flex-start; border: 1px solid var(--cf2-border); border-radius: var(--cf2-radius-control); background: var(--cf2-canvas-soft); }
+.economy-user-milestone--unlocked { border-color: color-mix(in srgb, var(--cf2-accent) 30%, var(--cf2-border)); background: var(--cf2-accent-soft); }
+.economy-user-milestone__icon { display: grid; width: 1.9rem; height: 1.9rem; margin-bottom: var(--cf2-space-2); place-items: center; border-radius: 0.6rem; background: var(--cf2-surface); color: var(--cf2-ink-muted); }
+.economy-user-milestone--unlocked .economy-user-milestone__icon { color: var(--cf2-accent); }
+.economy-user-milestone__icon svg { width: 1rem; height: 1rem; }
+.economy-user-milestone strong { color: var(--cf2-ink); font-size: 0.75rem; font-weight: 700; line-height: 1.25; }
+.economy-user-milestone p { margin: 0.2rem 0 auto; color: var(--cf2-ink-muted); font-size: 0.625rem; line-height: 1.35; }
+.economy-user-milestone__progress { width: 100%; height: 0.25rem; margin-top: var(--cf2-space-3); overflow: hidden; border-radius: var(--cf2-radius-pill); background: var(--cf2-surface-strong); }
+.economy-user-milestone__progress span { display: block; height: 100%; border-radius: inherit; background: var(--cf2-accent); }
+.economy-user-milestone small { margin-top: 0.3rem; color: var(--cf2-ink-muted); font-size: 0.625rem; font-variant-numeric: tabular-nums; }
+.economy-user-milestone--unlocked small { color: var(--cf2-accent); font-weight: 700; }
 .economy-achievement__copy {
   min-width: 0;
 }
@@ -916,6 +925,9 @@
 }
 
 @media (max-width: 640px) {
+  .economy-user-milestones__grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .economy-user-milestones__tabs { display: grid; height: auto; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .economy-user-milestones__tabs > * { min-width: 0; padding-inline: 0.2rem; font-size: 0.6875rem; }
   .economy-next-step__body {
     grid-template-columns: minmax(0, 1fr);
     padding-bottom: 0;
