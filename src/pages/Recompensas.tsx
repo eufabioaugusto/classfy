@@ -37,6 +37,7 @@ import {
 } from "@/components/v2";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { CreatorAchievementBadge } from "@/components/CreatorAchievementBadge";
+import { ExploreContentIllustration } from "@/components/rewards/ExploreContentIllustration";
 import { LeaderboardSection } from "@/components/LeaderboardSection";
 import { useCreatorMilestones } from "@/hooks/useCreatorMilestones";
 import {
@@ -335,9 +336,9 @@ export default function Recompensas() {
         width="wide"
         header={
           <PageHeader
-            eyebrow="Economia Classfy"
+            eyebrow="Sua evolução"
             title="Seu nível e suas recompensas."
-            description="Veja quantos Points você acumulou, quais ações contaram e o que falta para avançar."
+            description="Acompanhe seus Points, veja o que você já conquistou e descubra como chegar ao próximo nível."
             action={
               <V2Button
                 variant="secondary"
@@ -424,7 +425,7 @@ export default function Recompensas() {
               </div>
               <div className="economy-progress-copy">
                 <span>{stats.progressPercent.toFixed(0)}% concluído</span>
-                <span>
+                <span className="economy-progress-copy__remaining">
                   Faltam {stats.pointsToNextLevel.toLocaleString("pt-BR")}{" "}
                   Points
                 </span>
@@ -704,19 +705,21 @@ export default function Recompensas() {
                 </V2CardContent>
               </V2Card>
             ) : (
-              <V2Card className="economy-panel">
-                <V2CardContent className="flex min-h-[18rem] flex-col items-start justify-center">
-                  <span className="economy-kicker">Próximo passo</span>
-                  <h2 className="economy-balance-hero__headline">
-                    Continue estudando para acumular Points.
-                  </h2>
-                  <p className="economy-panel-copy mt-3">
-                    Assista a conteúdos e participe das ações que geram
-                    recompensa.
-                  </p>
-                  <V2Button className="mt-6" onClick={() => navigate("/")}>
-                    Explorar conteúdos
-                  </V2Button>
+              <V2Card className="economy-panel economy-next-step">
+                <V2CardContent className="economy-next-step__body">
+                  <div className="economy-next-step__copy">
+                    <span className="economy-kicker">Próximo passo</span>
+                    <h2 className="economy-balance-hero__headline">
+                      Escolha o próximo conteúdo.
+                    </h2>
+                    <p className="economy-panel-copy mt-3">
+                      Assista, aprenda e acompanhe aqui os Points das suas ações.
+                    </p>
+                    <V2Button className="mt-6" onClick={() => navigate("/?mode=explore")}>
+                      Explorar conteúdos
+                    </V2Button>
+                  </div>
+                  <ExploreContentIllustration />
                 </V2CardContent>
               </V2Card>
             )}

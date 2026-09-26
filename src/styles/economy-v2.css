@@ -301,6 +301,40 @@
   font-size: 0.625rem;
 }
 
+.economy-progress-copy__remaining {
+  color: var(--cf2-accent);
+  font-size: 0.6875rem;
+  font-weight: 750;
+  text-align: right;
+}
+
+.economy-next-step {
+  display: flex;
+  background: linear-gradient(145deg, var(--cf2-surface), var(--cf2-accent-soft));
+}
+
+.economy-next-step__body {
+  display: grid;
+  flex: 1;
+  min-height: 18rem;
+  grid-template-columns: minmax(0, 1fr) minmax(10rem, 44%);
+  align-items: center;
+  gap: var(--cf2-space-3);
+}
+
+.economy-next-step__copy {
+  position: relative;
+  z-index: 1;
+  min-width: 0;
+}
+
+.economy-next-step__illustration {
+  display: block;
+  width: 100%;
+  max-width: 16rem;
+  justify-self: end;
+}
+
 .economy-metric {
   min-height: 9.5rem;
   padding: var(--cf2-space-5);
@@ -866,6 +900,14 @@
 }
 
 @media (max-width: 640px) {
+  .economy-next-step__body {
+    grid-template-columns: minmax(0, 1fr);
+    padding-bottom: 0;
+  }
+  .economy-next-step__illustration {
+    width: min(70%, 13rem);
+    margin-top: -0.5rem;
+  }
   .economy-template {
     padding-inline: 1rem;
   }
