@@ -49,6 +49,7 @@ import { Separator } from "@/components/ui/separator";
 import { MessagePrivacySettings } from "@/components/settings/MessagePrivacySettings";
 import { useCreatorMilestones } from "@/hooks/useCreatorMilestones";
 import { CreatorAchievementBadge } from "@/components/CreatorAchievementBadge";
+import { UserAchievementsCard } from "@/components/rewards/UserAchievementsCard";
 import "@/styles/economy-v2.css";
 import "@/styles/account-v2.css";
 
@@ -482,7 +483,9 @@ export default function Conta() {
                 </div>
                 <Trophy className="h-5 w-5" aria-hidden="true" />
               </div>
-              <AchievementsSection userId={user?.id} />
+              {isCreator
+                ? <AchievementsSection userId={user?.id} />
+                : user && <UserAchievementsCard userId={user.id} />}
             </section>
           </TabsContent>
 

@@ -622,7 +622,7 @@ export function AppSidebar() {
                           </div>
                         </TooltipTrigger>
                         <TooltipContent side="right">
-                          <p>Solicitação em análise</p>
+                          <p>Perfil Creator em análise</p>
                         </TooltipContent>
                       </Tooltip>
                     </div>
@@ -759,7 +759,7 @@ export function AppSidebar() {
                     <div className="p-3 rounded-xl bg-muted/40 dark:bg-muted/20">
                       <div className="flex items-center justify-between gap-3">
                         <div className="flex-1 min-w-0">
-                          <p className="text-xs font-semibold text-foreground">Solicitação em análise</p>
+                          <p className="text-xs font-semibold text-foreground">Perfil Creator em análise</p>
                           <p className="text-[11px] text-muted-foreground">Aguardando aprovação</p>
                         </div>
                         <div className="p-1.5 rounded-full bg-background shrink-0">

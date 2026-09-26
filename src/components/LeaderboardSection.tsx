@@ -88,7 +88,8 @@ export function LeaderboardSection({ userId }: LeaderboardSectionProps) {
 
   const getRankIcon = (index: number) => {
     if (index === 0) return <Crown aria-hidden="true" />;
-    if (index === 1 || index === 2) return <Medal aria-hidden="true" />;
+    if (index === 1) return <Trophy aria-hidden="true" />;
+    if (index === 2) return <Medal aria-hidden="true" />;
     return <span>{index + 1}</span>;
   };
 
@@ -98,7 +99,7 @@ export function LeaderboardSection({ userId }: LeaderboardSectionProps) {
       className={`economy-ranking-row${current ? " economy-ranking-row--current" : ""}`}
     >
       <div className="economy-ranking-person">
-        <span className="economy-ranking-index">{getRankIcon(position)}</span>
+        <span className={`economy-ranking-index${position === 0 ? " economy-ranking-index--first" : ""}`}>{getRankIcon(position)}</span>
         {entry.avatar_url ? (
           <img src={entry.avatar_url} alt="" className="economy-ranking-avatar" />
         ) : (

@@ -425,6 +425,10 @@
   text-align: center;
 }
 
+.economy-ranking-index--first {
+  color: var(--cf2-accent);
+}
+
 .economy-ranking-avatar {
   width: 2rem;
   height: 2rem;
@@ -539,6 +543,18 @@
   border-color: var(--cf2-border);
   background: var(--cf2-canvas-soft);
 }
+.economy-user-achievements { display: grid; gap: var(--cf2-space-3); }
+.economy-user-achievement { display: flex; align-items: center; gap: var(--cf2-space-3); }
+.economy-user-achievement__icon,
+.economy-user-achievements__empty-icon { display: grid; width: 2.75rem; height: 2.75rem; flex: 0 0 auto; place-items: center; border-radius: 0.75rem; background: var(--cf2-accent-soft); color: var(--cf2-accent); }
+.economy-user-achievement__icon img,
+.economy-user-achievement__icon svg,
+.economy-user-achievements__empty-icon svg { width: 1.35rem; height: 1.35rem; object-fit: contain; }
+.economy-user-achievement strong,
+.economy-user-achievements__empty strong { color: var(--cf2-ink); font-size: var(--cf2-type-small); font-weight: 700; }
+.economy-user-achievement p,
+.economy-user-achievements__empty p { margin: 0.2rem 0 0; color: var(--cf2-ink-muted); font-size: var(--cf2-type-small); line-height: 1.5; }
+.economy-user-achievements__empty { display: grid; min-height: 12rem; justify-items: center; align-content: center; gap: 0.45rem; text-align: center; }
 .economy-achievement__copy {
   min-width: 0;
 }

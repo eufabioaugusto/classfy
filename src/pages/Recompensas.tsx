@@ -38,6 +38,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { CreatorAchievementBadge } from "@/components/CreatorAchievementBadge";
 import { ExploreContentIllustration } from "@/components/rewards/ExploreContentIllustration";
+import { UserAchievementsCard } from "@/components/rewards/UserAchievementsCard";
 import { LeaderboardSection } from "@/components/LeaderboardSection";
 import { useCreatorMilestones } from "@/hooks/useCreatorMilestones";
 import {
@@ -75,14 +76,13 @@ const formatMoney = (value: number) =>
   );
 
 export default function Recompensas() {
-  const { user, loading: authLoading, role } = useAuth();
+  const { user, loading: authLoading, role, profile } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState<UserStats | null>(null);
-  const { milestones, loading: milestonesLoading } = useCreatorMilestones(
-    user?.id,
-  );
+  const isCreator = role === "admin" || (role === "creator" && profile?.creator_status === "approved");
+  const { milestones, loading: milestonesLoading } = useCreatorMilestones(isCreator ? user?.id : undefined);
 
   useEffect(() => {
     if (!authLoading && !user) {
@@ -141,7 +141,7 @@ export default function Recompensas() {
         ).length;
 
         let creatorStats: UserStats["creatorStats"];
-        if (role === "creator" || role === "admin") {
+        if (isCreator) {
           const [contentsRes, coursesRes] = await Promise.all([
             supabase
               .from("contents")
@@ -245,7 +245,7 @@ export default function Recompensas() {
     };
 
     void fetchStats();
-  }, [authLoading, navigate, role, user]);
+  }, [authLoading, isCreator, navigate, user]);
 
   useEffect(() => {
     if (!stats || location.hash !== "#nivel") return;
@@ -257,7 +257,6 @@ export default function Recompensas() {
 
   if (authLoading || loading || !stats || !user) return <GlobalLoader />;
 
-  const isCreator = role === "creator" || role === "admin";
   const unlockedMilestones = milestones.filter(
     (milestone) => milestone.isClaimed,
   );
@@ -338,7 +337,7 @@ export default function Recompensas() {
           <PageHeader
             eyebrow="Sua evolução"
             title="Seu nível e suas recompensas."
-            description="Acompanhe seus Points, veja o que você já conquistou e descubra como chegar ao próximo nível."
+            description="Acompanhe seus Points e descubra como chegar ao próximo nível."
             action={
               <V2Button
                 variant="secondary"
@@ -492,7 +491,7 @@ export default function Recompensas() {
             description="Complete metas para desbloquear conquistas e acompanhar tudo o que já alcançou."
           />
           <div className="economy-content-grid">
-            <V2Card className="economy-panel">
+            {isCreator ? <V2Card className="economy-panel">
               <V2CardHeader>
                 <div className="economy-panel-heading">
                   <span className="economy-icon">
@@ -560,7 +559,7 @@ export default function Recompensas() {
                   </Tabs>
                 )}
               </V2CardContent>
-            </V2Card>
+            </V2Card> : <UserAchievementsCard userId={user.id} />}
 
             <V2Card className="economy-panel">
               <V2CardHeader>
