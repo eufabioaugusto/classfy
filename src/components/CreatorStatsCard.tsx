@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { Link } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Play, Wallet, Zap } from "lucide-react";
 import { subscribeToRewardEarned } from "@/lib/rewards/events";
@@ -123,49 +124,50 @@ export const CreatorStatsCard = ({ userId, collapsed, showCreatorStats = true }:
   if (collapsed) {
     return (
       <div className="cf-v2 flex flex-col items-center gap-1.5 px-1">
-        <div className={`flex h-8 w-8 items-center justify-center rounded-lg bg-[var(--cf2-accent-soft)] ${highlight === "user" ? "cf2-reward-card__pulse" : ""}`}>
+        <Link to="/recompensas#nivel" aria-label={`Ver nível ${stats.level} e progresso`} title={`Nível ${stats.level} · Ver progresso`} className={`flex h-8 w-8 items-center justify-center rounded-lg bg-[var(--cf2-accent-soft)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--cf2-accent)] ${highlight === "user" ? "cf2-reward-card__pulse" : ""}`}>
           <span className="text-[11px] font-bold text-[var(--cf2-accent)]">N{stats.level}</span>
-        </div>
-        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-[var(--cf2-surface-raised)]">
+        </Link>
+        <Link to="/carteira" aria-label="Ver saldo na carteira" title="Ver carteira" className="flex h-8 w-8 items-center justify-center rounded-lg bg-[var(--cf2-surface-raised)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--cf2-accent)]">
           <Wallet className="h-3.5 w-3.5 text-[var(--cf2-ink-muted)]" />
-        </div>
+        </Link>
       </div>
     );
   }
 
   return (
     <section className="cf-v2 cf2-sidebar-progress" aria-label={`Nível ${stats.level}, evolução e saldo`}>
-      <div className={`cf2-sidebar-progress__level ${highlight === "user" ? "cf2-reward-card__pulse" : ""}`}>
-        <span className="cf2-sidebar-progress__badge">N{stats.level}</span>
-        <div className="cf2-sidebar-progress__level-copy">
-          <strong>Nível {stats.level}</strong>
-          <span>{remaining.toLocaleString("pt-BR")} para N{stats.level + 1}</span>
+      <Link to="/recompensas#nivel" className="cf2-sidebar-progress__level-link" aria-label={`Ver nível ${stats.level}, ${remaining.toLocaleString("pt-BR")} Points para o próximo nível`}>
+        <div className={`cf2-sidebar-progress__level ${highlight === "user" ? "cf2-reward-card__pulse" : ""}`}>
+          <span className="cf2-sidebar-progress__badge">N{stats.level}</span>
+          <div className="cf2-sidebar-progress__level-copy">
+            <strong>Nível {stats.level}</strong>
+            <span>{remaining.toLocaleString("pt-BR")} para N{stats.level + 1}</span>
+          </div>
+          <strong className="cf2-sidebar-progress__points">
+            {stats.totalPoints.toLocaleString("pt-BR", { maximumFractionDigits: 0 })}
+            <small>Points</small>
+          </strong>
         </div>
-        <strong className="cf2-sidebar-progress__points">
-          {stats.totalPoints.toLocaleString("pt-BR", { maximumFractionDigits: 0 })}
-          <small>Points</small>
-        </strong>
-      </div>
-
-      <div className="cf2-sidebar-progress__track" aria-hidden="true">
-        <span style={{ width: `${progress}%` }} />
-      </div>
+        <div className="cf2-sidebar-progress__track" aria-hidden="true">
+          <span style={{ width: `${progress}%` }} />
+        </div>
+      </Link>
 
       <div className="cf2-sidebar-progress__metrics">
-        {showCreatorStats && <div className={highlight === "creator" ? "cf2-reward-card__pulse" : ""}>
+        {showCreatorStats && <Link to="/recompensas" className={highlight === "creator" ? "cf2-reward-card__pulse" : ""} aria-label="Ver Creator Points em recompensas">
           <span><Zap aria-hidden="true" /> Creator Points</span>
           <strong>{stats.creatorPoints.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}</strong>
-        </div>}
-        <div>
+        </Link>}
+        <Link to="/carteira" aria-label="Ver saldo na carteira">
           <span><Wallet aria-hidden="true" /> Saldo</span>
           <strong>
             R$&nbsp;{stats.balance.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
           </strong>
-        </div>
-        {showCreatorStats && <div>
+        </Link>
+        {showCreatorStats && <Link to="/studio/contents" aria-label="Ver publicações no Studio">
           <span><Play aria-hidden="true" /> Publicações</span>
           <strong>{stats.contentCount}</strong>
-        </div>}
+        </Link>}
       </div>
     </section>
   );

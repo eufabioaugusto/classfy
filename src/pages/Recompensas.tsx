@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import {
   Award,
   BarChart3,
@@ -76,6 +76,7 @@ const formatMoney = (value: number) =>
 export default function Recompensas() {
   const { user, loading: authLoading, role } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState<UserStats | null>(null);
   const { milestones, loading: milestonesLoading } = useCreatorMilestones(
@@ -245,6 +246,14 @@ export default function Recompensas() {
     void fetchStats();
   }, [authLoading, navigate, role, user]);
 
+  useEffect(() => {
+    if (!stats || location.hash !== "#nivel") return;
+    const frame = window.requestAnimationFrame(() => {
+      document.getElementById("nivel")?.scrollIntoView({ block: "center", behavior: "smooth" });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [stats, location.hash, location.key]);
+
   if (authLoading || loading || !stats || !user) return <GlobalLoader />;
 
   const isCreator = role === "creator" || role === "admin";
@@ -327,7 +336,7 @@ export default function Recompensas() {
         header={
           <PageHeader
             eyebrow="Economia Classfy"
-            title="Acompanhe seu progresso e suas recompensas."
+            title="Seu nível e suas recompensas."
             description="Veja quantos Points você acumulou, quais ações contaram e o que falta para avançar."
             action={
               <V2Button
@@ -394,7 +403,7 @@ export default function Recompensas() {
                 <span>{cycleCloseLabel}</span>
               </div>
             </div>
-            <div className="economy-balance-hero__bottom economy-level">
+            <div id="nivel" className="economy-balance-hero__bottom economy-level">
               <div className="economy-level__row">
                 <div>
                   <span className="economy-kicker">Nível {stats.level}</span>
