@@ -7,7 +7,7 @@ import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { supabase } from "@/integrations/supabase/client";
 import { cn } from "@/lib/utils";
 
-interface SearchResult {
+interface MediaSearchResult {
   id: string;
   title: string;
   description: string | null;
@@ -20,6 +20,17 @@ interface SearchResult {
   };
   views_count?: number;
 }
+
+interface CreatorSearchResult {
+  id: string;
+  type: "creator";
+  display_name: string;
+  creator_channel_name: string;
+  avatar_url: string | null;
+  creator_bio: string | null;
+}
+
+type SearchResult = MediaSearchResult | CreatorSearchResult;
 
 interface GlobalSearchProps {
   isExploreMode: boolean;
@@ -48,6 +59,7 @@ export function GlobalSearch({ isExploreMode, onModeChange }: GlobalSearchProps)
   const containerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const debounceRef = useRef<NodeJS.Timeout | null>(null);
+  const searchRequestRef = useRef(0);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -67,47 +79,68 @@ export function GlobalSearch({ isExploreMode, onModeChange }: GlobalSearchProps)
     return () => window.removeEventListener('open-global-search', handleOpenSearch);
   }, []);
 
-  const escapeRegex = (str: string) => str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-
   const performSearch = useCallback(async (searchQuery: string) => {
-    if (searchQuery.length < 2) {
+    const requestId = ++searchRequestRef.current;
+    const term = searchQuery.trim().replace(/[(),%_"\\]/g, " ").replace(/\s+/g, " ").trim();
+    if (term.length < 2) {
       setResults([]);
       setIsOpen(false);
+      setIsLoading(false);
       return;
     }
     setIsLoading(true);
     try {
-      const searchPattern = `%${escapeRegex(searchQuery)}%`;
-      const { data: contentsData } = await supabase
+      const searchPattern = `%${term}%`;
+      const [contentsResponse, coursesResponse, creatorsResponse] = await Promise.all([supabase
         .from("contents")
         .select(`id, title, description, thumbnail_url, content_type, views_count, tags, profiles:creator_id (display_name, avatar_url)`)
         .eq("status", "approved")
-        .or(`title.ilike.${searchPattern},description.ilike.${searchPattern},tags.cs.{"${escapeRegex(searchQuery)}"}`)
+        .or(`title.ilike.${searchPattern},description.ilike.${searchPattern},tags.cs.{"${term}"}`)
         .order("views_count", { ascending: false })
-        .limit(5);
+        .limit(5),
 
-      const { data: coursesData } = await supabase
+      supabase
         .from("courses")
         .select(`id, title, description, thumbnail_url, views_count, profiles:creator_id (display_name, avatar_url)`)
         .eq("status", "approved")
         .or(`title.ilike.${searchPattern},description.ilike.${searchPattern}`)
         .order("views_count", { ascending: false })
-        .limit(3);
+        .limit(3),
 
-      const contentResults: SearchResult[] = (contentsData || []).map((item: any) => ({
+      supabase
+        .from("profiles")
+        .select("id, display_name, creator_channel_name, avatar_url, creator_bio")
+        .eq("creator_status", "approved")
+        .not("creator_channel_name", "is", null)
+        .or(`display_name.ilike.${searchPattern},creator_channel_name.ilike.${searchPattern}`)
+        .order("display_name")
+        .limit(5)]);
+
+      if (requestId !== searchRequestRef.current) return;
+      const { data: contentsData, error: contentsError } = contentsResponse;
+      const { data: coursesData, error: coursesError } = coursesResponse;
+      const { data: creatorsData, error: creatorsError } = creatorsResponse;
+      if (contentsError || coursesError || creatorsError) {
+        console.error("Search error:", contentsError || coursesError || creatorsError);
+      }
+
+      const contentResults: MediaSearchResult[] = (contentsData || []).map((item) => ({
         id: item.id, title: item.title, description: item.description, thumbnail_url: item.thumbnail_url,
         content_type: item.content_type, type: "content" as const, creator: item.profiles, views_count: item.views_count,
       }));
-      const courseResults: SearchResult[] = (coursesData || []).map((item: any) => ({
+      const courseResults: MediaSearchResult[] = (coursesData || []).map((item) => ({
         id: item.id, title: item.title, description: item.description, thumbnail_url: item.thumbnail_url,
         type: "course" as const, creator: item.profiles, views_count: item.views_count,
       }));
-      setResults([...contentResults, ...courseResults]);
+      const creatorResults: CreatorSearchResult[] = (creatorsData || [])
+        .filter((item): item is typeof item & { creator_channel_name: string } => Boolean(item.creator_channel_name))
+        .map((item) => ({ ...item, type: "creator" as const }));
+      setResults([...creatorResults, ...contentResults, ...courseResults]);
       setIsOpen(true);
     } catch (error) {
-      console.error("Search error:", error);
+      if (requestId === searchRequestRef.current) console.error("Search error:", error);
     } finally {
-      setIsLoading(false);
+      if (requestId === searchRequestRef.current) setIsLoading(false);
     }
   }, []);
 
@@ -115,14 +148,29 @@ export function GlobalSearch({ isExploreMode, onModeChange }: GlobalSearchProps)
     const value = e.target.value;
     setQuery(value);
     if (debounceRef.current) clearTimeout(debounceRef.current);
+    searchRequestRef.current += 1;
+    if (value.trim().length < 2) {
+      setResults([]);
+      setIsOpen(false);
+      setIsLoading(false);
+      return;
+    }
+    setResults([]);
+    setIsOpen(true);
+    setIsLoading(true);
     debounceRef.current = setTimeout(() => performSearch(value), 300);
   };
 
-  const clearSearch = () => { setQuery(""); setResults([]); setIsOpen(false); };
+  const clearSearch = () => { searchRequestRef.current += 1; setQuery(""); setResults([]); setIsOpen(false); setIsLoading(false); };
 
   const handleResultClick = (result: SearchResult) => {
-    setIsOpen(false); setQuery(""); setMobileSheetOpen(false);
-    navigate(result.type === "course" ? `/watch/${result.id}?type=course` : `/watch/${result.id}`);
+    searchRequestRef.current += 1;
+    setIsOpen(false); setQuery(""); setResults([]); setMobileSheetOpen(false);
+    if (result.type === "creator") {
+      navigate(`/@${result.creator_channel_name}`);
+    } else {
+      navigate(result.type === "course" ? `/watch/${result.id}?type=course` : `/watch/${result.id}`);
+    }
   };
 
   const getContentIcon = (type?: string) => {
@@ -143,19 +191,19 @@ export function GlobalSearch({ isExploreMode, onModeChange }: GlobalSearchProps)
       onClick={() => handleResultClick(result)} 
       className="w-full flex items-center gap-3 px-4 py-3 hover:bg-muted/70 active:bg-muted transition-all text-left group"
     >
-      <div className="relative flex-shrink-0 w-20 h-12 rounded-xl overflow-hidden bg-muted shadow-sm group-hover:shadow-md transition-shadow">
-        {result.thumbnail_url ? (
-          <img src={result.thumbnail_url} alt={result.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
+      <div className={cn("relative flex-shrink-0 overflow-hidden bg-muted shadow-sm group-hover:shadow-md transition-shadow", result.type === "creator" ? "w-12 h-12 rounded-full" : "w-20 h-12 rounded-xl")}>
+        {(result.type === "creator" ? result.avatar_url : result.thumbnail_url) ? (
+          <img src={result.type === "creator" ? result.avatar_url! : result.thumbnail_url!} alt={result.type === "creator" ? result.display_name : result.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
         ) : (
           <div className="w-full h-full flex items-center justify-center bg-secondary/50">
-            {result.type === "course" 
+            {result.type === "creator" ? <span className="text-sm font-semibold text-muted-foreground">{result.display_name.charAt(0).toUpperCase()}</span> : result.type === "course"
               ? <GraduationCap className="w-6 h-6 text-muted-foreground/60" /> 
               : getContentIcon(result.content_type)
             }
           </div>
         )}
         {/* Content Type Badge */}
-        {result.content_type && (
+        {result.type === "content" && result.content_type && (
           <div className="absolute bottom-1 right-1 p-0.5 bg-black/60 backdrop-blur-sm rounded text-white">
             {getContentIcon(result.content_type)}
           </div>
@@ -164,9 +212,11 @@ export function GlobalSearch({ isExploreMode, onModeChange }: GlobalSearchProps)
       
       <div className="flex-1 min-w-0">
         <h4 className="text-sm font-semibold text-foreground truncate group-hover:text-primary transition-colors">
-          {result.title}
+          {result.type === "creator" ? result.display_name : result.title}
         </h4>
-        <div className="flex items-center gap-2 text-xs text-muted-foreground mt-0.5">
+        {result.type === "creator" ? (
+          <p className="text-xs text-muted-foreground mt-0.5 truncate">@{result.creator_channel_name}{result.creator_bio ? ` · ${result.creator_bio}` : ""}</p>
+        ) : <div className="flex items-center gap-2 text-xs text-muted-foreground mt-0.5">
           {result.creator && (
             <>
               <span className="truncate font-medium">{result.creator.display_name}</span>
@@ -174,9 +224,24 @@ export function GlobalSearch({ isExploreMode, onModeChange }: GlobalSearchProps)
             </>
           )}
           <span className="font-medium">{formatViews(result.views_count)} views</span>
-        </div>
+        </div>}
       </div>
     </button>
+  );
+
+  const ResultsList = () => (
+    <>
+      {(["creator", "content", "course"] as const).map((type) => {
+        const group = results.filter((result) => result.type === type);
+        if (group.length === 0) return null;
+        return <div key={type}>
+          <p className="px-4 pt-3 pb-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+            {type === "creator" ? "Criadores" : type === "course" ? "Cursos" : "Conteúdos"}
+          </p>
+          {group.map((result) => <ResultItem key={`${result.type}-${result.id}`} result={result} />)}
+        </div>;
+      })}
+    </>
   );
 
   return (
@@ -200,7 +265,7 @@ export function GlobalSearch({ isExploreMode, onModeChange }: GlobalSearchProps)
               {isLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : query && <Button variant="ghost" size="sm" className="h-6 w-6 p-0" onClick={clearSearch}><X className="w-4 h-4" /></Button>}
             </div>
           </div>
-          {results.length > 0 && <div className="max-h-[60vh] overflow-y-auto">{results.map(r => <ResultItem key={`${r.type}-${r.id}`} result={r} />)}</div>}
+          {results.length > 0 && <div className="max-h-[60vh] overflow-y-auto"><ResultsList /></div>}
           {query.length >= 2 && results.length === 0 && !isLoading && <div className="py-8 text-center text-sm text-muted-foreground">Nenhum resultado</div>}
         </SheetContent>
       </Sheet>
@@ -297,7 +362,7 @@ export function GlobalSearch({ isExploreMode, onModeChange }: GlobalSearchProps)
         {isOpen && results.length > 0 && (
           <div className="absolute top-full left-0 right-0 mt-3 py-2 bg-popover/95 backdrop-blur-xl border-2 border-border/50 rounded-2xl shadow-2xl z-50 animate-in fade-in-0 slide-in-from-top-2 duration-300">
             <div className="max-h-[420px] overflow-y-auto scrollbar-thin">
-              {results.map(r => <ResultItem key={`${r.type}-${r.id}`} result={r} />)}
+              <ResultsList />
             </div>
           </div>
         )}
