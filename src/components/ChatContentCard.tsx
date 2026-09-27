@@ -1,7 +1,8 @@
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Play, Heart, Bookmark, Clock, Lock, Crown } from "lucide-react";
+import { Play, Heart, Bookmark, Clock, Lock } from "lucide-react";
+import { PlanCrown } from "@/components/plans/PlanCrown";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
@@ -218,10 +219,7 @@ export const ChatContentCard = ({
             />
             {showPlanBadge && (
               <div className="absolute right-1.5 top-1.5">
-                <Crown
-                  className={`w-3 h-3 drop-shadow-lg ${visibility === "pro" ? "text-yellow-400" : "text-red-500"}`}
-                  fill="currentColor"
-                />
+                <PlanCrown plan={visibility === "pro" ? "pro" : "premium"} className="w-3 h-3 drop-shadow-lg" />
               </div>
             )}
             {duration_minutes && (
@@ -293,10 +291,7 @@ export const ChatContentCard = ({
           {/* Plan Badge - Top Right */}
           {showPlanBadge && (
             <div className="absolute top-2 right-2">
-              <Crown
-                className={`w-4 h-4 drop-shadow-lg ${visibility === "pro" ? "text-yellow-400" : "text-red-500"}`}
-                fill="currentColor"
-              />
+              <PlanCrown plan={visibility === "pro" ? "pro" : "premium"} className="w-4 h-4 drop-shadow-lg" />
             </div>
           )}
 

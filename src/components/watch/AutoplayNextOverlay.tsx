@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
-import { ArrowRight, Check, Crown, Loader2, Lock, Play, X } from "lucide-react";
+import { ArrowRight, Check, Loader2, Lock, Play, X } from "lucide-react";
+import { PlanCrown } from "@/components/plans/PlanCrown";
 import { motion, AnimatePresence } from "framer-motion";
 
 interface AutoplayNextOverlayProps {
@@ -142,7 +143,7 @@ export function AutoplayNextOverlay({
                   {blockReason === "purchase" ? (
                     <Lock className="h-7 w-7" />
                   ) : (
-                    <Crown className="h-8 w-8" fill="currentColor" />
+                    <PlanCrown plan={requiredPlan === "premium" ? "premium" : "pro"} className="h-8 w-8" />
                   )}
                 </div>
 

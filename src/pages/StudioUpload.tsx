@@ -19,7 +19,6 @@ import {
   CircleAlert,
   Cloud,
   CloudOff,
-  Crown,
   Eye,
   FileAudio,
   FileVideo,
@@ -34,6 +33,7 @@ import {
   UploadCloud,
   X,
 } from "lucide-react";
+import { PlanCrown } from "@/components/plans/PlanCrown";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
 import { AppShell, PageHeader } from "@/components/layout";
@@ -1598,7 +1598,7 @@ function StudioUpload() {
                       <strong>
                         {option.label}
                         {(option.id === "pro" || option.id === "premium") && (
-                          <Crown aria-hidden="true" />
+                          <PlanCrown plan={option.id} />
                         )}
                       </strong>
                       <small>{option.description}</small>
@@ -1671,7 +1671,7 @@ function StudioUpload() {
                       data-access={visibility}
                     >
                       {(visibility === "pro" || visibility === "premium") && (
-                        <Crown aria-hidden="true" />
+                        <PlanCrown plan={visibility} />
                       )}
                       <span>
                         {

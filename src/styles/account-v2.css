@@ -161,8 +161,9 @@
 .account-v2__plan-grid .plan-offer-card li, .account-v2__plan-grid .plan-offer-card .plans-price-card__price > span:first-child { color:var(--cf2-ink-secondary); }
 .account-v2__plan-grid .plan-offer-card .plans-price-card__topline, .account-v2__plan-grid .plan-offer-card .plans-price-card__price > span:last-child { color:var(--cf2-ink-muted); }
 .account-v2__plan-grid .plan-offer-card .plans-price-card__icon { background:var(--cf2-surface-strong); color:var(--cf2-ink); }
+.account-v2__plan-grid .plan-offer-card--pro .plans-price-card__icon { background:color-mix(in srgb, #e5aa25 15%, var(--cf2-surface-raised)); }
 .account-v2__plan-grid .plan-offer-card--premium { border-color:var(--cf2-accent); background:var(--cf2-accent-soft); }
-.account-v2__plan-grid .plan-offer-card--premium .plans-price-card__icon { color:var(--cf2-accent); }
+.account-v2__plan-grid .plan-offer-card--premium .plans-price-card__icon { background:color-mix(in srgb, #df3153 14%, var(--cf2-surface-raised)); }
 .account-v2__plan-grid .plan-offer-card[data-current="true"], .account-v2__plan-grid .plan-offer-card--free[data-current="true"] { border-color:var(--cf2-accent); }
 .account-v2__plan-grid .plans-price-card__divider { background:var(--cf2-border); }
 @media (max-width:1050px) { .account-v2__plan-grid { grid-template-columns:repeat(2,minmax(0,1fr)); } }

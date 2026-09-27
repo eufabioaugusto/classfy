@@ -1,4 +1,5 @@
-import { Crown, ShoppingCart, Lock } from "lucide-react";
+import { ShoppingCart, Lock } from "lucide-react";
+import { PlanCrown } from "@/components/plans/PlanCrown";
 import { Button } from "@/components/ui/button";
 
 interface AccessBlockedOverlayProps {
@@ -40,7 +41,7 @@ export const AccessBlockedOverlay = ({
         <div className="mb-4">
           {reason === "plan" ? (
             <div className={`w-16 h-16 rounded-full flex items-center justify-center ${isPremium ? "bg-red-500/20" : "bg-yellow-500/20"}`}>
-              <Crown className={`h-8 w-8 ${isPremium ? "text-red-500" : "text-yellow-400"}`} fill="currentColor" />
+              <PlanCrown plan={isPremium ? "premium" : "pro"} className="h-8 w-8" />
             </div>
           ) : (
             <div className="w-16 h-16 rounded-full flex items-center justify-center bg-primary/20">
@@ -76,7 +77,9 @@ export const AccessBlockedOverlay = ({
         >
           {reason === "plan" ? (
             <>
-              <Crown className="h-4 w-4" />
+              <span className="grid h-6 w-6 place-items-center rounded-md bg-white" aria-hidden="true">
+                <PlanCrown plan={isPremium ? "premium" : "pro"} className="h-4 w-4" />
+              </span>
               Assinar {isPremium ? "Premium" : "Pro"}
             </>
           ) : (

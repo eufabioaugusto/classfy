@@ -33,6 +33,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Users, Search, Shield, Crown, User as UserIcon } from "lucide-react";
+import { PlanCrown } from "@/components/plans/PlanCrown";
 
 interface UserData {
   id: string;
@@ -191,12 +192,13 @@ export default function AdminUsers() {
   const getPlanBadge = (plan: string) => {
     const colors = {
       free: "bg-gray-500",
-      pro: "bg-yellow-500",
-      premium: "bg-gradient-to-r from-purple-500 to-pink-500",
+      pro: "border border-amber-200 bg-amber-50 text-amber-950 hover:bg-amber-50",
+      premium: "border border-rose-200 bg-rose-50 text-rose-950 hover:bg-rose-50",
     };
 
     return (
       <Badge className={colors[plan as keyof typeof colors] || "bg-gray-500"}>
+        {(plan === "pro" || plan === "premium") && <PlanCrown plan={plan} className="mr-1 h-3.5 w-3.5" />}
         {plan.toUpperCase()}
       </Badge>
     );
@@ -266,7 +268,7 @@ export default function AdminUsers() {
                 {users.filter((u) => u.plan === "premium").length}
               </p>
             </div>
-            <Crown className="w-10 h-10 text-purple-500" />
+            <PlanCrown plan="premium" className="w-10 h-10" />
           </div>
         </Card>
       </div>

@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { ArrowRight, Check, Sparkles } from "lucide-react";
 import { PLAN_OFFERS, type PaidPlan } from "@/config/planOffers";
+import { PlanCrown } from "./PlanCrown";
 import "@/styles/plans-v2.css";
 
 interface PlanOfferCardProps {
@@ -12,12 +13,11 @@ interface PlanOfferCardProps {
 
 export function PlanOfferCard({ plan, current = false, compact = false, action }: PlanOfferCardProps) {
   const offer = PLAN_OFFERS[plan];
-  const Icon = offer.icon;
 
   return (
     <article className={`plans-price-card plans-price-card--${plan} plan-offer-card${compact ? " plan-offer-card--compact" : ""}`}>
       <div className="plans-price-card__topline">
-        <span className="plans-price-card__icon"><Icon size={19} /></span>
+        <span className="plans-price-card__icon"><PlanCrown plan={plan} size={19} /></span>
         <span>{current ? "SEU PLANO" : offer.label}</span>
       </div>
       <div className="plans-price-card__head">

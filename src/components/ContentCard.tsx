@@ -1,6 +1,7 @@
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Play, Clock, BookOpen, Lock, Crown, ShoppingCart, Zap, Sparkles } from "lucide-react";
+import { Play, Clock, BookOpen, Lock, ShoppingCart, Zap, Sparkles } from "lucide-react";
+import { PlanCrown } from "@/components/plans/PlanCrown";
 import { useNavigate, useLocation } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { useState, useEffect, useRef, useMemo } from "react";
@@ -294,7 +295,7 @@ export const ContentCard = ({
           <div className="absolute top-2 right-2">
             <div className="bg-black/55 backdrop-blur-[2px] text-white border border-white/10 font-bold text-[9px] px-1.5 py-0.5 rounded flex items-center gap-1 shadow-md">
               <span className="text-white/90">PREMIUM</span>
-              <Crown className="w-3 h-3 text-red-500 fill-current" />
+              <PlanCrown plan="premium" className="w-3 h-3" />
             </div>
           </div>
         )}
@@ -302,7 +303,7 @@ export const ContentCard = ({
           <div className="absolute top-2 right-2">
             <div className="bg-black/55 backdrop-blur-[2px] text-white border border-white/10 font-bold text-[9px] px-1.5 py-0.5 rounded flex items-center gap-1 shadow-md">
               <span className="text-white/90">PRO</span>
-              <Crown className="w-3 h-3 text-yellow-400 fill-current" />
+              <PlanCrown plan="pro" className="w-3 h-3" />
             </div>
           </div>
         )}

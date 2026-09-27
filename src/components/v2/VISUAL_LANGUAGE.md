@@ -23,7 +23,7 @@ Esta especificação é a referência oficial para qualquer evolução visual da
 | Estados | `LoadingState`, `EmptyState` e `ErrorState` preservam o espaço da experiência, explicam o estado e oferecem a próxima ação quando existe. |
 | Feedback | Toast confirma ação transitória; estado persistente fica na própria tela. Erro financeiro, publicação ou permissão nunca depende apenas de toast. |
 | Dark/light | Mesma hierarquia semântica nos dois temas, com valores próprios de canvas, superfície, tinta, borda, overlay e sombra. Não inverter cores mecanicamente. |
-| Free / PRO / Premium | Free é neutro/verde discreto; PRO usa azul moderado; Premium usa dourado sóbrio. Plano comunica status e valor, sem contaminar toda a interface. |
+| Free / PRO / Premium | Free é neutro/verde discreto; a coroa do Pro é amarela e a do Premium é vermelha em todas as superfícies. Plano comunica status e valor sem contaminar toda a interface. |
 | Interação | Duração curta, easing único, foco visível, hover discreto e movimento removível por `prefers-reduced-motion`. Nada essencial depende apenas de hover. |
 
 As implementações desses contratos vivem em `src/styles/classfy-v2.css`, `src/components/v2` e nos primitives Radix já adotados.

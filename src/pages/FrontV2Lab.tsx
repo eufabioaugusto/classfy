@@ -36,6 +36,7 @@ import {
   X,
   Zap,
 } from "lucide-react";
+import { PlanCrown } from "@/components/plans/PlanCrown";
 import heroEducadora from "@/assets/front-v2/hero-educadora.jpg";
 import creatorCaio from "@/assets/front-v2/creator-caio.jpg";
 import creatorLia from "@/assets/front-v2/creator-lia.jpg";
@@ -275,7 +276,7 @@ function PlayerShowcase() {
             <Eyebrow>Episódio 03 · Liderança</Eyebrow>
             <h3>A cultura aparece nas decisões difíceis.</h3>
           </div>
-          <LabBadge tone="premium"><Crown size={11} /> PREMIUM</LabBadge>
+          <LabBadge tone="premium"><PlanCrown plan="premium" size={11} /> PREMIUM</LabBadge>
         </div>
         <p>Helena mostra como líderes consistentes transformam valores abstratos em escolhas que o time consegue enxergar.</p>
         <div className="cfv2-player-creator">
@@ -388,8 +389,8 @@ function ComponentSystem({ onOpenModal, onOpenSheet }: { onOpenModal: () => void
           <span className="cfv2-demo-label">Status com significado</span>
           <div className="cfv2-inline-wrap">
             <LabBadge>NOVO</LabBadge>
-            <LabBadge tone="accent">PRO</LabBadge>
-            <LabBadge tone="premium"><Crown size={11} /> PREMIUM</LabBadge>
+            <LabBadge tone="accent"><PlanCrown plan="pro" size={11} /> PRO</LabBadge>
+            <LabBadge tone="premium"><PlanCrown plan="premium" size={11} /> PREMIUM</LabBadge>
             <LabBadge tone="success"><Check size={11} /> CONCLUÍDO</LabBadge>
           </div>
         </div>
@@ -511,7 +512,7 @@ function CreatorAndPlans() {
 
       <article className="cfv2-plan-panel">
         <div className="cfv2-plan-glow" />
-        <LabBadge tone="premium"><Crown size={11} /> CLASSFY PREMIUM</LabBadge>
+        <LabBadge tone="premium"><PlanCrown plan="premium" size={11} /> CLASSFY PREMIUM</LabBadge>
         <h3>Aprenda sem limites.<br />E no seu ritmo.</h3>
         <p>Experiência completa, conteúdos exclusivos e Classy ilimitada.</p>
         <div className="cfv2-plan-price"><strong>R$ 39,90</strong><span>/ mês</span></div>

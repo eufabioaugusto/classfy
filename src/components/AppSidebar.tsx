@@ -9,6 +9,7 @@ import { BecomeCreatorModal } from "@/components/BecomeCreatorModal";
 import { UpgradeModal } from "@/components/UpgradeModal";
 import { RewardAvatar } from "@/components/RewardAvatar";
 import { CreatorStatsCard } from "@/components/CreatorStatsCard";
+import { PlanCrown } from "@/components/plans/PlanCrown";
 import { Badge } from "@/components/ui/badge";
 import { useEffect, useMemo, useState } from "react";
 import {
@@ -309,8 +310,8 @@ export function AppSidebar() {
                     <span className="text-sm font-medium truncate">{profile?.display_name}</span>
                     <span className="text-xs text-muted-foreground capitalize flex items-center gap-1.5">
                       {profile?.plan === 'free' && <Circle className="h-3 w-3 text-emerald-500 fill-emerald-500" />}
-                      {profile?.plan === 'pro' && <Crown className="h-3 w-3 text-amber-500" />}
-                      {profile?.plan === 'premium' && <Crown className="h-3 w-3 text-red-500" />}
+                      {profile?.plan === 'pro' && <PlanCrown plan="pro" className="h-3 w-3" />}
+                      {profile?.plan === 'premium' && <PlanCrown plan="premium" className="h-3 w-3" />}
                       {profile?.plan}
                     </span>
                   </div>

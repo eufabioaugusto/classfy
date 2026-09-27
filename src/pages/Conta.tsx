@@ -24,9 +24,9 @@ import {
   Settings as SettingsIcon,
   Loader2,
   Check,
-  X,
-  Crown
+  X
 } from "lucide-react";
+import { PlanCrown } from "@/components/plans/PlanCrown";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
@@ -414,6 +414,7 @@ export default function Conta() {
                     <div className="account-v2__identity-copy">
                       <p className="account-v2__identity-name">{profile?.display_name}</p>
                       <V2Badge variant={profile?.plan === "premium" ? "premium" : profile?.plan === "pro" ? "accent" : "success"}>
+                        {(profile?.plan === "pro" || profile?.plan === "premium") && <PlanCrown plan={profile.plan} className="h-3 w-3" />}
                         {profile?.plan || "free"}
                       </V2Badge>
                     </div>
@@ -904,7 +905,7 @@ export default function Conta() {
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
-                  <Crown className="w-5 h-5 text-primary" />
+                  {profile?.plan === "pro" || profile?.plan === "premium" ? <PlanCrown plan={profile.plan} className="w-5 h-5" /> : <User className="w-5 h-5 text-primary" />}
                   Plano de Assinatura
                 </CardTitle>
                 <CardDescription>
@@ -921,6 +922,7 @@ export default function Conta() {
                           Plano {profile?.plan?.toUpperCase() || "FREE"}
                         </h3>
                         <V2Badge variant={profile?.plan === "premium" ? "premium" : profile?.plan === "pro" ? "accent" : "success"}>
+                          {(profile?.plan === "pro" || profile?.plan === "premium") && <PlanCrown plan={profile.plan} className="h-3 w-3" />}
                           Atual
                         </V2Badge>
                       </div>

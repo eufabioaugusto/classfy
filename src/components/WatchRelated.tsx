@@ -5,7 +5,8 @@ import { supabase } from "@/integrations/supabase/client";
 import { Card } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Play, Clock, Crown, ShoppingCart } from "lucide-react";
+import { Play, Clock, ShoppingCart } from "lucide-react";
+import { PlanCrown } from "@/components/plans/PlanCrown";
 import { Badge } from "@/components/ui/badge";
 import { useMiniPlayer } from "@/contexts/MiniPlayerContext";
 import { useAuth } from "@/contexts/AuthContext";
@@ -249,10 +250,7 @@ export const WatchRelated = ({ contentId, categoryId, tags, contentType, current
           {/* Plan indicator - Top Right */}
           {(isPro || isPremium) && (
             <div className="absolute top-1 right-1">
-              <Crown
-                className={`w-4 h-4 drop-shadow-lg ${isPro ? "text-yellow-400" : "text-red-500"}`}
-                fill="currentColor"
-              />
+              <PlanCrown plan={isPro ? "pro" : "premium"} className="w-4 h-4 drop-shadow-lg" />
             </div>
           )}
           

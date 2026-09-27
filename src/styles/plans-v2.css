@@ -61,6 +61,7 @@
 .plans-price-card__topline { display:flex; justify-content:space-between; align-items:center; gap:8px; margin-bottom:24px; color:#85848b; font-size:9px; font-weight:800; letter-spacing:.13em; }
 .plans-price-card--premium .plans-price-card__topline { color:var(--plans-red); }
 .plans-price-card__icon { display:grid; place-items:center; width:36px; height:36px; border-radius:10px; background:#f3f2f2; color:#282a30; }
+.plans-price-card--pro .plans-price-card__icon { background:#fff6df; }
 .plans-price-card--premium .plans-price-card__icon { background:#ffe7eb; color:var(--plans-red); }
 .plans-price-card__head { display:flex; justify-content:space-between; align-items:start; }
 .plans-price-card__head h3 { margin:0 0 6px; font-size:30px; letter-spacing:-.06em; line-height:1; }
@@ -217,5 +218,6 @@
 .dark .study-upgrade .plan-offer-card--premium { border-color:#b94c65; background:#2a1c26; }
 .dark .study-upgrade .plan-offer-card h3, .dark .study-upgrade .plan-offer-card strong, .dark .study-upgrade .plan-offer-card .plans-price-card__includes { color:#f5f5f6; }
 .dark .study-upgrade .plan-offer-card li, .dark .study-upgrade .plan-offer-card .plans-price-card__price > span:first-child { color:#d6d4d8; }
-.dark .study-upgrade .plan-offer-card .plans-price-card__icon { background:#34363d; color:#f5f5f6; }
+.dark .study-upgrade .plan-offer-card--pro .plans-price-card__icon { background:#45371e; }
+.dark .study-upgrade .plan-offer-card--premium .plans-price-card__icon { background:#502a36; }
 .dark .study-upgrade .plan-offer-card .plans-price-card__divider { background:#393a42; }
