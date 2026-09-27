@@ -1,23 +1,5 @@
-import { Button } from "@/components/ui/button";
+import { ArrowRight, Sparkles } from "lucide-react";
 
 export function PlansCTA() {
-  return (
-    <section className="py-16 md:py-24">
-      <div className="container mx-auto px-4 text-center max-w-2xl">
-        <h2 className="text-3xl md:text-4xl font-bold text-foreground mb-4">
-          Pronto para começar?
-        </h2>
-        <p className="text-muted-foreground mb-8">
-          Cancele a qualquer momento
-        </p>
-        <Button
-          size="lg"
-          className="h-12 px-10 rounded-full text-base font-medium bg-accent hover:bg-accent/90 text-accent-foreground"
-          onClick={() => document.getElementById("plans")?.scrollIntoView({ behavior: "smooth" })}
-        >
-          Escolher meu plano
-        </Button>
-      </div>
-    </section>
-  );
+  return <section className="plans-cta"><div className="plans-container"><div className="plans-cta__inner"><span className="plans-cta__mark"><Sparkles size={23} /></span><span className="plans-eyebrow">A SUA PRÓXIMA DESCOBERTA</span><h2>Tem muito mais para viver aqui.</h2><p>Encontre seu plano e continue explorando o que move a sua curiosidade.</p><button type="button" className="plans-button plans-button--red" onClick={() => document.getElementById("plans")?.scrollIntoView({ behavior: "smooth" })}>Ver planos <ArrowRight size={17} /></button></div></div></section>;
 }

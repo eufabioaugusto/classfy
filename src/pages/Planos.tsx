@@ -9,6 +9,7 @@ import { PlansFeatures } from "@/components/plans/PlansFeatures";
 import { PlansComparison } from "@/components/plans/PlansComparison";
 import { PlansFAQ } from "@/components/plans/PlansFAQ";
 import { PlansCTA } from "@/components/plans/PlansCTA";
+import "@/styles/plans-v2.css";
 
 export default function Planos() {
   const { user, profile } = useAuth();
@@ -49,12 +50,14 @@ export default function Planos() {
 
   return (
     <AppShell variant="home" title="Planos">
-            <PlansHero />
-            <PlanCards onSubscribe={handleSubscribe} currentPlan={currentPlan} />
-            <PlansFeatures />
-            <PlansComparison onSubscribe={handleSubscribe} />
-            <PlansFAQ />
-            <PlansCTA />
+      <div className="plans-v2">
+        <PlansHero />
+        <PlanCards onSubscribe={handleSubscribe} currentPlan={currentPlan} />
+        <PlansFeatures />
+        <PlansComparison onSubscribe={handleSubscribe} currentPlan={currentPlan} />
+        <PlansFAQ />
+        <PlansCTA />
+      </div>
     </AppShell>
   );
 }

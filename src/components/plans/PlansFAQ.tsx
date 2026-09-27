@@ -1,64 +1,12 @@
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
-import { motion } from "framer-motion";
 
 const faqs = [
-  {
-    question: "Quais são os benefícios do Classfy Premium?",
-    answer: "O Premium oferece acesso completo a todos os conteúdos sem anúncios, downloads ilimitados para assistir offline, reprodução em segundo plano, cursos completos com certificado e recursos avançados de IA para estudo personalizado.",
-  },
-  {
-    question: "Como faço o download de vídeos?",
-    answer: "Com a assinatura ativa, um botão de download aparece em cada conteúdo. Basta tocar para salvar no seu dispositivo e assistir quando quiser, mesmo sem internet.",
-  },
-  {
-    question: "Como faço para reproduzir vídeos em segundo plano?",
-    answer: "Com o Premium ativo, os vídeos continuam reproduzindo automaticamente quando você minimiza o app ou desliga a tela. Perfeito para ouvir aulas enquanto faz outras atividades.",
-  },
-  {
-    question: "Qual a diferença entre o Pro e o Premium?",
-    answer: "O Pro remove anúncios e libera downloads e o Classy Chat ilimitado. O Premium inclui tudo do Pro e adiciona cursos completos, certificados, modo offline, reprodução em segundo plano e sessões de estudo avançadas com IA.",
-  },
-  {
-    question: "Como posso cancelar minha assinatura?",
-    answer: "Você pode cancelar sua assinatura quando quiser pelo seu perfil. O acesso continuará até o fim do período já pago. Não existe fidelidade.",
-  },
+  { question: "Qual é a diferença entre Pro e Premium?", answer: "O Pro libera uma experiência sem anúncios, downloads e até 50 estudos com 30 mensagens em cada um. O Premium reúne esses benefícios e amplia os estudos e mensagens, além de incluir cursos, modo offline e reprodução em segundo plano." },
+  { question: "Posso cancelar quando quiser?", answer: "Sim. Você pode gerenciar ou cancelar sua assinatura pelo seu perfil. O acesso continua até o fim do período já pago, sem fidelidade." },
+  { question: "Como assisto aos vídeos que salvei?", answer: "Com uma assinatura ativa, use o botão de download no conteúdo disponível. Os vídeos salvos ficam acessíveis para você continuar assistindo depois." },
+  { question: "O que a Classy faz no meu estudo?", answer: "A Classy conversa com você sobre os temas que está explorando, ajuda a organizar ideias e sugere caminhos para aprofundar o aprendizado. Os limites de estudos e mensagens dependem do plano escolhido." },
 ];
 
 export function PlansFAQ() {
-  return (
-    <section className="py-16 md:py-24 bg-muted/40">
-      <div className="container mx-auto px-4">
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          whileInView={{ opacity: 1, y: 0 }}
-          viewport={{ once: true }}
-          className="max-w-3xl mx-auto"
-        >
-          <h2 className="text-3xl md:text-4xl font-bold text-foreground mb-10">
-            As respostas para suas perguntas
-          </h2>
-
-          <Accordion type="single" collapsible>
-            {faqs.map((faq, idx) => (
-              <AccordionItem key={idx} value={`item-${idx}`} className="border-b border-border">
-                <AccordionTrigger className="text-left hover:no-underline text-foreground py-5 text-base">
-                  {faq.question}
-                </AccordionTrigger>
-                <AccordionContent className="text-muted-foreground leading-relaxed pb-5">
-                  {faq.answer}
-                </AccordionContent>
-              </AccordionItem>
-            ))}
-          </Accordion>
-
-          <p className="text-sm text-muted-foreground mt-6">
-            Outras dúvidas?{" "}
-            <a href="/conta" className="text-accent hover:underline">
-              Fale com o suporte
-            </a>
-          </p>
-        </motion.div>
-      </div>
-    </section>
-  );
+  return <section className="plans-faq" aria-labelledby="plans-faq-title"><div className="plans-container plans-faq__grid"><div className="plans-section-heading"><span className="plans-eyebrow">AINDA TEM DÚVIDAS?</span><h2 id="plans-faq-title">Tudo o que você precisa saber.</h2><p>Escolha com tranquilidade.</p></div><div><Accordion type="single" collapsible>{faqs.map((faq, idx) => <AccordionItem key={faq.question} value={`item-${idx}`} className="plans-faq__item"><AccordionTrigger className="plans-faq__question">{faq.question}</AccordionTrigger><AccordionContent className="plans-faq__answer">{faq.answer}</AccordionContent></AccordionItem>)}</Accordion><p className="plans-faq__support">Precisa de ajuda? <a href="/conta">Fale com o suporte <span aria-hidden="true">↗</span></a></p></div></div></section>;
 }

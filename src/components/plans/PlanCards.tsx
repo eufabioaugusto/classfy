@@ -1,7 +1,4 @@
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { Check, Zap, Crown } from "lucide-react";
-import { motion } from "framer-motion";
+import { ArrowRight, Check, Crown, Sparkles, Zap } from "lucide-react";
 
 interface PlanCardsProps {
   onSubscribe: (plan: "pro" | "premium") => void;
@@ -13,124 +10,52 @@ const plans = [
     id: "pro" as const,
     icon: Zap,
     title: "Pro",
-    price: "R$ 29,90",
-    period: "/mês",
-    description: "Para quem quer mais do Classfy",
-    features: [
-      "Conteúdos sem anúncios",
-      "Classy Chat (IA) ilimitado",
-      "Downloads ilimitados",
-      "Suporte prioritário",
-      "Badge Pro no perfil",
-    ],
-    highlighted: false,
+    price: "29,90",
+    description: "Mais liberdade para assistir e estudar.",
+    intro: "Para quem já encontrou o que gosta e quer ir além.",
+    features: ["Vídeos sem anúncios", "Até 50 estudos com a Classy", "30 mensagens por estudo", "Downloads ilimitados", "Suporte prioritário"],
   },
   {
     id: "premium" as const,
     icon: Crown,
     title: "Premium",
-    price: "R$ 49,90",
-    period: "/mês",
-    description: "A experiência completa do Classfy",
-    badge: "Recomendado",
-    features: [
-      "Tudo do plano Pro",
-      "Cursos completos com certificado",
-      "Modo offline",
-      "Reprodução em segundo plano",
-      "Sessões de estudo com IA avançada",
-      "Acesso antecipado a novidades",
-    ],
-    highlighted: true,
+    price: "49,90",
+    description: "O seu jeito mais completo de aprender.",
+    intro: "Para quem quer explorar sem limites.",
+    features: ["Tudo do plano Pro", "Estudos e mensagens ilimitados", "Cursos completos com certificado", "Modo offline e segundo plano", "Acesso antecipado a novidades"],
   },
 ];
 
 export function PlanCards({ onSubscribe, currentPlan = "free" }: PlanCardsProps) {
   return (
-    <section id="plans" className="py-16 md:py-24 bg-muted/40">
-      <div className="container mx-auto px-4">
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          whileInView={{ opacity: 1, y: 0 }}
-          viewport={{ once: true }}
-          className="text-center mb-12"
-        >
-          <h2 className="text-3xl md:text-4xl font-bold text-foreground mb-3">
-            Escolha seu plano
-          </h2>
-          <p className="text-muted-foreground">
-            Cancele a qualquer momento
-          </p>
-        </motion.div>
-
-        <div className="grid md:grid-cols-2 gap-6 max-w-4xl mx-auto">
-          {plans.map((plan, index) => {
+    <section id="plans" className="plans-pricing" aria-labelledby="plans-pricing-title">
+      <div className="plans-container">
+        <div className="plans-section-heading plans-section-heading--center">
+          <span className="plans-eyebrow">ESCOLHA SEU RITMO</span>
+          <h2 id="plans-pricing-title">Um plano para cada jornada.</h2>
+          <p>Comece pelo que faz sentido para você. Mude ou cancele quando quiser.</p>
+        </div>
+        <div className="plans-pricing__grid">
+          {plans.map((plan) => {
             const Icon = plan.icon;
-            const isCurrentPlan = currentPlan === plan.id;
+            const isCurrent = currentPlan === plan.id;
             return (
-              <motion.div
-                key={plan.id}
-                initial={{ opacity: 0, y: 20 }}
-                whileInView={{ opacity: 1, y: 0 }}
-                viewport={{ once: true }}
-                transition={{ delay: index * 0.1 }}
-                className={`relative rounded-2xl border bg-card p-8 ${
-                  isCurrentPlan
-                    ? "border-primary ring-2 ring-primary/20 shadow-md"
-                    : plan.highlighted
-                    ? "border-accent shadow-sm"
-                    : "border-border"
-                }`}
-              >
-                {isCurrentPlan && (
-                  <Badge className="absolute -top-3 right-6 bg-primary text-primary-foreground text-xs px-3">
-                    Seu plano
-                  </Badge>
-                )}
-                {plan.badge && !isCurrentPlan && (
-                  <Badge className="absolute -top-3 left-6 bg-accent text-accent-foreground text-xs px-3">
-                    {plan.badge}
-                  </Badge>
-                )}
-
-                <div className="flex items-center gap-2 mb-4">
-                  <Icon className={`w-5 h-5 ${plan.highlighted ? "text-accent" : "text-foreground"}`} />
-                  <h3 className="text-lg font-semibold text-foreground">{plan.title}</h3>
-                </div>
-
-                <p className="text-sm text-muted-foreground mb-5">{plan.description}</p>
-
-                <div className="flex items-baseline gap-1 mb-6">
-                  <span className="text-3xl font-bold text-foreground">{plan.price}</span>
-                  <span className="text-muted-foreground">{plan.period}</span>
-                </div>
-
-                <ul className="space-y-3 mb-8">
-                  {plan.features.map((feature, idx) => (
-                    <li key={idx} className="flex items-center gap-2.5">
-                      <Check className={`w-4 h-4 shrink-0 ${plan.highlighted ? "text-accent" : "text-foreground"}`} />
-                      <span className="text-sm text-foreground/80">{feature}</span>
-                    </li>
-                  ))}
-                </ul>
-
-                <Button
-                  className={`w-full rounded-full h-11 font-medium ${
-                    isCurrentPlan
-                      ? ""
-                      : plan.highlighted
-                      ? "bg-accent hover:bg-accent/90 text-accent-foreground"
-                      : ""
-                  }`}
-                  variant={isCurrentPlan ? "outline" : plan.highlighted ? "default" : "outline"}
-                  onClick={() => onSubscribe(plan.id)}
-                >
-                  {isCurrentPlan ? "Gerenciar Assinatura" : `Assinar ${plan.title}`}
-                </Button>
-              </motion.div>
+              <article className={`plans-price-card plans-price-card--${plan.id}`} key={plan.id}>
+                <div className="plans-price-card__topline"><span className="plans-price-card__icon"><Icon size={19} /></span><span>{isCurrent ? "SEU PLANO" : plan.id === "premium" ? "EXPERIÊNCIA COMPLETA" : "MAIS LIBERDADE"}</span></div>
+                <div className="plans-price-card__head"><div><h3>{plan.title}</h3><p>{plan.description}</p></div>{plan.id === "premium" && <Sparkles size={26} strokeWidth={1.4} />}</div>
+                <p className="plans-price-card__intro">{plan.intro}</p>
+                <div className="plans-price-card__price"><span>R$</span><strong>{plan.price}</strong><span>/ mês</span></div>
+                <button type="button" className={`plans-button ${plan.id === "premium" ? "plans-button--red" : "plans-button--dark"}`} onClick={() => onSubscribe(plan.id)}>
+                  {isCurrent ? "Gerenciar assinatura" : `Escolher ${plan.title}`} <ArrowRight size={17} />
+                </button>
+                <div className="plans-price-card__divider" />
+                <p className="plans-price-card__includes">O que está incluído</p>
+                <ul>{plan.features.map((feature) => <li key={feature}><Check size={16} strokeWidth={2.4} /><span>{feature}</span></li>)}</ul>
+              </article>
             );
           })}
         </div>
+        <p className="plans-pricing__note">Os preços são mensais. Você poderá conferir os detalhes antes de concluir a assinatura.</p>
       </div>
     </section>
   );
