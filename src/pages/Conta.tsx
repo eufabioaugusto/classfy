@@ -45,6 +45,8 @@ import { AppShell } from "@/components/layout";
 import { PageHeader } from "@/components/layout";
 import { LibraryTemplate } from "@/components/templates";
 import { V2Badge, V2Card, V2CardContent, V2CardHeader } from "@/components/v2";
+import { PlanOfferCard } from "@/components/plans/PlanOfferCard";
+import type { PaidPlan } from "@/config/planOffers";
 import { Separator } from "@/components/ui/separator";
 import { MessagePrivacySettings } from "@/components/settings/MessagePrivacySettings";
 import { useCreatorMilestones } from "@/hooks/useCreatorMilestones";
@@ -307,6 +309,29 @@ export default function Conta() {
         description: error.message,
         variant: "destructive",
       });
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handlePaidPlanAction = async (plan: PaidPlan) => {
+    if (plan === "pro" && profile?.plan === "premium" && !confirm("Deseja fazer downgrade para o plano Pro?")) return;
+    try {
+      setSubmitting(true);
+      if (profile?.plan === "free") {
+        const { data, error } = await supabase.functions.invoke("create-subscription-checkout", { body: { plan } });
+        if (error) throw error;
+        if (data?.url) window.open(data.url, "_blank");
+      } else {
+        const { data, error } = await supabase.functions.invoke("manage-subscription", {
+          body: { action: plan === "premium" ? "upgrade" : "downgrade", newPlan: plan },
+        });
+        if (error) throw error;
+        toast({ title: "Sucesso!", description: data.message });
+        await fetchData();
+      }
+    } catch (error: any) {
+      toast({ title: "Erro", description: error.message, variant: "destructive" });
     } finally {
       setSubmitting(false);
     }
@@ -934,191 +959,24 @@ export default function Conta() {
                 </div>
 
                 {/* Plan Cards Comparison */}
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  {/* Free Plan */}
-                  <div className="account-v2__plan-option" data-current={profile?.plan === "free"} data-plan="free">
-                    <div className="flex items-center justify-between mb-3">
-                      <div>
-                        <h4 className="font-semibold">Gratuito</h4>
-                        <p className="text-2xl font-bold">R$ 0</p>
-                      </div>
-                      {profile?.plan === "free" && (
-                        <Badge variant="outline" className="border-primary text-primary">Seu Plano</Badge>
-                      )}
-                    </div>
-                    <ul className="space-y-2 text-sm">
-                      <li className="flex items-center gap-2">
-                        <Check className="w-4 h-4 text-primary" />
-                        Acesso ao Classy Chat
-                      </li>
-                      <li className="flex items-center gap-2 text-muted-foreground">
-                        <X className="w-4 h-4" />
-                        Vídeos sem anúncios
-                      </li>
-                      <li className="flex items-center gap-2 text-muted-foreground">
-                        <X className="w-4 h-4" />
-                        Downloads
-                      </li>
-                    </ul>
-                  </div>
-
-                  {/* Pro Plan */}
-                  <div className="account-v2__plan-option" data-current={profile?.plan === "pro"} data-plan="pro">
-                    <div className="flex items-center justify-between mb-3">
-                      <div>
-                        <h4 className="font-semibold flex items-center gap-1">
-                          <User className="w-4 h-4" />
-                          Pro
-                        </h4>
-                        <p className="text-2xl font-bold">R$ 29,90<span className="text-sm font-normal text-muted-foreground">/mês</span></p>
-                      </div>
-                      {profile?.plan === "pro" && (
-                        <Badge variant="outline" className="border-primary text-primary">Seu Plano</Badge>
-                      )}
-                    </div>
-                    <ul className="space-y-2 text-sm mb-4">
-                      <li className="flex items-center gap-2">
-                        <Check className="w-4 h-4 text-primary" />
-                        Sem anúncios
-                      </li>
-                      <li className="flex items-center gap-2">
-                        <Check className="w-4 h-4 text-primary" />
-                        Classy Chat (IA)
-                      </li>
-                      <li className="flex items-center gap-2">
-                        <Check className="w-4 h-4 text-primary" />
-                        Downloads ilimitados
-                      </li>
-                      <li className="flex items-center gap-2 text-muted-foreground">
-                        <X className="w-4 h-4" />
-                        Cursos completos
-                      </li>
-                    </ul>
-                    {profile?.plan === "free" && (
-                      <Button 
-                        size="sm"
-                        className="w-full account-v2__plan-action"
-                        onClick={async () => {
-                          try {
-                            const { data, error } = await supabase.functions.invoke('create-subscription-checkout', {
-                              body: { plan: 'pro' }
-                            });
-                            if (error) throw error;
-                            if (data?.url) window.open(data.url, '_blank');
-                          } catch (error: any) {
-                            toast({
-                              title: "Erro",
-                              description: error.message,
-                              variant: "destructive",
-                            });
-                          }
-                        }}
-                      >
-                        <Sparkles className="w-4 h-4 mr-1" />
-                        Assinar Pro
-                      </Button>
-                    )}
-                    {profile?.plan === "premium" && (
-                      <Button 
-                        variant="outline"
-                        size="sm"
-                        className="w-full"
-                        disabled={submitting}
-                        onClick={async () => {
-                          if (!confirm("Deseja fazer downgrade para o plano Pro?")) return;
-                          try {
-                            setSubmitting(true);
-                            const { data, error } = await supabase.functions.invoke('manage-subscription', {
-                              body: { action: 'downgrade', newPlan: 'pro' }
-                            });
-                            if (error) throw error;
-                            toast({ title: "Sucesso!", description: data.message });
-                            await fetchData();
-                          } catch (error: any) {
-                            toast({ title: "Erro", description: error.message, variant: "destructive" });
-                          } finally {
-                            setSubmitting(false);
-                          }
-                        }}
-                      >
-                        {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : "Downgrade"}
-                      </Button>
-                    )}
-                  </div>
-
-                  {/* Premium Plan */}
-                  <div className="account-v2__plan-option" data-current={profile?.plan === "premium"} data-plan="premium">
-                    <V2Badge variant="premium" className="account-v2__recommended">
-                      Recomendado
-                    </V2Badge>
-                    <div className="flex items-center justify-between mb-3 pt-1">
-                      <div>
-                        <h4 className="font-semibold flex items-center gap-1">
-                          <Sparkles className="w-4 h-4" />
-                          Premium
-                        </h4>
-                        <p className="text-2xl font-bold">R$ 49,90<span className="text-sm font-normal text-muted-foreground">/mês</span></p>
-                      </div>
-                      {profile?.plan === "premium" && (
-                        <Badge variant="outline" className="border-primary text-primary">Seu Plano</Badge>
-                      )}
-                    </div>
-                    <ul className="space-y-2 text-sm mb-4">
-                      <li className="flex items-center gap-2">
-                        <Check className="w-4 h-4 text-primary" />
-                        Tudo do Pro
-                      </li>
-                      <li className="flex items-center gap-2">
-                        <Check className="w-4 h-4 text-primary" />
-                        Cursos completos
-                      </li>
-                      <li className="flex items-center gap-2">
-                        <Check className="w-4 h-4 text-primary" />
-                        Reprodução offline
-                      </li>
-                      <li className="flex items-center gap-2">
-                        <Check className="w-4 h-4 text-primary" />
-                        Segundo plano
-                      </li>
-                    </ul>
-                    {(profile?.plan === "free" || profile?.plan === "pro") && (
-                      <Button 
-                        size="sm"
-                        className="w-full account-v2__plan-action"
-                        disabled={submitting}
-                        onClick={async () => {
-                          try {
-                            if (profile?.plan === "pro") {
-                              setSubmitting(true);
-                              const { data, error } = await supabase.functions.invoke('manage-subscription', {
-                                body: { action: 'upgrade', newPlan: 'premium' }
-                              });
-                              if (error) throw error;
-                              toast({ title: "Sucesso!", description: data.message });
-                              await fetchData();
-                            } else {
-                              const { data, error } = await supabase.functions.invoke('create-subscription-checkout', {
-                                body: { plan: 'premium' }
-                              });
-                              if (error) throw error;
-                              if (data?.url) window.open(data.url, '_blank');
-                            }
-                          } catch (error: any) {
-                            toast({ title: "Erro", description: error.message, variant: "destructive" });
-                          } finally {
-                            setSubmitting(false);
-                          }
-                        }}
-                      >
-                        {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : (
-                          <>
-                            <Trophy className="w-4 h-4 mr-1" />
-                            {profile?.plan === "pro" ? "Upgrade" : "Assinar Premium"}
-                          </>
-                        )}
-                      </Button>
-                    )}
-                  </div>
+                <div className="account-v2__plan-grid">
+                  <article className="plans-price-card plan-offer-card plan-offer-card--compact plan-offer-card--free" data-current={profile?.plan === "free"}>
+                    <div className="plans-price-card__topline"><span className="plans-price-card__icon"><User className="w-5 h-5" /></span><span>{profile?.plan === "free" ? "SEU PLANO" : "PONTO DE PARTIDA"}</span></div>
+                    <div className="plans-price-card__head"><div><h3>Free</h3><p>Explore a Classfy no seu ritmo.</p></div></div>
+                    <div className="plans-price-card__price"><span>R$</span><strong>0</strong><span>/ mês</span></div>
+                    <div className="plans-price-card__divider" />
+                    <p className="plans-price-card__includes">O que está incluído</p>
+                    <ul><li><Check size={16} /> Conteúdos gratuitos</li><li><Check size={16} /> Até 5 estudos com a Classy</li><li><Check size={16} /> 5 mensagens por estudo</li></ul>
+                  </article>
+                  {(["pro", "premium"] as const).map((plan) => (
+                    <PlanOfferCard
+                      key={plan}
+                      plan={plan}
+                      compact
+                      current={profile?.plan === plan}
+                      action={profile?.plan === plan ? null : <Button className="plans-button account-v2__plan-action" disabled={submitting} onClick={() => handlePaidPlanAction(plan)}>{submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : profile?.plan === "premium" ? "Mudar para Pro" : profile?.plan === "pro" ? "Mudar para Premium" : `Escolher ${plan === "pro" ? "Pro" : "Premium"}`}</Button>}
+                    />
+                  ))}
                 </div>
 
                 {/* Comparison Table */}
@@ -1138,10 +996,16 @@ export default function Conta() {
                       </TableHeader>
                       <TableBody>
                         <TableRow>
-                          <TableCell>Acesso ao Classy Chat</TableCell>
-                          <TableCell className="text-center"><Check className="w-4 h-4 text-primary mx-auto" /></TableCell>
-                          <TableCell className="text-center"><Check className="w-4 h-4 text-primary mx-auto" /></TableCell>
-                          <TableCell className="text-center"><Check className="w-4 h-4 text-primary mx-auto" /></TableCell>
+                          <TableCell>Estudos com a Classy</TableCell>
+                          <TableCell className="text-center">Até 5</TableCell>
+                          <TableCell className="text-center">Até 50</TableCell>
+                          <TableCell className="text-center">Ilimitados</TableCell>
+                        </TableRow>
+                        <TableRow>
+                          <TableCell>Mensagens por estudo</TableCell>
+                          <TableCell className="text-center">Até 5</TableCell>
+                          <TableCell className="text-center">Até 30</TableCell>
+                          <TableCell className="text-center">Ilimitadas</TableCell>
                         </TableRow>
                         <TableRow>
                           <TableCell>Vídeos sem anúncios</TableCell>

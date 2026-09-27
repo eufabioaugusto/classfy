@@ -35,6 +35,22 @@ export default function Planos() {
       return;
     }
 
+    if (currentPlan === "premium" && planType === "pro" && !window.confirm("Deseja mudar para o Pro ao fim do período atual?")) return;
+
+    if (currentPlan !== "free") {
+      try {
+        const { data, error } = await supabase.functions.invoke("manage-subscription", {
+          body: { action: planType === "premium" ? "upgrade" : "downgrade", newPlan: planType },
+        });
+        if (error) throw error;
+        toast.success(data?.message || "Solicitação recebida");
+      } catch (error) {
+        console.error("Error changing subscription:", error);
+        toast.error("Erro ao mudar assinatura");
+      }
+      return;
+    }
+
     try {
       const { data, error } = await supabase.functions.invoke("create-subscription-checkout", {
         body: { plan: planType },
