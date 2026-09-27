@@ -70,9 +70,7 @@
 .cf2-home-hero__preview video.is-active { opacity: 1; }
 .cf2-home-hero__shade {
   z-index: -2;
-  background:
-    linear-gradient(90deg, rgba(5, 6, 8, 0.96) 0%, rgba(5, 6, 8, 0.76) 32%, rgba(5, 6, 8, 0.2) 67%, rgba(5, 6, 8, 0.08) 100%),
-    linear-gradient(0deg, rgba(5, 6, 8, 0.85) 0%, transparent 48%);
+  background: radial-gradient(ellipse 75% 110% at 0% 100%, rgba(5, 6, 8, 0.88) 0%, rgba(5, 6, 8, 0.67) 33%, rgba(5, 6, 8, 0.28) 62%, transparent 85%);
 }
 .cf2-home-hero__content { width: min(100%, 47rem); padding: clamp(2rem, 4.5vw, 5.5rem); }
 .cf2-home-hero__eyebrow { display: flex; margin-bottom: 1.1rem; align-items: center; gap: 0.75rem; color: rgba(255, 255, 255, 0.7); font-size: 0.75rem; font-weight: 650; letter-spacing: 0; text-transform: none; }
@@ -96,6 +94,28 @@
 .cf2-home-hero__secondary { border: 1px solid rgba(255, 255, 255, 0.22); color: #fff; background: rgba(8, 9, 11, 0.46); backdrop-filter: blur(10px); }
 .cf2-home-hero__secondary:hover { border-color: rgba(255, 255, 255, 0.38); background: rgba(8, 9, 11, 0.68); }
 .cf2-home-hero__secondary svg:last-child { margin-left: 0.2rem; }
+
+.cf2-home-hero--center { justify-content: center; text-align: center; }
+.cf2-home-hero--center .cf2-home-hero__shade {
+  background: radial-gradient(ellipse 68% 100% at 50% 100%, rgba(5, 6, 8, 0.88) 0%, rgba(5, 6, 8, 0.58) 38%, rgba(5, 6, 8, 0.2) 65%, transparent 88%);
+}
+.cf2-home-hero--center .cf2-home-hero__eyebrow,
+.cf2-home-hero--center .cf2-home-hero__meta,
+.cf2-home-hero--center .cf2-home-hero__actions { justify-content: center; }
+.cf2-home-hero--center h1,
+.cf2-home-hero--center .cf2-home-hero__content > p { margin-inline: auto; }
+.cf2-home-hero--center .cf2-home-hero__identity { object-position: center; }
+
+.cf2-home-hero--right { justify-content: flex-end; text-align: right; }
+.cf2-home-hero--right .cf2-home-hero__shade {
+  background: radial-gradient(ellipse 75% 110% at 100% 100%, rgba(5, 6, 8, 0.88) 0%, rgba(5, 6, 8, 0.67) 33%, rgba(5, 6, 8, 0.28) 62%, transparent 85%);
+}
+.cf2-home-hero--right .cf2-home-hero__eyebrow,
+.cf2-home-hero--right .cf2-home-hero__meta,
+.cf2-home-hero--right .cf2-home-hero__actions { justify-content: flex-end; }
+.cf2-home-hero--right h1,
+.cf2-home-hero--right .cf2-home-hero__content > p { margin-left: auto; }
+.cf2-home-hero--right .cf2-home-hero__identity { object-position: right center; }
 
 .light .cf2-home-hero { border-color: rgba(26, 24, 20, 0.12); box-shadow: 0 28px 80px rgba(29, 25, 20, 0.2); }
 
@@ -328,7 +348,9 @@
   .cf2-home-feed { gap: 0; }
   .cf2-home-hero { min-height: 33rem; border-radius: var(--cf2-radius-card); }
   .cf2-home-hero__media img { object-position: 62% center; }
-  .cf2-home-hero__shade { background: linear-gradient(0deg, rgba(5, 6, 8, 0.98) 0%, rgba(5, 6, 8, 0.66) 64%, rgba(5, 6, 8, 0.24) 100%); }
+  .cf2-home-hero__shade { background: linear-gradient(0deg, rgba(5, 6, 8, 0.9) 0%, rgba(5, 6, 8, 0.64) 36%, rgba(5, 6, 8, 0.16) 68%, transparent 82%); }
+  .cf2-home-hero--center .cf2-home-hero__shade,
+  .cf2-home-hero--right .cf2-home-hero__shade { background: linear-gradient(0deg, rgba(5, 6, 8, 0.9) 0%, rgba(5, 6, 8, 0.64) 36%, rgba(5, 6, 8, 0.16) 68%, transparent 82%); }
   .cf2-home-hero__content { padding: 1.4rem; }
   .cf2-home-hero h1 { font-size: clamp(2.2rem, 11vw, 3.5rem); }
   .cf2-home-hero__content > p { font-size: 0.82rem; -webkit-line-clamp: 2; }

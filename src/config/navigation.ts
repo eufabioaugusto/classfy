@@ -59,6 +59,7 @@ export const adminNavigation: AdminNavigationItem[] = [
   { title: "Aprovar Conteúdos", url: "/admin/contents", icon: Video, countKey: "contents" },
   { title: "Transcrições", url: "/admin/transcriptions", icon: FileText, countKey: null },
   { title: "Creators em Destaque", url: "/admin/featured-creators", icon: Users, countKey: null },
+  { title: "Destaque da Home", url: "/admin/home-hero", icon: Star, countKey: null },
   { title: "Recompensas", url: "/admin/rewards", icon: Trophy, countKey: null },
   { title: "Saques", url: "/admin/withdrawals", icon: DollarSign, countKey: "withdrawals" },
   { title: "Gerenciar Usuários", url: "/admin/users", icon: Users, countKey: null },

@@ -25,6 +25,7 @@ import { AppShell } from "@/components/layout";
 import { HomeHero, PremiumCollection, type HomeHeroContent } from "@/components/home";
 import { HomeLiveSection } from "@/components/home/HomeLiveSection";
 import { isConfiguredHomeHero } from "@/config/home";
+import { buildEditorialHero, normalizeHeroHref, type HomeHeroSettings } from "@/lib/homeHeroEditorial";
 import type { Database } from "@/integrations/supabase/types";
 import "@/styles/home-v2.css";
 
@@ -200,6 +201,35 @@ export default function Index() {
     gcTime: 10 * 60 * 1000, // 10 minutes cache
   });
 
+  const { data: editorialHero } = useQuery({
+    queryKey: ["home-hero-editorial"],
+    queryFn: async () => {
+      const settingsResult = await supabase
+        .from("home_hero_settings")
+        .select("*")
+        .eq("id", 1)
+        .eq("is_active", true)
+        .maybeSingle();
+
+      // The automatic hero remains available during a database rollout or if
+      // an editor has not published a selection yet.
+      if (settingsResult.error || !settingsResult.data) return null;
+
+      const contentResult = await supabase
+        .from("contents")
+        .select("*, profiles:creator_id(display_name, creator_channel_name)")
+        .eq("id", settingsResult.data.content_id)
+        .eq("status", "approved")
+        .not("published_at", "is", null)
+        .maybeSingle();
+
+      if (contentResult.error || !contentResult.data) return null;
+      return { settings: settingsResult.data as HomeHeroSettings, content: contentResult.data as HomeHeroContent };
+    },
+    enabled: isExploreMode,
+    staleTime: 30 * 1000,
+  });
+
   const featuredCreators = exploreData?.featuredCreators || [];
   const trendingClasses = exploreData?.trendingClasses || [];
   const proContents = exploreData?.proContents || [];
@@ -242,7 +272,10 @@ export default function Index() {
     (content) => content.thumbnail_url && canAccessHero(content),
   ) || null;
   const featuredContentHero = configuredContentHero || fallbackContentHero;
-  const heroContent: HomeHeroContent | null = featuredContentHero
+  const editorialContentHero = editorialHero?.content
+    ? buildEditorialHero(editorialHero.content, editorialHero.settings)
+    : null;
+  const heroContent: HomeHeroContent | null = editorialContentHero || (featuredContentHero
     ? (featuredContentHero as HomeHeroContent)
     : featuredHeroCreator
     ? {
@@ -256,7 +289,7 @@ export default function Index() {
         identity_image_url: featuredHeroCreator.featured_image_url,
         context_label: "Seleção Classfy",
       }
-    : null;
+    : null);
   const personalizedHomeContents = personalizedContents;
   const trendingHomeContents = trendingClasses;
   const premiumHomeContents = premiumContents;
@@ -478,6 +511,15 @@ export default function Index() {
                     <HomeHero
                       content={heroContent}
                       onPlay={() => {
+                        if (editorialContentHero) {
+                          if (editorialHero?.settings.primary_href) {
+                            navigate(normalizeHeroHref(editorialHero.settings.primary_href, `/watch/${editorialContentHero.id}`));
+                          } else {
+                            handleContentClick(editorialContentHero);
+                          }
+                          return;
+                        }
+
                         if (featuredContentHero) {
                           handleContentClick(featuredContentHero);
                           return;
@@ -493,12 +535,16 @@ export default function Index() {
                         }
 
                       }}
-                      onOpenFocus={() => navigate("/c/new", {
-                        state: featuredContentHero?.title
-                          ? { contentTitle: featuredContentHero.title }
-                          : undefined,
-                      })}
-                      primaryLabel={featuredContentHero ? "Assistir agora" : "Conhecer creator"}
+                      onOpenFocus={() => {
+                        if (editorialContentHero && editorialHero?.settings.secondary_href) {
+                          navigate(normalizeHeroHref(editorialHero.settings.secondary_href, "/c/new"));
+                          return;
+                        }
+                        navigate("/c/new", {
+                          state: heroContent?.title ? { contentTitle: heroContent.title } : undefined,
+                        });
+                      }}
+                      primaryLabel={editorialContentHero ? undefined : featuredContentHero ? "Assistir agora" : "Conhecer creator"}
                     />
 
                     <HomeLiveSection authenticated={Boolean(user)} />

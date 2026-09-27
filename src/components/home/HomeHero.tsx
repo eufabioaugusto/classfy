@@ -18,6 +18,13 @@ export type HomeHeroContent = {
   profiles?: CreatorProfile | CreatorProfile[] | null;
   identity_image_url?: string | null;
   context_label?: string | null;
+  eyebrow_label?: string | null;
+  show_chip?: boolean;
+  alignment?: "left" | "center" | "right";
+  image_position?: "left" | "center" | "right";
+  primary_label?: string | null;
+  show_secondary?: boolean;
+  secondary_label?: string | null;
   file_url?: string | null;
   media_asset_id?: string | null;
   video_provider?: string | null;
@@ -39,12 +46,13 @@ const visibilityLabel: Record<string, string> = {
 
 function getCreatorName(content: HomeHeroContent) {
   const profile = Array.isArray(content.profiles) ? content.profiles[0] : content.profiles;
-  return profile?.creator_channel_name || profile?.display_name || "Creator Classfy";
+  return profile?.display_name || profile?.creator_channel_name || "Creator Classfy";
 }
 
 function getDuration(content: HomeHeroContent) {
-  const minutes = content.duration_minutes || Math.round((content.duration_seconds || 0) / 60);
-  if (!minutes) return null;
+  const seconds = content.duration_seconds || (content.duration_minutes || 0) * 60;
+  if (!seconds) return null;
+  const minutes = Math.max(1, Math.round(seconds / 60));
   if (minutes < 60) return `${minutes} min`;
 
   const hours = Math.floor(minutes / 60);
@@ -52,7 +60,7 @@ function getDuration(content: HomeHeroContent) {
   return remainder ? `${hours}h ${remainder}min` : `${hours}h`;
 }
 
-export function HomeHero({ content, onPlay, onOpenFocus, primaryLabel = "Assistir agora" }: HomeHeroProps) {
+export function HomeHero({ content, onPlay, onOpenFocus, primaryLabel }: HomeHeroProps) {
   if (!content) return null;
 
   const duration = getDuration(content);
@@ -60,18 +68,20 @@ export function HomeHero({ content, onPlay, onOpenFocus, primaryLabel = "Assisti
   const PrimaryIcon = content.identity_image_url ? ArrowRight : Play;
 
   return (
-    <section className="cf2-home-hero" aria-labelledby="home-hero-title">
+    <section className={`cf2-home-hero cf2-home-hero--${content.alignment || "left"}`} aria-labelledby="home-hero-title">
       <div className="cf2-home-hero__media" aria-hidden="true">
-        <img src={content.thumbnail_url || heroFallbackImage} alt="" loading="eager" />
+        <img src={content.thumbnail_url || heroFallbackImage} alt="" loading="eager" style={{ objectPosition: `${content.image_position || "center"} center` }} />
       </div>
       <div className="cf2-home-hero__shade" aria-hidden="true" />
 
       <div className="cf2-home-hero__content">
         <div className="cf2-home-hero__eyebrow">
-          <span>Em destaque</span>
-          <span className={`cf2-home-hero__plan cf2-home-hero__plan--${plan}`}>
-            {content.context_label || visibilityLabel[plan] || "Seleção Classfy"}
-          </span>
+          <span>{content.eyebrow_label || "Em destaque"}</span>
+          {content.show_chip !== false && (
+            <span className={`cf2-home-hero__plan cf2-home-hero__plan--${plan}`}>
+              {content.context_label || visibilityLabel[plan] || "Seleção Classfy"}
+            </span>
+          )}
         </div>
 
         {content.identity_image_url && (
@@ -99,13 +109,15 @@ export function HomeHero({ content, onPlay, onOpenFocus, primaryLabel = "Assisti
         <div className="cf2-home-hero__actions">
           <button type="button" className="cf2-home-hero__primary" onClick={onPlay}>
             <PrimaryIcon aria-hidden="true" />
-            {primaryLabel}
+            {primaryLabel || content.primary_label || "Assistir agora"}
           </button>
-          <button type="button" className="cf2-home-hero__secondary" onClick={onOpenFocus}>
-            <Sparkles aria-hidden="true" />
-            Estudar com a Classy
-            <ArrowRight aria-hidden="true" />
-          </button>
+          {content.show_secondary !== false && (
+            <button type="button" className="cf2-home-hero__secondary" onClick={onOpenFocus}>
+              <Sparkles aria-hidden="true" />
+              {content.secondary_label || "Estudar com a Classy"}
+              <ArrowRight aria-hidden="true" />
+            </button>
+          )}
         </div>
       </div>
     </section>

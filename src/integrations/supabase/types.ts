@@ -1761,6 +1761,77 @@ export type Database = {
           },
         ]
       }
+      home_hero_settings: {
+        Row: {
+          alignment: string
+          chip_label: string | null
+          content_id: string
+          created_at: string
+          description: string | null
+          eyebrow_label: string
+          id: number
+          image_position: string
+          is_active: boolean
+          primary_href: string | null
+          primary_label: string
+          secondary_href: string | null
+          secondary_label: string
+          show_chip: boolean
+          show_secondary: boolean
+          thumbnail_url: string | null
+          title: string | null
+          updated_at: string
+        }
+        Insert: {
+          alignment?: string
+          chip_label?: string | null
+          content_id: string
+          created_at?: string
+          description?: string | null
+          eyebrow_label?: string
+          id?: number
+          image_position?: string
+          is_active?: boolean
+          primary_href?: string | null
+          primary_label?: string
+          secondary_href?: string | null
+          secondary_label?: string
+          show_chip?: boolean
+          show_secondary?: boolean
+          thumbnail_url?: string | null
+          title?: string | null
+          updated_at?: string
+        }
+        Update: {
+          alignment?: string
+          chip_label?: string | null
+          content_id?: string
+          created_at?: string
+          description?: string | null
+          eyebrow_label?: string
+          id?: number
+          image_position?: string
+          is_active?: boolean
+          primary_href?: string | null
+          primary_label?: string
+          secondary_href?: string | null
+          secondary_label?: string
+          show_chip?: boolean
+          show_secondary?: boolean
+          thumbnail_url?: string | null
+          title?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "home_hero_settings_content_id_fkey"
+            columns: ["content_id"]
+            isOneToOne: false
+            referencedRelation: "contents"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       follows: {
         Row: {
           created_at: string
