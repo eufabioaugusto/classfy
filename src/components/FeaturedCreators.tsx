@@ -45,10 +45,10 @@ export const FeaturedCreators = ({ creators }: FeaturedCreatorsProps) => {
       </div>
 
       <Carousel
-        className="w-full"
+        className="cf2-featured-creators__carousel w-full"
         opts={{ align: "start", containScroll: "trimSnaps" }}
       >
-        <CarouselContent className="-ml-2 sm:-ml-4">
+        <CarouselContent className="cf2-featured-creators__track -ml-2 sm:-ml-4">
           {creators.map((creator) => (
             <CarouselItem
               key={creator.id}
@@ -58,8 +58,8 @@ export const FeaturedCreators = ({ creators }: FeaturedCreatorsProps) => {
             </CarouselItem>
           ))}
         </CarouselContent>
-        <CarouselPrevious className="-left-2 sm:-left-4 hidden sm:flex" />
-        <CarouselNext className="-right-2 sm:-right-4 hidden sm:flex" />
+        <CarouselPrevious className="cf2-featured-creators__previous hidden sm:flex" />
+        <CarouselNext className="cf2-featured-creators__next hidden sm:flex" />
       </Carousel>
     </section>
   );

@@ -1,4 +1,5 @@
 import { ArrowRight, Clock, Play, Sparkles } from "lucide-react";
+import { PlanCrown } from "@/components/plans/PlanCrown";
 import heroFallbackImage from "@/assets/front-v2/hero-educadora.jpg";
 
 type CreatorProfile = {
@@ -79,6 +80,7 @@ export function HomeHero({ content, onPlay, onOpenFocus, primaryLabel }: HomeHer
           <span>{content.eyebrow_label || "Em destaque"}</span>
           {content.show_chip !== false && (
             <span className={`cf2-home-hero__plan cf2-home-hero__plan--${plan}`}>
+              {(plan === "pro" || plan === "premium") && <PlanCrown plan={plan} className="h-3 w-3" />}
               {content.context_label || visibilityLabel[plan] || "Seleção Classfy"}
             </span>
           )}
