@@ -185,6 +185,7 @@ export default function Index() {
       const paidContentsData = allContents.filter((content) => content.visibility === "paid");
 
       return {
+        catalogContents: allContents,
         featuredCreators: creatorsWithDuration,
         trendingClasses: boostContentList(trendingClassesData, topInterests),
         proContents: boostContentList(proContentsData, topInterests),
@@ -201,7 +202,7 @@ export default function Index() {
     gcTime: 10 * 60 * 1000, // 10 minutes cache
   });
 
-  const { data: editorialHero } = useQuery({
+  const { data: editorialHeroSettings } = useQuery({
     queryKey: ["home-hero-editorial"],
     queryFn: async () => {
       const settingsResult = await supabase
@@ -211,20 +212,8 @@ export default function Index() {
         .eq("is_active", true)
         .maybeSingle();
 
-      // The automatic hero remains available during a database rollout or if
-      // an editor has not published a selection yet.
       if (settingsResult.error || !settingsResult.data) return null;
-
-      const contentResult = await supabase
-        .from("contents")
-        .select("*, profiles:creator_id(display_name, creator_channel_name)")
-        .eq("id", settingsResult.data.content_id)
-        .eq("status", "approved")
-        .not("published_at", "is", null)
-        .maybeSingle();
-
-      if (contentResult.error || !contentResult.data) return null;
-      return { settings: settingsResult.data as HomeHeroSettings, content: contentResult.data as HomeHeroContent };
+      return settingsResult.data as HomeHeroSettings;
     },
     enabled: isExploreMode,
     staleTime: 30 * 1000,
@@ -272,8 +261,13 @@ export default function Index() {
     (content) => content.thumbnail_url && canAccessHero(content),
   ) || null;
   const featuredContentHero = configuredContentHero || fallbackContentHero;
-  const editorialContentHero = editorialHero?.content
-    ? buildEditorialHero(editorialHero.content, editorialHero.settings)
+  // The public catalog already contains safe metadata for signed-out visitors.
+  // A direct contents query is blocked for anon by design.
+  const editorialCatalogContent = editorialHeroSettings
+    ? exploreData?.catalogContents.find((content) => content.id === editorialHeroSettings.content_id && content.published_at)
+    : null;
+  const editorialContentHero = editorialCatalogContent && editorialHeroSettings
+    ? buildEditorialHero(editorialCatalogContent as HomeHeroContent, editorialHeroSettings)
     : null;
   const heroContent: HomeHeroContent | null = editorialContentHero || (featuredContentHero
     ? (featuredContentHero as HomeHeroContent)
@@ -512,8 +506,8 @@ export default function Index() {
                       content={heroContent}
                       onPlay={() => {
                         if (editorialContentHero) {
-                          if (editorialHero?.settings.primary_href) {
-                            navigate(normalizeHeroHref(editorialHero.settings.primary_href, `/watch/${editorialContentHero.id}`));
+                          if (editorialHeroSettings?.primary_href) {
+                            navigate(normalizeHeroHref(editorialHeroSettings.primary_href, `/watch/${editorialContentHero.id}`));
                           } else {
                             handleContentClick(editorialContentHero);
                           }
@@ -536,8 +530,8 @@ export default function Index() {
 
                       }}
                       onOpenFocus={() => {
-                        if (editorialContentHero && editorialHero?.settings.secondary_href) {
-                          navigate(normalizeHeroHref(editorialHero.settings.secondary_href, "/c/new"));
+                        if (editorialContentHero && editorialHeroSettings?.secondary_href) {
+                          navigate(normalizeHeroHref(editorialHeroSettings.secondary_href, "/c/new"));
                           return;
                         }
                         navigate("/c/new", {
