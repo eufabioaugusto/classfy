@@ -6,6 +6,7 @@ import {
   FileText,
   Heart,
   Play,
+  Pause,
   Send,
   Sparkles,
   StickyNote,
@@ -21,6 +22,7 @@ type Props = {
 export function OnboardingDemo({ actions, name, busy, onAction }: Props) {
   const video = useRef<HTMLVideoElement>(null);
   const [started, setStarted] = useState(false);
+  const [playing, setPlaying] = useState(false);
   const [half, setHalf] = useState(actions.includes("view"));
   const [watched, setWatched] = useState(actions.includes("view") ? 1 : 0);
   const [finished, setFinished] = useState(actions.includes("view"));
@@ -53,6 +55,20 @@ export function OnboardingDemo({ actions, name, busy, onAction }: Props) {
     if (ratio >= 0.98 && !finished) {
       setFinished(true);
       void record("view", "100% assistido · +5 Points");
+    }
+  };
+  const togglePlayback = async () => {
+    const el = video.current;
+    if (!el) return;
+    if (!el.paused) {
+      el.pause();
+      return;
+    }
+    try {
+      if (el.ended) el.currentTime = 0;
+      await el.play();
+    } catch {
+      setMediaError(true);
     }
   };
   const points = actions.length * 5 + (half ? 5 : 0);
@@ -139,12 +155,22 @@ export function OnboardingDemo({ actions, name, busy, onAction }: Props) {
             ref={video}
             src="/onboarding/learning-demo.mp4"
             poster="/onboarding/learning-demo.jpg"
-            controls={started}
+            controls={false}
+            disablePictureInPicture
+            disableRemotePlayback
             playsInline
             preload="metadata"
             muted
             onTimeUpdate={progress}
-            onEnded={progress}
+            onPlay={() => {
+              setStarted(true);
+              setPlaying(true);
+            }}
+            onPause={() => setPlaying(false)}
+            onEnded={() => {
+              progress();
+              setPlaying(false);
+            }}
             onError={() => setMediaError(true)}
             aria-label="Vídeo de uma creator ensinando online"
           />
@@ -153,16 +179,22 @@ export function OnboardingDemo({ actions, name, busy, onAction }: Props) {
             <button
               className="ob-real-play"
               aria-label="Assistir vídeo"
-              onClick={async () => {
-                try {
-                  await video.current?.play();
-                  setStarted(true);
-                } catch {
-                  setMediaError(true);
-                }
-              }}
+              onClick={() => void togglePlayback()}
             >
               <Play fill="currentColor" />
+            </button>
+          )}
+          {started && !mediaError && (
+            <button
+              className="ob-playback-toggle"
+              aria-label={playing ? "Pausar vídeo" : "Reproduzir vídeo"}
+              onClick={() => void togglePlayback()}
+            >
+              {playing ? (
+                <Pause fill="currentColor" />
+              ) : (
+                <Play fill="currentColor" />
+              )}
             </button>
           )}
           {mediaError && (

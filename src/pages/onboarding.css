@@ -1259,3 +1259,28 @@
     animation: none;
   }
 }
+
+.ob-playback-toggle {
+  position: absolute;
+  left: 12px;
+  bottom: 15px;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  color: white;
+  background: #18151e99;
+  transition: background 0.15s ease;
+}
+.ob-playback-toggle:hover {
+  background: var(--ob-red);
+}
+.ob-playback-toggle:focus-visible {
+  outline: 2px solid white;
+  outline-offset: 3px;
+}
+.ob-playback-toggle svg {
+  width: 14px;
+  height: 14px;
+}
