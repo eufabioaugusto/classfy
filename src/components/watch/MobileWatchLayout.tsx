@@ -314,10 +314,7 @@ export function MobileWatchLayout({
 
       {onShowStudyTool && (
         <section className="mx-3 mb-5" aria-label="Ferramentas de estudo">
-          <div className="flex items-center justify-between mb-3">
-            <h2 className="text-sm font-semibold tracking-tight">Estude esta aula</h2>
-            <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">Com a Classy</span>
-          </div>
+          <h2 className="mb-3 text-sm font-semibold tracking-tight">Estude esta aula com a Classy</h2>
           <div className="grid grid-cols-2 gap-2">
             {([
               { panel: 'transcription', label: 'Transcrição', detail: 'Acompanhe o conteúdo', icon: FileText },
