@@ -1284,3 +1284,219 @@
   width: 14px;
   height: 14px;
 }
+
+.ob-classy-side {
+  align-self: center;
+  min-width: 0;
+}
+.ob-classy-chat {
+  min-height: 570px;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid hsl(var(--border));
+  border-radius: 28px;
+  background: hsl(var(--card));
+  box-shadow: 0 12px 50px #18151e06;
+  overflow: hidden;
+}
+.ob-classy-chat-header {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  padding: 24px 28px;
+  border-bottom: 1px solid hsl(var(--border));
+}
+.ob-classy-chat-avatar {
+  width: 40px;
+  height: 40px;
+  display: grid;
+  place-items: center;
+  border-radius: 13px;
+  background: var(--ob-red);
+  color: white;
+  box-shadow: 0 4px 12px #ed174c22;
+}
+.ob-classy-chat-avatar svg {
+  width: 22px;
+  height: 22px;
+}
+.ob-classy-chat-header > div {
+  display: grid;
+  gap: 3px;
+}
+.ob-classy-chat-header strong {
+  font-size: 16px;
+}
+.ob-classy-chat-header small {
+  font-size: 11px;
+  color: hsl(var(--muted-foreground));
+}
+.ob-classy-online {
+  margin-left: auto;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #22b573;
+  box-shadow: 0 0 0 4px #22b57311;
+}
+.ob-classy-chat-messages {
+  padding: 32px 28px;
+  flex: 1;
+}
+.ob-classy-chat-label {
+  display: flex;
+  gap: 7px;
+  align-items: center;
+  font-size: 12px;
+  margin-bottom: 14px;
+}
+.ob-classy-chat-label > svg {
+  width: 16px;
+  height: 16px;
+  color: var(--ob-red);
+}
+.ob-classy-chat-label > span {
+  margin-left: auto;
+  font-size: 10px;
+  color: hsl(var(--muted-foreground));
+}
+.ob-classy-typed {
+  font-size: 24px;
+  line-height: 1.55;
+  letter-spacing: -0.5px;
+  min-height: 190px;
+  margin: 0;
+}
+.ob-typing-caret {
+  display: inline-block;
+  width: 2px;
+  height: 1em;
+  margin-left: 3px;
+  background: var(--ob-red);
+  vertical-align: -0.1em;
+  animation: ob-chat-caret 0.8s step-end infinite;
+}
+.ob-typing-dots {
+  display: inline-block;
+  margin-left: 3px;
+  letter-spacing: 2px;
+  animation: ob-chat-dots 1s ease-in-out infinite;
+}
+.ob-classy-user-message {
+  margin: 22px 0 20px auto;
+  padding: 12px 16px;
+  width: fit-content;
+  max-width: 100%;
+  background: hsl(var(--muted));
+  border-radius: 16px 16px 4px 16px;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  font-size: 12px;
+}
+.ob-classy-user-message svg {
+  width: 14px;
+  height: 14px;
+  color: var(--ob-red);
+}
+.ob-classy-exercise {
+  display: flex;
+  gap: 10px;
+  font-size: 13px;
+  animation: ob-gain 0.4s ease both;
+}
+.ob-classy-exercise > svg {
+  width: 18px;
+  height: 18px;
+  color: var(--ob-red);
+  flex-shrink: 0;
+}
+.ob-classy-exercise p {
+  margin: 6px 0 0;
+  line-height: 1.6;
+  color: hsl(var(--muted-foreground));
+}
+.ob-classy-composer {
+  display: flex;
+  gap: 10px;
+  align-items: flex-end;
+  padding: 14px 16px;
+  margin: 0 20px 20px;
+  border: 1px solid hsl(var(--border));
+  border-radius: 20px;
+  background: hsl(var(--muted) / 0.45);
+}
+.ob-classy-composer textarea {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  resize: none;
+  outline: none;
+  background: transparent;
+  font-size: 13px;
+  line-height: 1.6;
+}
+.ob-classy-composer button {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: var(--ob-red);
+  color: white;
+  flex-shrink: 0;
+}
+.ob-classy-composer button:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+.ob-classy-composer button:focus-visible {
+  outline: 2px solid var(--ob-red);
+  outline-offset: 3px;
+}
+.ob-classy-composer button svg {
+  width: 18px;
+  height: 18px;
+}
+.ob-classy-mobile {
+  margin-top: 22px;
+}
+@keyframes ob-chat-caret {
+  50% {
+    opacity: 0;
+  }
+}
+@keyframes ob-chat-dots {
+  50% {
+    opacity: 0.3;
+  }
+}
+@media (max-width: 767px) {
+  .ob-stage--demo {
+    display: block;
+  }
+  .ob-classy-chat {
+    min-height: 0;
+    border-radius: 20px;
+  }
+  .ob-classy-chat-header {
+    padding: 18px 20px;
+  }
+  .ob-classy-chat-messages {
+    padding: 22px 20px;
+  }
+  .ob-classy-typed {
+    font-size: 20px;
+    min-height: 155px;
+  }
+  .ob-classy-composer {
+    margin: 0 14px 14px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ob-typing-caret,
+  .ob-typing-dots,
+  .ob-classy-exercise {
+    animation: none;
+  }
+}

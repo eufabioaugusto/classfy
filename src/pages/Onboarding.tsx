@@ -22,6 +22,8 @@ import {
 } from "@/components/onboarding/api";
 import { BecomeCreatorModal } from "@/components/BecomeCreatorModal";
 import { dispatchRewardEarned } from "@/lib/rewards/events";
+import { ClassyChatDemo } from "@/components/onboarding/ClassyChatDemo";
+import { useIsMobile } from "@/hooks/use-mobile";
 import { OnboardingDemo } from "@/components/onboarding/OnboardingDemo";
 import "./onboarding.css";
 const topics = [
@@ -66,6 +68,7 @@ export default function Onboarding() {
     [completed, setCompleted] = useState(false),
     [preview, setPreview] = useState(false);
   const [creatorOpen, setCreatorOpen] = useState(false);
+  const isMobile = useIsMobile();
   const isCreator = journey === "creator";
   useEffect(() => {
     if (authLoading) return;
@@ -214,22 +217,38 @@ export default function Onboarding() {
               <i style={{ width: `${((step + 1) / 6) * 100}%` }} />
             </div>
           </div>
-          <section className="ob-stage" key={step}>
-            <aside className="ob-art" aria-hidden="true">
-              <div className="ob-art-orbit" />
-              <img src="/onboarding/journey-illustration.svg" alt="" />
-              <span className="ob-float ob-float--top">
-                <Zap /> Uma ação. Uma conquista.
-              </span>
-              <span className="ob-float ob-float--bottom">
-                <Trophy /> Seu próximo nível começa aqui
-              </span>
-              <div className="ob-art-word">
-                Dê play.
-                <br />
-                <em>Descubra mais.</em>
-              </div>
-            </aside>
+          <section
+            className={`ob-stage ${step === 2 ? "ob-stage--demo" : ""}`}
+            key={step}
+          >
+            {step === 2 ? (
+              !isMobile && (
+                <aside className="ob-classy-side">
+                  <ClassyChatDemo
+                    name={name}
+                    actions={actions}
+                    busy={busy}
+                    onStudy={() => act("study")}
+                  />
+                </aside>
+              )
+            ) : (
+              <aside className="ob-art" aria-hidden="true">
+                <div className="ob-art-orbit" />
+                <img src="/onboarding/journey-illustration.svg" alt="" />
+                <span className="ob-float ob-float--top">
+                  <Zap /> Uma ação. Uma conquista.
+                </span>
+                <span className="ob-float ob-float--bottom">
+                  <Trophy /> Seu próximo nível começa aqui
+                </span>
+                <div className="ob-art-word">
+                  Dê play.
+                  <br />
+                  <em>Descubra mais.</em>
+                </div>
+              </aside>
+            )}
             <div className="ob-content">
               {step === 0 && (
                 <>
@@ -354,10 +373,19 @@ export default function Onboarding() {
                     ações virarem Points.
                   </p>
                   <OnboardingDemo
-                    name={name}
                     actions={actions}
                     busy={busy}
                     onAction={act}
+                    chat={
+                      isMobile ? (
+                        <ClassyChatDemo
+                          name={name}
+                          actions={actions}
+                          busy={busy}
+                          onStudy={() => act("study")}
+                        />
+                      ) : undefined
+                    }
                   />
                 </>
               )}

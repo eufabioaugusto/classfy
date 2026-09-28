@@ -1,25 +1,23 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
   Bookmark,
   Check,
   Coins,
-  FileText,
   Heart,
   Play,
   Pause,
   Send,
   Sparkles,
-  StickyNote,
   X,
 } from "lucide-react";
 
 type Props = {
   actions: string[];
-  name: string;
+  chat?: ReactNode;
   busy: boolean;
   onAction: (action: string) => Promise<boolean>;
 };
-export function OnboardingDemo({ actions, name, busy, onAction }: Props) {
+export function OnboardingDemo({ actions, chat, busy, onAction }: Props) {
   const video = useRef<HTMLVideoElement>(null);
   const [started, setStarted] = useState(false);
   const [playing, setPlaying] = useState(false);
@@ -29,7 +27,6 @@ export function OnboardingDemo({ actions, name, busy, onAction }: Props) {
   const [gain, setGain] = useState({ id: 0, text: "" });
   const [shareOpen, setShareOpen] = useState(false);
   const [followed, setFollowed] = useState(false);
-  const [tool, setTool] = useState("quiz");
   const [mediaError, setMediaError] = useState(false);
   const has = (action: string) => actions.includes(action);
   const celebrate = (text: string) => setGain((g) => ({ id: g.id + 1, text }));
@@ -71,6 +68,13 @@ export function OnboardingDemo({ actions, name, busy, onAction }: Props) {
       setMediaError(true);
     }
   };
+  const studyCelebrated = useRef(actions.includes("study"));
+  useEffect(() => {
+    if (actions.includes("study") && !studyCelebrated.current) {
+      studyCelebrated.current = true;
+      celebrate("Aprendizado em ação · +5 Points");
+    }
+  }, [actions]);
   const points = actions.length * 5 + (half ? 5 : 0);
   return (
     <>
@@ -320,69 +324,6 @@ export function OnboardingDemo({ actions, name, busy, onAction }: Props) {
             <small>Este envio é uma simulação.</small>
           </div>
         )}
-        <div
-          className="ob-study-tools"
-          role="tablist"
-          aria-label="Ferramentas de estudo"
-        >
-          {[
-            { id: "transcript", text: "Transcrição", Icon: FileText },
-            { id: "quiz", text: "Quiz Classy", Icon: Sparkles },
-            { id: "notes", text: "Anotações", Icon: StickyNote },
-          ].map(({ id, text, Icon }) => (
-            <button
-              key={id}
-              role="tab"
-              aria-selected={tool === id}
-              onClick={() => setTool(id)}
-            >
-              <Icon />
-              {text}
-            </button>
-          ))}
-        </div>
-        <div className="ob-quiz" role="tabpanel">
-          {tool === "transcript" && (
-            <p>
-              Explore a transcrição em texto, inclua no seu estudo e consulte
-              quando quiser.
-            </p>
-          )}
-          {tool === "notes" && (
-            <label className="ob-label">
-              Guarde uma ideia para colocar em prática
-              <textarea
-                placeholder="O que você quer aprender hoje?"
-                maxLength={500}
-              />
-            </label>
-          )}
-          {tool === "quiz" && (
-            <>
-              <div className="ob-classy-message">
-                <span className="ob-classy-avatar" aria-hidden="true">
-                  <Sparkles />
-                </span>
-                <p>
-                  <strong>Classy:</strong> {name.trim() || "Você"}, esse insight
-                  é muito interessante. Posso incluir um exercício no seu
-                  estudo?
-                </p>
-              </div>
-              <button
-                disabled={!has("share") || busy || has("study")}
-                onClick={() =>
-                  void record("study", "Aprendizado em ação · +5 Points")
-                }
-              >
-                {has("study")
-                  ? "Exercício incluído no meu estudo"
-                  : "Sim, incluir no meu estudo"}{" "}
-                {has("study") && <Check />}
-              </button>
-            </>
-          )}
-        </div>
         {has("study") && (
           <div className="ob-demo-done">
             <Check /> Você aprendeu, participou e ganhou!
@@ -397,6 +338,7 @@ export function OnboardingDemo({ actions, name, busy, onAction }: Props) {
           </button>
         )}
       </div>
+      {chat && <div className="ob-classy-mobile">{chat}</div>}
     </>
   );
 }
