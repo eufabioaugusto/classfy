@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
+import { useLocation } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { useTheme } from "@/contexts/ThemeContext";
 import { Button } from "@/components/ui/button";
@@ -11,7 +12,6 @@ import { getSafeErrorPayload, logAppEvent } from "@/lib/appLogger";
 import TurnstileWidget from "@/components/TurnstileWidget";
 import {
   Loader2,
-  Play,
   GraduationCap,
   TrendingUp,
   Wallet,
@@ -33,6 +33,9 @@ export default function Auth() {
   const [displayName, setDisplayName] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [googleAvailable, setGoogleAvailable] = useState(false);
+  const [googleLoading, setGoogleLoading] = useState(false);
+  const location = useLocation();
   const [backgroundVideos, setBackgroundVideos] = useState<string[]>([]);
   const [currentVideoIndex, setCurrentVideoIndex] = useState(0);
   const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
@@ -41,6 +44,48 @@ export default function Auth() {
   const { signIn, signUp } = useAuth();
   const { theme } = useTheme();
   const { toast } = useToast();
+
+  useEffect(() => {
+    const controller = new AbortController();
+    // Public Auth settings: only show Google as available when Supabase enables it.
+    fetch(`${import.meta.env.VITE_SUPABASE_URL}/auth/v1/settings`, {
+      headers: { apikey: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY },
+      signal: controller.signal,
+    })
+      .then(async (response) => {
+        if (!response.ok) return;
+        const settings = await response.json();
+        if (!controller.signal.aborted) setGoogleAvailable(settings.external?.google === true);
+      })
+      .catch(() => { /* Email login remains available if settings cannot be loaded. */ });
+    return () => controller.abort();
+  }, []);
+
+  const handleGoogleSignIn = async () => {
+    if (!googleAvailable || googleLoading) return;
+    setGoogleLoading(true);
+    const requestedPath = (location.state as { from?: unknown } | null)?.from;
+    const destination = typeof requestedPath === "string"
+      && requestedPath.startsWith("/") && !requestedPath.startsWith("//")
+      && !requestedPath.startsWith("/auth") ? requestedPath : "/";
+    const redirectUrl = new URL(destination, window.location.origin);
+    const safeRedirectUrl = redirectUrl.origin === window.location.origin
+      ? redirectUrl.href : `${window.location.origin}/`;
+    try {
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: "google",
+        options: { redirectTo: safeRedirectUrl },
+      });
+      if (error) throw error;
+    } catch {
+      toast({
+        title: "Não foi possível entrar com Google",
+        description: "Tente novamente ou use seu email e senha.",
+        variant: "destructive",
+      });
+      setGoogleLoading(false);
+    }
+  };
 
   const resetTurnstile = useCallback(() => {
     setTurnstileToken(null);
@@ -669,15 +714,16 @@ export default function Auth() {
                 </div>
               </div>
 
-              {/* Social Buttons Placeholder */}
-              <div className="grid grid-cols-2 gap-3">
+              {/* Google OAuth */}
+              <div>
                 <Button
                   type="button"
                   variant="outline"
-                  className="h-11"
-                  disabled
+                  className="h-11 w-full"
+                  onClick={handleGoogleSignIn}
+                  disabled={!googleAvailable || googleLoading || loading}
                 >
-                  <svg className="w-4 h-4 mr-2" viewBox="0 0 24 24">
+                  {googleLoading ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <svg aria-hidden="true" className="w-4 h-4 mr-2" viewBox="0 0 24 24">
                     <path
                       fill="currentColor"
                       d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
@@ -694,17 +740,8 @@ export default function Auth() {
                       fill="currentColor"
                       d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"
                     />
-                  </svg>
-                  Google
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="h-11"
-                  disabled
-                >
-                  <Play className="w-4 h-4 mr-2" />
-                  Apple
+                  </svg>}
+                  Continuar com Google
                 </Button>
               </div>
 
