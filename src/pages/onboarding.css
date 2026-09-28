@@ -1684,3 +1684,37 @@
   .ob-editorial-copy h2 { font-size: 27px; }
   .ob-editorial-copy p { font-size: 11px; }
 }
+
+.ob-editorial > img { object-position: center bottom; }
+.ob-editorial-shade {
+  background: linear-gradient(180deg, transparent 15%, #10151c12 32%, #10151cc9 65%, #10151cf5 100%);
+}
+.ob-editorial-copy { left: 26px; right: 26px; bottom: 28px; }
+.ob-editorial-copy h2 { font-size: 36px; margin: 18px 0 12px; line-height: 1.08; }
+.ob-editorial-eyebrow { display: flex; align-items: center; gap: 13px; font-size: 12px; font-weight: 600; color: #ffffffbf; }
+.ob-editorial-pro { display: inline-flex; align-items: center; gap: 7px; color: #fff; border: 1px solid #dbaa3980; border-radius: 7px; padding: 6px 9px; background: #161b23aa; }
+.ob-editorial-pro svg { width: 15px; height: 15px; fill: #dfad33; color: #dfad33; }
+.ob-editorial-meta { display: flex; align-items: center; gap: 15px; margin: 20px 0; font-size: 11px; color: #ffffffa6; }
+.ob-editorial-meta strong { color: #fff; font-weight: 600; }
+.ob-editorial-meta span { display: inline-flex; align-items: center; gap: 5px; }
+.ob-editorial-meta svg { width: 14px; height: 14px; }
+.ob-editorial-actions { display: flex; flex-wrap: wrap; gap: 9px; }
+.ob-editorial-actions > span { display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 12px 10px; border-radius: 9px; font-size: 11px; font-weight: 600; }
+.ob-editorial-actions svg { width: 15px; height: 15px; flex-shrink: 0; }
+.ob-editorial-watch { background: var(--ob-red); box-shadow: 0 6px 22px #ed174c25; }
+.ob-editorial-study { border: 1px solid #ffffff38; background: #ffffff0a; }
+.ob-editorial-study > svg:last-child { width: 13px; margin-left: 2px; }
+@media (max-width: 850px) {
+  .ob-editorial-copy { left: 22px; right: 22px; }
+  .ob-editorial-copy h2 { font-size: 30px; }
+  .ob-editorial-eyebrow { font-size: 10px; gap: 9px; }
+}
+@media (max-width: 640px) {
+  .ob-editorial { height: 435px; }
+  .ob-editorial > img { object-position: center bottom; }
+  .ob-editorial-copy { bottom: 22px; }
+  .ob-editorial-copy h2 { font-size: 30px; margin-top: 13px; }
+  .ob-editorial-meta { margin: 14px 0; gap: 12px; }
+  .ob-editorial-actions { gap: 7px; }
+  .ob-editorial-actions > span { font-size: 10px; padding: 10px 9px; }
+}

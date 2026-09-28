@@ -6,6 +6,8 @@ import {
   Check,
   ChevronRight,
   Crown,
+  Clock,
+  Sparkles,
   Coins,
   Loader2,
   Play,
@@ -237,14 +239,18 @@ export default function Onboarding() {
             ) : step === 3 ? (
               <RankingPodium name={name} />
             ) : step === 4 ? (
-              <aside className="ob-editorial">
-                <img src="/onboarding/editorial-man.jpg" alt="Homem em uma biblioteca, diante de estantes de livros" />
+              <aside className="ob-editorial" aria-label="Prévia de uma aula da seleção Pro">
+                <img src="/onboarding/classroom-creator.jpg" alt="Homem sorrindo, de óculos e camisa jeans, conversando diante de um laptop" />
                 <div className="ob-editorial-shade" />
-                <span className="ob-editorial-tag"><Check /> SELEÇÃO CLASSFY</span>
                 <div className="ob-editorial-copy">
-                  <span>CONHECIMENTO QUE INSPIRA</span>
-                  <h2>Gente que ensina.<br />Conteúdo que transforma.</h2>
-                  <p>Descubra novas perspectivas com quem tem algo para compartilhar.</p>
+                  <div className="ob-editorial-eyebrow"><span>Em destaque</span><span className="ob-editorial-pro"><Crown /> Seleção PRO</span></div>
+                  <h2>Comunicação<br />que conecta.</h2>
+                  <p>Aprenda a expressar suas ideias com mais clareza e confiança.</p>
+                  <div className="ob-editorial-meta"><strong>Rafael Santos</strong><span><Clock /> 3 min</span><span>Aula</span></div>
+                  <div className="ob-editorial-actions" aria-hidden="true">
+                    <span className="ob-editorial-watch"><Play /> Assistir agora</span>
+                    <span className="ob-editorial-study"><Sparkles /> Estudar com a Classy <ArrowRight /></span>
+                  </div>
                 </div>
               </aside>
             ) : (
