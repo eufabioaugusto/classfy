@@ -1558,7 +1558,6 @@
 .ob-ranking-person small { font-size: 10px; color: #857a80; background: #ffffffb3; border: 1px solid #ffffff; padding: 4px 7px; border-radius: 20px; white-space: nowrap; }
 .ob-ranking-lane--gold .ob-ranking-avatar { width: 54px; height: 54px; color: #fff; background: var(--ob-red); box-shadow: 0 0 0 5px #ed174c0c, 0 5px 15px #ed174c25; font-size: 23px; }
 .ob-ranking-lane--gold .ob-ranking-person strong { color: var(--ob-red); }
-.ob-ranking-crown { position: absolute; top: -27px; width: 26px; height: 26px; color: #db9b21; fill: #ffda73; transform: rotate(-8deg); }
 .ob-ranking-lane--bronze .ob-ranking-avatar { background: #f4dfce; color: #a66e44; }
 .ob-ranking-block { position: relative; height: 126px; display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 10px; background: linear-gradient(100deg, #e5e2ee, #cecadc); border-radius: 3px 3px 7px 7px; box-shadow: 8px 10px 18px #6338470c; color: #aaa3bf; }
 .ob-ranking-block::before { content: ''; position: absolute; top: -18px; left: 0; width: 100%; height: 19px; background: #eeebf5; clip-path: polygon(21% 0, 79% 0, 100% 100%, 0 100%); }
@@ -1570,9 +1569,6 @@
 .ob-ranking-lane--gold .ob-ranking-block > span { opacity: 1; }
 .ob-ranking-lane--bronze .ob-ranking-block { height: 96px; background: linear-gradient(110deg, #efcca8, #d7a271); color: #b67b41; }
 .ob-ranking-lane--bronze .ob-ranking-block::before { background: #f6ddbd; }
-.ob-ranking-spark { position: absolute; color: #ed174c77; width: 18px; height: 18px; }
-.ob-ranking-spark--one { top: 32px; left: 15%; }
-.ob-ranking-spark--two { top: 65px; right: 8%; width: 12px; }
 .ob-ranking-caption { display: flex; align-items: center; gap: 12px; padding: 14px 16px; background: #ffffffa6; border: 1px solid #fff; border-radius: 14px; }
 .ob-ranking-caption > svg { color: var(--ob-red); width: 23px; flex-shrink: 0; }
 .ob-ranking-caption span { font-size: 12px; line-height: 1.5; }
@@ -1582,3 +1578,46 @@
 @media (max-width: 850px) { .ob-ranking { padding: 26px 18px 18px; } .ob-ranking-heading h2 { font-size: 29px; } .ob-ranking-person small { font-size: 9px; padding: 4px; } }
 @media (max-width: 640px) { .ob-ranking { border-radius: 22px; padding: 24px; } .ob-ranking-heading h2 { font-size: 28px; } .ob-ranking-scene { height: 295px; margin-bottom: 18px; } }
 @media (prefers-reduced-motion: reduce) { .ob-ranking-lane { animation: none; } }
+
+.ob-level > .ob-achievement {
+  width: 160px;
+  height: 125px;
+  object-fit: contain;
+  margin: -8px 0 0;
+}
+.ob-level .ob-earned-title {
+  font-size: clamp(22px, 2.2vw, 28px);
+  letter-spacing: -.8px;
+  text-align: center;
+}
+.ob-earned-title b { color: #b77b18; }
+.ob-ranking-avatar { object-fit: cover; }
+.ob-ranking-person small {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 8px 4px 4px;
+  box-shadow: 0 3px 8px #3b26300c;
+}
+.ob-ranking-medal {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 23px;
+  font-size: 13px;
+  color: #6f6785;
+  background: linear-gradient(120deg, #f3f0fa 15%, #bcb6d0 16%, #e1dcec 55%, #bcb6d0);
+  clip-path: polygon(50% 0, 95% 25%, 95% 75%, 50% 100%, 5% 75%, 5% 25%);
+}
+.ob-ranking-lane--gold .ob-ranking-medal {
+  color: #af7212;
+  background: linear-gradient(120deg, #fff0a5 15%, #efb531 16%, #ffe27a 55%, #e5a824);
+}
+.ob-ranking-lane--bronze .ob-ranking-medal {
+  color: #985d27;
+  background: linear-gradient(120deg, #f8d9a8 15%, #c58b43 16%, #e8b76d 55%, #bf8744);
+}
+@media (max-width: 850px) {
+  .ob-ranking-person small { gap: 3px; padding: 3px; }
+  .ob-ranking-medal { width: 17px; height: 20px; font-size: 11px; }
+}

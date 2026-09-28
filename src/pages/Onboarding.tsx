@@ -401,8 +401,8 @@ export default function Onboarding() {
                     interagindo e estudando para evoluir.
                   </p>
                   <div className="ob-level">
-                    <Trophy />
-                    <strong>+20 Points</strong>
+                    <img className="ob-achievement" src="/onboarding/golden-achievement.svg" alt="Medalha dourada de conquista" />
+                    <strong className="ob-earned-title">Você <b>GANHOU</b> 20 points</strong>
                     <span>Seu bônus de boas-vindas ao concluir</span>
                     <div className="ob-track">
                       <i style={{ width: "25%" }} />
