@@ -1055,6 +1055,7 @@ function WatchContent() {
         <div className="bg-black">
           {!hasAccess && accessBlockedReason ? (
             <AccessBlockedOverlay
+              compact
               reason={accessBlockedReason}
               requiredPlan={requiredUpgradePlan}
               price={content.price}
