@@ -1635,7 +1635,7 @@
   width: 100%;
   height: 100%;
   object-fit: cover;
-  object-position: 70% center;
+  object-position: center 58%;
 }
 .ob-editorial-shade {
   position: absolute;
@@ -1678,7 +1678,7 @@
 }
 @media (max-width: 640px) {
   .ob-editorial { height: 340px; border-radius: 22px; }
-  .ob-editorial > img { object-position: 70% 36%; }
+  .ob-editorial > img { object-position: center 58%; }
   .ob-editorial-tag { top: 18px; left: 20px; }
   .ob-editorial-copy { bottom: 22px; left: 22px; right: 22px; }
   .ob-editorial-copy h2 { font-size: 27px; }

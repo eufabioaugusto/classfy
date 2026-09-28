@@ -26,7 +26,6 @@ import { ClassyChatDemo } from "@/components/onboarding/ClassyChatDemo";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { OnboardingDemo } from "@/components/onboarding/OnboardingDemo";
 import { RankingPodium } from "@/components/onboarding/RankingPodium";
-import heroEducadora from "@/assets/front-v2/hero-educadora.jpg";
 import { PLAN_OFFERS } from "@/config/planOffers";
 import "./onboarding.css";
 const topics = [
@@ -239,7 +238,7 @@ export default function Onboarding() {
               <RankingPodium name={name} />
             ) : step === 4 ? (
               <aside className="ob-editorial">
-                <img src={heroEducadora} alt="Educadora em uma biblioteca, pronta para compartilhar conhecimento" />
+                <img src="/onboarding/editorial-man.jpg" alt="Homem em uma biblioteca, diante de estantes de livros" />
                 <div className="ob-editorial-shade" />
                 <span className="ob-editorial-tag"><Check /> SELEÇÃO CLASSFY</span>
                 <div className="ob-editorial-copy">
