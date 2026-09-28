@@ -207,6 +207,7 @@ function WatchContent() {
   const [activeStudyPanel, setActiveStudyPanel] = useState<ToolPanel>(null);
   const [transcription, setTranscription] = useState<string>("");
   const [transcriptionLoading, setTranscriptionLoading] = useState(false);
+  const [transcriptionError, setTranscriptionError] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   // Course-specific state
   const [isCourse, setIsCourse] = useState(false);
@@ -941,17 +942,35 @@ function WatchContent() {
     }
   };
 
+  const openStudyTool = (panel: ToolPanel) => {
+    if (panel !== "recommendations" && !hasAccess) {
+      if (accessBlockedReason === "purchase") openCurrentPurchase();
+      else setShowUpgradeModal(true);
+      return;
+    }
+    if (panel !== "recommendations" && isCourse) {
+      toast.info("Abra esta aula em um estudo para usar as ferramentas da Classy.");
+      return;
+    }
+    setActiveStudyPanel(panel);
+  };
+
   // Load transcription for study tools
   const loadTranscription = async (contentId: string) => {
     setTranscriptionLoading(true);
+    setTranscriptionError("");
     try {
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from("transcriptions")
         .select("text")
         .eq("content_id", contentId)
         .maybeSingle();
+      if (error) throw error;
       setTranscription(data?.text || "");
     } catch (error) {
+      setTranscription("");
+      setTranscriptionError("Não foi possível carregar a transcrição. Feche e tente novamente.");
+      toast.error("Não foi possível carregar a transcrição. Tente novamente.");
       console.error("Error loading transcription:", error);
     } finally {
       setTranscriptionLoading(false);
@@ -960,17 +979,27 @@ function WatchContent() {
 
   // Generate transcription manually
   const generateTranscription = async () => {
-    if (!content) return;
+    if (!content || !hasAccess || transcriptionLoading) return;
+    setTranscriptionError("");
     setTranscriptionLoading(true);
     try {
-      const { error } = await supabase.functions.invoke("transcribe-content", {
+      const { data, error } = await supabase.functions.invoke("transcribe-content", {
         body: { contentId: content.id },
       });
-      if (error) throw error;
-      toast.success("Transcrição sendo gerada. Aguarde alguns minutos.");
+      if (error) {
+        const payload = error.context instanceof Response ? await error.context.json().catch(() => null) : null;
+        throw new Error(payload?.error || "Não foi possível gerar a transcrição. Tente novamente.");
+      }
+      if (data?.error) throw new Error(data.error);
+      if (data?.processing) { setTranscriptionError(data.message); return; }
+      if (!data?.transcription?.text) throw new Error("A transcrição ainda não está disponível.");
+      setTranscription(data.transcription.text);
+      toast.success("Transcrição atualizada.");
     } catch (error) {
       console.error("Error generating transcription:", error);
-      toast.error("Erro ao gerar transcrição");
+      const message = error instanceof Error ? error.message : "Não foi possível gerar a transcrição.";
+      setTranscriptionError(message);
+      toast.error(message);
     } finally {
       setTranscriptionLoading(false);
     }
@@ -978,10 +1007,10 @@ function WatchContent() {
 
   // Load transcription when panel opens
   useEffect(() => {
-    if (activeStudyPanel === "transcription" && content) {
+    if (activeStudyPanel === "transcription" && content && hasAccess) {
       loadTranscription(content.id);
     }
-  }, [activeStudyPanel, content?.id]);
+  }, [activeStudyPanel, content?.id, hasAccess]);
 
   // Debug logs
   console.log(
@@ -1077,7 +1106,7 @@ function WatchContent() {
               }
               artist={content.creator?.display_name}
               onTimeUpdate={handleTimeUpdate}
-              onNoteClick={() => setShowMobileNotes(true)}
+              onNoteClick={() => openStudyTool("notes")}
               seekToTime={seekToTime}
               isPodcast={content.content_type === "podcast"}
               mediaAssetId={
@@ -1168,6 +1197,7 @@ function WatchContent() {
                 </SheetTitle>
               </SheetHeader>
               <div className="flex-1 overflow-auto p-4">
+                {transcriptionError && <p role="alert" className="mb-4 rounded-lg border border-destructive/20 bg-destructive/5 p-3 text-sm text-destructive">{transcriptionError}</p>}
                 {transcriptionLoading ? (
                   <div className="flex items-center justify-center py-12">
                     <Loader2 className="h-6 w-6 animate-spin text-primary" />
@@ -1208,7 +1238,7 @@ function WatchContent() {
               </SheetHeader>
               <div className="flex-1 overflow-auto p-4">
                 <StudyQuiz
-                  studyId={content.id}
+                  studyId={activeStudyId}
                   contentId={content.id}
                   contentTitle={content.title}
                 />
@@ -1233,6 +1263,7 @@ function WatchContent() {
                 <StudyNotes
                   studyId={content.id}
                   activeContentId={content.id}
+                  currentTime={currentPlaybackTime.current}
                   onSeekToTimestamp={(time) => {
                     setSeekToTime(time);
                     setActiveStudyPanel(null);
@@ -1298,7 +1329,7 @@ function WatchContent() {
               onAddToStudy={() => setShowAddToStudyModal(true)}
               onShowComments={() => setShowMobileComments(true)}
               onShowCurriculum={() => setShowMobileCurriculum(true)}
-              onShowStudyTool={(panel) => setActiveStudyPanel(panel)}
+              onShowStudyTool={openStudyTool}
               isCourse={isCourse}
               totalLessons={courseModules.reduce(
                 (acc, mod) => acc + (mod.lessons?.length || 0),
@@ -1414,7 +1445,7 @@ function WatchContent() {
                     toolbarSlot={
                       <StudyToolbar
                         activePanel={activeStudyPanel}
-                        onPanelChange={setActiveStudyPanel}
+                        onPanelChange={openStudyTool}
                         disabled={!hasAccess}
                         surface="dark"
                       />
@@ -1450,7 +1481,7 @@ function WatchContent() {
                       toolbarSlot={
                         <StudyToolbar
                           activePanel={activeStudyPanel}
-                          onPanelChange={setActiveStudyPanel}
+                          onPanelChange={openStudyTool}
                           disabled={!hasAccess}
                           surface="dark"
                         />
@@ -1789,7 +1820,7 @@ function WatchContent() {
             </SheetHeader>
             <div className="mt-6">
               <StudyQuiz
-                studyId={content.id}
+                studyId={activeStudyId}
                 contentId={content.id}
                 contentTitle={content.title}
               />
@@ -1814,6 +1845,7 @@ function WatchContent() {
               <StudyNotes
                 studyId={content.id}
                 activeContentId={content.id}
+                currentTime={currentPlaybackTime.current}
                 onSeekToTimestamp={(time) => setSeekToTime(time)}
                 key={notesRefreshTrigger}
               />

@@ -21,13 +21,33 @@ interface Question {
 }
 
 interface StudyQuizProps {
-  studyId: string;
+  studyId?: string | null;
   contentId: string;
   contentTitle: string;
 }
 
 export function StudyQuiz({ studyId, contentId, contentTitle }: StudyQuizProps) {
   const { user } = useAuth();
+  const viewerId = user?.id;
+  const [selectedStudyId, setSelectedStudyId] = useState(studyId || "");
+  const [studies, setStudies] = useState<Array<{ id: string; title: string }>>([]);
+  const [studiesLoading, setStudiesLoading] = useState(!studyId);
+  const [errorMessage, setErrorMessage] = useState("");
+  useEffect(() => {
+    setSelectedStudyId(studyId || "");
+    setQuiz(null);
+    if (studyId || !viewerId) { setStudiesLoading(false); return; }
+    let cancelled = false;
+    setStudiesLoading(true);
+    supabase.from("studies").select("id, title").eq("user_id", viewerId).eq("status", "active")
+      .order("last_activity_at", { ascending: false }).then(({ data, error }) => {
+        if (cancelled) return;
+        setStudies(data || []);
+        setStudiesLoading(false);
+        if (error) setErrorMessage("Não foi possível carregar seus estudos. Feche e tente novamente.");
+      });
+    return () => { cancelled = true; };
+  }, [studyId, contentId, viewerId]);
   const [quiz, setQuiz] = useState<any>(null);
   const [loading, setLoading] = useState(false);
   const [currentQuestion, setCurrentQuestion] = useState(0);
@@ -39,22 +59,25 @@ export function StudyQuiz({ studyId, contentId, contentTitle }: StudyQuizProps) 
   const [startTime, setStartTime] = useState<Date | null>(null);
 
   const generateQuiz = async () => {
+    if (!selectedStudyId || !user || loading) return;
     setLoading(true);
+    setErrorMessage("");
     try {
       const { data, error } = await supabase.functions.invoke("generate-quiz", {
-        body: { studyId, contentId }
+        body: { studyId: selectedStudyId, contentId }
       });
 
       if (error) {
         console.error("Edge function error:", error);
-        throw new Error(error.message || "Erro ao gerar quiz");
+        const payload = error.context instanceof Response ? await error.context.json().catch(() => null) : null;
+        throw new Error(payload?.error || error.message || "Erro ao gerar quiz");
       }
 
       if (data?.error) {
         throw new Error(data.error);
       }
       
-      if (!data || !data.questions) {
+      if (!data?.id || !Array.isArray(data.questions) || data.questions.length === 0 || data.questions.some((q: Question) => !Array.isArray(q.options) || !Number.isInteger(q.correctAnswer) || q.correctAnswer < 0 || q.correctAnswer >= q.options.length)) {
         throw new Error("Quiz não foi gerado corretamente");
       }
 
@@ -77,6 +100,7 @@ export function StudyQuiz({ studyId, contentId, contentTitle }: StudyQuizProps) 
         errorMessage = error.message;
       }
       
+      setErrorMessage(errorMessage);
       toast.error(errorMessage, { duration: 5000 });
     } finally {
       setLoading(false);
@@ -93,7 +117,7 @@ export function StudyQuiz({ studyId, contentId, contentTitle }: StudyQuizProps) 
   };
 
   const handleSubmitAnswer = () => {
-    if (selectedAnswer === null) return;
+    if (selectedAnswer === null || showResult) return;
 
     const newAnswers = [...answers, selectedAnswer];
     setAnswers(newAnswers);
@@ -118,7 +142,7 @@ export function StudyQuiz({ studyId, contentId, contentTitle }: StudyQuizProps) 
     setQuizCompleted(true);
     
     const timeSpent = startTime ? Math.floor((Date.now() - startTime.getTime()) / 1000) : 0;
-    const finalScore = selectedAnswer === currentQ.correctAnswer ? score + 1 : score;
+    const finalScore = score;
     
     try {
       const { error } = await supabase
@@ -126,7 +150,7 @@ export function StudyQuiz({ studyId, contentId, contentTitle }: StudyQuizProps) 
         .insert({
           quiz_id: quiz.id,
           user_id: user?.id,
-          answers: [...answers, selectedAnswer],
+          answers,
           score: finalScore,
           max_score: questions.length,
           time_spent_seconds: timeSpent
@@ -137,7 +161,7 @@ export function StudyQuiz({ studyId, contentId, contentTitle }: StudyQuizProps) 
       const percentage = questions.length > 0 ? (finalScore / questions.length) * 100 : 0;
       if (percentage < 60) {
         const missedTopics = questions
-          .filter((question, index) => [...answers, selectedAnswer][index] !== question.correctAnswer)
+          .filter((question, index) => answers[index] !== question.correctAnswer)
           .map((question) => question.question)
           .slice(0, 3)
           .join(" | ");
@@ -189,8 +213,18 @@ export function StudyQuiz({ studyId, contentId, contentTitle }: StudyQuizProps) 
             Teste seus conhecimentos com um quiz gerado automaticamente pela Classy
           </CardDescription>
         </CardHeader>
-        <CardContent className="flex flex-col items-center gap-4 py-8">
-          <Trophy className="w-16 h-16 text-primary" />
+        <CardContent className="flex flex-col items-center gap-4 py-5">
+          {!studyId && <div className="w-full space-y-2">
+            <Label htmlFor="quiz-study">Salvar quiz no estudo</Label>
+            <select id="quiz-study" value={selectedStudyId} onChange={(event) => setSelectedStudyId(event.target.value)} disabled={studiesLoading}
+              className="w-full rounded-lg border bg-background p-3 text-sm">
+              <option value="">{studiesLoading ? "Carregando estudos..." : "Selecione um estudo"}</option>
+              {studies.map((study) => <option key={study.id} value={study.id}>{study.title}</option>)}
+            </select>
+            {!studiesLoading && studies.length === 0 && <p className="text-xs text-muted-foreground">Use o botão Estudo da aula para criar seu primeiro estudo.</p>}
+          </div>}
+          {errorMessage && <p role="alert" className="text-sm text-destructive">{errorMessage}</p>}
+          <Trophy className="w-10 h-10 text-red-500" />
           <p className="text-center text-muted-foreground">
             Pronto para testar seu aprendizado? Classy vai gerar questões inteligentes baseadas no conteúdo!
           </p>
@@ -201,7 +235,7 @@ export function StudyQuiz({ studyId, contentId, contentTitle }: StudyQuizProps) 
         <CardFooter>
           <Button 
             onClick={generateQuiz} 
-            disabled={loading}
+            disabled={loading || !selectedStudyId || !user || studiesLoading}
             className="w-full"
           >
             {loading ? (
@@ -219,7 +253,7 @@ export function StudyQuiz({ studyId, contentId, contentTitle }: StudyQuizProps) 
   }
 
   if (quizCompleted) {
-    const finalScore = selectedAnswer === currentQ.correctAnswer ? score + 1 : score;
+    const finalScore = score;
     const percentage = (finalScore / questions.length) * 100;
 
     return (
@@ -271,7 +305,7 @@ export function StudyQuiz({ studyId, contentId, contentTitle }: StudyQuizProps) 
                 Gerando...
               </>
             ) : (
-              "Novo Quiz"
+              "Abrir Quiz"
             )}
           </Button>
         </CardFooter>
@@ -298,7 +332,7 @@ export function StudyQuiz({ studyId, contentId, contentTitle }: StudyQuizProps) 
         <div className="space-y-4">
           <h3 className="text-lg font-semibold leading-relaxed">{currentQ.question}</h3>
           
-          <RadioGroup value={selectedAnswer?.toString()} onValueChange={(v) => handleAnswerSelect(parseInt(v))}>
+          <RadioGroup value={selectedAnswer?.toString() ?? ""} onValueChange={(v) => handleAnswerSelect(parseInt(v))}>
             {currentQ.options.map((option, idx) => {
               const isSelected = selectedAnswer === idx;
               const isCorrect = idx === currentQ.correctAnswer;

@@ -72,6 +72,25 @@ export class MuxVideoProvider implements VideoProvider {
     };
   }
 
+  async getTranscriptionSource(binding: Record<string, any>, asset: Record<string, any>) {
+    if (!binding.provider_asset_id || !binding.provider_playback_id) throw new Error("Mídia ainda não está pronta para transcrição.");
+    const path = `/assets/${encodeURIComponent(binding.provider_asset_id)}`;
+    let details = await muxRequest(path);
+    let rendition = details.static_renditions?.files?.find((file: any) => file.name === 'audio.m4a' || file.resolution === 'audio-only');
+    if (!rendition) {
+      await muxRequest(`${path}/static-renditions`, { method: 'POST', body: JSON.stringify({ resolution: 'audio-only' }) });
+    }
+    for (let attempt = 0; attempt < 10 && rendition?.status !== 'ready'; attempt++) {
+      if (rendition?.status === 'errored' || rendition?.status === 'skipped') throw new Error("Não foi possível preparar o áudio desta aula.");
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      details = await muxRequest(path);
+      rendition = details.static_renditions?.files?.find((file: any) => file.name === 'audio.m4a' || file.resolution === 'audio-only');
+    }
+    if (rendition?.status !== 'ready') throw new Error("O áudio está sendo preparado. Tente gerar a transcrição novamente em instantes.");
+    const token = await createMuxPlaybackToken(binding.provider_playback_id, asset.duration_seconds);
+    return { url: `https://stream.mux.com/${binding.provider_playback_id}/audio.m4a?token=${token}`, mimeType: 'audio/mp4' };
+  }
+
   async deleteAsset(providerAssetId: string) {
     await muxRequest(`/assets/${providerAssetId}`, { method: 'DELETE' });
   }

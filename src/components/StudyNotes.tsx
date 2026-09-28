@@ -12,6 +12,7 @@ import { format } from "date-fns";
 interface StudyNotesProps {
   studyId: string;
   activeContentId: string | null;
+  currentTime?: number;
   onSeekToTimestamp?: (seconds: number) => void;
 }
 
@@ -24,12 +25,14 @@ interface Note {
   content_id: string | null;
 }
 
-export function StudyNotes({ studyId, activeContentId, onSeekToTimestamp }: StudyNotesProps) {
+export function StudyNotes({ studyId, activeContentId, currentTime = 0, onSeekToTimestamp }: StudyNotesProps) {
   const { user } = useAuth();
   const [notes, setNotes] = useState<Note[]>([]);
   const [loading, setLoading] = useState(true);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editText, setEditText] = useState("");
+  const [newText, setNewText] = useState("");
+  const [saving, setSaving] = useState(false);
   const { toast } = useToast();
 
   useEffect(() => {
@@ -74,6 +77,23 @@ export function StudyNotes({ studyId, activeContentId, onSeekToTimestamp }: Stud
     }
   };
 
+  const handleCreate = async () => {
+    if (!user || !activeContentId || !newText.trim() || saving) return;
+    setSaving(true);
+    try {
+      const { data, error } = await supabase.from("study_notes").insert({
+        user_id: user.id, content_id: activeContentId, study_id: null,
+        note_text: newText.trim(), timestamp_seconds: Math.max(0, Math.floor(currentTime)),
+      }).select("*").single();
+      if (error) throw error;
+      setNotes((previous) => [data, ...previous]);
+      setNewText("");
+      toast({ title: "Anotação salva" });
+    } catch {
+      toast({ title: "Não foi possível salvar a anotação", description: "Seu texto foi mantido. Tente novamente.", variant: "destructive" });
+    } finally { setSaving(false); }
+  };
+
   const handleDelete = async (noteId: string) => {
     try {
       const { error } = await supabase
@@ -104,6 +124,8 @@ export function StudyNotes({ studyId, activeContentId, onSeekToTimestamp }: Stud
   };
 
   const handleSaveEdit = async (noteId: string) => {
+    if (!editText.trim() || saving) return;
+    setSaving(true);
     try {
       const { error } = await supabase
         .from("study_notes")
@@ -129,7 +151,7 @@ export function StudyNotes({ studyId, activeContentId, onSeekToTimestamp }: Stud
         description: "Não foi possível atualizar a anotação.",
         variant: "destructive",
       });
-    }
+    } finally { setSaving(false); }
   };
 
   const handleCancelEdit = () => {
@@ -152,27 +174,32 @@ export function StudyNotes({ studyId, activeContentId, onSeekToTimestamp }: Stud
 
   if (loading) {
     return (
-      <Card className="p-6">
+      <Card className="p-4 sm:p-6">
         <p className="text-sm text-muted-foreground">Carregando anotações...</p>
       </Card>
     );
   }
 
   return (
-    <Card className="p-6">
+    <Card className="p-4 sm:p-6">
       <div className="flex items-center gap-2 mb-4">
         <StickyNote className="w-5 h-5 text-primary" />
         <h3 className="text-lg font-semibold">Minhas Anotações</h3>
         <span className="text-sm text-muted-foreground">({notes.length})</span>
       </div>
 
+      {user && activeContentId && <div className="mb-5 space-y-2">
+        <label htmlFor="watch-note-text" className="text-xs text-muted-foreground">Anotar em {formatTime(Math.floor(currentTime))}</label>
+        <Textarea id="watch-note-text" placeholder="O que você quer guardar desta aula?" value={newText} onChange={(event) => setNewText(event.target.value)} className="min-h-[96px]" />
+        <Button onClick={handleCreate} disabled={saving || !newText.trim()} className="w-full">{saving ? "Salvando..." : "Salvar anotação"}</Button>
+      </div>}
       {notes.length === 0 ? (
         <div className="text-center py-8 text-muted-foreground">
           <StickyNote className="w-12 h-12 mx-auto mb-3 opacity-50" />
           <p className="text-sm">Nenhuma anotação ainda.</p>
           <p className="text-xs mt-1">
             {activeContentId
-              ? "Clique no botão de nota no player para adicionar."
+              ? "Escreva sua primeira anotação acima."
               : "Selecione um conteúdo para fazer anotações."}
           </p>
         </div>
@@ -199,6 +226,8 @@ export function StudyNotes({ studyId, activeContentId, onSeekToTimestamp }: Stud
                         <Button
                           size="sm"
                           variant="ghost"
+                          aria-label="Salvar edição"
+                          disabled={saving || !editText.trim()}
                           onClick={() => handleSaveEdit(note.id)}
                         >
                           <Check className="w-4 h-4" />
@@ -206,6 +235,7 @@ export function StudyNotes({ studyId, activeContentId, onSeekToTimestamp }: Stud
                         <Button
                           size="sm"
                           variant="ghost"
+                          aria-label="Cancelar edição"
                           onClick={handleCancelEdit}
                         >
                           <X className="w-4 h-4" />
@@ -216,6 +246,7 @@ export function StudyNotes({ studyId, activeContentId, onSeekToTimestamp }: Stud
                         <Button
                           size="sm"
                           variant="ghost"
+                          aria-label="Editar anotação"
                           onClick={() => handleStartEdit(note)}
                         >
                           <Edit2 className="w-4 h-4" />
@@ -223,6 +254,7 @@ export function StudyNotes({ studyId, activeContentId, onSeekToTimestamp }: Stud
                         <Button
                           size="sm"
                           variant="ghost"
+                          aria-label="Excluir anotação"
                           onClick={() => handleDelete(note.id)}
                         >
                           <Trash2 className="w-4 h-4" />

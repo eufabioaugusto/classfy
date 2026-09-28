@@ -123,7 +123,18 @@ export const WatchRelated = ({ contentId, categoryId, tags, contentType, current
 
       if (error) throw error;
 
-      setRelatedContents(data || []);
+      // Relax the filters when the catalog has no exact category/tag match.
+      if (!data?.length && (categoryId || tags?.length)) {
+        const { data: fallback, error: fallbackError } = await supabase
+          .from('contents')
+          .select('id, title, thumbnail_url, duration_seconds, views_count, content_type, visibility, price, is_free, discount, creator_id, creator:profiles!creator_id(display_name)')
+          .eq('status', 'approved').eq('content_type', contentType).neq('id', contentId)
+          .order('views_count', { ascending: false }).limit(6);
+        if (fallbackError) throw fallbackError;
+        setRelatedContents(fallback || []);
+      } else {
+        setRelatedContents(data || []);
+      }
     } catch (error) {
       console.error('Error fetching related contents:', error);
     } finally {

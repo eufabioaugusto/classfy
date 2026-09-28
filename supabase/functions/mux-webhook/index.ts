@@ -1,3 +1,4 @@
+declare const EdgeRuntime: { waitUntil(promise: Promise<unknown>): void };
 import { corsHeaders, json, serviceClient } from '../_shared/video/http.ts';
 import { normalizeMuxEvent, verifyMuxWebhook } from '../_shared/video/webhooks.ts';
 import { getMuxLiveAsset } from '../_shared/video/live-mux.ts';
@@ -39,6 +40,22 @@ Deno.serve(async (req) => {
       }
       return json({ received: true, liveId: live.id });
     }
+    // Finish the automatic transcription if the audio rendition needed more time.
+    if (payload.type === 'video.asset.static_rendition.ready' && payload.data?.asset_id && payload.data?.name === 'audio.m4a') {
+      const client = serviceClient();
+      EdgeRuntime.waitUntil((async () => {
+        const { data: binding } = await client.from('media_provider_assets')
+          .select('media_assets!media_provider_assets_media_asset_id_fkey(content_id)').eq('provider', 'mux').eq('provider_asset_id', payload.data.asset_id).maybeSingle();
+        const asset = Array.isArray(binding?.media_assets) ? binding.media_assets[0] : binding?.media_assets;
+        if (!asset?.content_id) return;
+        const { data: content } = await client.from('contents').select('id, status, content_type').eq('id', asset.content_id).single();
+        if (content?.status === 'approved' && ['aula', 'podcast'].includes(content.content_type)) {
+          const { error } = await client.functions.invoke('transcribe-content', { body: { contentId: content.id } });
+          if (error) console.error('Auto-transcription after audio ready failed', error);
+        }
+      })());
+      return json({ received: true });
+    }
     const event = normalizeMuxEvent(payload);
     if (!event) return json({ received: true, ignored: true });
     const client = serviceClient();
@@ -70,6 +87,13 @@ Deno.serve(async (req) => {
     if (assetError) throw assetError;
     if (binding.media_assets.content_id && event.status === 'ready') {
       await client.from('contents').update({ duration_seconds: event.durationSeconds ?? undefined }).eq('id', binding.media_assets.content_id);
+      EdgeRuntime.waitUntil((async () => {
+        const { data: content } = await client.from('contents').select('id, status, content_type').eq('id', binding.media_assets.content_id).single();
+        if (content?.status === 'approved' && ['aula', 'podcast'].includes(content.content_type)) {
+          const { error } = await client.functions.invoke('transcribe-content', { body: { contentId: content.id } });
+          if (error) console.error('Auto-transcription after media ready failed', error);
+        }
+      })());
     }
     return json({ received: true, mediaAssetId: binding.media_asset_id, status: event.status });
   } catch (error) {

@@ -59,5 +59,6 @@ export interface VideoProvider {
   createUpload(input: CreateUploadInput): Promise<UploadTarget>;
   getPlaybackSource(binding: Record<string, any>, asset: Record<string, any>): Promise<PlaybackSource>;
   getPreviewSource?(binding: Record<string, any>, asset: Record<string, any>, options?: PreviewOptions): Promise<PreviewSource>;
+  getTranscriptionSource?(binding: Record<string, any>, asset: Record<string, any>): Promise<{ url: string; mimeType: string }>;
   deleteAsset(providerAssetId: string): Promise<void>;
 }

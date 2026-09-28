@@ -1,3 +1,4 @@
+declare const EdgeRuntime: { waitUntil(promise: Promise<unknown>): void };
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.81.1";
 import {
   APP_URL,
@@ -112,10 +113,10 @@ Deno.serve(async (req) => {
         resolvedItemType === "content" &&
         ["aula", "podcast"].includes(content.content_type)
       ) {
-        service.functions.invoke("transcribe-content", { body: { contentId: resolvedContentId } })
+        EdgeRuntime.waitUntil(service.functions.invoke("transcribe-content", { body: { contentId: resolvedContentId } })
           .then(({ error }) =>
             error && console.error("Auto-transcription failed", error)
-          );
+          ));
       }
     }
 
