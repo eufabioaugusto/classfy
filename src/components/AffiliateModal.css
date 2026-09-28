@@ -4,12 +4,7 @@
 .cf-referral-eyebrow { display:block; color:#e91d48; font-size:10px; letter-spacing:.12em; font-weight:700; margin-bottom:7px; }
 .cf-referral-header h2 { font-size:24px; line-height:1.18; letter-spacing:-.7px; font-weight:650; }
 .cf-referral-header p { font-size:13px; line-height:1.6; margin-top:9px; color:hsl(var(--muted-foreground)); }
-.cf-referral-tabs { margin-top:23px; }
-.cf-referral-tabs [role=tablist] { display:flex; height:44px; width:100%; padding:4px; border-radius:12px; background:hsl(var(--muted)/.65); }
-.cf-referral-tabs [role=tab] { flex:1; border-radius:9px; font-size:12px; gap:7px; height:36px; }
-.cf-referral-tabs [role=tab] span { font-size:10px; background:hsl(var(--muted)); padding:1px 6px; border-radius:5px; }
 .cf-referral-content { margin-top:20px; display:flex; flex-direction:column; gap:20px; }
-.cf-referral-content[data-state=inactive] { display:none; }
 .cf-referral-link-card { background:linear-gradient(120deg,#ef174c06,transparent); border:1px solid #ef174c22; padding:20px; border-radius:17px; }
 .cf-referral-section-label { display:flex; align-items:center; gap:8px; font-size:14px; font-weight:600; }
 .cf-referral-section-label svg { color:#ef174c; }
@@ -70,7 +65,6 @@
 .cf-referral-header h2 { font-size:27px; line-height:1.15; letter-spacing:-.85px; }
 .cf-referral-header p { font-size:12px; }
 .cf-referral-illustration { width:174px; height:145px; flex-shrink:0; object-fit:contain; }
-.cf-referral-tabs { margin-top:14px; }
 .cf-referral-journey { display:flex; align-items:center; gap:9px; justify-content:space-between; }
 .cf-referral-journey > div { display:flex; align-items:center; gap:7px; min-width:0; }
 .cf-referral-journey > div > span { display:grid; place-items:center; width:23px; height:23px; flex-shrink:0; border-radius:50%; background:#ed174c0c; color:#ed174c; font-size:10px; font-weight:650; }
@@ -111,3 +105,63 @@
  .cf-referral-artworks article > a,.cf-referral-artworks article > button { font-size:10px; gap:4px; padding:0 5px; }
 }
 @media(max-width:360px) { .cf-referral-illustration { width:83px; } .cf-referral-header h2 { font-size:20px; } }
+
+/* Full-width bottom sheet, with both referral areas visible together. */
+.cf-referral-overlay { z-index:80; }
+.cf-referral-modal {
+ z-index:81; width:100%; max-width:none; height:90dvh; max-height:calc(100dvh - 24px);
+ top:auto; bottom:0; left:0; transform:none; padding:0;
+ border-radius:28px 28px 0 0; overflow:hidden;
+ box-shadow:0 -20px 90px #0003;
+}
+.cf-referral-modal[data-state=open] { animation:cf-referral-sheet-in 260ms cubic-bezier(.2,.8,.2,1); }
+.cf-referral-modal[data-state=closed] { animation:cf-referral-sheet-out 180ms ease-in; }
+@keyframes cf-referral-sheet-in { from { transform:translateY(100%); } to { transform:translateY(0); } }
+@keyframes cf-referral-sheet-out { from { transform:translateY(0); } to { transform:translateY(100%); } }
+.cf-referral-sheet-scroll { height:100%; overflow-y:auto; overscroll-behavior:contain; }
+.cf-referral-sheet-inner { max-width:1360px; margin:0 auto; padding:32px 40px calc(32px + env(safe-area-inset-bottom)); }
+.cf-referral-header { padding:0 40px 24px 0; gap:32px; border-bottom:1px solid hsl(var(--border)); }
+.cf-referral-header h2 { font-size:34px; letter-spacing:-1.2px; }
+.cf-referral-header p { font-size:14px; max-width:540px; }
+.cf-referral-illustration { width:200px; height:150px; margin-right:24px; }
+.cf-referral-modal > button { top:20px; right:24px; width:36px; height:36px; display:grid; place-items:center; border-radius:50%; background:hsl(var(--muted)); }
+.cf-referral-sheet-body { padding-top:28px; }
+.cf-referral-columns { display:grid; grid-template-columns:minmax(0,.9fr) minmax(0,1.1fr); gap:48px; align-items:start; }
+.cf-referral-content { margin:0; gap:20px; min-width:0; }
+.cf-referral-materials { padding-left:36px; border-left:1px solid hsl(var(--border)); }
+.cf-referral-column-heading > span { display:block; font-size:10px; font-weight:650; letter-spacing:.12em; color:hsl(var(--muted-foreground)); margin-bottom:8px; }
+.cf-referral-column-heading h3 { font-size:20px; font-weight:650; letter-spacing:-.5px; line-height:1.3; }
+.cf-referral-journey { align-items:flex-start; gap:8px; }
+.cf-referral-journey > div { flex:1; flex-direction:column; align-items:flex-start; gap:8px; }
+.cf-referral-journey > svg { margin-top:5px; }
+.cf-referral-art-preview { height:260px; }
+.cf-referral-kit article { padding:14px; }
+.cf-referral-material-icon { padding:7px; margin-bottom:10px; }
+.cf-referral-kit article p { font-size:11px; margin:6px 0 12px; }
+@media(max-width:1000px) {
+ .cf-referral-sheet-inner { padding:28px 28px calc(28px + env(safe-area-inset-bottom)); }
+ .cf-referral-columns { grid-template-columns:1fr 1fr; gap:24px; }
+ .cf-referral-materials { padding-left:24px; }
+ .cf-referral-metrics { grid-template-columns:1fr 1fr; padding:0; }
+ .cf-referral-metrics > div { padding:14px; border:0; }
+ .cf-referral-metrics > div:nth-child(even) { border-left:1px solid hsl(var(--border)); }
+ .cf-referral-metrics > div:nth-child(n+3) { border-top:1px solid hsl(var(--border)); }
+ .cf-referral-link-row { flex-direction:column; }
+ .cf-referral-art-preview { height:220px; }
+ .cf-referral-kit { grid-template-columns:1fr; }
+}
+@media(max-width:760px) {
+ .cf-referral-modal { height:92dvh; max-height:92dvh; border-radius:24px 24px 0 0; }
+ .cf-referral-sheet-inner { padding:28px 20px calc(24px + env(safe-area-inset-bottom)); }
+ .cf-referral-header { padding:16px 0 22px; gap:6px; }
+ .cf-referral-header h2 { font-size:24px; letter-spacing:-.8px; }
+ .cf-referral-header p { font-size:12px; }
+ .cf-referral-illustration { width:95px; height:110px; margin:0; }
+ .cf-referral-modal > button { top:12px; right:16px; width:30px; height:30px; }
+ .cf-referral-columns { grid-template-columns:1fr; gap:32px; }
+ .cf-referral-materials { padding:28px 0 0; border-left:0; border-top:1px solid hsl(var(--border)); }
+ .cf-referral-column-heading h3 { font-size:19px; }
+ .cf-referral-sheet-body { padding-top:24px; }
+ .cf-referral-art-preview { height:210px; }
+}
+@media(prefers-reduced-motion:reduce) { .cf-referral-modal[data-state] { animation:none; } }

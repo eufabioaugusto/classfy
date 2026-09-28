@@ -1,7 +1,6 @@
 import { useState, useEffect } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
@@ -89,7 +88,9 @@ export function AffiliateModal({ open, onOpenChange }: AffiliateModalProps) {
   };
   const CopyIcon = copied === 'link' ? Check : Copy;
   return <Dialog open={open} onOpenChange={onOpenChange}>
-    <DialogContent className="cf-referral-modal">
+    <DialogContent className="cf-referral-modal" overlayClassName="cf-referral-overlay">
+      <div className="cf-referral-sheet-scroll">
+      <div className="cf-referral-sheet-inner">
       <DialogHeader className="cf-referral-header">
         <div><span className="cf-referral-eyebrow">PROGRAMA DE INDICAÇÕES</span>
           <DialogTitle>Indique a Classfy.<br />Ganhe com suas indicações.</DialogTitle>
@@ -97,13 +98,14 @@ export function AffiliateModal({ open, onOpenChange }: AffiliateModalProps) {
         </div>
         <img src="/referrals/sharing-illustration.svg" className="cf-referral-illustration" alt="" />
       </DialogHeader>
-      <Tabs defaultValue="link" className="cf-referral-tabs">
-        <TabsList><TabsTrigger value="link">Meu link</TabsTrigger><TabsTrigger value="materials">Kit de divulgação <span>{materials.length + 2}</span></TabsTrigger></TabsList>
+      <div className="cf-referral-sheet-body">
         {loading ? <div className="cf-referral-status" role="status"><Loader2 className="animate-spin" size={24} /><p>Preparando seu programa de indicações…</p></div>
           : error ? <div className="cf-referral-status" role="alert"><p>Não foi possível carregar suas indicações.</p><Button variant="outline" onClick={() => setRetry(v => v + 1)}><RefreshCw size={15} /> Tentar novamente</Button></div>
           : stats && terms && <>
             {!terms.enabled && <p className="cf-referral-notice">O programa está pausado. Seus registros anteriores continuam disponíveis.</p>}
-            <TabsContent value="link" className="cf-referral-content">
+            <div className="cf-referral-columns">
+            <section className="cf-referral-content cf-referral-overview" aria-labelledby="referral-overview-title">
+              <div className="cf-referral-column-heading"><span>01 / INDIQUE E GANHE</span><h3 id="referral-overview-title">Seu próximo ganho começa aqui.</h3></div>
               <section className="cf-referral-link-card">
                 <div className="cf-referral-section-label"><Share2 size={16} /><label htmlFor="classfy-referral-url">Seu link de convite</label></div>
                 <div className="cf-referral-link-row"><input id="classfy-referral-url" readOnly value={link} onFocus={e => e.target.select()} /><Button disabled={!terms.enabled} onClick={() => void copy(link, 'link')}><CopyIcon size={16} />{copied === 'link' ? 'Copiado' : 'Copiar link'}</Button></div>
@@ -118,9 +120,9 @@ export function AffiliateModal({ open, onOpenChange }: AffiliateModalProps) {
                 <div><span>3</span><strong>Você ganha {terms.commission_percent.toLocaleString('pt-BR')}%</strong></div>
               </section>
               <details className="cf-referral-rules"><summary>Regras do programa<ChevronDown size={14} /></summary><p>Convite válido por 30 dias antes do cadastro. A comissão é calculada sobre a primeira compra paga; reembolsos e contestações podem estorná-la. Indicações contribuem para a qualificação no pool mensal conforme as regras do ciclo.</p></details>
-            </TabsContent>
-            <TabsContent value="materials" className="cf-referral-content">
-              <div className="cf-referral-kit-heading"><h3>Pronto para compartilhar.</h3><p>Artes com seu link e QR code. No story, adicione também o sticker de link.</p></div>
+            </section>
+            <section className="cf-referral-content cf-referral-materials" aria-labelledby="referral-kit-title">
+              <div className="cf-referral-kit-heading cf-referral-column-heading"><span>02 / KIT DE DIVULGAÇÃO</span><h3 id="referral-kit-title">Pronto para compartilhar.</h3><p>Artes com seu link e QR code. No story, adicione também o sticker de link.</p></div>
               <div className="cf-referral-artworks">
                 {REFERRAL_ARTWORKS.map(art => <article key={art.id}>
                   <div className={`cf-referral-art-preview cf-referral-art-preview--${art.id}`}>
@@ -141,9 +143,12 @@ export function AffiliateModal({ open, onOpenChange }: AffiliateModalProps) {
                   </article>;
                 })}
               </div>}
-            </TabsContent>
+            </section>
+            </div>
           </>}
-      </Tabs>
+      </div>
+      </div>
+      </div>
     </DialogContent>
   </Dialog>;
 }
