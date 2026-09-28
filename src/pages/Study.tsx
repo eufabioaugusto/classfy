@@ -419,6 +419,7 @@ function StudyContent() {
             subtitle: content.creator?.display_name,
             thumbnail_url: content.thumbnail_url,
             file_url: content.file_url,
+            media_asset_id: content.media_asset_id,
             duration_seconds: content.duration_seconds,
             creator: content.creator
               ? { display_name: content.creator.display_name }

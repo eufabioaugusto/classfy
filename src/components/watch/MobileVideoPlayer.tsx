@@ -68,6 +68,7 @@ export function MobileVideoPlayer({
     duration,
     enabled: Boolean(contentId) && !courseProgress,
     onMilestone,
+    initialPosition: seekToTime ?? 0,
   });
   const {
     handleTimeUpdate: trackCourseProgress,
@@ -198,8 +199,10 @@ export function MobileVideoPlayer({
 
   useEffect(() => {
     if (seekToTime !== null && seekToTime !== undefined && mediaRef.current) {
-      mediaRef.current.currentTime = seekToTime;
+      if (mediaRef.current.readyState >= 1) mediaRef.current.currentTime = seekToTime;
       setCurrentTime(seekToTime);
+      setPlaybackRequested(true);
+      setIsPlaying(true);
     }
   }, [seekToTime]);
 
@@ -207,7 +210,10 @@ export function MobileVideoPlayer({
     const media = mediaRef.current;
     if (!media) return;
 
-    const handleLoadedMetadata = () => setDuration(media.duration);
+    const handleLoadedMetadata = () => {
+      setDuration(media.duration);
+      if (seekToTime !== null && seekToTime !== undefined) media.currentTime = seekToTime;
+    };
     const handleTimeUpdate = () => {
       setCurrentTime(media.currentTime);
       onTimeUpdate?.(media.currentTime);

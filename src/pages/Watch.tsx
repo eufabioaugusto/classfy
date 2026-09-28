@@ -139,6 +139,7 @@ function WatchContent() {
     state: miniPlayerState,
   } = useMiniPlayer();
   const locationState = (location.state || {}) as {
+    resumeTime?: number;
     studyId?: string;
     studyTitle?: string;
     study?: { id?: string; title?: string };
@@ -175,7 +176,7 @@ function WatchContent() {
     isSaved: false,
     isFavorited: false,
   });
-  const [seekToTime, setSeekToTime] = useState<number | null>(null);
+  const [seekToTime, setSeekToTime] = useState<number | null>(locationState.resumeTime ?? null);
   const {
     processReward,
     handleLike,
@@ -258,7 +259,7 @@ function WatchContent() {
     if (miniPlayerState.isVisible && miniPlayerState.content?.id === id) {
       closeMiniPlayer();
     }
-  }, [id]);
+  }, [id, miniPlayerState.isVisible, miniPlayerState.content?.id, closeMiniPlayer]);
 
   // Activate mini player when leaving the Watch page
   useEffect(() => {
@@ -277,6 +278,7 @@ function WatchContent() {
             subtitle: currentContent.creator?.display_name,
             thumbnail_url: currentContent.thumbnail_url,
             file_url: currentContent.file_url,
+            media_asset_id: currentContent.media_asset_id,
             duration_seconds: currentContent.duration_seconds,
             creator: currentContent.creator
               ? { display_name: currentContent.creator.display_name }
@@ -1082,6 +1084,9 @@ function WatchContent() {
               ? currentLesson.video_url
               : content.file_url,
           thumbnail_url: content.thumbnail_url,
+          media_asset_id: isCourse && currentLesson
+            ? currentLesson.media_asset_id || currentLesson.content?.media_asset_id
+            : content.media_asset_id,
           duration_seconds: content.duration_seconds,
           creator: content.creator,
         }}

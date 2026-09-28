@@ -158,6 +158,7 @@ export function UnifiedVideoPlayer({
     duration: content.duration_seconds || duration,
     enabled: !courseProgress,
     onMilestone,
+    initialPosition: seekToTime ?? 0,
   });
   const {
     handleTimeUpdate: trackCourseProgress,
@@ -454,17 +455,18 @@ export function UnifiedVideoPlayer({
     load();
   }, [content.id, user]);
 
-  // ── External seek ─────────────────────────────────────────────────────────
+  // ── External seek / return from mini player ────────────────────────────────
   useEffect(() => {
-    if (seekToTime !== null && seekToTime !== undefined) {
-      const media = mediaRef.current;
-      if (media) {
-        media.currentTime = seekToTime;
-        setCurrentTime(seekToTime);
-        if (!isPlaying) { media.play(); setIsPlaying(true); }
-      }
-    }
-  }, [seekToTime]);
+    if (seekToTime === null || seekToTime === undefined || !isSourceAttached) return;
+    const media = mediaRef.current;
+    if (!media) return;
+    hasUserRequestedPlaybackRef.current = true;
+    pendingResumePositionRef.current = seekToTime;
+    if (media.readyState >= 1) media.currentTime = seekToTime;
+    setCurrentTime(seekToTime);
+    hlsRef.current?.startLoad(-1);
+    void media.play().then(() => setIsPlaying(true)).catch(() => setIsPlaying(false));
+  }, [seekToTime, isSourceAttached]);
 
   // ── Media event listeners ─────────────────────────────────────────────────
   useEffect(() => {

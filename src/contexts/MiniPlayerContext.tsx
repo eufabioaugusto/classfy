@@ -65,7 +65,6 @@ export const MiniPlayerProvider = ({ children }: { children: ReactNode }) => {
 
   // Setup Media Session when mini player content changes
   useEffect(() => {
-    const video = videoRef.current;
     if (!state.content || !state.isVisible) {
       clearSession();
       return;
@@ -76,28 +75,32 @@ export const MiniPlayerProvider = ({ children }: { children: ReactNode }) => {
       artist: state.content.creator?.display_name || 'Classfy',
       artwork: state.content.thumbnail_url,
       onPlay: () => {
+        const video = videoRef.current;
         if (video) {
-          video.play();
-          setState(prev => ({ ...prev, isPlaying: true }));
+          void video.play().catch(() => setState(prev => ({ ...prev, isPlaying: false })));
         }
       },
       onPause: () => {
+        const video = videoRef.current;
         if (video) {
           video.pause();
           setState(prev => ({ ...prev, isPlaying: false }));
         }
       },
       onSeekBackward: () => {
+        const video = videoRef.current;
         if (video) {
           video.currentTime = Math.max(0, video.currentTime - 10);
         }
       },
       onSeekForward: () => {
+        const video = videoRef.current;
         if (video) {
           video.currentTime = Math.min(video.duration || 0, video.currentTime + 10);
         }
       },
       onSeekTo: (time) => {
+        const video = videoRef.current;
         if (video) {
           video.currentTime = time;
           setState(prev => ({ ...prev, currentTime: time }));
@@ -132,6 +135,7 @@ export const MiniPlayerProvider = ({ children }: { children: ReactNode }) => {
       ...prev,
       content,
       currentTime,
+      duration: content.duration_seconds || 0,
       isVisible: true,
       isPlaying: true,
       isExpanded: false,
@@ -167,9 +171,8 @@ export const MiniPlayerProvider = ({ children }: { children: ReactNode }) => {
     if (state.isPlaying) {
       video.pause();
     } else {
-      video.play();
+      void video.play().catch(() => setState(prev => ({ ...prev, isPlaying: false })));
     }
-    setState(prev => ({ ...prev, isPlaying: !prev.isPlaying }));
   }, [state.isPlaying]);
 
   const setCurrentTime = useCallback((time: number) => {

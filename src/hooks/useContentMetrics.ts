@@ -16,9 +16,10 @@ interface UseContentMetricsProps {
   duration: number;
   enabled?: boolean;
   onMilestone?: () => void;
+  initialPosition?: number;
 }
 
-export function useContentMetrics({ contentId, duration, enabled = true, onMilestone }: UseContentMetricsProps) {
+export function useContentMetrics({ contentId, duration, enabled = true, onMilestone, initialPosition = 0 }: UseContentMetricsProps) {
   const { user } = useAuth();
   const { processReward, trackProgressSession } = useRewardSystem();
   const [metricsRecorded, setMetricsRecorded] = useState<MetricsState>({
@@ -41,7 +42,9 @@ export function useContentMetrics({ contentId, duration, enabled = true, onMiles
   // Tracks the REAL accumulated seconds the user has watched (not seeked position)
   const accumulatedWatchTimeRef = useRef(0);
   // The previous timeupdate value, used to detect seeks
-  const previousTimeRef = useRef(0);
+  const previousTimeRef = useRef(initialPosition);
+  const initialPositionRef = useRef(initialPosition);
+  initialPositionRef.current = initialPosition;
   const watchSessionIdRef = useRef<string>(globalThis.crypto.randomUUID());
   // Max allowed jump between two timeupdate events before it's considered a seek (seconds)
   const MAX_NATURAL_JUMP = 3;
@@ -50,7 +53,10 @@ export function useContentMetrics({ contentId, duration, enabled = true, onMiles
     watchSessionIdRef.current = globalThis.crypto.randomUUID();
     lastProgressUpdateRef.current = 0;
     accumulatedWatchTimeRef.current = 0;
-    previousTimeRef.current = 0;
+    previousTimeRef.current = initialPositionRef.current;
+    metricsRecordedRef.current = { start: false, half: false, complete: false, view15s: false };
+    setMetricsRecorded(metricsRecordedRef.current);
+    interestMilestonesRef.current = { half: false, complete: false };
   }, [contentId, user?.id]);
 
   const recordMetric = useCallback(async (event: "start" | "half" | "complete") => {

@@ -6,6 +6,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
 import { cn } from "@/lib/utils";
 import { useIsMobile } from "@/hooks/use-mobile";
+import { useMiniPlayerPlayback } from "@/hooks/useMiniPlayerPlayback";
 import { MobileMiniPlayer } from "@/components/watch/MobileMiniPlayer";
 
 interface RelatedContent {
@@ -25,9 +26,6 @@ function DesktopMiniPlayer() {
     videoRef,
     closeMiniPlayer,
     togglePlay,
-    setCurrentTime,
-    setDuration,
-    setIsPlaying,
     expandPlayer,
     collapsePlayer,
   } = useMiniPlayer();
@@ -56,40 +54,7 @@ function DesktopMiniPlayer() {
     setRelatedContents(data || []);
   };
 
-  // Video event handlers
-  useEffect(() => {
-    const video = videoRef.current;
-    if (!video || !state.content) return;
-
-    const handleTimeUpdate = () => setCurrentTime(video.currentTime);
-    const handleLoadedMetadata = () => setDuration(video.duration);
-    const handlePlay = () => setIsPlaying(true);
-    const handlePause = () => setIsPlaying(false);
-    const handleEnded = () => setIsPlaying(false);
-
-    video.addEventListener("timeupdate", handleTimeUpdate);
-    video.addEventListener("loadedmetadata", handleLoadedMetadata);
-    video.addEventListener("play", handlePlay);
-    video.addEventListener("pause", handlePause);
-    video.addEventListener("ended", handleEnded);
-
-    // Auto-play when content loads
-    if (state.content.file_url && video.src !== state.content.file_url) {
-      video.src = state.content.file_url;
-      video.currentTime = state.currentTime;
-      if (state.isPlaying) {
-        video.play().catch(console.error);
-      }
-    }
-
-    return () => {
-      video.removeEventListener("timeupdate", handleTimeUpdate);
-      video.removeEventListener("loadedmetadata", handleLoadedMetadata);
-      video.removeEventListener("play", handlePlay);
-      video.removeEventListener("pause", handlePause);
-      video.removeEventListener("ended", handleEnded);
-    };
-  }, [state.content, videoRef]);
+  const playback = useMiniPlayerPlayback();
 
   const formatTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
@@ -101,7 +66,7 @@ function DesktopMiniPlayer() {
 
   const handleGoToWatch = () => {
     if (state.content?.id) {
-      navigate(`/watch/${state.content.id}`, { state: { backgroundLocation: location } });
+      navigate(`/watch/${state.content.id}`, { state: { backgroundLocation: location, resumeTime: state.currentTime } });
       closeMiniPlayer();
     }
   };
@@ -126,24 +91,12 @@ function DesktopMiniPlayer() {
     >
       {/* Video Container */}
       <div className="relative aspect-video bg-black cursor-pointer" onClick={handleGoToWatch}>
-        {state.content.video_provider === "bunny" ? (
-          <div className="w-full h-full relative pointer-events-none">
-            <img 
-              src={state.content.thumbnail_url || ""}
-              className="w-full h-full object-cover"
-              alt={state.content.title}
-            />
-            <div className="absolute inset-0 bg-black/30 flex items-center justify-center">
-              <Play className="w-12 h-12 text-white opacity-80" />
-            </div>
+        <video ref={videoRef} className="w-full h-full object-cover" poster={playback.poster} playsInline />
+        {playback.error && (
+          <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 bg-black/80 px-4 text-center text-xs text-white">
+            <p>{playback.error}</p>
+            <button onClick={(event) => { event.stopPropagation(); playback.retry(); }} className="rounded-lg bg-primary px-3 py-2">Tentar novamente</button>
           </div>
-        ) : (
-          <video
-            ref={videoRef}
-            className="w-full h-full object-cover"
-            poster={state.content.thumbnail_url}
-            playsInline
-          />
         )}
 
         {/* Hover Controls Overlay */}
@@ -158,7 +111,7 @@ function DesktopMiniPlayer() {
           <button
             onClick={handleGoToWatch}
             className="absolute top-3 left-3 p-1.5 rounded-md bg-black/60 hover:bg-black/80 transition-colors"
-            title="Voltar ao player"
+            title="Voltar ao player" aria-label="Voltar ao player"
           >
             <PictureInPicture2 className="h-4 w-4 text-white" />
           </button>
@@ -169,18 +122,19 @@ function DesktopMiniPlayer() {
               e.stopPropagation();
               closeMiniPlayer();
             }}
+            aria-label="Fechar mini player"
             className="absolute top-3 right-3 p-1.5 rounded-md bg-black/60 hover:bg-black/80 transition-colors"
           >
             <X className="h-4 w-4 text-white" />
           </button>
 
           {/* Center - Play/Pause */}
-          {state.content.video_provider !== "bunny" && (
-            <button
+          <button
               onClick={(e) => {
                 e.stopPropagation();
                 togglePlay();
               }}
+              aria-label={state.isPlaying ? "Pausar vídeo" : "Reproduzir vídeo"}
               className="p-3 rounded-full bg-black/60 hover:bg-black/80 transition-colors"
             >
               {state.isPlaying ? (
@@ -188,20 +142,16 @@ function DesktopMiniPlayer() {
               ) : (
                 <Play className="h-6 w-6 text-white" />
               )}
-            </button>
-          )}
+          </button>
 
           {/* Bottom Left - Time */}
-          {state.content.video_provider !== "bunny" && (
-            <div className="absolute bottom-3 left-3 text-xs text-white font-medium">
+          <div className="absolute bottom-3 left-3 text-xs text-white font-medium">
               {formatTime(state.currentTime)} / {formatTime(state.duration)}
-            </div>
-          )}
+          </div>
         </div>
 
         {/* Progress Bar */}
-        {state.content.video_provider !== "bunny" && (
-          <div className="absolute bottom-0 left-0 right-0 h-1 bg-white/30">
+        <div className="absolute bottom-0 left-0 right-0 h-1 bg-white/30">
             <div
               className="h-full bg-red-500 transition-all"
               style={{ width: `${progressPercent}%` }}
@@ -210,8 +160,7 @@ function DesktopMiniPlayer() {
               className="absolute top-1/2 -translate-y-1/2 w-3 h-3 bg-red-500 rounded-full"
               style={{ left: `${progressPercent}%`, transform: `translateX(-50%) translateY(-50%)` }}
             />
-          </div>
-        )}
+        </div>
       </div>
 
       {/* Info Bar */}

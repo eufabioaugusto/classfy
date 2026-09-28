@@ -25,6 +25,7 @@ interface WatchRelatedProps {
     title: string;
     thumbnail_url?: string;
     file_url: string;
+    media_asset_id?: string | null;
     duration_seconds?: number;
     creator?: { display_name: string } | null;
   };
@@ -198,6 +199,7 @@ export const WatchRelated = ({ embedded = false, contentId, categoryId, tags, co
         subtitle: currentContent.creator?.display_name,
         thumbnail_url: currentContent.thumbnail_url,
         file_url: currentContent.file_url,
+        media_asset_id: currentContent.media_asset_id,
         duration_seconds: currentContent.duration_seconds,
         creator: currentContent.creator ? { display_name: currentContent.creator.display_name } : undefined,
       }, currentTime);

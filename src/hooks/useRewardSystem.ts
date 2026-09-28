@@ -466,8 +466,20 @@ export function useRewardSystem() {
 
             const result = data as {
               progress_percent?: number;
+              total_watched_seconds?: number;
             } | null;
             const serverProgress = Number(result?.progress_percent || 0);
+
+            // O marco de 15s também considera o tempo aceito antes da troca
+            // entre player principal e mini player. O servidor valida a evidência.
+            if (Number(result?.total_watched_seconds || 0) >= 15) {
+              await processReward({
+                actionKey: "VIEW_15S",
+                userId: request.userId,
+                contentId: request.contentId,
+                metadata: { sessionId: request.sessionId },
+              });
+            }
 
             if (serverProgress >= 50) {
               await processReward({

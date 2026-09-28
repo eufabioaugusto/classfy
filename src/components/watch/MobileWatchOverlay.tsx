@@ -19,6 +19,7 @@ interface MobileWatchOverlayProps {
     id: string;
     title: string;
     file_url: string;
+    media_asset_id?: string | null;
     thumbnail_url?: string;
     duration_seconds: number;
     creator?: { display_name: string } | null;
@@ -59,6 +60,7 @@ export function MobileWatchOverlay({
       id: content.id,
       title: content.title,
       file_url: content.file_url,
+      media_asset_id: content.media_asset_id,
       thumbnail_url: content.thumbnail_url,
       duration_seconds: content.duration_seconds,
       creator: content.creator ? { display_name: content.creator.display_name } : undefined,

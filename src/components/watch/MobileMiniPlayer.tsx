@@ -1,8 +1,9 @@
+import { useMiniPlayerPlayback } from "@/hooks/useMiniPlayerPlayback";
 import { useMiniPlayer } from "@/contexts/MiniPlayerContext";
 import { useNavigate, useLocation } from "react-router-dom";
 import { X, Play, Pause } from "lucide-react";
 import { motion, useMotionValue, PanInfo, AnimatePresence, animate } from "framer-motion";
-import { useRef, useEffect, useCallback, useState } from "react";
+import { useCallback, useState } from "react";
 import { cn } from "@/lib/utils";
 import { shouldDismissMiniPlayer, shouldExpandMiniPlayer } from "@/lib/mobilePlayerGesture";
 
@@ -14,48 +15,12 @@ export function MobileMiniPlayer() {
     videoRef,
     closeMiniPlayer,
     togglePlay,
-    setCurrentTime,
-    setDuration,
-    setIsPlaying,
   } = useMiniPlayer();
 
   const [isDragging, setIsDragging] = useState(false);
   const y = useMotionValue(0);
 
-  // Video event handlers
-  useEffect(() => {
-    const video = videoRef.current;
-    if (!video || !state.content) return;
-
-    const handleTimeUpdate = () => setCurrentTime(video.currentTime);
-    const handleLoadedMetadata = () => setDuration(video.duration);
-    const handlePlay = () => setIsPlaying(true);
-    const handlePause = () => setIsPlaying(false);
-    const handleEnded = () => setIsPlaying(false);
-
-    video.addEventListener("timeupdate", handleTimeUpdate);
-    video.addEventListener("loadedmetadata", handleLoadedMetadata);
-    video.addEventListener("play", handlePlay);
-    video.addEventListener("pause", handlePause);
-    video.addEventListener("ended", handleEnded);
-
-    // Set video src if needed
-    if (state.content.file_url && video.src !== state.content.file_url) {
-      video.src = state.content.file_url;
-      video.currentTime = state.currentTime;
-      if (state.isPlaying) {
-        video.play().catch(console.error);
-      }
-    }
-
-    return () => {
-      video.removeEventListener("timeupdate", handleTimeUpdate);
-      video.removeEventListener("loadedmetadata", handleLoadedMetadata);
-      video.removeEventListener("play", handlePlay);
-      video.removeEventListener("pause", handlePause);
-      video.removeEventListener("ended", handleEnded);
-    };
-  }, [state.content, videoRef]);
+  const playback = useMiniPlayerPlayback();
 
   const handleDragStart = useCallback(() => {
     setIsDragging(true);
@@ -70,7 +35,7 @@ export function MobileMiniPlayer() {
       if (shouldExpandMiniPlayer(offset.y, velocity.y)) {
         if (state.content?.id) {
           y.set(0);
-          navigate(`/watch/${state.content.id}`, { state: { backgroundLocation: location } });
+          navigate(`/watch/${state.content.id}`, { state: { backgroundLocation: location, resumeTime: state.currentTime } });
         }
       }
       // Drag down to dismiss
@@ -81,12 +46,12 @@ export function MobileMiniPlayer() {
         void animate(y, 0, { type: "spring", stiffness: 420, damping: 36 });
       }
     },
-    [state.content, navigate, closeMiniPlayer, y]
+    [state.content, state.currentTime, location, navigate, closeMiniPlayer, y]
   );
 
   const handleGoToWatch = () => {
     if (state.content?.id) {
-      navigate(`/watch/${state.content.id}`, { state: { backgroundLocation: location } });
+      navigate(`/watch/${state.content.id}`, { state: { backgroundLocation: location, resumeTime: state.currentTime } });
     }
   };
 
@@ -130,7 +95,7 @@ export function MobileMiniPlayer() {
             <video
               ref={videoRef}
               className="w-full h-full object-cover"
-              poster={state.content.thumbnail_url}
+              poster={playback.poster}
               playsInline
               muted={false}
             />
@@ -149,7 +114,7 @@ export function MobileMiniPlayer() {
               {state.content.title}
             </h4>
             <p className="text-xs text-muted-foreground line-clamp-1">
-              {state.content.subtitle || state.content.creator?.display_name}
+              {playback.error || state.content.subtitle || state.content.creator?.display_name}
             </p>
           </div>
 
@@ -157,11 +122,11 @@ export function MobileMiniPlayer() {
           <div className="flex items-center gap-1 flex-shrink-0">
             <button
               type="button"
-              aria-label={state.isPlaying ? "Pausar vídeo" : "Reproduzir vídeo"}
+              aria-label={playback.error ? "Tentar reproduzir novamente" : state.isPlaying ? "Pausar vídeo" : "Reproduzir vídeo"}
               onPointerDown={(event) => event.stopPropagation()}
               onClick={(e) => {
                 e.stopPropagation();
-                togglePlay();
+                if (playback.error) playback.retry(); else togglePlay();
               }}
               className="p-2 rounded-full hover:bg-muted transition-colors"
             >
