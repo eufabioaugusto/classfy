@@ -233,7 +233,7 @@ export default function Onboarding() {
           <section className="ob-stage" key={step}>
             <aside className="ob-art" aria-hidden="true">
               <div className="ob-art-orbit" />
-              <img src="/referrals/sharing-illustration.svg" alt="" />
+              <img src="/onboarding/journey-illustration.svg" alt="" />
               <span className="ob-float ob-float--top">
                 <Zap /> Uma ação. Uma conquista.
               </span>
