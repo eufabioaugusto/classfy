@@ -1,5 +1,9 @@
 {
   "rewrites": [
+    { "source": "/privacidade", "destination": "/legal/privacidade.html" },
+    { "source": "/privacidade/", "destination": "/legal/privacidade.html" },
+    { "source": "/termos", "destination": "/legal/termos.html" },
+    { "source": "/termos/", "destination": "/legal/termos.html" },
     { "source": "/(.*)", "destination": "/index.html" }
   ]
 }
