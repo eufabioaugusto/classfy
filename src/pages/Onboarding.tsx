@@ -25,6 +25,7 @@ import { dispatchRewardEarned } from "@/lib/rewards/events";
 import { ClassyChatDemo } from "@/components/onboarding/ClassyChatDemo";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { OnboardingDemo } from "@/components/onboarding/OnboardingDemo";
+import { RankingPodium } from "@/components/onboarding/RankingPodium";
 import "./onboarding.css";
 const topics = [
   "Desenvolvimento pessoal",
@@ -232,6 +233,8 @@ export default function Onboarding() {
                   />
                 </aside>
               )
+            ) : step === 3 ? (
+              <RankingPodium name={name} />
             ) : (
               <aside className="ob-art" aria-hidden="true">
                 <div className="ob-art-orbit" />
