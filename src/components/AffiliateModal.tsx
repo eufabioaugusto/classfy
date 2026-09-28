@@ -5,8 +5,9 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
-import { Copy, Check, Gift, Users, MousePointer2, Wallet, Share2, Download, ExternalLink, ArrowUpRight, FileText, Loader2, RefreshCw } from "lucide-react";
+import { Copy, Check, Users, MousePointer2, Wallet, Share2, ChevronDown, Download, ExternalLink, ArrowUpRight, FileText, Loader2, RefreshCw } from "lucide-react";
 import { referralShareUrl } from "@/lib/referrals/attribution";
+import { REFERRAL_ARTWORKS, createReferralArtwork } from "@/lib/referrals/artwork";
 import "./AffiliateModal.css";
 
 interface AffiliateModalProps { open: boolean; onOpenChange: (open: boolean) => void }
@@ -26,6 +27,9 @@ export function AffiliateModal({ open, onOpenChange }: AffiliateModalProps) {
   const [materials, setMaterials] = useState<Material[]>([]);
   const [materialsError, setMaterialsError] = useState(false);
   const [terms, setTerms] = useState<{ commission_percent: number; enabled: boolean } | null>(null);
+  const [artworkUrls, setArtworkUrls] = useState<Record<string, string>>({});
+  const [artworkError, setArtworkError] = useState(false);
+  const [artworkRetry, setArtworkRetry] = useState(0);
   const [copied, setCopied] = useState<string | null>(null);
 
   useEffect(() => {
@@ -60,6 +64,21 @@ export function AffiliateModal({ open, onOpenChange }: AffiliateModalProps) {
 
   useEffect(() => { if (!copied) return; const timer = window.setTimeout(() => setCopied(null), 2500); return () => window.clearTimeout(timer); }, [copied]);
   const link = stats ? referralShareUrl(stats.code) : '';
+  useEffect(() => {
+    if (!open || !link) return;
+    let cancelled = false;
+    const generated: string[] = [];
+    setArtworkUrls({}); setArtworkError(false);
+    void Promise.all(REFERRAL_ARTWORKS.map(async art => {
+      const url = await createReferralArtwork(art, link);
+      if (cancelled) { URL.revokeObjectURL(url); return null; }
+      generated.push(url);
+      return [art.id, url] as const;
+    })).then(results => {
+      if (!cancelled) setArtworkUrls(Object.fromEntries(results.filter(value => value !== null)));
+    }).catch(() => { if (!cancelled) setArtworkError(true); });
+    return () => { cancelled = true; generated.forEach(url => URL.revokeObjectURL(url)); };
+  }, [open, link, artworkRetry]);
   const copy = async (text: string, id: string) => {
     try { await navigator.clipboard.writeText(text); setCopied(id); toast({ title: id === 'link' ? 'Link copiado' : 'Convite copiado', description: 'Pronto para compartilhar.' }); }
     catch { toast({ title: 'Não foi possível copiar', description: 'Selecione o link e copie manualmente.', variant: 'destructive' }); }
@@ -72,35 +91,47 @@ export function AffiliateModal({ open, onOpenChange }: AffiliateModalProps) {
   return <Dialog open={open} onOpenChange={onOpenChange}>
     <DialogContent className="cf-referral-modal">
       <DialogHeader className="cf-referral-header">
-        <span className="cf-referral-brand"><Gift size={22} /></span>
-        <div><span className="cf-referral-eyebrow">CRESÇA COM A CLASSFY</span>
-          <DialogTitle>Boas descobertas merecem ser compartilhadas.</DialogTitle>
-          <DialogDescription>Convide pessoas para a Classfy e acompanhe suas indicações aqui.</DialogDescription>
+        <div><span className="cf-referral-eyebrow">PROGRAMA DE INDICAÇÕES</span>
+          <DialogTitle>Compartilhe.<br />Dê play em novas ideias.</DialogTitle>
+          <DialogDescription>Convide pessoas. Acompanhe suas conquistas.</DialogDescription>
         </div>
+        <img src="/referrals/sharing-illustration.svg" className="cf-referral-illustration" alt="" />
       </DialogHeader>
       <Tabs defaultValue="link" className="cf-referral-tabs">
-        <TabsList><TabsTrigger value="link">Meu link</TabsTrigger><TabsTrigger value="materials">Kit de divulgação {materials.length > 0 && <span>{materials.length}</span>}</TabsTrigger></TabsList>
+        <TabsList><TabsTrigger value="link">Meu link</TabsTrigger><TabsTrigger value="materials">Kit de divulgação <span>{materials.length + 2}</span></TabsTrigger></TabsList>
         {loading ? <div className="cf-referral-status" role="status"><Loader2 className="animate-spin" size={24} /><p>Preparando seu programa de indicações…</p></div>
           : error ? <div className="cf-referral-status" role="alert"><p>Não foi possível carregar suas indicações.</p><Button variant="outline" onClick={() => setRetry(v => v + 1)}><RefreshCw size={15} /> Tentar novamente</Button></div>
           : stats && terms && <>
             {!terms.enabled && <p className="cf-referral-notice">O programa está pausado. Seus registros anteriores continuam disponíveis.</p>}
             <TabsContent value="link" className="cf-referral-content">
               <section className="cf-referral-link-card">
-                <div className="cf-referral-section-label"><Share2 size={16} /><label htmlFor="classfy-referral-url">Seu convite começa aqui</label></div>
-                <p>Um link só seu, pronto para compartilhar.</p>
+                <div className="cf-referral-section-label"><Share2 size={16} /><label htmlFor="classfy-referral-url">Seu link de convite</label></div>
                 <div className="cf-referral-link-row"><input id="classfy-referral-url" readOnly value={link} onFocus={e => e.target.select()} /><Button disabled={!terms.enabled} onClick={() => void copy(link, 'link')}><CopyIcon size={16} />{copied === 'link' ? 'Copiado' : 'Copiar link'}</Button></div>
                 <div className="cf-referral-share"><Button disabled={!terms.enabled} variant="outline" onClick={() => share('whatsapp')}><Share2 size={15} /> WhatsApp <ArrowUpRight size={14} /></Button><Button disabled={!terms.enabled} variant="outline" onClick={() => share('x')}><ExternalLink size={15} /> Compartilhar no X</Button></div>
               </section>
               <section aria-label="Resultados das indicações" className="cf-referral-metrics">
                 {[{ icon: MousePointer2, label: 'Cliques', value: stats.clicks.toLocaleString('pt-BR') }, { icon: Users, label: 'Cadastros indicados', value: stats.conversions.toLocaleString('pt-BR') }, { icon: Wallet, label: 'Comissões creditadas', value: money(stats.credited) }, { icon: Wallet, label: 'Comissões pendentes', value: money(stats.pending) }].map(({ icon: Icon, label, value }) => <div key={label}><Icon size={15} /><strong>{value}</strong><span>{label}</span></div>)}
               </section>
-              <section className="cf-referral-steps"><h3>Como funciona</h3>
-                <ol>{[{ title: 'Compartilhe seu link', text: 'Envie para quem vai gostar das suas descobertas.' }, { title: 'A pessoa se cadastra', text: 'A indicação é registrada quando o novo cadastro é confirmado.' }, { title: 'A primeira compra gera comissão', text: `${terms.commission_percent.toLocaleString('pt-BR')}% sobre a primeira compra paga, conforme as regras do programa.` }].map((step, i) => <li key={step.title}><span>{i + 1}</span><div><strong>{step.title}</strong><p>{step.text}</p></div></li>)}</ol>
+              <section className="cf-referral-journey" aria-label="Como funciona">
+                <div><span>1</span><strong>Compartilhe</strong></div><ArrowUpRight size={14} />
+                <div><span>2</span><strong>Cadastro confirmado</strong></div><ArrowUpRight size={14} />
+                <div><span>3</span><strong>{terms.commission_percent.toLocaleString('pt-BR')}% na primeira compra</strong></div>
               </section>
-              <p className="cf-referral-fineprint">O convite vale por 30 dias antes do cadastro. Reembolsos e contestações podem estornar comissões. Indicações contribuem para a qualificação no pool mensal, conforme as regras do ciclo.</p>
+              <details className="cf-referral-rules"><summary>Regras do programa<ChevronDown size={14} /></summary><p>Convite válido por 30 dias antes do cadastro. A comissão é calculada sobre a primeira compra paga; reembolsos e contestações podem estorná-la. Indicações contribuem para a qualificação no pool mensal conforme as regras do ciclo.</p></details>
             </TabsContent>
             <TabsContent value="materials" className="cf-referral-content">
-              <div className="cf-referral-kit-heading"><h3>Convites com a sua voz.</h3><p>Copie um texto com seu link ou abra os materiais disponíveis.</p></div>
+              <div className="cf-referral-kit-heading"><h3>Pronto para compartilhar.</h3><p>Artes com seu link e QR code. No story, adicione também o sticker de link.</p></div>
+              <div className="cf-referral-artworks">
+                {REFERRAL_ARTWORKS.map(art => <article key={art.id}>
+                  <div className={`cf-referral-art-preview cf-referral-art-preview--${art.id}`}>
+                    <img src={artworkUrls[art.id] || art.source} alt={`${art.title}, arte para ${art.format}`} />
+                    {!artworkUrls[art.id] && !artworkError && <span><Loader2 size={17} className="animate-spin" /> Preparando seu convite</span>}
+                  </div>
+                  <div className="cf-referral-art-meta"><strong>{art.format}</strong><span>{art.width} × {art.height}</span></div>
+                  {artworkUrls[art.id] ? <Button asChild disabled={!terms.enabled}><a aria-disabled={!terms.enabled} href={terms.enabled ? artworkUrls[art.id] : undefined} download={`classfy-convite-${art.id}.png`}><Download size={15} /> Baixar imagem</a></Button> : <Button variant="outline" disabled={!artworkError} onClick={() => setArtworkRetry(v => v + 1)}>{artworkError ? 'Tentar novamente' : 'Preparando imagem…'}</Button>}
+                </article>)}
+              </div>
+              <div className="cf-referral-kit-link"><Button variant="outline" disabled={!terms.enabled} onClick={() => void copy(link, 'link')}><CopyIcon size={14} />{copied === 'link' ? 'Link copiado' : 'Copiar link para o story'}</Button></div>
               {materialsError ? <p role="alert" className="cf-referral-notice">O kit não carregou. <button onClick={() => setRetry(v => v + 1)}>Tentar novamente</button></p> : <div className="cf-referral-kit">
                 {(materials.length ? materials : [{ id: 'invite', title: 'Convite para compartilhar', description: null, type: 'text', file_url: null, thumbnail_url: null, category: 'social' }]).map(material => {
                   const file = safeUrl(material.file_url);
