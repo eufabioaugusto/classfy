@@ -10,6 +10,7 @@ import { Clock, Trash2, Edit2, Check, X, StickyNote } from "lucide-react";
 import { format } from "date-fns";
 
 interface StudyNotesProps {
+  embedded?: boolean;
   studyId: string;
   activeContentId: string | null;
   currentTime?: number;
@@ -25,7 +26,7 @@ interface Note {
   content_id: string | null;
 }
 
-export function StudyNotes({ studyId, activeContentId, currentTime = 0, onSeekToTimestamp }: StudyNotesProps) {
+export function StudyNotes({ embedded = false, studyId, activeContentId, currentTime = 0, onSeekToTimestamp }: StudyNotesProps) {
   const { user } = useAuth();
   const [notes, setNotes] = useState<Note[]>([]);
   const [loading, setLoading] = useState(true);
@@ -174,28 +175,28 @@ export function StudyNotes({ studyId, activeContentId, currentTime = 0, onSeekTo
 
   if (loading) {
     return (
-      <Card className="p-4 sm:p-6">
+      <Card className={embedded ? "cf-study-notes border-0 shadow-none p-0" : "p-4 sm:p-6"}>
         <p className="text-sm text-muted-foreground">Carregando anotações...</p>
       </Card>
     );
   }
 
   return (
-    <Card className="p-4 sm:p-6">
-      <div className="flex items-center gap-2 mb-4">
+    <Card className={embedded ? "cf-study-notes border-0 shadow-none p-0" : "p-4 sm:p-6"}>
+      {!embedded && <div className="flex items-center gap-2 mb-4">
         <StickyNote className="w-5 h-5 text-primary" />
         <h3 className="text-lg font-semibold">Minhas Anotações</h3>
         <span className="text-sm text-muted-foreground">({notes.length})</span>
-      </div>
+      </div>}
 
       {user && activeContentId && <div className="mb-5 space-y-2">
         <label htmlFor="watch-note-text" className="text-xs text-muted-foreground">Anotar em {formatTime(Math.floor(currentTime))}</label>
-        <Textarea id="watch-note-text" placeholder="O que você quer guardar desta aula?" value={newText} onChange={(event) => setNewText(event.target.value)} className="min-h-[96px]" />
-        <Button onClick={handleCreate} disabled={saving || !newText.trim()} className="w-full">{saving ? "Salvando..." : "Salvar anotação"}</Button>
+        <Textarea id="watch-note-text" placeholder="O que você quer guardar desta aula?" value={newText} onChange={(event) => setNewText(event.target.value)} className="min-h-[132px] rounded-2xl bg-muted/25 p-4 text-sm leading-relaxed focus-visible:ring-red-500/30" />
+        <Button onClick={handleCreate} disabled={saving || !newText.trim()} className="h-12 w-full rounded-xl bg-red-500 text-white hover:bg-red-600">{saving ? "Salvando..." : "Salvar anotação"}</Button>
       </div>}
       {notes.length === 0 ? (
         <div className="text-center py-8 text-muted-foreground">
-          <StickyNote className="w-12 h-12 mx-auto mb-3 opacity-50" />
+          <StickyNote className="w-6 h-6 mx-auto mb-3 opacity-40" />
           <p className="text-sm">Nenhuma anotação ainda.</p>
           <p className="text-xs mt-1">
             {activeContentId
@@ -204,12 +205,12 @@ export function StudyNotes({ studyId, activeContentId, currentTime = 0, onSeekTo
           </p>
         </div>
       ) : (
-        <ScrollArea className="h-[500px] pr-4">
+        <ScrollArea className={embedded ? "pr-0" : "h-[500px] pr-4"}>
           <div className="space-y-3">
             {notes.map((note) => (
               <div
                 key={note.id}
-                className="border border-border rounded-lg p-4 hover:bg-accent/50 transition-colors"
+                className="border border-border rounded-2xl p-4 hover:bg-accent/50 transition-colors"
               >
                 <div className="flex items-start justify-between gap-3 mb-2">
                   <button

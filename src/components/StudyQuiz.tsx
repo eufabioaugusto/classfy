@@ -6,7 +6,7 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
-import { Loader2, CheckCircle2, XCircle, Trophy, RotateCcw } from "lucide-react";
+import { Loader2, CheckCircle2, XCircle, Trophy, RotateCcw, Brain } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/contexts/AuthContext";
@@ -206,46 +206,28 @@ export function StudyQuiz({ studyId, contentId, contentTitle }: StudyQuizProps) 
 
   if (!quiz) {
     return (
-      <Card className="w-full">
-        <CardHeader>
-          <CardTitle>Quiz sobre: {contentTitle}</CardTitle>
-          <CardDescription>
-            Teste seus conhecimentos com um quiz gerado automaticamente pela Classy
-          </CardDescription>
+      <Card className="cf-study-quiz w-full">
+        <CardHeader className="pb-4">
+          <div className="mb-2 flex h-11 w-11 items-center justify-center rounded-2xl bg-red-500/10"><Brain className="h-5 w-5 text-red-500" aria-hidden="true" /></div>
+          <CardTitle className="text-xl tracking-tight">Teste seu aprendizado</CardTitle>
+          <CardDescription className="text-sm leading-relaxed">Responda às perguntas e descubra o que vale revisar.</CardDescription>
+          <p className="pt-2 text-xs text-muted-foreground line-clamp-2">{contentTitle}</p>
         </CardHeader>
-        <CardContent className="flex flex-col items-center gap-4 py-5">
-          {!studyId && <div className="w-full space-y-2">
-            <Label htmlFor="quiz-study">Salvar quiz no estudo</Label>
+        <CardContent className="space-y-4 pb-5">
+          {!studyId && <div className="space-y-2">
+            <Label htmlFor="quiz-study" className="text-sm">Salvar quiz no estudo</Label>
             <select id="quiz-study" value={selectedStudyId} onChange={(event) => setSelectedStudyId(event.target.value)} disabled={studiesLoading}
-              className="w-full rounded-lg border bg-background p-3 text-sm">
+              className="min-h-12 w-full rounded-xl border bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-red-500/30">
               <option value="">{studiesLoading ? "Carregando estudos..." : "Selecione um estudo"}</option>
               {studies.map((study) => <option key={study.id} value={study.id}>{study.title}</option>)}
             </select>
-            {!studiesLoading && studies.length === 0 && <p className="text-xs text-muted-foreground">Use o botão Estudo da aula para criar seu primeiro estudo.</p>}
+            <p className="text-xs leading-relaxed text-muted-foreground">{!studiesLoading && studies.length === 0 ? "Use o botão Estudo da aula para criar seu primeiro estudo." : "Seu resultado fica guardado neste estudo."}</p>
           </div>}
-          {errorMessage && <p role="alert" className="text-sm text-destructive">{errorMessage}</p>}
-          <Trophy className="w-10 h-10 text-red-500" />
-          <p className="text-center text-muted-foreground">
-            Pronto para testar seu aprendizado? Classy vai gerar questões inteligentes baseadas no conteúdo!
-          </p>
-          <div className="text-sm text-center text-muted-foreground bg-muted p-3 rounded-md">
-            ℹ️ O quiz é gerado a partir da transcrição do vídeo/áudio. Se o conteúdo foi adicionado recentemente, aguarde alguns minutos para a transcrição ser processada.
-          </div>
+          {errorMessage && <p role="alert" className="rounded-xl bg-destructive/5 p-3 text-sm text-destructive">{errorMessage}</p>}
         </CardContent>
         <CardFooter>
-          <Button 
-            onClick={generateQuiz} 
-            disabled={loading || !selectedStudyId || !user || studiesLoading}
-            className="w-full"
-          >
-            {loading ? (
-              <>
-                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                Gerando quiz com Classy...
-              </>
-            ) : (
-              "Gerar Quiz"
-            )}
+          <Button onClick={generateQuiz} disabled={loading || !selectedStudyId || !user || studiesLoading} className="h-12 w-full rounded-xl bg-red-500 text-white hover:bg-red-600">
+            {loading ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Preparando quiz...</> : "Gerar Quiz"}
           </Button>
         </CardFooter>
       </Card>
@@ -257,17 +239,17 @@ export function StudyQuiz({ studyId, contentId, contentTitle }: StudyQuizProps) 
     const percentage = (finalScore / questions.length) * 100;
 
     return (
-      <Card className="w-full">
+      <Card className="cf-study-quiz w-full">
         <CardHeader className="text-center">
           <div className="flex justify-center mb-4">
-            <Trophy className="w-20 h-20 text-yellow-500" />
+            <Trophy className="w-12 h-12 text-red-500" />
           </div>
           <CardTitle className="text-2xl">Quiz Concluído!</CardTitle>
           <CardDescription>{getScoreMessage()}</CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
           <div className="text-center">
-            <div className="text-6xl font-bold text-primary mb-2">
+            <div className="text-5xl font-bold tracking-tight text-foreground mb-4">
               {finalScore}/{questions.length}
             </div>
             <Progress value={percentage} className="h-3" />
@@ -314,7 +296,7 @@ export function StudyQuiz({ studyId, contentId, contentTitle }: StudyQuizProps) 
   }
 
   return (
-    <Card className="w-full">
+    <Card className="cf-study-quiz w-full">
       <CardHeader>
         <div className="flex items-center justify-between">
           <div>
@@ -343,7 +325,7 @@ export function StudyQuiz({ studyId, contentId, contentTitle }: StudyQuizProps) 
                 <div
                   key={idx}
                   className={cn(
-                    "flex items-center space-x-3 p-4 rounded-lg border-2 transition-all cursor-pointer",
+                    "flex items-center space-x-3 p-3.5 rounded-xl border transition-all cursor-pointer",
                     isSelected && !showResult && "border-primary bg-primary/5",
                     showCorrectAnswer && "border-green-500 bg-green-500/10",
                     showWrongAnswer && "border-red-500 bg-red-500/10",
@@ -367,7 +349,7 @@ export function StudyQuiz({ studyId, contentId, contentTitle }: StudyQuizProps) 
 
         {showResult && (
           <div className={cn(
-            "p-4 rounded-lg border-2",
+            "p-3.5 rounded-xl border",
             selectedAnswer === currentQ.correctAnswer 
               ? "border-green-500 bg-green-500/10" 
               : "border-red-500 bg-red-500/10"
@@ -394,7 +376,7 @@ export function StudyQuiz({ studyId, contentId, contentTitle }: StudyQuizProps) 
           <Button 
             onClick={handleSubmitAnswer} 
             disabled={selectedAnswer === null}
-            className="w-full"
+            className="h-12 w-full rounded-xl"
           >
             Confirmar Resposta
           </Button>

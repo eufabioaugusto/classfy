@@ -1,0 +1,23 @@
+/* Mobile watch tools share one native-feeling sheet, with one scroll surface. */
+.cf-study-sheet { padding-bottom: env(safe-area-inset-bottom); border: 0; box-shadow: 0 -16px 60px rgb(0 0 0 / .16); }
+.cf-study-sheet::before { content: ''; flex-shrink: 0; display: block; width: 32px; height: 4px; margin: 10px auto 0; border-radius: 9px; background: hsl(var(--foreground) / .15); }
+.cf-study-sheet__header { display: flex; flex-direction: row; align-items: center; gap: 12px; padding: 16px 64px 18px 20px; text-align: left; border-bottom: 1px solid hsl(var(--border) / .6); }
+.cf-study-sheet__header > * { margin-top: 0 !important; }
+.cf-study-sheet__icon { display: grid; place-items: center; flex-shrink: 0; width: 40px; height: 40px; border-radius: 14px; color: #ef4444; background: rgb(239 68 68 / .08); }
+.cf-study-sheet__icon svg { width: 19px; height: 19px; }
+.cf-study-sheet > button { top: 32px; right: 18px; display: grid; place-items: center; width: 36px; height: 36px; border-radius: 50%; background: hsl(var(--muted) / .7) !important; opacity: 1; }
+.cf-study-sheet__body { overscroll-behavior: contain; padding-bottom: 28px; }
+.cf-study-sheet .cf-study-quiz { border: 0; box-shadow: none; }
+.cf-study-sheet .cf-study-quiz > * { padding-left: 0; padding-right: 0; }
+.cf-study-sheet .cf-study-quiz > :first-child { padding-top: 0; }
+.cf-study-sheet .cf-study-quiz button { min-height: 46px; border-radius: 12px; }
+.cf-study-sheet .cf-study-quiz [role=radio] { min-height: 16px; border-radius: 50%; }
+.cf-study-transcript { font-size: 15px; line-height: 1.85; color: hsl(var(--foreground) / .88); }
+.cf-study-notes label { display: block; margin-bottom: 10px; }
+.cf-study-sheet__body:focus-visible { outline: none; }
+
+.cf-study-sheet--fit .cf-study-sheet__body { max-height: calc(82dvh - 104px); }
+.cf-study-sheet .cf-study-quiz > :first-child > div:first-child:has(> svg) { display: none; }
+.cf-study-sheet > button:focus-visible { outline: 2px solid rgb(239 68 68 / .5); outline-offset: 2px; box-shadow: none; }
+
+.cf-study-sheet > button { border: 0; outline: none; box-shadow: none; }

@@ -15,6 +15,7 @@ import { PurchaseModal } from "@/components/PurchaseModal";
 import { Database } from "@/integrations/supabase/types";
 
 interface WatchRelatedProps {
+  embedded?: boolean;
   contentId: string;
   categoryId?: string | null;
   tags: string[] | null;
@@ -49,7 +50,7 @@ interface RelatedContent {
   } | null;
 }
 
-export const WatchRelated = ({ contentId, categoryId, tags, contentType, currentContent, currentTime }: WatchRelatedProps) => {
+export const WatchRelated = ({ embedded = false, contentId, categoryId, tags, contentType, currentContent, currentTime }: WatchRelatedProps) => {
   const [relatedContents, setRelatedContents] = useState<RelatedContent[]>([]);
   const [loading, setLoading] = useState(true);
   const [purchasedContentIds, setPurchasedContentIds] = useState<string[]>([]);
@@ -207,11 +208,11 @@ export const WatchRelated = ({ contentId, categoryId, tags, contentType, current
 
   if (loading) {
     return (
-      <Card className="overflow-hidden bg-muted/30">
-        <div className="p-4 border-b border-border">
+      <Card className={embedded ? "border-0 bg-transparent shadow-none" : "overflow-hidden bg-muted/30"}>
+        <div className={embedded ? "hidden" : "p-4 border-b border-border"}>
           <h5 className="font-semibold">Relacionados</h5>
         </div>
-        <div className="p-4 space-y-4">
+        <div className={embedded ? "space-y-3" : "p-4 space-y-4"}>
           {[...Array(4)].map((_, i) => (
             <div key={i} className="flex gap-3">
               <Skeleton className="w-32 h-20 rounded-lg" />
@@ -228,7 +229,7 @@ export const WatchRelated = ({ contentId, categoryId, tags, contentType, current
   }
 
   if (relatedContents.length === 0) {
-    return null;
+    return embedded ? <p className="rounded-2xl bg-muted/30 p-5 text-sm text-muted-foreground">Novas sugestões aparecerão aqui quando houver mais conteúdos disponíveis.</p> : null;
   }
 
   // Separate free/plan-based content from paid content
@@ -243,10 +244,10 @@ export const WatchRelated = ({ contentId, categoryId, tags, contentType, current
     const finalPrice = isPaid ? (content.price || 0) * (1 - discount / 100) : 0;
     
     return (
-      <div
+      <button type="button"
         key={content.id}
         onClick={() => handleContentClick(content)}
-        className="flex gap-3 cursor-pointer group"
+        className={embedded ? "flex w-full gap-3 rounded-2xl border border-border/60 p-3 text-left transition-colors hover:bg-muted/40 group" : "flex gap-3 cursor-pointer group"}
       >
         <div className="relative w-32 h-20 rounded-lg overflow-hidden flex-shrink-0 bg-muted">
           <img
@@ -296,18 +297,18 @@ export const WatchRelated = ({ contentId, categoryId, tags, contentType, current
             {content.views_count.toLocaleString()} visualizações
           </p>
         </div>
-      </div>
+      </button>
     );
   };
 
   return (
     <>
-      <Card className="overflow-hidden bg-muted/30">
-        <div className="p-4 border-b border-border">
+      <Card className={embedded ? "border-0 bg-transparent shadow-none" : "overflow-hidden bg-muted/30"}>
+        <div className={embedded ? "hidden" : "p-4 border-b border-border"}>
           <h5 className="font-semibold">Relacionados</h5>
         </div>
-        <ScrollArea className="h-[600px]">
-          <div className="p-4 space-y-4">
+        <ScrollArea className={embedded ? "" : "h-[600px]"}>
+          <div className={embedded ? "space-y-3" : "p-4 space-y-4"}>
             {/* Free/Plan-based content first */}
             {freeOrPlanContent.map(renderContentCard)}
             

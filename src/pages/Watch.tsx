@@ -14,7 +14,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { CheckCircle, XCircle, AlertCircle, Loader2, X } from "lucide-react";
+import { CheckCircle, XCircle, AlertCircle, Loader2, X, FileText, Brain, StickyNote, Compass } from "lucide-react";
 import { ContentComments } from "@/components/ContentComments";
 import { FollowButton } from "@/components/FollowButton";
 import { AddToStudyModal } from "@/components/AddToStudyModal";
@@ -49,6 +49,7 @@ import {
   type ContentEntitlement,
 } from "@/lib/access/contentEntitlement";
 import { StudyQuiz } from "@/components/StudyQuiz";
+import "@/components/watch/study-tools.css";
 import { StudyNotes } from "@/components/StudyNotes";
 import { HighlightedText } from "@/components/chat/HighlightedText";
 import {
@@ -1189,21 +1190,23 @@ function WatchContent() {
           >
             <SheetContent
               side="bottom"
-              className="h-[80vh] rounded-t-3xl p-0 flex flex-col"
+              className="cf-study-sheet h-[82dvh] rounded-t-[24px] p-0 flex flex-col gap-0"
             >
-              <SheetHeader className="px-4 py-3 border-b flex-row items-center justify-between">
-                <SheetTitle className="text-base font-semibold">
-                  Transcrição
-                </SheetTitle>
+              <SheetHeader className="cf-study-sheet__header">
+                <div className="cf-study-sheet__icon"><FileText aria-hidden="true" /></div>
+                <div className="min-w-0">
+                  <SheetTitle className="text-base font-semibold">Transcrição</SheetTitle>
+                  <SheetDescription className="text-xs">Leia no seu ritmo</SheetDescription>
+                </div>
               </SheetHeader>
-              <div className="flex-1 overflow-auto p-4">
+              <div className="cf-study-sheet__body flex-1 min-h-0 overflow-auto p-5">
                 {transcriptionError && <p role="alert" className="mb-4 rounded-lg border border-destructive/20 bg-destructive/5 p-3 text-sm text-destructive">{transcriptionError}</p>}
                 {transcriptionLoading ? (
                   <div className="flex items-center justify-center py-12">
                     <Loader2 className="h-6 w-6 animate-spin text-primary" />
                   </div>
                 ) : transcription ? (
-                  <div className="prose prose-sm dark:prose-invert max-w-none whitespace-pre-wrap">
+                  <div className="cf-study-transcript whitespace-pre-wrap">
                     {transcription}
                   </div>
                 ) : (
@@ -1229,14 +1232,16 @@ function WatchContent() {
           >
             <SheetContent
               side="bottom"
-              className="h-[80vh] rounded-t-3xl p-0 flex flex-col"
+              className="cf-study-sheet cf-study-sheet--fit h-auto max-h-[82dvh] rounded-t-[24px] p-0 flex flex-col gap-0"
             >
-              <SheetHeader className="px-4 py-3 border-b">
-                <SheetTitle className="text-base font-semibold">
-                  Quiz
-                </SheetTitle>
+              <SheetHeader className="cf-study-sheet__header">
+                <div className="cf-study-sheet__icon"><Brain aria-hidden="true" /></div>
+                <div className="min-w-0">
+                  <SheetTitle className="text-base font-semibold">Quiz</SheetTitle>
+                  <SheetDescription className="text-xs">Teste o que você aprendeu</SheetDescription>
+                </div>
               </SheetHeader>
-              <div className="flex-1 overflow-auto p-4">
+              <div className="cf-study-sheet__body flex-1 min-h-0 overflow-auto p-5">
                 <StudyQuiz
                   studyId={activeStudyId}
                   contentId={content.id}
@@ -1252,15 +1257,18 @@ function WatchContent() {
           >
             <SheetContent
               side="bottom"
-              className="h-[80vh] rounded-t-3xl p-0 flex flex-col"
+              className="cf-study-sheet cf-study-sheet--fit h-auto min-h-[40dvh] max-h-[82dvh] rounded-t-[24px] p-0 flex flex-col gap-0"
             >
-              <SheetHeader className="px-4 py-3 border-b">
-                <SheetTitle className="text-base font-semibold">
-                  Anotações
-                </SheetTitle>
+              <SheetHeader className="cf-study-sheet__header">
+                <div className="cf-study-sheet__icon"><StickyNote aria-hidden="true" /></div>
+                <div className="min-w-0">
+                  <SheetTitle className="text-base font-semibold">Anotações</SheetTitle>
+                  <SheetDescription className="text-xs">Guarde o que importa</SheetDescription>
+                </div>
               </SheetHeader>
-              <div className="flex-1 overflow-auto">
+              <div className="cf-study-sheet__body flex-1 min-h-0 overflow-auto p-5">
                 <StudyNotes
+                  embedded
                   studyId={content.id}
                   activeContentId={content.id}
                   currentTime={currentPlaybackTime.current}
@@ -1279,15 +1287,18 @@ function WatchContent() {
           >
             <SheetContent
               side="bottom"
-              className="h-[80vh] rounded-t-3xl p-0 flex flex-col"
+              className="cf-study-sheet cf-study-sheet--fit h-auto min-h-[40dvh] max-h-[82dvh] rounded-t-[24px] p-0 flex flex-col gap-0"
             >
-              <SheetHeader className="px-4 py-3 border-b">
-                <SheetTitle className="text-base font-semibold">
-                  Sugestões
-                </SheetTitle>
+              <SheetHeader className="cf-study-sheet__header">
+                <div className="cf-study-sheet__icon"><Compass aria-hidden="true" /></div>
+                <div className="min-w-0">
+                  <SheetTitle className="text-base font-semibold">Sugestões</SheetTitle>
+                  <SheetDescription className="text-xs">Continue explorando</SheetDescription>
+                </div>
               </SheetHeader>
-              <div className="flex-1 overflow-auto p-4">
+              <div className="cf-study-sheet__body flex-1 min-h-0 overflow-auto p-5">
                 <WatchRelated
+                  embedded
                   contentId={content.id}
                   categoryId={content.category_id}
                   tags={content.tags}
