@@ -236,3 +236,15 @@ All colors MUST be HSL.
     animation: progress-indeterminate 1.5s ease-in-out infinite;
   }
 }
+
+/* Mobile watch: quiet surfaces and the same active states as SocialBar. */
+.cf-mobile-watch-actions button { font-size: 12px; }
+.cf-mobile-watch-actions button[aria-pressed="false"],
+.cf-mobile-watch-actions button:not([aria-pressed]) {
+  background: hsl(var(--muted) / .6);
+  color: hsl(var(--foreground));
+  box-shadow: inset 0 0 0 1px hsl(var(--border) / .45);
+}
+.cf-mobile-watch-actions button span { font-size: 12px; }
+.cf-mobile-watch-actions button { min-height: 40px; }
+.cf-mobile-watch-details a:focus-visible { outline: 2px solid var(--cf2-accent, #df3153); outline-offset: 3px; border-radius: 8px; }
