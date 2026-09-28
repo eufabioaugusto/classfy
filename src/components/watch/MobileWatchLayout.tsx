@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Link } from "react-router-dom";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -54,6 +55,7 @@ interface MobileWatchLayoutProps {
       id: string;
       display_name: string;
       avatar_url: string | null;
+      creator_channel_name?: string | null;
     } | null;
   };
   followersCount: number;
@@ -147,9 +149,9 @@ export function MobileWatchLayout({
 
       {/* Creator Row - YouTube Style */}
       <div className="flex items-center justify-between px-3 pb-2">
-        <a
+        <Link
           className="flex items-center gap-2.5 flex-1 min-w-0"
-          href={content.creator?.id ? `/creator/${content.creator.id}` : undefined}
+          to={content.creator?.creator_channel_name ? `/@${encodeURIComponent(content.creator.creator_channel_name)}` : `/@${encodeURIComponent(content.creator?.display_name || "")}`}
         >
           <Avatar className="h-9 w-9 border border-border/50">
             <AvatarImage src={content.creator?.avatar_url || ""} />
@@ -166,7 +168,7 @@ export function MobileWatchLayout({
               {formatCount(followersCount)} seguidores
             </p>
           </div>
-        </a>
+        </Link>
         {content.creator?.id && (
           <FollowButton creatorId={content.creator.id} size="sm" />
         )}
