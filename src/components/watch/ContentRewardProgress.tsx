@@ -20,6 +20,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { cn } from "@/lib/utils";
 import { Progress } from "@/components/ui/progress";
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription, SheetTrigger } from "@/components/ui/sheet";
 import {
   fetchStudyJourneySummary,
   type StudyJourneySummary,
@@ -126,6 +127,7 @@ export function ContentRewardProgress({
   const [actions, setActions] = useState<ActionState[]>([]);
   const [earnedPoints, setEarnedPoints] = useState(0);
   const [initialLoading, setInitialLoading] = useState(true);
+  const [detailsOpen, setDetailsOpen] = useState(false);
   const [burstKeys, setBurstKeys] = useState<Set<string>>(new Set());
   const [resolvedStudyTitle, setResolvedStudyTitle] = useState(
     studyTitle?.trim() || "",
@@ -575,6 +577,52 @@ export function ContentRewardProgress({
     ) / 10;
 
   const allDone = availablePoints === 0;
+
+  if (compact) {
+    const completedActions = actions.filter((action) => action.earned).length;
+    return (
+      <Sheet open={detailsOpen} onOpenChange={setDetailsOpen}>
+        <SheetTrigger asChild>
+          <button
+            type="button"
+            aria-label={`${earnedPoints} Points conquistados. ${completedActions} de ${actions.length} ações realizadas. Ver detalhes`}
+            className="w-full rounded-xl border border-border/50 bg-muted/30 px-3 py-2.5 text-left transition-colors active:bg-muted/60"
+          >
+            <div className="flex items-center gap-1.5">
+              <Zap className="h-3.5 w-3.5 text-red-500" aria-hidden="true" />
+              <motion.span key={earnedPoints} initial={{ opacity: 0.5 }} animate={{ opacity: 1 }} className="text-[13px] font-semibold tabular-nums tracking-tight text-foreground">
+                +{earnedPoints} Points
+              </motion.span>
+              <span className="ml-auto text-[11px] text-muted-foreground tabular-nums">{completedActions}/{actions.length} ações</span>
+              <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" aria-hidden="true" />
+            </div>
+            <div className="mt-2 flex gap-1" aria-hidden="true">
+              {actions.map((action) => <span key={action.key} className={cn("h-0.5 min-w-0 flex-1 rounded-full", action.earned ? "bg-red-500" : "bg-border")} />)}
+            </div>
+          </button>
+        </SheetTrigger>
+        <SheetContent side="bottom" className="max-h-[85dvh] overflow-y-auto rounded-t-2xl pb-[max(1.5rem,env(safe-area-inset-bottom))]">
+          <SheetHeader className="text-left">
+            <SheetTitle>Points desta aula</SheetTitle>
+            <SheetDescription>{earnedPoints} conquistados{allDone ? " · Todas as ações concluídas." : ` · Mais ${availablePoints} disponíveis.`}</SheetDescription>
+          </SheetHeader>
+          <div className="mt-4 divide-y divide-border/50">
+            {actions.map((action) => {
+              const Icon = action.icon;
+              return <div key={action.key} className="flex items-center gap-3 py-3">
+                <span className={cn("flex h-8 w-8 items-center justify-center rounded-lg", action.earned ? "bg-red-500/10 text-red-500" : "bg-muted text-muted-foreground")}><Icon className="h-4 w-4" /></span>
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-medium">{action.label}</p>
+                  <p className="text-[11px] text-muted-foreground">{action.earned ? "Conquistado" : "Disponível"}</p>
+                </div>
+                <span className={cn("text-xs font-semibold tabular-nums", action.earned ? "text-red-500" : "text-muted-foreground")}>+{action.points} pts</span>
+              </div>;
+            })}
+          </div>
+        </SheetContent>
+      </Sheet>
+    );
+  }
 
   return (
     <div
