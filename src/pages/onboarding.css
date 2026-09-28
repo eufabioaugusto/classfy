@@ -826,7 +826,75 @@
   border-radius: 50%;
   display: grid;
   place-items: center;
-  box-shadow: 0 4px 25px #0003;
+  box-shadow:
+    0 4px 25px #0003,
+    0 0 20px #ed174c55;
+  isolation: isolate;
+  animation: ob-play-glow 2s ease-in-out infinite;
+}
+.ob-real-play::before,
+.ob-real-play::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  border: 2px solid #ed174c99;
+  background: #ed174c22;
+  box-shadow: 0 0 16px #ed174c66;
+  pointer-events: none;
+  z-index: -1;
+  animation: ob-play-ripple 2s ease-out infinite;
+}
+.ob-real-play::after {
+  animation-delay: 1s;
+}
+.ob-real-play > svg {
+  animation: ob-play-icon 2s ease-in-out infinite;
+}
+@keyframes ob-play-ripple {
+  0% {
+    transform: scale(1);
+    opacity: 0.8;
+  }
+  85%,
+  100% {
+    transform: scale(2.2);
+    opacity: 0;
+  }
+}
+@keyframes ob-play-glow {
+  0%,
+  100% {
+    box-shadow:
+      0 4px 25px #0003,
+      0 0 14px #ed174c55;
+  }
+  50% {
+    box-shadow:
+      0 4px 25px #0003,
+      0 0 30px #ed174c99;
+  }
+}
+@keyframes ob-play-icon {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.12);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ob-real-play,
+  .ob-real-play::before,
+  .ob-real-play::after,
+  .ob-real-play > svg {
+    animation: none;
+  }
+  .ob-real-play::before,
+  .ob-real-play::after {
+    display: none;
+  }
 }
 .ob-watch-milestones {
   height: 5px;
