@@ -13,7 +13,7 @@ interface NavItem {
 }
 
 // Routes where the bottom nav should be hidden
-const hiddenRoutes = ["/watch", "/listen", "/auth", "/studio", "/admin"];
+const hiddenRoutes = ["/watch", "/listen", "/auth", "/privacidade", "/termos", "/studio", "/admin"];
 
 export function MobileBottomNav() {
   const location = useLocation();

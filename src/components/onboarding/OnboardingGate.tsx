@@ -11,7 +11,7 @@ export function OnboardingGate() {
     if (
       !user ||
       loading ||
-      ["/auth", "/reset-password", "/onboarding"].includes(location.pathname)
+      ["/auth", "/reset-password", "/onboarding", "/privacidade", "/termos"].includes(location.pathname)
     )
       return;
     getOnboarding()

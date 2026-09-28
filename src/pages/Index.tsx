@@ -1,3 +1,4 @@
+import { LegalLinks } from "@/components/LegalLinks";
 import { useState, useEffect } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useNavigate, useSearchParams, useLocation } from "react-router-dom";
@@ -674,6 +675,7 @@ export default function Index() {
                 )}
               </div>
             )}
+      <footer className="px-6 py-8"><LegalLinks /></footer>
     </AppShell>
   );
 }

@@ -1,3 +1,4 @@
+import { LegalLinks } from "@/components/LegalLinks";
 import { useState, useEffect, useCallback } from "react";
 import { useLocation } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
@@ -749,15 +750,16 @@ export default function Auth() {
               {!isLogin && (
                 <p className="text-xs text-center text-muted-foreground">
                   Ao criar uma conta, você concorda com nossos{" "}
-                  <a href="#" className="text-primary hover:underline">
+                  <a href="/termos" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">
                     Termos de Uso
                   </a>{" "}
                   e{" "}
-                  <a href="#" className="text-primary hover:underline">
+                  <a href="/privacidade" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">
                     Política de Privacidade
                   </a>
                 </p>
               )}
+              {isLogin && <LegalLinks />}
             </motion.form>
           </AnimatePresence>
         </motion.div>

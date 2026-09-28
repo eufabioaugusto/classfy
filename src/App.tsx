@@ -19,6 +19,7 @@ import { useIsMobile } from "@/hooks/use-mobile";
 // Lazy load all pages for maximum code splitting
 const Onboarding = lazy(() => import("./pages/Onboarding"));
 const Index = lazy(() => import("./pages/Index"));
+const Legal = lazy(() => import("./pages/Legal"));
 const Auth = lazy(() => import("./pages/Auth"));
 const Conta = lazy(() => import("./pages/Conta"));
 const Historico = lazy(() => import("./pages/Historico"));
@@ -133,6 +134,8 @@ function AppContent() {
       <Route path="/" element={<Index />} />
       <Route path="/onboarding" element={<Onboarding />} />
       <Route path="/auth" element={<Auth />} />
+      <Route path="/privacidade" element={<Legal kind="privacy" />} />
+      <Route path="/termos" element={<Legal kind="terms" />} />
       <Route path="/reset-password" element={<ResetPassword />} />
       <Route path="/conta" element={<Conta />} />
       <Route path="/historico" element={<Historico />} />
