@@ -405,7 +405,7 @@ export default function Onboarding() {
                     <strong className="ob-earned-title">Você <b>GANHOU</b> 20 points</strong>
                     <span>Seu bônus de boas-vindas ao concluir</span>
                     <div className="ob-track">
-                      <i style={{ width: "25%" }} />
+                      <i style={{ width: "100%" }} />
                     </div>
                     <small>
                       Um primeiro passo para suas próximas conquistas.

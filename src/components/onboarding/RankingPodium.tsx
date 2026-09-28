@@ -34,7 +34,6 @@ export function RankingPodium({ name }: { name: string }) {
         </div>
       </div>
       <div className="ob-ranking-caption"><TrendingUp /><span>Cada descoberta conta.<strong>Continue construindo sua evolução.</strong></span></div>
-      <small className="ob-ranking-example">Ranking ilustrativo</small>
     </aside>
   );
 }

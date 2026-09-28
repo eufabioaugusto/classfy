@@ -1540,8 +1540,8 @@
   background: radial-gradient(ellipse at 50% 52%, #ffe1e9, transparent 66%), linear-gradient(150deg, #fff8fa, #f7f1f2);
   border: 1px solid #f5e5e9;
 }
-.ob-ranking-heading { position: relative; z-index: 1; }
-.ob-ranking-kicker { display: flex; align-items: center; gap: 8px; font-size: 9px; font-weight: 650; letter-spacing: 1.6px; color: var(--ob-red); }
+.ob-ranking-heading { position: relative; z-index: 1; text-align: center; }
+.ob-ranking-kicker { display: flex; justify-content: center; align-items: center; gap: 8px; font-size: 9px; font-weight: 650; letter-spacing: 1.6px; color: var(--ob-red); }
 .ob-ranking-kicker svg { width: 15px; height: 15px; }
 .ob-ranking-heading h2 { margin: 16px 0 10px; font-size: 34px; line-height: 1.12; letter-spacing: -1.2px; font-weight: 700; }
 .ob-ranking-heading h2 em { font-style: normal; color: var(--ob-red); }
@@ -1573,7 +1573,6 @@
 .ob-ranking-caption > svg { color: var(--ob-red); width: 23px; flex-shrink: 0; }
 .ob-ranking-caption span { font-size: 12px; line-height: 1.5; }
 .ob-ranking-caption strong { display: block; font-size: 11px; color: #888087; font-weight: 400; }
-.ob-ranking-example { display: block; text-align: center; color: #a4989c; font-size: 9px; margin-top: 13px; }
 @keyframes ob-podium-rise { from { opacity: 0; transform: translateY(35px); } to { opacity: 1; transform: translateY(0); } }
 @media (max-width: 850px) { .ob-ranking { padding: 26px 18px 18px; } .ob-ranking-heading h2 { font-size: 29px; } .ob-ranking-person small { font-size: 9px; padding: 4px; } }
 @media (max-width: 640px) { .ob-ranking { border-radius: 22px; padding: 24px; } .ob-ranking-heading h2 { font-size: 28px; } .ob-ranking-scene { height: 295px; margin-bottom: 18px; } }
