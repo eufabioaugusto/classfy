@@ -268,7 +268,7 @@ export default function Onboarding() {
                       <span>
                         <strong>Quero assistir e aprender</strong>
                         <small>
-                          Boas ideias, creators e novas descobertas.
+                          Desenvolva novas habilidades e amplie seu conhecimento.
                         </small>
                       </span>
                       <Check />
@@ -284,7 +284,7 @@ export default function Onboarding() {
                       <Video fill={journey === "creator" ? "currentColor" : "none"} />
                       <span>
                         <strong>Quero compartilhar o que sei</strong>
-                        <small>Prepare seu perfil e comece como creator.</small>
+                        <small>Ensine o que você sabe e seja reconhecido por isso.</small>
                       </span>
                       <Check />
                     </button>
