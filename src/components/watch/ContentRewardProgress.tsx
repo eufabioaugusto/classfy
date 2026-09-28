@@ -749,7 +749,7 @@ export function ContentRewardProgress({
         <>
           {!compact && <div className="w-px h-4 bg-border/60 shrink-0" />}
           <motion.div
-            className={cn("relative isolate flex shrink-0 items-center gap-1.5 overflow-hidden rounded-full border border-emerald-400/45 bg-emerald-500/12 px-2.5 py-1 text-emerald-500 shadow-[0_0_14px_rgba(16,185,129,0.12)]", compact && "ml-auto")}
+            className={cn("relative isolate flex shrink-0 items-center gap-1.5 overflow-hidden rounded-full border border-emerald-600 bg-emerald-600 px-2 py-0.5 text-white shadow-[0_0_14px_rgba(16,185,129,0.12)]", compact && "ml-auto")}
             animate={
               reduceMotion
                 ? undefined
@@ -777,7 +777,7 @@ export function ContentRewardProgress({
                 }}
               />
             )}
-            <span className="relative text-xs font-bold tracking-wide">
+            <span className="relative text-[10px] font-semibold tracking-wide">
               Completo
             </span>
           </motion.div>
