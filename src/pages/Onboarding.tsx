@@ -26,6 +26,8 @@ import { ClassyChatDemo } from "@/components/onboarding/ClassyChatDemo";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { OnboardingDemo } from "@/components/onboarding/OnboardingDemo";
 import { RankingPodium } from "@/components/onboarding/RankingPodium";
+import heroEducadora from "@/assets/front-v2/hero-educadora.jpg";
+import { PLAN_OFFERS } from "@/config/planOffers";
 import "./onboarding.css";
 const topics = [
   "Desenvolvimento pessoal",
@@ -235,6 +237,17 @@ export default function Onboarding() {
               )
             ) : step === 3 ? (
               <RankingPodium name={name} />
+            ) : step === 4 ? (
+              <aside className="ob-editorial">
+                <img src={heroEducadora} alt="Educadora em uma biblioteca, pronta para compartilhar conhecimento" />
+                <div className="ob-editorial-shade" />
+                <span className="ob-editorial-tag"><Check /> SELEÇÃO CLASSFY</span>
+                <div className="ob-editorial-copy">
+                  <span>CONHECIMENTO QUE INSPIRA</span>
+                  <h2>Gente que ensina.<br />Conteúdo que transforma.</h2>
+                  <p>Descubra novas perspectivas com quem tem algo para compartilhar.</p>
+                </div>
+              </aside>
             ) : (
               <aside className="ob-art" aria-hidden="true">
                 <div className="ob-art-orbit" />
@@ -460,6 +473,7 @@ export default function Onboarding() {
                       <strong>Classfy Pro</strong>
                       <span>Mais liberdade para assistir e estudar.</span>
                     </div>
+                    <div className="ob-plan-price"><b>R$ {PLAN_OFFERS.pro.price}</b><small>/mês</small></div>
                   </div>
                   <div className="ob-plan">
                     <Crown className="ob-crown-premium" />
@@ -467,6 +481,7 @@ export default function Onboarding() {
                       <strong>Classfy Premium</strong>
                       <span>Explore a experiência completa da Classfy.</span>
                     </div>
+                    <div className="ob-plan-price"><b>R$ {PLAN_OFFERS.premium.price}</b><small>/mês</small></div>
                   </div>
                   <p className="ob-disclaimer">
                     Confira recursos, preços e condições na página de planos. A
