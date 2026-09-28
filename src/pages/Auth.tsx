@@ -1,4 +1,5 @@
 import { LegalLinks } from "@/components/LegalLinks";
+import { readLastLoginMethod, startPendingGoogleLogin, clearPendingGoogleLogin } from "@/lib/lastLoginMethod";
 import { useState, useEffect, useCallback } from "react";
 import { useLocation } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
@@ -36,6 +37,7 @@ export default function Auth() {
   const [loading, setLoading] = useState(false);
   const [googleAvailable, setGoogleAvailable] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
+  const [lastLoginMethod] = useState(readLastLoginMethod);
   const location = useLocation();
   const [backgroundVideos, setBackgroundVideos] = useState<string[]>([]);
   const [currentVideoIndex, setCurrentVideoIndex] = useState(0);
@@ -73,12 +75,14 @@ export default function Auth() {
     const safeRedirectUrl = redirectUrl.origin === window.location.origin
       ? redirectUrl.href : `${window.location.origin}/`;
     try {
+      startPendingGoogleLogin();
       const { error } = await supabase.auth.signInWithOAuth({
         provider: "google",
         options: { redirectTo: safeRedirectUrl },
       });
       if (error) throw error;
     } catch {
+      clearPendingGoogleLogin();
       toast({
         title: "Não foi possível entrar com Google",
         description: "Tente novamente ou use seu email e senha.",
@@ -688,9 +692,10 @@ export default function Auth() {
 
               <Button
                 type="submit"
-                className="w-full h-12 text-base font-semibold bg-primary hover:bg-primary/90 transition-all"
+                className="relative w-full h-12 text-base font-semibold bg-primary hover:bg-primary/90 transition-all"
                 disabled={loading || (!!TURNSTILE_SITE_KEY && !turnstileToken && !turnstileUnavailable)}
               >
+                {isLogin && lastLoginMethod === "email" && <span className="absolute -top-3 right-3 rounded-full border border-primary/20 bg-background px-2.5 py-0.5 text-[11px] font-medium text-primary shadow-sm">Usado pela última vez</span>}
                 {loading ? (
                   <>
                     <Loader2 className="w-4 h-4 mr-2 animate-spin" />
@@ -716,7 +721,8 @@ export default function Auth() {
               </div>
 
               {/* Google OAuth */}
-              <div>
+              <div className="relative">
+                {isLogin && lastLoginMethod === "google" && <span className="pointer-events-none absolute -top-3 right-3 z-10 rounded-full border border-primary/20 bg-background px-2.5 py-0.5 text-[11px] font-medium text-primary shadow-sm">Usado pela última vez</span>}
                 <Button
                   type="button"
                   variant="outline"

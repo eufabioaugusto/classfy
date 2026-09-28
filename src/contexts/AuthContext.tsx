@@ -1,4 +1,5 @@
 import { readReferralClaim, clearReferralClaim } from "@/lib/referrals/attribution";
+import { clearPendingGoogleLogin, rememberCompletedGoogleLogin, rememberLoginMethod } from "@/lib/lastLoginMethod";
 import React, { createContext, useContext, useEffect, useState, useRef } from "react";
 import { User, Session } from "@supabase/supabase-js";
 import { supabase } from "@/integrations/supabase/client";
@@ -190,6 +191,9 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         
         // Only process for specific events, not every state change
         if (session?.user) {
+          if (event === 'SIGNED_IN' || event === 'INITIAL_SESSION') {
+            rememberCompletedGoogleLogin(session.user.last_sign_in_at);
+          }
           // Only fetch profile on meaningful events
           if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED' || event === 'INITIAL_SESSION') {
             setTimeout(() => {
@@ -247,12 +251,14 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   }, []);
 
   const signIn = async (email: string, password: string) => {
+    clearPendingGoogleLogin();
     const { error } = await supabase.auth.signInWithPassword({
       email,
       password,
     });
     
     if (!error) {
+      rememberLoginMethod("email");
       const requestedPath = (location.state as { from?: unknown } | null)?.from;
       const destination = typeof requestedPath === 'string'
         && requestedPath.startsWith('/') && !requestedPath.startsWith('//')
