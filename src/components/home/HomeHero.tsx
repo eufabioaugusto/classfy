@@ -1,4 +1,4 @@
-import { ArrowRight, Clock, Play, Sparkles } from "lucide-react";
+import { ArrowRight, Clock, Play } from "lucide-react";
 import { PlanCrown } from "@/components/plans/PlanCrown";
 import heroFallbackImage from "@/assets/front-v2/hero-educadora.jpg";
 
@@ -115,7 +115,6 @@ export function HomeHero({ content, onPlay, onOpenFocus, primaryLabel }: HomeHer
           </button>
           {content.show_secondary !== false && (
             <button type="button" className="cf2-home-hero__secondary" onClick={onOpenFocus}>
-              <Sparkles aria-hidden="true" />
               {content.secondary_label || "Estudar com a Classy"}
               <ArrowRight aria-hidden="true" />
             </button>
