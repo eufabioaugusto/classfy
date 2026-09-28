@@ -18,6 +18,9 @@ import {
   Settings,
   ChevronLeft,
   ChevronRight,
+  StickyNote,
+  Clock,
+  Check,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
@@ -115,6 +118,8 @@ export function UnifiedVideoPlayer({
   const hlsRef = useRef<Hls | null>(null);
   const [noteModalOpen, setNoteModalOpen] = useState(false);
   const [noteText, setNoteText] = useState("");
+  const [noteSaving, setNoteSaving] = useState(false);
+  const [noteError, setNoteError] = useState("");
   const [noteTimestamp, setNoteTimestamp] = useState(0);
   const [noteMarkers, setNoteMarkers] = useState<number[]>([]);
   const [isFullscreen, setIsFullscreen] = useState(false);
@@ -723,6 +728,7 @@ export function UnifiedVideoPlayer({
 
   // ── Note ──────────────────────────────────────────────────────────────────
   const openNoteModal = () => {
+    setNoteError("");
     setNoteTimestamp(Math.floor(currentTime));
     setNoteModalOpen(true);
     const media = mediaRef.current;
@@ -730,17 +736,19 @@ export function UnifiedVideoPlayer({
   };
 
   const handleSaveNote = async () => {
-    if (!noteText.trim() || !user) { toast.error("Digite uma nota antes de salvar"); return; }
+    if (noteSaving || !noteText.trim() || !user) return;
+    setNoteSaving(true);
+    setNoteError("");
     try {
       const { error } = await supabase.from("study_notes").insert({
         user_id: user.id,
         content_id: content.content_id ?? null,
         lesson_id: content.lesson_id ?? null,
         study_id: null,
-        note_text: noteText,
+        note_text: noteText.trim(),
         timestamp_seconds: noteTimestamp,
       });
-      if (error) { toast.error("Erro ao salvar nota"); return; }
+      if (error) throw error;
       setNoteMarkers((prev) => [...prev, noteTimestamp]);
       toast.success("Nota salva!");
       setNoteModalOpen(false);
@@ -749,7 +757,9 @@ export function UnifiedVideoPlayer({
       const media = mediaRef.current;
       if (media) { media.play(); setIsPlaying(true); }
     } catch {
-      toast.error("Erro ao salvar nota");
+      setNoteError("Não foi possível salvar. Seu texto foi mantido; tente novamente.");
+    } finally {
+      setNoteSaving(false);
     }
   };
 
@@ -1205,24 +1215,32 @@ export function UnifiedVideoPlayer({
           </div>
       </div>
 
-      {/* Note Modal */}
-      <Dialog open={noteModalOpen} onOpenChange={setNoteModalOpen}>
-        <DialogContent portalContainer={isFullscreen ? containerRef.current : undefined}>
-          <DialogHeader>
-            <DialogTitle>Adicionar Nota</DialogTitle>
-            <DialogDescription>Timestamp: {formatTime(noteTimestamp)}</DialogDescription>
+      {/* Quick note uses the same visual language as the study tools. */}
+      <Dialog open={noteModalOpen} onOpenChange={(open) => { if (!noteSaving) setNoteModalOpen(open); }}>
+        <DialogContent portalContainer={isFullscreen ? containerRef.current : undefined}
+          className="w-[calc(100%-32px)] max-w-[460px] max-h-[85dvh] overflow-y-auto rounded-[24px] sm:rounded-[24px] border-border/60 p-0 gap-0 shadow-2xl [&>button]:right-5 [&>button]:top-5 [&>button]:rounded-full [&>button]:bg-muted/60 [&>button]:p-2">
+          <DialogHeader className="px-6 pt-6 pb-5 text-left sm:text-left">
+            <div className="mb-3 flex h-11 w-11 items-center justify-center rounded-2xl bg-red-500/10"><StickyNote className="h-5 w-5 text-red-500" aria-hidden="true" /></div>
+            <DialogTitle className="text-xl font-semibold tracking-tight">Nova anotação</DialogTitle>
+            <DialogDescription className="text-sm leading-relaxed">Guarde uma ideia para voltar a este momento.</DialogDescription>
           </DialogHeader>
-          <div className="space-y-4">
-            <Textarea
-              value={noteText}
-              onChange={(e) => setNoteText(e.target.value)}
-              placeholder="Digite sua nota aqui..."
-              rows={5}
-              autoFocus
-            />
-            <div className="flex justify-end gap-2">
-              <Button variant="outline" onClick={() => setNoteModalOpen(false)}>Cancelar</Button>
-              <Button onClick={handleSaveNote}>Salvar Nota</Button>
+          <div className="px-6 pb-6">
+            <div className="mb-4 flex min-w-0 items-center gap-3">
+              <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-red-500/10 px-2.5 py-1 text-xs font-semibold text-red-500"><Clock className="h-3.5 w-3.5" aria-hidden="true" />{formatTime(noteTimestamp)}</span>
+              <span className="truncate text-xs text-muted-foreground">{content.title}</span>
+            </div>
+            <label htmlFor="player-quick-note" className="sr-only">Sua anotação</label>
+            <Textarea id="player-quick-note" value={noteText} onChange={(e) => setNoteText(e.target.value)}
+              placeholder="O que você quer guardar desta aula?" rows={5} autoFocus disabled={noteSaving}
+              className="min-h-[156px] resize-none rounded-2xl border-border/70 bg-muted/25 p-4 text-sm leading-relaxed shadow-none focus-visible:border-red-500/40 focus-visible:ring-red-500/20 focus-visible:ring-offset-0" />
+            <p className="mt-2 text-xs text-muted-foreground">Sua anotação fica salva com o horário do vídeo.</p>
+            {noteError && <p role="alert" className="mt-3 rounded-xl bg-red-500/5 p-3 text-sm text-red-500">{noteError}</p>}
+            <div className="mt-5 flex gap-3">
+              <Button variant="ghost" disabled={noteSaving} onClick={() => setNoteModalOpen(false)} className="h-11 rounded-xl px-4 text-muted-foreground">Cancelar</Button>
+              <Button onClick={handleSaveNote} disabled={noteSaving || !noteText.trim() || !user} className="h-11 flex-1 gap-2 rounded-xl bg-red-500 text-white shadow-none hover:bg-red-600">
+                {noteSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
+                {noteSaving ? "Salvando..." : "Salvar anotação"}
+              </Button>
             </div>
           </div>
         </DialogContent>
