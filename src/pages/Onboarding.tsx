@@ -3,17 +3,14 @@ import { Link, useNavigate } from "react-router-dom";
 import {
   ArrowLeft,
   ArrowRight,
-  Bookmark,
   Check,
   ChevronRight,
   Crown,
   Coins,
-  Heart,
   Loader2,
   Play,
   Trophy,
   Zap,
-  BookOpen,
   Video,
   Users,
 } from "lucide-react";
@@ -25,6 +22,7 @@ import {
 } from "@/components/onboarding/api";
 import { BecomeCreatorModal } from "@/components/BecomeCreatorModal";
 import { dispatchRewardEarned } from "@/lib/rewards/events";
+import { OnboardingDemo } from "@/components/onboarding/OnboardingDemo";
 import "./onboarding.css";
 const topics = [
   "Desenvolvimento pessoal",
@@ -36,18 +34,6 @@ const topics = [
   "Finanças",
   "Carreira",
   "Outros",
-];
-const labels = [
-  "Assista a uma ideia",
-  "Curta o que fez sentido",
-  "Salve para voltar depois",
-  "Transforme em aprendizado",
-];
-const copy = [
-  "Na Classfy, assistir também faz parte da sua evolução. Experimente dar play.",
-  "Gostou? Curta. Você participa e ajuda boas ideias a circularem.",
-  "Uma ideia para guardar. Salve e encontre depois na sua biblioteca.",
-  "A Classy ajuda você a aprofundar. Responda uma pergunta rápida.",
 ];
 const steps = [
   "Seu caminho",
@@ -77,13 +63,10 @@ export default function Onboarding() {
     [goal, setGoal] = useState("descobrir");
   const [actions, setActions] = useState<string[]>([]),
     [burst, setBurst] = useState(0),
-    [playing, setPlaying] = useState(false),
-    [answer, setAnswer] = useState(false),
     [completed, setCompleted] = useState(false),
     [preview, setPreview] = useState(false);
   const [creatorOpen, setCreatorOpen] = useState(false);
   const isCreator = journey === "creator";
-  const count = actions.length;
   useEffect(() => {
     if (authLoading) return;
     if (!user) {
@@ -109,7 +92,10 @@ export default function Onboarding() {
         setJourney(state?.journey || (role === "creator" ? "creator" : "user"));
         setInterests(state?.answers.interests || []);
         setBio(state?.answers.bio ?? profile?.bio ?? "");
-        setGoal(state?.answers.goal || (role === "creator" ? "publicar" : "descobrir"));
+        setGoal(
+          state?.answers.goal ||
+            (role === "creator" ? "publicar" : "descobrir"),
+        );
         setActions(state?.demo_actions || []);
         setStep(state?.step || 0);
         setCompleted(!!state?.completed_at);
@@ -173,27 +159,21 @@ export default function Onboarding() {
     }
   };
   const act = async (action: string) => {
-    if (busy || actions.includes(action)) return;
+    if (busy || actions.includes(action)) return false;
     setBusy(true);
     setError("");
     try {
       if (preview) setActions((a) => [...a, action]);
       else await persist(2, action);
       setBurst((b) => b + 1);
+      return true;
     } catch {
       setError("Não foi possível registrar esta etapa. Tente novamente.");
+      return false;
     } finally {
       setBusy(false);
     }
   };
-  useEffect(() => {
-    if (!playing) return;
-    const timer = window.setTimeout(() => {
-      setPlaying(false);
-      void act("view");
-    }, 3200);
-    return () => clearTimeout(timer);
-  }, [playing]);
   const destination = isCreator
     ? profile?.creator_status === "approved"
       ? "/studio/upload"
@@ -205,14 +185,17 @@ export default function Onboarding() {
       : step === 1
         ? name.trim().length >= 2 && interests.length > 0
         : step === 2
-          ? count === 4
+          ? actions.includes("study") &&
+            (actions.includes("share") || completed)
           : true;
   return (
     <main className="cf-onboarding">
       <header className="ob-header">
         <span className="ob-logo">Classfy</span>
         <span>
-          {preview ? "PRÉVIA • SEM BÔNUS REAL" : "SEU PRIMEIRO CAPÍTULO"}
+          {preview
+            ? "PRÉVIA • SEM BÔNUS REAL"
+            : "APRENDA. COMPARTILHE. EVOLUA."}
         </span>
       </header>
       {loading ? (
@@ -265,11 +248,14 @@ export default function Onboarding() {
                         setGoal("descobrir");
                       }}
                     >
-                      <Play fill={journey === "user" ? "currentColor" : "none"} />
+                      <Play
+                        fill={journey === "user" ? "currentColor" : "none"}
+                      />
                       <span>
                         <strong>Quero assistir e aprender</strong>
                         <small>
-                          Desenvolva novas habilidades e amplie seu conhecimento.
+                          Desenvolva novas habilidades e amplie seu
+                          conhecimento.
                         </small>
                       </span>
                       <Check />
@@ -282,16 +268,21 @@ export default function Onboarding() {
                         setGoal("publicar");
                       }}
                     >
-                      <Video fill={journey === "creator" ? "currentColor" : "none"} />
+                      <Video
+                        fill={journey === "creator" ? "currentColor" : "none"}
+                      />
                       <span>
                         <strong>Quero compartilhar o que sei</strong>
-                        <small>Ensine o que você sabe e seja reconhecido por isso.</small>
+                        <small>
+                          Ensine o que você sabe e seja reconhecido por isso.
+                        </small>
                       </span>
                       <Check />
                     </button>
                   </div>
                   <div className="ob-note">
-                    <Coins /> Na Classfy, quem aprende e quem ensina pode ganhar.
+                    <Coins /> Na Classfy, quem aprende e quem ensina pode
+                    ganhar.
                   </div>
                 </>
               )}
@@ -357,108 +348,16 @@ export default function Onboarding() {
               {step === 2 && (
                 <>
                   <span className="ob-eyebrow">EXPERIMENTE NA PRÁTICA</span>
-                  <h1>{count < 4 ? labels[count] : "Você pegou o jeito."}</h1>
+                  <h1>Aprenda e ganhe a cada descoberta.</h1>
                   <p>
-                    {count < 4
-                      ? copy[count]
-                      : "Assistir, participar e estudar fazem sua jornada avançar."}
+                    Assistir é evoluir. Dê play, descubra algo novo e veja suas
+                    ações virarem Points.
                   </p>
-                  <div className="ob-demo">
-                    <div className="ob-demo-visual">
-                      <span>DEMONSTRAÇÃO</span>
-                      <BookOpen size={65} />
-                      <strong>Uma boa ideia pode ser o começo.</strong>
-                      {count === 0 && (
-                        <button
-                          aria-label="Assistir demonstração"
-                          disabled={playing || busy}
-                          onClick={() => setPlaying(true)}
-                        >
-                          {playing ? (
-                            <Loader2 className="animate-spin" />
-                          ) : (
-                            <Play fill="currentColor" />
-                          )}
-                        </button>
-                      )}
-                      <div
-                        className={`ob-video-track ${playing ? "playing" : ""}`}
-                      >
-                        <i style={{ width: count ? "100%" : undefined }} />
-                      </div>
-                    </div>
-                    <div className="ob-demo-actions">
-                      <button
-                        disabled={count !== 1 || busy}
-                        className={actions.includes("like") ? "active" : ""}
-                        onClick={() => void act("like")}
-                      >
-                        <Heart
-                          fill={
-                            actions.includes("like") ? "currentColor" : "none"
-                          }
-                        />{" "}
-                        Curtir
-                      </button>
-                      <button
-                        disabled={count !== 2 || busy}
-                        className={actions.includes("save") ? "active" : ""}
-                        onClick={() => void act("save")}
-                      >
-                        <Bookmark
-                          fill={
-                            actions.includes("save") ? "currentColor" : "none"
-                          }
-                        />{" "}
-                        Salvar
-                      </button>
-                      <span className="ob-demo-counter">
-                        <Zap />
-                        {count * 5} / 20
-                      </span>
-                    </div>
-                    {count === 3 && (
-                      <div className="ob-quiz">
-                        <strong>
-                          Qual é uma boa forma de aprofundar uma ideia?
-                        </strong>
-                        <button disabled={busy} onClick={() => setAnswer(true)}>
-                          Usar um quiz ou guardar uma anotação{" "}
-                          {answer && <Check />}
-                        </button>
-                        {answer && (
-                          <button
-                            className="ob-primary"
-                            disabled={busy}
-                            onClick={() => void act("study")}
-                          >
-                            Concluir meu primeiro estudo <ArrowRight />
-                          </button>
-                        )}
-                      </div>
-                    )}
-                    {count === 4 && (
-                      <div className="ob-demo-done">
-                        <Check /> Quatro ações. Sua primeira conquista.
-                      </div>
-                    )}
-                  </div>
-                  <div
-                    className="ob-gain"
-                    key={burst}
-                    role="status"
-                    aria-live="polite"
-                  >
-                    {burst > 0 && (
-                      <>
-                        <Zap /> +5 Points de demonstração <span>✦</span>
-                      </>
-                    )}
-                  </div>
-                  <small className="ob-disclaimer">
-                    Esta é uma simulação. Ao concluir o onboarding, você recebe
-                    um bônus real de 20 Points, uma única vez.
-                  </small>
+                  <OnboardingDemo
+                    actions={actions}
+                    busy={busy}
+                    onAction={act}
+                  />
                 </>
               )}
               {step === 3 && (
@@ -614,7 +513,6 @@ export default function Onboarding() {
                       setStep(0);
                       setActions([]);
                       setBurst(0);
-                      setAnswer(false);
                     }}
                   >
                     Rever a experiência

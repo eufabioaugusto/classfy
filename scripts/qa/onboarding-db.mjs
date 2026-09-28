@@ -28,6 +28,12 @@ await db.exec(
     "utf8",
   ),
 );
+await db.exec(
+  await readFile(
+    "supabase/migrations/20260928190000_onboarding_demo_share.sql",
+    "utf8",
+  ),
+);
 const uid = "00000000-0000-4000-8000-000000000001";
 await db.query("INSERT INTO auth.users VALUES($1)", [uid]);
 await db.query("INSERT INTO profiles(id,display_name) VALUES($1,$2)", [
@@ -75,17 +81,24 @@ await assert.rejects(
   db.query("SELECT save_onboarding_v1(2,'{}','save')"),
   /action_out_of_order/,
 );
-for (const action of ["view", "like", "save", "study"])
+await assert.rejects(
+  db.query("SELECT save_onboarding_v1(2,'{}','share')"),
+  /action_out_of_order/,
+);
+for (const action of ["view", "like", "save", "share", "study"])
   await db.query("SELECT save_onboarding_v1(2,'{}',$1)", [action]);
 await db.query("SELECT save_onboarding_v1(2,'{}','study')");
 assert.equal(
   (await db.query("SELECT cardinality(demo_actions) n FROM user_onboarding"))
     .rows[0].n,
-  4,
+  5,
 );
 await db.query("SELECT save_onboarding_v1(3,'{}')");
 await db.query("SELECT save_onboarding_v1(4,'{}')");
-await assert.rejects(db.query(`SELECT save_onboarding_v1(5,'{"interests":[]}')`), /profile_incomplete/);
+await assert.rejects(
+  db.query(`SELECT save_onboarding_v1(5,'{"interests":[]}')`),
+  /profile_incomplete/,
+);
 for (let i = 0; i < 4; i++) await db.query("SELECT save_onboarding_v1(5,'{}')");
 assert.equal(
   (await db.query("SELECT count(*)::int n FROM reward_events")).rows[0].n,
@@ -110,11 +123,45 @@ assert.equal(
   (await db.query("SELECT display_name FROM profiles")).rows[0].display_name,
   "Pessoa",
 );
-await db.exec('SET ROLE authenticated');
-assert.equal((await db.query('SELECT count(*)::int n FROM user_onboarding')).rows[0].n, 1);
-await db.query("SELECT set_config('request.jwt.claim.sub',$1,false)", ['00000000-0000-4000-8000-000000000002']);
-assert.equal((await db.query('SELECT count(*)::int n FROM user_onboarding')).rows[0].n, 0);
-await db.exec('RESET ROLE');
+// Old clients and saved journeys can still complete their original four-action flow.
+const legacy = "00000000-0000-4000-8000-000000000003";
+await db.query("INSERT INTO auth.users VALUES($1)", [legacy]);
+await db.query("INSERT INTO profiles(id) VALUES($1)", [legacy]);
+await db.query("SELECT set_config('request.jwt.claim.sub',$1,false)", [legacy]);
+await db.query(
+  `SELECT save_onboarding_v1(1,'{"name":"Legado","interests":["Carreira"]}')`,
+);
+await db.query("SELECT save_onboarding_v1(2,'{}')");
+for (const action of ["view", "like", "save", "study"])
+  await db.query("SELECT save_onboarding_v1(2,'{}',$1)", [action]);
+await db.query("SELECT save_onboarding_v1(3,'{}')");
+await db.query("SELECT save_onboarding_v1(2,'{}','share')");
+await db.query("SELECT save_onboarding_v1(4,'{}')");
+await db.query("SELECT save_onboarding_v1(5,'{}')");
+await db.query("SELECT save_onboarding_v1(5,'{}','share')");
+assert.equal(
+  (
+    await db.query(
+      "SELECT count(*)::int n FROM reward_events WHERE user_id=$1",
+      [legacy],
+    )
+  ).rows[0].n,
+  1,
+);
+await db.query("SELECT set_config('request.jwt.claim.sub',$1,false)", [uid]);
+await db.exec("SET ROLE authenticated");
+assert.equal(
+  (await db.query("SELECT count(*)::int n FROM user_onboarding")).rows[0].n,
+  1,
+);
+await db.query("SELECT set_config('request.jwt.claim.sub',$1,false)", [
+  "00000000-0000-4000-8000-000000000002",
+]);
+assert.equal(
+  (await db.query("SELECT count(*)::int n FROM user_onboarding")).rows[0].n,
+  0,
+);
+await db.exec("RESET ROLE");
 console.log(
   "PASS: own auth, RPC permissions, ordered steps, resumed actions, duplicate completion, one 20-point ledger award, profile persistence.",
 );
