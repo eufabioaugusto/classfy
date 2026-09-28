@@ -35,6 +35,7 @@ const topics = [
   "Comunicação",
   "Finanças",
   "Carreira",
+  "Outros",
 ];
 const labels = [
   "Assista a uma ideia",
@@ -299,12 +300,12 @@ export default function Onboarding() {
                   <span className="ob-eyebrow">DO SEU JEITO</span>
                   <h1>
                     {isCreator
-                      ? "Seu conhecimento tem lugar aqui."
-                      : "Vamos encontrar seus próximos assuntos."}
+                      ? "O que você gosta de ensinar?"
+                      : "De quais assuntos você mais gosta?"}
                   </h1>
                   <p>
-                    Estas respostas já preparam seu perfil. Você pode editar
-                    depois.
+                    Conte um pouco sobre você. Você pode mudar essas informações
+                    quando quiser.
                   </p>
                   <label className="ob-label">
                     Como podemos chamar você?
