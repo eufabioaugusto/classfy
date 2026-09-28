@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { 
+  Play,
   Award,
   Wallet, 
   TrendingUp, 
@@ -359,6 +360,9 @@ export default function Conta() {
         />
       }>
 
+        <Button variant="outline" className="mb-5" onClick={()=>navigate("/onboarding")}>
+          <Play className="w-4 h-4 mr-2" /> Conheça a Classfy e seus Points
+        </Button>
         {/* Main Tabs */}
         <Tabs defaultValue="profile" className="account-v2__tabs">
           <TabsList className="account-v2__nav" aria-label="Seções de configurações">

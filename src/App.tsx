@@ -1,3 +1,4 @@
+import { OnboardingGate } from "@/components/onboarding/OnboardingGate";
 import { captureReferral } from "@/lib/referrals/attribution";
 import { AppNotifications } from "@/components/AppNotifications";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -16,6 +17,7 @@ import { MiniPlayer } from "./components/MiniPlayer";
 import { useIsMobile } from "@/hooks/use-mobile";
 
 // Lazy load all pages for maximum code splitting
+const Onboarding = lazy(() => import("./pages/Onboarding"));
 const Index = lazy(() => import("./pages/Index"));
 const Auth = lazy(() => import("./pages/Auth"));
 const Conta = lazy(() => import("./pages/Conta"));
@@ -129,6 +131,7 @@ function AppContent() {
   const mainRoutes = (
     <>
       <Route path="/" element={<Index />} />
+      <Route path="/onboarding" element={<Onboarding />} />
       <Route path="/auth" element={<Auth />} />
       <Route path="/reset-password" element={<ResetPassword />} />
       <Route path="/conta" element={<Conta />} />
@@ -181,6 +184,7 @@ function AppContent() {
 
   return (
     <>
+      <OnboardingGate />
       <RouteLoadBoundary>
         <Suspense fallback={liveOpening}>
           {backgroundLocation ? (
@@ -213,8 +217,8 @@ function AppContent() {
           />
         </Suspense>
       )}
-      {!isBroadcastRoute && !activeLiveId && <MiniPlayer />}
-      {!isBroadcastRoute && !liveRouteId && <MobileBottomNav />}
+      {!isBroadcastRoute && !activeLiveId && location.pathname !== "/onboarding" && <MiniPlayer />}
+      {!isBroadcastRoute && !liveRouteId && location.pathname !== "/onboarding" && <MobileBottomNav />}
     </>
   );
 }

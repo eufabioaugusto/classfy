@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -17,15 +17,18 @@ import { Sparkles, Loader2, AlertCircle, CheckCircle } from "lucide-react";
 interface BecomeCreatorModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  initialValues?: {channelName:string;bio:string};
 }
 
-export function BecomeCreatorModal({ open, onOpenChange }: BecomeCreatorModalProps) {
+export function BecomeCreatorModal({ open, onOpenChange, initialValues }: BecomeCreatorModalProps) {
   const { user, refreshProfile } = useAuth();
   const [channelName, setChannelName] = useState("");
   const [bio, setBio] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
+
+  useEffect(()=>{if(open&&initialValues){setChannelName(initialValues.channelName);setBio(initialValues.bio)}},[open]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -83,7 +86,7 @@ export function BecomeCreatorModal({ open, onOpenChange }: BecomeCreatorModalPro
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent overlayClassName={initialValues ? "ob-creator-overlay" : undefined} className={initialValues ? "ob-creator-dialog sm:max-w-md" : "sm:max-w-md"}>
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Sparkles className="w-5 h-5 text-cinematic-accent" />
