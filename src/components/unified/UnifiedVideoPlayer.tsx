@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useRef, useState, useCallback, type ComponentProps } from "react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import {
@@ -25,6 +25,7 @@ import {
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
 import { useMediaSession } from "@/hooks/useMediaSession";
@@ -38,6 +39,20 @@ import {
   resolveResumePosition,
   shouldRestartFromBeginning,
 } from "@/lib/video/resumePosition";
+
+function PlayerControl({ label, shortcut, children, ...props }: ComponentProps<typeof Button> & { label: string; shortcut?: string }) {
+  return (
+    <TooltipProvider delayDuration={350}>
+      <Tooltip>
+        <TooltipTrigger asChild><Button {...props} aria-label={label}>{children}</Button></TooltipTrigger>
+        <TooltipContent side="top" sideOffset={14} className="pointer-events-none flex items-center gap-2 rounded-md border-0 bg-neutral-900/95 px-2.5 py-1.5 text-xs font-medium text-white shadow-none" >
+          {label}
+          {shortcut && <kbd className="rounded border border-white/40 px-1.5 py-0.5 font-sans text-xs leading-none text-white/90">{shortcut}</kbd>}
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  );
+}
 
 export interface UnifiedVideoPlayerProps {
   content: {
@@ -966,18 +981,17 @@ export function UnifiedVideoPlayer({
               {/* Left side */}
               <div className="flex items-center gap-0.5 sm:gap-1">
                 {/* Skip back */}
-                <Button
+                <PlayerControl label="Voltar 10 segundos" shortcut="←"
                   size="icon"
                   variant="ghost"
                   onClick={() => skip(-10)}
                   className="text-white hover:bg-white/20 h-8 w-8 flex-shrink-0"
-                  title="Voltar 10s (←)"
                 >
                   <SkipBack className="w-4 h-4" />
-                </Button>
+                </PlayerControl>
 
                 {/* Play/Pause */}
-                <Button
+                <PlayerControl label={isPlaying ? "Pausar" : "Reproduzir"} shortcut="K"
                   size="icon"
                   variant="ghost"
                   onClick={togglePlay}
@@ -990,18 +1004,17 @@ export function UnifiedVideoPlayer({
                   className="text-white hover:bg-white/20 h-8 w-8 sm:h-9 sm:w-9 flex-shrink-0"
                 >
                   {isPlaying ? <Pause className="w-4 h-4 sm:w-5 sm:h-5" /> : <Play className="w-4 h-4 sm:w-5 sm:h-5" />}
-                </Button>
+                </PlayerControl>
 
                 {/* Skip forward */}
-                <Button
+                <PlayerControl label="Avançar 10 segundos" shortcut="→"
                   size="icon"
                   variant="ghost"
                   onClick={() => skip(10)}
                   className="text-white hover:bg-white/20 h-8 w-8 flex-shrink-0"
-                  title="Avançar 10s (→)"
                 >
                   <SkipForward className="w-4 h-4" />
-                </Button>
+                </PlayerControl>
 
                 {/* Volume */}
                 <div
@@ -1012,14 +1025,14 @@ export function UnifiedVideoPlayer({
                     volumeTimeoutRef.current = setTimeout(() => setShowVolumeSlider(false), 400);
                   }}
                 >
-                  <Button
+                  <PlayerControl label={isMuted || volume === 0 ? "Ativar som" : "Silenciar"} shortcut="M"
                     size="icon"
                     variant="ghost"
                     onClick={toggleMute}
                     className="text-white hover:bg-white/20 h-8 w-8 flex-shrink-0"
                   >
                     {isMuted || volume === 0 ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
-                  </Button>
+                  </PlayerControl>
 
                   <div
                     className={cn(
@@ -1052,20 +1065,19 @@ export function UnifiedVideoPlayer({
               <div className="flex items-center gap-0.5 sm:gap-1 flex-shrink-0">
                 {/* Note button */}
                 {showNoteButton && (
-                  <Button
+                  <PlayerControl label="Adicionar anotação"
                     size="icon"
                     variant="ghost"
                     onClick={openNoteModal}
                     className="text-white hover:bg-white/20 h-8 w-8"
-                    title="Adicionar Nota"
                   >
                     <FileText className="w-4 h-4" />
-                  </Button>
+                  </PlayerControl>
                 )}
 
                 {/* Settings Gear (YouTube style) */}
                 <div className="relative">
-                  <Button
+                  <PlayerControl label="Configurações"
                     size="icon"
                     variant="ghost"
                     onClick={() => {
@@ -1073,10 +1085,9 @@ export function UnifiedVideoPlayer({
                       setSettingsSubMenu("main");
                     }}
                     className="text-white hover:bg-white/20 h-8 w-8"
-                    title="Configurações (Velocidade e Qualidade)"
                   >
                     <Settings className="w-4 h-4" />
-                  </Button>
+                  </PlayerControl>
 
                   {showSettingsMenu && (
                     <div className="absolute bottom-full right-0 mb-2 bg-black/60 backdrop-blur-md border border-white/10 rounded-xl shadow-2xl p-2 z-50 min-w-[245px] text-white animate-in fade-in slide-in-from-bottom-2 duration-200">
@@ -1186,28 +1197,26 @@ export function UnifiedVideoPlayer({
 
                 {/* Theater Mode */}
                 {isVideo && onTheaterModeToggle && (
-                  <Button
+                  <PlayerControl label={theaterMode ? "Sair do modo teatro" : "Modo teatro"}
                     size="icon"
                     variant="ghost"
                     onClick={onTheaterModeToggle}
                     className="text-white hover:bg-white/20 h-8 w-8 hidden md:flex"
-                    title={theaterMode ? "Sair do Modo Teatro" : "Modo Teatro"}
                   >
                     {theaterMode ? <Minimize2 className="w-4 h-4" /> : <RectangleHorizontal className="w-4 h-4" />}
-                  </Button>
+                  </PlayerControl>
                 )}
 
                 {/* Fullscreen */}
                 {isVideo && (
-                  <Button
+                  <PlayerControl label={isFullscreen ? "Sair da tela cheia" : "Tela inteira"} shortcut="F"
                     size="icon"
                     variant="ghost"
                     onClick={toggleFullscreen}
                     className="text-white hover:bg-white/20 h-8 w-8"
-                    title="Tela cheia (F)"
                   >
                     {isFullscreen ? <Minimize className="w-4 h-4" /> : <Maximize className="w-4 h-4" />}
-                  </Button>
+                  </PlayerControl>
                 )}
               </div>
             </div>
