@@ -1,5 +1,5 @@
 import { NavLink } from "@/components/NavLink";
-import { useLocation, useNavigate } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { useStudies } from "@/hooks/useStudies";
 import { useAdminPendingCounts } from "@/hooks/useAdminPendingCounts";
@@ -852,6 +852,15 @@ export function AppSidebar() {
                 </SidebarGroupContent>
               </SidebarGroup>
             </>
+          )}
+          {!collapsed && (
+            <footer className="px-4 pb-5 pt-3">
+              <nav aria-label="Informações legais" className="flex flex-wrap gap-x-3 gap-y-1 text-xs font-semibold text-muted-foreground">
+                <Link to="/termos" className="rounded-sm hover:text-foreground hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary">Termos</Link>
+                <Link to="/privacidade" className="rounded-sm hover:text-foreground hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary">Privacidade</Link>
+              </nav>
+              <p className="mt-4 text-xs text-muted-foreground/70">© 2026 Classfy</p>
+            </footer>
           )}
         </SidebarContent>
 
