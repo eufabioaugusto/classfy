@@ -79,26 +79,34 @@ export function ClassyChatDemo({ name, actions, busy, onStudy }: Props) {
           </>
         )}
       </div>
-      <div className="ob-classy-composer">
-        <textarea
-          aria-label="Resposta para a Classy"
-          readOnly
-          value={
-            studied
+      <button
+        className={`ob-classy-composer ob-classy-send ${studied ? "sent" : ""}`}
+        aria-label={
+          studied
+            ? "Exercício incluído no meu estudo"
+            : "Sim, incluir no meu estudo"
+        }
+        disabled={typing || !actions.includes("share") || busy || studied}
+        onClick={() => void onStudy()}
+      >
+        <span className="ob-classy-send-copy">
+          <strong>
+            {studied
               ? "Exercício incluído no meu estudo"
-              : "Sim, incluir no meu estudo"
-          }
-          rows={2}
-        />
-        <button
-          aria-label="Sim, incluir no meu estudo"
-          title="Enviar resposta para a Classy"
-          disabled={typing || !actions.includes("share") || busy || studied}
-          onClick={() => void onStudy()}
-        >
+              : "Sim, incluir no meu estudo"}
+          </strong>
+          <small>
+            {studied
+              ? "+5 Points conquistados"
+              : busy
+                ? "Enviando…"
+                : "Enviar resposta · +5 Points"}
+          </small>
+        </span>
+        <span className="ob-classy-send-icon" aria-hidden="true">
           {studied ? <Check /> : <ArrowUp />}
-        </button>
-      </div>
+        </span>
+      </button>
     </section>
   );
 }

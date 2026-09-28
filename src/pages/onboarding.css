@@ -1426,17 +1426,44 @@
   border-radius: 20px;
   background: hsl(var(--muted) / 0.45);
 }
-.ob-classy-composer textarea {
+.ob-classy-send {
+  text-align: left;
+  align-items: center;
+  cursor: pointer;
+  transition:
+    border-color 0.2s ease,
+    background 0.2s ease;
+}
+.ob-classy-send:not(:disabled) {
+  border-color: #ed174c66;
+  background: #ed174c08;
+}
+.ob-classy-send:not(:disabled):hover {
+  border-color: var(--ob-red);
+  background: #ed174c12;
+}
+.ob-classy-send:focus-visible {
+  outline: 2px solid var(--ob-red);
+  outline-offset: 3px;
+}
+.ob-classy-send:disabled {
+  cursor: default;
+}
+.ob-classy-send-copy {
+  display: grid;
+  gap: 5px;
   flex: 1;
   min-width: 0;
-  border: 0;
-  resize: none;
-  outline: none;
-  background: transparent;
-  font-size: 13px;
-  line-height: 1.6;
 }
-.ob-classy-composer button {
+.ob-classy-send-copy strong {
+  font-size: 13px;
+  font-weight: 550;
+}
+.ob-classy-send-copy small {
+  font-size: 11px;
+  color: var(--ob-red);
+}
+.ob-classy-send-icon {
   width: 34px;
   height: 34px;
   border-radius: 50%;
@@ -1446,17 +1473,18 @@
   color: white;
   flex-shrink: 0;
 }
-.ob-classy-composer button:disabled {
-  opacity: 0.35;
-  cursor: default;
-}
-.ob-classy-composer button:focus-visible {
-  outline: 2px solid var(--ob-red);
-  outline-offset: 3px;
-}
-.ob-classy-composer button svg {
+.ob-classy-send-icon svg {
   width: 18px;
   height: 18px;
+}
+.ob-classy-send:disabled:not(.sent) .ob-classy-send-icon {
+  opacity: 0.35;
+}
+.ob-classy-send.sent {
+  border-color: #22b57355;
+}
+.ob-classy-send.sent .ob-classy-send-icon {
+  background: #22b573;
 }
 .ob-classy-mobile {
   margin-top: 22px;
