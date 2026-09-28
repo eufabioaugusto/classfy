@@ -206,6 +206,13 @@ function WatchContent() {
 
   // Study toolbar state
   const [activeStudyPanel, setActiveStudyPanel] = useState<ToolPanel>(null);
+  const [fullscreenPortal, setFullscreenPortal] = useState<HTMLElement | null>(null);
+  useEffect(() => {
+    const syncFullscreenPortal = () => setFullscreenPortal(document.fullscreenElement as HTMLElement | null);
+    syncFullscreenPortal();
+    document.addEventListener("fullscreenchange", syncFullscreenPortal);
+    return () => document.removeEventListener("fullscreenchange", syncFullscreenPortal);
+  }, []);
   const [transcription, setTranscription] = useState<string>("");
   const [transcriptionLoading, setTranscriptionLoading] = useState(false);
   const [transcriptionError, setTranscriptionError] = useState("");
@@ -1746,6 +1753,7 @@ function WatchContent() {
           onOpenChange={(open) => !open && setActiveStudyPanel(null)}
         >
           <SheetContent
+            portalContainer={fullscreenPortal}
             side="right"
             className="w-full sm:w-[500px] sm:max-w-[600px] overflow-y-auto"
           >
@@ -1820,6 +1828,7 @@ function WatchContent() {
           onOpenChange={(open) => !open && setActiveStudyPanel(null)}
         >
           <SheetContent
+            portalContainer={fullscreenPortal}
             side="right"
             className="w-full sm:w-[500px] sm:max-w-[600px] overflow-y-auto"
           >
@@ -1845,6 +1854,7 @@ function WatchContent() {
           onOpenChange={(open) => !open && setActiveStudyPanel(null)}
         >
           <SheetContent
+            portalContainer={fullscreenPortal}
             side="right"
             className="w-full sm:w-[500px] sm:max-w-[600px] overflow-y-auto"
           >
@@ -1870,6 +1880,7 @@ function WatchContent() {
           onOpenChange={(open) => !open && setActiveStudyPanel(null)}
         >
           <SheetContent
+            portalContainer={fullscreenPortal}
             side="right"
             className="w-full sm:w-[500px] sm:max-w-[600px] overflow-y-auto"
           >
@@ -1891,6 +1902,7 @@ function WatchContent() {
           onOpenChange={(open) => !open && setActiveStudyPanel(null)}
         >
           <SheetContent
+            portalContainer={fullscreenPortal}
             side="right"
             className="w-full sm:w-[500px] sm:max-w-[600px] overflow-y-auto"
           >

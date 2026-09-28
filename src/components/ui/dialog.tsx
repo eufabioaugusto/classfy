@@ -29,13 +29,14 @@ const DialogContent = React.forwardRef<
   React.ElementRef<typeof DialogPrimitive.Content>,
   React.ComponentPropsWithoutRef<typeof DialogPrimitive.Content> & {
     overlayClassName?: string;
+    portalContainer?: HTMLElement | null;
   }
 >(
   (
-    { className, children, overlayClassName: customOverlayClassName, ...props },
+    { className, children, overlayClassName: customOverlayClassName, portalContainer, ...props },
     ref,
   ) => (
-    <DialogPortal>
+    <DialogPortal container={portalContainer}>
       <DialogOverlay className={customOverlayClassName} />
       <DialogPrimitive.Content
         ref={ref}

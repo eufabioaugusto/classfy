@@ -169,6 +169,7 @@ export function UnifiedVideoPlayer({
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       // Don't fire if focused on an input/textarea
+      if ((e.target as HTMLElement)?.closest('[role="dialog"]')) return;
       const tag = (e.target as HTMLElement)?.tagName;
       if (tag === "INPUT" || tag === "TEXTAREA") return;
 
@@ -1206,7 +1207,7 @@ export function UnifiedVideoPlayer({
 
       {/* Note Modal */}
       <Dialog open={noteModalOpen} onOpenChange={setNoteModalOpen}>
-        <DialogContent>
+        <DialogContent portalContainer={isFullscreen ? containerRef.current : undefined}>
           <DialogHeader>
             <DialogTitle>Adicionar Nota</DialogTitle>
             <DialogDescription>Timestamp: {formatTime(noteTimestamp)}</DialogDescription>
