@@ -7,6 +7,7 @@ import {
   Check,
   ChevronRight,
   Crown,
+  Coins,
   Heart,
   Loader2,
   Play,
@@ -208,27 +209,10 @@ export default function Onboarding() {
   return (
     <main className="cf-onboarding">
       <header className="ob-header">
-        <Link to="/" className="ob-logo">
-          Classfy
-        </Link>
+        <span className="ob-logo">Classfy</span>
         <span>
           {preview ? "PRÉVIA • SEM BÔNUS REAL" : "SEU PRIMEIRO CAPÍTULO"}
         </span>
-        <button
-          className="ob-later"
-          onClick={() => {
-            if (user)
-              try {
-                sessionStorage.setItem(
-                  `classfy:onboarding-later:${user.id}`,
-                  String(Date.now() + 3600000),
-                );
-              } catch {}
-            navigate("/conta");
-          }}
-        >
-          Continuar depois
-        </button>
       </header>
       {loading ? (
         <div className="ob-loading">
@@ -274,12 +258,13 @@ export default function Onboarding() {
                   <div className="ob-options">
                     <button
                       className={journey === "user" ? "selected" : ""}
+                      aria-pressed={journey === "user"}
                       onClick={() => {
                         setJourney("user");
                         setGoal("descobrir");
                       }}
                     >
-                      <Play />
+                      <Play fill={journey === "user" ? "currentColor" : "none"} />
                       <span>
                         <strong>Quero assistir e aprender</strong>
                         <small>
@@ -290,12 +275,13 @@ export default function Onboarding() {
                     </button>
                     <button
                       className={journey === "creator" ? "selected" : ""}
+                      aria-pressed={journey === "creator"}
                       onClick={() => {
                         setJourney("creator");
                         setGoal("publicar");
                       }}
                     >
-                      <Video />
+                      <Video fill={journey === "creator" ? "currentColor" : "none"} />
                       <span>
                         <strong>Quero compartilhar o que sei</strong>
                         <small>Prepare seu perfil e comece como creator.</small>
@@ -304,7 +290,7 @@ export default function Onboarding() {
                     </button>
                   </div>
                   <div className="ob-note">
-                    <Zap /> Nos dois caminhos, suas ações podem render Points.
+                    <Coins /> Na Classfy, quem aprende e quem ensina pode ganhar.
                   </div>
                 </>
               )}

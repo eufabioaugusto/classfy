@@ -8,15 +8,7 @@ export function OnboardingGate() {
   const navigate = useNavigate();
   useEffect(() => {
     let active = true;
-    let postponed = false;
-    try {
-      postponed =
-        !!user &&
-        Number(sessionStorage.getItem(`classfy:onboarding-later:${user.id}`)) >
-          Date.now();
-    } catch {}
     if (
-      postponed ||
       !user ||
       loading ||
       ["/auth", "/reset-password", "/onboarding"].includes(location.pathname)

@@ -7,7 +7,8 @@
   z-index: 70;
 }
 .ob-header {
-  display: flex;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
@@ -20,17 +21,11 @@
   font-weight: 750;
   letter-spacing: -1.5px;
 }
-.ob-header > span {
+.ob-header > span:not(.ob-logo) {
   font-size: 10px;
   font-weight: 650;
   letter-spacing: 0.15em;
   color: hsl(var(--muted-foreground));
-}
-.ob-later {
-  font-size: 12px;
-  color: hsl(var(--muted-foreground));
-  text-decoration: underline;
-  text-underline-offset: 4px;
 }
 .ob-progress {
   max-width: 470px;
@@ -714,7 +709,7 @@
   .ob-logo {
     font-size: 24px;
   }
-  .ob-header > span {
+  .ob-header > span:not(.ob-logo) {
     display: none;
   }
   .ob-progress {
@@ -776,9 +771,6 @@
   }
   .ob-demo-visual {
     min-height: 155px;
-  }
-  .ob-header .ob-later {
-    font-size: 11px;
   }
 }
 @media (prefers-reduced-motion: reduce) {
