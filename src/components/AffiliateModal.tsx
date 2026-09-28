@@ -92,8 +92,8 @@ export function AffiliateModal({ open, onOpenChange }: AffiliateModalProps) {
     <DialogContent className="cf-referral-modal">
       <DialogHeader className="cf-referral-header">
         <div><span className="cf-referral-eyebrow">PROGRAMA DE INDICAÇÕES</span>
-          <DialogTitle>Compartilhe.<br />Dê play em novas ideias.</DialogTitle>
-          <DialogDescription>Convide pessoas. Acompanhe suas conquistas.</DialogDescription>
+          <DialogTitle>Indique a Classfy.<br />Ganhe com suas indicações.</DialogTitle>
+          <DialogDescription>{terms ? `Receba ${terms.commission_percent.toLocaleString('pt-BR')}% de comissão na primeira compra paga de quem você indicar.` : 'Convide pessoas para a Classfy e acompanhe suas comissões.'}</DialogDescription>
         </div>
         <img src="/referrals/sharing-illustration.svg" className="cf-referral-illustration" alt="" />
       </DialogHeader>
@@ -109,13 +109,13 @@ export function AffiliateModal({ open, onOpenChange }: AffiliateModalProps) {
                 <div className="cf-referral-link-row"><input id="classfy-referral-url" readOnly value={link} onFocus={e => e.target.select()} /><Button disabled={!terms.enabled} onClick={() => void copy(link, 'link')}><CopyIcon size={16} />{copied === 'link' ? 'Copiado' : 'Copiar link'}</Button></div>
                 <div className="cf-referral-share"><Button disabled={!terms.enabled} variant="outline" onClick={() => share('whatsapp')}><Share2 size={15} /> WhatsApp <ArrowUpRight size={14} /></Button><Button disabled={!terms.enabled} variant="outline" onClick={() => share('x')}><ExternalLink size={15} /> Compartilhar no X</Button></div>
               </section>
-              <section aria-label="Resultados das indicações" className="cf-referral-metrics">
-                {[{ icon: MousePointer2, label: 'Cliques', value: stats.clicks.toLocaleString('pt-BR') }, { icon: Users, label: 'Cadastros indicados', value: stats.conversions.toLocaleString('pt-BR') }, { icon: Wallet, label: 'Comissões creditadas', value: money(stats.credited) }, { icon: Wallet, label: 'Comissões pendentes', value: money(stats.pending) }].map(({ icon: Icon, label, value }) => <div key={label}><Icon size={15} /><strong>{value}</strong><span>{label}</span></div>)}
+              <section aria-label="Seus ganhos e indicações" className="cf-referral-metrics">
+                {[{ icon: MousePointer2, label: 'Cliques', value: stats.clicks.toLocaleString('pt-BR') }, { icon: Users, label: 'Cadastros indicados', value: stats.conversions.toLocaleString('pt-BR') }, { icon: Wallet, label: 'Ganhos creditados', value: money(stats.credited) }, { icon: Wallet, label: 'Ganhos pendentes', value: money(stats.pending) }].map(({ icon: Icon, label, value }) => <div key={label}><Icon size={15} /><strong>{value}</strong><span>{label}</span></div>)}
               </section>
               <section className="cf-referral-journey" aria-label="Como funciona">
-                <div><span>1</span><strong>Compartilhe</strong></div><ArrowUpRight size={14} />
-                <div><span>2</span><strong>Cadastro confirmado</strong></div><ArrowUpRight size={14} />
-                <div><span>3</span><strong>{terms.commission_percent.toLocaleString('pt-BR')}% na primeira compra</strong></div>
+                <div><span>1</span><strong>Compartilhe seu link</strong></div><ArrowUpRight size={14} />
+                <div><span>2</span><strong>A pessoa se cadastra e compra</strong></div><ArrowUpRight size={14} />
+                <div><span>3</span><strong>Você ganha {terms.commission_percent.toLocaleString('pt-BR')}%</strong></div>
               </section>
               <details className="cf-referral-rules"><summary>Regras do programa<ChevronDown size={14} /></summary><p>Convite válido por 30 dias antes do cadastro. A comissão é calculada sobre a primeira compra paga; reembolsos e contestações podem estorná-la. Indicações contribuem para a qualificação no pool mensal conforme as regras do ciclo.</p></details>
             </TabsContent>
