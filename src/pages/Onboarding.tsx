@@ -82,12 +82,17 @@ export default function Onboarding() {
       return;
     }
     let active = true;
+    const metadataName = user.user_metadata?.full_name ?? user.user_metadata?.name;
+    const googleName = user.app_metadata?.providers?.includes("google")
+      && typeof metadataName === "string" ? metadataName.trim() : "";
+    const suggestedName = profile?.display_name && profile.display_name !== user.email
+      ? profile.display_name : googleName || profile?.display_name || "";
     const previewJourney = import.meta.env.DEV
       ? new URLSearchParams(window.location.search).get("preview")
       : null;
     if (previewJourney === "user" || previewJourney === "creator") {
       setPreview(true);
-      setName(profile?.display_name || "Você");
+      setName(suggestedName || "Você");
       setJourney(previewJourney);
       setGoal(previewJourney === "creator" ? "publicar" : "descobrir");
       setLoading(false);
@@ -96,7 +101,7 @@ export default function Onboarding() {
     getOnboarding()
       .then(({ state }) => {
         if (!active) return;
-        setName(state?.answers.name || profile?.display_name || "");
+        setName(state?.answers.name || suggestedName);
         setJourney(state?.journey || (role === "creator" ? "creator" : "user"));
         setInterests(state?.answers.interests || []);
         setBio(state?.answers.bio ?? profile?.bio ?? "");
