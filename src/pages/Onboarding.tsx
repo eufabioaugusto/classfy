@@ -465,7 +465,7 @@ export default function Onboarding() {
                   <h1>
                     {isCreator
                       ? "Pronto para dar voz às suas ideias?"
-                      : "Uma descoberta pode virar muito mais."}
+                      : "Descubra muito mais."}
                   </h1>
                   <p>
                     {isCreator

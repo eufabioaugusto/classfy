@@ -1665,7 +1665,7 @@
 .ob-editorial-copy p { font-size: 12px; line-height: 1.7; color: #ffffffb3; max-width: 320px; margin: 0; }
 .ob-plan > div:first-of-type { flex: 1; min-width: 0; }
 .ob-plan .ob-plan-price { margin-left: auto; text-align: right; flex-shrink: 0; }
-.ob-plan-price b { display: block; font-size: 18px; font-weight: 650; letter-spacing: -.5px; }
+.ob-plan-price b { display: block; font-size: 24px; font-weight: 650; letter-spacing: -.5px; }
 .ob-plan-price small { display: block; font-size: 11px; color: hsl(var(--muted-foreground)); margin-top: 3px; }
 @media (max-width: 850px) {
   .ob-editorial { height: 510px; }
