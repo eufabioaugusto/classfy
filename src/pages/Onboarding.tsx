@@ -1,4 +1,4 @@
-import { useEffect, useState, type CSSProperties } from "react";
+import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import {
   ArrowLeft,
@@ -27,6 +27,7 @@ import { dispatchRewardEarned } from "@/lib/rewards/events";
 import { ClassyChatDemo } from "@/components/onboarding/ClassyChatDemo";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { OnboardingDemo } from "@/components/onboarding/OnboardingDemo";
+import { OnboardingCelebration } from "@/components/onboarding/OnboardingCelebration";
 import { RankingPodium } from "@/components/onboarding/RankingPodium";
 import { PLAN_OFFERS } from "@/config/planOffers";
 import "./onboarding.css";
@@ -222,7 +223,7 @@ export default function Onboarding() {
             </div>
           </div>
           <section
-            className={`ob-stage ${step === 2 ? "ob-stage--demo" : ""}`}
+            className={`ob-stage ${step === 2 ? "ob-stage--demo" : step === 5 ? "ob-stage--complete" : ""}`}
             key={step}
           >
             {step === 2 ? (
@@ -253,7 +254,7 @@ export default function Onboarding() {
                   </div>
                 </div>
               </aside>
-            ) : (
+            ) : step === 5 ? null : (
               <aside className="ob-art" aria-hidden="true">
                 <div className="ob-art-orbit" />
                 <img src="/onboarding/journey-illustration.svg" alt="" />
@@ -508,9 +509,7 @@ export default function Onboarding() {
                         : "Seu perfil e seus interesses estão salvos. Sua próxima descoberta espera por você."}
                   </p>
                   <div className="ob-success">
-                    <div className="ob-success-icon">
-                      <Trophy />
-                    </div>
+                    <img className="ob-success-medal" src="/onboarding/golden-achievement.svg" alt="Medalha dourada de conquista" />
                     <strong>
                       {preview ? "Demonstração concluída" : "+20 Points"}
                     </strong>
@@ -521,11 +520,7 @@ export default function Onboarding() {
                           ? "Bônus de boas-vindas registrado na sua conta."
                           : "Conclua as etapas para receber seu bônus."}
                     </span>
-                    <div className="ob-confetti" aria-hidden="true">
-                      {Array.from({ length: 12 }, (_, i) => (
-                        <i key={i} style={{ "--i": i } as CSSProperties} />
-                      ))}
-                    </div>
+                    <OnboardingCelebration />
                   </div>
                   <button
                     className="ob-primary"
@@ -555,8 +550,11 @@ export default function Onboarding() {
                   <Link className="ob-secondary-link" to="/recompensas">
                     Ver meus Points e recompensas <ChevronRight size={15} />
                   </Link>
-                  <Link className="ob-secondary-link" to="/planos">
-                    Conhecer os planos <Crown size={15} />
+                  <Link className="ob-plan-invite" to="/planos">
+                    <span className="ob-plan-invite-chip"><Crown size={14} /> VÁ ALÉM COM PRO E PREMIUM</span>
+                    <strong>Sua próxima descoberta pode ir além.</strong>
+                    <span>Vídeos sem anúncios, mais estudos com a Classy e cursos com certificado.</span>
+                    <b>Explore os planos <ArrowRight size={15} /></b>
                   </Link>
                   <button
                     className="ob-replay"
