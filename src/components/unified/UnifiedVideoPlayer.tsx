@@ -41,13 +41,17 @@ import {
 } from "@/lib/video/resumePosition";
 
 function PlayerControl({ label, shortcut, children, ...props }: ComponentProps<typeof Button> & { label: string; shortcut?: string }) {
+  const [boundary, setBoundary] = useState<Element | null>(null);
+  const bindTrigger = useCallback((node: HTMLButtonElement | null) => {
+    setBoundary(node?.closest("[data-player-root]") ?? null);
+  }, []);
   return (
     <TooltipProvider delayDuration={350}>
       <Tooltip>
-        <TooltipTrigger asChild><Button {...props} aria-label={label}>{children}</Button></TooltipTrigger>
-        <TooltipContent side="top" sideOffset={14} className="pointer-events-none flex items-center gap-2 rounded-md border-0 bg-neutral-900/95 px-2.5 py-1.5 text-xs font-medium text-white shadow-none" >
+        <TooltipTrigger asChild><Button {...props} ref={bindTrigger} aria-label={label}>{children}</Button></TooltipTrigger>
+        <TooltipContent side="top" sideOffset={14} collisionBoundary={boundary} collisionPadding={8} className="pointer-events-none flex items-center gap-1.5 rounded-md border-0 bg-neutral-900/95 px-2.5 py-1.5 text-[10px] font-medium text-white shadow-none" >
           {label}
-          {shortcut && <kbd className="rounded border border-white/40 px-1.5 py-0.5 font-sans text-xs leading-none text-white/90">{shortcut}</kbd>}
+          {shortcut && <kbd className="rounded border border-white/40 px-1.5 py-0.5 font-sans text-[10px] leading-none text-white/90">{shortcut}</kbd>}
         </TooltipContent>
       </Tooltip>
     </TooltipProvider>
@@ -796,6 +800,7 @@ export function UnifiedVideoPlayer({
     <>
       <div
         ref={containerRef}
+        data-player-root
         className={cn(
           "relative overflow-hidden bg-black rounded-xl",
           compact && "rounded-none",
