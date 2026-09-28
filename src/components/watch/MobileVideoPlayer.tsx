@@ -7,8 +7,7 @@ import {
   Maximize, 
   RotateCcw,
   RotateCw,
-  FileText,
-  ChevronDown
+  FileText
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useMediaSession } from "@/hooks/useMediaSession";
@@ -25,7 +24,6 @@ interface MobileVideoPlayerProps {
   artist?: string;
   onTimeUpdate?: (currentTime: number) => void;
   onNoteClick?: () => void;
-  onMinimize?: () => void;
   seekToTime?: number | null;
   isPodcast?: boolean;
   mediaAssetId?: string | null;
@@ -42,7 +40,6 @@ export function MobileVideoPlayer({
   artist,
   onTimeUpdate,
   onNoteClick,
-  onMinimize,
   seekToTime,
   isPodcast = false,
   mediaAssetId,
@@ -380,22 +377,6 @@ export function MobileVideoPlayer({
         />
       )}
 
-      {/* Minimize button - top left when controls visible */}
-      {onMinimize && (
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            onMinimize();
-          }}
-          className={cn(
-            "absolute top-3 left-3 z-50 w-10 h-10 rounded-full bg-black/50 flex items-center justify-center text-white transition-opacity duration-200",
-            showControls ? "opacity-100" : "opacity-0 pointer-events-none"
-          )}
-        >
-          <ChevronDown className="w-6 h-6" />
-        </button>
-      )}
-
       {/* Tap area for play/pause - excludes bottom controls */}
       <div 
         className="absolute inset-0 bottom-16"
@@ -426,9 +407,10 @@ export function MobileVideoPlayer({
             max={duration || 100}
             value={currentTime}
             onChange={handleSeek}
-            className="w-full h-1 rounded-full appearance-none cursor-pointer"
+            aria-label="Posição do vídeo"
+            className="cf-mobile-player-seek w-full h-1 rounded-full appearance-none cursor-pointer"
             style={{
-              background: `linear-gradient(to right, hsl(var(--primary)) 0%, hsl(var(--primary)) ${progressPercent}%, rgba(255,255,255,0.3) ${progressPercent}%, rgba(255,255,255,0.3) 100%)`
+              background: `linear-gradient(to right, var(--cf2-accent, #df3153) 0%, var(--cf2-accent, #df3153) ${progressPercent}%, rgba(255,255,255,0.3) ${progressPercent}%, rgba(255,255,255,0.3) 100%)`
             }}
           />
         </div>

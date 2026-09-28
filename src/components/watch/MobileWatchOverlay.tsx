@@ -179,7 +179,7 @@ export function MobileWatchOverlay({
 
             {/* Scrollable content area - fades out as player is dragged */}
             <motion.div
-              className="flex-1 overflow-y-auto overscroll-contain"
+              className="flex-1 overflow-y-auto overflow-x-hidden overscroll-contain"
               style={{ opacity: contentOpacity }}
             >
               {React.Children.toArray(children).slice(1)}

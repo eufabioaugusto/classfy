@@ -2,6 +2,11 @@
 @tailwind components;
 @tailwind utilities;
 
+.cf-mobile-player-seek { accent-color: var(--cf2-accent, #df3153); touch-action: pan-x; }
+.cf-mobile-player-seek::-webkit-slider-thumb { -webkit-appearance: none; width: 14px; height: 14px; border: 0; border-radius: 50%; background: var(--cf2-accent, #df3153); }
+.cf-mobile-player-seek::-moz-range-thumb { width: 14px; height: 14px; border: 0; border-radius: 50%; background: var(--cf2-accent, #df3153); }
+.cf-mobile-player-seek::-moz-range-track { background: transparent; }
+
 /* Scrollbar hide utility */
 .scrollbar-hide::-webkit-scrollbar {
   display: none;

@@ -1077,7 +1077,6 @@ function WatchContent() {
               artist={content.creator?.display_name}
               onTimeUpdate={handleTimeUpdate}
               onNoteClick={() => setShowMobileNotes(true)}
-              onMinimize={handleMinimize}
               seekToTime={seekToTime}
               isPodcast={content.content_type === "podcast"}
               mediaAssetId={
@@ -1270,6 +1269,18 @@ function WatchContent() {
           </Sheet>
 
           <div className="pb-20">
+            {hasAccess && user && !isCourse && (
+              <div className="mx-3 mt-3">
+                <ContentRewardProgress
+                  compact
+                  contentId={content.id}
+                  refreshTrigger={rewardRefreshTrigger}
+                  liveStates={liveActionStates}
+                  studyId={activeStudyId}
+                  studyTitle={activeStudyTitle}
+                />
+              </div>
+            )}
             <MobileWatchLayout
               content={content}
               followersCount={followersCount}

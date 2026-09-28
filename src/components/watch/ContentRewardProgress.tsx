@@ -55,6 +55,7 @@ interface LiveStates {
 }
 
 interface Props {
+  compact?: boolean;
   contentId: string;
   refreshTrigger?: number;
   liveStates?: LiveStates;
@@ -112,6 +113,7 @@ function DotBurst({ isActive }: { isActive: boolean }) {
 }
 
 export function ContentRewardProgress({
+  compact = false,
   contentId,
   refreshTrigger,
   liveStates,
@@ -538,7 +540,7 @@ export function ContentRewardProgress({
                   {stageLabel}
                 </span>
                 <span className="hidden h-1 w-1 shrink-0 rounded-full bg-white/35 min-[560px]:block" />
-                <span className="hidden shrink-0 items-center gap-1 font-semibold text-white min-[560px]:inline-flex">
+                <span className={cn("shrink-0 items-center gap-1 font-semibold text-white", compact ? "inline-flex text-xs" : "hidden min-[560px]:inline-flex")}>
                   <Coins className="h-3.5 w-3.5 text-white/60" />
                   {rewardPoints.toLocaleString("pt-BR")} Points
                 </span>
@@ -576,7 +578,7 @@ export function ContentRewardProgress({
 
   return (
     <div
-      className="flex items-center gap-3 px-3 py-2 rounded-lg bg-card/60 border border-border/40 backdrop-blur-sm"
+      className={cn("flex items-center px-3 py-2 rounded-lg bg-card/60 border border-border/40 backdrop-blur-sm", compact ? "flex-wrap gap-x-2 gap-y-2" : "gap-3")}
       style={{ overflow: "visible" }}
     >
       {/* Points ganhos */}
@@ -628,11 +630,11 @@ export function ContentRewardProgress({
         </AnimatePresence>
       </div>
 
-      <div className="w-px h-4 bg-border/60 shrink-0" />
+      {!compact && <div className="w-px h-4 bg-border/60 shrink-0" />}
 
       {/* Action dots */}
       <div
-        className="flex items-center gap-2 flex-1"
+        className={cn("flex items-center gap-2", compact ? "order-3 basis-full justify-between" : "flex-1")}
         style={{ overflow: "visible" }}
       >
         {actions.map((action) => {
@@ -688,18 +690,18 @@ export function ContentRewardProgress({
       {/* Points ainda disponíveis */}
       {!allDone && (
         <>
-          <div className="w-px h-4 bg-border/60 shrink-0" />
-          <span className="text-xs text-muted-foreground shrink-0">
-            Ainda disponíveis: +{availablePoints} Points
+          {!compact && <div className="w-px h-4 bg-border/60 shrink-0" />}
+          <span className={cn("text-xs text-muted-foreground shrink-0", compact && "ml-auto")}>
+            {compact ? "Disponíveis" : "Ainda disponíveis"}: +{availablePoints} Points
           </span>
         </>
       )}
 
       {allDone && earnedPoints > 0 && (
         <>
-          <div className="w-px h-4 bg-border/60 shrink-0" />
+          {!compact && <div className="w-px h-4 bg-border/60 shrink-0" />}
           <motion.div
-            className="relative isolate flex shrink-0 items-center gap-1.5 overflow-hidden rounded-full border border-emerald-400/45 bg-emerald-500/12 px-2.5 py-1 text-emerald-500 shadow-[0_0_14px_rgba(16,185,129,0.12)]"
+            className={cn("relative isolate flex shrink-0 items-center gap-1.5 overflow-hidden rounded-full border border-emerald-400/45 bg-emerald-500/12 px-2.5 py-1 text-emerald-500 shadow-[0_0_14px_rgba(16,185,129,0.12)]", compact && "ml-auto")}
             animate={
               reduceMotion
                 ? undefined
