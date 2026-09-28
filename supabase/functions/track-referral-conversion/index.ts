@@ -1,154 +1,23 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.57.2";
-
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-};
-
+const headers = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type", "Access-Control-Allow-Methods": "POST, OPTIONS", "Content-Type": "application/json" };
 serve(async (req) => {
-  if (req.method === "OPTIONS") {
-    return new Response(null, { headers: corsHeaders });
-  }
-
+  if (req.method === "OPTIONS") return new Response(null, { headers });
+  if (req.method !== "POST") return new Response(null, { status: 405, headers });
   try {
-    const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
-    const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
-    const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY") ?? "";
-
-    // Verify JWT and get authenticated user - this prevents impersonation
-    const authHeader = req.headers.get("Authorization");
-    if (!authHeader) {
-      return new Response(
-        JSON.stringify({ error: "Missing authorization header" }),
-        { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 401 }
-      );
-    }
-
-    const authClient = createClient(supabaseUrl, supabaseAnonKey, {
-      auth: { persistSession: false }
-    });
-    
-    const { data: { user }, error: authError } = await authClient.auth.getUser(
-      authHeader.replace("Bearer ", "")
-    );
-
-    if (authError || !user) {
-      console.error("Auth error:", authError);
-      return new Response(
-        JSON.stringify({ error: "Unauthorized" }),
-        { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 401 }
-      );
-    }
-
-    // Use the authenticated user's ID - cannot be spoofed
-    const referred_user_id = user.id;
-
-    const supabaseClient = createClient(supabaseUrl, supabaseServiceKey, {
-      auth: { persistSession: false }
-    });
-
-    const { referral_code } = await req.json();
-
-    if (!referral_code) {
-      return new Response(
-        JSON.stringify({ error: "Referral code is required" }),
-        { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 400 }
-      );
-    }
-
-    console.log(`Processing referral conversion: code=${referral_code}, user=${referred_user_id}`);
-
-    // Get referral link
-    const { data: link, error: linkError } = await supabaseClient
-      .from("referral_links")
-      .select("user_id, total_conversions")
-      .eq("referral_code", referral_code)
-      .single();
-
-    if (linkError) {
-      console.error("Referral link not found:", linkError);
-      return new Response(
-        JSON.stringify({ error: "Invalid referral code" }),
-        { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 400 }
-      );
-    }
-
-    // Check if user is trying to use their own referral link
-    if (link.user_id === referred_user_id) {
-      console.log("User tried to use their own referral link");
-      return new Response(
-        JSON.stringify({ success: false, message: "Cannot use own referral link" }),
-        { headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
-
-    // Check if conversion already exists
-    const { data: existing } = await supabaseClient
-      .from("referral_conversions")
-      .select("id")
-      .eq("referred_user_id", referred_user_id)
-      .single();
-
-    if (existing) {
-      console.log("Conversion already tracked for this user");
-      return new Response(
-        JSON.stringify({ success: false, message: "Conversion already tracked" }),
-        { headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
-
-    // Create conversion
-    const { error: conversionError } = await supabaseClient
-      .from("referral_conversions")
-      .insert({
-        referrer_id: link.user_id,
-        referred_user_id,
-        referral_code,
-      });
-
-    if (conversionError) {
-      console.error("Error creating conversion:", conversionError);
-      throw conversionError;
-    }
-
-    // Increment conversions count
-    await supabaseClient
-      .from("referral_links")
-      .update({ total_conversions: (link.total_conversions || 0) + 1 })
-      .eq("referral_code", referral_code);
-
-    // Send notification to referrer
-    const { data: profile } = await supabaseClient
-      .from("profiles")
-      .select("display_name")
-      .eq("id", referred_user_id)
-      .single();
-
-    await supabaseClient
-      .from("notifications")
-      .insert({
-        user_id: link.user_id,
-        type: "system",
-        title: "🎉 Nova Conversão!",
-        message: `${profile?.display_name || "Alguém"} se cadastrou usando seu link de afiliado!`,
-      });
-
-    console.log(`Conversion tracked successfully: ${referral_code} -> ${referred_user_id}`);
-
-    return new Response(
-      JSON.stringify({ success: true }),
-      { headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    );
-  } catch (error) {
-    console.error("Error tracking referral conversion:", error);
-    const errorMessage = error instanceof Error ? error.message : String(error);
-    return new Response(
-      JSON.stringify({ error: errorMessage }),
-      { 
-        status: 500,
-        headers: { ...corsHeaders, "Content-Type": "application/json" }
-      }
-    );
+    const url = Deno.env.get("SUPABASE_URL") ?? "";
+    const token = req.headers.get("Authorization")?.replace(/^Bearer\s+/i, "");
+    if (!token) return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401, headers });
+    const auth = createClient(url, Deno.env.get("SUPABASE_ANON_KEY") ?? "", { auth: { persistSession: false } });
+    const { data: { user }, error: authError } = await auth.auth.getUser(token);
+    if (authError || !user) return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401, headers });
+    const client = createClient(url, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "", { auth: { persistSession: false } });
+    // Ignore user IDs/codes in the body. Only the immutable signup claim is eligible.
+    const { data, error } = await client.rpc("finalize_referral_signup_v1", { p_user_id: user.id });
+    if (error) throw error;
+    return new Response(JSON.stringify({ success: true, ...data }), { headers });
+  } catch {
+    console.error("Referral conversion registration failed");
+    return new Response(JSON.stringify({ error: "Unable to register conversion" }), { status: 503, headers });
   }
 });

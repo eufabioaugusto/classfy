@@ -1,3 +1,4 @@
+import { creditReferralPurchase, reverseReferralPurchase } from "../_shared/referral-payments.ts";
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import Stripe from "https://esm.sh/stripe@18.5.0";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.57.2";
@@ -110,8 +111,10 @@ serve(async (req) => {
     }
 
     switch (event.type) {
-      case "checkout.session.completed": {
+      case "checkout.session.completed":
+      case "checkout.session.async_payment_succeeded": {
         const session = event.data.object as Stripe.Checkout.Session;
+        if (session.payment_status === "unpaid") break;
 
         // Handle boost purchase
         if (session.mode === "payment" && session.metadata?.boost_id) {
@@ -230,38 +233,11 @@ serve(async (req) => {
           }
         }
 
-        // Check for referral commission
-        const userId = session.metadata?.user_id;
-        const purchaseAmount = session.amount_total
-          ? session.amount_total / 100
-          : 0;
-
-        if (userId && purchaseAmount > 0) {
-          const { data: conversion } = await supabaseClient
-            .from("referral_conversions")
-            .select("*")
-            .eq("referred_user_id", userId)
-            .eq("commission_paid", false)
-            .is("first_purchase_at", null)
-            .single();
-
-          if (conversion) {
-            const { error: referralError } = await supabaseClient.functions
-              .invoke("process-referral-commission", {
-                body: {
-                  conversion_id: conversion.id,
-                  purchase_amount: purchaseAmount,
-                  purchase_type: session.mode,
-                  stripe_charge_id: session.payment_intent as string ||
-                    session.subscription as string,
-                },
-              });
-            if (referralError) {
-              throw new Error(
-                `Referral commission failed: ${referralError.message}`,
-              );
-            }
-          }
+        // Subscriptions are attributed on the paid invoice, including the first
+        // payment after a free trial. Checkout completion alone is not payment.
+        if (session.mode === "payment" && session.payment_status === "paid") {
+          await creditReferralPurchase(supabaseClient, stripe, session.metadata?.user_id,
+            (session.amount_total || 0) / 100, "payment", session.payment_intent as string | null);
         }
 
         break;
@@ -337,11 +313,17 @@ serve(async (req) => {
           );
           const customerId = subscription.customer as string;
 
-          const { data: profile } = await supabaseClient
-            .from("profiles")
-            .select("id")
-            .eq("billing_id", customerId)
-            .single();
+          let { data: profile, error: profileError } = await supabaseClient
+            .from("profiles").select("id").eq("billing_id", customerId).maybeSingle();
+          if (profileError) throw new Error("Unable to look up invoice customer");
+          // Invoices may arrive before checkout.session.completed links billing_id.
+          if (!profile && subscription.metadata?.user_id) {
+            const fallback = await supabaseClient.from("profiles").select("id")
+              .eq("id", subscription.metadata.user_id).maybeSingle();
+            if (fallback.error) throw new Error("Unable to look up subscription owner");
+            profile = fallback.data;
+          }
+          if (!profile) throw new Error("Invoice owner is not available yet");
 
           if (profile) {
             const subscriptionEnd = getSubscriptionPeriodEnd(subscription);
@@ -408,6 +390,8 @@ serve(async (req) => {
                     0,
                   ) / 100,
                 });
+                await creditReferralPurchase(supabaseClient, stripe, profile.id,
+                  invoiceAmount, "subscription", paymentIntentId);
               }
             }
           }
@@ -481,6 +465,7 @@ serve(async (req) => {
           ? charge.payment_intent
           : charge.payment_intent?.id;
         if (paymentIntentId && charge.amount_refunded > 0) {
+          await reverseReferralPurchase(supabaseClient, paymentIntentId, "refund", charge.amount_refunded / 100, event.id);
           const { data: purchaseReversal, error } = await supabaseClient.rpc(
             "reverse_content_sale_v1",
             {
@@ -523,6 +508,7 @@ serve(async (req) => {
           ? charge.payment_intent
           : charge?.payment_intent?.id;
         if (paymentIntentId) {
+          await reverseReferralPurchase(supabaseClient, paymentIntentId, "chargeback", dispute.amount / 100, event.id);
           const { data: purchaseReversal, error } = await supabaseClient.rpc(
             "reverse_content_sale_v1",
             {

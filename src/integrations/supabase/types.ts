@@ -20,6 +20,7 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+
       graphql: {
         Args: {
           extensions?: Json
@@ -3063,6 +3064,9 @@ export type Database = {
       }
       referral_commissions: {
         Row: {
+          reversed_amount: number
+          refunded_purchase_amount: number
+          disputed_purchase_amount: number
           commission_amount: number
           commission_rate: number
           conversion_id: string
@@ -3077,6 +3081,9 @@ export type Database = {
           stripe_charge_id: string | null
         }
         Insert: {
+          reversed_amount?: number
+          refunded_purchase_amount?: number
+          disputed_purchase_amount?: number
           commission_amount: number
           commission_rate: number
           conversion_id: string
@@ -3091,6 +3098,9 @@ export type Database = {
           stripe_charge_id?: string | null
         }
         Update: {
+          reversed_amount?: number
+          refunded_purchase_amount?: number
+          disputed_purchase_amount?: number
           commission_amount?: number
           commission_rate?: number
           conversion_id?: string
@@ -4656,6 +4666,7 @@ export type Database = {
       }
     }
     Functions: {
+      get_referral_program_terms_v1: { Args: Record<PropertyKey, never>; Returns: Json }
       abandon_media_asset: {
         Args: { p_media_asset_id: string }
         Returns: undefined

@@ -1,3 +1,4 @@
+import { readReferralClaim, clearReferralClaim } from "@/lib/referrals/attribution";
 import React, { createContext, useContext, useEffect, useState, useRef } from "react";
 import { User, Session } from "@supabase/supabase-js";
 import { supabase } from "@/integrations/supabase/client";
@@ -263,6 +264,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
   const signUp = async (email: string, password: string, displayName: string) => {
     const redirectUrl = `${window.location.origin}/`;
+    const referralClaim = readReferralClaim();
 
     await logAppEvent({
       source: "auth_context",
@@ -277,6 +279,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         emailRedirectTo: redirectUrl,
         data: {
           display_name: displayName,
+          ...(referralClaim ? { referral_code: referralClaim.code, referral_expires: referralClaim.expires } : {}),
         }
       }
     });
@@ -302,23 +305,10 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     }
     
     if (!error && data.user) {
-      // Check for referral code and create conversion
-      const refCode = localStorage.getItem('referral_code');
-      const refExpires = localStorage.getItem('referral_expires');
-      
-      if (refCode && refExpires && Date.now() < Number(refExpires)) {
-        await supabase.functions.invoke('track-referral-conversion', {
-          body: {
-            referral_code: refCode,
-            referred_user_id: data.user.id
-          }
-        }).catch(console.error);
-        
-        // Clear referral data
-        localStorage.removeItem('referral_code');
-        localStorage.removeItem('referral_expires');
-      }
-      
+      // The database captures the original signup claim and finalizes it on
+      // confirmation. Never require a session before the email is confirmed.
+      clearReferralClaim();
+
       navigate("/");
     }
     

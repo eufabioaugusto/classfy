@@ -1,3 +1,4 @@
+import { captureReferral } from "@/lib/referrals/attribution";
 import { AppNotifications } from "@/components/AppNotifications";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -114,25 +115,16 @@ function AppContent() {
       ? <LiveLoadingScreen title="Carregando suas lives" />
       : <GlobalLoader label={loadingLabels[location.pathname]} />;
 
-  // Track referral clicks
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const refCode = params.get('ref');
-
-    if (refCode) {
-      // Save to localStorage (expires in 30 days)
-      localStorage.setItem('referral_code', refCode);
-      localStorage.setItem('referral_expires', String(Date.now() + (30 * 24 * 60 * 60 * 1000)));
-
-      // Remove from URL
-      window.history.replaceState({}, '', window.location.pathname);
-
-      // Track click
-      supabase.functions.invoke('track-referral-click', {
-        body: { referral_code: refCode }
-      }).catch(console.error);
+    const referral = captureReferral(window.location.href);
+    if (!referral) return;
+    window.history.replaceState(window.history.state, '', referral.cleanPath);
+    if (referral.code) {
+      void supabase.functions.invoke('track-referral-click', {
+        body: { referral_code: referral.code },
+      }).then(({ error }) => { if (error) console.warn('Não foi possível registrar o clique de indicação.'); });
     }
-  }, []);
+  }, [location.search]);
 
   const mainRoutes = (
     <>
