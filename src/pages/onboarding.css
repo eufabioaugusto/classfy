@@ -1056,3 +1056,138 @@
 .ob-real-demo .ob-demo-actions button.active:disabled {
   opacity: 1;
 }
+
+.ob-content h1.ob-demo-heading {
+  white-space: nowrap;
+}
+.ob-watch-points {
+  padding: 12px 14px 0;
+  background: hsl(var(--card));
+  border-bottom: 1px solid hsl(var(--border));
+}
+.ob-watch-points-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.ob-watch-points-row > strong {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+.ob-watch-points-row > strong.earned {
+  color: var(--ob-red);
+  animation: ob-gain 0.45s ease both;
+}
+.ob-watch-points-row svg {
+  width: 14px;
+  height: 14px;
+}
+.ob-watch-points-row > small {
+  margin-left: auto;
+  font-size: 10px;
+  color: hsl(var(--muted-foreground));
+  white-space: nowrap;
+}
+.ob-watch-action-dots {
+  display: flex;
+  gap: 5px;
+}
+.ob-watch-action-dots > span {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: hsl(var(--muted));
+  color: hsl(var(--muted-foreground));
+}
+.ob-watch-action-dots > span.earned {
+  color: var(--ob-red);
+  background: #ed174c14;
+}
+.ob-watch-action-dots svg {
+  width: 12px;
+  height: 12px;
+}
+.ob-watch-gain {
+  margin: 6px 0 0;
+  height: 25px;
+  min-height: 25px;
+  font-size: 11px;
+  justify-content: flex-start;
+}
+.ob-watch-gain svg {
+  width: 13px;
+  height: 13px;
+}
+.ob-demo-info {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.ob-demo-info > div {
+  display: grid;
+  gap: 5px;
+}
+.ob-video-total {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10px;
+  font-weight: 650;
+  white-space: nowrap;
+  color: var(--ob-red);
+}
+.ob-video-total svg {
+  width: 13px;
+  height: 13px;
+}
+.ob-classy-message {
+  display: flex;
+  gap: 9px;
+  align-items: flex-start;
+}
+.ob-classy-avatar {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+  background: #ed174c10;
+  color: var(--ob-red);
+  border-radius: 9px;
+}
+.ob-classy-avatar svg {
+  width: 15px;
+  height: 15px;
+}
+.ob-classy-message p {
+  font-size: 12px;
+  line-height: 1.65;
+}
+.ob-classy-message p strong {
+  font-weight: 700;
+}
+@media (max-width: 640px) {
+  .ob-watch-points-row {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .ob-watch-action-dots {
+    order: 3;
+    flex-basis: 100%;
+    justify-content: space-between;
+  }
+  .ob-demo-info > div strong {
+    font-size: 12px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ob-watch-points-row > strong.earned {
+    animation: none;
+  }
+}

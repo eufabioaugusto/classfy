@@ -14,10 +14,11 @@ import {
 
 type Props = {
   actions: string[];
+  name: string;
   busy: boolean;
   onAction: (action: string) => Promise<boolean>;
 };
-export function OnboardingDemo({ actions, busy, onAction }: Props) {
+export function OnboardingDemo({ actions, name, busy, onAction }: Props) {
   const video = useRef<HTMLVideoElement>(null);
   const [started, setStarted] = useState(false);
   const [half, setHalf] = useState(actions.includes("view"));
@@ -27,7 +28,6 @@ export function OnboardingDemo({ actions, busy, onAction }: Props) {
   const [shareOpen, setShareOpen] = useState(false);
   const [followed, setFollowed] = useState(false);
   const [tool, setTool] = useState("quiz");
-  const [answer, setAnswer] = useState(false);
   const [mediaError, setMediaError] = useState(false);
   const has = (action: string) => actions.includes(action);
   const celebrate = (text: string) => setGain((g) => ({ id: g.id + 1, text }));
@@ -59,6 +59,81 @@ export function OnboardingDemo({ actions, busy, onAction }: Props) {
   return (
     <>
       <div className="ob-demo ob-real-demo">
+        <div className="ob-watch-points" aria-label="Points deste vídeo">
+          <div className="ob-watch-points-row">
+            <strong key={points} className={points ? "earned" : ""}>
+              <Coins /> +{points} Points
+            </strong>
+            <div className="ob-watch-action-dots">
+              {[
+                {
+                  key: "half",
+                  label: "50% assistido",
+                  Icon: Play,
+                  earned: half,
+                },
+                {
+                  key: "view",
+                  label: "100% assistido",
+                  Icon: Check,
+                  earned: has("view"),
+                },
+                {
+                  key: "like",
+                  label: "Curtir",
+                  Icon: Heart,
+                  earned: has("like"),
+                },
+                {
+                  key: "save",
+                  label: "Salvar",
+                  Icon: Bookmark,
+                  earned: has("save"),
+                },
+                {
+                  key: "share",
+                  label: "Compartilhar",
+                  Icon: Send,
+                  earned: has("share"),
+                },
+                {
+                  key: "study",
+                  label: "Estudar",
+                  Icon: Sparkles,
+                  earned: has("study"),
+                },
+              ].map(({ key, label, Icon, earned }) => (
+                <span
+                  key={key}
+                  className={earned ? "earned" : ""}
+                  title={`${label} · +5 Points`}
+                  aria-label={`${label}: ${earned ? "conquistado" : "disponível"}`}
+                >
+                  <Icon />
+                </span>
+              ))}
+            </div>
+            <small>
+              {points === 30
+                ? "Tudo conquistado!"
+                : `Disponíveis: +${30 - points}`}
+            </small>
+          </div>
+          <div
+            className="ob-gain ob-watch-gain"
+            key={gain.id}
+            role="status"
+            aria-live="polite"
+          >
+            {gain.text && (
+              <>
+                <Coins />
+                {gain.text}
+                <span>✦</span>
+              </>
+            )}
+          </div>
+        </div>
         <div className="ob-real-player">
           <video
             ref={video}
@@ -73,7 +148,7 @@ export function OnboardingDemo({ actions, busy, onAction }: Props) {
             onError={() => setMediaError(true)}
             aria-label="Vídeo de uma creator ensinando online"
           />
-          <span className="ob-demo-badge">EXPERIMENTE • 8 SEGUNDOS</span>
+          <span className="ob-demo-badge">VÍDEO EXEMPLO</span>
           {!started && !mediaError && (
             <button
               className="ob-real-play"
@@ -118,14 +193,22 @@ export function OnboardingDemo({ actions, busy, onAction }: Props) {
           </div>
         </div>
         <div className="ob-demo-info">
-          <strong>Uma nova habilidade começa com um play.</strong>
-          <small>Aprendizado • Vídeo de demonstração sem áudio</small>
+          <div>
+            <strong>Uma nova habilidade começa com um play.</strong>
+            <small>Aprendizado</small>
+          </div>
+          <span
+            className="ob-video-total"
+            title="Total de Points disponíveis neste vídeo"
+          >
+            <Coins /> 30 Points
+          </span>
         </div>
         <div className="ob-demo-creator">
-          <img src="/onboarding/creator-avatar.jpg" alt="Creator do vídeo" />
+          <img src="/onboarding/creator-avatar.jpg" alt="Marina Freitas" />
           <div>
-            <strong>Creator Classfy</strong>
-            <small>Compartilhando conhecimento</small>
+            <strong>Marina Freitas</strong>
+            <small>Performance e Comportamento</small>
           </div>
           <button
             aria-pressed={followed}
@@ -165,11 +248,6 @@ export function OnboardingDemo({ actions, busy, onAction }: Props) {
             <Send />
             Compartilhar
           </button>
-        </div>
-        <div className="ob-demo-points">
-          <Coins />
-          <strong>{points} Points</strong>
-          <span>de demonstração</span>
         </div>
         {shareOpen && (
           <div
@@ -234,8 +312,8 @@ export function OnboardingDemo({ actions, busy, onAction }: Props) {
         <div className="ob-quiz" role="tabpanel">
           {tool === "transcript" && (
             <p>
-              Quando o conteúdo tem fala, você pode acompanhar a transcrição e
-              rever os pontos principais aqui.
+              Explore a transcrição em texto, inclua no seu estudo e consulte
+              quando quiser.
             </p>
           )}
           {tool === "notes" && (
@@ -249,25 +327,27 @@ export function OnboardingDemo({ actions, busy, onAction }: Props) {
           )}
           {tool === "quiz" && (
             <>
-              <strong>Como você pode aprofundar o que aprende?</strong>
+              <div className="ob-classy-message">
+                <span className="ob-classy-avatar" aria-hidden="true">
+                  <Sparkles />
+                </span>
+                <p>
+                  <strong>Classy:</strong> {name.trim() || "Você"}, esse insight
+                  é muito interessante. Posso incluir um exercício no seu
+                  estudo?
+                </p>
+              </div>
               <button
                 disabled={!has("share") || busy || has("study")}
-                onClick={() => setAnswer(true)}
+                onClick={() =>
+                  void record("study", "Aprendizado em ação · +5 Points")
+                }
               >
-                Respondendo um quiz e anotando minhas ideias{" "}
-                {answer && <Check />}
+                {has("study")
+                  ? "Exercício incluído no meu estudo"
+                  : "Sim, incluir no meu estudo"}{" "}
+                {has("study") && <Check />}
               </button>
-              {answer && !has("study") && (
-                <button
-                  className="ob-primary"
-                  disabled={busy}
-                  onClick={() =>
-                    void record("study", "Aprendizado em ação · +5 Points")
-                  }
-                >
-                  Concluir meu primeiro estudo <Check />
-                </button>
-              )}
             </>
           )}
         </div>
@@ -285,19 +365,6 @@ export function OnboardingDemo({ actions, busy, onAction }: Props) {
           </button>
         )}
       </div>
-      <div className="ob-gain" key={gain.id} role="status" aria-live="polite">
-        {gain.text && (
-          <>
-            <Coins />
-            {gain.text}
-            <span>✦</span>
-          </>
-        )}
-      </div>
-      <small className="ob-disclaimer">
-        É assim que você evolui na Classfy: assista, participe e estude para
-        ganhar Points.
-      </small>
     </>
   );
 }

@@ -348,12 +348,13 @@ export default function Onboarding() {
               {step === 2 && (
                 <>
                   <span className="ob-eyebrow">EXPERIMENTE NA PRÁTICA</span>
-                  <h1>Aprenda e ganhe a cada descoberta.</h1>
+                  <h1 className="ob-demo-heading">Aprenda e ganhe.</h1>
                   <p>
                     Assistir é evoluir. Dê play, descubra algo novo e veja suas
                     ações virarem Points.
                   </p>
                   <OnboardingDemo
+                    name={name}
                     actions={actions}
                     busy={busy}
                     onAction={act}
