@@ -1,3 +1,4 @@
+import { useClassyDictation } from "./useClassyDictation";
 import { ClassyContextTools } from "./ClassyContextTools";
 import { studyModes, type ContextMenu, type StudyMode } from "./classyModes";
 import { useClassyLesson, type ClassyReference } from "./classyPageContext";
@@ -13,7 +14,6 @@ import { ChatMessage } from "@/components/chat/ChatMessage";
 import { toast } from "sonner";
 import "./global-classy.css";
 
-type Recognition = { lang: string; interimResults: boolean; onresult: (event: { results: { transcript: string }[][] }) => void; onend: () => void; onerror: () => void; start: () => void; stop: () => void };
 function ClassyAvatar() {
   return (
     <svg viewBox="0 0 64 64" aria-hidden="true" className="classy-avatar">
@@ -71,8 +71,9 @@ export function GlobalClassy() {
   const [busy, setBusy] = useState(false);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [savedNotes, setSavedNotes] = useState<Set<string>>(new Set());
-  const [listening, setListening] = useState(false);
-  const recognition = useRef<Recognition | null>(null);
+  const { status: voiceStatus, toggle: dictate, cancel: cancelDictation } = useClassyDictation(text => setDraft(previous => `${previous} ${text}`.trim()));
+  const listening = voiceStatus === "recording";
+  const voiceBusy = voiceStatus === "starting" || voiceStatus === "transcribing";
   const input = useRef<HTMLInputElement>(null);
   const bottom = useRef<HTMLDivElement>(null);
   const restoredStudy = useRef<string | null>(null);
@@ -83,7 +84,7 @@ export function GlobalClassy() {
   const hidden = !user || /^\/(auth|onboarding|termos|privacidade|broadcast|admin|studio\/upload)(\/|$)/.test(location.pathname);
   const pageName = location.pathname === "/" ? "Explorar" : location.pathname.startsWith("/watch/") ? "Aula aberta" : location.pathname.startsWith("/listen/") ? "Podcast aberto" : routeStudy ? "Meu estudo" : location.pathname.startsWith("/shorts") ? "Shorts" : "Classfy";
 
-  useEffect(() => { restoredStudy.current = null; setOpen(false); setSelected(""); setDraft(""); setMessages([]); setSavedNotes(new Set()); setReferences([]); setStudyMode(undefined); setTarget(undefined); setSources([]); recognition.current?.stop(); }, [user?.id]);
+  useEffect(() => { restoredStudy.current = null; setOpen(false); setSelected(""); setDraft(""); setMessages([]); setSavedNotes(new Set()); setReferences([]); setStudyMode(undefined); setTarget(undefined); setSources([]); cancelDictation(); }, [user?.id, cancelDictation]);
   useEffect(() => { if (!selected && activeStudies.length) setSelected(activeStudies[0].id); }, [activeStudies, selected]);
   useEffect(() => {
     if (!open || !studyId || !user?.id) return;
@@ -117,15 +118,14 @@ export function GlobalClassy() {
     window.addEventListener("keydown", escape);
     return () => { window.removeEventListener("keydown", escape); };
   }, []);
-  useEffect(() => () => recognition.current?.stop(), []);
-  useEffect(() => { if (hidden) { setSelecting(false); recognition.current?.stop(); setOpen(false); setActions(false); } }, [hidden, setSelecting]);
+  useEffect(() => { if (hidden) { setSelecting(false); cancelDictation(); setOpen(false); setActions(false); } }, [hidden, setSelecting, cancelDictation]);
 
   async function newStudy() {
     if (!canCreateMore) { toast.error("Você atingiu o limite de estudos do seu plano."); return; }
     navigate("/c/new"); setOpen(false);
   }
   async function send(text = draft) {
-    if (!text.trim() || busy || historyLoading || !user) return;
+    if (!text.trim() || busy || historyLoading || voiceStatus !== "idle" || !user) return;
     setOpen(true); setActions(false);
     if (!studyId) { toast.info("Crie um estudo para começar sua conversa com a Classy."); return; }
     const requestUser = user.id;
@@ -172,20 +172,10 @@ export function GlobalClassy() {
     if (/(?:^|\s)\/$/.test(value)) { setDraft(value.replace(/\/$/, "")); setMenu("modes"); return; }
     setDraft(value);
   }
-  function dictate() {
-    if (listening) { recognition.current?.stop(); return; }
-    const ctor = (window as unknown as { SpeechRecognition?: new () => Recognition; webkitSpeechRecognition?: new () => Recognition });
-    const Engine = ctor.SpeechRecognition || ctor.webkitSpeechRecognition;
-    if (!Engine) { toast.info("O ditado não está disponível neste navegador. Use o teclado."); return; }
-    const instance = new Engine(); recognition.current = instance;
-    instance.lang = "pt-BR"; instance.interimResults = false;
-    instance.onresult = event => setDraft(previous => `${previous} ${event.results[0][0].transcript}`.trim());
-    instance.onend = () => setListening(false);
-    instance.onerror = () => { setListening(false); toast.info("Não foi possível usar o microfone. Confira a permissão do navegador."); };
-    try { instance.start(); setListening(true); } catch { setListening(false); }
-  }
   if (hidden) return null;
   return <div className={`classy-global ${routeStudy ? "classy-global--study" : ""} ${player.isVisible ? "classy-global--player" : ""}`}>
+    {listening && <div className="classy-voice-status" role="status">Gravando · Clique no microfone para terminar</div>}
+    {voiceStatus === "transcribing" && <div className="classy-voice-status" role="status">Transcrevendo sua mensagem…</div>}
     {open && <section className="classy-panel" role="dialog" aria-modal="false" aria-label="Assistente Classy">
       <header className="classy-panel-header"><ClassyAvatar/><div><strong>Classy</strong><small>Seu espaço para aprender</small></div><button aria-label="Fechar Classy" onClick={() => setOpen(false)}><X size={19}/></button></header>
       <div className="classy-context"><span>Com você em · {pageName}</span><div><select aria-label="Estudo da conversa" value={studyId} disabled={!!routeStudy || busy || loading} onChange={event => setSelected(event.target.value)}><option value="">Escolha um estudo</option>{activeStudies.map(study => <option key={study.id} value={study.id}>{study.title}</option>)}</select><button aria-label="Abrir estudo" disabled={!studyId} onClick={() => navigate(`/c/${studyId}`)}><ExternalLink size={16}/></button></div></div>
@@ -211,8 +201,8 @@ export function GlobalClassy() {
       <button type="button" aria-label="Conversar com a Classy" onClick={() => setOpen(!open)}><ClassyAvatar/></button>
       <input ref={input} aria-label="Mensagem para Classy" placeholder="Aprender com a Classy" value={draft} maxLength={4000} onChange={event => updateDraft(event.target.value)}/>
       <button type="button" aria-label="Ações da Classy" aria-expanded={actions} onClick={() => setActions(!actions)}>{actions ? <X size={18}/> : <Plus size={20}/>}</button>
-      <button type="button" aria-label={listening ? "Parar ditado" : "Ditar mensagem"} aria-pressed={listening} className={listening ? "classy-listening" : ""} onClick={dictate}><AudioLines size={19}/></button>
-      {draft.trim() ? <button type="submit" aria-label="Enviar mensagem" disabled={busy}><ArrowUp size={20}/></button> : <button type="button" aria-label={open ? "Recolher painel" : "Abrir painel"} aria-expanded={open} onClick={() => setOpen(!open)}><PanelRight size={19}/></button>}
+      <button type="button" aria-label={listening ? "Parar ditado" : voiceStatus === "transcribing" ? "Transcrevendo áudio" : voiceStatus === "starting" ? "Abrindo microfone" : "Ditar mensagem"} disabled={voiceBusy || busy} aria-pressed={listening} className={listening ? "classy-listening" : ""} onClick={dictate}>{voiceBusy ? <Loader2 size={19} className="animate-spin"/> : <AudioLines size={19}/>}</button>
+      {draft.trim() ? <button type="submit" aria-label="Enviar mensagem" disabled={busy || voiceBusy || listening}><ArrowUp size={20}/></button> : <button type="button" aria-label={open ? "Recolher painel" : "Abrir painel"} aria-expanded={open} onClick={() => setOpen(!open)}><PanelRight size={19}/></button>}
     </form>
   </div>;
 }
