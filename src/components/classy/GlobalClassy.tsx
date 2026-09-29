@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { ArrowUp, BookmarkPlus, ExternalLink, Mic, PanelRight, Plus, X, Loader2 } from "lucide-react";
+import { ArrowUp, BookmarkPlus, ExternalLink, AudioLines, PanelRight, Plus, X, Loader2 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useStudies, type StudyMessage } from "@/hooks/useStudies";
 import { useMiniPlayer } from "@/contexts/MiniPlayerContext";
@@ -11,7 +11,26 @@ import "./global-classy.css";
 
 type Recognition = { lang: string; interimResults: boolean; onresult: (event: { results: { transcript: string }[][] }) => void; onend: () => void; onerror: () => void; start: () => void; stop: () => void };
 function ClassyAvatar() {
-  return <svg viewBox="0 0 48 48" aria-hidden="true" className="classy-avatar"><rect width="48" height="48" rx="17" fill="#fff0f4"/><path d="M10 27C7 8 17 5 25 6c15 0 17 15 13 27H10" fill="#292136"/><path d="M12 46c0-14 24-14 24 0" fill="#ed1651"/><ellipse cx="24" cy="24" rx="12" ry="14" fill="#efb590"/><path d="M12 21c-1-12 21-15 24-1-7-1-12-4-14-7-1 5-6 7-10 8" fill="#292136"/><circle cx="19" cy="24" r="1.4" fill="#292136"/><circle cx="29" cy="24" r="1.4" fill="#292136"/><path d="M20 30q4 4 8 0" fill="none" stroke="#9d4050" strokeWidth="1.8" strokeLinecap="round"/><circle cx="14" cy="28" r="2" fill="#e58f87"/><circle cx="34" cy="28" r="2" fill="#e58f87"/></svg>;
+  return (
+    <svg viewBox="0 0 64 64" aria-hidden="true" className="classy-avatar">
+      {/* A curious guide: expressive glasses, a page-shaped fringe and an open-book collar. */}
+      <path d="M9 32C6 15 17 5 33 5c17 0 26 12 24 29l-3 13c-4 9-13 13-23 13S12 55 9 45Z" fill="#30203e"/>
+      <path d="M13 29c0-12 9-18 20-18s20 8 20 20v11c0 10-9 15-20 15S13 51 13 41Z" fill="#fff7ef"/>
+      <path d="M11 29c-2-13 8-23 22-23 13 0 23 10 23 22-10-1-18-5-23-12-3 7-9 11-15 12l-1-10Z" fill="#30203e"/>
+      <path d="M34 10c7 1 12 4 15 9" fill="none" stroke="#674270" strokeWidth="2.5" strokeLinecap="round"/>
+      <path d="M8 33c0-6 4-10 11-10s10 5 14 5 7-5 14-5 11 4 11 10-4 12-11 12-10-7-14-7-7 7-14 7S8 39 8 33Z" fill="#ed1651"/>
+      <ellipse cx="20" cy="33" rx="8" ry="8.5" fill="white"/>
+      <ellipse cx="46" cy="33" rx="8" ry="8.5" fill="white"/>
+      <ellipse cx="21" cy="33" rx="4.5" ry="5.5" fill="#30203e"/>
+      <ellipse cx="45" cy="33" rx="4.5" ry="5.5" fill="#30203e"/>
+      <circle cx="23" cy="30" r="2" fill="white"/>
+      <circle cx="47" cy="30" r="2" fill="white"/>
+      <path d="M13 27q7-5 13 0M40 27q7-5 13 0" fill="none" stroke="#ff6990" strokeWidth="2" strokeLinecap="round"/>
+      <path d="M28 47q5 5 10-1" fill="none" stroke="#30203e" strokeWidth="2.5" strokeLinecap="round"/>
+      <path d="m24 56 9 3 9-3-9-4Z" fill="#ed1651"/>
+      <path d="m33 59-9-3v-4l9 3 9-3v4Z" fill="#fff7ef"/>
+    </svg>
+  );
 }
 export function GlobalClassy() {
   const { user } = useAuth();
@@ -126,7 +145,7 @@ export function GlobalClassy() {
       <button type="button" aria-label="Conversar com a Classy" onClick={() => setOpen(!open)}><ClassyAvatar/></button>
       <input ref={input} aria-label="Mensagem para Classy" placeholder="Aprender com a Classy" value={draft} maxLength={4000} onChange={event => setDraft(event.target.value)}/>
       <button type="button" aria-label="Ações da Classy" aria-expanded={actions} onClick={() => setActions(!actions)}><Plus size={20}/></button>
-      <button type="button" aria-label={listening ? "Parar ditado" : "Ditar mensagem"} aria-pressed={listening} className={listening ? "classy-listening" : ""} onClick={dictate}><Mic size={19}/></button>
+      <button type="button" aria-label={listening ? "Parar ditado" : "Ditar mensagem"} aria-pressed={listening} className={listening ? "classy-listening" : ""} onClick={dictate}><AudioLines size={19}/></button>
       {draft.trim() ? <button type="submit" aria-label="Enviar mensagem" disabled={busy}><ArrowUp size={20}/></button> : <button type="button" aria-label={open ? "Recolher painel" : "Abrir painel"} aria-expanded={open} onClick={() => setOpen(!open)}><PanelRight size={19}/></button>}
     </form>
   </div>;
