@@ -1,4 +1,8 @@
-import { useEffect, useRef, useState } from "react";
+import { ClassyContextTools } from "./ClassyContextTools";
+import { studyModes, type ContextMenu, type StudyMode } from "./classyModes";
+import { useClassyLesson, type ClassyReference } from "./classyPageContext";
+import { useClassyTarget, type ClassyTarget } from "./useClassyTarget";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { ArrowUp, BookmarkPlus, ExternalLink, AudioLines, PanelRight, Plus, X, Loader2 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
@@ -40,7 +44,27 @@ export function GlobalClassy() {
   refreshStudies.current = refetch;
   useEffect(() => { void refreshStudies.current(); }, [location.pathname]);
   const [open, setOpen] = useState(false);
-  const [actions, setActions] = useState(false);
+  const [menu, setMenu] = useState<ContextMenu>(null);
+  const [references, setReferences] = useState<ClassyReference[]>([]);
+  const [studyMode, setStudyMode] = useState<StudyMode | undefined>();
+  const [target, setTarget] = useState<ClassyTarget | undefined>();
+  const [sources, setSources] = useState<{ id: string; type: string; title: string; contentId?: string; transcriptAvailable?: boolean }[]>([]);
+  const [generating, setGenerating] = useState<string | null>(null);
+  const [dismissedLesson, setDismissedLesson] = useState<string | null>(null);
+  const lesson = useClassyLesson();
+  const currentLesson = lesson?.path === location.pathname && dismissedLesson !== lesson.id ? lesson : null;
+  const actions = menu !== null;
+  const setActions = (value: boolean) => setMenu(value ? "main" : null);
+  const addReference = useCallback((ref: ClassyReference) => {
+    setReferences(previous => {
+      if (previous.some(item => item.id === ref.id && item.type === ref.type)) return previous;
+      if (previous.length >= 3) { toast.info("Você pode mencionar até 3 itens, além da aula aberta."); return previous; }
+      return [...previous, ref];
+    });
+    setMenu(null);
+  }, []);
+  const pickTarget = useCallback((picked: ClassyTarget, ref?: ClassyReference) => { setTarget(picked); if (ref) addReference(ref); setMenu(null); }, [addReference]);
+  const { selecting, setSelecting, rect } = useClassyTarget(pickTarget, location.pathname);
   const [selected, setSelected] = useState("");
   const [draft, setDraft] = useState("");
   const [messages, setMessages] = useState<StudyMessage[]>([]);
@@ -51,6 +75,7 @@ export function GlobalClassy() {
   const recognition = useRef<Recognition | null>(null);
   const input = useRef<HTMLInputElement>(null);
   const bottom = useRef<HTMLDivElement>(null);
+  const restoredStudy = useRef<string | null>(null);
   const identity = useRef(user?.id);
   identity.current = user?.id;
   const routeStudy = location.pathname === "/c/new" ? undefined : location.pathname.match(/^\/c\/([^/]+)/)?.[1];
@@ -58,7 +83,7 @@ export function GlobalClassy() {
   const hidden = !user || /^\/(auth|onboarding|termos|privacidade|broadcast|admin|studio\/upload)(\/|$)/.test(location.pathname);
   const pageName = location.pathname === "/" ? "Explorar" : location.pathname.startsWith("/watch/") ? "Aula aberta" : location.pathname.startsWith("/listen/") ? "Podcast aberto" : routeStudy ? "Meu estudo" : location.pathname.startsWith("/shorts") ? "Shorts" : "Classfy";
 
-  useEffect(() => { setOpen(false); setSelected(""); setDraft(""); setMessages([]); setSavedNotes(new Set()); recognition.current?.stop(); }, [user?.id]);
+  useEffect(() => { restoredStudy.current = null; setOpen(false); setSelected(""); setDraft(""); setMessages([]); setSavedNotes(new Set()); setReferences([]); setStudyMode(undefined); setTarget(undefined); setSources([]); recognition.current?.stop(); }, [user?.id]);
   useEffect(() => { if (!selected && activeStudies.length) setSelected(activeStudies[0].id); }, [activeStudies, selected]);
   useEffect(() => {
     if (!open || !studyId || !user?.id) return;
@@ -66,7 +91,18 @@ export function GlobalClassy() {
     const load = async () => {
       setHistoryLoading(true);
       const { data, error } = await supabase.from("study_messages").select("*").eq("study_id", studyId).order("created_at", { ascending: false }).limit(60);
-      if (!cancelled) { if (error) toast.error("Não foi possível carregar a conversa."); else setMessages((data || []).reverse() as StudyMessage[]); setHistoryLoading(false); }
+      if (!cancelled) { if (error) toast.error("Não foi possível carregar a conversa."); else {
+        const history = (data || []).reverse() as StudyMessage[];
+        setMessages(history);
+        const metadata = [...history].reverse().find(item => item.role === "assistant")?.metadata;
+        setSources(metadata?.context_sources || []);
+        if (restoredStudy.current !== studyId) {
+          restoredStudy.current = studyId;
+          const saved = (metadata?.context_sources || []).filter((source: ClassyReference) => ["content", "lesson", "creator", "study"].includes(source.type));
+          setReferences(previous => previous.length ? previous : saved.slice(0, 3));
+          setStudyMode(previous => previous || (studyModes.some(mode => mode.id === metadata?.study_mode) ? metadata?.study_mode : undefined));
+        }
+      } setHistoryLoading(false); }
     };
     setMessages([]);
     void load();
@@ -82,14 +118,14 @@ export function GlobalClassy() {
     return () => { window.removeEventListener("keydown", escape); };
   }, []);
   useEffect(() => () => recognition.current?.stop(), []);
-  useEffect(() => { if (hidden) { recognition.current?.stop(); setOpen(false); setActions(false); } }, [hidden]);
+  useEffect(() => { if (hidden) { setSelecting(false); recognition.current?.stop(); setOpen(false); setActions(false); } }, [hidden, setSelecting]);
 
   async function newStudy() {
     if (!canCreateMore) { toast.error("Você atingiu o limite de estudos do seu plano."); return; }
     navigate("/c/new"); setOpen(false);
   }
   async function send(text = draft) {
-    if (!text.trim() || busy || !user) return;
+    if (!text.trim() || busy || historyLoading || !user) return;
     setOpen(true); setActions(false);
     if (!studyId) { toast.info("Crie um estudo para começar sua conversa com a Classy."); return; }
     const requestUser = user.id;
@@ -98,20 +134,43 @@ export function GlobalClassy() {
     try {
       // Only public page identity is shared, never form values or the complete DOM.
       const heading = document.querySelector("main h1")?.textContent?.trim().slice(0, 180) || pageName;
-      const media = document.querySelector<HTMLMediaElement>("main video, main audio");
+      const media = document.querySelector<HTMLMediaElement>("video, audio");
       const pageContext = `${pageName}: ${heading}${media ? `; reprodução em ${Math.floor(media.currentTime)}s` : player.isVisible ? `; miniplayer: ${player.content?.title}, ${Math.floor(player.currentTime)}s` : ""}`;
-      const { data, error } = await supabase.functions.invoke("classy-chat", { body: { studyId: requestStudy, message: text.trim(), pageContext } });
+      const allReferences = [...(currentLesson ? [currentLesson] : []), ...references].filter((ref, index, list) => list.findIndex(item => item.id === ref.id && item.type === ref.type) === index);
+      const activeContentId = allReferences.find(ref => ref.type === "content")?.id;
+      const { data, error } = await supabase.functions.invoke("classy-chat", { body: { studyId: requestStudy, message: text.trim(), pageContext, references: allReferences.map(({ id, type }) => ({ id, type })), studyMode, target, activeContentId, currentVideoTime: currentLesson ? media?.currentTime : undefined } });
       if (identity.current !== requestUser) return;
-      if (error || data?.error) throw new Error("Não foi possível falar com a Classy. Tente novamente.");
+      if (data?.contextPending) { setSources(data.contextSources || []); setDraft(text); toast.info(data.message); return; }
       if (data?.limitReached) { toast.info(data.message || "Limite de mensagens deste estudo atingido."); setDraft(text); return; }
+      if (error || data?.error) {
+        const payload = error?.context instanceof Response ? await error.context.json().catch(() => null) : data;
+        throw new Error(payload?.message || "Não foi possível falar com a Classy. Tente novamente.");
+      }
+      setSources(data?.contextSources || []);
       window.dispatchEvent(new CustomEvent("classfy:study-chat-updated", { detail: { studyId: requestStudy } }));
     } catch (error) { if (identity.current === requestUser) { setDraft(text); toast.error(error instanceof Error ? error.message : "Tente novamente."); } }
     finally { setBusy(false); }
   }
   async function saveNote(message: StudyMessage) {
     if (!user || busy || savedNotes.has(message.id)) return;
-    const { error } = await supabase.from("study_notes").insert({ study_id: message.study_id, user_id: user.id, note_text: message.content, content_id: null, timestamp_seconds: null });
+    const { error } = await supabase.from("study_notes").insert({ study_id: message.study_id, user_id: user.id, note_text: message.content, content_id: message.metadata?.context_sources?.find((source: { contentId?: string }) => source.contentId)?.contentId || null, timestamp_seconds: null });
     if (error) toast.error("Não foi possível salvar a anotação."); else { setSavedNotes(previous => new Set(previous).add(message.id)); toast.success("Resposta salva nas anotações do estudo."); window.dispatchEvent(new CustomEvent("classfy:study-note-updated", { detail: { studyId: message.study_id } })); }
+  }
+  async function generateTranscript(source: typeof sources[number]) {
+    setGenerating(source.id);
+    try {
+      const { data, error } = await supabase.functions.invoke("transcribe-content", { body: source.contentId ? { contentId: source.contentId } : { lessonId: source.id } });
+      if (error || data?.error) throw new Error("Não foi possível gerar a transcrição agora.");
+      if (data?.processing) toast.info(data.message || "Transcrição em processamento. Tente novamente em instantes.");
+      else if (data?.transcription?.text) { setSources(previous => previous.map(item => item.id === source.id ? { ...item, transcriptAvailable: true } : item)); toast.success("Transcrição pronta para sua próxima pergunta."); }
+      else toast.info("A transcrição ainda não está disponível.");
+    } catch (error) { toast.error(error instanceof Error ? error.message : "Tente novamente."); }
+    finally { setGenerating(null); }
+  }
+  function updateDraft(value: string) {
+    if (/(?:^|\s)@$/.test(value)) { setDraft(value.replace(/@$/, "")); setMenu("mentions"); return; }
+    if (/(?:^|\s)\/$/.test(value)) { setDraft(value.replace(/\/$/, "")); setMenu("modes"); return; }
+    setDraft(value);
   }
   function dictate() {
     if (listening) { recognition.current?.stop(); return; }
@@ -130,19 +189,28 @@ export function GlobalClassy() {
     {open && <section className="classy-panel" role="dialog" aria-modal="false" aria-label="Assistente Classy">
       <header className="classy-panel-header"><ClassyAvatar/><div><strong>Classy</strong><small>Seu espaço para aprender</small></div><button aria-label="Fechar Classy" onClick={() => setOpen(false)}><X size={19}/></button></header>
       <div className="classy-context"><span>Com você em · {pageName}</span><div><select aria-label="Estudo da conversa" value={studyId} disabled={!!routeStudy || busy || loading} onChange={event => setSelected(event.target.value)}><option value="">Escolha um estudo</option>{activeStudies.map(study => <option key={study.id} value={study.id}>{study.title}</option>)}</select><button aria-label="Abrir estudo" disabled={!studyId} onClick={() => navigate(`/c/${studyId}`)}><ExternalLink size={16}/></button></div></div>
+      {sources.length > 0 && <div className="classy-sources" aria-label="Fontes usadas na resposta">{sources.map(source => <div key={`${source.type}:${source.id}`}><span>{source.title} · {source.transcriptAvailable === undefined ? "Contexto conectado" : source.transcriptAvailable ? "Transcrição conectada" : "Sem transcrição"}</span>{source.transcriptAvailable === false && (source.contentId || source.type === "lesson") && <button disabled={!!generating} onClick={() => generateTranscript(source)}>{generating === source.id ? "Preparando…" : "Gerar transcrição"}</button>}</div>)}</div>}
       <div className="classy-messages" aria-busy={busy || historyLoading}>
         {historyLoading ? <p className="classy-empty">Carregando conversa…</p> : messages.length === 0 && <div className="classy-empty"><ClassyAvatar/><h2>Vamos descobrir algo?</h2><p>Escolha um estudo e me conte o que quer entender. Sua conversa e suas anotações ficam juntas.</p><button className="classy-create" disabled={!canCreateMore} onClick={newStudy}><Plus size={16}/> Criar um estudo</button></div>}
         {messages.filter(message => message.role !== "system").map(message => <article key={message.id} className={`classy-message classy-message--${message.role}`}><ChatMessage role={message.role} content={message.content}/>{message.role === "assistant" && <button className="classy-save" disabled={savedNotes.has(message.id)} onClick={() => saveNote(message)}><BookmarkPlus size={14}/> {savedNotes.has(message.id) ? "Anotação salva" : "Salvar anotação"}</button>}</article>)}
         {busy && <p role="status" className="classy-thinking"><Loader2 size={15} className="animate-spin"/> Classy está pensando…</p>}<div ref={bottom}/>
       </div>
       <div className="classy-suggestions">{["Explique com um exemplo", "Me dê um exercício", "O que estudar a seguir?"].map(text => <button key={text} disabled={busy || !studyId} onClick={() => send(text)}>{text}</button>)}</div>
-      <p className="classy-context-note">Contexto: página e instante da reprodução. A Classy pode cometer erros.</p>
+      <p className="classy-context-note">A Classy usa as referências e transcrições disponíveis. Confira informações importantes.</p>
     </section>}
-    {actions && <div className="classy-actions"><button onClick={newStudy}><Plus size={16}/> Novo estudo</button><button disabled={!studyId} onClick={() => { navigate(`/c/${studyId}`); setActions(false); }}><ExternalLink size={16}/> Abrir estudo atual</button></div>}
+    <ClassyContextTools menu={menu} setMenu={setMenu} onReference={addReference} onMode={mode => { setStudyMode(mode); setMenu(null); input.current?.focus(); }} onTarget={() => { setSelecting(true); setMenu(null); setOpen(false); }} onNewStudy={newStudy}/>
+    {selecting && <div className="classy-target-instruction" role="status">Selecione um elemento da página <button onClick={() => setSelecting(false)}>Cancelar · Esc</button></div>}
+    {selecting && rect && <div className="classy-target-outline" style={rect}/>}
+    {(currentLesson || references.length > 0 || studyMode || target) && <div className={`classy-attachments ${open ? "classy-attachments--open" : ""}`} aria-label="Contexto da mensagem">
+      {currentLesson && <span title={currentLesson.title}>Aula aberta · {currentLesson.title}<button aria-label="Remover aula aberta do contexto" onClick={() => setDismissedLesson(currentLesson.id)}><X size={12}/></button></span>}
+      {references.map(ref => <span key={`${ref.type}:${ref.id}`} title={ref.title}>@{ref.title}<button aria-label={`Remover referência ${ref.title}`} onClick={() => setReferences(previous => previous.filter(item => item.id !== ref.id || item.type !== ref.type))}><X size={12}/></button></span>)}
+      {studyMode && <span>/{studyModes.find(mode => mode.id === studyMode)?.title}<button aria-label="Remover modo de estudo" onClick={() => setStudyMode(undefined)}><X size={12}/></button></span>}
+      {target && <span title={target.text}>Seleção · {target.label}<button aria-label="Remover seleção" onClick={() => setTarget(undefined)}><X size={12}/></button></span>}
+    </div>}
     <form className={`classy-bar ${open ? "classy-bar--open" : ""}`} onSubmit={event => { event.preventDefault(); void send(); }}>
       <button type="button" aria-label="Conversar com a Classy" onClick={() => setOpen(!open)}><ClassyAvatar/></button>
-      <input ref={input} aria-label="Mensagem para Classy" placeholder="Aprender com a Classy" value={draft} maxLength={4000} onChange={event => setDraft(event.target.value)}/>
-      <button type="button" aria-label="Ações da Classy" aria-expanded={actions} onClick={() => setActions(!actions)}><Plus size={20}/></button>
+      <input ref={input} aria-label="Mensagem para Classy" placeholder="Aprender com a Classy" value={draft} maxLength={4000} onChange={event => updateDraft(event.target.value)}/>
+      <button type="button" aria-label="Ações da Classy" aria-expanded={actions} onClick={() => setActions(!actions)}>{actions ? <X size={18}/> : <Plus size={20}/>}</button>
       <button type="button" aria-label={listening ? "Parar ditado" : "Ditar mensagem"} aria-pressed={listening} className={listening ? "classy-listening" : ""} onClick={dictate}><AudioLines size={19}/></button>
       {draft.trim() ? <button type="submit" aria-label="Enviar mensagem" disabled={busy}><ArrowUp size={20}/></button> : <button type="button" aria-label={open ? "Recolher painel" : "Abrir painel"} aria-expanded={open} onClick={() => setOpen(!open)}><PanelRight size={19}/></button>}
     </form>

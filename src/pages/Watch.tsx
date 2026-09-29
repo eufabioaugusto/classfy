@@ -1,3 +1,4 @@
+import { usePublishClassyLesson } from "@/components/classy/classyPageContext";
 import {
   useParams,
   Navigate,
@@ -222,6 +223,7 @@ function WatchContent() {
   const [isCourse, setIsCourse] = useState(false);
   const [courseModules, setCourseModules] = useState<any[]>([]);
   const [currentLesson, setCurrentLesson] = useState<any>(null);
+  usePublishClassyLesson(isCourse ? currentLesson?.id : content?.id, isCourse ? currentLesson?.title : content?.title, hasAccess && !loadingContent && content?.id === id && (!isCourse || currentLesson?.course_id === content?.id), isCourse ? "lesson" : "content");
 
   // YouTube-style UI state
   const [descExpanded, setDescExpanded] = useState(false);

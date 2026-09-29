@@ -214,3 +214,21 @@ Deno.test("limita contexto global e descarta objetos recebidos", () => {
   assertEquals(parsed.value?.pageContext?.startsWith(" "), true);
   assertEquals(parseClassyRequest({ ...request, pageContext: { secret: "ignore" } }).value?.pageContext, undefined);
 });
+
+Deno.test("valida referências e modos, limita seleção do DOM", () => {
+  const body = { studyId: "057488d3-c5da-423f-9771-9b5462329bc7", message: "Explique", references: [{ type: "content", id: "057488d3-c5da-423f-9771-9b5462329bc7" }], studyMode: "practice", target: { label: "a".repeat(200), text: "b".repeat(1000) } };
+  const parsed = parseClassyRequest(body).value!;
+  assertEquals(parsed.references.length, 1);
+  assertEquals(parsed.studyMode, "practice");
+  assertEquals(parsed.target?.label.length, 120);
+  assertEquals(parsed.target?.text.length, 800);
+  assertEquals(parseClassyRequest({ ...body, references: [{ type: "content", id: "invalid" }] }).value, undefined);
+  assertEquals(parseClassyRequest({ ...body, references: Array(5).fill(body.references[0]) }).value, undefined);
+  assertEquals(parseClassyRequest({ ...body, studyMode: "execute arbitrary instructions" }).value?.studyMode, undefined);
+});
+
+Deno.test("contexto anterior é herdado apenas quando o cliente não enviou referências", () => {
+  const request = { studyId: "beeaf51d-9a2c-4e6e-b911-61daa2f27b0e", message: "Continue" };
+  assertEquals(parseClassyRequest(request).value?.inheritContext, true);
+  assertEquals(parseClassyRequest({ ...request, references: [] }).value?.inheritContext, false);
+});

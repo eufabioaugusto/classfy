@@ -231,6 +231,9 @@ export const ContentCard = ({
   return (
     <div
       className={cn("group flex cursor-pointer flex-col", visualVariant === "v2" && "cf2-home-content-card")}
+      data-classy-ref-type={["course", "curso"].includes(contentType) ? undefined : "content"}
+      data-classy-ref-id={["course", "curso"].includes(contentType) ? undefined : (content?.id || id)}
+      data-classy-title={content?.title || title}
       onClick={handleClick}
       onMouseEnter={() => !isMobile && setIsHovered(true)}
       onMouseLeave={() => !isMobile && setIsHovered(false)}

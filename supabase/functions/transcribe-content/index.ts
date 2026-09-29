@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient, type SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.81.1";
 import { getVideoProvider } from "../_shared/video/provider.ts";
+import { resolveTutorReferences } from "../classy-chat/classy-context.ts";
 import { transcribeAudioWithAi } from "../_shared/ai-provider.ts";
 
 const corsHeaders = {
@@ -15,57 +16,55 @@ serve(async (req) => {
 
   let leaseId: string | null = null;
   let cleanupClient: SupabaseClient | null = null;
+  let transcriptTable = "transcriptions";
   try {
-    const { contentId } = await req.json();
-
-    if (!contentId) {
-      return new Response(
-        JSON.stringify({ error: "contentId é obrigatório" }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+    const { contentId, lessonId } = await req.json();
+    const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+    if ((!!contentId === !!lessonId) || !uuid.test(contentId || lessonId)) {
+      return new Response(JSON.stringify({ error: "Informe um contentId ou lessonId válido." }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
-
-    // Initialize Supabase client
+    transcriptTable = lessonId ? "lesson_transcriptions" : "transcriptions";
+    const identityColumn = lessonId ? "lesson_id" : "content_id";
+    const sourceId = lessonId || contentId;
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
     cleanupClient = supabase;
-
     const authorization = req.headers.get("authorization") || "";
     const serviceCaller = authorization.replace(/^Bearer /i, "") === supabaseServiceKey;
-    const { data: content, error: contentError } = await supabase.from("contents")
-      .select("id, title, file_url, content_type, creator_id, status, visibility, media_asset_id")
-      .eq("id", contentId).single();
-    if (contentError || !content) return new Response(JSON.stringify({ error: "Conteúdo não encontrado" }), { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     if (!serviceCaller) {
       const { data: { user } } = await supabase.auth.getUser(authorization.replace(/^Bearer /i, ""));
       if (!user) return new Response(JSON.stringify({ error: "Entre na sua conta para usar a transcrição." }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-      let allowed = content.creator_id === user.id;
-      if (!allowed && content.status === 'approved') {
-        if (content.visibility === 'paid') {
-          const { data: purchase } = await supabase.from('purchased_contents').select('id').eq('user_id', user.id).eq('content_id', contentId).in('status', ['confirmed', 'legacy_confirmed']).maybeSingle();
-          allowed = !!purchase;
-        } else {
-          const { data: profile } = await supabase.from('profiles').select('plan').eq('id', user.id).single();
-          const rank: Record<string, number> = { free: 0, pro: 1, premium: 2 };
-          allowed = content.visibility === 'free' || (rank[profile?.plan || 'free'] || 0) >= (rank[content.visibility] ?? 99);
-        }
-      }
-      if (!allowed) return new Response(JSON.stringify({ error: "Desbloqueie esta aula para usar a transcrição." }), { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      const { data: profile } = await supabase.from("profiles").select("plan, plan_expires_at").eq("id", user.id).single();
+      const plan = profile?.plan_expires_at && Date.parse(profile.plan_expires_at) < Date.now() ? "free" : profile?.plan || "free";
+      try { await resolveTutorReferences(supabase, [{ type: lessonId ? "lesson" : "content", id: sourceId }], user.id, plan); }
+      catch { return new Response(JSON.stringify({ error: "Desbloqueie esta aula para usar a transcrição." }), { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } }); }
     }
-    const { data: existingTranscription } = await supabase.from("transcriptions").select("*").eq("content_id", contentId).maybeSingle();
+    let content: any;
+    if (lessonId) {
+      const { data: lesson } = await supabase.from("course_lessons").select("id,title,video_url,media_asset_id,content_id").eq("id", lessonId).single();
+      if (lesson?.content_id) {
+        const { data } = await supabase.from("contents").select("id,title,file_url,media_asset_id,content_type").eq("id", lesson.content_id).single();
+        content = data;
+      } else if (lesson) content = { ...lesson, file_url: lesson.video_url, content_type: "video" };
+    } else {
+      const { data } = await supabase.from("contents").select("id,title,file_url,media_asset_id,content_type").eq("id", contentId).single();
+      content = data;
+    }
+    if (!content) return new Response(JSON.stringify({ error: "Conteúdo não encontrado" }), { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    const { data: existingTranscription } = await supabase.from(transcriptTable).select("*").eq(identityColumn, sourceId).maybeSingle();
     if (existingTranscription?.text) return new Response(JSON.stringify({ success: true, transcription: existingTranscription }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
 
-    // The unique content_id reserves one generation; other viewers reuse or wait.
-    const { data: reservation, error: reservationError } = await supabase.from('transcriptions')
-      .insert({ content_id: contentId, text: '', language: 'pt-BR' }).select('id').single();
+    // The unique source identity reserves one generation; other viewers reuse or wait.
+    const { data: reservation, error: reservationError } = await supabase.from(transcriptTable)
+      .insert({ [identityColumn]: sourceId, text: '', language: 'pt-BR' }).select('id').single();
     if (reservationError) {
       if (reservationError.code !== '23505') throw reservationError;
-      const { data: current } = await supabase.from('transcriptions').select('*').eq('content_id', contentId).single();
+      const { data: current } = await supabase.from(transcriptTable).select('*').eq(identityColumn, sourceId).single();
       if (current?.text) return new Response(JSON.stringify({ success: true, transcription: current }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
       // Recover a crashed worker after ten minutes, with an atomic lease comparison.
       if (current?.updated_at && Date.now() - Date.parse(current.updated_at) > 600000) {
-        const { data: renewed } = await supabase.from('transcriptions').update({ updated_at: new Date().toISOString() })
+        const { data: renewed } = await supabase.from(transcriptTable).update({ updated_at: new Date().toISOString() })
           .eq('id', current.id).eq('text', '').eq('updated_at', current.updated_at).select('id').maybeSingle();
         leaseId = renewed?.id || null;
       }
@@ -149,7 +148,7 @@ serve(async (req) => {
 
     // Save transcription to database
     const { data: savedTranscription, error: saveError } = await supabase
-      .from("transcriptions")
+      .from(transcriptTable)
       .update({ text: transcriptionText, language: "pt-BR", updated_at: new Date().toISOString() })
       .eq("id", leaseId!)
       .select()
@@ -176,6 +175,6 @@ serve(async (req) => {
     );
   } finally {
     // Only discard an empty reservation; never delete a completed transcript.
-    if (leaseId && cleanupClient) await cleanupClient.from("transcriptions").delete().eq("id", leaseId).eq("text", "");
+    if (leaseId && cleanupClient) await cleanupClient.from(transcriptTable).delete().eq("id", leaseId).eq("text", "");
   }
 });

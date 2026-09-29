@@ -53,7 +53,7 @@ export const CreatorLink = ({
   // If no channel name, return non-clickable version
   if (!channelName) {
     return (
-      <div className={`flex items-center gap-2 ${className}`}>
+      <div data-classy-ref-type="creator" data-classy-ref-id={creatorId} data-classy-title={creatorName} className={`flex items-center gap-2 ${className}`}>
         <Avatar className={`${sizeClasses[avatarSize]} ring-1 ring-border/50 flex-shrink-0`}>
           {creatorAvatar && <AvatarImage src={creatorAvatar} alt={creatorName} />}
           <AvatarFallback className="bg-primary text-primary-foreground text-xs">
@@ -73,6 +73,9 @@ export const CreatorLink = ({
   // Return clickable version with link to profile
   return (
     <Link
+      data-classy-ref-type="creator"
+      data-classy-ref-id={creatorId}
+      data-classy-title={creatorName}
       to={`/@${channelName}`}
       className={`flex items-center gap-2 hover:opacity-80 transition-opacity ${className}`}
       onClick={(e) => e.stopPropagation()}

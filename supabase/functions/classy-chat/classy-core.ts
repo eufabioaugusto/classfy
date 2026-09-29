@@ -80,6 +80,10 @@ export type ClassyConfidence = "high" | "medium" | "low";
 export interface ClassyRequest {
   studyId: string;
   pageContext?: string;
+  inheritContext: boolean;
+  references: { type: "content" | "lesson" | "creator" | "study"; id: string }[];
+  studyMode?: "explain" | "practice" | "review" | "plan";
+  target?: { label: string; text: string };
   message: string;
   activeContentId: string | null;
   currentVideoTime?: number;
@@ -148,6 +152,18 @@ export function parseClassyRequest(
     return { error: "activeContentId inválido" };
   }
 
+  const referenceTypes = ["content", "lesson", "creator", "study"];
+  if (input.references !== undefined && (!Array.isArray(input.references) || input.references.length > 4)) return { error: "Referências inválidas (máximo 4)" };
+  const references: ClassyRequest["references"] = [];
+  for (const ref of (input.references || []) as Record<string, unknown>[]) {
+    if (!ref || !referenceTypes.includes(String(ref.type)) || typeof ref.id !== "string" || !UUID_PATTERN.test(ref.id)) return { error: "Referência inválida" };
+    if (!references.some(item => item.id === ref.id && item.type === ref.type)) references.push({ type: ref.type as ClassyRequest["references"][number]["type"], id: ref.id });
+  }
+  const studyMode = ["explain", "practice", "review", "plan"].includes(String(input.studyMode)) ? input.studyMode as ClassyRequest["studyMode"] : undefined;
+  const rawTarget = input.target && typeof input.target === "object" ? input.target as Record<string, unknown> : null;
+  const clean = (value: unknown, length: number) => typeof value === "string" ? value.replace(/[\x00-\x1f]/g, " ").slice(0, length) : "";
+  const target = rawTarget ? { label: clean(rawTarget.label, 120), text: clean(rawTarget.text, 800) } : undefined;
+
   const rawVideoTime = input.currentVideoTime;
   const currentVideoTime =
     typeof rawVideoTime === "number" && Number.isFinite(rawVideoTime)
@@ -157,6 +173,7 @@ export function parseClassyRequest(
   return {
     value: {
       studyId,
+      references, inheritContext: input.references === undefined, studyMode, target,
       pageContext: typeof input.pageContext === "string" ? input.pageContext.replace(/[\x00-\x1f]/g, " ").slice(0, 400) : undefined,
       message,
       activeContentId,

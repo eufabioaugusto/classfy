@@ -1,3 +1,4 @@
+import { usePublishClassyLesson } from "@/components/classy/classyPageContext";
 import { useParams, Navigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { useState, useEffect } from "react";
@@ -44,6 +45,7 @@ export default function Listen() {
   const [content, setContent] = useState<Content | null>(null);
   const [loadingContent, setLoadingContent] = useState(true);
   const [hasAccess, setHasAccess] = useState(false);
+  usePublishClassyLesson(content?.id, content?.title, hasAccess && !loadingContent && content?.id === id);
   const [showUpgradeModal, setShowUpgradeModal] = useState(false);
   const [showPurchaseModal, setShowPurchaseModal] = useState(false);
   const [requiredUpgradePlan, setRequiredUpgradePlan] = useState<"pro" | "premium">("pro");

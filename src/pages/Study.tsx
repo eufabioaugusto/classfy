@@ -1,3 +1,4 @@
+import { usePublishClassyLesson } from "@/components/classy/classyPageContext";
 import { Fragment, useEffect, useMemo, useState, useRef } from "react";
 import { cn } from "@/lib/utils";
 import { useParams, useNavigate, useLocation } from "react-router-dom";
@@ -371,6 +372,7 @@ function StudyContent() {
   // Access control state
   const { checkAccess, hasAccess, blockReason, requiredPlan } =
     useAccessControl();
+  usePublishClassyLesson(activeContent?.id, activeContent?.title, hasAccess);
   const [showUpgradeModal, setShowUpgradeModal] = useState(false);
   const [showPurchaseModal, setShowPurchaseModal] = useState(false);
   const [activeContentInfo, setActiveContentInfo] = useState<{
