@@ -245,4 +245,7 @@
 
 @media(max-width:767px){.classy-global:has(.classy-attachments) .classy-panel{bottom:calc(214px + env(safe-area-inset-bottom))}.classy-global--player:has(.classy-attachments) .classy-panel{bottom:calc(284px + env(safe-area-inset-bottom))}}
 
-.classy-voice-status { position: fixed; bottom: 150px; left: 50%; transform: translateX(-50%); padding: 7px 12px; border-radius: 14px; background: var(--background, #fff); color: #666; font-size: 11px; box-shadow: 0 2px 12px #0001; white-space: nowrap; }
+.classy-voice-content { flex: 1; display: flex; align-items: center; justify-content: center; gap: 10px; min-width: 0; font-size: 13px; color: hsl(var(--muted-foreground)); }
+.classy-voice-wave { color: #ed1651; animation: classy-recording-pulse 1.2s ease-in-out infinite; }
+@keyframes classy-recording-pulse { 50% { opacity: .45; } }
+@media (prefers-reduced-motion: reduce) { .classy-voice-wave { animation: none; } }

@@ -64,7 +64,8 @@ export function useClassyDictation(onTranscript: (text: string) => void) {
         if (token !== session.current) return;
         release();
         recorder.current = null;
-        if (!bytes || bytes > 2 * 1024 * 1024) { update("idle"); toast.info("Grave uma mensagem de até um minuto e tente novamente."); return; }
+        if (!bytes) { update("idle"); toast.info("Nenhum áudio capturado. Tente novamente."); return; }
+        if (bytes > 2 * 1024 * 1024) { update("idle"); toast.info("Grave uma mensagem de até um minuto e tente novamente."); return; }
         update("transcribing");
         try {
           const blob = new Blob(chunks, { type: capture.mimeType || "audio/webm" });
@@ -73,7 +74,7 @@ export function useClassyDictation(onTranscript: (text: string) => void) {
           const { data, error } = await supabase.functions.invoke("transcribe-audio", { body: { audioBase64, mimeType: blob.type }, signal: AbortSignal.timeout(60000) });
           if (token !== session.current) return;
           if (error || data?.error) throw new Error(data?.error || "Não foi possível transcrever o áudio. Tente novamente.");
-          if (!data?.text?.trim()) { toast.info("Não identifiquei fala no áudio. Tente falar novamente."); return; }
+          if (data?.noSpeech || !data?.text?.trim()) { toast.info("Nenhum áudio capturado. Tente novamente."); return; }
           callback.current(data.text.trim());
         } catch (error) { if (token === session.current) toast.error(microphoneError(error)); }
         finally { if (token === session.current) update("idle"); }

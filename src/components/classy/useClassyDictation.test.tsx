@@ -1,11 +1,12 @@
 import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { microphoneError, useClassyDictation } from "./useClassyDictation";
 vi.mock("@/integrations/supabase/client", () => ({ supabase: { functions: { invoke: vi.fn() } } }));
 vi.mock("sonner", () => ({ toast: { error: vi.fn(), info: vi.fn() } }));
-afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); });
+afterEach(() => { vi.clearAllMocks(); vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 
 function renderHook(callback: () => ReturnType<typeof useClassyDictation>) {
   const container = document.createElement("div");
@@ -72,5 +73,29 @@ it("transcreve ao terminar e entrega texto para revisão, sem enviar ao chat", a
   expect(transcript).toHaveBeenCalledWith("Quero revisar esta aula.");
   expect(stop).toHaveBeenCalledOnce();
   expect(result.current.status).toBe("idle");
+  unmount();
+});
+
+it.each([false, true])("ausência de áudio/fala volta ao estado normal sem alerta de erro, payload=%s", async hasPayload => {
+  const stop = vi.fn();
+  vi.mocked(supabase.functions.invoke).mockResolvedValue({ data: { text: "", noSpeech: true }, error: null, response: undefined });
+  vi.stubGlobal("navigator", { mediaDevices: { getUserMedia: vi.fn().mockResolvedValue({ getTracks: () => [{ stop }] }) } });
+  vi.stubGlobal("MediaRecorder", class {
+    static isTypeSupported() { return true; }
+    state = "inactive"; mimeType = "audio/webm";
+    ondataavailable?: (event: { data: Blob }) => void;
+    onstop?: () => void;
+    start() { this.state = "recording"; }
+    stop() { this.state = "inactive"; if (hasPayload) this.ondataavailable?.({ data: new Blob(["silence"], { type: "audio/webm" }) }); this.onstop?.(); }
+  });
+  const transcript = vi.fn();
+  const { result, unmount } = renderHook(() => useClassyDictation(transcript));
+  await act(async () => { await result.current.toggle(); });
+  await act(async () => { await result.current.toggle(); await new Promise(resolve => setTimeout(resolve, 30)); });
+  expect(result.current.status).toBe("idle");
+  expect(toast.info).toHaveBeenCalledWith("Nenhum áudio capturado. Tente novamente.");
+  expect(toast.error).not.toHaveBeenCalled();
+  expect(transcript).not.toHaveBeenCalled();
+  if (!hasPayload) expect(supabase.functions.invoke).not.toHaveBeenCalled();
   unmount();
 });

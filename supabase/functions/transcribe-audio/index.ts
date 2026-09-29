@@ -1,3 +1,4 @@
+import { normalizeDictation } from "./audio-result.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.81.1";
 import { transcribeAudioWithAi } from "../_shared/ai-provider.ts";
@@ -22,6 +23,7 @@ serve(async (req) => {
     if (rawBody.length > 3 * 1024 * 1024) return new Response(JSON.stringify({ error: "Áudio muito grande. Grave até um minuto." }), { status: 413, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     const { audioBase64, mimeType } = JSON.parse(rawBody);
 
+    if (audioBase64 === "") return new Response(JSON.stringify({ success: true, text: "", noSpeech: true }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     if (typeof audioBase64 !== "string" || !audioBase64 || audioBase64.length > 2_800_000 || !/^[A-Za-z0-9+/]*={0,2}$/.test(audioBase64)) {
       return new Response(
         JSON.stringify({ error: "audioBase64 é obrigatório" }),
@@ -37,7 +39,7 @@ serve(async (req) => {
     // Call shared transcription helper using either Gemini or OpenRouter Whisper
     const aiResponse = await transcribeAudioWithAi({
       model: "google/gemini-2.5-flash",
-      prompt: "Transcreva este áudio falado em português. Retorne apenas a transcrição direta, preservando pontuação, sem comentários adicionais. Se não houver fala reconhecível, retorne texto vazio.",
+      prompt: "Transcreva este áudio falado em português. Retorne apenas a transcrição direta, preservando pontuação, sem comentários adicionais. Se não houver fala reconhecível ou o áudio estiver silencioso, retorne apenas [SEM_FALA].",
       audioBase64,
       mimeType: actualMimeType,
       openRouterModel: "openai/whisper-large-v3",
@@ -49,16 +51,13 @@ serve(async (req) => {
       throw new Error(aiResponse.response.status === 429 ? "Transcrição ocupada. Tente novamente em instantes." : "Não foi possível transcrever agora. Tente novamente.");
     }
 
-    const transcriptionText = aiResponse.text;
-
-    if (!transcriptionText) {
-      throw new Error("Nenhuma transcrição foi gerada");
-    }
+    const transcriptionText = normalizeDictation(aiResponse.text);
 
     return new Response(
       JSON.stringify({
         success: true,
         text: transcriptionText,
+        noSpeech: !transcriptionText,
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );

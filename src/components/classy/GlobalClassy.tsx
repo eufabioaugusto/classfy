@@ -5,7 +5,7 @@ import { useClassyLesson, type ClassyReference } from "./classyPageContext";
 import { useClassyTarget, type ClassyTarget } from "./useClassyTarget";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { ArrowUp, BookmarkPlus, ExternalLink, AudioLines, PanelRight, Plus, X, Loader2 } from "lucide-react";
+import { ArrowUp, BookmarkPlus, ExternalLink, AudioLines, PanelRight, Plus, X, Loader2, Square } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useStudies, type StudyMessage } from "@/hooks/useStudies";
 import { useMiniPlayer } from "@/contexts/MiniPlayerContext";
@@ -72,6 +72,7 @@ export function GlobalClassy() {
   const [historyLoading, setHistoryLoading] = useState(false);
   const [savedNotes, setSavedNotes] = useState<Set<string>>(new Set());
   const { status: voiceStatus, toggle: dictate, cancel: cancelDictation } = useClassyDictation(text => setDraft(previous => `${previous} ${text}`.trim()));
+  const voiceActive = voiceStatus !== "idle";
   const listening = voiceStatus === "recording";
   const voiceBusy = voiceStatus === "starting" || voiceStatus === "transcribing";
   const input = useRef<HTMLInputElement>(null);
@@ -174,9 +175,7 @@ export function GlobalClassy() {
   }
   if (hidden) return null;
   return <div className={`classy-global ${routeStudy ? "classy-global--study" : ""} ${player.isVisible ? "classy-global--player" : ""}`}>
-    {listening && <div className="classy-voice-status" role="status">Gravando · Clique no microfone para terminar</div>}
-    {voiceStatus === "transcribing" && <div className="classy-voice-status" role="status">Transcrevendo sua mensagem…</div>}
-    {open && <section className="classy-panel" role="dialog" aria-modal="false" aria-label="Assistente Classy">
+    {open && !voiceActive && <section className="classy-panel" role="dialog" aria-modal="false" aria-label="Assistente Classy">
       <header className="classy-panel-header"><ClassyAvatar/><div><strong>Classy</strong><small>Seu espaço para aprender</small></div><button aria-label="Fechar Classy" onClick={() => setOpen(false)}><X size={19}/></button></header>
       <div className="classy-context"><span>Com você em · {pageName}</span><div><select aria-label="Estudo da conversa" value={studyId} disabled={!!routeStudy || busy || loading} onChange={event => setSelected(event.target.value)}><option value="">Escolha um estudo</option>{activeStudies.map(study => <option key={study.id} value={study.id}>{study.title}</option>)}</select><button aria-label="Abrir estudo" disabled={!studyId} onClick={() => navigate(`/c/${studyId}`)}><ExternalLink size={16}/></button></div></div>
       {sources.length > 0 && <div className="classy-sources" aria-label="Fontes usadas na resposta">{sources.map(source => <div key={`${source.type}:${source.id}`}><span>{source.title} · {source.transcriptAvailable === undefined ? "Contexto conectado" : source.transcriptAvailable ? "Transcrição conectada" : "Sem transcrição"}</span>{source.transcriptAvailable === false && (source.contentId || source.type === "lesson") && <button disabled={!!generating} onClick={() => generateTranscript(source)}>{generating === source.id ? "Preparando…" : "Gerar transcrição"}</button>}</div>)}</div>}
@@ -188,21 +187,30 @@ export function GlobalClassy() {
       <div className="classy-suggestions">{["Explique com um exemplo", "Me dê um exercício", "O que estudar a seguir?"].map(text => <button key={text} disabled={busy || !studyId} onClick={() => send(text)}>{text}</button>)}</div>
       <p className="classy-context-note">A Classy usa as referências e transcrições disponíveis. Confira informações importantes.</p>
     </section>}
-    <ClassyContextTools menu={menu} setMenu={setMenu} onReference={addReference} onMode={mode => { setStudyMode(mode); setMenu(null); input.current?.focus(); }} onTarget={() => { setSelecting(true); setMenu(null); setOpen(false); }} onNewStudy={newStudy}/>
+    <ClassyContextTools menu={voiceActive ? null : menu} setMenu={setMenu} onReference={addReference} onMode={mode => { setStudyMode(mode); setMenu(null); input.current?.focus(); }} onTarget={() => { setSelecting(true); setMenu(null); setOpen(false); }} onNewStudy={newStudy}/>
     {selecting && <div className="classy-target-instruction" role="status">Selecione um elemento da página <button onClick={() => setSelecting(false)}>Cancelar · Esc</button></div>}
     {selecting && rect && <div className="classy-target-outline" style={rect}/>}
-    {(currentLesson || references.length > 0 || studyMode || target) && <div className={`classy-attachments ${open ? "classy-attachments--open" : ""}`} aria-label="Contexto da mensagem">
+    {!voiceActive && (currentLesson || references.length > 0 || studyMode || target) && <div className={`classy-attachments ${open ? "classy-attachments--open" : ""}`} aria-label="Contexto da mensagem">
       {currentLesson && <span title={currentLesson.title}>Aula aberta · {currentLesson.title}<button aria-label="Remover aula aberta do contexto" onClick={() => setDismissedLesson(currentLesson.id)}><X size={12}/></button></span>}
       {references.map(ref => <span key={`${ref.type}:${ref.id}`} title={ref.title}>@{ref.title}<button aria-label={`Remover referência ${ref.title}`} onClick={() => setReferences(previous => previous.filter(item => item.id !== ref.id || item.type !== ref.type))}><X size={12}/></button></span>)}
       {studyMode && <span>/{studyModes.find(mode => mode.id === studyMode)?.title}<button aria-label="Remover modo de estudo" onClick={() => setStudyMode(undefined)}><X size={12}/></button></span>}
       {target && <span title={target.text}>Seleção · {target.label}<button aria-label="Remover seleção" onClick={() => setTarget(undefined)}><X size={12}/></button></span>}
     </div>}
-    <form className={`classy-bar ${open ? "classy-bar--open" : ""}`} onSubmit={event => { event.preventDefault(); void send(); }}>
+    <form className={`classy-bar ${open || voiceActive ? "classy-bar--open" : ""} ${voiceActive ? "classy-bar--voice" : ""}`} onSubmit={event => { event.preventDefault(); void send(); }}>
+      {voiceActive ? <>
+        <button type="button" aria-label="Cancelar ditado" onClick={cancelDictation}><X size={18}/></button>
+        <div className="classy-voice-content" role="status">
+          {listening ? <AudioLines size={20} className="classy-voice-wave"/> : <Loader2 size={18} className="animate-spin"/>}
+          <span>{listening ? "Gravando…" : voiceStatus === "starting" ? "Abrindo microfone…" : "Transcrevendo…"}</span>
+        </div>
+        {listening && <button type="button" aria-label="Parar ditado" className="classy-listening" onClick={dictate}><Square size={17} fill="currentColor"/></button>}
+      </> : <>
       <button type="button" aria-label="Conversar com a Classy" onClick={() => setOpen(!open)}><ClassyAvatar/></button>
       <input ref={input} aria-label="Mensagem para Classy" placeholder="Aprender com a Classy" value={draft} maxLength={4000} onChange={event => updateDraft(event.target.value)}/>
       <button type="button" aria-label="Ações da Classy" aria-expanded={actions} onClick={() => setActions(!actions)}>{actions ? <X size={18}/> : <Plus size={20}/>}</button>
-      <button type="button" aria-label={listening ? "Parar ditado" : voiceStatus === "transcribing" ? "Transcrevendo áudio" : voiceStatus === "starting" ? "Abrindo microfone" : "Ditar mensagem"} disabled={voiceBusy || busy} aria-pressed={listening} className={listening ? "classy-listening" : ""} onClick={dictate}>{voiceBusy ? <Loader2 size={19} className="animate-spin"/> : <AudioLines size={19}/>}</button>
+      <button type="button" aria-label={listening ? "Parar ditado" : voiceStatus === "transcribing" ? "Transcrevendo áudio" : voiceStatus === "starting" ? "Abrindo microfone" : "Ditar mensagem"} disabled={voiceBusy || busy} aria-pressed={listening} className={listening ? "classy-listening" : ""} onClick={() => { setMenu(null); void dictate(); }}>{voiceBusy ? <Loader2 size={19} className="animate-spin"/> : <AudioLines size={19}/>}</button>
       {draft.trim() ? <button type="submit" aria-label="Enviar mensagem" disabled={busy || voiceBusy || listening}><ArrowUp size={20}/></button> : <button type="button" aria-label={open ? "Recolher painel" : "Abrir painel"} aria-expanded={open} onClick={() => setOpen(!open)}><PanelRight size={19}/></button>}
+      </>}
     </form>
   </div>;
 }
