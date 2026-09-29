@@ -196,7 +196,7 @@ export function GlobalClassy() {
       {studyMode && <span>/{studyModes.find(mode => mode.id === studyMode)?.title}<button aria-label="Remover modo de estudo" onClick={() => setStudyMode(undefined)}><X size={12}/></button></span>}
       {target && <span title={target.text}>Seleção · {target.label}<button aria-label="Remover seleção" onClick={() => setTarget(undefined)}><X size={12}/></button></span>}
     </div>}
-    <form className={`classy-bar ${open || voiceActive ? "classy-bar--open" : ""} ${voiceActive ? "classy-bar--voice" : ""}`} onSubmit={event => { event.preventDefault(); void send(); }}>
+    <form className={`classy-bar ${open ? "classy-bar--open" : ""} ${voiceActive ? "classy-bar--voice" : ""}`} onSubmit={event => { event.preventDefault(); void send(); }}>
       {voiceActive ? <>
         <button type="button" aria-label="Cancelar ditado" onClick={cancelDictation}><X size={18}/></button>
         <div className="classy-voice-content" role="status">
