@@ -1,3 +1,4 @@
+import { GlobalClassy } from "@/components/classy/GlobalClassy";
 import { OnboardingGate } from "@/components/onboarding/OnboardingGate";
 import { captureReferral } from "@/lib/referrals/attribution";
 import { AppNotifications } from "@/components/AppNotifications";
@@ -188,6 +189,7 @@ function AppContent() {
   return (
     <>
       <OnboardingGate />
+      {!isBroadcastRoute && <GlobalClassy />}
       <RouteLoadBoundary>
         <Suspense fallback={liveOpening}>
           {backgroundLocation ? (

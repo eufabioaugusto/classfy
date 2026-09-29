@@ -744,6 +744,16 @@ function StudyContent() {
     }
   };
 
+  useEffect(() => {
+    const refresh = (event: Event) => {
+      if ((event as CustomEvent).detail?.studyId === id) void fetchMessages();
+    };
+    const refreshNotes = (event: Event) => { if ((event as CustomEvent).detail?.studyId === id) setNotesRefresh(previous => previous + 1); };
+    window.addEventListener("classfy:study-chat-updated", refresh);
+    window.addEventListener("classfy:study-note-updated", refreshNotes);
+    return () => { window.removeEventListener("classfy:study-chat-updated", refresh); window.removeEventListener("classfy:study-note-updated", refreshNotes); };
+  }, [id]);
+
   const fetchMessages = async () => {
     if (!id) return;
 
@@ -1083,6 +1093,7 @@ function StudyContent() {
         aiData.persistedMessages?.assistantMessageId || null,
       );
       await fetchMessages();
+      window.dispatchEvent(new CustomEvent("classfy:study-chat-updated", { detail: { studyId: id } }));
       await refetchStudyJourneySummary();
       await updateLastActivity(id);
 

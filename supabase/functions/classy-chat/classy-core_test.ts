@@ -206,3 +206,11 @@ Deno.test("explica a proveniência em linguagem humana", () => {
     "Base: conhecimento geral. Não encontrei uma fonte específica na Classfy para esta resposta.",
   );
 });
+
+Deno.test("limita contexto global e descarta objetos recebidos", () => {
+  const request = { studyId: "057488d3-c5da-423f-9771-9b5462329bc7", message: "Explique HTML", pageContext: "\n" + "a".repeat(500) };
+  const parsed = parseClassyRequest(request);
+  assertEquals(parsed.value?.pageContext?.length, 400);
+  assertEquals(parsed.value?.pageContext?.startsWith(" "), true);
+  assertEquals(parseClassyRequest({ ...request, pageContext: { secret: "ignore" } }).value?.pageContext, undefined);
+});

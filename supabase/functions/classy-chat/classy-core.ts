@@ -79,6 +79,7 @@ export type ClassyConfidence = "high" | "medium" | "low";
 
 export interface ClassyRequest {
   studyId: string;
+  pageContext?: string;
   message: string;
   activeContentId: string | null;
   currentVideoTime?: number;
@@ -156,6 +157,7 @@ export function parseClassyRequest(
   return {
     value: {
       studyId,
+      pageContext: typeof input.pageContext === "string" ? input.pageContext.replace(/[\x00-\x1f]/g, " ").slice(0, 400) : undefined,
       message,
       activeContentId,
       currentVideoTime,
