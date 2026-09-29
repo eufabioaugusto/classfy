@@ -13,10 +13,10 @@ type Recognition = { lang: string; interimResults: boolean; onresult: (event: { 
 function ClassyAvatar() {
   return (
     <svg viewBox="0 0 64 64" aria-hidden="true" className="classy-avatar">
-      {/* A curious guide: expressive glasses, a page-shaped fringe and an open-book collar. */}
-      <path d="M9 32C6 15 17 5 33 5c17 0 26 12 24 29l-3 13c-4 9-13 13-23 13S12 55 9 45Z" fill="#30203e"/>
-      <path d="M13 29c0-12 9-18 20-18s20 8 20 20v11c0 10-9 15-20 15S13 51 13 41Z" fill="#fff7ef"/>
-      <path d="M11 29c-2-13 8-23 22-23 13 0 23 10 23 22-10-1-18-5-23-12-3 7-9 11-15 12l-1-10Z" fill="#30203e"/>
+      {/* A curious guide: expressive glasses and a balanced, rounded silhouette. */}
+      <path d="M33 5C18 5 8 15 8 31v11c0 12 11 18 25 18s25-6 25-18V31C58 15 48 5 33 5Z" fill="#30203e"/>
+      <path d="M33 11C22 11 13 19 13 31v11c0 9 9 15 20 15s20-6 20-15V31C53 19 44 11 33 11Z" fill="#fff7ef"/>
+      <path d="M9 30C9 14 18 6 33 6s24 8 24 24l-4-3c-9-1-16-7-20-11-3 7-10 12-20 13Z" fill="#30203e"/>
       <path d="M34 10c7 1 12 4 15 9" fill="none" stroke="#674270" strokeWidth="2.5" strokeLinecap="round"/>
       <path d="M8 33c0-6 4-10 11-10s10 5 14 5 7-5 14-5 11 4 11 10-4 12-11 12-10-7-14-7-7 7-14 7S8 39 8 33Z" fill="#ed1651"/>
       <ellipse cx="20" cy="33" rx="8" ry="8.5" fill="white"/>
@@ -27,8 +27,6 @@ function ClassyAvatar() {
       <circle cx="47" cy="30" r="2" fill="white"/>
       <path d="M13 27q7-5 13 0M40 27q7-5 13 0" fill="none" stroke="#ff6990" strokeWidth="2" strokeLinecap="round"/>
       <path d="M28 47q5 5 10-1" fill="none" stroke="#30203e" strokeWidth="2.5" strokeLinecap="round"/>
-      <path d="m24 56 9 3 9-3-9-4Z" fill="#ed1651"/>
-      <path d="m33 59-9-3v-4l9 3 9-3v4Z" fill="#fff7ef"/>
     </svg>
   );
 }
