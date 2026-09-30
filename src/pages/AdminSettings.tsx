@@ -144,7 +144,7 @@ export default function AdminSettings() {
         <Card className="p-6 space-y-5">
           <div className="flex items-center gap-3">
             <CalendarClock className="w-6 h-6 text-accent" />
-            <div><h2 className="text-2xl font-bold">Ciclo econômico</h2><p className="text-sm text-muted-foreground">Points viram um valor definitivo em reais no fechamento mensal.</p></div>
+            <div><h2 className="text-2xl font-bold">Ciclo econômico</h2><p className="text-sm text-muted-foreground">Fechamento automático às 00:01 do primeiro dia do mês, no horário de Brasília. Use o controle manual para recuperação.</p></div>
           </div>
           {lastCycle && (
             <div className="grid grid-cols-2 md:grid-cols-5 gap-3 rounded-lg border p-4 text-sm">
@@ -159,7 +159,7 @@ export default function AdminSettings() {
             <Field label="Mês do ciclo"><Input value={cycleYearMonth} onChange={(event) => setCycleYearMonth(event.target.value)} placeholder="2026-09" /></Field>
             <Button onClick={handleCloseCycle} disabled={closingCycle || !cycleYearMonth} className="md:min-w-[220px]">
               {closingCycle ? <Settings className="w-4 h-4 mr-2 animate-spin" /> : <Play className="w-4 h-4 mr-2" />}
-              {closingCycle ? "Processando..." : "Fechar ciclo"}
+              {closingCycle ? "Processando..." : "Fechar ciclo manualmente"}
             </Button>
           </div>
         </Card>

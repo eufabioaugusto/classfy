@@ -163,6 +163,140 @@
   z-index: 1;
 }
 
+.economy-balance-hero__heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--cf2-space-4);
+}
+
+.economy-cycle-clock {
+  position: relative;
+  width: 14.5rem;
+  flex: 0 0 auto;
+  padding: 0.75rem 0.875rem 0.65rem;
+  border: 1px solid color-mix(in srgb, var(--cf2-accent) 24%, var(--cf2-border));
+  border-radius: 0.875rem;
+  background: color-mix(in srgb, var(--cf2-surface) 94%, var(--cf2-accent));
+  box-shadow: 0 0.4rem 1.5rem color-mix(in srgb, var(--cf2-accent) 6%, transparent);
+}
+
+.economy-cycle-clock__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  color: var(--cf2-ink-secondary);
+  font-size: 0.6875rem;
+  font-weight: 600;
+}
+
+.economy-cycle-clock__header > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.economy-cycle-clock__header svg {
+  color: var(--cf2-accent);
+}
+
+.economy-cycle-clock__help {
+  position: relative;
+}
+
+.economy-cycle-clock__help button {
+  display: grid;
+  width: 1.25rem;
+  height: 1.25rem;
+  padding: 0;
+  place-items: center;
+  border: 1px solid var(--cf2-border);
+  border-radius: 50%;
+  color: var(--cf2-ink-secondary);
+  background: var(--cf2-surface);
+  font-size: 0.7rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.economy-cycle-clock__help button:hover,
+.economy-cycle-clock__help button:focus-visible {
+  border-color: var(--cf2-accent);
+  color: var(--cf2-accent);
+  outline: none;
+  box-shadow: 0 0 0 3px var(--cf2-accent-soft);
+}
+
+.economy-cycle-clock__explanation {
+  position: absolute;
+  z-index: 10;
+  top: calc(100% + 0.65rem);
+  right: -0.5rem;
+  display: none;
+  width: min(19rem, calc(100vw - 3rem));
+  padding: 0.9rem 1rem;
+  border: 1px solid var(--cf2-border);
+  border-radius: 0.75rem;
+  color: var(--cf2-ink-secondary);
+  background: var(--cf2-surface);
+  box-shadow: 0 0.75rem 2rem color-mix(in srgb, var(--cf2-ink) 13%, transparent);
+  font-size: 0.75rem;
+  font-weight: 450;
+  line-height: 1.45;
+}
+
+.economy-cycle-clock__explanation strong {
+  display: block;
+  margin-bottom: 0.4rem;
+  color: var(--cf2-ink);
+  font-size: 0.8125rem;
+}
+
+.economy-cycle-clock__explanation p + p {
+  margin-top: 0.5rem;
+}
+
+.economy-cycle-clock__help:hover .economy-cycle-clock__explanation,
+.economy-cycle-clock__help:focus-within .economy-cycle-clock__explanation,
+.economy-cycle-clock__explanation.is-open {
+  display: block;
+}
+
+.economy-cycle-clock__time {
+  display: flex;
+  margin-top: 0.55rem;
+  align-items: baseline;
+  gap: 0.55rem;
+  color: var(--cf2-ink);
+  font-variant-numeric: tabular-nums;
+}
+
+.economy-cycle-clock__unit {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.12rem;
+}
+
+.economy-cycle-clock__unit strong {
+  font-size: 1.2rem;
+  font-weight: 650;
+  letter-spacing: -0.055em;
+  line-height: 1;
+}
+
+.economy-cycle-clock__unit small {
+  color: var(--cf2-ink-muted);
+  font-size: 0.625rem;
+}
+
+.economy-cycle-clock__timezone {
+  display: block;
+  margin-top: 0.35rem;
+  color: var(--cf2-ink-muted);
+  font-size: 0.625rem;
+}
+
 .economy-balance-hero__headline {
   max-width: 31rem;
   margin: var(--cf2-space-3) 0 0;
@@ -934,6 +1068,12 @@
   }
   .economy-balance-breakdown {
     grid-template-columns: minmax(0, 1fr);
+  }
+  .economy-balance-hero__heading {
+    flex-wrap: wrap;
+  }
+  .economy-cycle-clock {
+    width: min(100%, 14.5rem);
   }
   .economy-history-tabs {
     grid-template-columns: minmax(0, 1fr);

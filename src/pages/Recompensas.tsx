@@ -5,6 +5,7 @@ import {
   BarChart3,
   Bookmark,
   BookOpenCheck,
+  Clock3,
   Eye,
   Flame,
   Heart,
@@ -59,7 +60,6 @@ interface UserStats {
   cyclePoints: number;
   cycleUserPoints: number;
   cycleCreatorPoints: number;
-  cycleDaysRemaining: number;
   completedContents: number;
   rewardActions: UserRewardActionSummary[];
   creatorStats?: {
@@ -75,12 +75,119 @@ const formatMoney = (value: number) =>
     value,
   );
 
+const cycleDateFormatter = new Intl.DateTimeFormat("en-US", {
+  timeZone: "America/Sao_Paulo",
+  year: "numeric",
+  month: "numeric",
+  day: "numeric",
+  hour: "numeric",
+  minute: "numeric",
+  second: "numeric",
+  hourCycle: "h23",
+});
+
+function getCycleTime(now: Date) {
+  const parts = Object.fromEntries(
+    cycleDateFormatter.formatToParts(now).map(({ type, value }) => [type, value]),
+  );
+  const year = Number(parts.year);
+  const month = Number(parts.month);
+  const localTime = Date.UTC(
+    year,
+    month - 1,
+    Number(parts.day),
+    Number(parts.hour),
+    Number(parts.minute),
+    Number(parts.second),
+  );
+  const remainingSeconds = Math.max(
+    0,
+    Math.ceil((Date.UTC(year, month, 1) - localTime) / 1000),
+  );
+
+  return {
+    yearMonth: `${year}-${String(month).padStart(2, "0")}`,
+    days: Math.floor(remainingSeconds / 86_400),
+    hours: Math.floor((remainingSeconds % 86_400) / 3_600),
+    minutes: Math.floor((remainingSeconds % 3_600) / 60),
+    seconds: remainingSeconds % 60,
+  };
+}
+
+function CycleCountdown({ onCycleMonthChange }: { onCycleMonthChange: (yearMonth: string) => void }) {
+  const [now, setNow] = useState(() => new Date());
+  const [helpOpen, setHelpOpen] = useState(false);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(new Date()), 1000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  const remaining = getCycleTime(now);
+  useEffect(() => {
+    onCycleMonthChange(remaining.yearMonth);
+  }, [onCycleMonthChange, remaining.yearMonth]);
+  const units = [
+    { value: remaining.days, label: "dias" },
+    { value: remaining.hours, label: "h" },
+    { value: remaining.minutes, label: "min" },
+    { value: remaining.seconds, label: "s" },
+  ];
+
+  return (
+    <div className="economy-cycle-clock">
+      <div className="economy-cycle-clock__header">
+        <span><Clock3 size={13} aria-hidden="true" /> Virada do ciclo em</span>
+        <div className="economy-cycle-clock__help">
+          <button
+            type="button"
+            aria-label="Como funciona o ciclo mensal?"
+            aria-expanded={helpOpen}
+            aria-controls="economy-cycle-explanation"
+            onClick={() => setHelpOpen((open) => !open)}
+            onBlur={() => setHelpOpen(false)}
+            onKeyDown={(event) => {
+              if (event.key === "Escape") setHelpOpen(false);
+            }}
+          >
+            ?
+          </button>
+          <div
+            id="economy-cycle-explanation"
+            className={`economy-cycle-clock__explanation${helpOpen ? " is-open" : ""}`}
+            role="tooltip"
+          >
+            <strong>Como funciona o ciclo?</strong>
+            <p>A pontuação e o ranking do ciclo são mensais. A contagem termina à meia-noite do primeiro dia do próximo mês, no horário de Brasília.</p>
+            <p>Seus Points acumulados para subir de nível continuam. O fechamento financeiro do mês anterior é agendado para 00:01, com novas tentativas se necessário.</p>
+          </div>
+        </div>
+      </div>
+      <div
+        className="economy-cycle-clock__time"
+        role="timer"
+        aria-live="off"
+        aria-label={`${remaining.days} dias, ${remaining.hours} horas, ${remaining.minutes} minutos e ${remaining.seconds} segundos até a virada do ciclo`}
+      >
+        {units.map(({ value, label }) => (
+          <span className="economy-cycle-clock__unit" key={label} aria-hidden="true">
+            <strong>{String(value).padStart(2, "0")}</strong>
+            <small>{label}</small>
+          </span>
+        ))}
+      </div>
+      <span className="economy-cycle-clock__timezone">Horário de Brasília</span>
+    </div>
+  );
+}
+
 export default function Recompensas() {
   const { user, loading: authLoading, role, profile } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState<UserStats | null>(null);
+  const [activeCycleMonth, setActiveCycleMonth] = useState(() => getCycleTime(new Date()).yearMonth);
   const isCreator = role === "admin" || (role === "creator" && profile?.creator_status === "approved");
   const { milestones, loading: milestonesLoading } = useCreatorMilestones(isCreator ? user?.id : undefined);
 
@@ -177,18 +284,7 @@ export default function Recompensas() {
           };
         }
 
-        const now = new Date();
-        const yearMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
-        const today = new Date(
-          now.getFullYear(),
-          now.getMonth(),
-          now.getDate(),
-        );
-        const cycleClose = new Date(now.getFullYear(), now.getMonth() + 1, 1);
-        const cycleDaysRemaining = Math.max(
-          0,
-          Math.ceil((cycleClose.getTime() - today.getTime()) / 86_400_000),
-        );
+        const yearMonth = getCycleTime(new Date()).yearMonth;
         const { data: cycle } = await supabase
           .from("economic_cycles")
           .select("id")
@@ -232,7 +328,6 @@ export default function Recompensas() {
           cyclePoints,
           cycleUserPoints,
           cycleCreatorPoints,
-          cycleDaysRemaining,
           completedContents,
           rewardActions,
           creatorStats,
@@ -245,7 +340,7 @@ export default function Recompensas() {
     };
 
     void fetchStats();
-  }, [authLoading, isCreator, navigate, user]);
+  }, [activeCycleMonth, authLoading, isCreator, navigate, user]);
 
   useEffect(() => {
     if (!stats || location.hash !== "#nivel") return;
@@ -269,10 +364,6 @@ export default function Recompensas() {
       )[0]
     : null;
   const nextStreakReward = Math.max(1, 7 - (stats.currentStreak % 7));
-  const cycleCloseLabel =
-    stats.cycleDaysRemaining === 0
-      ? "O ciclo fecha hoje"
-      : `O ciclo fecha em ${stats.cycleDaysRemaining} ${stats.cycleDaysRemaining === 1 ? "dia" : "dias"}`;
 
   const rewardActionIcons: Record<string, LucideIcon> = {
     DAILY_LOGIN: Flame,
@@ -353,7 +444,10 @@ export default function Recompensas() {
         <section className="economy-hero-grid">
           <V2Card elevation="panel" className="economy-balance-hero">
             <div className="economy-balance-hero__top">
-              <span className="economy-kicker">Ciclo atual</span>
+              <div className="economy-balance-hero__heading">
+                <span className="economy-kicker">Ciclo atual</span>
+                <CycleCountdown onCycleMonthChange={setActiveCycleMonth} />
+              </div>
               <h2 className="economy-balance-hero__headline">
                 {isCreator
                   ? "Acompanhe sua evolução como aluno e como creator."
@@ -400,7 +494,6 @@ export default function Recompensas() {
                     ? "Saldos separados, somados apenas no ciclo"
                     : "Seu progresso está sendo atualizado"}
                 </span>
-                <span>{cycleCloseLabel}</span>
               </div>
             </div>
             <div id="nivel" className="economy-balance-hero__bottom economy-level">
