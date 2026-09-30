@@ -172,13 +172,15 @@
 
 .economy-cycle-clock {
   position: relative;
-  width: 14.5rem;
+  width: 16.25rem;
   flex: 0 0 auto;
-  padding: 0.75rem 0.875rem 0.65rem;
-  border: 1px solid color-mix(in srgb, var(--cf2-accent) 24%, var(--cf2-border));
-  border-radius: 0.875rem;
-  background: color-mix(in srgb, var(--cf2-surface) 94%, var(--cf2-accent));
-  box-shadow: 0 0.4rem 1.5rem color-mix(in srgb, var(--cf2-accent) 6%, transparent);
+  padding: 0.95rem 1rem 1rem;
+  border: 1px solid color-mix(in srgb, var(--cf2-ink) 9%, var(--cf2-border));
+  border-radius: 1rem;
+  background: var(--cf2-surface);
+  box-shadow:
+    0 0.75rem 2rem color-mix(in srgb, var(--cf2-ink) 6%, transparent),
+    0 0.125rem 0.4rem color-mix(in srgb, var(--cf2-ink) 4%, transparent);
 }
 
 .economy-cycle-clock__header {
@@ -186,15 +188,18 @@
   align-items: center;
   justify-content: space-between;
   gap: 0.5rem;
-  color: var(--cf2-ink-secondary);
-  font-size: 0.6875rem;
-  font-weight: 600;
+  padding-bottom: 0.8rem;
+  border-bottom: 1px solid color-mix(in srgb, var(--cf2-ink) 8%, transparent);
+  color: var(--cf2-ink);
+  font-size: 0.75rem;
+  font-weight: 650;
+  letter-spacing: -0.01em;
 }
 
 .economy-cycle-clock__header > span {
   display: inline-flex;
   align-items: center;
-  gap: 0.3rem;
+  gap: 0.5rem;
 }
 
 .economy-cycle-clock__header svg {
@@ -264,37 +269,37 @@
 }
 
 .economy-cycle-clock__time {
-  display: flex;
-  margin-top: 0.55rem;
-  align-items: baseline;
-  gap: 0.55rem;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin-top: 0.85rem;
   color: var(--cf2-ink);
   font-variant-numeric: tabular-nums;
 }
 
 .economy-cycle-clock__unit {
-  display: inline-flex;
-  align-items: baseline;
-  gap: 0.12rem;
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.economy-cycle-clock__unit + .economy-cycle-clock__unit {
+  border-left: 1px solid color-mix(in srgb, var(--cf2-ink) 8%, transparent);
 }
 
 .economy-cycle-clock__unit strong {
-  font-size: 1.2rem;
-  font-weight: 650;
-  letter-spacing: -0.055em;
+  font-size: 1.5rem;
+  font-weight: 680;
+  letter-spacing: -0.065em;
   line-height: 1;
 }
 
 .economy-cycle-clock__unit small {
   color: var(--cf2-ink-muted);
   font-size: 0.625rem;
-}
-
-.economy-cycle-clock__timezone {
-  display: block;
-  margin-top: 0.35rem;
-  color: var(--cf2-ink-muted);
-  font-size: 0.625rem;
+  font-weight: 550;
+  line-height: 1;
 }
 
 .economy-balance-hero__headline {
@@ -1073,7 +1078,7 @@
     flex-wrap: wrap;
   }
   .economy-cycle-clock {
-    width: min(100%, 14.5rem);
+    width: min(100%, 16.25rem);
   }
   .economy-history-tabs {
     grid-template-columns: minmax(0, 1fr);

@@ -129,15 +129,15 @@ function CycleCountdown({ onCycleMonthChange }: { onCycleMonthChange: (yearMonth
   }, [onCycleMonthChange, remaining.yearMonth]);
   const units = [
     { value: remaining.days, label: "dias" },
-    { value: remaining.hours, label: "h" },
+    { value: remaining.hours, label: "horas" },
     { value: remaining.minutes, label: "min" },
-    { value: remaining.seconds, label: "s" },
+    { value: remaining.seconds, label: "seg" },
   ];
 
   return (
     <div className="economy-cycle-clock">
       <div className="economy-cycle-clock__header">
-        <span><Clock3 size={13} aria-hidden="true" /> Virada do ciclo em</span>
+        <span><Clock3 size={14} aria-hidden="true" /> Próxima virada</span>
         <div className="economy-cycle-clock__help">
           <button
             type="button"
@@ -176,7 +176,6 @@ function CycleCountdown({ onCycleMonthChange }: { onCycleMonthChange: (yearMonth
           </span>
         ))}
       </div>
-      <span className="economy-cycle-clock__timezone">Horário de Brasília</span>
     </div>
   );
 }
