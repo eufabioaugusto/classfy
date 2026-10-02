@@ -62,6 +62,10 @@ export default function AdminUsers() {
   const [createOpen, setCreateOpen] = useState(false);
   const [createName, setCreateName] = useState("");
   const [createEmail, setCreateEmail] = useState("");
+  const [createRole, setCreateRole] = useState<"user" | "creator" | "admin">("user");
+  const [createPlan, setCreatePlan] = useState<"free" | "pro" | "premium">("free");
+  const [createReason, setCreateReason] = useState("");
+  const [createWalletAdjustment, setCreateWalletAdjustment] = useState("");
   const [creating, setCreating] = useState(false);
 
   useEffect(() => {
@@ -172,10 +176,15 @@ export default function AdminUsers() {
       toast({ title: "Informe nome e email válidos", variant: "destructive" });
       return;
     }
+    const walletAdjustment = createWalletAdjustment.trim() === "" ? 0 : Number(createWalletAdjustment.replace(",", "."));
+    if (!createReason.trim() || !Number.isFinite(walletAdjustment) || Math.abs(walletAdjustment) > 100000 || Math.abs(walletAdjustment * 100 - Math.round(walletAdjustment * 100)) > 0.000001) {
+      toast({ title: "Informe o motivo e um ajuste válido de até R$ 100.000,00", variant: "destructive" });
+      return;
+    }
     setCreating(true);
     try {
       const { data, error } = await supabase.functions.invoke("admin-invite-user", {
-        body: { displayName, email },
+        body: { displayName, email, role: createRole, plan: createPlan, reason: createReason.trim(), walletAdjustment },
       });
       if (error) throw error;
       if (!data?.success) throw new Error(data?.error || "Não foi possível enviar o convite.");
@@ -186,24 +195,37 @@ export default function AdminUsers() {
       setCreateOpen(false);
       setCreateName("");
       setCreateEmail("");
+      setCreateRole("user");
+      setCreatePlan("free");
+      setCreateReason("");
+      setCreateWalletAdjustment("");
       await fetchUsers();
     } catch (error: any) {
       let message = error.message || "Tente novamente.";
+      let userCreated = false;
       if (error.context instanceof Response) {
         const response = await error.context.json().catch(() => null);
         message = response?.error || message;
+        userCreated = response?.userCreated === true;
       }
-      toast({ title: "Não foi possível criar o usuário", description: message, variant: "destructive" });
+      toast({ title: userCreated ? "Usuário criado parcialmente" : "Não foi possível criar o usuário", description: message, variant: "destructive" });
+      if (userCreated) {
+        setCreateOpen(false);
+        await fetchUsers();
+      }
     } finally {
       setCreating(false);
     }
   };
 
-  const getRoleBadge = (userRoles: Array<{ role: string }>) => {
-    const roleData = userRoles[0];
-    if (!roleData) return <Badge variant="secondary">User</Badge>;
+  const getPrimaryRole = (userRoles: Array<{ role: string }>) => {
+    if (userRoles.some(({ role }) => role === "admin")) return "admin";
+    if (userRoles.some(({ role }) => role === "creator")) return "creator";
+    return "user";
+  };
 
-    switch (roleData.role) {
+  const getRoleBadge = (userRoles: Array<{ role: string }>) => {
+    switch (getPrimaryRole(userRoles)) {
       case "admin":
         return (
           <Badge className="bg-red-500">
@@ -289,7 +311,7 @@ export default function AdminUsers() {
             <div>
               <p className="text-sm text-muted-foreground">Creators</p>
               <p className="text-3xl font-bold">
-                {users.filter((u) => u.user_roles[0]?.role === "creator").length}
+                {users.filter((u) => getPrimaryRole(u.user_roles) === "creator").length}
               </p>
             </div>
             <Shield className="w-10 h-10 text-purple-500" />
@@ -301,7 +323,7 @@ export default function AdminUsers() {
             <div>
               <p className="text-sm text-muted-foreground">Admins</p>
               <p className="text-3xl font-bold">
-                {users.filter((u) => u.user_roles[0]?.role === "admin").length}
+                {users.filter((u) => getPrimaryRole(u.user_roles) === "admin").length}
               </p>
             </div>
             <Crown className="w-10 h-10 text-red-500" />
@@ -405,7 +427,7 @@ export default function AdminUsers() {
                       variant="outline"
                       onClick={() => {
                         setSelectedUser(user);
-                        setNewRole(user.user_roles[0]?.role || "user");
+                        setNewRole(getPrimaryRole(user.user_roles));
                         setNewPlan(user.plan || "free");
                       }}
                     >
@@ -509,11 +531,11 @@ export default function AdminUsers() {
       </Dialog>
 
       <Dialog open={createOpen} onOpenChange={(open) => { if (!creating) setCreateOpen(open); }}>
-        <DialogContent>
+        <DialogContent className="max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Criar usuário</DialogTitle>
             <DialogDescription>
-              A conta será criada com função User e plano Free. A pessoa receberá um convite para definir a própria senha.
+              Configure o acesso inicial. A pessoa receberá um convite para definir a própria senha.
             </DialogDescription>
           </DialogHeader>
           <form onSubmit={handleCreateUser} className="space-y-5">
@@ -527,9 +549,43 @@ export default function AdminUsers() {
               <Input id="create-user-email" type="email" value={createEmail} onChange={(event) => setCreateEmail(event.target.value)}
                 autoComplete="email" maxLength={254} required />
             </div>
+            <div className="space-y-2">
+              <Label htmlFor="create-user-reason">Motivo do cadastro</Label>
+              <Input id="create-user-reason" value={createReason} onChange={(event) => setCreateReason(event.target.value)}
+                placeholder="Obrigatório para auditoria" maxLength={500} required />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="create-user-role">Função inicial</Label>
+              <Select value={createRole} onValueChange={(value: "user" | "creator" | "admin") => setCreateRole(value)}>
+                <SelectTrigger id="create-user-role"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="user">User</SelectItem>
+                  <SelectItem value="creator">Creator</SelectItem>
+                  <SelectItem value="admin">Admin</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="create-user-plan">Plano inicial</Label>
+              <Select value={createPlan} onValueChange={(value: "free" | "pro" | "premium") => setCreatePlan(value)}>
+                <SelectTrigger id="create-user-plan"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="free">Free</SelectItem>
+                  <SelectItem value="pro">Pro</SelectItem>
+                  <SelectItem value="premium">Premium</SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">Planos Pro/Premium terão validade de 1 ano a partir de agora.</p>
+            </div>
+            <div className="space-y-2 border-t pt-4">
+              <Label htmlFor="create-user-wallet">Ajuste inicial da carteira (R$)</Label>
+              <Input id="create-user-wallet" type="number" step="0.01" min="-100000" max="100000"
+                value={createWalletAdjustment} onChange={(event) => setCreateWalletAdjustment(event.target.value)} placeholder="Opcional · ex.: 25 ou -10" />
+              <p className="text-xs text-muted-foreground">Se informado, cria um lançamento auditado na carteira.</p>
+            </div>
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => setCreateOpen(false)} disabled={creating}>Cancelar</Button>
-              <Button type="submit" disabled={creating || createName.trim().length < 2 || !createEmail.trim()}>
+              <Button type="submit" disabled={creating || createName.trim().length < 2 || !createEmail.trim() || !createReason.trim()}>
                 {creating ? "Enviando convite..." : "Criar e enviar convite"}
               </Button>
             </DialogFooter>
