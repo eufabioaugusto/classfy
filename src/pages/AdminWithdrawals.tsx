@@ -26,7 +26,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { CheckCircle, XCircle, Clock, DollarSign, Settings } from "lucide-react";
+import { CheckCircle, XCircle, Clock, DollarSign } from "lucide-react";
 
 interface WithdrawRequest {
   id: string;
@@ -217,11 +217,11 @@ export default function AdminWithdrawals() {
         <div className="flex items-center justify-end">
           <Button
             variant="outline"
-            onClick={() => navigate('/admin/settings')}
+            onClick={() => navigate('/admin/economy')}
             className="flex items-center gap-2"
           >
-            <Settings className="w-4 h-4" />
-            Configurações
+            <DollarSign className="w-4 h-4" />
+            Economia
           </Button>
         </div>
 

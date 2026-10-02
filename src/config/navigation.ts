@@ -13,7 +13,6 @@ import {
   Megaphone,
   Podcast,
   Radio,
-  Settings,
   Star,
   TrendingUp,
   Trophy,
@@ -66,7 +65,7 @@ export const adminNavigation: AdminNavigationItem[] = [
   { title: "Prospecção", url: "/admin/prospects", icon: TrendingUp, countKey: null },
   { title: "Curadoria", url: "/admin/curadoria", icon: Layers, countKey: null },
   { title: "Materiais Afiliados", url: "/admin/marketing", icon: Megaphone, countKey: null },
-  { title: "Configurações", url: "/admin/settings", icon: Settings, countKey: null },
+  { title: "Economia", url: "/admin/economy", icon: DollarSign, countKey: null },
 ];
 
 export const creatorActions = [

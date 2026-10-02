@@ -9,6 +9,8 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { AdminEconomyOperations } from "@/components/admin/AdminEconomyOperations";
 
 interface EconomySettings {
   pool_percentage: number;
@@ -52,7 +54,7 @@ export default function AdminSettings() {
     try {
       const [settingsResult, cycleResult, checkpointResult] = await Promise.all([
         supabase.rpc("get_economic_v1_settings"),
-        supabase.from("economic_cycles").select("*").order("year_month", { ascending: false }).limit(1).maybeSingle(),
+        supabase.from("economic_cycles").select("*").eq("status", "closed").order("year_month", { ascending: false }).limit(1).maybeSingle(),
         supabase.rpc("get_growth_checkpoint_status_v1"),
       ]);
       if (settingsResult.error) throw settingsResult.error;
@@ -73,7 +75,8 @@ export default function AdminSettings() {
     }
   };
 
-  const setNumber = (key: keyof EconomySettings, value: number | null) => {
+  const setNumber = (key: keyof EconomySettings, value: number | "") => {
+    if (value === "") return;
     setSettings((current) => ({ ...current, [key]: value }));
   };
 
@@ -139,14 +142,29 @@ export default function AdminSettings() {
   if (loading) return <div className="min-h-screen grid place-items-center"><Settings className="w-10 h-10 animate-spin text-accent" /></div>;
 
   return (
-    <AdminLayout title="Configurações">
-      <div className="container mx-auto px-4 py-8 space-y-8">
+    <AdminLayout title="Economia">
+      <div className="container mx-auto px-4 py-8 space-y-6">
+        <div>
+          <h1 className="text-2xl font-bold">Economia Classfy</h1>
+          <p className="text-sm text-muted-foreground">Receitas, fechamento, regras e integridade financeira em um só lugar.</p>
+        </div>
+        <Tabs defaultValue="overview" className="space-y-6">
+          <TabsList className="h-auto flex-wrap">
+            <TabsTrigger value="overview">Visão geral</TabsTrigger>
+            <TabsTrigger value="revenue">Receitas</TabsTrigger>
+            <TabsTrigger value="rules">Regras</TabsTrigger>
+            <TabsTrigger value="audit">Auditoria</TabsTrigger>
+          </TabsList>
+        <TabsContent value="overview" className="space-y-6">
+          <AdminEconomyOperations section="overview" poolPercentage={settings.pool_percentage} />
         <Card className="p-6 space-y-5">
           <div className="flex items-center gap-3">
             <CalendarClock className="w-6 h-6 text-accent" />
             <div><h2 className="text-2xl font-bold">Ciclo econômico</h2><p className="text-sm text-muted-foreground">Fechamento automático às 00:01 do primeiro dia do mês, no horário de Brasília. Use o controle manual para recuperação.</p></div>
           </div>
           {lastCycle && (
+            <>
+            <p className="text-sm font-semibold">Último ciclo fechado</p>
             <div className="grid grid-cols-2 md:grid-cols-5 gap-3 rounded-lg border p-4 text-sm">
               <Metric label="Ciclo" value={String(lastCycle.year_month)} />
               <Metric label="Status" value={lastCycle.status === "closed" ? "Fechado" : "Aberto"} />
@@ -154,6 +172,7 @@ export default function AdminSettings() {
               <Metric label="Pool confirmado" value={`R$ ${Number(lastCycle.prm || 0).toFixed(2)}`} />
               <Metric label="Points" value={Number((lastCycle.total_user_points || 0) + (lastCycle.total_creator_points || 0)).toLocaleString("pt-BR")} />
             </div>
+            </>
           )}
           <div className="flex flex-col md:flex-row items-end gap-3">
             <Field label="Mês do ciclo"><Input value={cycleYearMonth} onChange={(event) => setCycleYearMonth(event.target.value)} placeholder="2026-09" /></Field>
@@ -177,6 +196,9 @@ export default function AdminSettings() {
             ))}
           </div>
         </Card>
+        </TabsContent>
+        <TabsContent value="revenue"><AdminEconomyOperations section="revenue" poolPercentage={settings.pool_percentage} /></TabsContent>
+        <TabsContent value="rules" className="space-y-6">
 
         <Card className="p-6 space-y-6">
           <div className="flex items-center gap-3"><DollarSign className="w-6 h-6 text-accent" /><div><h2 className="text-2xl font-bold">Economia Classfy V1</h2><p className="text-sm text-muted-foreground">Fonte única usada pelo backend e pela interface.</p></div></div>
@@ -196,6 +218,9 @@ export default function AdminSettings() {
           <Field label="Motivo da alteração (obrigatório)"><Input value={reason} onChange={(event) => setReason(event.target.value)} placeholder="Ex.: ajuste aprovado para o beta" /></Field>
           <Button onClick={handleSave} disabled={saving} className="w-full"><Save className="w-4 h-4 mr-2" />{saving ? "Salvando..." : "Salvar configuração auditada"}</Button>
         </Card>
+        </TabsContent>
+        <TabsContent value="audit"><AdminEconomyOperations section="audit" poolPercentage={settings.pool_percentage} /></TabsContent>
+        </Tabs>
       </div>
     </AdminLayout>
   );
@@ -217,7 +242,9 @@ function Metric({ label, value }: { label: string; value: string }) {
 }
 
 function previousMonth() {
-  const now = new Date();
-  const previous = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-  return `${previous.getFullYear()}-${String(previous.getMonth() + 1).padStart(2, "0")}`;
+  const parts = new Intl.DateTimeFormat("en-US", { timeZone: "America/Sao_Paulo", year: "numeric", month: "numeric" }).formatToParts(new Date());
+  const year = Number(parts.find((part) => part.type === "year")?.value);
+  const month = Number(parts.find((part) => part.type === "month")?.value);
+  const previous = new Date(Date.UTC(year, month - 2, 1));
+  return `${previous.getUTCFullYear()}-${String(previous.getUTCMonth() + 1).padStart(2, "0")}`;
 }

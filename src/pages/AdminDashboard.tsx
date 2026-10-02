@@ -18,7 +18,6 @@ import {
   Crown,
   FileText,
   Trophy,
-  Settings,
   ChevronRight,
   UserPlus,
   Upload,
@@ -449,10 +448,10 @@ export default function AdminDashboard() {
           />
 
           <QuickAccessCard
-            title="Configurações"
-            description="Configurar parâmetros do sistema"
-            icon={Settings}
-            href="/admin/settings"
+            title="Economia"
+            description="Receitas, ciclo, regras e auditoria"
+            icon={DollarSign}
+            href="/admin/economy"
           />
         </div>
       </div>

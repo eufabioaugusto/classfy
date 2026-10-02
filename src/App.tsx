@@ -4,7 +4,7 @@ import { captureReferral } from "@/lib/referrals/attribution";
 import { AppNotifications } from "@/components/AppNotifications";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route, useLocation, useNavigate } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate, useLocation, useNavigate } from "react-router-dom";
 import { AuthProvider } from "./contexts/AuthContext";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import { MiniPlayerProvider, useMiniPlayer } from "./contexts/MiniPlayerContext";
@@ -159,7 +159,8 @@ function AppContent() {
       <Route path="/admin/home-hero" element={<AdminHomeHero />} />
       <Route path="/admin/withdrawals" element={<AdminWithdrawals />} />
       <Route path="/admin/users" element={<AdminUsers />} />
-      <Route path="/admin/settings" element={<AdminSettings />} />
+      <Route path="/admin/economy" element={<AdminSettings />} />
+      <Route path="/admin/settings" element={<Navigate to="/admin/economy" replace />} />
       <Route path="/admin/prospects" element={<AdminProspects />} />
       <Route path="/admin/waitlist" element={<AdminWaitlist />} />
       <Route path="/admin/curadoria" element={<AdminCuration />} />
