@@ -11,9 +11,13 @@ export function OnboardingGate() {
     if (
       !user ||
       loading ||
-      ["/auth", "/reset-password", "/onboarding", "/privacidade", "/termos"].includes(location.pathname)
+      ["/auth", "/reset-password", "/convite", "/onboarding", "/privacidade", "/termos"].includes(location.pathname)
     )
       return;
+    if (user.invited_at && user.user_metadata?.invitation_completed !== true) {
+      navigate("/convite", { replace: true });
+      return;
+    }
     getOnboarding()
       .then((result) => {
         if (active && result.required)

@@ -32,7 +32,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Users, Search, Shield, Crown, User as UserIcon } from "lucide-react";
+import { Users, Search, Shield, Crown, UserPlus, User as UserIcon } from "lucide-react";
 import { PlanCrown } from "@/components/plans/PlanCrown";
 
 interface UserData {
@@ -59,6 +59,10 @@ export default function AdminUsers() {
   const [changeReason, setChangeReason] = useState("");
   const [walletAdjustment, setWalletAdjustment] = useState("");
   const [processing, setProcessing] = useState(false);
+  const [createOpen, setCreateOpen] = useState(false);
+  const [createName, setCreateName] = useState("");
+  const [createEmail, setCreateEmail] = useState("");
+  const [creating, setCreating] = useState(false);
 
   useEffect(() => {
     if (role === "admin") {
@@ -160,6 +164,41 @@ export default function AdminUsers() {
     }
   };
 
+  const handleCreateUser = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const displayName = createName.trim();
+    const email = createEmail.trim().toLowerCase();
+    if (displayName.length < 2 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      toast({ title: "Informe nome e email válidos", variant: "destructive" });
+      return;
+    }
+    setCreating(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("admin-invite-user", {
+        body: { displayName, email },
+      });
+      if (error) throw error;
+      if (!data?.success) throw new Error(data?.error || "Não foi possível enviar o convite.");
+      toast({
+        title: "Usuário criado e convite enviado",
+        description: `Enviamos para ${email} um link para definir a senha.`,
+      });
+      setCreateOpen(false);
+      setCreateName("");
+      setCreateEmail("");
+      await fetchUsers();
+    } catch (error: any) {
+      let message = error.message || "Tente novamente.";
+      if (error.context instanceof Response) {
+        const response = await error.context.json().catch(() => null);
+        message = response?.error || message;
+      }
+      toast({ title: "Não foi possível criar o usuário", description: message, variant: "destructive" });
+    } finally {
+      setCreating(false);
+    }
+  };
+
   const getRoleBadge = (userRoles: Array<{ role: string }>) => {
     const roleData = userRoles[0];
     if (!roleData) return <Badge variant="secondary">User</Badge>;
@@ -223,6 +262,15 @@ export default function AdminUsers() {
   return (
     <AdminLayout title="Usuários">
       <div className="container mx-auto px-4 py-8 space-y-8">
+      <div className="flex flex-wrap items-center justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold">Gerenciar usuários</h1>
+          <p className="text-sm text-muted-foreground">Cadastre usuários por convite e gerencie o acesso existente.</p>
+        </div>
+        <Button onClick={() => setCreateOpen(true)} className="gap-2">
+          <UserPlus className="h-4 w-4" /> Criar usuário
+        </Button>
+      </div>
 
       {/* Stats Cards */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
@@ -457,6 +505,35 @@ export default function AdminUsers() {
               Salvar Alterações
             </Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={createOpen} onOpenChange={(open) => { if (!creating) setCreateOpen(open); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Criar usuário</DialogTitle>
+            <DialogDescription>
+              A conta será criada com função User e plano Free. A pessoa receberá um convite para definir a própria senha.
+            </DialogDescription>
+          </DialogHeader>
+          <form onSubmit={handleCreateUser} className="space-y-5">
+            <div className="space-y-2">
+              <Label htmlFor="create-user-name">Nome</Label>
+              <Input id="create-user-name" value={createName} onChange={(event) => setCreateName(event.target.value)}
+                minLength={2} maxLength={120} autoComplete="name" required />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="create-user-email">Email</Label>
+              <Input id="create-user-email" type="email" value={createEmail} onChange={(event) => setCreateEmail(event.target.value)}
+                autoComplete="email" maxLength={254} required />
+            </div>
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setCreateOpen(false)} disabled={creating}>Cancelar</Button>
+              <Button type="submit" disabled={creating || createName.trim().length < 2 || !createEmail.trim()}>
+                {creating ? "Enviando convite..." : "Criar e enviar convite"}
+              </Button>
+            </DialogFooter>
+          </form>
         </DialogContent>
       </Dialog>
       </div>

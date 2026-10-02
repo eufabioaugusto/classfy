@@ -149,7 +149,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   };
 
   const requestDailyLoginWhenVisible = (userId: string) => {
-    if (window.location.pathname === '/reset-password') {
+    if (['/reset-password', '/convite'].includes(window.location.pathname)) {
       return;
     }
 
@@ -200,7 +200,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
               fetchUserProfile(session.user.id);
               
               // Daily login only counts when the tab becomes visibly active to the user.
-              if ((event === 'SIGNED_IN' || event === 'INITIAL_SESSION') && window.location.pathname !== '/reset-password') {
+              if ((event === 'SIGNED_IN' || event === 'INITIAL_SESSION') && !['/reset-password', '/convite'].includes(window.location.pathname)) {
                 requestDailyLoginWhenVisible(session.user.id);
               }
               
@@ -229,7 +229,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
         // Only check daily login once on initial page load, and never on the reset-password page
         // (opening a recovery link creates a session but is not a real login)
-        if (!hasProcessedSession.current && window.location.pathname !== '/reset-password') {
+        if (!hasProcessedSession.current && !['/reset-password', '/convite'].includes(window.location.pathname)) {
           hasProcessedSession.current = true;
           requestDailyLoginWhenVisible(session.user.id);
         } else {

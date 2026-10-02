@@ -138,6 +138,7 @@ function AppContent() {
       <Route path="/privacidade" element={<Legal kind="privacy" />} />
       <Route path="/termos" element={<Legal kind="terms" />} />
       <Route path="/reset-password" element={<ResetPassword />} />
+      <Route path="/convite" element={<ResetPassword />} />
       <Route path="/conta" element={<Conta />} />
       <Route path="/historico" element={<Historico />} />
       <Route path="/favoritos" element={<Favoritos />} />

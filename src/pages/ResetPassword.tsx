@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -17,17 +17,24 @@ export default function ResetPassword() {
   const [loading, setLoading] = useState(false);
   const [done, setDone] = useState(false);
   const navigate = useNavigate();
+  const location = useLocation();
+  const isInvite = location.pathname === "/convite";
   const { toast } = useToast();
   const currentYear = new Date().getFullYear();
 
   useEffect(() => {
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
-      if (event === "PASSWORD_RECOVERY") {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === "PASSWORD_RECOVERY" || (isInvite && event === "SIGNED_IN" && session?.user?.invited_at)) {
         setReady(true);
       }
     });
+    if (isInvite) {
+      void supabase.auth.getSession().then(({ data: { session } }) => {
+        if (session?.user?.invited_at) setReady(true);
+      });
+    }
     return () => subscription.unsubscribe();
-  }, []);
+  }, [isInvite]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -42,7 +49,9 @@ export default function ResetPassword() {
 
     setLoading(true);
     try {
-      const { error } = await supabase.auth.updateUser({ password });
+      const { error } = await supabase.auth.updateUser(isInvite
+        ? { password, data: { invitation_completed: true } }
+        : { password });
       if (error) throw error;
       setDone(true);
       setTimeout(() => navigate("/"), 3000);
@@ -83,9 +92,9 @@ export default function ResetPassword() {
             </div>
             <div className="space-y-3">
               <h1 className="text-4xl font-bold leading-tight">
-                Redefinir
+                {isInvite ? "Comece na" : "Redefinir"}
                 <br />
-                <span className="text-red-400">sua senha</span>
+                <span className="text-red-400">{isInvite ? "Classfy" : "sua senha"}</span>
               </h1>
               <p className="text-white/60 text-base max-w-xs">
                 Escolha uma senha forte e segura para proteger sua conta.
@@ -132,9 +141,9 @@ export default function ResetPassword() {
                 </div>
               </div>
               <div className="space-y-1">
-                <h2 className="text-2xl font-bold">Senha redefinida!</h2>
+                <h2 className="text-2xl font-bold">{isInvite ? "Convite aceito!" : "Senha redefinida!"}</h2>
                 <p className="text-muted-foreground text-sm">
-                  Sua senha foi alterada com sucesso. Redirecionando...
+                  {isInvite ? "Sua senha foi criada. Redirecionando..." : "Sua senha foi alterada com sucesso. Redirecionando..."}
                 </p>
               </div>
             </div>
@@ -148,14 +157,15 @@ export default function ResetPassword() {
               <div className="space-y-1">
                 <h2 className="text-xl font-semibold">Aguardando verificação...</h2>
                 <p className="text-muted-foreground text-sm">
-                  Abrindo o link de redefinição. Se a página não carregar, verifique se o link é válido.
+                  {isInvite ? "Abrindo seu convite. Se a página não carregar, verifique se o link é válido." : "Abrindo o link de redefinição. Se a página não carregar, verifique se o link é válido."}
                 </p>
+                {isInvite && <Button variant="outline" onClick={() => navigate("/auth")}>Voltar ao login</Button>}
               </div>
             </div>
           ) : (
             <div className="space-y-6">
               <div className="space-y-1">
-                <h2 className="text-2xl font-bold tracking-tight">Criar nova senha</h2>
+                <h2 className="text-2xl font-bold tracking-tight">{isInvite ? "Aceitar convite" : "Criar nova senha"}</h2>
                 <p className="text-muted-foreground text-sm">
                   Escolha uma senha segura para sua conta.
                 </p>

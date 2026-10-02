@@ -16,7 +16,7 @@ interface HookPayload {
     token: string;
     token_hash: string;
     redirect_to: string;
-    email_action_type: "signup" | "recovery" | "email_change" | "magiclink" | "reauthentication";
+    email_action_type: "signup" | "recovery" | "email_change" | "magiclink" | "invite" | "reauthentication";
     site_url: string;
     token_new?: string;
     token_hash_new?: string;
@@ -99,6 +99,12 @@ function fallbackLink(url: string): string {
   </p>`;
 }
 
+function escapeHtml(value: string): string {
+  return value.replace(/[&<>"']/g, (char) => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+  })[char] || char);
+}
+
 function getEmailContent(payload: HookPayload): { subject: string; html: string } | null {
   const { email_action_type, token_hash, redirect_to } = payload.email_data;
   const userEmail = payload.user.email;
@@ -174,6 +180,24 @@ function getEmailContent(payload: HookPayload): { subject: string; html: string 
            </p>
            ${ctaButton("Entrar na minha conta", url)}
            <p style="margin:0;font-size:13px;color:#71717a;">Este link expira em <strong>1 hora</strong>.</p>
+           ${fallbackLink(url)}`
+        ),
+      };
+    }
+
+    case "invite": {
+      const url = buildVerifyUrl(token_hash, "invite", redirect_to || `${APP_URL}/convite`);
+      return {
+        subject: "Seu convite para a Classfy",
+        html: template(
+          "Convite para a Classfy",
+          "Seu acesso à Classfy está pronto para começar",
+          `<h1 style="margin:0 0 8px;font-size:22px;font-weight:700;color:#09090b;">Você foi convidado para a Classfy</h1>
+           <p style="margin:0 0 4px;font-size:15px;color:#52525b;line-height:1.6;">
+             Olá, <strong>${escapeHtml(name)}</strong>! Aceite o convite e crie sua senha para começar.
+           </p>
+           ${ctaButton("Aceitar convite", url)}
+           <p style="margin:0;font-size:13px;color:#71717a;">O link é de uso único e pode expirar. Se não esperava este convite, ignore este email.</p>
            ${fallbackLink(url)}`
         ),
       };
