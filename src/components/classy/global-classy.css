@@ -22,6 +22,21 @@
   width:32px;
   height:32px;
   flex-shrink:0}
+.classy-avatar-eyes{
+  transform-box:fill-box;
+  transform-origin:center;
+  animation:classy-blink 7s ease-in-out infinite}
+.classy-avatar-gaze{
+  transform:translate(var(--classy-look-x, 0px),var(--classy-look-y, 0px));
+  transition:transform 140ms ease-out}
+@keyframes classy-blink{
+  0%,89%,92%,100%{transform:scaleY(1)}
+  90%,91%{transform:scaleY(.08)}
+}
+@media (prefers-reduced-motion: reduce){
+  .classy-avatar-eyes{animation:none}
+  .classy-avatar-gaze{transition:none}
+}
 .classy-bar{
   pointer-events:auto;
   display:flex;
