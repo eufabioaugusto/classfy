@@ -63,4 +63,29 @@ describe("FeaturedCreatorTrailerPlayer", () => {
     expect(container.textContent).not.toMatch(/demonstração|indisponível|exemplo/i);
     expect(container.querySelector('button[aria-label="Reproduzir trailer"]')?.hasAttribute("disabled")).toBe(true);
   });
+
+  it("pausa ao clicar no vídeo e retoma ao clicar fora dos botões do CTA", async () => {
+    const onExplore = vi.fn();
+    await act(async () => root.render(createElement(FeaturedCreatorTrailerPlayer, {
+      src: "/trailer.mp4", poster: "/poster.jpg", creatorName: "Creator", signedIn: true, onRegister: vi.fn(), onExplore,
+    })));
+    const video = container.querySelector("video")!;
+    let paused = false;
+    Object.defineProperty(video, "paused", { configurable: true, get: () => paused });
+    const pause = vi.spyOn(video, "pause").mockImplementation(() => {
+      paused = true;
+      video.dispatchEvent(new Event("pause"));
+    });
+    const play = vi.spyOn(video, "play").mockImplementation(async () => {
+      paused = false;
+      video.dispatchEvent(new Event("play"));
+    });
+    await act(async () => video.dispatchEvent(new Event("play")));
+    await act(async () => video.click());
+    expect(pause).toHaveBeenCalledOnce();
+    const overlay = container.querySelector(".featured-trailer__message--paused")! as HTMLDivElement;
+    await act(async () => overlay.querySelector("h3")!.click());
+    expect(play).toHaveBeenCalledOnce();
+    expect(onExplore).not.toHaveBeenCalled();
+  });
 });

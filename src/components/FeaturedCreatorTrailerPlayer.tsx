@@ -109,6 +109,7 @@ export function FeaturedCreatorTrailerPlayer({ src, poster, creatorName, signedI
           onPause={() => setPlaying(false)}
           onEnded={() => { setPlaying(false); setEnded(true); }}
           onError={() => { setMediaFailed(true); setPlaying(false); }}
+          onClick={togglePlayback}
           className="featured-trailer__video"
         />
       ) : (
@@ -121,7 +122,12 @@ export function FeaturedCreatorTrailerPlayer({ src, poster, creatorName, signedI
       </div>
 
       {showPauseCta ? (
-        <div className="featured-trailer__message featured-trailer__message--paused">
+        <div
+          className="featured-trailer__message featured-trailer__message--paused"
+          onClick={(event) => {
+            if (!(event.target as HTMLElement).closest("button")) void togglePlayback();
+          }}
+        >
           <span className="featured-trailer__message-kicker">CONTINUE SUA JORNADA</span>
           <h3>Gostou do que viu?</h3>
           <p>{signedIn ? `Explore as aulas e conteúdos de ${creatorName} na Classfy.` : "Crie sua conta grátis para descobrir mais aulas e creators na Classfy."}</p>
