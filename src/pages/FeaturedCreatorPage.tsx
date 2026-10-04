@@ -1,13 +1,14 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { GlobalLoader } from "@/components/GlobalLoader";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Play, Clock, Film, Users, Moon, Sun, LogIn, LogOut, Settings, User, ArrowLeft } from "lucide-react";
+import { Clock, Film, Users, Moon, Sun, LogIn, LogOut, Settings, User, ArrowLeft } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useTheme } from "@/contexts/ThemeContext";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { FeaturedCreatorTrailerPlayer } from "@/components/FeaturedCreatorTrailerPlayer";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -39,6 +40,7 @@ interface FeaturedCreatorData {
   skills: Skill[];
   trailer_url: string | null;
   creator_name: string;
+  creator_display_name: string;
 }
 
 const formatDuration = (seconds: number): string => {
@@ -57,8 +59,6 @@ const FeaturedCreatorPage = () => {
   const { theme, toggleTheme } = useTheme();
   const [creator, setCreator] = useState<FeaturedCreatorData | null>(null);
   const [loading, setLoading] = useState(true);
-  const [isTrailerPaused, setIsTrailerPaused] = useState(false);
-  const videoRef = useRef<HTMLVideoElement>(null);
 
   useEffect(() => {
     const fetchCreator = async () => {
@@ -89,6 +89,7 @@ const FeaturedCreatorPage = () => {
         setCreator({
           ...data,
           creator_name: data.profiles?.creator_channel_name || data.profiles?.display_name || "Creator",
+          creator_display_name: data.profiles?.display_name || data.profiles?.creator_channel_name || "Creator",
           skills: Array.isArray(data.skills) ? (data.skills as unknown as Skill[]) : [],
         });
       } catch (error) {
@@ -107,21 +108,6 @@ const FeaturedCreatorPage = () => {
       window.open(creator.commission_link, "_blank");
     } else {
       navigate("/planos");
-    }
-  };
-
-  const handleVideoPlay = () => {
-    setIsTrailerPaused(false);
-  };
-
-  const handleVideoPause = () => {
-    setIsTrailerPaused(true);
-  };
-
-  const handlePlayClick = () => {
-    if (videoRef.current) {
-      videoRef.current.play();
-      setIsTrailerPaused(false);
     }
   };
 
@@ -484,68 +470,17 @@ const FeaturedCreatorPage = () => {
       )}
 
       {/* TRAILER SECTION */}
-      {creator.trailer_url && (
         <section className="py-16 lg:py-24 bg-black border-t border-white/10">
           <div className="container mx-auto px-4">
             <div className="max-w-5xl mx-auto space-y-6">
-              {/* Video Container with Badge */}
-              <div className="relative aspect-video rounded-2xl overflow-hidden bg-black/50 shadow-2xl">
-                {/* Trailer Badge - Top Right Corner */}
-                <div className="absolute top-4 right-4 z-10">
-                  <Badge className="bg-black/60 text-white border-white/20 px-3 py-1 text-sm font-medium backdrop-blur-sm">
-                    Trailer
-                  </Badge>
-                </div>
-
-                <video
-                  ref={videoRef}
-                  src={creator.trailer_url}
-                  muted
-                  playsInline
-                  onPlay={handleVideoPlay}
-                  onPause={handleVideoPause}
-                  controls
-                  preload="metadata"
-                  poster={creator.hero_image_url || creator.background_image_url}
-                  className="w-full h-full object-cover"
-                >
-                  Seu navegador não suporta vídeos.
-                </video>
-
-                {/* CTA Overlay when paused */}
-                {isTrailerPaused && (
-                  <div 
-                    className="absolute inset-0 bg-black/70 flex flex-col items-center justify-center gap-3 sm:gap-6 cursor-pointer"
-                    onClick={handlePlayClick}
-                  >
-                    <button 
-                      className="w-14 h-14 sm:w-20 sm:h-20 rounded-full bg-[#e21d48] hover:bg-[#c91a40] flex items-center justify-center transition-all"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handlePlayClick();
-                      }}
-                    >
-                      <Play className="h-7 w-7 sm:h-10 sm:w-10 text-white ml-0.5 sm:ml-1" fill="white" />
-                    </button>
-                    
-                    <div className="text-center space-y-2 sm:space-y-4">
-                      <p className="text-white/80 text-sm sm:text-lg">
-                        Quer ter acesso a todo o conteúdo?
-                      </p>
-                      <Button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleSubscribe();
-                        }}
-                        size="default"
-                        className="bg-[#e21d48] hover:bg-[#c91a40] text-white font-semibold px-4 sm:px-8 text-sm sm:text-base"
-                      >
-                        Assinar Agora
-                      </Button>
-                    </div>
-                  </div>
-                )}
-              </div>
+              <FeaturedCreatorTrailerPlayer
+                src={creator.trailer_url}
+                poster={creator.hero_image_url || creator.background_image_url}
+                creatorName={creator.creator_display_name}
+                signedIn={!!user}
+                onRegister={() => navigate("/auth", { state: { from: window.location.pathname, mode: "signup" } })}
+                onExplore={() => navigate(`/@${creator.creator_name}`)}
+              />
 
               {/* Button below trailer */}
               <div className="flex justify-center">
@@ -560,7 +495,6 @@ const FeaturedCreatorPage = () => {
             </div>
           </div>
         </section>
-      )}
 
       {/* BOTTOM CTA */}
       <section className="py-16 lg:py-24 bg-white/5 border-t border-white/10">
