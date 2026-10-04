@@ -14,7 +14,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import { dedupeImportRows, escapeCsvCell, parseProspectCsv, ProspectImportRow, validateReadyCandidate } from "@/lib/prospecting";
-import { CheckCircle, Copy, Download, ExternalLink, FileEdit, RefreshCw, Search, ShieldX, Upload } from "lucide-react";
+import { CheckCircle, Copy, Download, ExternalLink, FileEdit, RefreshCw, Search, ShieldX, Sparkles, Upload } from "lucide-react";
 
 type Prospect = {
   id: string;
@@ -52,6 +52,18 @@ type ProspectEvent = {
   occurred_at: string;
 };
 
+type DiscoveryCandidate = Pick<Prospect,
+  "channel_id" | "channel_name" | "channel_url" | "subscriber_count" | "niche" | "size_tier" |
+  "source_url" | "source_label" | "contact_email" | "instagram_handle" | "research_summary" |
+  "fit_reason" | "qualification_score" | "ready_for_outreach"
+>;
+
+const DISCOVERY_QUERIES = [
+  "programação curso prático português brasil",
+  "inglês para trabalho aula português brasil",
+  "finanças pessoais aula prática brasil",
+];
+
 const TIERS: Record<string, string> = {
   micro: "Micro", pequeno: "Pequeno", medio: "Médio", grande: "Grande", bigplayer: "BigPlayer",
 };
@@ -70,6 +82,9 @@ export default function AdminProspects() {
   const [importOpen, setImportOpen] = useState(false);
   const [importRows, setImportRows] = useState<ProspectImportRow[]>([]);
   const [importRejected, setImportRejected] = useState<Array<{ row: ProspectImportRow; reason: string }>>([]);
+  const [discoveryOpen, setDiscoveryOpen] = useState(false);
+  const [discovering, setDiscovering] = useState(false);
+  const [discoveryCandidates, setDiscoveryCandidates] = useState<DiscoveryCandidate[]>([]);
 
   const fetchProspects = useCallback(async () => {
     setLoading(true);
@@ -235,6 +250,37 @@ export default function AdminProspects() {
     setSaving(false);
   };
 
+  const runDiscoveryPreview = async () => {
+    setDiscovering(true);
+    const { data, error } = await supabase.functions.invoke("run-prospector", {
+      body: { limit: 5, queries: DISCOVERY_QUERIES },
+    });
+    setDiscovering(false);
+    if (error || !data?.success) {
+      toast({ title: "Não foi possível buscar creators", description: error?.message || data?.error, variant: "destructive" });
+      return;
+    }
+    setDiscoveryCandidates(data.candidates || []);
+    setDiscoveryOpen(true);
+  };
+
+  const confirmDiscovery = async () => {
+    if (!discoveryCandidates.length) return;
+    setDiscovering(true);
+    const { data, error } = await supabase.functions.invoke("run-prospector", {
+      body: { limit: 5, commit: true, candidates: discoveryCandidates },
+    });
+    setDiscovering(false);
+    if (error || !data?.success) {
+      toast({ title: "Não foi possível adicionar os candidatos", description: error?.message || data?.error, variant: "destructive" });
+      return;
+    }
+    toast({ title: `${data.inserted?.length || 0} creators adicionados em pesquisa` });
+    setDiscoveryOpen(false);
+    setDiscoveryCandidates([]);
+    await fetchProspects();
+  };
+
   if (authLoading) return <GlobalLoader />;
   if (!user || role !== "admin") return <Navigate to="/" />;
 
@@ -265,6 +311,7 @@ export default function AdminProspects() {
           </SelectContent></Select>
           <Select value={tierFilter} onValueChange={setTierFilter}><SelectTrigger className="w-[160px]"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">Todos os portes</SelectItem>{Object.entries(TIERS).map(([key, value]) => <SelectItem key={key} value={key}>{value}</SelectItem>)}</SelectContent></Select>
           <Button variant="outline" size="icon" onClick={fetchProspects}><RefreshCw className="w-4 h-4" /></Button>
+          <Button variant="outline" onClick={runDiscoveryPreview} disabled={discovering} className="gap-2"><Sparkles className="w-4 h-4" />{discovering ? "Buscando..." : "Buscar no YouTube"}</Button>
           <Button variant="outline" onClick={() => setImportOpen(true)} className="gap-2"><Upload className="w-4 h-4" /> Importar CSV</Button>
           <Button variant="outline" onClick={exportCsv} className="gap-2"><Download className="w-4 h-4" /> Exportar CSV</Button>
         </div>
@@ -285,7 +332,7 @@ export default function AdminProspects() {
             </tr>)}</tbody>
           </table>}
         </Card>
-        <p className="text-xs text-center text-muted-foreground">{filtered.length} de {prospects.length} prospects · captação externa não configurada neste repositório</p>
+        <p className="text-xs text-center text-muted-foreground">{filtered.length} de {prospects.length} prospects · descoberta do YouTube sempre passa por prévia</p>
       </div>
 
       <Dialog open={!!editing} onOpenChange={(open) => !open && setEditing(null)}>
@@ -327,6 +374,21 @@ export default function AdminProspects() {
             <div className="max-h-48 overflow-y-auto text-sm border rounded p-2">{importRows.map((row) => <div key={`${row.channel_id}-${row.channel_url}`} className="py-1">✓ {row.channel_name} — {row.source_url}</div>)}{importRejected.map(({ row, reason }, index) => <div key={index} className="py-1 text-destructive">× {row.channel_name || "Linha sem nome"}: {reason}</div>)}</div>
           </div>}
           <div className="flex justify-end gap-2"><Button variant="outline" onClick={() => setImportOpen(false)}>Cancelar</Button><Button disabled={!importRows.length || saving} onClick={confirmImport}>{saving ? "Importando..." : `Importar ${importRows.length} revisados`}</Button></div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={discoveryOpen} onOpenChange={setDiscoveryOpen}>
+        <DialogContent className="max-w-3xl">
+          <DialogHeader><DialogTitle>Prévia da descoberta no YouTube</DialogTitle></DialogHeader>
+          <p className="text-sm text-muted-foreground">Resultados públicos ainda não pesquisados nem qualificados. Adicionar cria registros “Em pesquisa”, sem contato, rascunho ou envio.</p>
+          <div className="max-h-[55vh] overflow-y-auto space-y-2">
+            {discoveryCandidates.length ? discoveryCandidates.map((candidate) => <Card key={candidate.channel_id} className="p-3">
+              <div className="font-medium">{candidate.channel_name}</div>
+              <div className="text-xs text-muted-foreground">{TIERS[candidate.size_tier || ""] || "Sem porte"} · {candidate.subscriber_count?.toLocaleString("pt-BR") || "—"} inscritos · {candidate.niche || "nicho não inferido"}</div>
+              <a className="text-xs text-blue-400 inline-flex gap-1 mt-1" href={candidate.source_url || "#"} target="_blank" rel="noreferrer">{candidate.source_label || "Vídeo público"}<ExternalLink className="w-3 h-3" /></a>
+            </Card>) : <p className="text-sm text-muted-foreground">Nenhum creator novo encontrado nesta busca.</p>}
+          </div>
+          <div className="flex justify-end gap-2"><Button variant="outline" onClick={() => setDiscoveryOpen(false)}>Cancelar</Button><Button disabled={!discoveryCandidates.length || discovering} onClick={confirmDiscovery}>{discovering ? "Adicionando..." : `Adicionar ${discoveryCandidates.length} em pesquisa`}</Button></div>
         </DialogContent>
       </Dialog>
     </AdminLayout>
