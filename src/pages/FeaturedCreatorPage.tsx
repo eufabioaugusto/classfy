@@ -111,6 +111,15 @@ const FeaturedCreatorPage = () => {
     }
   };
 
+  const handleBack = () => {
+    const historyIndex = window.history.state?.idx;
+    if (typeof historyIndex === "number" && historyIndex > 0) {
+      navigate(-1);
+    } else {
+      navigate("/");
+    }
+  };
+
   if (loading) {
     return <GlobalLoader />;
   }
@@ -134,7 +143,8 @@ const FeaturedCreatorPage = () => {
             <Button 
               variant="ghost" 
               size="icon" 
-              onClick={() => navigate(-1)}
+              onClick={handleBack}
+              aria-label="Voltar"
               className="text-white hover:bg-white/10"
             >
               <ArrowLeft className="w-5 h-5" />
