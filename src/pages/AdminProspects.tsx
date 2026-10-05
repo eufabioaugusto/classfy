@@ -14,7 +14,9 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import { dedupeImportRows, escapeCsvCell, parseProspectCsv, ProspectImportRow, validateReadyCandidate } from "@/lib/prospecting";
-import { CheckCircle, Copy, Download, ExternalLink, FileEdit, RefreshCw, Search, ShieldX, Sparkles, Upload } from "lucide-react";
+import { assessProspectPriority, matchesProspectDisplay, PROSPECT_PRIORITY_ORDER, ProspectDisplayFilter } from "@/lib/prospectPriority";
+import { cn } from "@/lib/utils";
+import { AlertTriangle, Archive, CheckCircle, Copy, Download, ExternalLink, FileEdit, RefreshCw, Search, ShieldX, Sparkles, Star, Upload } from "lucide-react";
 
 type Prospect = {
   id: string;
@@ -68,6 +70,14 @@ const TIERS: Record<string, string> = {
   micro: "Micro", pequeno: "Pequeno", medio: "Médio", grande: "Grande", bigplayer: "BigPlayer",
 };
 
+const DISPLAY_FILTERS: Array<{ value: ProspectDisplayFilter; label: string }> = [
+  { value: "active", label: "Trabalho ativo" },
+  { value: "priority", label: "Prioritários" },
+  { value: "attention", label: "Precisam de atenção" },
+  { value: "no_contact", label: "Sem contato" },
+  { value: "all", label: "Todos" },
+];
+
 export default function AdminProspects() {
   const { user, role, loading: authLoading } = useAuth();
   const { toast } = useToast();
@@ -75,6 +85,7 @@ export default function AdminProspects() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [search, setSearch] = useState("");
+  const [displayFilter, setDisplayFilter] = useState<ProspectDisplayFilter>("active");
   const [statusFilter, setStatusFilter] = useState("all");
   const [tierFilter, setTierFilter] = useState("all");
   const [editing, setEditing] = useState<Prospect | null>(null);
@@ -102,7 +113,17 @@ export default function AdminProspects() {
     if (user && role === "admin") void fetchProspects();
   }, [user, role, fetchProspects]);
 
-  const filtered = useMemo(() => prospects.filter((prospect) => {
+  const assessedProspects = useMemo(() => prospects.map((prospect) => ({
+    prospect,
+    assessment: assessProspectPriority(prospect),
+  })), [prospects]);
+
+  const priorityCounts = useMemo(() => assessedProspects.reduce((counts, item) => {
+    counts[item.assessment.priority] += 1;
+    return counts;
+  }, { priority: 0, attention: 0, no_contact: 0 }), [assessedProspects]);
+
+  const filtered = useMemo(() => assessedProspects.filter(({ prospect, assessment }) => {
     const needle = search.toLowerCase();
     const matchesSearch = !needle || [prospect.channel_name, prospect.niche, prospect.contact_email, prospect.instagram_handle]
       .some((value) => value?.toLowerCase().includes(needle));
@@ -111,8 +132,14 @@ export default function AdminProspects() {
       || (statusFilter === "research" && !prospect.ready_for_outreach && !prospect.do_not_contact)
       || (statusFilter === "blocked" && prospect.do_not_contact)
       || prospect.status === statusFilter;
-    return matchesSearch && matchesStatus && (tierFilter === "all" || prospect.size_tier === tierFilter);
-  }), [prospects, search, statusFilter, tierFilter]);
+    const matchesDisplay = matchesProspectDisplay(prospect, assessment, displayFilter);
+    return matchesSearch && matchesStatus && matchesDisplay && (tierFilter === "all" || prospect.size_tier === tierFilter);
+  }).sort((a, b) => {
+    const priorityDifference = PROSPECT_PRIORITY_ORDER[a.assessment.priority] - PROSPECT_PRIORITY_ORDER[b.assessment.priority];
+    if (priorityDifference) return priorityDifference;
+    if (a.assessment.needsReviewEmphasis !== b.assessment.needsReviewEmphasis) return a.assessment.needsReviewEmphasis ? -1 : 1;
+    return a.prospect.channel_name.localeCompare(b.prospect.channel_name, "pt-BR");
+  }).map(({ prospect }) => prospect), [assessedProspects, displayFilter, search, statusFilter, tierFilter]);
 
   const openEditor = async (prospect: Prospect) => {
     setEditing({ ...prospect, teaching_topics: prospect.teaching_topics || [] });
@@ -316,23 +343,50 @@ export default function AdminProspects() {
           <Button variant="outline" onClick={exportCsv} className="gap-2"><Download className="w-4 h-4" /> Exportar CSV</Button>
         </div>
 
+        <div className="space-y-2">
+          <div className="flex flex-wrap gap-2" role="group" aria-label="Exibição por prioridade">
+            {DISPLAY_FILTERS.map((option) => {
+              const count = option.value === "all" ? prospects.length
+                : option.value === "active" ? priorityCounts.priority + priorityCounts.attention
+                : priorityCounts[option.value];
+              return <Button
+                key={option.value}
+                size="sm"
+                variant={displayFilter === option.value ? "default" : "outline"}
+                onClick={() => setDisplayFilter(option.value)}
+                aria-pressed={displayFilter === option.value}
+                className="gap-2"
+              >
+                {option.value === "priority" && <Star className="w-3.5 h-3.5" />}
+                {option.value === "attention" && <AlertTriangle className="w-3.5 h-3.5" />}
+                {option.value === "no_contact" && <Archive className="w-3.5 h-3.5" />}
+                {option.label} <span className="rounded-full bg-background/20 px-1.5 text-xs">{count}</span>
+              </Button>;
+            })}
+          </div>
+          <p className="text-xs text-muted-foreground">A visão padrão oculta quem não tem contato, sem apagar. “Pronto para revisão” indica contato, pesquisa e rascunho disponíveis; ainda não significa envio ou aprovação.</p>
+        </div>
+
         <Card className="overflow-x-auto">
-          {loading ? <div className="p-12 text-center text-muted-foreground">Carregando...</div> : <table className="w-full text-sm">
-            <thead className="border-b bg-muted/30"><tr><th className="text-left p-3">Creator</th><th className="text-left p-3">Qualificação</th><th className="text-left p-3">Pesquisa</th><th className="text-left p-3">Estado</th><th className="text-right p-3">Ações manuais</th></tr></thead>
-            <tbody>{filtered.map((p) => <tr key={p.id} className="border-b last:border-0">
-              <td className="p-3"><div className="font-medium">{p.channel_name}</div><div className="text-xs text-muted-foreground">{TIERS[p.size_tier || ""] || "Sem porte"} · {p.subscriber_count?.toLocaleString("pt-BR") || "—"} inscritos</div></td>
-              <td className="p-3"><div className="font-medium">{p.qualification_score ?? "—"}/100</div><div className="text-xs text-muted-foreground max-w-[240px] truncate">{(p.teaching_topics || []).join(", ") || "Tópicos não pesquisados"}</div></td>
-              <td className="p-3"><div className="max-w-[260px] truncate">{p.fit_reason || "Sem motivo de fit registrado"}</div>{p.source_url && <a className="text-xs text-blue-400 inline-flex gap-1" href={p.source_url} target="_blank" rel="noreferrer">{p.source_label || "Fonte"}<ExternalLink className="w-3 h-3" /></a>}</td>
+          {loading ? <div className="p-12 text-center text-muted-foreground">Carregando...</div> : filtered.length ? <table className="w-full text-sm">
+            <thead className="border-b bg-muted/30"><tr><th className="text-left p-3">Creator</th><th className="text-left p-3">Prioridade</th><th className="text-left p-3 hidden lg:table-cell">Qualificação</th><th className="text-left p-3 hidden md:table-cell">Pesquisa</th><th className="text-left p-3">Estado</th><th className="text-right p-3">Ações manuais</th></tr></thead>
+            <tbody>{filtered.map((p) => {
+              const assessment = assessProspectPriority(p);
+              return <tr key={p.id} className={cn("border-b last:border-0", assessment.needsReviewEmphasis && "bg-primary/[0.045]")}>
+              <td className="p-3"><div className={cn(assessment.needsReviewEmphasis ? "font-bold" : "font-medium")}>{p.channel_name}{assessment.needsReviewEmphasis && <span className="ml-2 inline-block h-2 w-2 rounded-full bg-primary" aria-label="Aguardando revisão de preparação" />}</div><div className="text-xs text-muted-foreground">{TIERS[p.size_tier || ""] || "Sem porte"} · {p.subscriber_count?.toLocaleString("pt-BR") || "—"} inscritos</div></td>
+              <td className="p-3"><PriorityBadge assessment={assessment} /></td>
+              <td className="p-3 hidden lg:table-cell"><div className="font-medium">{p.qualification_score ?? "—"}/100</div><div className="text-xs text-muted-foreground max-w-[240px] truncate">{(p.teaching_topics || []).join(", ") || "Tópicos não pesquisados"}</div></td>
+              <td className="p-3 hidden md:table-cell"><div className="max-w-[260px] truncate">{p.fit_reason || "Sem motivo de fit registrado"}</div>{p.source_url && <a className="text-xs text-blue-400 inline-flex gap-1" href={p.source_url} target="_blank" rel="noreferrer">{p.source_label || "Fonte"}<ExternalLink className="w-3 h-3" /></a>}</td>
               <td className="p-3">{p.do_not_contact ? <Badge variant="destructive">Não contatar</Badge> : p.ready_for_outreach ? <Badge className="bg-emerald-600">Pronto</Badge> : <Badge variant="secondary">Em pesquisa</Badge>}</td>
               <td className="p-3"><div className="flex justify-end gap-1 flex-wrap">
                 <Button size="sm" variant="outline" onClick={() => openEditor(p)}><FileEdit className="w-3 h-3 mr-1" />Preparar</Button>
                 {p.ready_for_outreach && !p.do_not_contact && p.contact_email && <><Button size="sm" variant="outline" onClick={() => copyDraft(p, "email")}><Copy className="w-3 h-3 mr-1" />E-mail</Button><Button size="sm" variant="ghost" onClick={() => openContact(p, "email")}><ExternalLink className="w-3 h-3" /></Button><Button size="sm" variant="ghost" onClick={() => markSent(p, "email")}><CheckCircle className="w-3 h-3 mr-1" />Marcar enviado</Button></>}
                 {p.ready_for_outreach && !p.do_not_contact && p.instagram_handle && <><Button size="sm" variant="outline" onClick={() => copyDraft(p, "instagram")}><Copy className="w-3 h-3 mr-1" />DM</Button><Button size="sm" variant="ghost" onClick={() => openContact(p, "instagram")}><ExternalLink className="w-3 h-3" /></Button><Button size="sm" variant="ghost" onClick={() => markSent(p, "instagram")}><CheckCircle className="w-3 h-3 mr-1" />Marcar enviado</Button></>}
               </div></td>
-            </tr>)}</tbody>
-          </table>}
+            </tr>;})}</tbody>
+          </table> : <div className="p-12 text-center"><div className="font-medium">Nenhum prospect nesta visão</div><p className="mt-1 text-sm text-muted-foreground">Ajuste os filtros ou consulte “Todos” para conferir a lista completa.</p></div>}
         </Card>
-        <p className="text-xs text-center text-muted-foreground">{filtered.length} de {prospects.length} prospects · descoberta do YouTube sempre passa por prévia</p>
+        <p className="text-xs text-center text-muted-foreground">{filtered.length} de {prospects.length} prospects · {priorityCounts.no_contact} sem contato permanecem recuperáveis · descoberta do YouTube sempre passa por prévia</p>
       </div>
 
       <Dialog open={!!editing} onOpenChange={(open) => !open && setEditing(null)}>
@@ -397,4 +451,10 @@ export default function AdminProspects() {
 
 function Field({ label, className = "", children }: { label: string; className?: string; children: React.ReactNode }) {
   return <div className={`space-y-1 ${className}`}><Label>{label}</Label>{children}</div>;
+}
+
+function PriorityBadge({ assessment }: { assessment: ReturnType<typeof assessProspectPriority> }) {
+  if (assessment.priority === "priority") return <div className="space-y-1"><Badge className="gap-1 bg-emerald-600"><Star className="w-3 h-3" />{assessment.label}</Badge><div className="max-w-[220px] text-xs text-muted-foreground">{assessment.reason}</div></div>;
+  if (assessment.priority === "attention") return <div className="space-y-1"><Badge variant="outline" className="gap-1 border-amber-500/60 text-amber-700 dark:text-amber-300"><AlertTriangle className="w-3 h-3" />{assessment.label}</Badge><div className="max-w-[220px] text-xs text-muted-foreground">{assessment.reason}</div></div>;
+  return <div className="space-y-1"><Badge variant="secondary" className="gap-1"><Archive className="w-3 h-3" />{assessment.label}</Badge><div className="max-w-[220px] text-xs text-muted-foreground">{assessment.reason}</div></div>;
 }
