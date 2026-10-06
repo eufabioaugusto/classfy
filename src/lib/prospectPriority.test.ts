@@ -37,6 +37,26 @@ describe("assessProspectPriority", () => {
     expect(assessProspectPriority(base)).toMatchObject({ priority: "no_contact", label: "Sem contato" });
   });
 
+  it("não infere contato a partir de notas livres", () => {
+    const assessment = assessProspectPriority({
+      ...base,
+      qualification_notes: "Contato profissional: creator@example.com; rascunho preparado.",
+      email_body_draft: "Convite",
+    });
+
+    expect(assessment.priority).toBe("no_contact");
+  });
+
+  it("reconhece o contato depois de salvo no campo estruturado", () => {
+    const assessment = assessProspectPriority({
+      ...base,
+      contact_email: "creator@example.com",
+      email_body_draft: "Convite",
+    });
+
+    expect(assessment).toMatchObject({ priority: "priority", needsReviewEmphasis: true });
+  });
+
   it("mantém contato pesquisado em atenção quando falta rascunho", () => {
     expect(assessProspectPriority({ ...base, instagram_handle: "creator" }))
       .toMatchObject({ priority: "attention", reason: expect.stringContaining("rascunho") });

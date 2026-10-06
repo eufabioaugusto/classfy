@@ -168,6 +168,8 @@ export default function AdminProspects() {
     const payload = {
       source_url: editing.source_url || null,
       source_label: editing.source_label || null,
+      contact_email: editing.contact_email?.trim() || null,
+      instagram_handle: editing.instagram_handle?.trim().replace(/^@/, "") || null,
       researched_at: editing.researched_at || null,
       research_summary: editing.research_summary || null,
       fit_reason: editing.fit_reason || null,
@@ -369,12 +371,13 @@ export default function AdminProspects() {
 
         <Card className="overflow-x-auto">
           {loading ? <div className="p-12 text-center text-muted-foreground">Carregando...</div> : filtered.length ? <table className="w-full text-sm">
-            <thead className="border-b bg-muted/30"><tr><th className="text-left p-3">Creator</th><th className="text-left p-3">Prioridade</th><th className="text-left p-3 hidden lg:table-cell">Qualificação</th><th className="text-left p-3 hidden md:table-cell">Pesquisa</th><th className="text-left p-3">Estado</th><th className="text-right p-3">Ações manuais</th></tr></thead>
+            <thead className="border-b bg-muted/30"><tr><th className="text-left p-3">Creator</th><th className="text-left p-3">Prioridade</th><th className="text-left p-3">Contato e rascunho</th><th className="text-left p-3 hidden lg:table-cell">Qualificação</th><th className="text-left p-3 hidden md:table-cell">Pesquisa</th><th className="text-left p-3">Estado</th><th className="text-right p-3">Ações manuais</th></tr></thead>
             <tbody>{filtered.map((p) => {
               const assessment = assessProspectPriority(p);
               return <tr key={p.id} className={cn("border-b last:border-0", assessment.needsReviewEmphasis && "bg-primary/[0.045]")}>
               <td className="p-3"><div className={cn(assessment.needsReviewEmphasis ? "font-bold" : "font-medium")}>{p.channel_name}{assessment.needsReviewEmphasis && <span className="ml-2 inline-block h-2 w-2 rounded-full bg-primary" aria-label="Aguardando revisão de preparação" />}</div><div className="text-xs text-muted-foreground">{TIERS[p.size_tier || ""] || "Sem porte"} · {p.subscriber_count?.toLocaleString("pt-BR") || "—"} inscritos</div></td>
               <td className="p-3"><PriorityBadge assessment={assessment} /></td>
+              <td className="p-3"><ContactSummary prospect={p} /></td>
               <td className="p-3 hidden lg:table-cell"><div className="font-medium">{p.qualification_score ?? "—"}/100</div><div className="text-xs text-muted-foreground max-w-[240px] truncate">{(p.teaching_topics || []).join(", ") || "Tópicos não pesquisados"}</div></td>
               <td className="p-3 hidden md:table-cell"><div className="max-w-[260px] truncate">{p.fit_reason || "Sem motivo de fit registrado"}</div>{p.source_url && <a className="text-xs text-blue-400 inline-flex gap-1" href={p.source_url} target="_blank" rel="noreferrer">{p.source_label || "Fonte"}<ExternalLink className="w-3 h-3" /></a>}</td>
               <td className="p-3">{p.do_not_contact ? <Badge variant="destructive">Não contatar</Badge> : p.ready_for_outreach ? <Badge className="bg-emerald-600">Pronto</Badge> : <Badge variant="secondary">Em pesquisa</Badge>}</td>
@@ -396,6 +399,9 @@ export default function AdminProspects() {
             <section className="grid md:grid-cols-2 gap-3">
               <Field label="Nome da fonte"><Input value={editing.source_label || ""} onChange={(e) => setEditing({ ...editing, source_label: e.target.value })} placeholder="Ex.: canal oficial / vídeo analisado" /></Field>
               <Field label="URL da fonte"><Input value={editing.source_url || ""} onChange={(e) => setEditing({ ...editing, source_url: e.target.value })} placeholder="https://..." /></Field>
+              <Field label="E-mail profissional verificado"><Input type="email" value={editing.contact_email || ""} onChange={(e) => setEditing({ ...editing, contact_email: e.target.value })} placeholder="contato@site-oficial.com" /></Field>
+              <Field label="Instagram profissional verificado"><Input value={editing.instagram_handle || ""} onChange={(e) => setEditing({ ...editing, instagram_handle: e.target.value })} placeholder="usuario, sem URL" /></Field>
+              <p className="text-xs text-muted-foreground md:col-span-2">Registre somente canais publicados pelo próprio creator e mantenha a comprovação na URL da fonte ou nas notas. Salvar o contato não marca como pronto e não envia mensagem.</p>
               <Field label="Data da pesquisa"><Input type="datetime-local" value={editing.researched_at?.slice(0, 16) || ""} onChange={(e) => setEditing({ ...editing, researched_at: e.target.value ? new Date(e.target.value).toISOString() : null })} /></Field>
               <Field label="Score de qualificação (0–100)"><Input type="number" min={0} max={100} value={editing.qualification_score ?? ""} onChange={(e) => setEditing({ ...editing, qualification_score: e.target.value === "" ? null : Number(e.target.value) })} /></Field>
               <Field label="O que ensina" className="md:col-span-2"><Input value={(editing.teaching_topics || []).join(", ")} onChange={(e) => setEditing({ ...editing, teaching_topics: e.target.value.split(",").map((v) => v.trim()).filter(Boolean) })} placeholder="programação, carreira, inglês..." /></Field>
@@ -457,4 +463,17 @@ function PriorityBadge({ assessment }: { assessment: ReturnType<typeof assessPro
   if (assessment.priority === "priority") return <div className="space-y-1"><Badge className="gap-1 bg-emerald-600"><Star className="w-3 h-3" />{assessment.label}</Badge><div className="max-w-[220px] text-xs text-muted-foreground">{assessment.reason}</div></div>;
   if (assessment.priority === "attention") return <div className="space-y-1"><Badge variant="outline" className="gap-1 border-amber-500/60 text-amber-700 dark:text-amber-300"><AlertTriangle className="w-3 h-3" />{assessment.label}</Badge><div className="max-w-[220px] text-xs text-muted-foreground">{assessment.reason}</div></div>;
   return <div className="space-y-1"><Badge variant="secondary" className="gap-1"><Archive className="w-3 h-3" />{assessment.label}</Badge><div className="max-w-[220px] text-xs text-muted-foreground">{assessment.reason}</div></div>;
+}
+
+function ContactSummary({ prospect }: { prospect: Prospect }) {
+  const contacts = [
+    prospect.contact_email && { label: prospect.contact_email, hasDraft: Boolean(prospect.email_body_draft?.trim()) },
+    prospect.instagram_handle && { label: `@${prospect.instagram_handle.replace(/^@/, "")}`, hasDraft: Boolean(prospect.dm_draft?.trim()) },
+  ].filter(Boolean) as Array<{ label: string; hasDraft: boolean }>;
+
+  if (!contacts.length) return <span className="text-xs text-muted-foreground">Nenhum canal estruturado</span>;
+  return <div className="space-y-1">{contacts.map((contact) => <div key={contact.label} className="max-w-[240px] text-xs">
+    <div className="truncate font-medium">{contact.label}</div>
+    <div className={contact.hasDraft ? "text-emerald-600 dark:text-emerald-400" : "text-amber-700 dark:text-amber-300"}>{contact.hasDraft ? "Rascunho disponível" : "Rascunho pendente"}</div>
+  </div>)}</div>;
 }
