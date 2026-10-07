@@ -4,6 +4,14 @@ import {
   clampLimit,
   dedupeCandidates,
   DiscoveryCandidate,
+  DiscoveryEvidence,
+  isPublishedWithinWindow,
+  normalizeChannelId,
+  normalizePublishedAt,
+  normalizeQueries,
+  normalizeRecentMonths,
+  publishedAfterIso,
+  toProspectInsert,
 } from "./logic.ts";
 
 const corsHeaders = {
@@ -44,7 +52,21 @@ async function youtube(
   return response.json();
 }
 
-Deno.serve(async (request) => {
+type ProspectorDependencies = {
+  env: (name: string) => string | undefined;
+  createServiceClient: (url: string, key: string) => any;
+  youtubeRequest: typeof youtube;
+};
+
+const defaultDependencies: ProspectorDependencies = {
+  env: (name) => Deno.env.get(name),
+  createServiceClient: (url, key) => createClient(url, key, { auth: { persistSession: false } }),
+  youtubeRequest: youtube,
+};
+
+export function createProspectorHandler(overrides: Partial<ProspectorDependencies> = {}) {
+  const dependencies = { ...defaultDependencies, ...overrides };
+  return async (request: Request) => {
   if (request.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
   }
@@ -58,12 +80,10 @@ Deno.serve(async (request) => {
       return json({ error: "Unauthorized" }, 401);
     }
 
-    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-    const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const youtubeKey = Deno.env.get("YOUTUBE_API_KEY")!;
-    const service = createClient(supabaseUrl, serviceKey, {
-      auth: { persistSession: false },
-    });
+    const supabaseUrl = dependencies.env("SUPABASE_URL")!;
+    const serviceKey = dependencies.env("SUPABASE_SERVICE_ROLE_KEY")!;
+    const youtubeKey = dependencies.env("YOUTUBE_API_KEY")!;
+    const service = dependencies.createServiceClient(supabaseUrl, serviceKey);
     const { data: { user }, error: authError } = await service.auth.getUser(
       authorization.slice(7),
     );
@@ -76,14 +96,9 @@ Deno.serve(async (request) => {
     const body = await request.json().catch(() => ({}));
     const limit = clampLimit(body.limit);
     const commit = body.commit === true;
-    const requestedQueries = Array.isArray(body.queries)
-      ? body.queries.filter((value: unknown) =>
-        typeof value === "string" && value.trim()
-      ).slice(0, 3)
-      : [];
-    const queries = requestedQueries.length
-      ? requestedQueries
-      : DEFAULT_QUERIES.slice(0, 3);
+    const queries = normalizeQueries(body.queries, DEFAULT_QUERIES);
+    const recentMonths = normalizeRecentMonths(body.recent_months);
+    const publishedAfter = publishedAfterIso(recentMonths);
 
     const { data: existing, error: existingError } = await service.from(
       "prospects",
@@ -92,10 +107,8 @@ Deno.serve(async (request) => {
     const existingIds = (existing ?? []).map((row: { channel_id: string }) =>
       row.channel_id
     );
-    const evidenceByChannel = new Map<
-      string,
-      { videoId: string; title: string }
-    >();
+    const knownIds = new Set(existingIds.map(normalizeChannelId).filter(Boolean));
+    const evidenceByChannel = new Map<string, DiscoveryEvidence>();
 
     const selectedCandidates = Array.isArray(body.candidates)
       ? body.candidates.slice(0, limit)
@@ -108,9 +121,17 @@ Deno.serve(async (request) => {
         const videoId = typeof candidate?.source_url === "string"
           ? new URL(candidate.source_url).searchParams.get("v") ?? ""
           : "";
-        if (/^UC[\w-]{20,}$/.test(channelId) && /^[\w-]{11}$/.test(videoId)) {
+        const candidatePublishedAt = normalizePublishedAt(candidate.discovery_published_at);
+        if (
+          /^UC[\w-]{20,}$/.test(channelId) && /^[\w-]{11}$/.test(videoId) &&
+          isPublishedWithinWindow(candidatePublishedAt, publishedAfter)
+        ) {
           evidenceByChannel.set(channelId, {
             videoId,
+            publishedAt: candidatePublishedAt,
+            query: typeof candidate.discovery_query === "string"
+              ? candidate.discovery_query
+              : "Prévia revisada",
             title: typeof candidate.source_label === "string"
               ? candidate.source_label.replace(
                 /^Resultado público do YouTube:\s*/,
@@ -122,26 +143,35 @@ Deno.serve(async (request) => {
       }
     } else {
       for (const query of queries) {
-        const search = await youtube("search", {
+        const searchParams: Record<string, string> = {
           part: "snippet",
           q: query,
           type: "video",
           regionCode: "BR",
           relevanceLanguage: "pt",
-          maxResults: String(limit),
+          maxResults: String(Math.min(25, Math.max(10, limit * 4))),
           safeSearch: "moderate",
-        }, youtubeKey);
+        };
+        if (publishedAfter) searchParams.publishedAfter = publishedAfter;
+        const search = await dependencies.youtubeRequest("search", searchParams, youtubeKey);
         for (const item of search.items ?? []) {
           const channelId = item.snippet?.channelId;
           const videoId = item.id?.videoId;
-          if (channelId && videoId && !evidenceByChannel.has(channelId)) {
+          const itemPublishedAt = normalizePublishedAt(item.snippet?.publishedAt);
+          if (
+            channelId && videoId && !knownIds.has(normalizeChannelId(channelId)) &&
+            !evidenceByChannel.has(channelId) &&
+            isPublishedWithinWindow(itemPublishedAt, publishedAfter)
+          ) {
             evidenceByChannel.set(channelId, {
               videoId,
               title: item.snippet?.title ?? "Vídeo público",
+              publishedAt: itemPublishedAt,
+              query,
             });
           }
         }
-        if (evidenceByChannel.size >= limit * 2) break;
+        if (evidenceByChannel.size >= 50) break;
       }
     }
 
@@ -150,11 +180,17 @@ Deno.serve(async (request) => {
         success: true,
         mode: commit ? "commit" : "preview",
         candidates: [],
+        criteria: commit ? undefined : {
+          queries,
+          recent_months: recentMonths,
+          published_after: publishedAfter,
+          instructional_evidence_required: true,
+        },
       });
     }
-    const details = await youtube("channels", {
+    const details = await dependencies.youtubeRequest("channels", {
       part: "snippet,statistics",
-      id: Array.from(evidenceByChannel.keys()).join(","),
+      id: Array.from(evidenceByChannel.keys()).slice(0, 50).join(","),
       maxResults: "50",
     }, youtubeKey);
     const built = (details.items ?? []).map((channel: Record<string, any>) =>
@@ -164,11 +200,23 @@ Deno.serve(async (request) => {
     ): candidate is DiscoveryCandidate => Boolean(candidate));
     const candidates = dedupeCandidates(built, existingIds, limit);
 
-    if (!commit) return json({ success: true, mode: "preview", candidates });
+    if (!commit) {
+      return json({
+        success: true,
+        mode: "preview",
+        candidates,
+        criteria: {
+          queries,
+          recent_months: recentMonths,
+          published_after: publishedAfter,
+          instructional_evidence_required: true,
+        },
+      });
+    }
     const inserted: DiscoveryCandidate[] = [];
     const rejected: Array<{ channel_id: string; reason: string }> = [];
     for (const candidate of candidates) {
-      const { error } = await service.from("prospects").insert(candidate);
+      const { error } = await service.from("prospects").insert(toProspectInsert(candidate));
       if (error) {
         rejected.push({
           channel_id: candidate.channel_id,
@@ -183,4 +231,7 @@ Deno.serve(async (request) => {
       error: error instanceof Error ? error.message : "Unknown error",
     }, 400);
   }
-});
+  };
+}
+
+if (import.meta.main) Deno.serve(createProspectorHandler());

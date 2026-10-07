@@ -14,6 +14,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import { dedupeImportRows, escapeCsvCell, parseProspectCsv, ProspectImportRow, validateReadyCandidate } from "@/lib/prospecting";
+import { buildDiscoveryCommitBody, buildDiscoveryPreviewBody, DiscoveryCriteria } from "@/lib/prospectDiscovery";
 import { assessProspectPriority, matchesProspectDisplay, PROSPECT_PRIORITY_ORDER, ProspectDisplayFilter } from "@/lib/prospectPriority";
 import { cn } from "@/lib/utils";
 import { AlertTriangle, Archive, CheckCircle, Copy, Download, ExternalLink, FileEdit, RefreshCw, Search, ShieldX, Sparkles, Star, Upload } from "lucide-react";
@@ -58,7 +59,11 @@ type DiscoveryCandidate = Pick<Prospect,
   "channel_id" | "channel_name" | "channel_url" | "subscriber_count" | "niche" | "size_tier" |
   "source_url" | "source_label" | "contact_email" | "instagram_handle" | "research_summary" |
   "fit_reason" | "qualification_score" | "ready_for_outreach"
->;
+> & {
+  discovery_published_at?: string | null;
+  discovery_query?: string;
+  discovery_reason?: string;
+};
 
 const DISCOVERY_QUERIES = [
   "programação curso prático português brasil",
@@ -94,8 +99,12 @@ export default function AdminProspects() {
   const [importRows, setImportRows] = useState<ProspectImportRow[]>([]);
   const [importRejected, setImportRejected] = useState<Array<{ row: ProspectImportRow; reason: string }>>([]);
   const [discoveryOpen, setDiscoveryOpen] = useState(false);
+  const [discoverySettingsOpen, setDiscoverySettingsOpen] = useState(false);
   const [discovering, setDiscovering] = useState(false);
   const [discoveryCandidates, setDiscoveryCandidates] = useState<DiscoveryCandidate[]>([]);
+  const [discoveryQueryText, setDiscoveryQueryText] = useState(DISCOVERY_QUERIES.join("\n"));
+  const [discoveryRecentMonths, setDiscoveryRecentMonths] = useState("6");
+  const [discoveryCriteria, setDiscoveryCriteria] = useState<DiscoveryCriteria | null>(null);
 
   const fetchProspects = useCallback(async () => {
     setLoading(true);
@@ -280,9 +289,14 @@ export default function AdminProspects() {
   };
 
   const runDiscoveryPreview = async () => {
+    const body = buildDiscoveryPreviewBody(discoveryQueryText, discoveryRecentMonths);
+    if (!body) {
+      toast({ title: "Informe pelo menos um termo de busca", description: "Use uma linha por categoria ou intenção de ensino.", variant: "destructive" });
+      return;
+    }
     setDiscovering(true);
     const { data, error } = await supabase.functions.invoke("run-prospector", {
-      body: { limit: 5, queries: DISCOVERY_QUERIES },
+      body,
     });
     setDiscovering(false);
     if (error || !data?.success) {
@@ -290,6 +304,8 @@ export default function AdminProspects() {
       return;
     }
     setDiscoveryCandidates(data.candidates || []);
+    setDiscoveryCriteria(data.criteria || null);
+    setDiscoverySettingsOpen(false);
     setDiscoveryOpen(true);
   };
 
@@ -297,7 +313,7 @@ export default function AdminProspects() {
     if (!discoveryCandidates.length) return;
     setDiscovering(true);
     const { data, error } = await supabase.functions.invoke("run-prospector", {
-      body: { limit: 5, commit: true, candidates: discoveryCandidates },
+      body: buildDiscoveryCommitBody(discoveryCandidates, discoveryCriteria),
     });
     setDiscovering(false);
     if (error || !data?.success) {
@@ -340,7 +356,7 @@ export default function AdminProspects() {
           </SelectContent></Select>
           <Select value={tierFilter} onValueChange={setTierFilter}><SelectTrigger className="w-[160px]"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">Todos os portes</SelectItem>{Object.entries(TIERS).map(([key, value]) => <SelectItem key={key} value={key}>{value}</SelectItem>)}</SelectContent></Select>
           <Button variant="outline" size="icon" onClick={fetchProspects}><RefreshCw className="w-4 h-4" /></Button>
-          <Button variant="outline" onClick={runDiscoveryPreview} disabled={discovering} className="gap-2"><Sparkles className="w-4 h-4" />{discovering ? "Buscando..." : "Buscar no YouTube"}</Button>
+          <Button variant="outline" onClick={() => setDiscoverySettingsOpen(true)} disabled={discovering} className="gap-2"><Sparkles className="w-4 h-4" />{discovering ? "Buscando..." : "Buscar no YouTube"}</Button>
           <Button variant="outline" onClick={() => setImportOpen(true)} className="gap-2"><Upload className="w-4 h-4" /> Importar CSV</Button>
           <Button variant="outline" onClick={exportCsv} className="gap-2"><Download className="w-4 h-4" /> Exportar CSV</Button>
         </div>
@@ -441,14 +457,28 @@ export default function AdminProspects() {
         <DialogContent className="max-w-3xl">
           <DialogHeader><DialogTitle>Prévia da descoberta no YouTube</DialogTitle></DialogHeader>
           <p className="text-sm text-muted-foreground">Resultados públicos ainda não pesquisados nem qualificados. Adicionar cria registros “Em pesquisa”, sem contato, rascunho ou envio.</p>
+          {discoveryCriteria && <Card className="p-3 text-xs text-muted-foreground"><strong className="text-foreground">Critérios desta busca:</strong> até 5 canais novos; triagem heurística por sinais textuais de ensino — ainda não é qualificação; {discoveryCriteria.recent_months ? `publicação usada como evidência dentro da janela de ${discoveryCriteria.recent_months} meses` : "sem corte de data"}. Termos: {discoveryCriteria.queries.join(" · ")}.</Card>}
           <div className="max-h-[55vh] overflow-y-auto space-y-2">
             {discoveryCandidates.length ? discoveryCandidates.map((candidate) => <Card key={candidate.channel_id} className="p-3">
               <div className="font-medium">{candidate.channel_name}</div>
               <div className="text-xs text-muted-foreground">{TIERS[candidate.size_tier || ""] || "Sem porte"} · {candidate.subscriber_count?.toLocaleString("pt-BR") || "—"} inscritos · {candidate.niche || "nicho não inferido"}</div>
+              <div className="mt-1 text-xs text-muted-foreground">Publicação da evidência: {candidate.discovery_published_at ? new Date(candidate.discovery_published_at).toLocaleDateString("pt-BR") : "data desconhecida"} · termo: {candidate.discovery_query || "não informado"}</div>
+              {candidate.discovery_reason && <div className="text-xs text-muted-foreground">Por que entrou: {candidate.discovery_reason}</div>}
               <a className="text-xs text-blue-400 inline-flex gap-1 mt-1" href={candidate.source_url || "#"} target="_blank" rel="noreferrer">{candidate.source_label || "Vídeo público"}<ExternalLink className="w-3 h-3" /></a>
             </Card>) : <p className="text-sm text-muted-foreground">Nenhum creator novo encontrado nesta busca.</p>}
           </div>
           <div className="flex justify-end gap-2"><Button variant="outline" onClick={() => setDiscoveryOpen(false)}>Cancelar</Button><Button disabled={!discoveryCandidates.length || discovering} onClick={confirmDiscovery}>{discovering ? "Adicionando..." : `Adicionar ${discoveryCandidates.length} em pesquisa`}</Button></div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={discoverySettingsOpen} onOpenChange={setDiscoverySettingsOpen}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader><DialogTitle>Configurar descoberta no YouTube</DialogTitle></DialogHeader>
+          <p className="text-sm text-muted-foreground">Use até três buscas variadas de ensino funcional, uma por linha. A prévia deduplica canais já captados antes de qualquer inserção.</p>
+          <Field label="Termos de busca"><Textarea rows={5} value={discoveryQueryText} onChange={(event) => setDiscoveryQueryText(event.target.value)} /></Field>
+          <Field label="Recência da publicação usada como evidência"><Select value={discoveryRecentMonths} onValueChange={setDiscoveryRecentMonths}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="3">Últimos 3 meses</SelectItem><SelectItem value="6">Últimos 6 meses</SelectItem><SelectItem value="12">Últimos 12 meses</SelectItem><SelectItem value="24">Últimos 24 meses</SelectItem><SelectItem value="any">Sem corte de data</SelectItem></SelectContent></Select></Field>
+          <p className="text-xs text-muted-foreground">Padrão: 6 meses, como equilíbrio inicial entre atividade observável e variedade. Isso prova apenas a data da publicação encontrada, não a frequência atual do canal. Cada prévia executa até três consultas de busca e uma consulta de detalhes; aumentar resultados por consulta não cria chamadas extras. Seguidores são apenas contexto.</p>
+          <div className="flex justify-end gap-2"><Button variant="outline" onClick={() => setDiscoverySettingsOpen(false)}>Cancelar</Button><Button onClick={runDiscoveryPreview} disabled={discovering}>{discovering ? "Buscando..." : "Gerar prévia"}</Button></div>
         </DialogContent>
       </Dialog>
     </AdminLayout>
