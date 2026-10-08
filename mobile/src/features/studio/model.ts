@@ -58,13 +58,20 @@ export const studioFormats = [
 export function timelineDuration(takes: readonly StudioTake[]) {
   return takes.reduce((sum, take) => sum + Math.max(0, take.end - take.start), 0);
 }
-// Export and upload are reusable only while the original clips and cuts match.
+// v2 preserves UHD and the actual source cadence. Cached v1 exports were always
+// 1080p/30 and cannot satisfy the new export contract, even with identical cuts.
+export const STUDIO_RENDER_VERSION = 2;
+// Export and upload are reusable only while engine, original clips and cuts match.
 export function timelineSignature(project: Pick<StudioProject, 'kind' | 'takes'>) {
-  return JSON.stringify([project.kind, project.takes.map(t => [t.id, t.uri, t.start, t.end])]);
+  return JSON.stringify([STUDIO_RENDER_VERSION, project.kind, project.takes.map(t => [t.id, t.uri, t.start, t.end])]);
 }
 export function formatStudioDuration(seconds: number) {
   const rounded = Math.max(0, Math.round(seconds));
   return `${Math.floor(rounded / 60)}:${String(rounded % 60).padStart(2, '0')}`;
+}
+export function formatStudioEditorTime(seconds: number) {
+  const tenths = Math.max(0, Math.round((Number.isFinite(seconds) ? seconds : 0) * 10));
+  return `${Math.floor(tenths / 600)}:${String(Math.floor(tenths / 10) % 60).padStart(2, '0')}.${tenths % 10}`;
 }
 export function publicationIssues(project: StudioProject) {
   const issues: string[] = [];
@@ -72,7 +79,7 @@ export function publicationIssues(project: StudioProject) {
   if (project.kind !== 'short' && !project.description.trim()) issues.push('Conte o que o aluno vai aprender.');
   if (!project.takes.length) issues.push('Grave ou importe seu conteúdo.');
   if (project.pendingTakes?.length) issues.push('Recupere ou retire os arquivos pendentes antes de enviar.');
-  if (project.takes.some(t => !Number.isFinite(t.duration) || !Number.isFinite(t.start) || !Number.isFinite(t.end) || t.start < 0 || t.end > t.duration + 0.05 || t.end - t.start < 0.1)) issues.push('Revise os cortes dos takes.');
+  if (project.takes.some(t => !Number.isFinite(t.duration) || !Number.isFinite(t.start) || !Number.isFinite(t.end) || t.start < 0 || t.end > t.duration + 0.05 || t.end - t.start < 0.1 - 1e-6)) issues.push('Revise os cortes dos takes.');
   if (project.kind === 'short' && timelineDuration(project.takes) > 180) issues.push('Shorts devem ter até 3 minutos.');
   if (!project.coverUri && !project.coverUrl) issues.push('Escolha uma capa.');
   if (project.visibility === 'paid' && (!Number.isFinite(Number(project.price.replace(',', '.'))) || Number(project.price.replace(',', '.')) <= 0)) issues.push('Defina um preço válido.');

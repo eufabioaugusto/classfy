@@ -10,6 +10,26 @@ struct StudioClip {
   let endSeconds: Double
 }
 
+struct StudioVideoProperties {
+  let displaySize: CGSize
+  let frameRate: Double
+}
+
+struct StudioVideoRenderSettings {
+  let renderSize: CGSize
+  let frameRate: Double
+  var frameDuration: CMTime {
+    // Common fractional camera rates need their real cadence, not a rounded
+    // 24/30/60 that adds duplicate frames over a long lesson.
+    for base in [24, 30, 60] {
+      if abs(frameRate - Double(base) * 1000 / 1001) < 0.01 {
+        return CMTime(value: 1001, timescale: Int32(base * 1000))
+      }
+    }
+    return CMTime(seconds: 1 / frameRate, preferredTimescale: 60_000)
+  }
+}
+
 enum StudioMediaError: LocalizedError {
   case invalid(String)
   case cancelled
@@ -24,8 +44,36 @@ enum StudioMediaError: LocalizedError {
 // Kept separate from Expo so the actual media export can be exercised with local fixtures.
 final class StudioMediaEngine {
   private struct Job { var session: AVAssetExportSession?; var cancelled = false }
+  private struct SourceMedia {
+    let asset: AVURLAsset
+    let duration: Double
+    let video: AVAssetTrack?
+    let audio: AVAssetTrack?
+    let naturalSize: CGSize
+    let preferredTransform: CGAffineTransform
+    let videoProperties: StudioVideoProperties?
+  }
+  private struct PreparedClip { let source: SourceMedia; let range: CMTimeRange }
   private let lock = NSLock()
   private var jobs: [String: Job] = [:]
+
+  static func videoRenderSettings(sources: [StudioVideoProperties], aspectRatio: String) -> StudioVideoRenderSettings {
+    // Keep the current 1080 canvas for existing projects. UHD originals select
+    // a UHD canvas even if that source appears after the first take or rotates.
+    let hasUHD = sources.contains { source in
+      max(source.displaySize.width, source.displaySize.height) >= 3840
+        || min(source.displaySize.width, source.displaySize.height) >= 2160
+    }
+    let shortEdge: CGFloat = hasUHD ? 2160 : 1080
+    let longEdge: CGFloat = hasUHD ? 3840 : 1920
+    let size = aspectRatio == "portrait" ? CGSize(width: shortEdge, height: longEdge)
+      : aspectRatio == "square" ? CGSize(width: shortEdge, height: shortEdge)
+      : CGSize(width: longEdge, height: shortEdge)
+    let rates = sources.map(\.frameRate).filter { $0.isFinite && $0 > 0 }
+    // A mixed timeline uses its highest real cadence; never promote 24 to 30
+    // or 50 to 60 just because those values exist in a camera quality menu.
+    return StudioVideoRenderSettings(renderSize: size, frameRate: min(60, rates.max() ?? 30))
+  }
 
   func cancel(_ requestId: String) {
     lock.lock()
@@ -99,15 +147,18 @@ final class StudioMediaEngine {
     let audio = try await asset.loadTracks(withMediaType: .audio)
     var width = 0.0
     var height = 0.0
+    var frameRate = 0.0
     if let track = video.first {
       let size = try await track.load(.naturalSize)
       let transform = try await track.load(.preferredTransform)
       let rect = CGRect(origin: .zero, size: size).applying(transform)
       width = abs(rect.width).rounded()
       height = abs(rect.height).rounded()
+      let rate = Double(try await track.load(.nominalFrameRate))
+      frameRate = rate.isFinite && rate > 0 ? rate : 0
     }
     let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
-    return ["duration": duration, "width": width, "height": height,
+    return ["duration": duration, "width": width, "height": height, "frameRate": frameRate,
             "hasVideo": !video.isEmpty, "hasAudio": !audio.isEmpty,
             "fileSize": (attributes[.size] as? NSNumber)?.doubleValue ?? 0]
   }
@@ -154,15 +205,11 @@ final class StudioMediaEngine {
     let output = try outputURL(outputUri)
     var succeeded = false
     defer { if !succeeded { try? FileManager.default.removeItem(at: output) } }
-    let composition = AVMutableComposition()
     let isVideo = mediaType == "video"
-    let videoTrack = isVideo ? composition.addMutableTrack(withMediaType: .video, preferredTrackID: kCMPersistentTrackID_Invalid) : nil
-    var audioTrack: AVMutableCompositionTrack?
-    var cursor = CMTime.zero
-    var instructions: [AVVideoCompositionInstructionProtocol] = []
-    let renderSize: CGSize = aspectRatio == "portrait" ? CGSize(width: 1080, height: 1920)
-      : aspectRatio == "square" ? CGSize(width: 1080, height: 1080) : CGSize(width: 1920, height: 1080)
-
+    // Inspect every distinct original before building transforms. A later 4K
+    // take must not inherit an already-fixed 1080p canvas from the first one.
+    var sources: [URL: SourceMedia] = [:]
+    var prepared: [PreparedClip] = []
     for clip in clips {
       try checkJob(requestId)
       guard clip.startSeconds.isFinite, clip.endSeconds.isFinite,
@@ -171,21 +218,63 @@ final class StudioMediaEngine {
       }
       let input = try inputURL(clip.uri)
       guard input != output else { throw StudioMediaError.invalid("O original não pode ser substituído pela edição.") }
-      let asset = AVURLAsset(url: input)
-      let duration = try await asset.load(.duration).seconds
-      guard duration.isFinite, clip.endSeconds <= duration + 0.05 else {
+      let source: SourceMedia
+      if let existing = sources[input] {
+        source = existing
+      } else {
+        let asset = AVURLAsset(url: input)
+        let duration = try await asset.load(.duration).seconds
+        guard duration.isFinite, duration > 0 else {
+          throw StudioMediaError.invalid("Não foi possível ler a duração deste arquivo.")
+        }
+        let video = isVideo ? try await asset.loadTracks(withMediaType: .video).first : nil
+        let audio = try await asset.loadTracks(withMediaType: .audio).first
+        var naturalSize = CGSize.zero
+        var preferredTransform = CGAffineTransform.identity
+        var properties: StudioVideoProperties?
+        if isVideo {
+          guard let video else { throw StudioMediaError.invalid("Este projeto precisa de takes de vídeo.") }
+          naturalSize = try await video.load(.naturalSize)
+          preferredTransform = try await video.load(.preferredTransform)
+          let bounds = CGRect(origin: .zero, size: naturalSize).applying(preferredTransform)
+          guard bounds.width.isFinite, bounds.height.isFinite, abs(bounds.width) > 0, abs(bounds.height) > 0 else {
+            throw StudioMediaError.invalid("Não foi possível ler o enquadramento de um take.")
+          }
+          properties = StudioVideoProperties(displaySize: CGSize(width: abs(bounds.width), height: abs(bounds.height)),
+            frameRate: Double(try await video.load(.nominalFrameRate)))
+        } else if audio == nil {
+          throw StudioMediaError.invalid("Este projeto precisa de takes de áudio.")
+        }
+        source = SourceMedia(asset: asset, duration: duration, video: video, audio: audio,
+          naturalSize: naturalSize, preferredTransform: preferredTransform, videoProperties: properties)
+        sources[input] = source
+      }
+      try checkJob(requestId)
+      guard clip.endSeconds <= source.duration + 0.05,
+            min(clip.endSeconds, source.duration) - clip.startSeconds >= 0.01 - 1e-6 else {
         throw StudioMediaError.invalid("O corte ultrapassa a duração de um take.")
       }
-      let range = CMTimeRange(start: CMTime(seconds: clip.startSeconds, preferredTimescale: 600),
-                              end: CMTime(seconds: min(clip.endSeconds, duration), preferredTimescale: 600))
+      prepared.append(PreparedClip(source: source,
+        range: CMTimeRange(start: CMTime(seconds: clip.startSeconds, preferredTimescale: 600),
+          end: CMTime(seconds: min(clip.endSeconds, source.duration), preferredTimescale: 600))))
+    }
+    let settings = Self.videoRenderSettings(sources: sources.values.compactMap(\.videoProperties), aspectRatio: aspectRatio)
+    let renderSize = settings.renderSize
+    let composition = AVMutableComposition()
+    let videoTrack = isVideo ? composition.addMutableTrack(withMediaType: .video, preferredTrackID: kCMPersistentTrackID_Invalid) : nil
+    var audioTrack: AVMutableCompositionTrack?
+    var cursor = CMTime.zero
+    var instructions: [AVVideoCompositionInstructionProtocol] = []
+    for clip in prepared {
+      try checkJob(requestId)
+      let range = clip.range
       if isVideo {
-        let sourceTracks = try await asset.loadTracks(withMediaType: .video)
-        guard let source = sourceTracks.first, let videoTrack else {
+        guard let source = clip.source.video, let videoTrack else {
           throw StudioMediaError.invalid("Este projeto precisa de takes de vídeo.")
         }
         try videoTrack.insertTimeRange(range, of: source, at: cursor)
-        let naturalSize = try await source.load(.naturalSize)
-        let preferred = try await source.load(.preferredTransform)
+        let naturalSize = clip.source.naturalSize
+        let preferred = clip.source.preferredTransform
         let bounds = CGRect(origin: .zero, size: naturalSize).applying(preferred)
         guard abs(bounds.width) > 0, abs(bounds.height) > 0 else {
           throw StudioMediaError.invalid("Não foi possível ler o enquadramento de um take.")
@@ -205,8 +294,7 @@ final class StudioMediaEngine {
         instruction.layerInstructions = [layer]
         instructions.append(instruction)
       }
-      let sourceAudio = try await asset.loadTracks(withMediaType: .audio)
-      if let source = sourceAudio.first {
+      if let source = clip.source.audio {
         if audioTrack == nil { audioTrack = composition.addMutableTrack(withMediaType: .audio, preferredTrackID: kCMPersistentTrackID_Invalid) }
         guard let audioTrack else { throw StudioMediaError.invalid("Não foi possível preparar o áudio.") }
         let audioRange = try await source.load(.timeRange)
@@ -222,7 +310,9 @@ final class StudioMediaEngine {
     }
     try checkJob(requestId)
     guard cursor.seconds > 0 else { throw StudioMediaError.invalid("A edição precisa ter algum conteúdo.") }
-    let preset = isVideo ? AVAssetExportPresetHighestQuality : AVAssetExportPresetAppleM4A
+    // The H.264 highest-quality preset can silently cap a requested 60 fps at
+    // 30. HEVC highest-quality preserves high cadence; verify the real output.
+    let preset = isVideo ? (settings.frameRate > 30.1 ? AVAssetExportPresetHEVCHighestQuality : AVAssetExportPresetHighestQuality) : AVAssetExportPresetAppleM4A
     guard let session = AVAssetExportSession(asset: composition, presetName: preset) else {
       throw StudioMediaError.invalid("Este aparelho não conseguiu iniciar a preparação.")
     }
@@ -238,7 +328,8 @@ final class StudioMediaEngine {
     if isVideo {
       let videoComposition = AVMutableVideoComposition()
       videoComposition.renderSize = renderSize
-      videoComposition.frameDuration = CMTime(value: 1, timescale: 30)
+      videoComposition.sourceTrackIDForFrameTiming = kCMPersistentTrackID_Invalid
+      videoComposition.frameDuration = settings.frameDuration
       videoComposition.instructions = instructions
       session.videoComposition = videoComposition
     }
@@ -257,6 +348,20 @@ final class StudioMediaEngine {
       throw StudioMediaError.invalid(session.error?.localizedDescription ?? "Não foi possível preparar a edição. Tente novamente.")
     }
     var info = try await mediaInfo(output.absoluteString)
+    try checkJob(requestId)
+    if isVideo {
+      let actualWidth = info["width"] as? Double ?? 0
+      let actualHeight = info["height"] as? Double ?? 0
+      let actualRate = info["frameRate"] as? Double ?? 0
+      let expectedRate = 1 / settings.frameDuration.seconds
+      #if STUDIO_MEDIA_TEST
+      FileHandle.standardError.write(Data("Export \(requestId): \(Int(actualWidth))×\(Int(actualHeight)) @ \(actualRate); esperado \(Int(renderSize.width))×\(Int(renderSize.height)) @ \(expectedRate)\n".utf8))
+      #endif
+      guard abs(actualWidth - renderSize.width) < 1, abs(actualHeight - renderSize.height) < 1,
+            abs(actualRate - expectedRate) < max(0.02, expectedRate * 0.01) else {
+        throw StudioMediaError.invalid("Este aparelho não preservou a resolução ou os quadros do original. Seus takes foram mantidos; tente preparar novamente.")
+      }
+    }
     info["uri"] = output.absoluteString
     info["mimeType"] = isVideo ? "video/mp4" : "audio/mp4"
     succeeded = true

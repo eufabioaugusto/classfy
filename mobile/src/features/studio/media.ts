@@ -7,7 +7,7 @@ import { Alert } from 'react-native';
 import { supabase } from '@/lib/supabase';
 import { cancelExportAsync, exportTimelineAsync, generateThumbnailAsync, getMediaInfoAsync, isStudioMediaAvailable } from '../../../modules/classfy-studio-media';
 import { timelineSignature, type StudioProject, type StudioTake } from './model';
-import { getStudioProject, mutateStudioProject, updateStudioProject } from './store';
+import { getStudioProject, mutateStudioProject, retainStudioProjectMedia, updateStudioProject } from './store';
 
 export async function assertStudioOwner(project: StudioProject) {
   const { data } = await supabase.auth.getSession();
@@ -22,19 +22,23 @@ export async function studioProjectDirectory(project: StudioProject) {
 export async function persistStudioTake(project: StudioProject, source: { uri: string; name?: string; duration?: number }): Promise<StudioTake> {
   await assertStudioOwner(project);
   if (!isStudioMediaAvailable()) throw new Error('Atualize o aplicativo para habilitar o editor nativo neste aparelho.');
-  const directory = await studioProjectDirectory(project);
-  const recoverable = getStudioProject(project.ownerId, project.id)?.pendingTakes?.find(take => take.sourceUri === source.uri);
-  if (recoverable) return readStudioTake(project, recoverable, directory);
-  const id = randomUUID();
-  const extension = (source.name || source.uri).split('?')[0].split('.').pop()?.toLowerCase();
-  const safeExtension = extension && /^[a-z0-9]{2,5}$/.test(extension) ? extension : project.kind === 'podcast' ? 'm4a' : 'mp4';
-  const uri = `${directory}${id}.${safeExtension}`;
-  await FileSystem.copyAsync({ from: source.uri, to: uri });
-  const name = source.name || `Take ${project.takes.length + 1}`;
-  // Journal the durable copy before metadata/thumbnail work. An interruption
-  // cannot leave an imported or recorded file with no recovery pointer.
-  await mutateStudioProject(project.ownerId, project.id, current => ({ pendingTakes: [...(current.pendingTakes || []), { id, uri, name, sourceUri: source.uri }] }));
-  return readStudioTake(project, { id, uri, name }, directory);
+  const release = retainStudioProjectMedia(project.ownerId, project.id);
+  try {
+    const directory = await studioProjectDirectory(project);
+    const recoverable = getStudioProject(project.ownerId, project.id)?.pendingTakes?.find(take => take.sourceUri === source.uri);
+    if (recoverable) return await readStudioTake(project, recoverable, directory);
+    const id = randomUUID();
+    const extension = (source.name || source.uri).split('?')[0].split('.').pop()?.toLowerCase();
+    const safeExtension = extension && /^[a-z0-9]{2,5}$/.test(extension) ? extension : project.kind === 'podcast' ? 'm4a' : 'mp4';
+    const uri = `${directory}${id}.${safeExtension}`;
+    await FileSystem.copyAsync({ from: source.uri, to: uri });
+    await assertStudioOwner(project);
+    const name = source.name || `Take ${project.takes.length + 1}`;
+    // Journal the durable copy before metadata/thumbnail work. This also
+    // promotes a camera session only after its first original is on disk.
+    await mutateStudioProject(project.ownerId, project.id, current => ({ pendingTakes: [...(current.pendingTakes || []), { id, uri, name, sourceUri: source.uri }] }));
+    return await readStudioTake(project, { id, uri, name }, directory);
+  } finally { release(); }
 }
 async function readStudioTake(project: StudioProject, pending: { id: string; uri: string; name: string }, directory: string): Promise<StudioTake> {
   const { id, uri, name } = pending;

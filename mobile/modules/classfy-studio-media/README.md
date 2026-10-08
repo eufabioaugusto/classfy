@@ -3,7 +3,8 @@
 Módulo Expo local para iOS. Usa AVFoundation para transformar a timeline em um arquivo real, sem alterar os takes originais.
 
 - Cortes com precisão de 1/600 s e concatenação na ordem enviada.
-- Vídeo normalizado em 1920 × 1080, 1080 × 1920 ou 1080 × 1080; orientação respeitada, enquadramento centralizado com bordas quando necessário.
+- Vídeo normalizado em 16:9, 9:16 ou 1:1; orientação respeitada, enquadramento centralizado com bordas quando necessário. Fontes UHD usam canvas de até 3840 × 2160, sem reduzir automaticamente a 1080p.
+- Cadência dos originais preservada até 60 FPS, incluindo 25/50 e taxas fracionárias. Exportação acima de 30 FPS usa HEVC; resolução e FPS finais são conferidos antes do sucesso.
 - MP4 com áudio, ou podcast M4A sem imagem.
 - Capas JPEG, metadados, progresso e cancelamento por `requestId`.
 - Exportações incompletas são removidas; arquivos de entrada e destinos existentes são preservados.
@@ -11,6 +12,18 @@ Módulo Expo local para iOS. Usa AVFoundation para transformar a timeline em um 
 `index.ts` usa `requireOptionalNativeModule`; um binário anterior ou outra plataforma recebe uma mensagem explícita ao tentar usar o exportador. O módulo entra no build por Expo Autolinking. Depois de alterar fontes Swift ou instalar o módulo, reconstruir o app.
 
 Os métodos compatíveis com iOS 15.1 continuam usando as APIs de composição clássicas da Apple. Xcode 26 pode emitir avisos de depreciação; isso não é uma falha de exportação.
+
+## Controles de câmera
+
+`StudioCameraControls.swift` usa a sessão do `ExpoCamera.CameraView` montado, encontrada pelo tag React Native, e executa os controles na `sessionQueue` dessa view. Não cria outra câmera nem consulta capacidades de uma sessão frontal paralela.
+
+- `getStudioCameraCapabilitiesAsync`: formatos/FPS compatíveis com a saída de vídeo, limites de zoom/EV, abertura e suporte a foco, trava e luz.
+- `configureStudioCameraAsync`: formato, 24/30/60 FPS e estado confirmado; bloqueia reconfiguração durante REC.
+- `setStudioCameraZoomAsync`: fator real com rampa e limite do formato ativo.
+- `setStudioCameraExposureAsync`: compensação EV confirmada com timeout.
+- `setStudioCameraFocusAsync`: ponto convertido pelo preview nativo e trava após estabilização, quando suportada.
+
+Mudanças de câmera, fechamento da view e callbacks atrasados são revalidados antes de alterar a sessão. `isStudioCameraControlsAvailable()` permite fallback explícito em binários antigos; os controles PRO só aparecem quando a ponte e as capacidades reais estão disponíveis.
 
 ## Verificação local
 
@@ -20,6 +33,6 @@ Exige Xcode e FFmpeg no Mac; não usa servidor, conta ou publicação:
 DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer bash modules/classfy-studio-media/tests/verify-engine.sh
 ```
 
-O teste verifica duração efetiva dos cortes, ordem por pixels do arquivo exportado, rotação por metadata, centralização de conteúdo vertical, formatos horizontal/vertical, áudio após take silencioso, duração com take final silencioso, capa, preservação de originais e cancelamento. Os arquivos gerados ficam em diretórios temporários para inspeção.
+O teste verifica duração efetiva dos cortes, ordem por pixels do arquivo exportado, rotação por metadata, centralização de conteúdo vertical, formatos horizontal/vertical/UHD, 24/25/30/60 FPS e misturas, áudio após take silencioso, duração com take final silencioso, capa, preservação de originais e cancelamento. Os arquivos gerados ficam em diretórios temporários para inspeção.
 
 O harness fica em `tests/`, fora de `ios/`, e não entra no pod ou no aplicativo. Gravação de câmera e microfone precisa de QA no iPhone físico; o simulador permite importar e exportar os fixtures.

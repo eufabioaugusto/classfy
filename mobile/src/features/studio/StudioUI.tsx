@@ -150,12 +150,13 @@ export function useStudioFields(project: StudioProject, update: (id: string, pat
   return { fields, setField, flush, saving, saveError };
 }
 
-export function StudioSaveStatus({ saving, error, onRetry, remote = false }: { saving?: boolean; error?: string | null; onRetry?: () => void; remote?: boolean }) {
+export function StudioSaveStatus({ saving, error, onRetry, remote = false, transient = false }: { saving?: boolean; error?: string | null; onRetry?: () => void; remote?: boolean; transient?: boolean }) {
+  const label = error ? 'Falha ao salvar · tentar novamente' : transient ? 'Grave para salvar seu projeto' : saving ? 'Salvando…' : remote ? 'Rascunho sincronizado' : 'Salvo neste aparelho';
   return <Pressable disabled={!error || !onRetry} onPress={onRetry} accessibilityRole={error ? 'button' : undefined}
-    accessibilityLabel={error || (saving ? 'Salvando projeto' : remote ? 'Rascunho sincronizado' : 'Salvo neste aparelho')}
+    accessibilityLabel={error || label}
     style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-    {saving ? <ActivityIndicator size={10} color={colors.muted} /> : remote ? <Cloud size={12} color={colors.muted} /> : <Check size={12} color={error ? colors.accent : colors.muted} />}
-    <Text style={{ color: error ? colors.accent : colors.muted, fontSize: 11 }}>{error ? 'Falha ao salvar · tentar novamente' : saving ? 'Salvando…' : remote ? 'Rascunho sincronizado' : 'Salvo neste aparelho'}</Text>
+    {transient && !error ? null : saving ? <ActivityIndicator size={10} color={colors.muted} /> : remote ? <Cloud size={12} color={colors.muted} /> : <Check size={12} color={error ? colors.accent : colors.muted} />}
+    <Text style={{ color: error ? colors.accent : colors.muted, fontSize: 11 }}>{label}</Text>
   </Pressable>;
 }
 

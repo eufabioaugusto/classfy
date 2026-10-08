@@ -22,6 +22,10 @@ test('publicação rejeita corte vazio, fora da origem ou não finito', () => {
     assert.ok(publicationIssues(project({ takes: [t] })).some(i => i.includes('cortes')));
   }
 });
+test('corte mínimo de 0,1 segundo tolera precisão decimal sem aceitar corte menor', () => {
+  assert.deepEqual(publicationIssues(project({ takes: [take('a', 2, 1.1, 1.2)] })), []);
+  assert.ok(publicationIssues(project({ takes: [take('a', 2, 1.1, 1.199)] })).some(i => i.includes('cortes')));
+});
 test('arquivo copiado mas ainda fora da montagem exige recuperação ou retirada explícita', () => {
   assert.ok(publicationIssues(project({ pendingTakes: [{ id: 'pending', uri: 'file:///pending.mp4', name: 'Take interrompido' }] })).some(i => i.includes('pendentes')));
 });

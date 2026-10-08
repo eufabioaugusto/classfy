@@ -1,6 +1,6 @@
-import { useEffect, useRef, useState } from 'react';
-import { Alert, AppState, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { Alert, AppState, KeyboardAvoidingView, Platform, Pressable, ScrollView, StatusBar, StyleSheet, Text, View } from 'react-native';
+import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { Check, CheckCircle2, ChevronRight, Circle, ImagePlus, RefreshCw, Send } from 'lucide-react-native';
 import { AppScreen } from '@/components/AppScreen';
 import { NavigationHeader } from '@/components/NavigationHeader';
@@ -9,10 +9,11 @@ import { PlanCrown } from '@/components/PlanCrown';
 import { colors } from '@/theme/colors';
 import { useAuth } from '@/features/auth/authContext';
 import { useStudioProject } from '@/features/studio/useStudioProjects';
+import { useStudioOrientation } from '@/features/studio/useStudioOrientation';
 import { importStudioCover } from '@/features/studio/media';
 import { prepareStudioUpload, submitStudioProject, refreshStudioUpload, cancelStudioUpload } from '@/features/studio/backend';
 import { formatStudioDuration, publicationIssues, studioFormats, studioStateLabel, timelineDuration, type StudioProject, type StudioVisibility } from '@/features/studio/model';
-import { StudioAccess, StudioButton, StudioField, StudioFooter, StudioLoading, StudioSaveStatus, StudioSection, studioStyles, useStudioFields } from '@/features/studio/StudioUI';
+import { StudioAccess, StudioButton, StudioField, StudioFooter, StudioLoading, StudioSaveStatus, studioStyles, useStudioFields } from '@/features/studio/StudioUI';
 
 const accessOptions: { key: StudioVisibility; title: string; detail: string }[] = [
   { key: 'free', title: 'Gratuito', detail: 'Aberto a todos' },
@@ -23,6 +24,8 @@ const accessOptions: { key: StudioVisibility; title: string; detail: string }[] 
 
 export default function StudioReviewScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
+  useStudioOrientation('short');
+  useFocusEffect(useCallback(() => { StatusBar.setHidden(false, 'fade'); StatusBar.setBarStyle('light-content'); }, []));
   const { project, loading, error, update } = useStudioProject(Array.isArray(id) ? id[0] : id || '');
   return <StudioAccess>{loading ? <AppScreen scroll={false} edgeToEdge header={<NavigationHeader title="Revisar publicação" back />}><StudioLoading /></AppScreen> : !project ?
     <AppScreen header={<NavigationHeader title="Revisar publicação" back />}><View style={studioStyles.empty}><Text style={studioStyles.sectionTitle}>Projeto indisponível</Text><Text style={studioStyles.body}>{error || 'Abra este projeto na conta que o criou.'}</Text></View></AppScreen> : <PublicationReview project={project} update={update} />}
@@ -115,34 +118,41 @@ function PublicationReview({ project, update }: { project: StudioProject; update
     <View style={{ gap: 3 }}><Text style={styles.headerTitle}>Revisar publicação</Text><StudioSaveStatus saving={saving} error={saveError} onRetry={() => { void flush().catch(() => {}); }} /></View>
   </NavigationHeader>}>
     <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
-      <ScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false} contentContainerStyle={{ padding: 20, paddingBottom: 28, gap: 28 }}>
-        {project.state === 'submitted' ? <View style={[studioStyles.card, { alignItems: 'center', paddingVertical: 30, gap: 14 }]}>
-          <View style={styles.successIcon}><CheckCircle2 size={30} strokeWidth={1.5} color={colors.free} /></View><Text style={studioStyles.sectionTitle}>Enviado para curadoria</Text><Text style={[studioStyles.body, { textAlign: 'center' }]}>Sua publicação foi recebida. Ela passa pela curadoria da Classfy antes de aparecer no catálogo.</Text>
-        </View> : <View style={{ gap: 8 }}><Text style={studioStyles.eyebrow}>QUASE PRONTO</Text><Text style={styles.headline}>Dê o acabamento{ '\n' }à sua publicação.</Text><Text style={studioStyles.body}>A capa apresenta sua ideia. O título e a descrição ajudam a pessoa certa a encontrá-la.</Text></View>}
-        <StudioSection title="Capa da publicação" detail={`${format.title} · ${formatStudioDuration(timelineDuration(project.takes))} · ${format.ratio}`}>
-          <Pressable accessibilityRole="button" accessibilityLabel={cover ? 'Trocar capa da publicação' : 'Escolher capa da publicação'} disabled={locked} onPress={() => { void chooseCover(); }} style={[styles.cover, project.kind === 'short' && { aspectRatio: 9 / 16, width: '58%', alignSelf: 'center' }]}>
-            {cover ? <LoadingImage source={{ uri: cover }} contentFit="cover" style={StyleSheet.absoluteFillObject} /> : <View style={{ alignItems: 'center', gap: 12 }}><ImagePlus color={colors.muted} size={30} strokeWidth={1.4} /><Text style={studioStyles.hint}>Escolher uma imagem</Text></View>}
-            {cover && !locked ? <View style={styles.coverLabel}><ImagePlus size={14} color={colors.text} /><Text style={{ color: colors.text, fontSize: 11 }}>Trocar capa</Text></View> : null}
+      <ScrollView keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag" showsVerticalScrollIndicator={false} contentContainerStyle={{ padding: 20, paddingTop: 12, paddingBottom: 24, gap: 24 }}>
+        {project.state === 'submitted' ? <View style={styles.success}>
+          <CheckCircle2 size={23} strokeWidth={1.5} color={colors.free} /><View style={{ flex: 1, gap: 5 }}><Text style={styles.sectionLabel}>Enviado para curadoria</Text><Text style={studioStyles.hint}>Sua publicação foi recebida e passa pela curadoria antes de aparecer no catálogo.</Text></View>
+        </View> : null}
+        <View style={styles.summary}>
+          <Pressable accessibilityRole="button" accessibilityLabel={cover ? 'Trocar capa da publicação' : 'Escolher capa da publicação'} disabled={locked} onPress={() => { void chooseCover(); }}
+            style={({ pressed }) => [styles.cover, project.kind === 'short' && { aspectRatio: 9 / 16, width: 76 }, project.kind === 'podcast' && { aspectRatio: 1, width: 100 }, pressed && { opacity: 0.75 }]}>
+            <ImagePlus color={colors.mutedDim} size={25} strokeWidth={1.4} />
+            {cover ? <LoadingImage source={{ uri: cover }} contentFit="cover" style={StyleSheet.absoluteFillObject} /> : null}
           </Pressable>
-          {!cover && project.takes.some(take => take.thumbnailUri) ? <StudioButton secondary label="Usar imagem do take" onPress={() => { void useTakeCover(); }} disabled={locked} /> : null}
-        </StudioSection>
-        <StudioSection title="Sobre o conteúdo">
+          <View style={styles.summaryCopy}>
+            <Text style={styles.summaryMeta}>{format.title} · {formatStudioDuration(timelineDuration(project.takes))} · {format.ratio}</Text>
+            <Text style={styles.summaryTitle} numberOfLines={2}>{fields.title.trim() || `${format.title} sem título`}</Text>
+            {project.state !== 'submitted' ? <Pressable accessibilityRole="button" accessibilityLabel={cover ? 'Trocar capa da publicação' : 'Escolher capa da publicação'} disabled={locked} onPress={() => { void chooseCover(); }}
+              style={({ pressed }) => [styles.coverAction, pressed && { backgroundColor: colors.surfaceAlt }, locked && { opacity: 0.45 }]}><ImagePlus size={15} color={colors.textSecondary} strokeWidth={1.5} /><Text style={styles.coverActionText}>{cover ? 'Trocar capa' : 'Escolher capa'}</Text></Pressable> : null}
+            {!cover && project.takes.some(take => take.thumbnailUri) ? <Pressable accessibilityRole="button" accessibilityLabel="Usar imagem do take como capa" disabled={locked} onPress={() => { void useTakeCover(); }} style={({ pressed }) => [styles.takeCoverAction, pressed && { opacity: 0.7 }, locked && { opacity: 0.45 }]}><Text style={studioStyles.hint}>Usar imagem do take</Text></Pressable> : null}
+          </View>
+        </View>
+        <View style={{ gap: 17 }}>
           <StudioField label="Título" value={fields.title} onChangeText={value => setField('title', value)} placeholder="Um título claro e específico" maxLength={180} editable={!locked} />
-          <StudioField label={project.kind === 'short' ? 'Descrição (opcional)' : 'O que a pessoa vai aprender?'} value={fields.description} onChangeText={value => setField('description', value)} placeholder="Apresente o conteúdo e o resultado que ele entrega." multiline style={{ minHeight: 130 }} maxLength={5000} editable={!locked} />
+          <StudioField label={project.kind === 'short' ? 'Descrição (opcional)' : 'O que a pessoa vai aprender?'} value={fields.description} onChangeText={value => setField('description', value)} placeholder="Apresente o conteúdo e o resultado que ele entrega." multiline style={{ minHeight: 96 }} maxLength={5000} editable={!locked} />
           <StudioField label="Tags (opcional)" value={fields.tags} onChangeText={value => setField('tags', value)} onBlur={() => { if (!locked) void flush().catch(() => {}); }} placeholder="Ex.: design, apresentação, criatividade" hint="Separe os temas por vírgula." maxLength={400} editable={!locked} autoCapitalize="none" />
-        </StudioSection>
-        <StudioSection title="Quem pode acessar">
+        </View>
+        <View style={{ gap: 13 }}><Text style={styles.sectionLabel}>Quem pode acessar</Text>
           <View style={styles.accessGrid}>{accessOptions.map(option => <Pressable accessibilityRole="radio" accessibilityLabel={`${option.title}, ${option.detail}`} accessibilityState={{ selected: project.visibility === option.key, disabled: locked }} key={option.key} disabled={locked} onPress={() => { void changeAccess(option.key); }}
             style={({ pressed }) => [styles.accessCard, project.visibility === option.key && styles.accessSelected, pressed && { opacity: 0.75 }]}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>{option.key === 'pro' || option.key === 'premium' ? <PlanCrown plan={option.key} size={13} /> : null}<Text style={styles.accessTitle}>{option.title}</Text>{project.visibility === option.key ? <Check size={13} color={colors.text} style={{ marginLeft: 'auto' }} /> : null}</View><Text style={styles.accessDetail}>{option.detail}</Text>
           </Pressable>)}</View>
           {project.visibility === 'paid' ? <StudioField label="Preço (R$)" value={fields.price} onChangeText={value => setField('price', value)} placeholder="0,00" keyboardType="decimal-pad" editable={!locked} /> : null}
-        </StudioSection>
-        {project.state !== 'submitted' ? <StudioSection title="Revisão final">
-          <View style={[studioStyles.card, { gap: 15 }]}>{checks.map(item => <View key={item.title} style={{ flexDirection: 'row', gap: 10, alignItems: 'center' }}>{item.valid ? <CheckCircle2 size={17} color={colors.textSecondary} strokeWidth={1.5} /> : <Circle size={17} color={colors.mutedDim} strokeWidth={1.5} />}<Text style={{ color: item.valid ? colors.textSecondary : colors.muted, fontSize: 13, flex: 1 }}>{item.title}</Text></View>)}</View>
+        </View>
+        {project.state !== 'submitted' ? <View style={{ gap: 12 }}><View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}><Text style={styles.sectionLabel}>Revisão final</Text><Text style={styles.summaryMeta}>{checks.filter(item => item.valid).length}/{checks.length}</Text></View>
+          <View style={[studioStyles.card, { gap: 11, padding: 15 }]}>{checks.map(item => <View key={item.title} style={{ flexDirection: 'row', gap: 10, alignItems: 'center' }}>{item.valid ? <CheckCircle2 size={16} color={colors.textSecondary} strokeWidth={1.5} /> : <Circle size={16} color={colors.mutedDim} strokeWidth={1.5} />}<Text style={{ color: item.valid ? colors.textSecondary : colors.muted, fontSize: 12, flex: 1 }}>{item.title}</Text></View>)}</View>
           {!!issues.length && <Text style={studioStyles.hint}>{issues[0]}</Text>}
           {profile?.creator_status && !['approved', ''].includes(profile.creator_status) ? <Text style={studioStyles.hint}>Seus projetos podem ser preparados agora. A permissão para enviar é verificada antes da publicação.</Text> : null}
-        </StudioSection> : null}
+        </View> : null}
         {inflight || project.state === 'ready' ? <View style={[studioStyles.card, { gap: 12 }]}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}><Text style={[styles.accessTitle, { flex: 1 }]}>{stage || studioStateLabel[project.state]}</Text>{project.state !== 'processing' ? <Text style={studioStyles.hint}>{Math.round(progress)}%</Text> : null}</View>
           <View style={styles.progressTrack}><View style={[styles.progress, { width: `${Math.max(0, Math.min(100, progress))}%` }]} /></View>
@@ -166,15 +176,21 @@ function PublicationReview({ project, update }: { project: StudioProject; update
 
 const styles = StyleSheet.create({
   headerTitle: { color: colors.text, fontSize: 16, fontWeight: '600' },
-  headline: { color: colors.text, fontSize: 29, lineHeight: 34, letterSpacing: -1, fontWeight: '600' },
-  cover: { width: '100%', aspectRatio: 16 / 9, borderRadius: 16, overflow: 'hidden', backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.borderSubtle, alignItems: 'center', justifyContent: 'center' },
-  coverLabel: { position: 'absolute', bottom: 12, right: 12, flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 7, paddingHorizontal: 10, borderRadius: 8, backgroundColor: 'rgba(0,0,0,0.7)' },
+  sectionLabel: { color: colors.textSecondary, fontSize: 15, fontWeight: '500' },
+  summary: { flexDirection: 'row', alignItems: 'center', gap: 16 },
+  summaryCopy: { flex: 1, gap: 7 },
+  summaryMeta: { color: colors.muted, fontSize: 11, lineHeight: 16 },
+  summaryTitle: { color: colors.text, fontSize: 15, lineHeight: 21, fontWeight: '500' },
+  cover: { width: 130, aspectRatio: 16 / 9, borderRadius: 12, overflow: 'hidden', backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.borderSubtle, alignItems: 'center', justifyContent: 'center' },
+  coverAction: { alignSelf: 'flex-start', minHeight: 40, flexDirection: 'row', alignItems: 'center', gap: 7, paddingHorizontal: 10, borderRadius: 9, backgroundColor: colors.surface },
+  coverActionText: { color: colors.textSecondary, fontSize: 12, fontWeight: '500' },
+  takeCoverAction: { minHeight: 36, justifyContent: 'center' },
   accessGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
-  accessCard: { width: '48%', flexGrow: 1, gap: 8, backgroundColor: colors.backgroundElevated, borderRadius: 12, borderWidth: 1, borderColor: colors.border, padding: 15, minHeight: 84 },
+  accessCard: { width: '48%', flexGrow: 1, gap: 7, backgroundColor: colors.backgroundElevated, borderRadius: 12, borderWidth: 1, borderColor: colors.border, padding: 13, minHeight: 70 },
   accessSelected: { borderColor: colors.textSecondary, backgroundColor: colors.surface },
   accessTitle: { color: colors.textSecondary, fontWeight: '500', fontSize: 14 },
   accessDetail: { color: colors.muted, fontSize: 11, lineHeight: 16 },
   progressTrack: { height: 4, borderRadius: 2, overflow: 'hidden', backgroundColor: colors.border },
   progress: { height: 4, borderRadius: 2, backgroundColor: colors.accent },
-  successIcon: { width: 60, height: 60, borderRadius: 30, backgroundColor: 'rgba(34,197,94,0.08)', alignItems: 'center', justifyContent: 'center' },
+  success: { flexDirection: 'row', gap: 13, padding: 16, borderRadius: 12, backgroundColor: colors.surface, alignItems: 'flex-start' },
 });

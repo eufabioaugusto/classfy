@@ -1,7 +1,7 @@
 import { useMemo, useRef, useState } from 'react';
 import { PanResponder, StyleSheet, Text, View } from 'react-native';
 import { colors } from '@/theme/colors';
-import { formatStudioDuration } from './model';
+import { formatStudioEditorTime } from './model';
 
 export function StudioTrimControl({ duration, start, end, onChange, disabled = false }: {
   duration: number; start: number; end: number; onChange: (start: number, end: number) => void; disabled?: boolean;
@@ -53,7 +53,7 @@ export function StudioTrimControl({ duration, start, end, onChange, disabled = f
         onAccessibilityAction={event => change('end', safeEnd + (event.nativeEvent.actionName === 'increment' ? 0.5 : -0.5))}
         style={[styles.handleTouch, { left: safeEnd / safeDuration * gestureWidth }]}><View style={styles.handle}><View style={styles.grip} /></View></View>
     </View>
-    <View style={styles.labels}><Text style={styles.label}>{formatStudioDuration(safeStart)}</Text><Text style={styles.label}>{formatStudioDuration(Math.max(0, safeEnd - safeStart))} selecionados</Text><Text style={styles.label}>{formatStudioDuration(safeEnd)}</Text></View>
+    <View style={styles.labels}><Text style={styles.label}>{formatStudioEditorTime(safeStart)}</Text><Text style={styles.label}>{formatStudioEditorTime(Math.max(0, safeEnd - safeStart))} selecionados</Text><Text style={styles.label}>{formatStudioEditorTime(safeEnd)}</Text></View>
   </View>;
 }
 
