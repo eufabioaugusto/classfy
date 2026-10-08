@@ -6,10 +6,11 @@ import { Mic, RotateCcw, Video } from 'lucide-react-native';
 import { colors } from '@/theme/colors';
 import { timelineDuration, type StudioKind, type StudioTake } from './model';
 import { locateStudioTime, studioPreviewBoundedSourceTime, studioPreviewSourceTime } from './timeline';
+import { studioSourceFrame, type StudioSourceFrame } from './editorInteraction';
 import { replaceStudioPreviewSource } from './videoSourceReady';
 
 export type StudioPlaybackState = { position: number; sourcePosition: number; playing: boolean; loading: boolean; takeId?: string };
-export type StudioPreviewHandle = { togglePlayback: () => void; pause: () => void; seek: (seconds: number) => void };
+export type StudioPreviewHandle = { togglePlayback: () => void; pause: () => void; seek: (seconds: number, source?: StudioSourceFrame) => void; previewSourceFrame: (source: StudioSourceFrame) => void };
 
 // Playback positions belong to the editor session. Only cuts and take order are
 // saved, so native timeUpdate events never trigger project writes.
@@ -22,7 +23,11 @@ export const StudioPreview = forwardRef<StudioPreviewHandle, {
   const [failed, setFailed] = useState(false);
   const [loading, setLoading] = useState(false);
   const [retry, setRetry] = useState(0);
+  const [sourceRequest, setSourceRequest] = useState(0);
+  const [frameSource, setFrameSource] = useState<Pick<StudioSourceFrame, 'takeId' | 'uri'> | null>(null);
+  const sourceFrame = useRef<StudioSourceFrame | null>(null);
   const take = takes.find(item => item.id === takeId) || takes[0];
+  const displayTake = frameSource ? takes.find(item => item.id === frameSource.takeId && item.uri === frameSource.uri) : take;
   const live = useRef({ takes, take, paused, onActiveTakeChange, onPlaybackState });
   live.current = { takes, take, paused, onActiveTakeChange, onPlaybackState };
   const focused = useRef(false);
@@ -41,6 +46,7 @@ export const StudioPreview = forwardRef<StudioPreviewHandle, {
     instance.staysActiveInBackground = false;
   });
   const publish = useCallback((sourceSeconds?: number) => {
+    if (sourceFrame.current) return;
     const current = live.current;
     const pending = seeking.current;
     const source = sourceSeconds ?? (pending?.takeId === current.take?.id && pending?.uri === current.take?.uri ? pending?.target : undefined) ?? player.currentTime;
@@ -55,15 +61,22 @@ export const StudioPreview = forwardRef<StudioPreviewHandle, {
     intendedPlayback.current = false;
     try { player.pause(); } catch { /* Native shared object may already be released. */ }
   }, [player]);
-  const seek = useCallback((seconds: number) => {
-    const location = locateStudioTime(live.current.takes, seconds);
+  const seek = useCallback((seconds: number, requestedSource?: StudioSourceFrame) => {
+    const requestedTake = requestedSource ? live.current.takes.find(item => item.id === requestedSource.takeId && item.uri === requestedSource.uri) : undefined;
+    const location = requestedTake && requestedSource && Number.isFinite(requestedSource.seconds)
+      ? { take: requestedTake, takeId: requestedTake.id, sourceSeconds: studioPreviewBoundedSourceTime(requestedTake, requestedSource.seconds, null) }
+      : locateStudioTime(live.current.takes, seconds);
     if (!location) return;
+    const restoringFrame = sourceFrame.current !== null;
+    if (restoringFrame) { moving.current = true; setSourceRequest(value => value + 1); }
+    sourceFrame.current = null; setFrameSource(null);
     pause();
     pendingSeek.current = { takeId: location.takeId, seconds: location.sourceSeconds };
-    if (location.takeId !== live.current.take?.id) {
+    if (restoringFrame || location.takeId !== live.current.take?.id) {
       moving.current = true;
       setTakeId(location.takeId);
-      live.current.onActiveTakeChange?.(location.takeId);
+      if (location.takeId !== live.current.take?.id) live.current.onActiveTakeChange?.(location.takeId);
+      if (location.takeId === live.current.take?.id && location.take.uri === live.current.take.uri) publish(location.sourceSeconds);
     } else if (!moving.current) {
       player.currentTime = location.sourceSeconds;
       seeking.current = { takeId: location.takeId, uri: location.take.uri, target: location.sourceSeconds, deadline: Date.now() + 1500 };
@@ -71,7 +84,17 @@ export const StudioPreview = forwardRef<StudioPreviewHandle, {
       publish(location.sourceSeconds);
     }
   }, [pause, player, publish]);
-  useImperativeHandle(ref, () => ({ pause, seek, togglePlayback: () => {
+  const previewSourceFrame = useCallback((requested: StudioSourceFrame) => {
+    const frame = studioSourceFrame(live.current.takes, requested);
+    if (!frame) return;
+    const beginning = sourceFrame.current === null;
+    sourceFrame.current = frame;
+    if (beginning) { pause(); setSourceRequest(value => value + 1); }
+    setFrameSource(previous => previous?.takeId === frame.takeId && previous.uri === frame.uri ? previous : { takeId: frame.takeId, uri: frame.uri });
+    if (!moving.current && loadedUri.current === frame.uri && player.status === 'readyToPlay') player.currentTime = frame.seconds;
+  }, [pause, player]);
+  useImperativeHandle(ref, () => ({ pause, seek, previewSourceFrame, togglePlayback: () => {
+    if (sourceFrame.current) return;
     if (player.playing) { pause(); return; }
     const current = live.current;
     if (!current.take || current.paused || moving.current || failure.current || !focused.current) return;
@@ -88,8 +111,9 @@ export const StudioPreview = forwardRef<StudioPreviewHandle, {
     }
     intendedPlayback.current = true;
     player.play();
-  } }), [pause, seek, player]);
+  } }), [pause, seek, previewSourceFrame, player]);
   useEffect(() => {
+    if (sourceFrame.current) return;
     const selected = takes.find(item => item.id === activeTakeId);
     if (selected && selected.id !== take?.id) {
       pause(); pendingSeek.current = { takeId: selected.id, seconds: selected.start }; setTakeId(selected.id);
@@ -101,20 +125,33 @@ export const StudioPreview = forwardRef<StudioPreviewHandle, {
     let cancelLoad: (() => void) | undefined;
     try { player.pause(); } catch { /* Released shared object. */ }
     moving.current = true; setLoading(true); failure.current = false; setFailed(false);
-    const id = take?.id;
-    const uri = take?.uri;
-    publish(studioPreviewSourceTime(take, pendingSeek.current));
+    const id = displayTake?.id;
+    const uri = displayTake?.uri;
+    const frameMode = frameSource !== null;
+    const isCurrentSource = () => {
+      if (!active || request !== generation.current) return false;
+      const frame = sourceFrame.current;
+      return frameMode ? !!frame && frame.takeId === id && frame.uri === uri : !frame && live.current.take?.id === id && live.current.take?.uri === uri;
+    };
+    if (!frameMode) publish(studioPreviewSourceTime(take, pendingSeek.current));
     replacements.current = replacements.current.catch(() => undefined).then(async () => {
-      if (!active || request !== generation.current) return;
+      if (!isCurrentSource()) return;
       if (loadedUri.current !== (uri || null) || player.status !== 'readyToPlay') {
         loadedUri.current = null;
-        const loadingSource = replaceStudioPreviewSource(player, uri || null, () => active && request === generation.current);
+        const loadingSource = replaceStudioPreviewSource(player, uri || null, isCurrentSource);
         cancelLoad = loadingSource.cancel;
         try { await loadingSource.promise; }
         finally { await loadingSource.settled; }
         loadedUri.current = uri || null;
       }
-      if (!active || request !== generation.current) return;
+      if (!isCurrentSource()) return;
+      if (frameMode) {
+        const frame = sourceFrame.current;
+        if (!frame) return;
+        player.currentTime = frame.seconds;
+        moving.current = false; setLoading(false);
+        return;
+      }
       const latest = live.current.take;
       if (latest?.id !== id || latest?.uri !== uri) return;
       const pending = pendingSeek.current;
@@ -132,9 +169,9 @@ export const StudioPreview = forwardRef<StudioPreviewHandle, {
       if (active && request === generation.current) { moving.current = false; failure.current = true; setLoading(false); setFailed(true); publish(); }
     });
     return () => { active = false; cancelLoad?.(); };
-  }, [player, take?.id, take?.uri, retry, publish]);
+  }, [player, displayTake?.id, displayTake?.uri, !!frameSource, sourceRequest, retry, publish]);
   useEffect(() => {
-    if (!take || moving.current) return;
+    if (!take || moving.current || sourceFrame.current) return;
     const pending = seeking.current;
     const ownSeek = pending?.takeId === take.id && pending.uri === take.uri ? pending : null;
     const nativeSeconds = player.currentTime;
@@ -154,7 +191,7 @@ export const StudioPreview = forwardRef<StudioPreviewHandle, {
   useEffect(() => {
     const advance = (nativeEnd = false) => {
       const current = live.current;
-      if (!current.take || moving.current || !intendedPlayback.current || !focused.current || current.paused || AppState.currentState !== 'active' || (!nativeEnd && !player.playing)) return;
+      if (!current.take || moving.current || sourceFrame.current || !intendedPlayback.current || !focused.current || current.paused || AppState.currentState !== 'active' || (!nativeEnd && !player.playing)) return;
       const index = current.takes.findIndex(item => item.id === current.take?.id);
       const next = current.takes[index + 1];
       player.pause();
@@ -168,7 +205,7 @@ export const StudioPreview = forwardRef<StudioPreviewHandle, {
       player.addListener('playingChange', () => { if (!moving.current) publish(); }),
       player.addListener('statusChange', event => { if (event.status === 'error' && !moving.current) { failure.current = true; setFailed(true); } }),
       player.addListener('timeUpdate', event => {
-        if (moving.current) return;
+        if (moving.current || sourceFrame.current) return;
         const current = live.current;
         if (seeking.current && (seeking.current.takeId !== current.take?.id || seeking.current.uri !== current.take?.uri)) seeking.current = null;
         if (seeking.current) {
@@ -184,7 +221,7 @@ export const StudioPreview = forwardRef<StudioPreviewHandle, {
     return () => { subscriptions.forEach(subscription => { try { subscription.remove(); } catch { /* Released native emitter. */ } }); };
   }, [player, pause, publish]);
   return <View style={styles.canvas}>
-    {take && kind !== 'podcast' ? <VideoView style={StyleSheet.absoluteFillObject} player={player} nativeControls={false} contentFit="contain" fullscreenOptions={{ enable: false }} allowsPictureInPicture={false} /> : <View style={styles.placeholder}>
+    {displayTake && kind !== 'podcast' ? <VideoView style={StyleSheet.absoluteFillObject} player={player} nativeControls={false} contentFit="contain" fullscreenOptions={{ enable: false }} allowsPictureInPicture={false} /> : <View style={styles.placeholder}>
       {kind === 'podcast' ? <Mic size={56} color={take ? colors.text : colors.mutedDim} strokeWidth={1.1} /> : <Video size={40} color={colors.mutedDim} strokeWidth={1.1} />}
       <Text style={styles.placeholderTitle}>{take ? 'Sua voz em primeiro plano' : 'Comece pelo primeiro take'}</Text>
       <Text style={styles.placeholderText}>{take ? 'Podcast · áudio original' : 'Grave ou importe para montar seu conteúdo.'}</Text>

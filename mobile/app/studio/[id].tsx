@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { ActivityIndicator, Alert, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useIsFocused, useNavigation, usePreventRemove } from '@react-navigation/native';
@@ -20,6 +20,7 @@ import { formatStudioEditorTime, timelineDuration, type StudioProject, type Stud
 import { StudioPreview, type StudioPlaybackState, type StudioPreviewHandle } from '@/features/studio/StudioPreview';
 import { StudioTimeline } from '@/features/studio/StudioTimeline';
 import { createStudioEditingHistory } from '@/features/studio/editingHistory';
+import { captureStudioPlaybackAnchor, restoreStudioPlaybackAnchor, type StudioPlaybackAnchor } from '@/features/studio/editorInteraction';
 import { canContinueStudioTrim, freezeStudioTrim } from '@/features/studio/timelineLayout';
 import { StudioAccess, StudioButton, StudioField, StudioLoading, StudioSaveStatus, studioStyles, useStudioFields } from '@/features/studio/StudioUI';
 
@@ -49,7 +50,10 @@ function ProjectEditor({ project, update }: { project: StudioProject; update: (i
   const [selectedTakeId, setSelectedTakeId] = useState<string>();
   const [organizing, setOrganizing] = useState(false);
   const [trimDraft, setTrimDraft] = useState<TrimRange | null>(null);
-  const trimPreviewSource = useRef<{ takeId: string; seconds: number } | null>(null);
+  const [trimCancelEpoch, setTrimCancelEpoch] = useState(0);
+  const trimAnchor = useRef<StudioPlaybackAnchor | null>(null);
+  const pendingRestore = useRef<{ anchor: StudioPlaybackAnchor | null; revision: number } | null>(null);
+  const [restoreSequence, setRestoreSequence] = useState(0);
   const [stageSize, setStageSize] = useState({ width: width - 24, height: Math.max(180, height - 410) });
   const [history] = useState(() => createStudioEditingHistory());
   const [historyState, setHistoryState] = useState({ canUndo: false, canRedo: false });
@@ -63,12 +67,18 @@ function ProjectEditor({ project, update }: { project: StudioProject; update: (i
   const [playback, setPlayback] = useState<StudioPlaybackState>({ position: 0, sourcePosition: 0, playing: false, loading: false });
   const playbackRef = useRef(playback); playbackRef.current = playback;
   const receivePlayback = useCallback((state: StudioPlaybackState) => {
-    setPlayback(previous => previous.position === state.position && previous.sourcePosition === state.sourcePosition && previous.playing === state.playing && previous.loading === state.loading && previous.takeId === state.takeId ? previous : state);
+    // A durable edit may publish its new takes before its promise settles.
+    // Removing/splitting the playing ID makes the native preview temporarily
+    // fall back to the first clip; retain the cursor until its anchor is restored.
+    const anchor = playbackRef.current;
+    const next = working.current || pendingRestore.current
+      ? { ...state, position: anchor.position, sourcePosition: anchor.sourcePosition, takeId: anchor.takeId } : state;
+    playbackRef.current = next;
+    setPlayback(previous => previous.position === next.position && previous.sourcePosition === next.sourcePosition && previous.playing === next.playing && previous.loading === next.loading && previous.takeId === next.takeId ? previous : next);
   }, []);
   const activeTake = project.takes.find(take => take.id === (selectedTakeId || activeTakeId)) || project.takes[0];
-  const previewTakes = useMemo(() => trimDraft ? project.takes.map(take => take.id === trimDraft.takeId ? { ...take, start: trimDraft.start, end: trimDraft.end } : take) : project.takes, [project.takes, trimDraft]);
   const activeIndex = project.takes.findIndex(take => take.id === activeTake?.id);
-  const duration = timelineDuration(previewTakes);
+  const duration = timelineDuration(project.takes);
   const previewAspect = project.kind === 'short' ? 9 / 16 : project.kind === 'aula' ? 16 / 9 : 1;
   const previewWidth = Math.max(1, Math.min(stageSize.width - 24, (stageSize.height - 42) * previewAspect));
   const previewHeight = previewWidth / previewAspect;
@@ -78,7 +88,9 @@ function ProjectEditor({ project, update }: { project: StudioProject; update: (i
   const sheetContentWidth = landscape ? Math.min(width - insets.left - insets.right, maxSheetHeight * 16 / 9) : undefined;
   const sheetContentStyle = { width: '100%' as const, maxWidth: sheetContentWidth, alignSelf: 'center' as const };
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
-  useEffect(() => { if (!project.takes.some(take => take.id === activeTakeId)) setActiveTakeId(project.takes[0]?.id); }, [project.takes, activeTakeId]);
+  useEffect(() => {
+    if (!working.current && !pendingRestore.current && !project.takes.some(take => take.id === activeTakeId)) setActiveTakeId(project.takes[0]?.id);
+  }, [project.takes, activeTakeId, busy]);
   useEffect(() => {
     if (selectedTakeId && !project.takes.some(take => take.id === selectedTakeId)) { setSelectedTakeId(undefined); setOrganizing(false); }
   }, [project.takes, selectedTakeId]);
@@ -92,7 +104,7 @@ function ProjectEditor({ project, update }: { project: StudioProject; update: (i
     if (allowRemoval.current) { navigation.dispatch(data.action); return; }
     // A take write must settle before leaving; an unfinished drag is discarded.
     if (working.current || leaving.current) return;
-    if (trimDraft) { trimPreviewSource.current = null; setTrimDraft(null); return; }
+    if (trimDraft) { cancelTrim(); return; }
     leaving.current = true;
     if (!startWork()) { leaving.current = false; return; }
     void flush().then(async () => {
@@ -106,15 +118,19 @@ function ProjectEditor({ project, update }: { project: StudioProject; update: (i
     }).finally(() => { leaving.current = false; finishWork(); });
   });
   useEffect(() => {
-    const pending = trimPreviewSource.current;
-    if (!trimDraft || !pending) return;
-    const index = previewTakes.findIndex(take => take.id === pending.takeId);
-    const take = previewTakes[index];
-    if (!take) return;
-    trimPreviewSource.current = null;
-    const source = Math.max(take.start, Math.min(take.end - 0.005, pending.seconds));
-    preview.current?.seek(timelineDuration(previewTakes.slice(0, index)) + source - take.start);
-  }, [trimDraft, previewTakes]);
+    const pending = pendingRestore.current;
+    if (!pending || project.revision < pending.revision || user?.id !== project.ownerId) return;
+    pendingRestore.current = null;
+    const restored = restoreStudioPlaybackAnchor(project.takes, pending.anchor);
+    if (restored) preview.current?.seek(restored.position, restored.source);
+    else {
+      if (!project.takes.some(take => take.id === activeTakeId)) setActiveTakeId(project.takes[0]?.id);
+      if (!project.takes.length) {
+        const empty: StudioPlaybackState = { position: 0, sourcePosition: 0, playing: false, loading: false };
+        playbackRef.current = empty; setPlayback(empty);
+      }
+    }
+  }, [project.takes, project.revision, project.ownerId, user?.id, activeTakeId, restoreSequence]);
   const assertOwner = () => { if (current.current.owner !== project.ownerId) throw new Error('Abra este projeto na conta que o criou.'); };
   const startWork = () => {
     if (working.current) return false;
@@ -124,6 +140,7 @@ function ProjectEditor({ project, update }: { project: StudioProject; update: (i
   const finishWork = () => { working.current = false; if (mounted.current) setBusy(false); };
   const editTakes = async (change: ((takes: readonly StudioTake[]) => StudioTake[]) | 'undo' | 'redo') => {
     if (locked || !startWork()) return;
+    const anchor = trimAnchor.current || captureStudioPlaybackAnchor(current.current.project.takes, playbackRef.current);
     let operation: ReturnType<typeof history.beginEdit> = null;
     try {
       await flush(); assertOwner();
@@ -133,7 +150,11 @@ function ProjectEditor({ project, update }: { project: StudioProject; update: (i
         return { takes: operation ? operation.takes : [...latest.takes] };
       });
       if (operation) history.commit(operation, saved);
-      if (mounted.current) setHistoryState(history.state());
+      if (mounted.current) {
+        setHistoryState(history.state());
+        pendingRestore.current = { anchor, revision: saved.revision };
+        setRestoreSequence(value => value + 1);
+      }
       return saved;
     } catch (error) {
       if (operation) history.abort(operation);
@@ -181,9 +202,7 @@ function ProjectEditor({ project, update }: { project: StudioProject; update: (i
   };
   const selectTake = (take: StudioTake) => {
     if (working.current || trimDraft) return;
-    preview.current?.pause(); setSelectedTakeId(take.id); setActiveTakeId(take.id);
-    const index = current.current.project.takes.findIndex(item => item.id === take.id);
-    preview.current?.seek(timelineDuration(current.current.project.takes.slice(0, index)));
+    preview.current?.pause(); setSelectedTakeId(take.id);
   };
   const openPanel = (next: Panel) => {
     if (working.current || trimDraft) return;
@@ -191,14 +210,30 @@ function ProjectEditor({ project, update }: { project: StudioProject; update: (i
   };
   const previewTrim = (range: TrimRange) => {
     if (working.current || locked) return;
-    preview.current?.pause(); setSelectedTakeId(range.takeId); setActiveTakeId(range.takeId);
-    trimPreviewSource.current = { takeId: range.takeId, seconds: range.previewSourceSeconds ?? range.start };
+    const latest = current.current.project;
+    const take = latest.takes.find(item => item.id === range.takeId);
+    if (!take || current.current.owner !== latest.ownerId) return;
+    if (!trimAnchor.current) {
+      trimAnchor.current = captureStudioPlaybackAnchor(latest.takes, playbackRef.current);
+      preview.current?.pause();
+    }
+    setSelectedTakeId(range.takeId);
     setTrimDraft(range);
+    preview.current?.previewSourceFrame({ takeId: take.id, uri: take.uri, seconds: range.previewSourceSeconds ?? range.start });
+  };
+  const cancelTrim = () => {
+    if (working.current) return;
+    setTrimCancelEpoch(value => value + 1);
+    const anchor = trimAnchor.current;
+    trimAnchor.current = null; setTrimDraft(null);
+    const restored = restoreStudioPlaybackAnchor(current.current.project.takes, anchor);
+    if (restored && current.current.owner === project.ownerId) preview.current?.seek(restored.position, restored.source);
   };
   const commitTrim = async (range: TrimRange) => {
+    let saved: StudioProject | undefined;
     try {
       const baseline = freezeStudioTrim(current.current.project.takes, range.takeId);
-      await editTakes(takes => {
+      saved = await editTakes(takes => {
         if (!canContinueStudioTrim(baseline, takes, range.takeId)) throw new Error('A montagem mudou durante o corte. Selecione o take e tente novamente.');
         return takes.map(take => {
           if (take.id !== range.takeId) return take;
@@ -207,7 +242,18 @@ function ProjectEditor({ project, update }: { project: StudioProject; update: (i
         });
       });
     } catch (error) { Alert.alert('Editar montagem', error instanceof Error ? error.message : 'Não foi possível cortar este take.');
-    } finally { trimPreviewSource.current = null; if (mounted.current) setTrimDraft(null); }
+    } finally {
+      const anchor = trimAnchor.current;
+      trimAnchor.current = null;
+      if (mounted.current) {
+        setTrimDraft(null);
+        // On failure the saved montage is unchanged; restore the same anchor.
+        if (!saved) {
+          const restored = restoreStudioPlaybackAnchor(current.current.project.takes, anchor);
+          if (restored && current.current.owner === project.ownerId) preview.current?.seek(restored.position, restored.source);
+        }
+      }
+    }
   };
   const split = async () => {
     if (!activeTake) return;
@@ -215,7 +261,7 @@ function ProjectEditor({ project, update }: { project: StudioProject; update: (i
     if (!location) return;
     const leftId = Crypto.randomUUID(); const rightId = Crypto.randomUUID();
     const saved = await editTakes(takes => splitStudioTake(takes, location.takeId, location.sourceSeconds, leftId, rightId));
-    if (saved && mounted.current) { setActiveTakeId(rightId); setSelectedTakeId(rightId); }
+    if (saved && mounted.current) setSelectedTakeId(rightId);
   };
   const move = async (id: string, direction: -1 | 1) => editTakes(takes => {
     const index = takes.findIndex(take => take.id === id);
@@ -226,7 +272,7 @@ function ProjectEditor({ project, update }: { project: StudioProject; update: (i
     if (!activeTake) return;
     const id = Crypto.randomUUID(); const sourceId = activeTake.id;
     const saved = await editTakes(takes => duplicateStudioTake(takes, sourceId, id));
-    if (saved && mounted.current) { setActiveTakeId(id); setSelectedTakeId(id); }
+    if (saved && mounted.current) setSelectedTakeId(id);
   };
   const deleteTake = () => {
     if (!activeTake || busy || locked) return;
@@ -249,7 +295,7 @@ function ProjectEditor({ project, update }: { project: StudioProject; update: (i
     </View>}
     <View style={fullscreen ? StyleSheet.absoluteFillObject : styles.previewStage} onLayout={event => { setStageSize(event.nativeEvent.layout); }}>
       <View style={fullscreen ? StyleSheet.absoluteFillObject : [styles.previewFrame, { width: previewWidth, height: previewHeight }, selectedTakeId && styles.selectedFrame]}>
-        <StudioPreview ref={preview} takes={previewTakes} kind={project.kind} activeTakeId={activeTakeId} onActiveTakeChange={setActiveTakeId} onPlaybackState={receivePlayback}
+        <StudioPreview ref={preview} takes={project.takes} kind={project.kind} activeTakeId={activeTakeId} onActiveTakeChange={setActiveTakeId} onPlaybackState={receivePlayback}
           paused={!!panel || busy || !!trimDraft} onCanvasPress={() => preview.current?.togglePlayback()} canvasLabel={playback.playing ? 'Pausar prévia' : 'Reproduzir prévia'} />
       </View>
       {!fullscreen && <View style={styles.previewCaption}><Text style={styles.formatLabel}>{project.kind === 'aula' ? 'AULA · 16:9' : project.kind === 'short' ? 'SHORT · 9:16' : 'PODCAST'}{activeTake?.width && activeTake.height && Math.min(activeTake.width, activeTake.height) >= 2160 ? ' · 4K' : ''}</Text>
@@ -268,8 +314,9 @@ function ProjectEditor({ project, update }: { project: StudioProject; update: (i
         </View>
       </View>
       <StudioTimeline takes={project.takes} position={playback.position} activeTakeId={selectedTakeId} audio={project.kind === 'podcast'}
+        cancelEpoch={trimCancelEpoch}
         locked={locked} busy={busy} onSelect={selectTake} onScrubStart={() => preview.current?.pause()} onSeek={seconds => preview.current?.seek(seconds)} onAppend={() => { void addMedia(); }}
-        onTrimChange={previewTrim} onTrimCommit={commitTrim} onTrimCancel={() => { trimPreviewSource.current = null; setTrimDraft(null); }} />
+        onTrimChange={previewTrim} onTrimCommit={commitTrim} onTrimCancel={cancelTrim} />
       <View style={styles.selectionRow}><Text numberOfLines={1} style={styles.selectionLabel}>{selectedTakeId && activeTake ? `${activeTake.name || `Take ${activeIndex + 1}`} · ${formatStudioEditorTime(activeTake.end - activeTake.start)}` : `${project.takes.length} ${project.takes.length === 1 ? 'take' : 'takes'} · arraste para navegar`}</Text>
         <Text style={styles.editHint}>{selectedTakeId ? 'Arraste as bordas para cortar' : 'Toque em um take para editar'}</Text>
       </View>

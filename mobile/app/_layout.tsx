@@ -6,6 +6,7 @@ import { GlobalNotificationToastListener } from '@/components/GlobalNotification
 import { StatusBar } from 'expo-status-bar';
 import React, { useEffect } from 'react';
 import { ActivityIndicator, Text, View } from 'react-native';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 
 import { SidebarProvider } from '@/contexts/SidebarContext';
 import { AppSidebar } from '@/components/AppSidebar';
@@ -72,6 +73,7 @@ export default function RootLayout() {
   }, [router]);
 
   return (
+    <GestureHandlerRootView style={{ flex: 1, backgroundColor: colors.background }}>
     <AuthProvider>
       <AppSplashWrapper>
         <SidebarProvider>
@@ -110,5 +112,6 @@ export default function RootLayout() {
         </SidebarProvider>
       </AppSplashWrapper>
     </AuthProvider>
+    </GestureHandlerRootView>
   );
 }
