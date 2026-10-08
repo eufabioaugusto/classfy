@@ -8,6 +8,7 @@ if [[ -d /Applications/Xcode.app/Contents/Developer ]]; then
 fi
 xcrun swiftc -swift-version 6 -parse-as-library \
   "$studio_capture_root/ios/StudioCaptureOperation.swift" \
+  "$studio_capture_root/ios/StudioCaptureEffectConfirmation.swift" \
   "$studio_capture_root/tests/StudioCaptureOperationTests.swift" \
   -o "$studio_capture_directory/verify-capture"
 "$studio_capture_directory/verify-capture"

@@ -21,6 +21,7 @@ Texto, legendas, imagens e vídeo sobreposto podem acompanhar um take. Cortes, d
 ## Recursos desta entrega
 
 - Câmera AVFoundation integrada aos controles existentes, com formatos e FPS consultados no dispositivo; captura de Aula em paisagem, editor em retrato.
+- Natural, Studio e Cinematic também podem ser escolhidos na câmera, com intensidade. A confirmação espera um quadro concluído na GPU com a receita e o formato atuais. O REC congela o tratamento no journal: o original continua bruto e a receita é aplicada uma vez no editor e na exportação. Uma build anterior sem essa confirmação não oferece tratamento ao vivo. Projetos legados exigem escolha explícita do perfil de composição antes da captura tratada.
 - Camadas de texto, legenda, imagem, vídeo sobreposto e áudio; posição, escala, opacidade, tempo, volume e fades no painel abaixo da prévia.
 - Faixas sincronizadas com o cursor principal; selecionar não navega. Segurar e arrastar desloca uma camada. A edição provisória do item e seu deslocamento são salvos na mesma operação. Revisar, gravar outro take ou sair do editor salva o ajuste visível antes de navegar; uma falha mantém o painel disponível para tentar novamente.
 - Presets Natural, Studio e Cinematic, intensidade e ajustes de cor, com comparação antes/depois. Studio usa iluminação local suave nas regiões de rosto detectadas; não altera geometria nem aplica suavização de pele.
@@ -35,7 +36,7 @@ Há um limite de dois decoders de vídeo simultâneos (principal + um vídeo sob
 
 O preset Cinematic desta versão é um tratamento de cor; não cria profundidade. O modo Cinema por hardware continua bloqueado até câmera, metadados, prévia e exportação preservarem a profundidade na mesma cadeia. Cenários virtuais também dependem de um pipeline de máscara com bordas, cabelo, movimento, estabilidade temporal e integração de luz aprovados visualmente.
 
-Ainda não estão entregues EQ, dinâmica e normalização de voz, animações por keyframe, transições e velocidade por camada. Gain e fades já são reais no audioMix. O reconhecimento de fala exige validação com modelo instalado e áudio real no aparelho. O custo da detecção de rosto e a fluidez contínua da composição precisam ser medidos no iPhone; os resultados de teste no Mac não substituem essa avaliação.
+Ainda não estão entregues EQ, dinâmica e normalização de voz, animações por keyframe, transições e velocidade por camada. Gain e fades já são reais no audioMix. O reconhecimento local foi validado no Mac com voz sintetizada em português, palavras temporizadas, cancelamento e retomada; isso verifica a integração, sem provar precisão em fala humana, ruído ou aulas longas. O custo da detecção de rosto e a fluidez contínua da composição precisam ser medidos no iPhone; os resultados de teste no Mac não substituem essa avaliação.
 
 O fallback Android mantém a experiência anterior; estes novos motores são iOS primeiro. Nenhuma dependência paga, assinatura de SDK ou processamento em nuvem foi adicionada.
 
@@ -51,9 +52,20 @@ npm run test:studio:media
 npm run test:studio:capture
 npm run test:studio:recipe
 npm run test:studio:transcription
+npm run test:studio:headless
 ```
 
 Os testes Swift usam o Xcode em `/Applications/Xcode.app`; os testes de composição também usam ffmpeg. `verify-recipe.sh` gera fixtures locais para dois vídeos, imagem, texto, áudio, rotação e inspeção de quadros; verifica o arquivo exportado e pixels da prévia. `STUDIO_FACE_FIXTURE` e `STUDIO_ROTATION_FIXTURE` permitem acrescentar materiais reais locais sem copiá-los para o repositório. Os artefatos de composição ficam na pasta temporária informada pelo teste.
+
+O runner headless não interage com a tela nem precisa do iPhone: reúne TypeScript, Studio, navegação, captura, composição, exportação e contratos de transcrição. Salva logs e `report.json` com resultados, tempos, revisão e hash dos fontes; invalida a evidência se os fontes mudarem durante a execução. `--build-ios` também compila para simulador e iPhone, sem conectar um aparelho. Para essa opção, use a variante `CLASSFY_IOS_PERSONAL_TEAM=1` no ambiente local.
+
+`--speech-smoke` acrescenta reconhecimento real do motor em áudio de teste sintetizado localmente pela voz Luciana instalada no Mac. Exige modelo de português já instalado. `--install-speech-model`, junto com `--speech-smoke`, autoriza explicitamente a instalação do modelo do sistema. Os testes normais não baixam modelos e nenhuma gravação é enviada a servidores.
+
+```bash
+CLASSFY_IOS_PERSONAL_TEAM=1 npm run test:studio:headless -- --speech-smoke
+# Modelo ausente: acrescentar --install-speech-model.
+# Recompilar os dois destinos: acrescentar --build-ios.
+```
 
 A rota **`classfy://dev/studio-premium`**, somente em desenvolvimento, abre prévia, timeline e painéis de produção com fixtures locais. Não precisa de conta e não publica. `Exportar QA` salva `classfy-studio-premium-qa-result.json` no cache com duração, resolução, FPS, áudio e receita. A rota também permite conferir posição, PiP, texto e tratamento por toque.
 

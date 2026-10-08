@@ -16,6 +16,8 @@ export type StudioTake = {
   sourceStage?: 'standard' | 'cinematicRaw' | 'cinematicRendered';
   frameRate?: number;
   colorSpace?: string;
+  /** Reversible clip treatment; the original asset always remains unprocessed. */
+  grade?: StudioGrade;
   /** Still images use presentation duration in the takes adapter. */
   kind?: 'video' | 'image' | 'audio';
 };
@@ -35,7 +37,7 @@ export type StudioProject = {
   /** Derived adapter in v2. Never serialized as a second canonical timeline. */
   takes: StudioTake[];
   editing?: StudioEditing;
-  pendingTakes?: { id: string; uri: string; name: string; sourceUri?: string; kind?: StudioAssetKind; sourceKind?: 'standard' | 'cinematic'; sourceStage?: StudioSourceStage; frameRate?: number; colorSpace?: string; layerItem?: StudioLayerItem; layerId?: string }[];
+  pendingTakes?: StudioPendingTake[];
   coverUri?: string;
   coverUrl?: string;
   createdAt: string;
@@ -71,7 +73,7 @@ export function timelineDuration(takes: readonly StudioTake[]) {
 // when their old signature proves the unchanged sequential render.
 export const STUDIO_RENDER_VERSION = 3;
 export function timelineSignature(project: Pick<StudioProject, 'kind' | 'takes'> & Partial<StudioProject>) {
-  if (!project.editing) return legacyTimelineSignature(project);
+  if (!project.editing && !project.takes.some(take => normalizeStudioCaptureGrade(take.grade))) return legacyTimelineSignature(project);
   const recipe = compileStudioRecipe(project);
   return JSON.stringify([STUDIO_RENDER_VERSION, recipe, recipe.assets.map(asset => asset.id)], (key, value) => key === 'uri' || key === 'thumbnailUri' ? undefined : value);
 }
@@ -134,6 +136,13 @@ export type StudioAssetKind = 'video' | 'image' | 'audio';
 export type StudioSourceStage = 'standard' | 'cinematicRaw' | 'cinematicRendered';
 export type StudioEffect = 'natural' | 'studio' | 'cinematic';
 export type StudioGrade = { preset: StudioEffect; intensity: number; exposure: number; contrast: number; saturation: number; temperature: number };
+export type StudioPendingTake = {
+  id: string; uri: string; name: string; sourceUri?: string; kind?: StudioAssetKind;
+  sourceKind?: 'standard' | 'cinematic'; sourceStage?: StudioSourceStage; frameRate?: number; colorSpace?: string;
+  /** Captured recipe snapshot, persisted before metadata work for recovery. */
+  grade?: StudioGrade;
+  layerItem?: StudioLayerItem; layerId?: string;
+};
 export type StudioRect = { x: number; y: number; width: number; height: number };
 export type StudioTextStyle = { content: string; fontFamily: string; fontSize: number; color: string; backgroundColor: string; alignment: 'left' | 'center' | 'right' };
 export type StudioAsset = {
@@ -181,6 +190,23 @@ export function studioSeconds(ticks: number) { return ticks / STUDIO_TIMEBASE; }
 export function studioGrade(preset: StudioEffect = 'natural'): StudioGrade {
   return { preset, intensity: 1, exposure: 0, contrast: 0, saturation: 0, temperature: 0 };
 }
+export function validateStudioGrade(value: unknown): string[] {
+  const grade = value as StudioGrade | null | undefined;
+  if (!grade || !['natural', 'studio', 'cinematic'].includes(grade.preset)
+    || ![grade.intensity, grade.exposure, grade.contrast, grade.saturation, grade.temperature].every(Number.isFinite)
+    || grade.intensity < 0 || grade.intensity > 1 || Math.abs(grade.exposure) > 2
+    || [grade.contrast, grade.saturation, grade.temperature].some(value => Math.abs(value) > 1)) return ['Revise os ajustes de cor do clip.'];
+  return [];
+}
+/** Capture identity needs no recipe and must remain usable by legacy binaries. */
+export function normalizeStudioCaptureGrade(value?: StudioGrade): StudioGrade | undefined {
+  if (value === undefined) return undefined;
+  const issues = validateStudioGrade(value);
+  if (issues.length) throw new Error(issues[0]);
+  const { preset, intensity, exposure, contrast, saturation, temperature } = value;
+  if (preset === 'natural' && exposure === 0 && contrast === 0 && saturation === 0 && temperature === 0) return undefined;
+  return { preset, intensity, exposure, contrast, saturation, temperature };
+}
 export function emptyStudioEditing(kind: StudioKind, legacy = false): StudioEditing {
   const portrait = kind === 'short';
   return { version: 2, timebase: STUDIO_TIMEBASE, assets: [], main: [], layers: [],
@@ -207,7 +233,8 @@ export function deriveStudioTakes(editing: StudioEditing): StudioTake[] {
       duration: studioSeconds(image ? clip.durationTicks ?? 0 : asset.durationTicks),
       start: studioSeconds(image ? 0 : clip.sourceStartTicks), end: studioSeconds(image ? clip.durationTicks ?? 0 : clip.sourceEndTicks),
       width: asset.width, height: asset.height, thumbnailUri: asset.thumbnailUri, kind: asset.kind,
-      sourceKind: asset.sourceKind, sourceStage: asset.sourceStage, frameRate: asset.frameRate, colorSpace: asset.colorSpace };
+      sourceKind: asset.sourceKind, sourceStage: asset.sourceStage, frameRate: asset.frameRate, colorSpace: asset.colorSpace,
+      grade: clip.grade ? { ...clip.grade } : undefined };
   });
 }
 function freezeStudioValue<T>(value: T): T {
@@ -255,7 +282,13 @@ export function reconcileStudioTakes(project: Pick<StudioProject, 'kind'> & Part
     const origin = sameClip ?? previous.main.find(clip => clip.assetId === asset!.id && clip.sourceStartTicks === start && clip.sourceEndTicks === end)
       ?? previous.main.find(clip => clip.assetId === asset!.id && clip.sourceStartTicks < end && clip.sourceEndTicks > start);
     if (origin) origins.set(take.id, origin.id);
+    // Existing canonical clips retain their edits. A newly captured clip may
+    // obtain its recipe from the journal if an older caller omitted the adapter
+    // field; neither path writes treatment into the immutable original asset.
+    const pending = !sameClip ? project.pendingTakes?.find(item => !item.layerItem && item.id === take.id && item.uri === take.uri) : undefined;
+    const grade = !sameClip ? normalizeStudioCaptureGrade(pending?.grade ?? take.grade) : undefined;
     return { ...(origin ?? {}), id: take.id, assetId: asset.id, name: take.name,
+      ...(grade ? { grade } : {}),
       sourceStartTicks: start, sourceEndTicks: end, ...(asset.kind === 'image' ? { durationTicks: studioTicks(take.end - take.start) } : {}) } as StudioMainClip;
   });
   const layers = previous.layers.map(layer => ({ ...layer, items: layer.items.flatMap(item => {
@@ -289,8 +322,11 @@ export function migrateStudioProject(project: StudioProject): StudioProject {
   const oldSignature = legacyTimelineSignature(project);
   const migrated = withStudioTakes({ ...project, version: 2, editing: studioEditing(project) });
   const signature = timelineSignature(migrated);
-  if (project.exportedSignature === oldSignature) migrated.exportedSignature = signature;
-  if (project.uploadSignature === oldSignature) migrated.uploadSignature = signature;
+  // Sequential legacy signatures never described a capture treatment. Do not
+  // certify an untreated artifact as a render of the newly restored recipe.
+  const treatment = migrated.editing!.main.some(clip => clip.grade);
+  if (!treatment && project.exportedSignature === oldSignature) migrated.exportedSignature = signature;
+  if (!treatment && project.uploadSignature === oldSignature) migrated.uploadSignature = signature;
   return migrated;
 }
 function baseRecipeClip(id: string, kind: StudioLayerKind, startTicks: number, durationTicks: number): StudioRecipeClip {
@@ -380,12 +416,7 @@ export function validateStudioRecipe(recipe: StudioRenderRecipe): string[] {
       || clip.opacity < 0 || clip.opacity > 1 || clip.gain < 0 || clip.gain > 4 || !['contain', 'cover'].includes(clip.fit)) push('Revise o enquadramento e o volume das camadas.');
     if (!isTicks(clip.fadeInTicks) || !isTicks(clip.fadeOutTicks) || clip.fadeInTicks + clip.fadeOutTicks > clip.durationTicks) push('Revise os fades de áudio.');
     if (!effects.includes(clip.effect)) push('O efeito deste clip não é suportado.');
-    if (clip.grade) {
-      const grade = clip.grade;
-      if (!effects.includes(grade.preset) || ![grade.intensity, grade.exposure, grade.contrast, grade.saturation, grade.temperature].every(Number.isFinite)
-        || grade.intensity < 0 || grade.intensity > 1 || Math.abs(grade.exposure) > 2
-        || [grade.contrast, grade.saturation, grade.temperature].some(value => Math.abs(value) > 1)) push('Revise os ajustes de cor do clip.');
-    }
+    if (clip.grade !== undefined && validateStudioGrade(clip.grade).length) push('Revise os ajustes de cor do clip.');
     if (['text', 'caption'].includes(clip.kind) && (!clip.text || !clip.text.content.trim() || !Number.isFinite(clip.text.fontSize)
       || clip.text.fontSize <= 0 || clip.text.fontSize > 1 || typeof clip.text.fontFamily !== 'string' || !clip.text.fontFamily.trim()
       || !studioColor(clip.text.color) || !studioColor(clip.text.backgroundColor) || !['left', 'center', 'right'].includes(clip.text.alignment))) push('Revise os textos e as legendas.');
@@ -492,10 +523,16 @@ export function validateStudioPendingTakes(pending: StudioProject['pendingTakes'
   for (const entry of pending) {
     if (!entry || !entry.id || ids.has(entry.id) || !entry.uri?.startsWith('file://') || typeof entry.name !== 'string') return ['O registro de arquivos pendentes precisa de recuperação.'];
     ids.add(entry.id);
+    if (entry.grade !== undefined && validateStudioGrade(entry.grade).length) return ['O tratamento da captura pendente precisa de recuperação.'];
+    if (entry.sourceKind !== undefined && !['standard', 'cinematic'].includes(entry.sourceKind)
+      || entry.sourceStage !== undefined && !['standard', 'cinematicRaw', 'cinematicRendered'].includes(entry.sourceStage)
+      || entry.frameRate !== undefined && (!Number.isFinite(entry.frameRate) || entry.frameRate < 0)
+      || entry.colorSpace !== undefined && typeof entry.colorSpace !== 'string') return ['Os metadados da captura pendente precisam de recuperação.'];
     if (entry.layerId !== undefined && (typeof entry.layerId !== 'string' || !entry.layerId)) return ['O destino da camada pendente precisa de recuperação.'];
     if (entry.layerItem) {
       const item = entry.layerItem;
-      if (!item.id || !['video', 'image', 'audio'].includes(item.kind) || item.assetId !== entry.id
+      if (entry.grade !== undefined || item.grade !== undefined && validateStudioGrade(item.grade).length
+        || !item.id || !['video', 'image', 'audio'].includes(item.kind) || item.assetId !== entry.id
         || entry.kind !== undefined && entry.kind !== item.kind || !isTicks(item.atTicks) || !isTicks(item.durationTicks)
         || [item.sourceStartTicks, item.sourceEndTicks, item.fadeInTicks, item.fadeOutTicks].some(value => value !== undefined && !isTicks(value))
         || item.anchor && (!item.anchor.clipId || item.anchor.offsetTicks !== undefined && !isTicks(item.anchor.offsetTicks)

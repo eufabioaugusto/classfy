@@ -19,6 +19,12 @@ final class StudioCaptureView: ExpoView, MTKViewDelegate {
   private var renderer: StudioEffectRenderer?
   private var grade: StudioImageGrade = .identity
   private var gradeRevision = 0
+  private var confirmedGradeRevision: Int?
+  private var confirmedGradeGeneration: Int?
+  private var processedConfiguration = false
+  private var recordingEffectLocked = false
+  private var pendingEffect: (request: StudioCaptureEffectConfirmation, completion: StudioCaptureSession.Completion)?
+  private var effectTimeout: DispatchWorkItem?
   private var requestedActive = false
   private var inBackground = false
   private var currentGeneration = 0
@@ -45,6 +51,9 @@ final class StudioCaptureView: ExpoView, MTKViewDelegate {
         self.frameLock.lock()
         self.currentGeneration = generation; self.queuedFrame = nil
         self.frameLock.unlock()
+        self.processedConfiguration = processed
+        self.confirmedGradeRevision = nil; self.confirmedGradeGeneration = nil
+        self.finishPendingEffect(.failure(StudioCaptureError.invalid("O enquadramento mudou. Aguarde a imagem e escolha o tratamento novamente.")))
         self.previewLayer.opacity = 1
         self.metalView?.layer.opacity = 0
         self.applyPreviewConfiguration(configuration)
@@ -67,6 +76,8 @@ final class StudioCaptureView: ExpoView, MTKViewDelegate {
   }
 
   deinit {
+    effectTimeout?.cancel()
+    pendingEffect?.completion(.failure(StudioCaptureError.unavailable("A câmera foi fechada antes de confirmar o tratamento.")))
     lifecycleObservers.forEach { NotificationCenter.default.removeObserver($0) }
     capture.dispose()
   }
@@ -117,18 +128,57 @@ final class StudioCaptureView: ExpoView, MTKViewDelegate {
     let active = requestedActive && window != nil && !inBackground
     if !active {
       frameLock.lock(); queuedFrame = nil; frameLock.unlock()
+      finishPendingEffect(.failure(StudioCaptureError.unavailable("Abra a câmera para visualizar o tratamento.")))
     }
     capture.setActive(active)
   }
 
   func setEffectRecipeJSON(_ json: String) throws -> [String: Any] {
+    guard !recordingEffectLocked else { throw StudioCaptureError.busy }
     guard let data = json.data(using: .utf8), data.count <= 16_384 else {
       throw StudioCaptureError.invalid("Os ajustes de imagem são inválidos.")
     }
     let decoded = try JSONDecoder().decode(StudioImageGrade.self, from: data)
     guard decoded.isValid else { throw StudioCaptureError.invalid("Escolha ajustes de imagem válidos.") }
     grade = decoded; gradeRevision += 1
-    return ["effectRevision": gradeRevision, "previewProcessed": renderer != nil && !previewFailed]
+    confirmedGradeRevision = nil; confirmedGradeGeneration = nil
+    return effectState(processed: false)
+  }
+
+  /// A recipe is confirmed only after a frame with this exact revision has
+  /// completed on the GPU. The movie output still writes the untouched source.
+  func setCaptureEffect(_ json: String, completion: @escaping StudioCaptureSession.Completion) {
+    do {
+      guard requestedActive, !inBackground, window != nil else {
+        throw StudioCaptureError.unavailable("Abra a câmera para visualizar o tratamento.")
+      }
+      finishPendingEffect(.failure(StudioCaptureError.invalid("O ajuste de imagem foi substituído.")))
+      _ = try setEffectRecipeJSON(json)
+      guard renderer != nil, processedConfiguration, !previewFailed else {
+        completion(.success(effectState(processed: false))); return
+      }
+      let request = StudioCaptureEffectConfirmation(revision: gradeRevision, generation: currentGeneration)
+      pendingEffect = (request, completion)
+      let timeout = DispatchWorkItem { [weak self] in
+        guard let self, self.pendingEffect?.request === request else { return }
+        self.finishPendingEffect(.failure(StudioCaptureError.unavailable("A câmera não confirmou a prévia do tratamento. Tente novamente ou use Natural.")))
+      }
+      effectTimeout = timeout
+      DispatchQueue.main.asyncAfter(deadline: .now() + 3, execute: timeout)
+    } catch { completion(.failure(error)) }
+  }
+
+  private func effectState(processed: Bool) -> [String: Any] {
+    ["effectRevision": gradeRevision, "previewProcessed": processed, "generation": currentGeneration,
+     "grade": ["preset": grade.preset, "intensity": grade.intensity, "exposure": grade.exposure,
+               "contrast": grade.contrast, "saturation": grade.saturation, "temperature": grade.temperature]]
+  }
+
+  private func finishPendingEffect(_ result: Result<[String: Any], Error>) {
+    let pending = pendingEffect; pendingEffect = nil
+    pending?.request.cancel()
+    effectTimeout?.cancel(); effectTimeout = nil
+    pending?.completion(result)
   }
 
   func applyEffectRecipeJSON(_ json: String) {
@@ -141,7 +191,18 @@ final class StudioCaptureView: ExpoView, MTKViewDelegate {
     capture.configure(configuration, completion: completion)
   }
   func startRecording(_ operationId: String, completion: @escaping StudioCaptureSession.Completion) {
-    capture.startRecording(operationId, completion: completion)
+    guard !recordingEffectLocked, pendingEffect == nil else { completion(.failure(StudioCaptureError.busy)); return }
+    let treated = grade.preset != "natural" || grade.exposure != 0 || grade.contrast != 0 || grade.saturation != 0 || grade.temperature != 0
+    guard !treated || (processedConfiguration && !previewFailed && confirmedGradeRevision == gradeRevision && confirmedGradeGeneration == currentGeneration) else {
+      completion(.failure(StudioCaptureError.unavailable("Confirme o tratamento na prévia ou escolha Natural antes de gravar."))); return
+    }
+    recordingEffectLocked = true
+    capture.startRecording(operationId) { [weak self] result in
+      DispatchQueue.main.async { [weak self] in
+        self?.recordingEffectLocked = false
+        completion(result)
+      }
+    }
   }
   func stopRecording(_ operationId: String, completion: @escaping StudioCaptureSession.Completion) {
     capture.stopRecording(operationId, completion: completion)
@@ -216,6 +277,8 @@ final class StudioCaptureView: ExpoView, MTKViewDelegate {
     frameLock.lock(); previewFailed = true; queuedFrame = nil; frameLock.unlock()
     previewLayer.opacity = 1; metalView?.layer.opacity = 0
     capture.setProcessedPreviewAvailable(false)
+    confirmedGradeRevision = nil; confirmedGradeGeneration = nil
+    finishPendingEffect(.failure(StudioCaptureError.unavailable("O tratamento não está disponível nesta prévia. Use Natural e ajuste a imagem no editor.")))
     onInterruption(["reason": "previewFallback", "generation": currentGeneration,
       "message": "A prévia voltou à câmera original. Você pode continuar gravando e ajustar a imagem no editor."])
   }
@@ -229,6 +292,7 @@ final class StudioCaptureView: ExpoView, MTKViewDelegate {
     guard !failed, let pending, pending.generation == currentGeneration, let drawable = view.currentDrawable,
       let commands = commandQueue?.makeCommandBuffer(), let renderer else { gpuSlots.signal(); return }
     let input = CIImage(cvPixelBuffer: pending.buffer)
+    let renderedGradeRevision = gradeRevision
     let source = renderer.outputImage(input, grade: grade, sourceStage: pending.cinematic ? .cinematicRendered : .standard)
     let target = CGRect(x: 0, y: 0, width: drawable.texture.width, height: drawable.texture.height)
     guard source.extent.width > 0, source.extent.height > 0 else { gpuSlots.signal(); return }
@@ -262,6 +326,11 @@ final class StudioCaptureView: ExpoView, MTKViewDelegate {
         if command.status != .completed { self.restoreOriginalPreview(); return }
         self.previewLayer.opacity = 0
         self.metalView?.layer.opacity = 1
+        if self.gradeRevision == renderedGradeRevision,
+           self.pendingEffect?.request.acceptFrame(revision: renderedGradeRevision, generation: pending.generation) == true {
+          self.confirmedGradeRevision = renderedGradeRevision; self.confirmedGradeGeneration = pending.generation
+          self.finishPendingEffect(.success(self.effectState(processed: true)))
+        }
       }
     }
     commands.present(drawable)

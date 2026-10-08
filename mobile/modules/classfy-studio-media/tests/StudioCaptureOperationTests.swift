@@ -30,5 +30,20 @@ import Foundation
     assert(second.finish(.failure(NSError(domain: "test", code: 1))))
     assert(callbacks == 2 && second.phase == .finished)
     print("StudioCaptureOperation: 6 regressões passaram")
+
+    let grade = StudioCaptureEffectConfirmation(revision: 3, generation: 7)
+    assert(!grade.acceptFrame(revision: 2, generation: 7)) // Old preset still on the GPU.
+    assert(!grade.acceptFrame(revision: 3, generation: 6)) // Same recipe, obsolete format.
+    assert(!grade.settled)
+    assert(grade.acceptFrame(revision: 3, generation: 7))
+    assert(!grade.acceptFrame(revision: 3, generation: 7)) // Confirm exactly once.
+    let replaced = StudioCaptureEffectConfirmation(revision: 4, generation: 7)
+    assert(replaced.cancel())
+    assert(!replaced.acceptFrame(revision: 4, generation: 7)) // Timeout/blur wins late completion.
+    assert(!replaced.cancel())
+    let nextFormat = StudioCaptureEffectConfirmation(revision: 5, generation: 8)
+    assert(!nextFormat.acceptFrame(revision: 5, generation: 7))
+    assert(nextFormat.acceptFrame(revision: 5, generation: 8))
+    print("StudioCaptureEffectConfirmation: 6 regressões passaram")
   }
 }

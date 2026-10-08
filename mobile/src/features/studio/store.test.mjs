@@ -224,3 +224,43 @@ test('journal de camada mantém destino ao restart e só limpa quando o asset en
   assert.equal(saved.editing.layers[0].items[0].id, 'overlay');
   await assert.rejects(h.store.updateStudioProject('owner', p.id, { pendingTakes: [{ ...journal[0], layerItem: { ...layerItem, assetId: 'different' } }] }), /destino/);
 });
+
+test('journal recuperado aplica grade mesmo quando caller antigo anexa sem metadata e falha de disco conserva a receita', async () => {
+  const h = harness(), model = compile('./model.ts'); const p = await h.store.createStudioProject('owner', 'aula', { transient: true });
+  const grade = { ...model.studioGrade('studio'), intensity: 0.6 };
+  await h.store.updateStudioProject('owner', p.id, { pendingTakes: [{ id: 'a', uri: 'file:///a.mp4', name: 'a', grade }] });
+  const restarted = harness(Object.fromEntries(h.data)); await restarted.store.loadStudioProjects('owner'); restarted.failNext();
+  await assert.rejects(restarted.store.updateStudioProject('owner', p.id, { takes: [take('a')] }), /Disk full/);
+  const preserved = restarted.store.getStudioProject('owner', p.id);
+  assert.equal(preserved.takes.length, 0); assert.equal(preserved.pendingTakes[0].grade.intensity, 0.6);
+  const saved = await restarted.store.updateStudioProject('owner', p.id, { takes: [take('a')] });
+  assert.equal(saved.pendingTakes.length, 0); assert.equal(saved.editing.main[0].grade.intensity, 0.6);
+  assert.equal(saved.editing.main[0].grade.preset, 'studio'); assert.equal(Object.hasOwn(saved.editing.assets[0], 'grade'), false);
+});
+
+test('journal só conclui quando o clip principal preserva a grade capturada, não por uso do original em camada', async () => {
+  const h = harness(), model = compile('./model.ts'); const p = await h.store.createStudioProject('owner', 'aula');
+  const grade = { ...model.studioGrade('cinematic'), intensity: 0.7 };
+  const pending = await h.store.updateStudioProject('owner', p.id, { pendingTakes: [{ id: 'a', uri: 'file:///a.mp4', name: 'a', grade }] });
+  let editing = { ...pending.editing, assets: [{ id: 'original', uri: 'file:///a.mp4', name: 'a', kind: 'video', durationTicks: model.studioTicks(10) }] };
+  editing = model.addStudioLayerItem(editing, { id: 'pip', assetId: 'original', kind: 'video', atTicks: 0, durationTicks: model.studioTicks(1), sourceStartTicks: 0, sourceEndTicks: model.studioTicks(1) });
+  const overlay = await h.store.updateStudioProject('owner', p.id, { editing }); assert.equal(overlay.pendingTakes.length, 1);
+  editing = { ...editing, main: [{ id: 'a', assetId: 'original', sourceStartTicks: 0, sourceEndTicks: model.studioTicks(10) }] };
+  const untreated = await h.store.updateStudioProject('owner', p.id, { editing }); assert.equal(untreated.pendingTakes.length, 1);
+  const finished = await h.store.updateStudioProject('owner', p.id, { editing: model.patchStudioClipGrade(editing, 'a', grade) });
+  assert.equal(finished.pendingTakes.length, 0);
+});
+
+test('journal com grade inválida não pode corromper índice nem ser reinterpretado como uma camada', async () => {
+  const h = harness(), model = compile('./model.ts'); const p = await h.store.createStudioProject('owner', 'aula');
+  for (const patch of [{ preset: 'outro' }, { intensity: 1.1 }, { exposure: Infinity }, { saturation: -1.1 }]) {
+    await assert.rejects(h.store.updateStudioProject('owner', p.id, { pendingTakes: [{ id: 'a', uri: 'file:///a.mp4', name: 'a', grade: { ...model.studioGrade(), ...patch } }] }), /tratamento.*recuperação/);
+  }
+  assert.equal(h.store.getStudioProject('owner', p.id).pendingTakes, undefined);
+  const layerItem = { id: 'pip', kind: 'video', assetId: 'a', atTicks: 0, durationTicks: model.studioTicks(1) };
+  await assert.rejects(h.store.updateStudioProject('owner', p.id, { pendingTakes: [{ id: 'a', uri: 'file:///a.mp4', name: 'a', grade: model.studioGrade('studio'), layerItem }] }), /destino/);
+  const valid = await h.store.updateStudioProject('owner', p.id, { pendingTakes: [{ id: 'a', uri: 'file:///a.mp4', name: 'a', grade: model.studioGrade('studio') }] });
+  const corrupted = JSON.parse(JSON.stringify([valid])); corrupted[0].pendingTakes[0].grade.intensity = 2;
+  const raw = JSON.stringify(corrupted), restarted = harness({ 'classfy:studio:v2:owner': raw }); await restarted.store.loadStudioProjects('owner');
+  assert.ok(restarted.store.studioSnapshot('owner').error); assert.equal(restarted.data.get('classfy:studio:v2:owner'), raw);
+});

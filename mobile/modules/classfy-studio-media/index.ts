@@ -1,4 +1,5 @@
 import { requireOptionalNativeModule, type NativeModule } from 'expo-modules-core';
+import type { StudioGrade } from '../../src/features/studio/model';
 
 export type StudioMediaInfo = {
   duration: number;
@@ -62,6 +63,7 @@ declare class StudioMediaModule extends NativeModule<StudioMediaEvents> {
   setStudioNativeCameraExposureAsync(tag: number, bias: number): Promise<StudioCameraState>;
   setStudioNativeCameraFocusAsync(tag: number, options: { x: number; y: number; locked: boolean }): Promise<StudioCameraState>;
   setStudioNativeCameraTorchAsync(tag: number, enabled: boolean): Promise<StudioCameraState>;
+  setStudioNativeCameraEffectAsync(tag: number, recipeJSON: string): Promise<StudioNativeCameraEffectAck>;
   seekStudioCompositionAsync(tag: number, seconds: number, token: number): Promise<StudioNativePlayback>;
   previewStudioCompositionSourceAsync(tag: number, clipId: string, sourceSeconds: number, timelineSeconds: number, token: number): Promise<StudioNativePlayback>;
   restoreStudioCompositionAsync(tag: number, token: number): Promise<StudioNativePlayback>;
@@ -118,6 +120,10 @@ export async function cancelExportAsync(requestId: string) { await native?.cance
 // composition rather than silently exporting a sequential file without layers.
 export function isStudioCompositionAvailable() { return !!native && typeof native.exportRecipeAsync === 'function' && typeof native.seekStudioCompositionAsync === 'function'; }
 export function isStudioNativeCameraAvailable() { return !!native && ['getStudioNativeCameraCapabilitiesAsync','configureStudioNativeCameraAsync','startStudioNativeCameraRecordingAsync','stopStudioNativeCameraRecordingAsync','setStudioNativeCameraZoomAsync','setStudioNativeCameraExposureAsync','setStudioNativeCameraFocusAsync','setStudioNativeCameraTorchAsync'].every(name => typeof (native as unknown as Record<string, unknown>)[name] === 'function'); }
+export function isStudioNativeCameraEffectsAvailable() {
+  return isStudioNativeCameraAvailable() && isStudioCompositionAvailable() && typeof native?.setStudioNativeCameraEffectAsync === 'function';
+}
+export type StudioNativeCameraEffectAck = { effectRevision: number; previewProcessed: boolean; grade: StudioGrade; generation: number };
 export type StudioNativeCameraConfiguration = { position: 'front' | 'back'; quality: StudioCameraQuality; fps: StudioCameraFPS; orientation: 'portrait' | 'landscapeLeft' | 'landscapeRight'; cinematic?: boolean; mirrored?: boolean };
 export type StudioNativeRecording = { duration?: number; width?: number; height?: number; frameRate?: number; colorPrimaries?: string; transferFunction?: string; yCbCrMatrix?: string; fileSize?: number; uri: string; operationId: string; sourceKind?: 'standard' | 'cinematic'; sourceStage?: 'standard' | 'cinematicRaw' | 'cinematicRendered'; captureSnapshot?: StudioCameraState };
 export type StudioNativePlayback = { positionSeconds: number; sourcePositionSeconds: number; clipId?: string | null; playing: boolean; loading: boolean; revision: string; token: number };
@@ -130,6 +136,10 @@ export function setStudioNativeCameraZoomAsync(tag: number, factor: number) { re
 export function setStudioNativeCameraExposureAsync(tag: number, bias: number) { return studioNativeModule().setStudioNativeCameraExposureAsync(tag, bias); }
 export function setStudioNativeCameraFocusAsync(tag: number, options: { x: number; y: number; locked: boolean }) { return studioNativeModule().setStudioNativeCameraFocusAsync(tag, options); }
 export function setStudioNativeCameraTorchAsync(tag: number, enabled: boolean) { return studioNativeModule().setStudioNativeCameraTorchAsync(tag, enabled); }
+export function setStudioNativeCameraEffectAsync(tag: number, recipeJSON: string) {
+  if (!isStudioNativeCameraEffectsAvailable()) throw new Error('Atualize o Classfy Dev para pré-visualizar tratamentos na câmera.');
+  return native!.setStudioNativeCameraEffectAsync(tag, recipeJSON);
+}
 function compositionModule() { if (!isStudioCompositionAvailable()) throw new Error('Atualize o Classfy Dev para editar e exportar camadas e tratamentos de imagem.'); return native!; }
 export function seekStudioCompositionAsync(tag: number, seconds: number, token: number) { return compositionModule().seekStudioCompositionAsync(tag, seconds, token); }
 export function previewStudioCompositionSourceAsync(tag: number, clipId: string, sourceSeconds: number, timelineSeconds: number, token: number) { return compositionModule().previewStudioCompositionSourceAsync(tag, clipId, sourceSeconds, timelineSeconds, token); }

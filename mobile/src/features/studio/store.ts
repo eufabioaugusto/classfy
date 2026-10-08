@@ -2,7 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { randomUUID } from 'expo-crypto';
 import { documentDirectory } from 'expo-file-system/legacy';
 import type { StudioKind, StudioProject } from './model';
-import { emptyStudioEditing, migrateStudioProject, rebaseStudioProject, reconcileStudioTakes, timelineSignature, validateStudioEditing, validateStudioPendingTakes, withStudioTakes } from './model';
+import { emptyStudioEditing, migrateStudioProject, normalizeStudioCaptureGrade, rebaseStudioProject, reconcileStudioTakes, timelineSignature, validateStudioEditing, validateStudioPendingTakes, withStudioTakes } from './model';
 
 type Snapshot = { projects: StudioProject[]; loading: boolean; error: string | null };
 const owners = new Map<string, Snapshot>();
@@ -162,12 +162,14 @@ export function mutateStudioProject(owner: string, id: string, change: (project:
     }
     if (patch.coverUri !== undefined && patch.coverUri !== existing.coverUri) updated.coverUrl = undefined;
     if (patch.takes || patch.editing) {
-      const used = new Set([...editing.main.map(clip => clip.assetId), ...editing.layers.flatMap(layer => layer.items.map(item => item.assetId))]);
       updated.pendingTakes = updated.pendingTakes?.filter(pending => {
         if (pending.layerItem) return !editing.layers.some(layer => (!pending.layerId || layer.id === pending.layerId)
           && layer.items.some(item => item.id === pending.layerItem!.id && item.assetId === pending.id)
           && editing.assets.some(asset => asset.id === pending.id && asset.uri === pending.uri));
-        return !editing.assets.some(asset => used.has(asset.id) && (asset.id === pending.id || asset.uri === pending.uri));
+        const grade = normalizeStudioCaptureGrade(pending.grade);
+        return !editing.main.some(clip => clip.id === pending.id
+          && editing.assets.some(asset => asset.id === clip.assetId && asset.uri === pending.uri)
+          && (!grade || (Object.keys(grade) as (keyof typeof grade)[]).every(key => clip.grade?.[key] === grade[key])));
       });
     }
     if (isTransientStudioProject(owner, id)) {

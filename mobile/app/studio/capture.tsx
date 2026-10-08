@@ -6,7 +6,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { StatusBar } from 'expo-status-bar';
 import { useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
 import { useIsFocused, usePreventRemove, type NavigationAction } from '@react-navigation/native';
-import { Camera, Check, ChevronRight, FileText, Images, Mic, Minus, Pause, Play, Plus, SlidersHorizontal, Square, SwitchCamera, Timer, X, Zap, ZapOff } from 'lucide-react-native';
+import { Camera, Check, ChevronRight, FileText, Images, Mic, Minus, Palette, Pause, Play, Plus, SlidersHorizontal, Square, SwitchCamera, Timer, X, Zap, ZapOff } from 'lucide-react-native';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { ActivityIndicator, Alert, AppState, KeyboardAvoidingView, Linking, Platform, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -14,7 +14,7 @@ import { SheetCloseButton, SheetModal, sheetStyles } from '@/components/SheetMod
 import { usePrimaryAction } from '@/contexts/PrimaryActionContext';
 import { useAuth } from '@/features/auth/authContext';
 import { importStudioMedia, persistStudioTake } from '@/features/studio/media';
-import { formatStudioDuration, type StudioProject } from '@/features/studio/model';
+import { formatStudioDuration, normalizeStudioCaptureGrade, studioEditing, studioGrade, withStudioStandardOutput, type StudioEffect, type StudioGrade, type StudioProject } from '@/features/studio/model';
 import { discardTransientStudioProject, getStudioProject, mutateStudioProject } from '@/features/studio/store';
 import { useStudioProject } from '@/features/studio/useStudioProjects';
 import { useStudioOrientation } from '@/features/studio/useStudioOrientation';
@@ -22,15 +22,16 @@ import { studioNormalizedZoom, studioZoomFactor, useStudioCaptureCamera } from '
 import { StudioCaptureFrame, StudioCaptureZoom } from '@/features/studio/StudioCaptureZoom';
 import { StudioCaptureScriptPanel } from '@/features/studio/StudioCaptureScriptPanel';
 import { createStudioVideoStopOperation } from '@/features/studio/StudioCaptureRecording';
-import { StudioNativeCamera, StudioNativeRecordingError, isStudioNativeCameraHandle, type StudioCaptureCameraHandle, type StudioNativeCameraHandle } from '@/features/studio/StudioNativeCamera';
-import { isStudioNativeCameraAvailable, type StudioNativeRecording } from '../../modules/classfy-studio-media';
+import { StudioNativeCamera, StudioNativeRecordingError, isStudioNativeCameraHandle, type StudioCaptureCameraHandle, type StudioCaptureRecording, type StudioNativeCameraHandle } from '@/features/studio/StudioNativeCamera';
+import { isStudioNativeCameraAvailable, isStudioNativeCameraEffectsAvailable } from '../../modules/classfy-studio-media';
 import { colors } from '@/theme/colors';
 import { controls } from '@/theme/controls';
 
 type Phase = 'idle' | 'countdown' | 'recording' | 'saving';
-type CaptureMetadata = Pick<Parameters<typeof persistStudioTake>[1], 'sourceKind' | 'sourceStage' | 'frameRate' | 'colorSpace'>;
+type CaptureMetadata = Pick<Parameters<typeof persistStudioTake>[1], 'sourceKind' | 'sourceStage' | 'frameRate' | 'colorSpace' | 'grade'>;
 type RecoverableTake = { project: StudioProject; uri: string; duration: number; metadata?: CaptureMetadata };
-type CapturePanel = 'timer' | 'script' | 'quality';
+type CapturePanel = 'timer' | 'script' | 'quality' | 'treatment';
+const capturePresets: { id: StudioEffect; label: string }[] = [{ id: 'natural', label: 'Natural' }, { id: 'studio', label: 'Studio' }, { id: 'cinematic', label: 'Cinematic' }];
 
 export default function StudioCaptureScreen() {
   const params = useLocalSearchParams<{ id: string; from?: string }>();
@@ -55,6 +56,10 @@ export default function StudioCaptureScreen() {
   const [sensorOrientation, setSensorOrientation] = useState<string | null>(null);
   const [zoom, setZoom] = useState(0);
   const [videoQuality, setVideoQuality] = useState<'1080p' | '720p'>('1080p');
+  const [captureGrade, setCaptureGrade] = useState<StudioGrade>(() => studioGrade());
+  const [effectBusy, setEffectBusy] = useState(false);
+  const [effectSupported, setEffectSupported] = useState(false);
+  const [effectError, setEffectError] = useState<string | null>(null);
   const [countdownSeconds, setCountdownSeconds] = useState(3);
   const [panel, setPanel] = useState<CapturePanel | null>(null);
   const [importing, setImporting] = useState(false);
@@ -68,6 +73,9 @@ export default function StudioCaptureScreen() {
   const [failure, setFailure] = useState<string | null>(null);
   const [recovery, setRecovery] = useState<RecoverableTake | null>(null);
   const camera = useRef<StudioCaptureCameraHandle>(null);
+  const captureGradeRef = useRef(captureGrade); captureGradeRef.current = captureGrade;
+  const effectBusyRef = useRef(false), effectSequence = useRef(0);
+  const captureContext = useRef({ id, focused }); captureContext.current = { id, focused };
   const audio = useRef<Audio.Recording | null>(null);
   const videoOperation = useRef<ReturnType<typeof createStudioVideoStopOperation> | null>(null);
   const scriptScroll = useRef<ScrollView>(null);
@@ -100,6 +108,7 @@ export default function StudioCaptureScreen() {
   const cameraMounted = !isAudio && Device.isDevice && permitted && !busyProject && permissionGranted
     && focused && foreground && orientationReady && screenMatches;
   const nativeCamera = Platform.OS === 'ios' && isStudioNativeCameraAvailable();
+  const nativeEffects = !isAudio && nativeCamera && isStudioNativeCameraEffectsAvailable();
   const cameraControls = useStudioCaptureCamera(camera, facing, cameraMounted, { native: nativeCamera, orientation: project?.kind === 'aula' ? 'landscape' : 'portrait' });
   const captureReadiness = useRef({ sensorMatches, screenMatches, ready, orientationReady });
   captureReadiness.current = { sensorMatches, screenMatches, ready, orientationReady };
@@ -149,6 +158,77 @@ export default function StudioCaptureScreen() {
       throw new Error('Sua sessão mudou. Abra o Studio na conta que iniciou esta gravação.');
     }
   }
+  async function confirmCaptureGrade(next: StudioGrade): Promise<boolean> {
+    const ownedCamera = camera.current;
+    if (!nativeEffects || !isStudioNativeCameraHandle(ownedCamera)) {
+      effectSequence.current++; effectBusyRef.current = false;
+      const natural = !normalizeStudioCaptureGrade(next);
+      if (mounted.current) { setEffectBusy(false); setEffectSupported(false); setEffectError(natural ? null : 'Abra a câmera nativa para confirmar o tratamento.'); }
+      return natural;
+    }
+    const sequence = ++effectSequence.current;
+    effectBusyRef.current = true;
+    if (mounted.current) { setEffectBusy(true); setEffectError(null); }
+    try {
+      const ack = await ownedCamera.setEffectAsync(next);
+      if (!mounted.current || sequence !== effectSequence.current || camera.current !== ownedCamera) return false;
+      setEffectSupported(ack.previewProcessed);
+      return true;
+    } catch (cause) {
+      if (mounted.current && sequence === effectSequence.current && camera.current === ownedCamera) {
+        setEffectSupported(false);
+        setEffectError(cause instanceof Error ? cause.message : 'Não foi possível visualizar este tratamento. Use Natural ou tente novamente.');
+      }
+      return false;
+    } finally {
+      if (sequence === effectSequence.current) {
+        effectBusyRef.current = false;
+        if (mounted.current) setEffectBusy(false);
+      }
+    }
+  }
+  async function chooseCaptureGrade(next: StudioGrade) {
+    if (!project || phaseRef.current !== 'idle' || recovery || !permitted || !nativeEffects || cameraControls.isBusy()) return;
+    const target = project;
+    try {
+      assertSession(target);
+      const latest = getStudioProject(target.ownerId, target.id);
+      if (!latest) return;
+      if (normalizeStudioCaptureGrade(next) && studioEditing(latest).output.profile === 'legacy-source') {
+        if (effectBusyRef.current) return;
+        effectBusyRef.current = true; setEffectBusy(true);
+        const accepted = await new Promise<boolean>(resolve => Alert.alert('Usar tratamento nesta montagem?',
+          'A montagem com tratamento será exportada em 1080p, 30 FPS e SDR. Seu vídeo original continua preservado.',
+          [{ text: 'Cancelar', style: 'cancel', onPress: () => resolve(false) }, { text: 'Usar 1080p', onPress: () => resolve(true) }],
+          { cancelable: true, onDismiss: () => resolve(false) }));
+        assertSession(target);
+        if (!accepted || !mounted.current || !captureContext.current.focused || captureContext.current.id !== target.id || phaseRef.current !== 'idle') {
+          effectBusyRef.current = false; if (mounted.current) setEffectBusy(false); return;
+        }
+        await mutateStudioProject(target.ownerId, target.id, current => {
+          assertSession(target);
+          return { editing: withStudioStandardOutput(studioEditing(current)) };
+        });
+        assertSession(target);
+        effectBusyRef.current = false; if (mounted.current) setEffectBusy(false);
+      }
+      if (!mounted.current || !captureContext.current.focused || captureContext.current.id !== target.id || phaseRef.current !== 'idle') return;
+      captureGradeRef.current = { ...next }; setCaptureGrade({ ...next });
+      await confirmCaptureGrade(next);
+    } catch (cause) {
+      if (mounted.current) setEffectError(cause instanceof Error ? cause.message : 'Não foi possível preparar o tratamento.');
+      effectBusyRef.current = false; if (mounted.current) setEffectBusy(false);
+    }
+  }
+  useEffect(() => {
+    effectSequence.current++; effectBusyRef.current = false;
+    const natural = studioGrade(); captureGradeRef.current = natural;
+    setCaptureGrade(natural); setEffectBusy(false); setEffectSupported(false); setEffectError(null);
+  }, [project?.id, user?.id]);
+  useEffect(() => {
+    if (!cameraMounted || !ready || !nativeEffects || phaseRef.current !== 'idle') return;
+    void confirmCaptureGrade(captureGradeRef.current);
+  }, [cameraMounted, ready, nativeEffects, cameraControls.state?.generation]);
   async function saveTake(target: StudioProject, uri: string, duration: number, metadata?: CaptureMetadata) {
     transition('saving');
     const recoverable = { project: target, uri, duration, metadata };
@@ -160,10 +240,13 @@ export default function StudioCaptureScreen() {
       assertSession(target);
       const current = getStudioProject(target.ownerId, target.id);
       if (!current) throw new Error('O projeto desta gravação não está disponível.');
-      const saved = await mutateStudioProject(target.ownerId, target.id, current => ({
-        takes: current.takes.some(existing => existing.id === take.id) ? current.takes : [...current.takes, take],
-        ...(!current.coverUri && !current.coverUrl && take.thumbnailUri ? { coverUri: take.thumbnailUri } : {}),
-      }));
+      const saved = await mutateStudioProject(target.ownerId, target.id, current => {
+        assertSession(target);
+        return {
+          takes: current.takes.some(existing => existing.id === take.id) ? current.takes : [...current.takes, take],
+          ...(!current.coverUri && !current.coverUrl && take.thumbnailUri ? { coverUri: take.thumbnailUri } : {}),
+        };
+      });
       if (mounted.current) {
         setRecovery(null); setFailure(null);
         setNotice(`Take ${saved.takes.findIndex(existing => existing.id === take.id) + 1} salvo. Pronto para o próximo.`);
@@ -334,7 +417,7 @@ export default function StudioCaptureScreen() {
     } catch { setFailure('Não foi possível abrir as permissões. Confira os Ajustes do iPhone.'); }
   }
   async function beginRecording() {
-    if (!project || phaseRef.current !== 'idle' || recovery || busyProject) return;
+    if (!project || phaseRef.current !== 'idle' || recovery || busyProject || effectBusyRef.current) return;
     let operationToken: number | null = null;
     let ownedRecording: Audio.Recording | null = null;
     try {
@@ -360,7 +443,16 @@ export default function StudioCaptureScreen() {
       if (!isAudio && (!positioned.ready || !cameraControls.isReady())) {
         throw new Error('A câmera foi interrompida. Aguarde a imagem ficar pronta e grave novamente.');
       }
-      if (!isAudio && !await cameraControls.prepareRecording()) throw new Error('A câmera não confirmou o enquadramento. Aguarde a imagem e tente novamente.');
+      if (!isAudio) {
+        const positionedCamera = await cameraControls.prepareRecording();
+        if (token !== countdownToken.current || !mounted.current || AppState.currentState !== 'active') return;
+        if (!positionedCamera) throw new Error('A câmera não confirmou o enquadramento. Aguarde a imagem e tente novamente.');
+        if (nativeEffects) {
+          const treatmentReady = await confirmCaptureGrade(captureGradeRef.current);
+          if (token !== countdownToken.current || !mounted.current || AppState.currentState !== 'active') return;
+          if (!treatmentReady) throw new Error('A câmera não confirmou o tratamento. Use Natural ou escolha o ajuste novamente.');
+        }
+      }
       if (token !== countdownToken.current || !mounted.current || AppState.currentState !== 'active') return;
       assertSession(project);
       setCountdown(0);
@@ -417,9 +509,9 @@ export default function StudioCaptureScreen() {
             if (videoOperation.current === operation) videoOperation.current = null;
           });
         if (!result?.uri) throw new Error('A câmera não entregou um arquivo. Grave um novo take.');
-        const captured = isStudioNativeCameraHandle(ownedCamera) ? result as StudioNativeRecording : undefined;
+        const captured = isStudioNativeCameraHandle(ownedCamera) ? result as StudioCaptureRecording : undefined;
         const metadata: CaptureMetadata | undefined = captured ? {
-          sourceKind: captured.sourceKind, sourceStage: captured.sourceStage, frameRate: captured.frameRate,
+          sourceKind: captured.sourceKind, sourceStage: captured.sourceStage, frameRate: captured.frameRate, grade: captured.grade,
           colorSpace: captured.colorPrimaries === 'ITU_R_709_2' && captured.transferFunction === 'ITU_R_709_2' ? 'rec709'
             : captured.colorPrimaries && captured.colorPrimaries !== 'unknown' ? captured.colorPrimaries : undefined,
         } : undefined;
@@ -428,7 +520,7 @@ export default function StudioCaptureScreen() {
     } catch (cause) {
       pendingNavigation.current = null;
       if (!isAudio && cause instanceof StudioNativeRecordingError && cause.recoveryUri) {
-        await saveTake(project, cause.recoveryUri, (Date.now() - startedAt.current) / 1000, { sourceKind: 'standard', sourceStage: 'standard' });
+        await saveTake(project, cause.recoveryUri, (Date.now() - startedAt.current) / 1000, { sourceKind: 'standard', sourceStage: 'standard', grade: cause.grade });
         return;
       }
       const recording = ownedRecording;
@@ -476,7 +568,8 @@ export default function StudioCaptureScreen() {
   const captureAvailable = permitted && !loading && !busyProject;
   const toolsDisabled = !idle || !!recovery || !captureAvailable;
   const recordDisabled = phase === 'saving' || cancelingAudio || idle && (!!recovery || busyProject || !permitted || !Device.isDevice
-    || !permissionGranted || !orientationReady || !isAudio && (!ready || !screenMatches || !sensorMatches || cameraControls.busy || cameraControls.available && !cameraControls.state));
+    || !permissionGranted || !orientationReady || !isAudio && (!ready || !screenMatches || !sensorMatches || cameraControls.busy || effectBusy
+      || !!normalizeStudioCaptureGrade(captureGrade) && (!effectSupported || !!effectError) || cameraControls.available && !cameraControls.state));
   const cameraState = cameraControls.state;
   const qualities: ('720p' | '1080p' | '2160p')[] = cameraState?.qualities.map(item => item.quality) || ['720p', '1080p'];
   const confirmedQuality = cameraState?.quality || videoQuality;
@@ -507,7 +600,7 @@ export default function StudioCaptureScreen() {
   const safeLeft = Math.max(insets.left, 18);
   const safeRight = Math.max(insets.right, 18);
   const scriptPresent = !!project?.script.trim();
-  const panelTitle = panel === 'timer' ? 'Temporizador' : panel === 'quality' ? cameraState ? 'Câmera Pro' : 'Qualidade do vídeo' : 'Teleprompter';
+  const panelTitle = panel === 'timer' ? 'Temporizador' : panel === 'quality' ? cameraState ? 'Câmera Pro' : 'Qualidade do vídeo' : panel === 'treatment' ? 'Tratamento' : 'Teleprompter';
   const readyHint = isAudio ? 'Uma conversa. Uma ideia por take.' : project?.kind === 'aula' ? 'Seu conhecimento em uma aula.' : 'Uma ideia que merece ser compartilhada.';
   const stateHint = phase === 'saving' ? importing ? 'Importando seus originais…' : 'Salvando seu take…'
     : phase === 'recording' ? 'Toque para encerrar o take' : phase === 'countdown' ? 'Toque para cancelar'
@@ -568,7 +661,13 @@ export default function StudioCaptureScreen() {
       {nativeCamera ? <StudioNativeCamera ref={camera as React.Ref<StudioNativeCameraHandle>} style={StyleSheet.absoluteFill}
         onCameraReady={() => { void cameraControls.initialize().then(result => { if (result !== undefined && mounted.current) setReady(result); }); }}
         onRecordingState={event => { if (event.phase === 'recording' && phaseRef.current === 'recording') startedAt.current = Date.now(); }}
-        onInterruption={event => { if (mounted.current && event.message) setNotice(event.message); }}
+        onInterruption={event => { if (mounted.current) {
+          if (event.message) setNotice(event.message);
+          if (event.reason === 'previewFallback') {
+            setEffectSupported(false);
+            setEffectError('A prévia do tratamento foi interrompida. Escolha Natural para o próximo take ou ajuste a imagem no editor.');
+          }
+        } }}
         onMountError={event => { if (mounted.current) { setReady(false); setFailure(event.message); } }} />
       : <CameraView ref={camera as React.Ref<CameraView>} style={StyleSheet.absoluteFill}
         facing={facing} mode="video" videoQuality={cameraControls.available ? '1080p' : videoQuality} videoStabilizationMode="auto" autofocus="on"
@@ -630,6 +729,10 @@ export default function StudioCaptureScreen() {
       </CaptureTool>
       {!isAudio && cameraState && <CaptureTool label="Abrir controles Pro da câmera" disabled={phase === 'saving'} onPress={() => setPanel('quality')}>
         <SlidersHorizontal size={22} color={colors.text} strokeWidth={1.5} />
+      </CaptureTool>}
+      {!isAudio && <CaptureTool label={`Tratamento: ${capturePresets.find(item => item.id === captureGrade.preset)?.label || 'Natural'}`}
+        selected={!!normalizeStudioCaptureGrade(captureGrade)} disabled={toolsDisabled} onPress={() => setPanel('treatment')}>
+        {effectBusy ? <ActivityIndicator size={20} color={colors.text} /> : <Palette size={22} color={colors.text} strokeWidth={1.5} />}
       </CaptureTool>}
       <CaptureTool label="Abrir teleprompter" selected={showScript && scriptPresent} disabled={!permitted || phase === 'saving'} onPress={() => setPanel('script')}>
         <FileText size={22} color={colors.text} strokeWidth={1.5} />
@@ -707,6 +810,31 @@ export default function StudioCaptureScreen() {
                 style={({ pressed }) => [styles.option, countdownSeconds === seconds && styles.optionSelected, pressed && styles.pressed]}>
                 <Text style={[styles.optionText, countdownSeconds === seconds && styles.optionTextSelected]}>{seconds ? `${seconds}s` : 'Sem'}</Text>
               </Pressable>)}</View>
+            </>}
+            {panel === 'treatment' && <>
+              <Text style={styles.panelDetail}>{nativeEffects
+                ? 'Veja o tratamento na câmera e ajuste a intensidade. O original fica intacto; você pode mudar o resultado depois no editor.'
+                : 'A prévia de tratamento precisa da câmera nativa atualizada. Nesta versão, a gravação mantém a imagem original.'}</Text>
+              <View style={styles.optionRow}>{capturePresets.map(preset => <Pressable key={preset.id} accessibilityRole="button"
+                accessibilityLabel={`Tratamento ${preset.label}`} accessibilityState={{ selected: captureGrade.preset === preset.id, disabled: !nativeEffects || toolsDisabled || cameraControls.busy || effectBusy }}
+                disabled={!nativeEffects || toolsDisabled || cameraControls.busy || effectBusy}
+                onPress={() => { void chooseCaptureGrade({ ...studioGrade(preset.id), intensity: captureGrade.intensity }); }}
+                style={({ pressed }) => [styles.option, captureGrade.preset === preset.id && styles.optionSelected,
+                  (!nativeEffects || toolsDisabled || effectBusy) && styles.disabled, pressed && styles.pressed]}>
+                <Text style={[styles.optionText, captureGrade.preset === preset.id && styles.optionTextSelected]}>{preset.label}</Text>
+              </Pressable>)}</View>
+              <View style={{ gap: 8 }}>
+                <View style={styles.settingRow}><Text style={styles.settingLabel}>Intensidade</Text><Text style={styles.cameraValue}>{Math.round(captureGrade.intensity * 100)}%</Text></View>
+                <StudioCaptureZoom controlName="intensidade do tratamento" value={captureGrade.intensity}
+                  onChange={value => { void chooseCaptureGrade({ ...captureGradeRef.current, intensity: Math.round(value * 100) / 100 }); }}
+                  label={`${Math.round(captureGrade.intensity * 100)}%`} disabled={!nativeEffects || toolsDisabled || cameraControls.busy || captureGrade.preset === 'natural'}
+                  style={{ position: 'relative', alignSelf: 'center', width: '100%' }} />
+                <Text style={styles.cameraHint}>{captureGrade.preset === 'natural' ? 'Natural mantém a imagem da câmera.' : captureGrade.preset === 'studio' ? 'Studio aplica luz suave no rosto e equilibra os tons.' : 'Cinematic ajusta as cores; não aplica desfoque de fundo.'}</Text>
+              </View>
+              <View style={styles.settingRow}>{effectBusy ? <ActivityIndicator size={13} color={colors.textSecondary} /> : null}
+                <Text accessibilityLiveRegion="polite" style={[styles.cameraHint, effectError && styles.failure]}>{effectError || (effectBusy ? 'Confirmando a prévia…' : nativeEffects && effectSupported ? 'Tratamento confirmado na prévia.' : 'Gravação com a imagem original.')}</Text>
+              </View>
+              <Text style={styles.cameraHint}>Montagem com tratamento: 1080p · 30 FPS · SDR. O arquivo capturado mantém a qualidade escolhida na câmera.</Text>
             </>}
             {panel === 'quality' && <>
               <Text style={styles.panelDetail}>{cameraState ? 'Resolução e movimento do seu vídeo. Toque em HD ou FPS na câmera para alternar rapidamente.' : 'Mais qualidade ou um arquivo mais leve. A resolução pode variar conforme a câmera do seu aparelho.'}</Text>

@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { addStudioLayerItem, compileStudioRecipe, createStudioTextItem, deriveStudioTakes, emptyStudioEditing,
   legacyTimelineSignature, migrateStudioProject, patchStudioClipGrade, patchStudioLayerItem, rebaseStudioProject,
-  reconcileStudioTakes, removeStudioLayerItem, studioGrade, studioSeconds, studioTicks, timelineSignature,
+  normalizeStudioCaptureGrade, reconcileStudioTakes, removeStudioLayerItem, studioGrade, studioSeconds, studioTicks, timelineSignature,
   validateStudioEditing, validateStudioRecipe, withStudioStandardOutput, withStudioTakes } from './model.ts';
 const take = (id, start = 0, end = 10, patch = {}) => ({ id, uri: `file:///old/Documents/classfy-studio/owner/project/${id}.mp4`,
   name: id, duration: 10, start, end, width: 1920, height: 1080, ...patch });
@@ -12,6 +12,45 @@ const legacy = (patch = {}) => ({ version: 1, id: 'project', ownerId: 'owner', k
 function standard() { const p = migrateStudioProject(legacy()); return withStudioTakes({ ...p, editing: withStudioStandardOutput(p.editing) }); }
 const frame = editing => withStudioTakes({ ...legacy(), version: 2, editing });
 const ticks = studioTicks;
+
+test('tratamento de captura pertence ao novo clip, não ao asset, e corte não reverte tratamento editado', () => {
+  const captured = { ...studioGrade('studio'), intensity: 0.45, temperature: 0.1 };
+  const input = take('new', 0, 10, { grade: captured });
+  const initial = reconcileStudioTakes({ kind: 'aula', editing: emptyStudioEditing('aula') }, [input]);
+  const p = frame(initial);
+  assert.deepEqual(p.takes[0].grade, captured); assert.equal(Object.hasOwn(p.editing.assets[0], 'grade'), false);
+  const grade = { ...captured, preset: 'cinematic', intensity: 0.8, exposure: 0.2 };
+  const edited = frame(patchStudioClipGrade(p.editing, 'new', grade));
+  const cut = reconcileStudioTakes(edited, [{ ...input, start: 1, end: 9 }]);
+  assert.deepEqual(cut.main[0].grade, grade, 'a stale capture adapter cannot revert a canonical edit of the same clip');
+  assert.equal(cut.main[0].sourceStartTicks, ticks(1)); assert.equal(cut.main[0].sourceEndTicks, ticks(9));
+  const recipe = compileStudioRecipe(frame(cut));
+  assert.deepEqual(recipe.clips[0].grade, grade); assert.equal(recipe.clips.length, 1);
+  assert.deepEqual(cut.assets, initial.assets);
+});
+
+test('Natural identidade não cria receita; Natural ajustado e presets em intensidade zero permanecem reversíveis', () => {
+  assert.equal(normalizeStudioCaptureGrade({ ...studioGrade(), intensity: 0.4 }), undefined);
+  const natural = { ...studioGrade(), exposure: 0.2 };
+  assert.deepEqual(normalizeStudioCaptureGrade(natural), natural);
+  for (const preset of ['studio', 'cinematic']) {
+    const original = { ...studioGrade(preset), intensity: 0 };
+    const snapshot = normalizeStudioCaptureGrade(original);
+    assert.deepEqual(snapshot, original); original.intensity = 0.75; assert.equal(snapshot.intensity, 0);
+  }
+  for (const patch of [{ preset: 'outro' }, { intensity: NaN }, { intensity: -0.1 }, { exposure: 2.01 }, { contrast: -1.01 }, { saturation: 1.01 }, { temperature: Infinity }]) {
+    assert.throws(() => normalizeStudioCaptureGrade({ ...studioGrade(), ...patch }), /ajustes de cor/);
+  }
+});
+
+test('migração não certifica export legado sem tratamento como render de captura tratada', () => {
+  const original = legacy({ takes: [take('a', 0, 10, { grade: { ...studioGrade('studio'), intensity: 0.5 } })] });
+  original.exportedSignature = original.uploadSignature = legacyTimelineSignature(original);
+  const p = migrateStudioProject(original);
+  assert.notEqual(p.exportedSignature, timelineSignature(p)); assert.notEqual(p.uploadSignature, timelineSignature(p));
+  assert.equal(p.editing.output.profile, 'legacy-source'); assert.equal(p.takes[0].grade.preset, 'studio');
+  assert.notEqual(timelineSignature(original), timelineSignature({ ...original, takes: [take('a')] }));
+});
 
 test('schema2 tem takes derivados estáveis e JSON com uma única fonte canônica', () => {
   const p = standard();

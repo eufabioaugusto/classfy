@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 import ts from 'typescript';
+const plain = value => JSON.parse(JSON.stringify(value));
 function compile(file, dependencies) {
   const source = ts.transpileModule(readFileSync(new URL(file, import.meta.url), 'utf8'), { compilerOptions: {
     module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, esModuleInterop: true,
@@ -25,8 +26,11 @@ function harness(options = {}) {
     getItem: async key => data.get(key) || null, setItem: async (key, value) => { data.set(key, value); },
   }, 'expo-file-system/legacy': fileSystem, 'expo-crypto': crypto, './model': model });
   const nativeCalls = [];
+  const copies = [];
+  const copy = fileSystem.copyAsync;
+  fileSystem.copyAsync = async options => { copies.push(options); await copy(options); };
   const native = {
-    isStudioMediaAvailable: () => true, isStudioCompositionAvailable: () => true,
+    isStudioMediaAvailable: () => options.mediaAvailable !== false, isStudioCompositionAvailable: () => options.compositionAvailable !== false,
     exportRecipeAsync: async options => { nativeExports++; nativeCalls.push({ kind: 'recipe', ...options }); return { uri: options.outputUri, duration: 2, mimeType: 'video/mp4', fileSize: 100 }; },
     getMediaInfoAsync: async uri => {
       if (!repair && disk.get(uri)?.bad) throw new Error('Arquivo temporariamente ilegível');
@@ -46,7 +50,7 @@ function harness(options = {}) {
       await sessionCheck?.(); return { data: { session: { user: { id: sessionOwner } } } };
     } } } }, '../../../modules/classfy-studio-media': native, './model': model, './store': store,
   });
-  return { media, store, model, nativeCalls, disk, data, repair: () => { repair = true; }, nativeExports: () => nativeExports,
+  return { media, store, model, nativeCalls, copies, disk, data, repair: () => { repair = true; }, nativeExports: () => nativeExports,
     sessionCheck: fn => { sessionCheck = fn; }, copyCheck: fn => { copyCheck = fn; }, owner: id => { sessionOwner = id; }, cancelPicker: () => { pickerCanceled = true; } };
 }
 test('lote parcialmente ilegível preserva take pronto e journal do arquivo pendente', async () => {
@@ -210,4 +214,77 @@ test('áudio curto ajusta fades à duração conhecida depois do picker sem perd
   assert.ok(music.fadeInTicks + music.fadeOutTicks <= music.durationTicks);
   assert.equal(saved.pendingTakes.length, 0);
   assert.equal(h.model.validateStudioEditing(saved.editing, 'aula').length, 0);
+});
+
+test('captura interrompida recupera preset e intensidade no clip após restart sem processar ou copiar o original novamente', async () => {
+  const h = harness(); const p = await h.store.createStudioProject('owner', 'aula', { transient: true });
+  const grade = { ...h.model.studioGrade('cinematic'), intensity: 0.65, exposure: 0.15, contrast: -0.1, saturation: 0.05, temperature: 0.2 };
+  const expected = { ...grade };
+  await assert.rejects(h.media.persistStudioTake(p, { uri: 'file:///broken-recording.mp4', grade }), /ilegível/);
+  grade.intensity = 0.1;
+  const pending = h.store.getStudioProject('owner', p.id).pendingTakes[0];
+  assert.deepEqual(plain(pending.grade), expected); assert.equal(h.copies.length, 1); assert.equal(h.nativeExports(), 0);
+  const restarted = harness({ data: h.data, disk: h.disk }); restarted.repair(); await restarted.store.loadStudioProjects('owner');
+  const recovery = await restarted.media.recoverPendingStudioTakes(restarted.store.getStudioProject('owner', p.id));
+  assert.equal(recovery.recovered, 1); assert.equal(recovery.errors.length, 0); assert.equal(restarted.copies.length, 0);
+  const saved = restarted.store.getStudioProject('owner', p.id);
+  assert.equal(saved.pendingTakes.length, 0); assert.equal(saved.takes.length, 1);
+  assert.deepEqual(plain(saved.takes[0].grade), expected); assert.equal(saved.takes[0].uri, pending.uri);
+  assert.equal(Object.hasOwn(saved.editing.assets[0], 'grade'), false, 'color treatment must not become metadata of an immutable original');
+  assert.equal(restarted.nativeExports(), 0, 'persist/recover never bakes a second video');
+  await restarted.media.exportStudioProject(saved);
+  assert.equal(restarted.nativeExports(), 1);
+  const recipe = JSON.parse(restarted.nativeCalls[0].recipeJSON);
+  assert.equal(recipe.clips.length, 1); assert.deepEqual(recipe.clips[0].grade, expected);
+  assert.equal(Object.hasOwn(recipe.assets[0], 'grade'), false); assert.equal(recipe.assets[0].uri, pending.uri);
+});
+
+test('retry usa o tratamento original do journal e não o preset atual da interface', async () => {
+  const h = harness(); const p = await h.store.createStudioProject('owner', 'short');
+  const initial = { ...h.model.studioGrade('studio'), intensity: 0.4 };
+  await assert.rejects(h.media.persistStudioTake(p, { uri: 'file:///broken.mp4', grade: initial }), /ilegível/);
+  h.repair();
+  const take = await h.media.persistStudioTake(p, { uri: 'file:///broken.mp4', grade: { ...h.model.studioGrade('cinematic'), intensity: 0.9 } });
+  assert.deepEqual(plain(take.grade), initial); assert.equal(h.copies.length, 1);
+  const saved = await h.store.mutateStudioProject('owner', p.id, latest => ({ takes: [...latest.takes, take] }));
+  assert.deepEqual(plain(saved.editing.main[0].grade), initial); assert.equal(saved.pendingTakes.length, 0);
+});
+
+test('snapshot de tratamento é copiado antes de await e captura Natural não cria edição artificial', async () => {
+  const h = harness(); const p = await h.store.createStudioProject('owner', 'aula');
+  const grade = { ...h.model.studioGrade('studio'), intensity: 0.6 };
+  h.sessionCheck(async () => { grade.intensity = 0.1; });
+  const take = await h.media.persistStudioTake(p, { uri: 'file:///recording.mp4', grade });
+  assert.equal(take.grade.intensity, 0.6); assert.equal(h.store.getStudioProject('owner', p.id).pendingTakes[0].grade.intensity, 0.6);
+  h.sessionCheck(undefined);
+  const natural = await h.media.persistStudioTake(p, { uri: 'file:///natural.mp4', grade: { ...h.model.studioGrade(), intensity: 0.35 } });
+  assert.equal(natural.grade, undefined);
+  assert.equal(h.store.getStudioProject('owner', p.id).pendingTakes.find(pending => pending.id === natural.id).grade, undefined);
+});
+
+test('preset ou valor inválido rejeita a gravação antes de copiar ou gravar journal', async () => {
+  const h = harness(); const p = await h.store.createStudioProject('owner', 'aula');
+  for (const patch of [{ preset: 'inventado' }, { intensity: 1.01 }, { exposure: NaN }, { temperature: -1.01 }]) {
+    await assert.rejects(h.media.persistStudioTake(p, { uri: 'file:///recording.mp4', grade: { ...h.model.studioGrade(), ...patch } }), /ajustes de cor/);
+  }
+  assert.equal(h.copies.length, 0); assert.equal(h.store.getStudioProject('owner', p.id).pendingTakes, undefined);
+});
+
+test('binário sem composição preserva a receita capturada e falha sem exportar versão sem tratamento', async () => {
+  const h = harness({ compositionAvailable: false }); const p = await h.store.createStudioProject('owner', 'aula');
+  const grade = { ...h.model.studioGrade('studio'), intensity: 0.55 };
+  const take = await h.media.persistStudioTake(p, { uri: 'file:///recording.mp4', grade });
+  const saved = await h.store.updateStudioProject('owner', p.id, { takes: [take] });
+  await assert.rejects(h.media.exportStudioProject(saved), /Atualize o Classfy Dev/);
+  assert.equal(h.nativeExports(), 0); assert.deepEqual(plain(h.store.getStudioProject('owner', p.id).editing.main[0].grade), grade);
+  assert.ok(h.disk.has(take.uri));
+});
+
+test('captura Natural identidade mantém export original de projeto legado em binário antigo', async () => {
+  const h = harness({ compositionAvailable: false }); const p = await h.store.createStudioProject('owner', 'aula');
+  const legacy = await h.store.updateStudioProject('owner', p.id, { editing: { ...p.editing, output: { ...p.editing.output, profile: 'legacy-source', colorSpace: 'source' } } });
+  const take = await h.media.persistStudioTake(legacy, { uri: 'file:///natural.mp4', grade: { ...h.model.studioGrade(), intensity: 0.5 } });
+  const saved = await h.store.updateStudioProject('owner', p.id, { takes: [take] });
+  assert.equal(saved.editing.main[0].grade, undefined);
+  await h.media.exportStudioProject(saved); assert.equal(h.nativeCalls[0].kind, 'legacy');
 });

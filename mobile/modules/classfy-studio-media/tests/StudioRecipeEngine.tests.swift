@@ -47,6 +47,42 @@ struct StudioRecipeEngineTests {
   static func main() async throws {
     guard [6, 7].contains(CommandLine.arguments.count) else { throw StudioRecipeError.invalid("Informe red, blue, image, audio, saída e opcionalmente uma foto com rosto.") }
     let root = URL(fileURLWithPath: CommandLine.arguments[5])
+    // The camera and final compositor share this renderer. Validate intensity
+    // independently from UI or camera hardware using an offscreen tonal ramp.
+    let effectRenderer = StudioEffectRenderer()
+    let effectExtent = CGRect(x: 0, y: 0, width: 256, height: 144)
+    let ramp = CIFilter(name: "CILinearGradient", parameters: [
+      "inputPoint0": CIVector(x: 0, y: 72), "inputPoint1": CIVector(x: 256, y: 72),
+      "inputColor0": CIColor(red: 0.03, green: 0.04, blue: 0.05),
+      "inputColor1": CIColor(red: 0.8, green: 0.75, blue: 0.65)
+    ])!.outputImage!.cropped(to: effectExtent)
+    func rendered(_ image: CIImage) -> CGImage {
+      effectRenderer.context.createCGImage(image, from: effectExtent, format: .RGBA8,
+        colorSpace: StudioEffectRenderer.outputColorSpace)!
+    }
+    let ungradedRamp = rendered(ramp)
+    for preset in ["natural", "studio", "cinematic"] {
+      let fullGrade = StudioImageGrade(preset: preset, intensity: 1, exposure: -0.7, contrast: 0.2, saturation: -0.2)
+      var zeroGrade = fullGrade; zeroGrade.intensity = 0
+      var halfGrade = fullGrade; halfGrade.intensity = 0.5
+      let zero = rendered(effectRenderer.outputImage(ramp, grade: zeroGrade))
+      let half = rendered(effectRenderer.outputImage(ramp, grade: halfGrade))
+      let full = rendered(effectRenderer.outputImage(ramp, grade: fullGrade))
+      let raw = rendered(effectRenderer.outputImage(ramp, grade: fullGrade, sourceStage: .cinematicRaw))
+      for x in [32, 128, 224] {
+        let original = pixel(ungradedRamp, x: x, y: 72)
+        let middle = pixel(half, x: x, y: 72), treated = pixel(full, x: x, y: 72)
+        try require(pixel(zero, x: x, y: 72) == original, "intensidade zero preserva a origem em \(preset)")
+        try require(pixel(raw, x: x, y: 72) == original, "fonte Cinema crua não recebe tratamento fictício")
+        for channel in 0..<3 {
+          let value = Int(middle[channel])
+          try require(value >= Int(min(original[channel], treated[channel])) - 1
+            && value <= Int(max(original[channel], treated[channel])) + 1,
+            "intensidade intermediária fica entre origem e tratamento em \(preset)")
+        }
+      }
+    }
+    print("Presets: intensidade0 preserva origem; intensidade0.5 permanece entre origem e tratamento; Cinema cru preservado.")
     func uri(_ index: Int) -> String { URL(fileURLWithPath: CommandLine.arguments[index]).absoluteString }
     func asset(_ id: String, _ kind: String, _ index: Int) -> [String: Any] {
       ["id": id, "kind": kind, "uri": uri(index), "durationTicks": 240_000, "sourceStage": "standard"]

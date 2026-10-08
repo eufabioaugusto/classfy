@@ -139,6 +139,11 @@ public final class ClassfyStudioMediaModule: Module {
     AsyncFunction("setStudioNativeCameraTorchAsync") { (tag: Int, enabled: Bool, promise: Promise) in
       self.withNativeCamera(tag, promise) { view in view.torch(enabled) { self.settleCamera($0, promise: promise) } }
     }.runOnQueue(.main)
+    AsyncFunction("setStudioNativeCameraEffectAsync") { (tag: Int, recipeJSON: String, promise: Promise) in
+      self.withNativeCamera(tag, promise) { view in
+        view.setCaptureEffect(recipeJSON) { self.settleCamera($0, promise: promise) }
+      }
+    }.runOnQueue(.main)
     AsyncFunction("setStudioNativeCameraFocusAsync") { (tag: Int, options: StudioCameraFocusRecord, promise: Promise) in
       self.withNativeCamera(tag, promise) { view in view.focus(x: options.x, y: options.y, locked: options.locked) { self.settleCamera($0, promise: promise) } }
     }.runOnQueue(.main)

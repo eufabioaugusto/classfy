@@ -6,7 +6,7 @@ import { randomUUID } from 'expo-crypto';
 import { Alert } from 'react-native';
 import { supabase } from '@/lib/supabase';
 import { cancelExportAsync, exportRecipeAsync, isStudioCompositionAvailable, exportTimelineAsync, generateThumbnailAsync, getMediaInfoAsync, isStudioMediaAvailable } from '../../../modules/classfy-studio-media';
-import { addStudioLayerItem, compileStudioRecipe, studioEditing, studioTicks, timelineSignature, validateStudioRecipe, type StudioProject, type StudioTake, type StudioAsset, type StudioLayerItem } from './model';
+import { addStudioLayerItem, compileStudioRecipe, normalizeStudioCaptureGrade, studioEditing, studioTicks, timelineSignature, validateStudioRecipe, type StudioProject, type StudioTake, type StudioAsset, type StudioLayerItem, type StudioPendingTake } from './model';
 import { getStudioProject, mutateStudioProject, retainStudioProjectMedia, updateStudioProject } from './store';
 
 export async function assertStudioOwner(project: StudioProject) {
@@ -19,7 +19,8 @@ export async function studioProjectDirectory(project: StudioProject) {
   await FileSystem.makeDirectoryAsync(uri, { intermediates: true });
   return uri;
 }
-export async function persistStudioTake(project: StudioProject, source: { uri: string; name?: string; duration?: number; sourceKind?: StudioTake['sourceKind']; sourceStage?: StudioTake['sourceStage']; frameRate?: number; colorSpace?: string }): Promise<StudioTake> {
+export async function persistStudioTake(project: StudioProject, source: { uri: string; name?: string; duration?: number; sourceKind?: StudioTake['sourceKind']; sourceStage?: StudioTake['sourceStage']; frameRate?: number; colorSpace?: string; grade?: StudioTake['grade'] }): Promise<StudioTake> {
+  const grade = normalizeStudioCaptureGrade(source.grade);
   await assertStudioOwner(project);
   if (!isStudioMediaAvailable()) throw new Error('Atualize o aplicativo para habilitar o editor nativo neste aparelho.');
   const release = retainStudioProjectMedia(project.ownerId, project.id);
@@ -37,11 +38,12 @@ export async function persistStudioTake(project: StudioProject, source: { uri: s
     const name = source.name || `Take ${project.takes.length + 1}`;
     // Journal the durable copy before metadata/thumbnail work. This also
     // promotes a camera session only after its first original is on disk.
-    await mutateStudioProject(project.ownerId, project.id, current => ({ pendingTakes: [...(current.pendingTakes || []), { id, uri, name, sourceUri: source.uri, sourceKind: source.sourceKind, sourceStage: source.sourceStage, frameRate: source.frameRate, colorSpace: source.colorSpace }] }));
-    return await readStudioTake(project, { ...source, id, uri, name }, directory);
+    const pending: StudioPendingTake = { id, uri, name, sourceUri: source.uri, sourceKind: source.sourceKind, sourceStage: source.sourceStage, frameRate: source.frameRate, colorSpace: source.colorSpace, ...(grade ? { grade } : {}) };
+    await mutateStudioProject(project.ownerId, project.id, current => ({ pendingTakes: [...(current.pendingTakes || []), pending] }));
+    return await readStudioTake(project, pending, directory);
   } finally { release(); }
 }
-async function readStudioTake(project: StudioProject, pending: { id: string; uri: string; name: string; sourceKind?: StudioTake['sourceKind']; sourceStage?: StudioTake['sourceStage']; frameRate?: number; colorSpace?: string }, directory: string): Promise<StudioTake> {
+async function readStudioTake(project: StudioProject, pending: StudioPendingTake, directory: string): Promise<StudioTake> {
   const { id, uri, name } = pending;
   const info = await getMediaInfoAsync(uri);
   if (!Number.isFinite(info.duration) || info.duration < 0.1) throw new Error('O arquivo não tem duração válida. Escolha outro conteúdo.');
@@ -55,14 +57,16 @@ async function readStudioTake(project: StudioProject, pending: { id: string; uri
   await assertStudioOwner(project);
   return { id, uri, name, duration: info.duration,
     sourceKind: pending.sourceKind, sourceStage: pending.sourceStage, frameRate: pending.frameRate ?? info.frameRate, colorSpace: pending.colorSpace,
-    start: 0, end: info.duration, width: info.width, height: info.height, thumbnailUri };
+    start: 0, end: info.duration, width: info.width, height: info.height, thumbnailUri,
+    ...(pending.grade ? { grade: normalizeStudioCaptureGrade(pending.grade) } : {}) };
 }
 async function appendStudioTake(project: StudioProject, take: StudioTake) {
   await assertStudioOwner(project);
-  await mutateStudioProject(project.ownerId, project.id, current => ({
+  const saved = await mutateStudioProject(project.ownerId, project.id, current => ({
     takes: current.takes.some(t => t.id === take.id) ? current.takes : [...current.takes, take],
     ...(!current.coverUri && !current.coverUrl && take.thumbnailUri ? { coverUri: take.thumbnailUri } : {}),
   }));
+  if (saved.pendingTakes?.some(pending => !pending.layerItem && pending.id === take.id)) throw new Error('O tratamento deste take precisa de recuperação. O original continua salvo.');
 }
 export async function recoverPendingStudioTakes(project: StudioProject): Promise<{ recovered: number; errors: string[] }> {
   await assertStudioOwner(project);
@@ -151,6 +155,7 @@ export async function exportStudioProject(project: StudioProject, onProgress?: (
     onProgress?.(progress);
   };
   if (editing.output.profile === 'legacy-source' && (editing.layers.some(layer => layer.items.length) || editing.main.some(clip => clip.grade || clip.effect && clip.effect !== 'natural' || clip.gain !== undefined && clip.gain !== 1) || editing.canvas.backgroundColor !== '#000000' || editing.canvas.aspectRatio !== (project.kind === 'short' ? 'portrait' : 'landscape'))) throw new Error('Escolha o perfil 1080p · 30 FPS · SDR para exportar esta edição com camadas.');
+  if (editing.output.profile === 'standard' && !isStudioCompositionAvailable()) throw new Error('Atualize o Classfy Dev para editar e exportar camadas e tratamentos de imagem.');
   const result = editing.output.profile === 'standard'
     ? await exportRecipeAsync({ requestId: project.id, recipeJSON: JSON.stringify(recipe), outputUri }, progressHandler)
     : await exportTimelineAsync({ requestId: project.id, clips: project.takes.map(t => ({ uri: t.uri, startSeconds: t.start, endSeconds: t.end })),
