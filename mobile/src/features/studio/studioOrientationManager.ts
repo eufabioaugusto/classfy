@@ -1,4 +1,9 @@
 export type StudioOrientationMode = 'landscape' | 'portrait';
+export type StudioPresentation = 'capture' | 'editor' | 'preview';
+
+export function studioOrientationMode(kind: string | undefined, presentation: StudioPresentation = 'capture'): StudioOrientationMode {
+  return presentation !== 'editor' && kind === 'aula' ? 'landscape' : 'portrait';
+}
 
 export function createStudioOrientationManager(apply: (mode: StudioOrientationMode) => Promise<void>) {
   const requests = new Map<symbol, { mode: StudioOrientationMode; sequence: number }>();

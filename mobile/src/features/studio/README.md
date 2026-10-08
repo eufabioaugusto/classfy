@@ -11,7 +11,9 @@ O botão central de criar, o aviso de aprovação de creator e a entrada “Meu 
 - Zoom por dial/arraste, pinça e pressão contínua; foco por toque, trava por gesto longo quando suportada e compensação de exposição EV. A abertura é exibida como informação fixa da lente. Não há controle fictício de abertura, ISO/obturador manual ou HDR.
 - Contagem regressiva, takes e teleprompter com texto editável na própria câmera, velocidade e pausa.
 - Importação pelo seletor do sistema, com cópia para Documents antes de confirmar salvamento. Importações parciais preservam os takes válidos.
-- Editor com vídeo contido e centralizado em toda a altura disponível, controles sobrepostos, timeline recolhível, reprodução contínua, scrub, divisão, corte visual, ordem, duplicação e retirada de takes.
+- Editor em retrato para todos os formatos: prévia de Aula 16:9 ou Short 9:16 acima da timeline sempre visível. Tela inteira é uma prévia opcional; ao fechar, as ferramentas retornam ao retrato. A captura de Aula continua horizontal.
+- Timeline com duração proporcional, régua, cursor fixo, rolagem para navegar e zoom por pinça ou botões. Selecionar um take abre ferramentas contextuais; arrastar suas bordas corta com prévia simultânea, sem modal sobre o vídeo. Divisão, ordem, duplicação e retirada preservam os originais.
+- Desfazer/refazer das alterações de takes na sessão do editor, com até 50 etapas. O histórico só confirma uma alteração depois de persistir e é reiniciado em importações ou mudanças externas da montagem, troca de conta/projeto ou fechamento do editor. Não desfaz textos, captura nem publicação.
 - Exportação AVFoundation de cortes e montagem reais para MP4/M4A, orientação normalizada, imagem contida e centralizada, áudio preservado, progresso e cancelamento. Preserva fontes UHD e cadência até 60 FPS; usa HEVC acima de 30 FPS e verifica o resultado antes de concluir.
 - Revisão com capa, descrição, tags, acesso gratuito/Pro/Premium/avulso, preço e checklist; coroas e controles comuns do app.
 - Upload PUT ou TUS conforme destino retornado pelo servidor, verificação de processamento e envio para curadoria, sem aprovação automática.
@@ -19,6 +21,8 @@ O botão central de criar, o aviso de aprovação de creator e a entrada “Meu 
 ## Recuperação e isolamento
 
 `store.ts` serializa alterações por conta e só anuncia salvamento depois da escrita. `useStudioFields` mantém texto pendente, salva no background e aguarda a escrita ao voltar; uma falha mantém a tela para tentar novamente. Dados de outra conta não entram no workspace.
+
+O editor usa um único bloqueio de saída para texto e montagem; o gesto de voltar fica indisponível durante escrita ou corte ativo. O corte congela take, origem, limites e prefixo da montagem; mudanças conflitantes cancelam o gesto ou impedem a confirmação após a fila de salvamento. Importar novos takes depois do alvo não invalida um corte em andamento.
 
 Abrir câmera ou galeria cria uma sessão temporária em memória, fora da grade e do AsyncStorage. O primeiro take copiado promove o mesmo projeto para rascunho durável, incluindo o journal de recuperação. Cancelar sem mídia não cria card. Editar somente o roteiro durante essa sessão também não afirma salvamento no aparelho; rascunhos vazios de versões antigas permanecem preservados.
 
@@ -59,5 +63,7 @@ Transferência requer o app aberto; TUS retoma do offset confirmado e PUT pode r
 Captura e reprodução com vídeo/áudio no iPhone foram confirmadas por Fabio na primeira versão. A nova ponte de câmera exige binário atualizado e nova validação física de 4K/FPS, exposição, foco e gestos. Upload/processamento/curadoria com mídia real continuam como QA posterior; nenhum conteúdo de teste foi publicado em produção.
 
 Rodada de 08/10/2026: typecheck e 76 testes do Studio passaram; suíte Swift com fontes UHD/FPS passou. Os builds de iPhone e simulador foram compilados e instalados, e o diagnóstico `/dev/studio-media` confirmou a ponte/exportação no binário novo. No simulador, câmera → teleprompter → voltar manteve a contagem de projetos. A parada imediata após REC conserva a intenção por operação, com confirmação nativa, timeout e regressões de início atrasado/troca de câmera.
+
+Rodada seguinte de 08/10/2026: editor reorganizado em retrato com corte inline e histórico. Typecheck e 95 testes passaram. No simulador foram conferidos Aula/Short, corte por acessibilidade, divisão, ordem, duplicação, desfazer/refazer, zoom preservando o segundo sob o cursor, reprodução e retomada. Câmera de Aula e prévia inteira retornam ao editor em retrato. A automação de mouse não confirmou arraste contínuo/pinça; precisão desses gestos aguarda teste físico no iPhone. Nenhuma mudança Swift ou publicação nesta rodada.
 
 Documentação usada: [Expo Camera SDK 54](https://docs.expo.dev/versions/v54.0.0/sdk/camera/), [ImagePicker](https://docs.expo.dev/versions/v54.0.0/sdk/imagepicker/), [FileSystem](https://docs.expo.dev/versions/v54.0.0/sdk/filesystem-legacy/) e [ScreenOrientation](https://docs.expo.dev/versions/v54.0.0/sdk/screen-orientation/).

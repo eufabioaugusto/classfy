@@ -1,0 +1,99 @@
+import type { StudioTake } from './model';
+
+export type StudioTimelineTrim = { takeId: string; start: number; end: number; previewSourceSeconds?: number };
+export type StudioTimelineSegment = { take: StudioTake; index: number; start: number; end: number; x: number; width: number };
+export type StudioTrimGesture = {
+  takeId: string; uri: string; duration: number; start: number; end: number;
+  preceding: { id: string; uri: string; start: number; end: number }[];
+};
+
+const minimum = 0.1;
+export const minimumStudioTimelineScale = 12;
+export const maximumStudioTimelineScale = 240;
+export const defaultStudioTimelineScale = 60;
+export function clampStudioTimelineScale(value: number) {
+  return Math.min(maximumStudioTimelineScale, Math.max(minimumStudioTimelineScale, Number.isFinite(value) ? value : defaultStudioTimelineScale));
+}
+export function studioTimelinePinchScale(initialScale: number, initialDistance: number, distance: number) {
+  const scale = clampStudioTimelineScale(initialScale);
+  if (![initialDistance, distance].every(Number.isFinite) || initialDistance <= 0 || distance <= 0) return scale;
+  return clampStudioTimelineScale(scale * distance / initialDistance);
+}
+export function studioTimelineZoomAnchor(offset: number, previousScale: number, nextScale: number, duration: number) {
+  const seconds = studioTimelineSeconds(offset, previousScale, duration);
+  return { seconds, offset: seconds * clampStudioTimelineScale(nextScale) };
+}
+function clipSeconds(take: StudioTake) {
+  if (![take.duration, take.start, take.end].every(Number.isFinite) || take.start < 0 || take.end > take.duration + 0.05 || take.end - take.start < minimum - 1e-6) {
+    throw new Error('Revise os limites dos takes.');
+  }
+  return take.end - take.start;
+}
+export function studioTimelineLayout(takes: readonly StudioTake[], pixelsPerSecond: number) {
+  if (!Number.isFinite(pixelsPerSecond) || pixelsPerSecond <= 0) throw new Error('A escala da montagem não é válida.');
+  const ids = new Set<string>();
+  let cursor = 0;
+  const segments: StudioTimelineSegment[] = takes.map((take, index) => {
+    if (!take.id || ids.has(take.id)) throw new Error('Revise a identificação dos takes.');
+    ids.add(take.id);
+    const duration = clipSeconds(take);
+    const segment = { take, index, start: cursor, end: cursor + duration, x: cursor * pixelsPerSecond, width: duration * pixelsPerSecond };
+    cursor += duration;
+    return segment;
+  });
+  return { segments, duration: cursor, width: cursor * pixelsPerSecond };
+}
+export function studioTimelineSeconds(offset: number, pixelsPerSecond: number, duration: number) {
+  if (![offset, pixelsPerSecond, duration].every(Number.isFinite) || pixelsPerSecond <= 0 || duration < 0) return 0;
+  return Math.max(0, Math.min(duration, offset / pixelsPerSecond));
+}
+export function studioTimelineTicks(pixelsPerSecond: number, visibleStart: number, visibleEnd: number, duration: number) {
+  if (![pixelsPerSecond, visibleStart, visibleEnd, duration].every(Number.isFinite) || pixelsPerSecond <= 0 || duration < 0) return [];
+  const steps = [1, 2, 5, 10, 15, 30, 60, 120, 300, 600, 1200, 3600];
+  const major = steps.find(step => step * pixelsPerSecond >= 64) || steps[steps.length - 1];
+  const minor = major >= 5 ? major / 5 : major / 2;
+  const first = Math.max(0, Math.floor(visibleStart / minor));
+  const last = Math.max(first, Math.ceil(Math.min(duration, visibleEnd) / minor));
+  const ticks: { seconds: number; major: boolean }[] = [];
+  // Only the viewport is materialized, including for multi-hour lessons.
+  for (let index = first; index <= last && ticks.length < 100; index++) {
+    const seconds = index * minor;
+    if (seconds <= duration + 1e-6) ticks.push({ seconds, major: Math.abs(seconds / major - Math.round(seconds / major)) < 1e-6 });
+  }
+  return ticks;
+}
+export function freezeStudioTrim(takes: readonly StudioTake[], takeId: string): StudioTrimGesture {
+  const index = takes.findIndex(take => take.id === takeId);
+  if (index < 0) throw new Error('Este take não está mais na montagem.');
+  studioTimelineLayout(takes, 1);
+  const take = takes[index];
+  return { takeId, uri: take.uri, duration: take.duration, start: take.start, end: take.end,
+    preceding: takes.slice(0, index).map(item => ({ id: item.id, uri: item.uri, start: item.start, end: item.end })) };
+}
+export function canContinueStudioTrim(gesture: StudioTrimGesture, takes: readonly StudioTake[], activeTakeId?: string) {
+  if (activeTakeId !== gesture.takeId) return false;
+  const index = takes.findIndex(take => take.id === gesture.takeId);
+  const take = takes[index];
+  if (!take || index !== gesture.preceding.length || take.uri !== gesture.uri || take.duration !== gesture.duration || take.start !== gesture.start || take.end !== gesture.end) return false;
+  return gesture.preceding.every((previous, i) => {
+    const current = takes[i];
+    return current.id === previous.id && current.uri === previous.uri && current.start === previous.start && current.end === previous.end;
+  });
+}
+export function studioTrimRange(gesture: StudioTrimGesture, edge: 'start' | 'end', deltaSeconds: number): StudioTimelineTrim {
+  if (!Number.isFinite(deltaSeconds)) throw new Error('A posição do corte não é válida.');
+  const value = Math.round((gesture[edge] + deltaSeconds) * 1000) / 1000;
+  const start = edge === 'start' ? Math.max(0, Math.min(gesture.end - minimum, value)) : gesture.start;
+  const end = edge === 'end' ? Math.min(gesture.duration, Math.max(gesture.start + minimum, value)) : gesture.end;
+  return { takeId: gesture.takeId, start, end, previewSourceSeconds: edge === 'start' ? start : Math.max(start, end - 0.01) };
+}
+export function studioTrimTimelinePosition(gesture: StudioTrimGesture, range: StudioTimelineTrim) {
+  if (range.takeId !== gesture.takeId) throw new Error('O cursor do corte pertence a outro take.');
+  const preview = range.previewSourceSeconds ?? range.start;
+  if (![range.start, range.end, preview].every(Number.isFinite)) throw new Error('A posição do corte não é válida.');
+  const source = Math.max(range.start, Math.min(range.end, preview));
+  const preceding = gesture.preceding.reduce((sum, take) => sum + take.end - take.start, 0);
+  // Draft playback has a new start; the timeline still displays the frozen
+  // original range until commit. Expansion may legitimately map below zero.
+  return preceding + source - gesture.start;
+}

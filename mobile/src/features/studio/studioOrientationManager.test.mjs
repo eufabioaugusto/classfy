@@ -1,6 +1,22 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createStudioOrientationManager } from './studioOrientationManager.ts';
+import { createStudioOrientationManager, studioOrientationMode } from './studioOrientationManager.ts';
+
+test('editor mantém retrato para todos os formatos; captura e preview de Aula usam paisagem', () => {
+  for (const kind of ['aula', 'short', 'podcast']) assert.equal(studioOrientationMode(kind, 'editor'), 'portrait');
+  assert.equal(studioOrientationMode('aula'), 'landscape');
+  assert.equal(studioOrientationMode('aula', 'preview'), 'landscape');
+  assert.equal(studioOrientationMode('short', 'capture'), 'portrait');
+});
+test('retornar da câmera horizontal restaura o editor vertical, sem lock antigo vencer', async () => {
+  const applied = [];
+  const manager = createStudioOrientationManager(async mode => { applied.push(mode); });
+  const editor = Symbol('editor'); const camera = Symbol('camera');
+  await manager.request(editor, 'portrait');
+  await manager.request(camera, 'landscape');
+  await manager.release(camera);
+  assert.deepEqual(applied, ['portrait', 'landscape', 'portrait']);
+});
 
 test('cleanup do editor não restaura retrato por cima da câmera focada', async () => {
   const applied = [];

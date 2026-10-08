@@ -87,7 +87,8 @@ function projectPatch(fields: Partial<Fields>): Partial<StudioProject> {
 
 // Text remains responsive while writes are serialized. A failed save keeps its
 // pending patch so retry/navigation cannot silently drop the creator's work.
-export function useStudioFields(project: StudioProject, update: (id: string, patch: Partial<StudioProject>) => Promise<StudioProject>) {
+export function useStudioFields(project: StudioProject, update: (id: string, patch: Partial<StudioProject>) => Promise<StudioProject>,
+  { preventNavigation = true }: { preventNavigation?: boolean } = {}) {
   const [fields, setFields] = useState<Fields>(() => fieldsFrom(project));
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -118,7 +119,9 @@ export function useStudioFields(project: StudioProject, update: (id: string, pat
       finally { pending.current = null; if (mounted.current) setSaving(!failed && Object.keys(patch.current).length > 0); }
     }
   }, []);
-  usePreventRemove(saving || !!saveError || Object.keys(patch.current).length > 0, ({ data }) => {
+  // Screens with another asynchronous write (the montage editor) own one
+  // combined removal guard. Two redispatching guards can bypass each other.
+  usePreventRemove(preventNavigation && (saving || !!saveError || Object.keys(patch.current).length > 0), ({ data }) => {
     if (leaving.current) return;
     leaving.current = true;
     void flush().then(() => {

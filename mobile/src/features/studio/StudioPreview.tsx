@@ -16,8 +16,8 @@ export type StudioPreviewHandle = { togglePlayback: () => void; pause: () => voi
 export const StudioPreview = forwardRef<StudioPreviewHandle, {
   takes: readonly StudioTake[]; kind: StudioKind; activeTakeId?: string;
   onActiveTakeChange?: (id: string) => void; onPlaybackState?: (state: StudioPlaybackState) => void;
-  onCanvasPress?: () => void; paused?: boolean;
-}>(function StudioPreview({ takes, kind, activeTakeId, onActiveTakeChange, onPlaybackState, onCanvasPress, paused = false }, ref) {
+  onCanvasPress?: () => void; canvasLabel?: string; paused?: boolean;
+}>(function StudioPreview({ takes, kind, activeTakeId, onActiveTakeChange, onPlaybackState, onCanvasPress, canvasLabel = 'Mostrar ou ocultar ferramentas do editor', paused = false }, ref) {
   const [takeId, setTakeId] = useState(activeTakeId || takes[0]?.id);
   const [failed, setFailed] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -179,7 +179,7 @@ export const StudioPreview = forwardRef<StudioPreviewHandle, {
       <Text style={styles.placeholderTitle}>{take ? 'Sua voz em primeiro plano' : 'Comece pelo primeiro take'}</Text>
       <Text style={styles.placeholderText}>{take ? 'Podcast · áudio original' : 'Grave ou importe para montar seu conteúdo.'}</Text>
     </View>}
-    <Pressable style={StyleSheet.absoluteFillObject} accessibilityRole="button" accessibilityLabel="Mostrar ou ocultar ferramentas do editor" onPress={onCanvasPress} />
+    <Pressable style={StyleSheet.absoluteFillObject} accessibilityRole="button" accessibilityLabel={canvasLabel} onPress={onCanvasPress} />
     {loading && take ? <View pointerEvents="none" style={styles.loading}><ActivityIndicator size="small" color={colors.muted} /></View> : null}
     {failed ? <View style={styles.failure}><Text style={styles.placeholderText}>Não foi possível reproduzir este take.</Text><Pressable accessibilityRole="button" accessibilityLabel="Tentar reproduzir novamente" onPress={() => setRetry(value => value + 1)} style={styles.retry}><RotateCcw size={18} color={colors.text} /><Text style={styles.placeholderText}>Tentar novamente</Text></Pressable></View> : null}
   </View>;
