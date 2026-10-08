@@ -27,6 +27,8 @@
     },
     "plugins": [
       "expo-router",
+      "expo-font",
+      "expo-asset",
       [
         "expo-splash-screen",
         {

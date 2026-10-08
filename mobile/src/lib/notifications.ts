@@ -17,6 +17,9 @@ Notifications.setNotificationHandler({
 });
 
 export async function registerForPushNotificationsAsync(userId?: string | null) {
+  if (Constants.expoConfig?.extra?.localDevelopment?.pushNotificationsEnabled === false) {
+    return;
+  }
   let token;
 
   if (Platform.OS === 'android') {
