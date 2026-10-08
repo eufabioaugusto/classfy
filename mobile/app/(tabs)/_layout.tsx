@@ -71,6 +71,11 @@ export default function TabsLayout() {
           }}
           options={{
             title: roleLoading ? '…' : canPublish ? 'Criar' : 'Classy',
+            tabBarLabel: roleLoading
+              ? '…'
+              : canPublish
+                ? 'Criar'
+                : () => <View style={styles.labelSpacer} accessible={false} />,
             tabBarInactiveTintColor: action ? colors.text : colors.mutedDim,
             tabBarAccessibilityLabel: roleLoading
               ? 'Carregando ação principal'
@@ -88,11 +93,7 @@ export default function TabsLayout() {
                     color={action ? colors.text : color}
                   />
                 ) : (
-                  <ClassyAvatar
-                    size={28}
-                    variant={action === 'classy' ? 'color' : 'outline'}
-                    color={color}
-                  />
+                  <ClassyAvatar size={32} />
                 )}
               </View>
             ),
@@ -122,6 +123,7 @@ export default function TabsLayout() {
 }
 
 const styles = StyleSheet.create({
+  labelSpacer: { height: 12, marginTop: 2 },
   primaryIcon: {
     width: 32,
     height: 32,

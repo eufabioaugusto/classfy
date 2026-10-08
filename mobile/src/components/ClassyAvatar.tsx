@@ -1,43 +1,5 @@
 import Svg, { Path, G, Ellipse, Circle } from 'react-native-svg';
-export function ClassyAvatar({
-  size = 32,
-  variant = 'color',
-  color = '#fff',
-}: {
-  size?: number;
-  variant?: 'color' | 'outline';
-  color?: string;
-}) {
-  if (variant === 'outline')
-    return (
-      <Svg width={size} height={size} viewBox="0 0 64 64">
-        <G
-          fill="none"
-          stroke={color}
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        >
-          <Path
-            d="M8 25C10 12 19 5 33 5s23 8 25 20M8 43c0 11 11 17 25 17s25-6 25-17"
-            strokeWidth={3.2}
-          />
-          <Path
-            d="M13 27c9-1 16-7 20-12 4 5 11 10 20 12"
-            strokeWidth={3.2}
-          />
-          <Ellipse cx="20" cy="33" rx="11" ry="11" strokeWidth={3.6} />
-          <Ellipse cx="46" cy="33" rx="11" ry="11" strokeWidth={3.6} />
-          <Path d="M31 31q2-2 4 0" strokeWidth={3.6} />
-          <Path d="M28 49q5 5 10-1" strokeWidth={3.6} />
-        </G>
-        {/* Pupils and transparent highlights preserve her curious expression. */}
-        <Path
-          fill={color}
-          fillRule="evenodd"
-          d="M26.2 33a5.2 6.2 0 1 0-10.4 0a5.2 6.2 0 1 0 10.4 0Z M24.2 30a1.7 1.7 0 1 0-3.4 0a1.7 1.7 0 1 0 3.4 0Z M50.2 33a5.2 6.2 0 1 0-10.4 0a5.2 6.2 0 1 0 10.4 0Z M48.2 30a1.7 1.7 0 1 0-3.4 0a1.7 1.7 0 1 0 3.4 0Z"
-        />
-      </Svg>
-    );
+export function ClassyAvatar({ size = 32 }: { size?: number }) {
   return (
     <Svg width={size} height={size} viewBox="0 0 64 64">
       {/* A curious guide: expressive glasses and a balanced, rounded silhouette. */}
