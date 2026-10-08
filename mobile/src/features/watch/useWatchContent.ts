@@ -135,6 +135,10 @@ export function useWatchContent(contentId?: string) {
 
   const checkAccess = useCallback(
     async (nextContent: WatchContent): Promise<AccessState> => {
+      if (!user) {
+        return { hasAccess: false, reason: 'login', requiredPlan: nextContent.visibility === 'premium' ? 'premium' : 'pro', isPurchased: false };
+      }
+
       if (nextContent.visibility === 'free') {
         return { hasAccess: true, reason: null, requiredPlan: 'pro', isPurchased: false };
       }

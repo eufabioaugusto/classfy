@@ -1,7 +1,6 @@
-import { Href, Link } from 'expo-router';
+import { useRouter } from 'expo-router';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { Image } from 'expo-image';
-import { Crown } from 'lucide-react-native';
 import { Ionicons } from '@expo/vector-icons';
 
 import { HomeContent } from '@/features/home/homeData';
@@ -25,19 +24,12 @@ const accessColor = {
 };
 
 export function MobileVideoCard({ content, featured = false, layout = 'horizontal' }: MobileVideoCardProps) {
-  const { profile } = useAuth();
-  const userPlan = (profile?.plan || 'free') as 'free' | 'pro' | 'premium';
-
-  // Access check to decide the target route directly on card click
-  let targetHref: string = `/watch/${content.id}`;
-
-  if (content.access === 'paid') {
-    targetHref = `/purchase/${content.id}`;
-  } else if (content.access === 'pro' && userPlan === 'free') {
-    targetHref = '/premium';
-  } else if (content.access === 'premium' && userPlan !== 'premium') {
-    targetHref = '/premium';
-  }
+  const { user } = useAuth();
+  const router = useRouter();
+  // Watch resolves actual access, including confirmed purchases and authorship.
+  const openContent = () => router.push(user
+    ? { pathname: '/watch/[id]', params: { id: content.id } }
+    : { pathname: '/auth/sign-in', params: { contentId: content.id } });
 
   const getAspectRatio = () => {
     if (layout === 'square') return 1;
@@ -50,29 +42,13 @@ export function MobileVideoCard({ content, featured = false, layout = 'horizonta
   const finalPrice = price * (1 - discount / 100);
 
   return (
-    <Link href={targetHref as Href} asChild>
-      <Pressable style={styles.container}>
+      <Pressable onPress={openContent} accessibilityRole="button" accessibilityLabel={`${content.title}, ${content.creator}`} style={({ pressed }) => [styles.container, pressed && { opacity: 0.8 }]}>
         <View style={[styles.thumbnail, { backgroundColor: content.tone, aspectRatio: getAspectRatio() }]}>
           {content.thumbnailUrl ? (
-            <Image source={{ uri: content.thumbnailUrl }} style={styles.thumbnailImage} />
+            <Image source={{ uri: content.thumbnailUrl }} style={styles.thumbnailImage} contentFit="cover" recyclingKey={content.id} transition={180} />
           ) : null}
-          <View style={styles.thumbnailShade} />
 
-          {/* Top-Right Crown Tier badges */}
-          {content.access === 'premium' && (
-            <View style={styles.crownBadge}>
-              <Crown size={16} color="#ef4444" fill="#ef4444" />
-            </View>
-          )}
-          {content.access === 'pro' && (
-            <View style={styles.crownBadge}>
-              <Crown size={16} color="#f59e0b" fill="#f59e0b" />
-            </View>
-          )}
-
-          <View style={styles.durationPill}>
-            <Text style={styles.durationText}>{content.duration}</Text>
-          </View>
+          {content.duration ? <View style={styles.durationPill}><Text style={styles.durationText}>{content.duration}</Text></View> : null}
           <View style={[styles.accessPill, { backgroundColor: accessColor[content.access] || '#111' }]}>
             <Text style={styles.accessText}>{content.access}</Text>
           </View>
@@ -86,34 +62,31 @@ export function MobileVideoCard({ content, featured = false, layout = 'horizonta
             )}
           </View>
           <View style={styles.copy}>
-            <Text numberOfLines={featured ? 2 : 2} style={[styles.title, featured && styles.featuredTitle]}>
+            <Text numberOfLines={2} style={[styles.title, featured && styles.featuredTitle]}>
               {content.title}
             </Text>
             <Text numberOfLines={1} style={styles.meta}>
               {content.creator} · {content.views}
             </Text>
 
-            {/* Display Price and Buy Options for Paid Content */}
+            {/* Informational price; Watch resolves ownership before purchase. */}
             {content.access === 'paid' && price > 0 ? (
               <View style={styles.priceTagRow}>
                 <Ionicons name="cart-outline" size={13} color="#ef4444" />
                 <Text style={styles.priceTagText}>
-                  R$ {finalPrice.toFixed(2)}
+                  R$ {finalPrice.toFixed(2).replace('.', ',')}
                 </Text>
                 {discount > 0 && (
                   <Text style={styles.strikethroughPrice}>
-                    R$ {price.toFixed(2)}
+                    R$ {price.toFixed(2).replace('.', ',')}
                   </Text>
                 )}
-                <View style={styles.buyBadge}>
-                  <Text style={styles.buyBadgeText}>COMPRAR</Text>
-                </View>
+
               </View>
             ) : null}
           </View>
         </View>
       </Pressable>
-    </Link>
   );
 }
 
@@ -121,28 +94,15 @@ const styles = StyleSheet.create({
   container: {
     gap: spacing.md,
     marginBottom: spacing.xxl,
+    marginHorizontal: 0,
   },
   thumbnail: {
-    borderRadius: radius.md,
+    borderRadius: 0,
     overflow: 'hidden',
   },
   thumbnailImage: {
     height: '100%',
     width: '100%',
-  },
-  thumbnailShade: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(9, 11, 16, 0.25)',
-  },
-  crownBadge: {
-    position: 'absolute',
-    top: spacing.sm,
-    right: spacing.sm,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.35,
-    shadowRadius: 4,
-    elevation: 4,
   },
   durationPill: {
     backgroundColor: 'rgba(0,0,0,0.6)',
@@ -175,6 +135,7 @@ const styles = StyleSheet.create({
   metaRow: {
     flexDirection: 'row',
     gap: spacing.md,
+    paddingHorizontal: 16,
   },
   avatar: {
     alignItems: 'center',
@@ -200,13 +161,13 @@ const styles = StyleSheet.create({
   },
   title: {
     color: colors.text || '#FFF',
-    fontSize: typography.bodyLarge,
+    fontSize: 15,
     fontWeight: typography.weightBold,
     lineHeight: 21,
   },
   featuredTitle: {
-    fontSize: typography.titleSmall,
-    lineHeight: 24,
+    fontSize: 16,
+    lineHeight: 22,
   },
   meta: {
     color: colors.muted || '#888',
@@ -229,19 +190,5 @@ const styles = StyleSheet.create({
     textDecorationLine: 'line-through',
     fontSize: 10,
     marginLeft: 2,
-  },
-  buyBadge: {
-    backgroundColor: 'rgba(226, 29, 72, 0.08)',
-    borderColor: 'rgba(226, 29, 72, 0.15)',
-    borderWidth: 1,
-    borderRadius: radius.sm,
-    paddingHorizontal: 6,
-    paddingVertical: 1,
-    marginLeft: 6,
-  },
-  buyBadgeText: {
-    color: '#ef4444',
-    fontSize: 9,
-    fontWeight: '900',
   },
 });

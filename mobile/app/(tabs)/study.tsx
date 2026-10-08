@@ -21,6 +21,7 @@ import {
   Play,
   Plus,
   Square,
+  Sparkles,
   Timer,
   Trash2,
   X,
@@ -1001,16 +1002,16 @@ export default function StudyScreen() {
         ) : (
           // AUTH REQUIRED NOTICE
           <View style={styles.authNotice}>
-            <AlertTriangle size={32} color={colors.accent} style={{ marginBottom: spacing.sm }} />
-            <Text style={styles.authNoticeTitle}>Área Restrita</Text>
+            <Sparkles size={32} color={colors.accent} style={{ marginBottom: spacing.sm }} />
+            <Text style={styles.authNoticeTitle}>Vamos aprender algo novo?</Text>
             <Text style={styles.authNoticeBody}>
-              Faça login no Classfy para abrir conversas de estudo personalizadas com a Classy IA e sincronizar o seu progresso.
+              Entre para criar estudos com a Classy, tirar dúvidas e acompanhar sua evolução.
             </Text>
             <Pressable
               style={({ pressed }) => [styles.authBtnBanner, pressed && styles.authBtnPressed]}
               onPress={() => router.push('/auth/sign-in')}
             >
-              <Text style={styles.authBtnText}>Fazer Login</Text>
+              <Text style={styles.authBtnText}>Começar a estudar</Text>
             </Pressable>
           </View>
         )}

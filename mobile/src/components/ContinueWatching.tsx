@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
-import React, { useEffect, useState } from 'react';
+import { useRouter, useFocusEffect } from 'expo-router';
+import React, { useCallback, useState } from 'react';
 import { FlatList, Image, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { supabase } from '@/lib/supabase';
@@ -33,47 +33,22 @@ export function ContinueWatching({ userId }: ContinueWatchingProps) {
   const [items, setItems] = useState<ContinueWatchingItem[]>([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    if (!userId) {
-      setLoading(false);
-      return;
-    }
-    fetchProgress();
-  }, [userId]);
-
-  const fetchProgress = async () => {
-    try {
-      setLoading(true);
-      const { data, error } = await supabase
-        .from('user_progress')
-        .select(`
-          content_id, 
-          progress_percent, 
-          contents:content_id (
-            id, 
-            title, 
-            thumbnail_url, 
-            content_type, 
-            profiles:creator_id (
-              display_name, 
-              creator_channel_name
-            )
-          )
-        `)
-        .eq('user_id', userId)
-        .eq('completed', false)
-        .gt('progress_percent', 0)
-        .order('updated_at', { ascending: false })
-        .limit(6);
-
-      if (error) throw error;
-      setItems((data || []) as any);
-    } catch (e) {
-      console.error('Error fetching continue watching progress:', e);
-    } finally {
-      setLoading(false);
-    }
-  };
+  useFocusEffect(useCallback(() => {
+    let active = true;
+    setItems([]);
+    if (!userId) { setLoading(false); return; }
+    setLoading(true);
+    supabase.from('user_progress').select(`
+      content_id, progress_percent,
+      contents:content_id (id,title,thumbnail_url,content_type,profiles:creator_id(display_name,creator_channel_name))
+    `).eq('user_id', userId).eq('completed', false).gt('progress_percent', 0).order('updated_at', { ascending: false }).limit(6)
+      .then(({ data, error }) => {
+        if (!active) return;
+        setItems(error ? [] : (data || []) as unknown as ContinueWatchingItem[]);
+        setLoading(false);
+      });
+    return () => { active = false; };
+  }, [userId]));
 
   const handlePress = (contentId: string) => {
     router.push(`/watch/${contentId}` as any);
@@ -86,9 +61,9 @@ export function ContinueWatching({ userId }: ContinueWatchingProps) {
       <View style={styles.header}>
         <View style={styles.headerTitleRow}>
           <Ionicons name="time-outline" size={18} color={colors.text} />
-          <Text style={styles.title}>Continue estudando</Text>
+          <Text style={styles.title}>Continue de onde parou</Text>
         </View>
-        <Pressable onPress={() => router.push('/study' as any)}>
+        <Pressable onPress={() => router.push('/library/history')}>
           <Text style={styles.actionLabel}>Ver tudo</Text>
         </Pressable>
       </View>
@@ -137,7 +112,7 @@ export function ContinueWatching({ userId }: ContinueWatchingProps) {
                 <View style={styles.progressRow}>
                   <View style={styles.progressBarBg}>
                     <View
-                      style={[styles.progressBarFill, { width: `${item.progress_percent}%` }]}
+                      style={[styles.progressBarFill, { width: `${Math.max(0, Math.min(100, item.progress_percent))}%` }]}
                     />
                   </View>
                   <Text style={styles.percentText}>{item.progress_percent}%</Text>

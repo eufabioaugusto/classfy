@@ -23,6 +23,8 @@ export function CategoryChips({ categories, activeCategory, onSelect }: Category
         const active = item === activeCategory;
         return (
           <Pressable
+            accessibilityRole="button"
+            accessibilityState={{ selected: active }}
             onPress={() => onSelect(item)}
             style={[styles.chip, active && styles.chipActive]}
           >
@@ -37,14 +39,16 @@ export function CategoryChips({ categories, activeCategory, onSelect }: Category
 const styles = StyleSheet.create({
   content: {
     gap: spacing.sm,
-    paddingBottom: spacing.lg,
+    paddingBottom: spacing.md,
   },
   chip: {
     backgroundColor: colors.surface,
     borderColor: colors.borderSubtle,
-    borderRadius: radius.pill,
+    borderRadius: 9,
     borderWidth: 1,
-    paddingHorizontal: spacing.lg,
+    paddingHorizontal: 14,
+    minHeight: 40,
+    justifyContent: 'center',
     paddingVertical: spacing.sm,
   },
   chipActive: {

@@ -46,6 +46,8 @@ compilam e instalam o app; `start` conecta uma build já instalada ao Metro para
 atualização ao vivo. Consulte [DEVELOPMENT.md](./DEVELOPMENT.md) para simulador,
 iPhone conectado e a variante para equipe Apple pessoal.
 
+A reconstrução da experiência e os gaps de paridade estão em [REBUILD.md](./REBUILD.md).
+
 ## Escopo inicial
 
 - Tabs: Home, Explore, Rewards, Profile

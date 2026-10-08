@@ -25,7 +25,7 @@ export function MobileMiniPlayer() {
 
   return (
     <View pointerEvents="box-none" style={StyleSheet.absoluteFill}>
-      <Pressable style={[styles.container, { bottom: insets.bottom + 86 }]} onPress={expand}>
+      <Pressable style={[styles.container, { bottom: insets.bottom + 62 }]} onPress={expand}>
         <View style={styles.videoBox}>
           {content.fileUrl && (content.shouldPlay ?? true) ? (
             <Video

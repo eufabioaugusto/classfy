@@ -1,347 +1,73 @@
-import { useEffect, useMemo, useState } from 'react';
-
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { useAuth } from '@/features/auth/authContext';
 import { isSupabaseConfigured, supabase } from '@/lib/supabase';
-import { HomeContent, HomeSection, featuredContent, previewSections } from './homeData';
+import type { HomeContent } from './homeData';
+import { normalizeCatalog, type CatalogRow } from './catalog';
 
-type HomeSectionsState = {
-  featured: HomeContent;
-  sections: HomeSection[];
-  featuredCreators: any[];
+type CatalogState = {
+  owner: string | null;
+  contents: HomeContent[];
+  courses: HomeContent[];
   loading: boolean;
+  refreshing: boolean;
   error: string | null;
-  usingFallback: boolean;
 };
+const empty = (owner: string | null): CatalogState => ({ owner, contents: [], courses: [], loading: true, refreshing: false, error: null });
+const fields = 'id,title,description,thumbnail_url,content_type,visibility,views_count,duration_seconds,price,discount,profiles:creator_id(display_name,creator_channel_name,avatar_url)';
 
-type SupabaseHomeRow = {
-  id: string | number;
-  title?: string | null;
-  description?: string | null;
-  thumbnail_url?: string | null;
-  content_type?: string | null;
-  visibility?: HomeContent['access'] | string | null;
-  views_count?: number | null;
-  duration_seconds?: number | null;
-  total_lessons?: number | null;
-  total_duration_seconds?: number | null;
-  file_url?: string | null;
-  video_url?: string | null;
-  price?: number | null;
-  discount?: number | null;
-  profiles?:
-    | {
-        display_name?: string | null;
-        creator_channel_name?: string | null;
-        avatar_url?: string | null;
+export function useHomeSections() {
+  const { user, loading: authLoading } = useAuth();
+  const owner = user?.id || null;
+  const [state, setState] = useState(() => empty(owner));
+  const request = useRef(0);
+
+  const load = useCallback(async (refresh = false) => {
+    const id = ++request.current;
+    setState((previous) => previous.owner === owner
+      ? { ...previous, loading: !refresh, refreshing: refresh, error: null }
+      : empty(owner));
+    if (!isSupabaseConfigured) {
+      setState({ ...empty(owner), loading: false, error: 'Não foi possível conectar. Tente novamente mais tarde.' });
+      return;
+    }
+    try {
+      if (!owner) {
+        // Same safe visitor contract as the web. Playback sources stay private.
+        const { data, error } = await supabase.rpc('get_public_home_catalog');
+        if (id !== request.current) return;
+        if (error) throw error;
+        const catalog = data as { contents?: CatalogRow[]; courses?: CatalogRow[] } | null;
+        setState({ ...empty(owner), loading: false,
+          contents: normalizeCatalog(Array.isArray(catalog?.contents) ? catalog.contents : []),
+          courses: normalizeCatalog(Array.isArray(catalog?.courses) ? catalog.courses : [], true),
+        });
+      } else {
+        const results = await Promise.allSettled([
+          supabase.from('contents').select(fields).eq('status', 'approved').order('created_at', { ascending: false }),
+          supabase.from('courses').select('id,title,description,thumbnail_url,visibility,views_count,total_lessons,total_duration_seconds,price,discount,profiles:creator_id(display_name,creator_channel_name,avatar_url)').eq('status', 'approved').order('created_at', { ascending: false }),
+        ]);
+        if (id !== request.current) return;
+        setState((previous) => {
+          const current = previous.owner === owner ? previous : empty(owner);
+          const values = results.map((result, index) => result.status === 'fulfilled' && !result.value.error
+            ? normalizeCatalog((result.value.data || []) as unknown as CatalogRow[], index === 1)
+            : null);
+          return { ...current, loading: false, refreshing: false,
+            contents: values[0] ?? current.contents,
+            courses: values[1] ?? current.courses,
+            error: values.some((value) => value === null) ? 'Parte do catálogo não carregou. Você pode tentar novamente.' : null,
+          };
+        });
       }
-    | Array<{
-        display_name?: string | null;
-        creator_channel_name?: string | null;
-        avatar_url?: string | null;
-      }>
-    | null;
-};
-
-const tones = ['#101826', '#1C1426', '#101F1A', '#241C0D', '#261014', '#111827'];
-
-function formatViews(value?: number | null) {
-  if (!value) return '0 views';
-  if (value >= 1000000) return `${(value / 1000000).toFixed(1)}M views`;
-  if (value >= 1000) return `${(value / 1000).toFixed(1)}K views`;
-  return `${value} views`;
-}
-
-function formatDuration(seconds?: number | null) {
-  if (!seconds) return '--:--';
-  const minutes = Math.floor(seconds / 60);
-  const remaining = seconds % 60;
-  if (minutes >= 60) {
-    const hours = Math.floor(minutes / 60);
-    const mins = minutes % 60;
-    return `${hours}:${String(mins).padStart(2, '0')}:${String(remaining).padStart(2, '0')}`;
-  }
-  return `${minutes}:${String(minutes).padStart(2, '0')}`;
-}
-
-function profileName(item: SupabaseHomeRow) {
-  const profile = Array.isArray(item.profiles) ? item.profiles[0] : item.profiles;
-  return profile?.creator_channel_name || profile?.display_name || 'Creator Classfy';
-}
-
-// Helper to check profile avatar URL
-function profileAvatar(item: SupabaseHomeRow) {
-  const profile = Array.isArray(item.profiles) ? item.profiles[0] : item.profiles;
-  return profile?.avatar_url ?? null;
-}
-
-function normalizeContent(item: SupabaseHomeRow, category: string, index: number): HomeContent {
-  return {
-    id: String(item.id),
-    title: item.title || 'Conteudo Classfy',
-    creator: profileName(item),
-    views: formatViews(item.views_count),
-    duration: formatDuration(item.duration_seconds),
-    access: normalizeAccess(item.visibility),
-    category,
-    tone: tones[index % tones.length],
-    contentType: item.content_type ?? undefined,
-    thumbnailUrl: item.thumbnail_url ?? null,
-    creatorAvatarUrl: profileAvatar(item),
-    description: item.description ?? null,
-    fileUrl: item.file_url ?? null,
-    videoUrl: item.video_url ?? null,
-    price: item.price ?? null,
-    discount: item.discount ?? null,
-  };
-}
-
-function normalizeCourse(item: SupabaseHomeRow, index: number): HomeContent {
-  return {
-    id: String(item.id),
-    title: item.title || 'Curso Classfy',
-    creator: profileName(item),
-    views: `${item.total_lessons || 0} aulas`,
-    duration: formatDuration(item.total_duration_seconds),
-    access: normalizeAccess(item.visibility),
-    category: 'Cursos',
-    tone: tones[(index + 2) % tones.length],
-    contentType: 'curso',
-    thumbnailUrl: item.thumbnail_url ?? null,
-    creatorAvatarUrl: profileAvatar(item),
-    description: item.description ?? null,
-    price: item.price ?? null,
-    discount: item.discount ?? null,
-  };
-}
-
-function normalizeAccess(value?: string | null): HomeContent['access'] {
-  if (value === 'pro' || value === 'premium' || value === 'paid') {
-    return value;
-  }
-
-  return 'free';
-}
-
-function firstAvailable(sections: HomeSection[]) {
-  return sections.find((section) => section.contents.length > 0)?.contents[0] ?? featuredContent;
-}
-
-// Fallback featured creators if Supabase is offline
-const fallbackCreators = [
-  {
-    id: 'c1',
-    creator_id: '1',
-    background_image_url: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?q=80&w=400',
-    badge_text: 'New',
-    featured_image_url: '',
-    description: 'Encontre a Luz do seu Poder Pessoal',
-    link_url: '',
-    order_index: 1,
-    creator_name: 'Cindy Ribas',
-    total_duration: '8 minutos',
-    slug: 'cindy-ribas',
-  },
-  {
-    id: 'c2',
-    creator_id: '2',
-    background_image_url: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?q=80&w=400',
-    badge_text: 'New',
-    featured_image_url: '',
-    description: 'Construa sua Mentalidade Digital',
-    link_url: '',
-    order_index: 2,
-    creator_name: 'Fabio Augusto',
-    total_duration: '1h 12min',
-    slug: 'fabio-augusto',
-  },
-];
-
-export function useHomeSections(): HomeSectionsState {
-  const fallback = useMemo(
-    () => ({
-      featured: featuredContent,
-      sections: previewSections,
-      featuredCreators: fallbackCreators,
-      loading: false,
-      error: null,
-      usingFallback: true,
-    }),
-    [],
-  );
-
-  const [state, setState] = useState<HomeSectionsState>(
-    isSupabaseConfigured
-      ? { featured: featuredContent, sections: [], featuredCreators: [], loading: true, error: null, usingFallback: false }
-      : fallback,
-  );
+    } catch {
+      if (id === request.current) setState((current) => ({ ...current, loading: false, refreshing: false, error: 'Não foi possível atualizar o catálogo. Tente novamente.' }));
+    }
+  }, [owner]);
 
   useEffect(() => {
-    let mounted = true;
+    if (!authLoading) void load();
+    return () => { request.current++; };
+  }, [authLoading, load]);
 
-    async function loadSections() {
-      if (!isSupabaseConfigured) {
-        return;
-      }
-
-      setState((current) => ({ ...current, loading: true, error: null }));
-
-      const [
-        trendingResult,
-        proResult,
-        podcastResult,
-        shortsResult,
-        premiumResult,
-        coursesResult,
-        featuredCreatorsResult,
-      ] = await Promise.all([
-        supabase
-          .from('contents')
-          .select('id,title,description,thumbnail_url,content_type,visibility,views_count,duration_seconds,file_url,video_url,price,discount,profiles:creator_id(display_name,creator_channel_name,avatar_url)')
-          .eq('content_type', 'aula')
-          .eq('status', 'approved')
-          .order('views_count', { ascending: false })
-          .limit(8),
-        supabase
-          .from('contents')
-          .select('id,title,description,thumbnail_url,content_type,visibility,views_count,duration_seconds,file_url,video_url,price,discount,profiles:creator_id(display_name,creator_channel_name,avatar_url)')
-          .eq('visibility', 'pro')
-          .eq('status', 'approved')
-          .in('content_type', ['aula'])
-          .order('created_at', { ascending: false })
-          .limit(8),
-        supabase
-          .from('contents')
-          .select('id,title,description,thumbnail_url,content_type,visibility,views_count,duration_seconds,file_url,video_url,price,discount,profiles:creator_id(display_name,creator_channel_name,avatar_url)')
-          .eq('content_type', 'podcast')
-          .eq('status', 'approved')
-          .order('views_count', { ascending: false })
-          .limit(8),
-        supabase
-          .from('contents')
-          .select('id,title,description,thumbnail_url,content_type,visibility,views_count,duration_seconds,file_url,video_url,price,discount,profiles:creator_id(display_name,creator_channel_name,avatar_url)')
-          .eq('content_type', 'short')
-          .eq('status', 'approved')
-          .order('created_at', { ascending: false })
-          .limit(10),
-        supabase
-          .from('contents')
-          .select('id,title,description,thumbnail_url,content_type,visibility,views_count,duration_seconds,file_url,video_url,price,discount,profiles:creator_id(display_name,creator_channel_name,avatar_url)')
-          .eq('visibility', 'premium')
-          .eq('status', 'approved')
-          .order('created_at', { ascending: false })
-          .limit(8),
-        supabase
-          .from('courses')
-          .select('id,title,description,thumbnail_url,visibility,price,discount,total_lessons,total_duration_seconds,profiles:creator_id(display_name,creator_channel_name,avatar_url)')
-          .eq('status', 'approved')
-          .order('created_at', { ascending: false })
-          .limit(8),
-        supabase
-          .from('featured_creators')
-          .select('id,creator_id,background_image_url,badge_text,featured_image_url,description,link_url,order_index,slug,profiles:creator_id(display_name,creator_channel_name)')
-          .eq('show_on_home', true)
-          .order('order_index', { ascending: true }),
-      ]);
-
-      if (!mounted) {
-        return;
-      }
-
-      const firstError =
-        trendingResult.error ||
-        proResult.error ||
-        podcastResult.error ||
-        shortsResult.error ||
-        premiumResult.error ||
-        coursesResult.error ||
-        featuredCreatorsResult.error;
-
-      if (firstError) {
-        setState({ ...fallback, error: firstError.message });
-        return;
-      }
-
-      // Process featured creators with duration calculation dynamically from contents table
-      const featuredCreatorsData = featuredCreatorsResult.data || [];
-      const creatorsWithDuration = await Promise.all(
-        featuredCreatorsData.map(async (creator: any) => {
-          const { data: contents } = await supabase
-            .from('contents')
-            .select('duration_seconds')
-            .eq('creator_id', creator.creator_id)
-            .eq('status', 'approved');
-
-          const totalSeconds = contents?.reduce((acc, c) => acc + (c.duration_seconds || 0), 0) || 0;
-          const hours = Math.floor(totalSeconds / 3600);
-          const minutes = Math.floor((totalSeconds % 3600) / 60);
-
-          const profile = Array.isArray(creator.profiles) ? creator.profiles[0] : creator.profiles;
-          const creatorName = profile?.creator_channel_name || profile?.display_name || 'Creator';
-
-          return {
-            ...creator,
-            creator_name: creatorName,
-            total_duration: hours > 0 ? `${hours}h ${minutes}min` : `${minutes} minutos`,
-          };
-        })
-      );
-
-      const rawSections: HomeSection[] = [
-        {
-          key: 'trending',
-          title: 'Em Alta',
-          layout: 'vertical',
-          contents: (trendingResult.data ?? []).map((item, index) => normalizeContent(item, 'Aulas', index)),
-        },
-        {
-          key: 'pro',
-          title: 'Itens PRO',
-          layout: 'horizontal',
-          contents: (proResult.data ?? []).map((item, index) => normalizeContent(item, 'PRO', index)),
-        },
-        {
-          key: 'podcasts',
-          title: 'Podcasts em Alta',
-          layout: 'horizontal',
-          contents: (podcastResult.data ?? []).map((item, index) => normalizeContent(item, 'Podcasts', index)),
-        },
-        {
-          key: 'shorts',
-          title: 'Shorts',
-          layout: 'shorts',
-          contents: (shortsResult.data ?? []).map((item, index) => normalizeContent(item, 'Shorts', index)),
-        },
-        {
-          key: 'premium',
-          title: 'Itens Premium',
-          layout: 'horizontal',
-          contents: (premiumResult.data ?? []).map((item, index) => normalizeContent(item, 'Premium', index)),
-        },
-        {
-          key: 'courses',
-          title: 'Cursos',
-          layout: 'horizontal',
-          contents: (coursesResult.data ?? []).map((item, index) => normalizeCourse(item, index)),
-        },
-      ];
-
-      const sections = rawSections.filter((section) => section.contents.length > 0);
-
-      setState({
-        featured: firstAvailable(sections),
-        sections,
-        featuredCreators: creatorsWithDuration,
-        loading: false,
-        error: null,
-        usingFallback: false,
-      });
-    }
-
-    loadSections();
-
-    return () => {
-      mounted = false;
-    };
-  }, [fallback]);
-
-  return state;
+  return { ...(state.owner === owner ? state : empty(owner)), refresh: () => load(true) };
 }
