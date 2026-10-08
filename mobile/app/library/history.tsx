@@ -1,3 +1,4 @@
+import { NavigationHeader } from '@/components/NavigationHeader';
 import React, { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
@@ -193,15 +194,7 @@ export default function HistoryScreen() {
   };
 
   return (
-    <AppScreen scroll={false}>
-      {/* Custom Navigation Header */}
-      <View style={[styles.header, { paddingTop: insets.top + spacing.xs }]}>
-        <View style={styles.headerTop}>
-          <Pressable onPress={() => router.back()} style={styles.backBtn}>
-            <Ionicons name="arrow-back" size={24} color={colors.text} />
-          </Pressable>
-          <Text style={styles.headerTitle}>Histórico de Exibição</Text>
-          <Pressable 
+    <AppScreen scroll={false} edgeToEdge header={<NavigationHeader title="Histórico de Exibição" back right={<Pressable
             onPress={confirmClearAll} 
             style={({ pressed }) => [styles.clearBtn, pressed && { opacity: 0.7 }]}
             disabled={items.length === 0}
@@ -211,8 +204,9 @@ export default function HistoryScreen() {
               size={20} 
               color={items.length > 0 ? '#ef4444' : colors.mutedDim} 
             />
-          </Pressable>
-        </View>
+          </Pressable>} />}>
+      {/* Custom Navigation Header */}
+      <View style={[styles.header, { paddingHorizontal: 24, paddingTop: 12 }]}>
 
         {/* Search Bar within Header */}
         <View style={styles.searchBar}>
@@ -267,7 +261,7 @@ export default function HistoryScreen() {
                     <View style={styles.meta}>
                       <Text style={styles.title} numberOfLines={2}>{item.contents.title}</Text>
                       <Text style={styles.creator} numberOfLines={1}>@{creatorName}</Text>
-                      
+
                       {/* Type Badge & Percentage */}
                       <View style={styles.row}>
                         <View style={[styles.typeBadge, { backgroundColor: 'rgba(255,255,255,0.04)', borderColor: badgeColor, borderWidth: 1 }]}>
@@ -275,7 +269,7 @@ export default function HistoryScreen() {
                         </View>
                         <Text style={styles.percentText}>{item.progress_percent}% assistido</Text>
                       </View>
-                      
+
                       {/* Progress Bar Fill */}
                       <View style={styles.progressTrack}>
                         <View style={[styles.progressFill, { width: `${item.progress_percent}%`, backgroundColor: badgeColor }]} />

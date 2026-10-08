@@ -1,3 +1,5 @@
+import { SheetModal, SheetCloseButton, sheetStyles } from '@/components/SheetModal';
+import { NavigationHeader } from '@/components/NavigationHeader';
 import {
   ExpoSpeechRecognitionModule,
   isSpeechRecognitionAvailable,
@@ -36,7 +38,6 @@ import {
   FlatList,
   Image,
   KeyboardAvoidingView,
-  Modal,
   PanResponder,
   Platform,
   Pressable,
@@ -739,7 +740,7 @@ export default function StudyScreen() {
   }, [selectedStudyId]);
 
   return (
-    <AppScreen scroll={false}>
+    <AppScreen scroll={false} edgeToEdge>
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         style={styles.container}
@@ -747,11 +748,15 @@ export default function StudyScreen() {
         {...panResponder.panHandlers}
       >
         {/* Header Switcher */}
-        <View style={styles.chatHeader}>
-          <Pressable onPress={handleBack} style={styles.backBtn}>
-            <ArrowLeft size={20} color={colors.text} />
-          </Pressable>
-
+        <NavigationHeader onBack={handleBack} right={selectedStudyId ? (
+            <Pressable onPress={() => setLimitModalOpen(true)} style={styles.limitPill}>
+              <Text style={styles.limitPillText}>
+                {userMessagesCount}/{getUserDailyLimit()}
+              </Text>
+            </Pressable>
+          ) : (
+            <View style={{ width: 28 }} />
+          )}>
           {user ? (
             <Pressable onPress={() => setSwitcherOpen(true)} style={styles.headerSwitcher}>
               <Text numberOfLines={1} style={styles.chatHeaderTitle}>
@@ -763,16 +768,7 @@ export default function StudyScreen() {
             <Text style={styles.chatHeaderTitle}>Classy IA</Text>
           )}
 
-          {selectedStudyId ? (
-            <Pressable onPress={() => setLimitModalOpen(true)} style={styles.limitPill}>
-              <Text style={styles.limitPillText}>
-                {userMessagesCount}/{getUserDailyLimit()}
-              </Text>
-            </Pressable>
-          ) : (
-            <View style={{ width: 28 }} />
-          )}
-        </View>
+        </NavigationHeader>
 
         {user ? (
           !selectedStudyId ? (
@@ -1055,7 +1051,7 @@ export default function StudyScreen() {
         )}
 
         {/* Switcher Bottom Sheet Modal */}
-        <Modal
+        <SheetModal
           animationType="slide"
           transparent={true}
           visible={switcherOpen}
@@ -1064,11 +1060,10 @@ export default function StudyScreen() {
           <View style={styles.modalOverlay}>
             <Pressable style={StyleSheet.absoluteFill} onPress={() => setSwitcherOpen(false)} />
             <View style={[styles.bottomSheet, { paddingBottom: insets.bottom + spacing.md }]}>
+              <View style={sheetStyles.handle} />
               <View style={styles.sheetHeader}>
                 <Text style={styles.sheetTitle}>Seus Estudos</Text>
-                <Pressable onPress={() => setSwitcherOpen(false)} style={styles.sheetCloseBtn}>
-                  <X size={18} color={colors.text} />
-                </Pressable>
+                <SheetCloseButton onPress={() => setSwitcherOpen(false)} />
               </View>
 
               <ScrollView style={styles.sheetScroll} showsVerticalScrollIndicator={false}>
@@ -1120,10 +1115,10 @@ export default function StudyScreen() {
               </ScrollView>
             </View>
           </View>
-        </Modal>
+        </SheetModal>
 
         {/* Limit Info Bottom Sheet Modal */}
-        <Modal
+        <SheetModal
           animationType="slide"
           transparent={true}
           visible={limitModalOpen}
@@ -1132,11 +1127,10 @@ export default function StudyScreen() {
           <View style={styles.modalOverlay}>
             <Pressable style={StyleSheet.absoluteFill} onPress={() => setLimitModalOpen(false)} />
             <View style={[styles.bottomSheet, { paddingBottom: insets.bottom + spacing.lg }]}>
+              <View style={sheetStyles.handle} />
               <View style={styles.sheetHeader}>
                 <Text style={styles.sheetTitle}>Limite de Mensagens</Text>
-                <Pressable onPress={() => setLimitModalOpen(false)} style={styles.sheetCloseBtn}>
-                  <X size={18} color={colors.text} />
-                </Pressable>
+                <SheetCloseButton onPress={() => setLimitModalOpen(false)} />
               </View>
 
               <View style={styles.limitModalBody}>
@@ -1180,7 +1174,7 @@ export default function StudyScreen() {
               </View>
             </View>
           </View>
-        </Modal>
+        </SheetModal>
       </KeyboardAvoidingView>
     </AppScreen>
   );
@@ -1731,25 +1725,16 @@ const styles = StyleSheet.create({
 
   // Switcher Bottom Sheet
   modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.6)',
-    justifyContent: 'flex-end',
+    ...sheetStyles.backdrop,
   },
   bottomSheet: {
-    backgroundColor: colors.background,
-    borderTopLeftRadius: radius.lg,
-    borderTopRightRadius: radius.lg,
     maxHeight: '65%',
     paddingHorizontal: spacing.lg,
-    paddingTop: spacing.lg,
-    borderColor: 'rgba(255, 255, 255, 0.08)',
-    borderTopWidth: 1,
+    ...sheetStyles.surface,
   },
   sheetHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: spacing.lg,
+    marginHorizontal: -spacing.lg,
+    ...sheetStyles.header,
   },
   sheetTitle: {
     color: colors.text,
@@ -1758,6 +1743,7 @@ const styles = StyleSheet.create({
   },
   sheetCloseBtn: {
     padding: 4,
+    ...sheetStyles.close,
   },
   sheetScroll: {
     marginBottom: spacing.md,

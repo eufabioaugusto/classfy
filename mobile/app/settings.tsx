@@ -1,3 +1,4 @@
+import { NavigationHeader } from '@/components/NavigationHeader';
 import React, { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
@@ -46,7 +47,7 @@ export default function SettingsScreen() {
   const [loading, setLoading] = useState(true);
   const [savingChannel, setSavingChannel] = useState(false);
   const [savingPrivacy, setSavingPrivacy] = useState(false);
-  
+
   // Settings Sections State
   const [activeSection, setActiveSection] = useState<'menu' | 'channel' | 'privacy' | 'plan'>('menu');
 
@@ -350,31 +351,10 @@ export default function SettingsScreen() {
   return (
     <AppScreen edgeToEdge={true} scroll={false}>
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1 }}>
-        
+
         {/* Dynamic Header based on active section */}
-        <View style={[styles.header, { paddingTop: insets.top + spacing.xs }]}>
-          <Pressable
-            onPress={() => {
-              if (activeSection !== 'menu') {
-                setActiveSection('menu');
-              } else {
-                router.back();
-              }
-            }}
-            style={styles.backBtn}
-          >
-            <ArrowLeft size={20} color={colors.text} />
-          </Pressable>
-          <Text style={styles.headerTitle}>
-            {activeSection === 'menu'
-              ? 'Configurações'
-              : activeSection === 'channel'
-                ? 'Canal'
-                : activeSection === 'privacy'
-                  ? 'Privacidade'
-                  : 'Assinatura'}
-          </Text>
-        </View>
+        <NavigationHeader title={activeSection === 'menu' ? 'Configurações' : activeSection === 'channel' ? 'Canal' : activeSection === 'privacy' ? 'Privacidade' : 'Assinatura'}
+          onBack={() => activeSection !== 'menu' ? setActiveSection('menu') : router.canGoBack() ? router.back() : router.replace('/')} />
 
         <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
           {renderContent()}

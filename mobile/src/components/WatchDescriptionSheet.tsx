@@ -1,6 +1,7 @@
+import { SheetModal, SheetCloseButton, sheetStyles } from '@/components/SheetModal';
 import { useRef, useMemo, useEffect } from 'react';
 import { Ionicons } from '@expo/vector-icons';
-import { Modal, Pressable, ScrollView, StyleSheet, Text, View, Animated, PanResponder, Dimensions, useWindowDimensions } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, View, Animated, PanResponder, Dimensions, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { colors } from '@/theme/colors';
@@ -52,7 +53,7 @@ export function WatchDescriptionSheet({
   const isLandscape = windowWidth > windowHeight;
   const playerHeight = isLandscape ? 0 : windowWidth * (9 / 16);
   const playerBottom = isLandscape ? 20 : insets.top + 12 + playerHeight;
-  const maxSheetHeight = windowHeight - playerBottom;
+  const maxSheetHeight = Math.max(120, windowHeight - playerBottom);
 
   const {
     scrollEnabled,
@@ -109,7 +110,7 @@ export function WatchDescriptionSheet({
   );
 
   return (
-    <Modal animationType="slide" transparent visible={visible} onRequestClose={onClose} supportedOrientations={['portrait', 'landscape']}>
+    <SheetModal animationType="slide" transparent visible={visible} onRequestClose={onClose} supportedOrientations={['portrait', 'landscape']}>
       <View style={styles.backdrop}>
         <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
         <Animated.View
@@ -135,9 +136,7 @@ export function WatchDescriptionSheet({
               <View style={styles.handle} />
               <View style={styles.header}>
                 <Text style={styles.headerTitle}>Descricao</Text>
-                <Pressable hitSlop={12} onPress={onClose}>
-                  <Ionicons name="close" color={colors.text} size={28} />
-                </Pressable>
+                <SheetCloseButton onPress={onClose} />
               </View>
             </View>
 
@@ -187,7 +186,7 @@ export function WatchDescriptionSheet({
           </View>
         </Animated.View>
       </View>
-    </Modal>
+    </SheetModal>
   );
 }
 
@@ -206,38 +205,24 @@ function Stat({ value, label }: { value: string; label: string }) {
 
 const styles = StyleSheet.create({
   backdrop: {
-    backgroundColor: 'transparent',
-    flex: 1,
-    justifyContent: 'flex-end',
+    ...sheetStyles.backdrop,
   },
   sheet: {
-    backgroundColor: colors.backgroundElevated,
-    borderTopLeftRadius: radius.lg,
-    borderTopRightRadius: radius.lg,
     maxHeight: '78%',
     flex: 1,
     paddingBottom: spacing.xl,
     paddingHorizontal: spacing.lg,
+    ...sheetStyles.surface,
   },
   handle: {
-    alignSelf: 'center',
-    backgroundColor: colors.surfaceMuted,
-    borderRadius: radius.pill,
-    height: 5,
-    marginBottom: spacing.xl,
-    marginTop: spacing.md,
-    width: 52,
+    ...sheetStyles.handle,
   },
   header: {
-    alignItems: 'center',
     borderBottomColor: colors.borderSubtle,
     borderBottomWidth: 1,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
     marginHorizontal: -spacing.lg,
     marginBottom: spacing.xl,
-    paddingBottom: spacing.lg,
-    paddingHorizontal: spacing.lg,
+    ...sheetStyles.header,
   },
   headerTitle: {
     color: colors.text,

@@ -200,7 +200,7 @@ export default function NotificationsScreen() {
     <AppScreen edgeToEdge={true} scroll={false}>
       <NavigationHeader
         title="Notificações"
-        onBack={() => router.back()}
+        back
         right={
           unreadCount > 0 && (
             <Pressable

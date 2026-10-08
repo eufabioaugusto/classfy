@@ -284,8 +284,7 @@ export default function RewardsScreen() {
   const isCreator = profile?.creator_status === 'approved';
 
   return (
-    <AppScreen>
-      <HomeHeader />
+    <AppScreen header={<HomeHeader />}>
       {/* Title Section */}
       <View style={styles.welcomeBlock}>
         <Text style={styles.kicker}>Sua evolução</Text>

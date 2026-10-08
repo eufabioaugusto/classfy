@@ -1,9 +1,9 @@
+import { SheetModal, SheetCloseButton, sheetStyles } from '@/components/SheetModal';
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { Ionicons } from '@expo/vector-icons';
 import {
   ActivityIndicator,
   FlatList,
-  Modal,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -140,7 +140,7 @@ export function WatchStudySheet({
   const isLandscape = windowWidth > windowHeight;
   const playerHeight = isLandscape ? 0 : windowWidth * (9 / 16);
   const playerBottom = isLandscape ? 20 : insets.top + 12 + playerHeight;
-  const maxSheetHeight = windowHeight - playerBottom;
+  const maxSheetHeight = Math.max(120, windowHeight - playerBottom);
 
   const [expandedModules, setExpandedModules] = useState<Record<string, boolean>>({});
 
@@ -401,7 +401,7 @@ export function WatchStudySheet({
       const now = new Date().toISOString();
       const initialUserMsg = `Olá! Quero aprender sobre ${finalTitle}`;
       const initialAssistantMsg = `Olá! Vamos estruturar seu estudo em ${finalTitle}.\n\nAntes de eu te guiar, quero calibrar o seu ponto de partida.\n\nVocê já teve algum contato com esse tema, ou está começando do zero?`;
-      
+
       const initialSuggestions = [
         'Estou começando do zero',
         'Já conheço um pouco',
@@ -447,7 +447,7 @@ export function WatchStudySheet({
       // 6. Activate study session in state
       changeActiveStudyId(studyData.id);
       setNewStudyTitle('');
-      
+
     } catch (err) {
       console.error('Error creating study plan:', err);
       Alert.alert('Erro', 'Não foi possível criar o plano de estudo.');
@@ -482,7 +482,7 @@ export function WatchStudySheet({
   const handleSendClassyMessage = async (textOverride?: string) => {
     const userMsgText = (textOverride || chatInput).trim();
     if (!user || !activeStudyId || !userMsgText || chatSending) return;
-    
+
     if (!textOverride) {
       setChatInput('');
     }
@@ -1066,7 +1066,7 @@ export function WatchStudySheet({
           renderItem={({ item, index }) => {
             const isExpanded = !!expandedModules[item.id];
             const modLessons = item.lessons || [];
-            
+
             return (
               <View style={styles.moduleItem}>
                 <Pressable
@@ -1189,7 +1189,7 @@ export function WatchStudySheet({
             </Pressable>
 
             <Text style={styles.dividerText}>OU CRIE UM PLANO PERSONALIZADO</Text>
-            
+
             <View style={styles.customCreateRow}>
               <TextInput
                 placeholder="Ex: Programação Funcional, Meditação..."
@@ -1268,13 +1268,13 @@ export function WatchStudySheet({
             renderItem={({ item, index }) => {
               const isUser = item.role === 'user';
               const suggestions = item.metadata?.follow_up_suggestions || [];
-              
+
               return (
                 <View style={[styles.msgContainer, isUser ? styles.msgContainerUser : styles.msgContainerAssistant]}>
                   <View style={[styles.bubble, isUser ? styles.bubbleUser : styles.bubbleClassy]}>
                     <Text style={styles.bubbleText}>{item.content}</Text>
                   </View>
-                  
+
                   {!isUser && suggestions.length > 0 && index === chatMessages.length - 1 && (
                     <View style={styles.suggestionsChipsWrapper}>
                       {suggestions.map((suggestion: string, sIdx: number) => (
@@ -1333,7 +1333,7 @@ export function WatchStudySheet({
   };
 
   return (
-    <Modal animationType="slide" transparent visible={visible} onRequestClose={onClose} supportedOrientations={['portrait', 'landscape']}>
+    <SheetModal animationType="slide" transparent visible={visible} onRequestClose={onClose} supportedOrientations={['portrait', 'landscape']}>
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         style={styles.modalContainer}
@@ -1369,9 +1369,7 @@ export function WatchStudySheet({
                   <Text style={styles.title} numberOfLines={1}>
                     Estudo: {contentTitle}
                   </Text>
-                  <Pressable style={styles.closeBtn} onPress={onClose}>
-                    <Ionicons name="close" color={colors.text} size={20} />
-                  </Pressable>
+                  <SheetCloseButton onPress={onClose} />
                 </View>
               </View>
 
@@ -1422,7 +1420,7 @@ export function WatchStudySheet({
           </Animated.View>
         </View>
       </KeyboardAvoidingView>
-    </Modal>
+    </SheetModal>
   );
 }
 
@@ -1431,32 +1429,19 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   backdrop: {
-    backgroundColor: 'transparent',
-    flex: 1,
-    justifyContent: 'flex-end',
+    ...sheetStyles.backdrop,
   },
   sheet: {
-    backgroundColor: colors.background,
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
     maxHeight: '75%',
     flex: 1,
     overflow: 'hidden',
+    ...sheetStyles.surface,
   },
   handle: {
-    alignSelf: 'center',
-    backgroundColor: colors.surfaceMuted,
-    borderRadius: radius.pill,
-    height: 4,
-    marginTop: spacing.sm,
-    width: 42,
+    ...sheetStyles.handle,
   },
   header: {
-    alignItems: 'center',
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.md,
+    ...sheetStyles.header,
   },
   title: {
     color: colors.text,

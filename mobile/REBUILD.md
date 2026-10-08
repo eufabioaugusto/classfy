@@ -137,3 +137,14 @@ e [streams públicos de teste da Mux](https://test-streams.mux.dev/).
 - NavigationHeader compartilhado por busca/notificações, altura 60 px e toque 44 px. Safe area aplicada uma vez pelo AppScreen. Visitante recebe vazio de notificações em vez de spinner infinito.
 - controls define raio de botão 12 px, usado em Hero/login/conta/entrada em recompensas. Campos, chips, cards, avatares e ação circular continuam com formas próprias.
 - TypeScript e inspeção visual iOS visitante aprovados. Sem push/deploy.
+
+
+## Contrato de navegação e painéis — 08/10/2026
+
+- AppScreen aplica a safe area uma vez. O slot `header` fica fora do conteúdo com padding e fora do ScrollView; nenhuma página adiciona novamente `insets.top` ao cabeçalho.
+- NavigationHeader é a base de HomeHeader e das páginas comuns: 60 px, toque 44×44, margens horizontais 16 px. Recompensas/Progresso usa o mesmo HomeHeader da Home, sem o padding do corpo envolvendo a marca.
+- Páginas de conta, estudos, biblioteca, mensagens, creators e conteúdo usam o cabeçalho comum. Voltar retorna à rota anterior; entrada sem histórico retorna ao início. Configurações e estudos preservam seus passos internos.
+- Stack de páginas usa card, slide da direita e gesto de retorno. A página de creator deixa de abrir como modal exclusivo. Watch mantém apresentação do player/mini player e Shorts usa o mesmo botão de retorno sobre o vídeo, como variante imersiva.
+- SheetModal centraliza apresentação transparente sobre a tela atual, entrada por baixo e orientação. Classy, Criar, nova conversa, seletor de estudo, limites e painéis do player usam a base comum: backdrop, superfície, alça e fechar 44×44. Altura acompanha conteúdo/contexto; fechamento por X, fundo e retorno nativo. Gestos de arrastar dos painéis do player são preservados; a base não promete arrastar para fechar em todos os painéis.
+- Conteúdo de mídia em landscape continua centralizado em 16:9; alturas máximas são positivas e listas mantêm flexShrink. A base de painel não intercepta seus gestos de rolagem.
+- QA desta rodada: TypeScript e exportação iOS. Conferência visual e teste de retorno/gestos ainda pendentes: o Mac estava bloqueado e o acesso ao simulador não pôde ser realizado. Sem push/deploy; nenhuma alteração em backend ou web.

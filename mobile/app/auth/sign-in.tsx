@@ -1,3 +1,4 @@
+import { NavigationHeader } from '@/components/NavigationHeader';
 import { controls } from '@/theme/controls';
 import { useState } from 'react';
 import { Alert, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
@@ -36,8 +37,8 @@ export default function SignInScreen() {
   }
 
   return (
-    <AppScreen>
-      <Pressable accessibilityRole="button" onPress={() => router.back()} style={{ minHeight: 44, justifyContent: 'center', marginBottom: 16 }}><Text style={{ color: colors.muted }}>Voltar</Text></Pressable>
+    <AppScreen header={<NavigationHeader title="Entrar" back />}>
+
       <View style={styles.header}>
         <Text style={styles.title}>Entrar</Text>
         <Text style={styles.subtitle}>Seus conteúdos, estudos e conquistas, sempre com você.</Text>

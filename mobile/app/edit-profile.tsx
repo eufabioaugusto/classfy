@@ -1,3 +1,4 @@
+import { NavigationHeader } from '@/components/NavigationHeader';
 import React, { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
@@ -60,7 +61,7 @@ export default function EditProfileScreen() {
         .eq('id', user.id);
 
       if (error) throw error;
-      
+
       await refreshProfile();
       Alert.alert('Sucesso', 'Perfil atualizado com sucesso!', [
         { text: 'OK', onPress: () => router.back() }
@@ -80,15 +81,10 @@ export default function EditProfileScreen() {
         style={{ flex: 1 }}
       >
         {/* Custom Header */}
-        <View style={[styles.header, { paddingTop: insets.top + spacing.xs }]}>
-          <Pressable onPress={() => router.back()} style={styles.backBtn}>
-            <ArrowLeft size={20} color={colors.text} />
-          </Pressable>
-          <Text style={styles.headerTitle}>Editar Perfil</Text>
-        </View>
+        <NavigationHeader title="Editar Perfil" back />
 
         <ScrollView style={styles.content} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-          
+
           {/* Avatar Edit Section */}
           <View style={styles.avatarSection}>
             <View style={styles.avatarWrapper}>

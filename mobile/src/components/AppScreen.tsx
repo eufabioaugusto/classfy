@@ -1,4 +1,4 @@
-import { PropsWithChildren } from 'react';
+import { PropsWithChildren, type ReactNode } from 'react';
 import { ScrollView, StyleSheet, View, ViewStyle } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -6,6 +6,7 @@ import { useTabScroll } from '@/contexts/TabScrollContext';
 import { colors, spacing } from '@/theme/tokens';
 
 type AppScreenProps = PropsWithChildren<{
+  header?: ReactNode;
   backgroundColor?: string;
   scroll?: boolean;
   edgeToEdge?: boolean;
@@ -14,6 +15,7 @@ type AppScreenProps = PropsWithChildren<{
 export function AppScreen({
   backgroundColor = colors.background,
   children,
+  header,
   scroll = true,
   edgeToEdge = false,
 }: AppScreenProps) {
@@ -39,6 +41,7 @@ export function AppScreen({
     const nonScrollStyle = edgeToEdge ? styles.nonScrollEdgeContent : styles.nonScrollContent;
     return (
       <SafeAreaView edges={['top', 'left', 'right']} style={safeStyle}>
+        {header}
         <View style={nonScrollStyle}>{children}</View>
       </SafeAreaView>
     );
@@ -46,6 +49,7 @@ export function AppScreen({
 
   return (
     <SafeAreaView edges={['top', 'left', 'right']} style={safeStyle}>
+      {header}
       <ScrollView
         style={{ flex: 1 }}
         contentContainerStyle={contentStyle}

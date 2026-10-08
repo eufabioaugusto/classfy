@@ -1,3 +1,4 @@
+import { useRouter } from 'expo-router';
 import type { ReactNode } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { ArrowLeft } from 'lucide-react-native';
@@ -9,26 +10,20 @@ export function NavigationHeader({
   children,
   right,
   onBack,
+  back = false,
 }: {
   title?: string;
   children?: ReactNode;
   right?: ReactNode;
   onBack?: () => void;
+  back?: boolean;
 }) {
+  const router = useRouter();
+  const goBack = onBack || (() => router.canGoBack() ? router.back() : router.replace('/'));
   return (
     <View style={styles.header}>
-      {onBack && (
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Voltar"
-          onPress={onBack}
-          style={({ pressed }) => [
-            styles.action,
-            pressed && { backgroundColor: colors.surface },
-          ]}
-        >
-          <ArrowLeft size={24} strokeWidth={1.65} color={colors.text} />
-        </Pressable>
+      {(back || onBack) && (
+        <NavigationBackButton onPress={goBack} />
       )}
       <View style={styles.content}>
         {children || <Text style={styles.title}>{title}</Text>}
@@ -36,6 +31,14 @@ export function NavigationHeader({
       {right}
     </View>
   );
+}
+export function NavigationBackButton({ onPress }: { onPress?: () => void }) {
+  const router = useRouter();
+  return <Pressable accessibilityRole="button" accessibilityLabel="Voltar"
+    onPress={onPress || (() => router.canGoBack() ? router.back() : router.replace('/'))}
+    style={({ pressed }) => [styles.action, pressed && { backgroundColor: colors.surface }]}>
+    <ArrowLeft size={24} strokeWidth={1.65} color={colors.text} />
+  </Pressable>;
 }
 const styles = StyleSheet.create({
   header: {

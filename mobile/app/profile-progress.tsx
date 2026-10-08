@@ -1,3 +1,4 @@
+import { NavigationHeader } from '@/components/NavigationHeader';
 import React, { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
@@ -557,12 +558,7 @@ export default function ProfileScreen() {
   return (
     <AppScreen edgeToEdge={true} scroll={false}>
       {/* Page Title Floating */}
-      <View style={[styles.pageHeader, { paddingTop: insets.top + spacing.xs }]}>
-        <Pressable onPress={() => router.back()} style={styles.backBtn}>
-          <ArrowLeft size={20} color={colors.text} />
-        </Pressable>
-        <Text style={styles.pageTitle}>Painel de Estudos</Text>
-      </View>
+      <NavigationHeader title="Painel de Estudos" back />
 
       {renderDashboard()}
     </AppScreen>

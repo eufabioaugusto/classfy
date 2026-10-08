@@ -1,3 +1,4 @@
+import { NavigationHeader } from '@/components/NavigationHeader';
 import React, { useEffect, useState, useRef } from 'react';
 import {
   ActivityIndicator,
@@ -363,27 +364,7 @@ export default function ChatThreadScreen() {
         keyboardVerticalOffset={Platform.OS === 'ios' ? 62 : 0} // Standard offset to sit beautifully above the keyboard
       >
         {/* Thread Header */}
-        <View style={[styles.threadHeader, { paddingTop: insets.top + spacing.xs }]}>
-          <Pressable onPress={() => router.back()} style={styles.backBtn}>
-            <ArrowLeft size={20} color={colors.text} />
-          </Pressable>
-
-          {otherUser && (
-            <View style={styles.threadRecipientInfo}>
-              <View style={styles.recipientAvatarWrap}>
-                {otherUser.avatar_url ? (
-                  <Image source={{ uri: otherUser.avatar_url }} style={styles.recipientAvatar} />
-                ) : (
-                  <View style={styles.fallbackAvatarMini}>
-                    <Text style={styles.fallbackAvatarMiniText}>{otherUser.display_name[0]?.toUpperCase()}</Text>
-                  </View>
-                )}
-              </View>
-              <Text style={styles.recipientName}>{otherUser.display_name}</Text>
-            </View>
-          )}
-
-          <View style={{ position: 'relative' }}>
+        <NavigationHeader back right={<View style={{ position: 'relative' }}>
             <Pressable onPress={() => setIsMenuOpen(!isMenuOpen)} style={styles.moreBtn}>
               <MoreVertical size={20} color={colors.text} />
             </Pressable>
@@ -405,7 +386,23 @@ export default function ChatThreadScreen() {
               </View>
             )}
           </View>
-        </View>
+        }>
+          {otherUser && (
+            <View style={styles.threadRecipientInfo}>
+              <View style={styles.recipientAvatarWrap}>
+                {otherUser.avatar_url ? (
+                  <Image source={{ uri: otherUser.avatar_url }} style={styles.recipientAvatar} />
+                ) : (
+                  <View style={styles.fallbackAvatarMini}>
+                    <Text style={styles.fallbackAvatarMiniText}>{otherUser.display_name[0]?.toUpperCase()}</Text>
+                  </View>
+                )}
+              </View>
+              <Text style={styles.recipientName}>{otherUser.display_name}</Text>
+            </View>
+          )}
+
+        </NavigationHeader>
 
         {/* Absolute flow wrapper container */}
         <View style={{ flex: 1, position: 'relative' }}>
@@ -435,7 +432,7 @@ export default function ChatThreadScreen() {
                 <Pressable style={styles.attachBtn}>
                   <Plus size={18} color="#FFF" />
                 </Pressable>
-                
+
                 <TextInput
                   style={styles.chatInput}
                   value={inputText}

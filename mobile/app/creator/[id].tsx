@@ -1,3 +1,4 @@
+import { NavigationHeader } from '@/components/NavigationHeader';
 import React, { useEffect, useState, useRef } from 'react';
 import {
   ActivityIndicator,
@@ -96,7 +97,6 @@ export default function CreatorProfileScreen() {
   // Configure navigation options imperatively to prevent infinite state updates
   useEffect(() => {
     navigation.setOptions({
-      presentation: 'fullScreenModal',
       headerShown: false,
     });
   }, [navigation]);
@@ -138,7 +138,7 @@ export default function CreatorProfileScreen() {
 
       let query = supabase.from('profiles').select('*');
       const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(rawId);
-      
+
       if (isUuid) {
         query = query.eq('id', rawId);
       } else {
@@ -166,7 +166,7 @@ export default function CreatorProfileScreen() {
           .eq('follower_id', user.id)
           .eq('following_id', profileData.id)
           .maybeSingle();
-        
+
         setIsFollowing(!!followData);
       }
 
@@ -355,7 +355,7 @@ export default function CreatorProfileScreen() {
           .delete()
           .eq('follower_id', user.id)
           .eq('following_id', creator.id);
-        
+
         if (error) throw error;
       } else {
         // Follow request
@@ -365,7 +365,7 @@ export default function CreatorProfileScreen() {
             follower_id: user.id,
             following_id: creator.id,
           });
-        
+
         if (error) throw error;
 
         try {
@@ -411,9 +411,6 @@ export default function CreatorProfileScreen() {
       <View style={styles.skeletonContainer}>
         {/* Banner Skeleton */}
         <Animated.View style={[styles.skeletonBanner, { opacity: pulseAnim }]} />
-        <View style={[styles.backButton, { top: insets.top + spacing.xs }]}>
-          <ArrowLeft size={20} color="#fff" />
-        </View>
 
         {/* Profile Info Block Skeleton */}
         <View style={styles.headerInfoBlock}>
@@ -423,7 +420,7 @@ export default function CreatorProfileScreen() {
           {/* Name & Handle Skeleton */}
           <Animated.View style={[styles.skeletonTextLine, { width: 180, height: 22, marginTop: spacing.sm, opacity: pulseAnim }]} />
           <Animated.View style={[styles.skeletonTextLine, { width: 120, height: 14, marginTop: spacing.xs, opacity: pulseAnim }]} />
-          
+
           {/* Bio Skeleton */}
           <Animated.View style={[styles.skeletonTextLine, { width: '85%', height: 12, marginTop: spacing.md, opacity: pulseAnim }]} />
           <Animated.View style={[styles.skeletonTextLine, { width: '60%', height: 12, marginTop: spacing.xs, opacity: pulseAnim }]} />
@@ -455,7 +452,7 @@ export default function CreatorProfileScreen() {
   };
 
   return (
-    <AppScreen edgeToEdge={true} scroll={false}>
+    <AppScreen scroll={false} edgeToEdge header={<NavigationHeader title="Creator" back />}>
       {loading ? (
         renderSkeleton()
       ) : creator ? (
@@ -468,15 +465,13 @@ export default function CreatorProfileScreen() {
               ) : (
                 <View style={styles.bannerPlaceholder} />
               )}
-              {/* Back Button positioned inside the banner, so it scrolls along with the page */}
-              <Pressable onPress={() => router.back()} style={[styles.backButton, { top: insets.top + spacing.xs }]}>
-                <ArrowLeft size={20} color="#fff" />
-              </Pressable>
+
+
             </View>
 
             {/* Creator Info Header Block */}
             <View style={styles.headerInfoBlock}>
-              
+
               {/* Instagram/YouTube Hybrid row: Avatar left, stats right */}
               <View style={styles.avatarStatsRow}>
                 <View style={styles.avatarContainer}>
@@ -513,7 +508,7 @@ export default function CreatorProfileScreen() {
                   <Text style={styles.displayName}>{creator.display_name}</Text>
                   <CheckCircle2 size={16} color={colors.accent} style={{ marginLeft: 6 }} />
                 </View>
-                
+
                 <View style={styles.handleAndLevelRow}>
                   <Text style={styles.channelName}>@{creator.creator_channel_name}</Text>
                   {stats && (

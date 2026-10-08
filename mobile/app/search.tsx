@@ -44,7 +44,7 @@ export function SearchExperience({ embedded = false }: { embedded?: boolean }) {
   }, [query, contents, courses]);
   return (
     <AppScreen scroll={false} edgeToEdge>
-      <NavigationHeader onBack={embedded ? undefined : () => router.back()}>
+      <NavigationHeader back={!embedded}>
         <View style={styles.inputWrap}>
           <TextInput
             autoFocus={!embedded}

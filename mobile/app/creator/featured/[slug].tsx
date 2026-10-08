@@ -1,3 +1,4 @@
+import { NavigationHeader } from '@/components/NavigationHeader';
 import { Ionicons } from '@expo/vector-icons';
 import { ResizeMode, Video } from 'expo-av';
 import { Image } from 'expo-image';
@@ -144,7 +145,7 @@ export default function FeaturedCreatorLandingScreen() {
 
   if (loading) {
     return (
-      <AppScreen scroll={false}>
+      <AppScreen scroll={false} edgeToEdge header={<NavigationHeader title="Creator" back />}>
         <View style={styles.centerContainer}>
           <ActivityIndicator size="large" color={colors.accent} />
         </View>
@@ -155,7 +156,7 @@ export default function FeaturedCreatorLandingScreen() {
   if (!creator) return null;
 
   return (
-    <AppScreen scroll={false} edgeToEdge={true}>
+    <AppScreen scroll={false} edgeToEdge header={<NavigationHeader title="Creator" back />}>
       <Animated.ScrollView
         style={{ flex: 1 }}
         contentContainerStyle={styles.scrollContent}
@@ -177,13 +178,8 @@ export default function FeaturedCreatorLandingScreen() {
             colors={['transparent', 'rgba(0,0,0,0.3)', 'rgba(0,0,0,0.35)', '#000000']}
             style={StyleSheet.absoluteFillObject}
           />
-          {/* Header Back Button inside Hero (scrolls with page) */}
-          <Pressable 
-            onPress={() => router.back()} 
-            style={[styles.backBtnCircle, { top: insets.top + spacing.xs }]}
-          >
-            <Ionicons name="chevron-back" size={24} color="#FFF" />
-          </Pressable>
+
+
         </View>
 
         <View style={styles.heroOverlayContent}>

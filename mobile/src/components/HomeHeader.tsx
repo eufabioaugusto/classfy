@@ -1,3 +1,4 @@
+import { NavigationHeader } from './NavigationHeader';
 import { controls } from '@/theme/controls';
 import { nextRealtimeTopic } from '@/lib/realtimeTopic';
 import { Bell, Search } from 'lucide-react-native';
@@ -49,26 +50,7 @@ export function HomeHeader() {
     };
   }, [user?.id]);
   return (
-    <View style={styles.header}>
-      <View style={styles.brandRow}>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Abrir menu"
-          onPress={openSidebar}
-          style={({ pressed }) => [styles.action, pressed && styles.pressed]}
-        >
-          <Svg width={24} height={24} viewBox="0 0 24 24">
-            <Path
-              d="M4 8h16M4 16h10"
-              fill="none"
-              stroke={colors.text}
-              strokeWidth={1.65}
-              strokeLinecap="round"
-            />
-          </Svg>
-        </Pressable>
-        <Text style={styles.brand}>Classfy</Text>
-      </View>
+    <NavigationHeader right={
       <View style={styles.actions}>
         <Pressable
           accessibilityRole="button"
@@ -94,17 +76,31 @@ export function HomeHeader() {
           ) : null}
         </Pressable>
       </View>
-    </View>
+    }>
+
+      <View style={styles.brandRow}>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Abrir menu"
+          onPress={openSidebar}
+          style={({ pressed }) => [styles.action, pressed && styles.pressed]}
+        >
+          <Svg width={24} height={24} viewBox="0 0 24 24">
+            <Path
+              d="M4 8h16M4 16h10"
+              fill="none"
+              stroke={colors.text}
+              strokeWidth={1.65}
+              strokeLinecap="round"
+            />
+          </Svg>
+        </Pressable>
+        <Text style={styles.brand}>Classfy</Text>
+      </View>
+    </NavigationHeader>
   );
 }
 const styles = StyleSheet.create({
-  header: {
-    height: controls.headerHeight,
-    paddingHorizontal: 16,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
   brandRow: { flexDirection: 'row', alignItems: 'center', gap: 9 },
   brand: {
     color: colors.text,
@@ -114,8 +110,8 @@ const styles = StyleSheet.create({
   },
   actions: { flexDirection: 'row', gap: 4 },
   action: {
-    width: 44,
-    height: 44,
+    width: controls.actionSize,
+    height: controls.actionSize,
     alignItems: 'center',
     justifyContent: 'center',
     borderRadius: 22,

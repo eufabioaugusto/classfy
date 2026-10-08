@@ -1,3 +1,4 @@
+import { NavigationHeader } from '@/components/NavigationHeader';
 import React, { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
@@ -253,13 +254,7 @@ export default function CarteiraScreen() {
   return (
     <AppScreen edgeToEdge={true} scroll={false}>
       {/* Header */}
-      <View style={styles.header}>
-        <Pressable onPress={() => router.back()} style={styles.backBtn}>
-          <ArrowLeft size={22} color={colors.text} />
-        </Pressable>
-        <Text style={styles.headerTitle}>Carteira</Text>
-        <View style={{ width: 40 }} />
-      </View>
+      <NavigationHeader title="Carteira" back />
 
       <ScrollView contentContainerStyle={styles.scrollContainer} showsVerticalScrollIndicator={false}>
         {loading ? (

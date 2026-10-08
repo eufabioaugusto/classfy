@@ -1,3 +1,4 @@
+import { NavigationHeader } from '@/components/NavigationHeader';
 import { Href, Link } from 'expo-router';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
@@ -6,7 +7,7 @@ import { colors, radius, spacing, type } from '@/theme/tokens';
 
 export default function SignUpScreen() {
   return (
-    <AppScreen>
+    <AppScreen header={<NavigationHeader title="Criar conta" back />}>
       <View style={styles.panel}>
         <Text style={styles.title}>Criar conta</Text>
         <Text style={styles.body}>

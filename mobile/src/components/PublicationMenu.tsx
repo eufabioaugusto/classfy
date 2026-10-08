@@ -1,7 +1,7 @@
+import { SheetModal, SheetCloseButton, sheetStyles } from '@/components/SheetModal';
 import { useEffect, useRef, useState } from 'react';
 import {
   Alert,
-  Modal,
   Platform,
   Pressable,
   ScrollView,
@@ -60,7 +60,7 @@ export function PublicationMenu() {
     if (action !== 'publish' && Platform.OS !== 'ios') void launch();
   }, [action]);
   return (
-    <Modal
+    <SheetModal
       visible={action === 'publish' && canPublish}
       transparent
       animationType="slide"
@@ -85,6 +85,7 @@ export function PublicationMenu() {
             },
           ]}
         >
+          <View style={sheetStyles.handle} />
           <View style={styles.header}>
             <View style={{ flex: 1, gap: 6 }}>
               <Text style={styles.title}>O que você quer criar?</Text>
@@ -92,14 +93,7 @@ export function PublicationMenu() {
                 Escolha o formato da sua publicação.
               </Text>
             </View>
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="Fechar publicação"
-              style={styles.close}
-              onPress={closePublish}
-            >
-              <Ionicons name="close" color={colors.text} size={23} />
-            </Pressable>
+            <SheetCloseButton label="Fechar publicação" onPress={closePublish} />
           </View>
           <ScrollView
             style={{ flexShrink: 1 }}
@@ -138,29 +132,20 @@ export function PublicationMenu() {
           </Text>
         </View>
       </View>
-    </Modal>
+    </SheetModal>
   );
 }
 const styles = StyleSheet.create({
   overlay: {
-    flex: 1,
-    backgroundColor: '#00000088',
-    justifyContent: 'flex-end',
+    ...sheetStyles.backdrop,
   },
   sheet: {
-    backgroundColor: colors.backgroundElevated,
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
     borderWidth: 1,
-    borderColor: colors.border,
-    flexShrink: 1,
+    ...sheetStyles.surface,
   },
   header: {
-    flexDirection: 'row',
     gap: 16,
-    alignItems: 'center',
-    padding: 24,
-    paddingBottom: 18,
+    ...sheetStyles.header,
   },
   title: {
     color: colors.text,
@@ -170,10 +155,7 @@ const styles = StyleSheet.create({
   },
   description: { color: colors.muted, fontSize: 12, lineHeight: 18 },
   close: {
-    width: 44,
-    height: 44,
-    alignItems: 'center',
-    justifyContent: 'center',
+    ...sheetStyles.close,
   },
   option: {
     flexDirection: 'row',

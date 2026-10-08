@@ -1,10 +1,10 @@
+import { SheetModal, SheetCloseButton, sheetStyles } from '@/components/SheetModal';
 import { Ionicons } from '@expo/vector-icons';
 import { useState, useRef, useMemo, useEffect } from 'react';
 import {
   ActivityIndicator,
   FlatList,
   Image,
-  Modal,
   Pressable,
   StyleSheet,
   Text,
@@ -81,7 +81,7 @@ export function WatchCommentsSheet({ visible, contentId, onClose }: WatchComment
   const isLandscape = windowWidth > windowHeight;
   const playerHeight = isLandscape ? 0 : windowWidth * (9 / 16);
   const playerBottom = isLandscape ? 20 : insets.top + 12 + playerHeight;
-  const maxSheetHeight = windowHeight - playerBottom;
+  const maxSheetHeight = Math.max(120, windowHeight - playerBottom);
 
   const {
     scrollEnabled,
@@ -143,7 +143,7 @@ export function WatchCommentsSheet({ visible, contentId, onClose }: WatchComment
   }
 
   return (
-    <Modal animationType="slide" transparent visible={visible} onRequestClose={onClose} supportedOrientations={['portrait', 'landscape']}>
+    <SheetModal animationType="slide" transparent visible={visible} onRequestClose={onClose} supportedOrientations={['portrait', 'landscape']}>
       <View style={styles.backdrop}>
         <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
         <AnimatedKeyboardAvoidingView
@@ -172,9 +172,7 @@ export function WatchCommentsSheet({ visible, contentId, onClose }: WatchComment
                 <View style={styles.handle} />
                 <View style={styles.header}>
                   <Text style={styles.title}>Comentarios ({comments.length})</Text>
-                  <Pressable style={styles.closeButton} onPress={onClose}>
-                    <Ionicons name="close" color={colors.text} size={20} />
-                  </Pressable>
+                  <SheetCloseButton onPress={onClose} />
                 </View>
               </View>
 
@@ -242,40 +240,27 @@ export function WatchCommentsSheet({ visible, contentId, onClose }: WatchComment
           </View>
         </AnimatedKeyboardAvoidingView>
       </View>
-    </Modal>
+    </SheetModal>
   );
 }
 
 const styles = StyleSheet.create({
   backdrop: {
-    backgroundColor: 'transparent',
-    flex: 1,
-    justifyContent: 'flex-end',
+    ...sheetStyles.backdrop,
   },
   sheet: {
-    backgroundColor: colors.background,
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
     maxHeight: '82%',
     minHeight: '62%',
     flex: 1,
+    ...sheetStyles.surface,
   },
   handle: {
-    alignSelf: 'center',
-    backgroundColor: colors.surfaceMuted,
-    borderRadius: radius.pill,
-    height: 4,
-    marginTop: spacing.sm,
-    width: 42,
+    ...sheetStyles.handle,
   },
   header: {
-    alignItems: 'center',
     borderBottomColor: colors.borderSubtle,
     borderBottomWidth: 1,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.md,
+    ...sheetStyles.header,
   },
   title: {
     color: colors.text,
@@ -283,12 +268,8 @@ const styles = StyleSheet.create({
     fontWeight: typography.weightBlack,
   },
   closeButton: {
-    alignItems: 'center',
     backgroundColor: colors.surface,
-    borderRadius: radius.pill,
-    height: 34,
-    justifyContent: 'center',
-    width: 34,
+    ...sheetStyles.close,
   },
   loading: {
     flex: 1,

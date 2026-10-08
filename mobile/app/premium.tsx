@@ -1,3 +1,4 @@
+import { NavigationHeader } from '@/components/NavigationHeader';
 import React, { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
@@ -203,17 +204,9 @@ export default function PremiumScreen() {
   };
 
   return (
-    <AppScreen scroll={false}>
+    <AppScreen scroll={false} edgeToEdge>
       {/* Header Bar */}
-      <View style={[styles.header, { paddingTop: insets.top + spacing.xs }]}>
-        <Pressable onPress={() => router.back()} style={styles.backBtn}>
-          <Ionicons name="arrow-back" size={24} color={colors.text} />
-        </Pressable>
-        <Text style={styles.headerTitle}>Classfy Premium</Text>
-        <View style={styles.headerRight}>
-          <Ionicons name="gift-outline" size={22} color={colors.accent} />
-        </View>
-      </View>
+      <NavigationHeader title="Classfy Premium" back />
 
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
         {/* Hero Section */}

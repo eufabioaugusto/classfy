@@ -1,3 +1,4 @@
+import { SheetModal, SheetCloseButton, sheetStyles } from '@/components/SheetModal';
 import { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
@@ -5,7 +6,6 @@ import {
   AppState,
   DeviceEventEmitter,
   KeyboardAvoidingView,
-  Modal,
   Platform,
   Pressable,
   ScrollView,
@@ -436,7 +436,7 @@ export function GlobalClassy() {
   const selectedStudy = studies.find((s) => s.id === studyId);
   return (
     <>
-      <Modal
+      <SheetModal
         visible={open}
         transparent
         animationType="slide"
@@ -460,19 +460,14 @@ export function GlobalClassy() {
               },
             ]}
           >
+            <View style={sheetStyles.handle} />
             <View style={styles.header}>
               <ClassyAvatar />
               <View style={{ flex: 1 }}>
                 <Text style={styles.heading}>Classy</Text>
                 <Text style={styles.muted}>Seu espaço para aprender</Text>
               </View>
-              <Pressable
-                style={styles.icon}
-                accessibilityLabel="Fechar Classy"
-                onPress={() => setOpen(false)}
-              >
-                <Ionicons name="close" size={22} color={colors.text} />
-              </Pressable>
+              <SheetCloseButton label="Fechar Classy" onPress={() => setOpen(false)} />
             </View>
             <View style={styles.context}>
               <Text style={styles.muted}>Com você em · {page}</Text>
@@ -841,33 +836,23 @@ export function GlobalClassy() {
             </View>
           </View>
         </KeyboardAvoidingView>
-      </Modal>
+      </SheetModal>
     </>
   );
 }
 const styles = StyleSheet.create({
   overlay: {
-    flex: 1,
-    justifyContent: 'flex-end',
-    backgroundColor: '#00000055',
+    ...sheetStyles.backdrop,
   },
   backdrop: { flex: 1 },
   panel: {
-    backgroundColor: colors.background,
     borderWidth: 1,
-    borderColor: colors.border,
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
     minHeight: 360,
-    flexShrink: 1,
+    ...sheetStyles.surface,
   },
   header: {
-    flexDirection: 'row',
-    alignItems: 'center',
     gap: 10,
-    paddingHorizontal: 16,
-    paddingTop: 16,
-    paddingBottom: 12,
+    ...sheetStyles.header,
   },
   heading: { color: colors.text, fontSize: 19, fontWeight: '600' },
   muted: { color: colors.muted, fontSize: 12, lineHeight: 18 },

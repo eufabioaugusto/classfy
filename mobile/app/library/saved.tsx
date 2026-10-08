@@ -1,3 +1,4 @@
+import { NavigationHeader } from '@/components/NavigationHeader';
 import React, { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
@@ -164,17 +165,9 @@ export default function SavedScreen() {
   };
 
   return (
-    <AppScreen scroll={false}>
+    <AppScreen scroll={false} edgeToEdge header={<NavigationHeader title="Salvos" back />}>
       {/* Custom Navigation Header */}
-      <View style={[styles.header, { paddingTop: insets.top + spacing.xs }]}>
-        <View style={styles.headerTop}>
-          <Pressable onPress={() => router.back()} style={styles.backBtn}>
-            <Ionicons name="arrow-back" size={24} color={colors.text} />
-          </Pressable>
-          <Text style={styles.headerTitle}>Salvos</Text>
-          {/* Spacer */}
-          <View style={{ width: 24 }} />
-        </View>
+      <View style={[styles.header, { paddingHorizontal: 24, paddingTop: 12 }]}>
 
         {/* Search Bar within Header */}
         <View style={styles.searchBar}>
@@ -232,7 +225,7 @@ export default function SavedScreen() {
                       <Text style={styles.description} numberOfLines={1}>
                         {item.contents.description || 'Sem descrição.'}
                       </Text>
-                      
+
                       {/* Type Badge */}
                       <View style={styles.row}>
                         <View style={[styles.typeBadge, { backgroundColor: 'rgba(255,255,255,0.04)', borderColor: badgeColor, borderWidth: 1 }]}>

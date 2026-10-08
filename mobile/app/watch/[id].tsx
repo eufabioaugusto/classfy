@@ -1,3 +1,4 @@
+import { SheetModal, SheetCloseButton, sheetStyles } from '@/components/SheetModal';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router, useLocalSearchParams } from 'expo-router';
@@ -10,7 +11,6 @@ import {
   Dimensions,
   Easing,
   Image,
-  Modal,
   PanResponder,
   Pressable,
   ScrollView,
@@ -443,7 +443,6 @@ export default function WatchScreen() {
     extrapolate: 'clamp',
   });
 
-
   return (
     <View style={styles.modalRoot}>
       <Animated.View style={[styles.overlaySurface, overlayStyle, isFullscreen && { backgroundColor: '#000' }]}>
@@ -731,8 +730,6 @@ export default function WatchScreen() {
                     setStudySheetOpen(true);
                   }}
                 />
-
-
 
                 <Pressable style={styles.commentsRow} onPress={() => setCommentsOpen(true)}>
                   <View style={styles.rowTitle}>
@@ -1226,8 +1223,6 @@ function WatchStudyTools({ isCourse, onToolPress, studyId = null }: WatchStudyTo
     </View>
   );
 }
-
-
 
 function WatchRelatedList({ items, loading }: { items: WatchRelatedItem[]; loading: boolean }) {
   if (loading) {
@@ -1827,25 +1822,15 @@ const styles = StyleSheet.create({
     fontWeight: typography.weightBlack,
   },
   sheetBackdrop: {
-    backgroundColor: 'transparent',
-    flex: 1,
-    justifyContent: 'flex-end',
+    ...sheetStyles.backdrop,
   },
   sheet: {
-    backgroundColor: '#202020',
-    borderTopLeftRadius: radius.lg,
-    borderTopRightRadius: radius.lg,
     paddingBottom: spacing.xxl,
     paddingHorizontal: spacing.lg,
+    ...sheetStyles.surface,
   },
   sheetHandle: {
-    alignSelf: 'center',
-    backgroundColor: colors.surfaceMuted,
-    borderRadius: radius.pill,
-    height: 5,
-    marginBottom: spacing.lg,
-    marginTop: spacing.md,
-    width: 52,
+    ...sheetStyles.handle,
   },
   sheetSectionTitle: {
     color: colors.textSecondary,
@@ -1919,11 +1904,9 @@ const styles = StyleSheet.create({
     color: colors.background,
   },
   sheetHeader: {
-    alignItems: 'center',
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    paddingVertical: spacing.md,
+    marginHorizontal: -spacing.lg,
     marginBottom: spacing.xs,
+    ...sheetStyles.header,
   },
   sheetTitle: {
     color: colors.text,
@@ -1933,12 +1916,8 @@ const styles = StyleSheet.create({
     marginRight: spacing.md,
   },
   sheetCloseBtn: {
-    alignItems: 'center',
     backgroundColor: colors.surface,
-    borderRadius: radius.pill,
-    height: 34,
-    justifyContent: 'center',
-    width: 34,
+    ...sheetStyles.close,
   },
 });
 
@@ -1972,7 +1951,7 @@ function SettingsSheet({
   const isLandscape = windowWidth > windowHeight;
   const playerHeight = isLandscape ? 0 : windowWidth * (9 / 16);
   const playerBottom = isLandscape ? 20 : insets.top + 12 + playerHeight; // 12 is spacing.sm
-  const maxSheetHeight = windowHeight - playerBottom;
+  const maxSheetHeight = Math.max(120, windowHeight - playerBottom);
 
   useEffect(() => {
     if (visible) {
@@ -2016,7 +1995,7 @@ function SettingsSheet({
   );
 
   return (
-    <Modal transparent visible={visible} animationType="slide" onRequestClose={onClose} supportedOrientations={['portrait', 'landscape']}>
+    <SheetModal transparent visible={visible} animationType="slide" onRequestClose={onClose} supportedOrientations={['portrait', 'landscape']}>
       <View
         style={styles.sheetBackdrop}
       >
@@ -2044,9 +2023,7 @@ function SettingsSheet({
               <View style={styles.sheetHandle} />
               <View style={styles.sheetHeader}>
                 <Text style={styles.sheetTitle} numberOfLines={1}>Controles</Text>
-                <Pressable style={styles.sheetCloseBtn} hitSlop={12} onPress={onClose}>
-                  <Ionicons name="close" color={colors.text} size={20} />
-                </Pressable>
+                <SheetCloseButton onPress={onClose} />
               </View>
             </View>
             <ScrollView
@@ -2093,7 +2070,7 @@ function SettingsSheet({
           </View>
         </Animated.View>
       </View>
-    </Modal>
+    </SheetModal>
   );
 }
 

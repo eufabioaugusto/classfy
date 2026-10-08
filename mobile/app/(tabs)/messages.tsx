@@ -1,3 +1,5 @@
+import { SheetModal, SheetCloseButton, sheetStyles } from '@/components/SheetModal';
+import { NavigationHeader } from '@/components/NavigationHeader';
 import React, { useEffect, useState, useRef, useCallback } from 'react';
 import {
   ActivityIndicator,
@@ -10,6 +12,7 @@ import {
   Alert,
   ScrollView,
   Dimensions,
+  useWindowDimensions,
 } from 'react-native';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { Image } from 'expo-image';
@@ -89,7 +92,7 @@ function SwipeableConversationRow({
   const isUnread = item.unread_count > 0;
   const shareMessage = item.last_message ? isContentShare(item.last_message.content) : null;
   const prefix = item.last_message?.sender_id === currentUserId ? 'Você: ' : '';
-  
+
   let lastMsgPreview = 'Sem mensagens';
   if (shareMessage) {
     lastMsgPreview = `🎥 ${shareMessage.contentTitle}`;
@@ -177,6 +180,7 @@ export default function MessagesScreen() {
   const { user } = useAuth();
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const { height: windowHeight } = useWindowDimensions();
 
   const [loading, setLoading] = useState(true);
   const [conversations, setConversations] = useState<Conversation[]>([]);
@@ -200,7 +204,7 @@ export default function MessagesScreen() {
   useEffect(() => {
     if (user) {
       loadConversations();
-      
+
       const channel = supabase
         .channel(`inbox-global-channel-${user.id}-${Date.now()}`)
         .on('postgres_changes', { event: '*', schema: 'public', table: 'messages' }, () => {
@@ -259,7 +263,7 @@ export default function MessagesScreen() {
           const otherPart = (conv.conversation_participants || []).find(
             (op: any) => op.user_id !== user.id
           );
-          
+
           const sortedMsgs = [...(conv.messages || [])].sort(
             (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
           );
@@ -412,9 +416,7 @@ export default function MessagesScreen() {
   return (
     <AppScreen edgeToEdge={true} scroll={false}>
       <View style={{ flex: 1 }}>
-        <View style={[styles.pageHeader, { paddingTop: insets.top + spacing.xs }]}>
-          <Text style={styles.pageTitle}>Mensagens</Text>
-          {user && (
+        <NavigationHeader title="Mensagens" back right={user ? (
             <Pressable
               style={styles.newConvBtn}
               onPress={() => {
@@ -424,8 +426,7 @@ export default function MessagesScreen() {
             >
               <Plus size={20} color={colors.text} />
             </Pressable>
-          )}
-        </View>
+          ) : null} />
 
         {!user ? (
           <View style={styles.authNotice}>
@@ -504,14 +505,14 @@ export default function MessagesScreen() {
         )}
 
         {/* New Conversation Selector Modal */}
-        {showNewConversation && (
-          <View style={[StyleSheet.absoluteFillObject, styles.modalOverlay]}>
-            <View style={[styles.modalContent, { marginTop: insets.top + spacing.xl }]}>
-              <View style={styles.modalHeader}>
+        <SheetModal visible={showNewConversation} onRequestClose={() => setShowNewConversation(false)}>
+          <View style={sheetStyles.backdrop}>
+            <Pressable style={StyleSheet.absoluteFillObject} accessibilityLabel="Fechar nova mensagem" onPress={() => setShowNewConversation(false)} />
+            <View style={[sheetStyles.surface, { maxHeight: Math.max(120, windowHeight - insets.top - 24), paddingBottom: Math.max(insets.bottom, 16) }]}>
+              <View style={sheetStyles.handle} />
+              <View style={sheetStyles.header}>
                 <Text style={styles.modalTitle}>Nova Mensagem</Text>
-                <Pressable onPress={() => setShowNewConversation(false)} style={styles.modalCloseBtn}>
-                  <Text style={{ color: colors.muted, fontWeight: 'bold' }}>Fechar</Text>
-                </Pressable>
+                <SheetCloseButton onPress={() => setShowNewConversation(false)} />
               </View>
 
               {searchingCreators ? (
@@ -540,12 +541,13 @@ export default function MessagesScreen() {
                       </View>
                     </Pressable>
                   )}
+                  style={{ flexShrink: 1 }}
                   contentContainerStyle={{ paddingHorizontal: spacing.lg }}
                 />
               )}
             </View>
           </View>
-        )}
+        </SheetModal>
       </View>
     </AppScreen>
   );

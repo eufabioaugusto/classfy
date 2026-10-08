@@ -1,3 +1,4 @@
+import { NavigationBackButton } from '@/components/NavigationHeader';
 import React, { useEffect, useState, useRef } from 'react';
 import {
   ActivityIndicator,
@@ -136,7 +137,7 @@ function ShortVideoCell({
   const handleVideoPress = async () => {
     const nextPaused = !localPaused;
     setLocalPaused(nextPaused);
-    
+
     if (videoRef.current) {
       if (nextPaused) {
         await videoRef.current.pauseAsync().catch(() => {});
@@ -144,7 +145,7 @@ function ShortVideoCell({
         await videoRef.current.playAsync().catch(() => {});
       }
     }
-    
+
     // Trigger big center play icon animation
     setShowCenterIcon(true);
     iconScaleAnim.setValue(0.5);
@@ -420,12 +421,12 @@ export default function ShortsScreen() {
   const [loading, setLoading] = useState(!initialShortId || !initialVideoUrl);
   const [activeIndex, setActiveIndex] = useState(0);
   const [isMuted, setIsMuted] = useState(false);
-  
+
   // Action state dictionaries to prevent reloading cells
   const [likedDict, setLikedDict] = useState<Record<string, boolean>>({});
   const [savedDict, setSavedDict] = useState<Record<string, boolean>>({});
   const [likesCountDict, setLikesCountDict] = useState<Record<string, number>>({});
-  
+
   // Comments modal state
   const [showComments, setShowComments] = useState(false);
   const [commentingShortId, setCommentingShortId] = useState<string | null>(null);
@@ -441,7 +442,7 @@ export default function ShortsScreen() {
       shouldDuckAndroid: true,
       staysActiveInBackground: false,
     }).catch(() => {});
-    
+
     loadShortsFeed();
   }, [user]);
 
@@ -485,14 +486,14 @@ export default function ShortsScreen() {
       // 3. Score and sort by interest overlap + curated status
       let items: ShortItem[] = data.map((item: any) => {
         let score = 0;
-        
+
         // Boost if tags overlap with interests
         if (item.tags && Array.isArray(item.tags) && userInterests.length > 0) {
           item.tags.forEach((tag: string) => {
             if (userInterests.includes(tag.toLowerCase())) score += 10;
           });
         }
-        
+
         // Boost if is curated
         if (item.is_curated) score += 5;
 
@@ -575,7 +576,7 @@ export default function ShortsScreen() {
     }
 
     const isLiked = likedDict[itemId];
-    
+
     // UI update instantly for high response
     setLikedDict((prev) => ({ ...prev, [itemId]: !isLiked }));
     setLikesCountDict((prev) => ({
@@ -692,12 +693,9 @@ export default function ShortsScreen() {
   return (
     <View style={styles.screenContainer}>
       {/* Floating immersive Back Button */}
-      <Pressable 
-        onPress={() => router.back()} 
-        style={[styles.backButtonFloating, { top: insets.top + 10 }]}
-      >
-        <ArrowLeft size={24} color="#FFF" />
-      </Pressable>
+      <View style={[styles.backButtonFloating, { top: insets.top + 8 }]}>
+        <NavigationBackButton />
+      </View>
 
       <FlatList
         data={shorts}
@@ -749,7 +747,7 @@ export default function ShortsScreen() {
       {/* Simulated Replica of the floating bottom TabBar */}
       <View style={styles.floatingTabBar}>
         <BlurView intensity={90} tint="dark" style={StyleSheet.absoluteFillObject} />
-        
+
         <Pressable onPress={() => router.push('/(tabs)' as any)} style={styles.tabItem}>
           <House color="#FFF" size={22} strokeWidth={2.2} />
           <Text style={styles.tabItemTextActive}>Explorar</Text>
@@ -789,9 +787,9 @@ const styles = StyleSheet.create({
     position: 'absolute',
     left: 16,
     zIndex: 99,
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     backgroundColor: 'rgba(0,0,0,0.4)',
     alignItems: 'center',
     justifyContent: 'center',

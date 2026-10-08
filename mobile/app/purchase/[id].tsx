@@ -1,3 +1,4 @@
+import { NavigationHeader } from '@/components/NavigationHeader';
 import React, { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
@@ -128,7 +129,7 @@ export default function PurchaseScreen() {
 
       if (data?.url) {
         await WebBrowser.openBrowserAsync(data.url);
-        
+
         Alert.alert(
           'Compra Iniciada',
           'Seu pagamento foi aberto no navegador seguro. Assim que concluir o pagamento na Stripe, volte e comece a assistir!',
@@ -154,7 +155,7 @@ export default function PurchaseScreen() {
 
   if (loading) {
     return (
-      <AppScreen scroll={false}>
+      <AppScreen scroll={false} edgeToEdge header={<NavigationHeader title="Conteúdo" back />}>
         <View style={styles.centerContainer}>
           <ActivityIndicator size="large" color={colors.accent} />
         </View>
@@ -169,13 +170,8 @@ export default function PurchaseScreen() {
   const creatorName = content.creator?.creator_channel_name || content.creator?.display_name || 'Classfy Creator';
 
   return (
-    <AppScreen scroll={false}>
-      {/* Absolute Transparent Header with Back Button */}
-      <View style={[styles.floatingHeader, { top: insets.top + spacing.xs }]}>
-        <Pressable onPress={() => router.back()} style={styles.backBtnCircle}>
-          <Ionicons name="chevron-back" size={24} color="#FFF" />
-        </Pressable>
-      </View>
+    <AppScreen scroll={false} edgeToEdge header={<NavigationHeader title="Conteúdo" back />}>
+
 
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
         {/* Full-bleed Hero Visual Cover with seamless gradient fade */}
@@ -198,7 +194,7 @@ export default function PurchaseScreen() {
           <Text style={styles.creatorSubtitle}>
             POR @{creatorName.toUpperCase()}
           </Text>
-          
+
           <Text style={styles.editorialTitle}>
             {content.title}
           </Text>

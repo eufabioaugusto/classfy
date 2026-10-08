@@ -1,3 +1,4 @@
+import { NavigationHeader } from '@/components/NavigationHeader';
 import { controls } from '@/theme/controls';
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
@@ -21,8 +22,8 @@ export default function YouScreen() {
   const open = (route: Href) => router.push(user ? route : '/auth/sign-in');
   const row = (label: string, icon: Icon, route: Href) => <Pressable key={label} accessibilityRole="button" style={({ pressed }) => [styles.row, pressed && styles.pressed]} onPress={() => open(route)}><Ionicons name={icon} size={21} color={colors.textSecondary} /><Text style={styles.rowLabel}>{label}</Text><Ionicons name="chevron-forward" size={17} color={colors.mutedDim} /></Pressable>;
   return (
-    <AppScreen edgeToEdge>
-      <View style={styles.header}><Text style={styles.title}>Você</Text><Pressable accessibilityRole="button" accessibilityLabel="Configurações" onPress={() => open('/settings')} style={styles.iconButton}><Ionicons name="settings-outline" size={23} color={colors.text} /></Pressable></View>
+    <AppScreen edgeToEdge header={<NavigationHeader title="Você" right={<Pressable accessibilityRole="button" accessibilityLabel="Configurações" onPress={() => open('/settings')} style={styles.iconButton}><Ionicons name="settings-outline" size={23} color={colors.text} /></Pressable>} />}>
+
       <View style={styles.account}>
         <View style={styles.avatar}>{profile?.avatar_url ? <Image source={{ uri: profile.avatar_url }} style={StyleSheet.absoluteFill} /> : <Ionicons name="person-outline" size={28} color={colors.muted} />}</View>
         <View style={styles.accountCopy}><Text style={styles.name} numberOfLines={1}>{profile?.display_name || (user ? 'Sua conta' : 'Sua Classfy, do seu jeito')}</Text><Text style={styles.accountText}>{user ? 'Seus estudos e conteúdos em um só lugar.' : 'Entre para continuar de onde parou.'}</Text></View>
