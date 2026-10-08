@@ -21,7 +21,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { ClassyAvatar } from './ClassyAvatar';
 import { useAuth } from '@/features/auth/authContext';
 import { useMiniPlayer } from '@/features/watch/miniPlayerContext';
-import { useSidebar } from '@/contexts/SidebarContext';
+import { usePrimaryAction } from '@/contexts/PrimaryActionContext';
 import { supabase } from '@/lib/supabase';
 import { colors } from '@/theme/colors';
 
@@ -54,13 +54,14 @@ const modes = [
 export function GlobalClassy() {
   const { user } = useAuth();
   const player = useMiniPlayer();
-  const { isOpen: sidebarOpen } = useSidebar();
+  const { action, openClassy, closeClassy } = usePrimaryAction();
+  const open = action === 'classy';
+  const setOpen = (value: boolean) => (value ? openClassy() : closeClassy());
   const path = usePathname();
   const params = useGlobalSearchParams<{ studyId?: string }>();
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { width, height } = useWindowDimensions();
-  const [open, setOpen] = useState(false);
   const [menu, setMenu] = useState<
     'studies' | 'actions' | 'mentions' | 'new' | null
   >(null);
@@ -432,35 +433,9 @@ export function GlobalClassy() {
     }
   }
   if (hidden) return null;
-  const bottom =
-    insets.bottom +
-    (['/', '/study', '/messages', '/rewards', '/profile'].includes(path)
-      ? 66
-      : 12) +
-    (player.visible ? 74 : 0);
   const selectedStudy = studies.find((s) => s.id === studyId);
   return (
     <>
-      {!sidebarOpen && !open && (
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Abrir Classy, aprender e navegar"
-          onPress={() => setOpen(true)}
-          style={[
-            styles.bar,
-            {
-              bottom,
-              width: Math.min(376, width - 32),
-              left: (width - Math.min(376, width - 32)) / 2,
-            },
-          ]}
-        >
-          <ClassyAvatar />
-          <Text style={[styles.muted, { flex: 1 }]}>Aprender com a Classy</Text>
-          <Ionicons name="add" size={20} color={colors.text} />
-          <Ionicons name="chatbox-outline" size={20} color={colors.text} />
-        </Pressable>
-      )}
       <Modal
         visible={open}
         transparent
@@ -871,24 +846,6 @@ export function GlobalClassy() {
   );
 }
 const styles = StyleSheet.create({
-  bar: {
-    position: 'absolute',
-    alignSelf: 'center',
-    height: 50,
-    paddingHorizontal: 12,
-    backgroundColor: colors.backgroundElevated,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: 28,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    shadowColor: '#000',
-    shadowOpacity: 0.2,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 5 },
-    elevation: 8,
-  },
   overlay: {
     flex: 1,
     justifyContent: 'flex-end',

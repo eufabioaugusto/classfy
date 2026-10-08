@@ -59,7 +59,8 @@
     "test:catalog": "node --experimental-strip-types --test src/features/home/catalog.test.mjs",
     "test:playback": "node --experimental-strip-types --test src/features/watch/playbackProgress.test.mjs",
     "test:rewards": "node --experimental-strip-types --test src/features/rewards/receiptQueue.test.mjs",
-    "test:home": "node --experimental-strip-types --test src/features/home/ranking.test.mjs"
+    "test:home": "node --experimental-strip-types --test src/features/home/ranking.test.mjs",
+    "test:navigation": "node --experimental-strip-types --test src/features/navigation/primaryAction.test.mjs"
   },
   "private": true
 }

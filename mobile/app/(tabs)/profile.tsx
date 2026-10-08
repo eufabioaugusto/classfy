@@ -32,6 +32,7 @@ export default function YouScreen() {
       <View style={styles.group}>
         <Text style={styles.groupTitle}>Seu espaço</Text>
         {row('Meus estudos com a Classy', 'sparkles-outline', '/study')}
+        {row('Conquistas e recompensas', 'trophy-outline', '/rewards')}
         {row('Perfil e progresso', 'person-circle-outline', '/profile-progress')}
         {row('Mensagens', 'chatbubbles-outline', '/messages')}
         {row('Notificações', 'notifications-outline', '/notifications')}

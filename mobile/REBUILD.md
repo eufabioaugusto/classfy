@@ -39,7 +39,7 @@ retornar à tela e limpa dados na troca de usuário.
 | Watch e miniplayer | Sessão única com expo-video, miniplayer com pausa/fechar/retorno, posição/velocidade preservadas e fullscreen centralizado; QA nativo com vídeo HLS público |
 | Resolução de mídia | `video-playback` resolve media_asset_id após acesso autorizado, incluindo aulas de curso; validar fontes reais autenticadas e renovação de links expirados |
 | Progresso e recompensas | Contratos `record_content_progress_v2` / `record_course_lesson_progress_v1` do web; retomada separada de tempo observado, feedback por recibos do servidor e reversão econômica; QA econômico com contas reais pendente |
-| Classy e estudo | Removida persistência duplicada de chat; contexto de aula/curso e transcrição pendente alinhados; quiz usa plano real. Barra global nativa com SVG da menininha do web, estudos existentes, conversa, modos e referências implementados; ditado e seleção visual de elementos pendentes |
+| Classy e estudo | Removida persistência duplicada de chat; contexto de aula/curso e transcrição pendente alinhados; quiz usa plano real. Ação central no rodapé com SVG da menininha do web, estudos existentes, conversa, modos e referências implementados; ditado e seleção visual de elementos pendentes |
 | Shorts, podcasts e lives | Revisar experiência e suporte por formato; não considerar aprovados só por existir rota |
 | Mensagens e notificações | Conferir sincronização, retorno de push e estados de leitura; Expo Push preservado |
 | Compra/plano e distribuição | Validar conclusão/retorno e definir fluxo de cada plataforma antes de publicação |
@@ -50,6 +50,7 @@ retornar à tela e limpa dados na troca de usuário.
 - `npm run typecheck`
 - `npm run check:dependencies`
 - `npm run test:home` (hierarquia, sessão e ranking por interesses/views)
+- `npm run test:navigation` (papéis creator/admin e fallback sem permissão)
 - `npm run test:catalog` (Node 22.18+ / 24; regras de normalização e feed)
 - `npm run test:playback` (retomada, seeks, pausa/background, velocidade e IDs de sessão)
 - `npm run test:rewards` (recibos antes da montagem, deduplicação, conta e expiração)
@@ -96,7 +97,17 @@ e [streams públicos de teste da Mux](https://test-streams.mux.dev/).
 - Pesos de personalização e sequência conferidos em `src/pages/Index.tsx` e `src/lib/personalization/interests.ts`. Seções padrão limitam a seis itens, com Ver todos; shorts a quatro, como web mobile.
 - Cards retomam thumbnails arredondadas, avatar, creator/views separados, coroas PRO/Premium, duração e aulas; grid de duas colunas para podcasts/shorts. Creators verticais mostram um card e meio.
 - Hero usa `home_hero_settings`, fallback original e destinos editoriais mapeados para rotas nativas existentes. Destinos sem tela mobile usam o web; lives e Studio ainda abrem o web.
-- Classy flutuante global usa o SVG original da menininha; painel escolhe/cria/abre estudos, conversa contextual via `classy-chat`, /modos, @referências de conteúdos/estudos, fontes, transcrição e salvar anotações. Mensagens são persistidas pelo backend, sem duplicar inserts. Barra fica acima das abas/miniplayer e é ocultada em fullscreen/autenticação.
+- Classy global usa o SVG original da menininha; painel escolhe/cria/abre estudos, conversa contextual via `classy-chat`, /modos, @referências de conteúdos/estudos, fontes, transcrição e salvar anotações. Mensagens são persistidas pelo backend, sem duplicar inserts. A barra flutuante dessa rodada foi substituída pela ação central do rodapé no feedback seguinte.
 - Container de listas sem ScrollView limitado com `flex: 1`, respeitando altura disponível.
 - QA: Hero, logo, sidebar, painel da Classy e estado visitante observados no simulador. TypeScript, 16 testes e exportação iOS aprovados; Classfy Dev aberto no iPhone pelo developer CLI. Sem inspeção visual do aparelho nesta rodada e sem conversa autenticada, ditado, seleção de elementos, compras, Points ou Android.
 - App web, backend, dependências nativas e Expo Push preservados. Sem push/deploy.
+
+## Ação central por intenção — 08/10/2026
+
+- Rodapé: Início → Estudar → Classy/Criar → Mensagens → Você. Sem barra flutuante sobre o conteúdo.
+- Usuário/visitante: rostinho da Classy abre o painel global sobre a tela atual. Fechar preserva a aba e o contexto; nenhuma navegação para uma aba intermediária.
+- Creator/admin: botão + abre seletor nativo de Aula, Curso, Podcast, Short ou Live, seguindo os destinos existentes do Studio web. Nenhuma publicação é enviada automaticamente. Upload nativo ainda não implementado; o navegador pode exigir login próprio.
+- Papéis vêm de `user_roles`, com prioridade admin > creator > user, igual ao web. Aprovação de perfil não substitui papel. Dados e seleção são isolados pela conta; consulta, realtime e retorno ao app atualizam a ação.
+- Conquistas permanece no sidebar e ganha acesso em Você. Mensagens mantém contador de não lidas.
+- Verificação: TypeScript, dois testes de papéis e exportação iOS aprovados. Simulador visitante: cinco itens, ausência da barra, abertura/fechamento da Classy em Início e Mensagens com aba preservada. Creator autenticado, upload, conversa autenticada e Android continuam pendentes de QA.
+- Alterações limitadas ao mobile em `codex/mobile-dev-iphone`; sem push/deploy.

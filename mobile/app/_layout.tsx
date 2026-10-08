@@ -1,3 +1,5 @@
+import { PrimaryActionProvider } from '@/contexts/PrimaryActionContext';
+import { PublicationMenu } from '@/components/PublicationMenu';
 import { Stack, useRouter } from 'expo-router';
 import * as Notifications from 'expo-notifications';
 import { GlobalNotificationToastListener } from '@/components/GlobalNotificationToastListener';
@@ -73,32 +75,35 @@ export default function RootLayout() {
     <AuthProvider>
       <AppSplashWrapper>
         <SidebarProvider>
-          <MiniPlayerProvider>
-            <View style={{ flex: 1, backgroundColor: colors.background }}>
-              <StatusBar style="light" />
-              <Stack
-                screenOptions={{
-                  headerShown: false,
-                  contentStyle: { backgroundColor: colors.background },
-                }}
-              >
-                <Stack.Screen name="(tabs)" />
-                <Stack.Screen
-                  name="watch/[id]"
-                  options={{
-                    animation: 'fade',
-                    contentStyle: { backgroundColor: 'transparent' },
-                    presentation: 'transparentModal',
+          <PrimaryActionProvider>
+            <MiniPlayerProvider>
+              <View style={{ flex: 1, backgroundColor: colors.background }}>
+                <StatusBar style="light" />
+                <Stack
+                  screenOptions={{
+                    headerShown: false,
+                    contentStyle: { backgroundColor: colors.background },
                   }}
-                />
-              </Stack>
-              <MobileMiniPlayer />
-              <GlobalClassy />
-              <AppSidebar />
-              <RewardFeedback />
-              <GlobalNotificationToastListener />
-            </View>
-          </MiniPlayerProvider>
+                >
+                  <Stack.Screen name="(tabs)" />
+                  <Stack.Screen
+                    name="watch/[id]"
+                    options={{
+                      animation: 'fade',
+                      contentStyle: { backgroundColor: 'transparent' },
+                      presentation: 'transparentModal',
+                    }}
+                  />
+                </Stack>
+                <MobileMiniPlayer />
+                <GlobalClassy />
+                <PublicationMenu />
+                <AppSidebar />
+                <RewardFeedback />
+                <GlobalNotificationToastListener />
+              </View>
+            </MiniPlayerProvider>
+          </PrimaryActionProvider>
         </SidebarProvider>
       </AppSplashWrapper>
     </AuthProvider>
