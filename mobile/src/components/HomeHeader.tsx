@@ -1,3 +1,4 @@
+import { nextRealtimeTopic } from '@/lib/realtimeTopic';
 import { Bell, Search } from 'lucide-react-native';
 import Svg, { Path } from 'react-native-svg';
 import { useRouter } from 'expo-router';
@@ -27,7 +28,7 @@ export function HomeHeader() {
     };
     void fetchCount();
     const channel = supabase
-      .channel(`mobile-header-${user.id}`)
+      .channel(nextRealtimeTopic(`mobile-header-${user.id}`))
       .on(
         'postgres_changes',
         {

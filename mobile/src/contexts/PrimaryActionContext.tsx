@@ -1,3 +1,4 @@
+import { nextRealtimeTopic } from '@/lib/realtimeTopic';
 import {
   createContext,
   useCallback,
@@ -70,7 +71,7 @@ export function PrimaryActionProvider({ children }: PropsWithChildren) {
     };
     void load();
     const channel = supabase
-      .channel(`mobile-primary-role-${owner}`)
+      .channel(nextRealtimeTopic(`mobile-primary-role-${owner}`))
       .on(
         'postgres_changes',
         {

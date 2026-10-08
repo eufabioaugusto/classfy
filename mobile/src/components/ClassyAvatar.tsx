@@ -1,5 +1,31 @@
 import Svg, { Path, G, Ellipse, Circle } from 'react-native-svg';
-export function ClassyAvatar({ size = 32 }: { size?: number }) {
+export function ClassyAvatar({
+  size = 32,
+  variant = 'color',
+  color = '#fff',
+}: {
+  size?: number;
+  variant?: 'color' | 'outline';
+  color?: string;
+}) {
+  if (variant === 'outline')
+    return (
+      <Svg width={size} height={size} viewBox="0 0 64 64">
+        <G
+          fill="none"
+          stroke={color}
+          strokeWidth={3.7}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        >
+          <Path d="M8 31C8 15 18 5 33 5s25 10 25 26v11c0 12-11 18-25 18S8 54 8 42Z" />
+          <Path d="M9 29c10 0 20-7 24-14 5 7 14 12 24 14" />
+          <Ellipse cx="20" cy="34" rx="10" ry="10" />
+          <Ellipse cx="46" cy="34" rx="10" ry="10" />
+          <Path d="M30 33h6M28 48q5 5 10-1" />
+        </G>
+      </Svg>
+    );
   return (
     <Svg width={size} height={size} viewBox="0 0 64 64">
       {/* A curious guide: expressive glasses and a balanced, rounded silhouette. */}

@@ -119,3 +119,13 @@ e [streams públicos de teste da Mux](https://test-streams.mux.dev/).
 - Classy ocupa o mesmo espaço de ícone das outras ações, sem círculo adicional nem deslocamento vertical. Texto alinhado pelo layout padrão das abas.
 - Menu do sidebar: duas linhas arredondadas assimétricas, área de toque 44×44 e feedback ao pressionar.
 - TypeScript aprovado; quatro ações, alinhamento, ícones e abertura/retorno do sidebar conferidos no simulador iOS. Sem alteração de dependências, web ou backend e sem push/deploy.
+
+## Copiloto no centro e cinco ações — 08/10/2026
+
+- Rodapé atual: Início → Progresso → Classy/Criar → Pesquisar → Você. Mensagens permanece em Você. A ação do copiloto volta ao centro físico, com dois itens de cada lado.
+- Progresso reúne entrada para Meu aprendizado (perfil/progresso existente), conquistas, Points e recompensas. Nesta rodada, integração por acesso; os painéis existentes ainda precisam de consolidação visual.
+- Classy tem variante SVG de contorno monocromático; aberta usa o rosto colorido. Creator/admin recebe + e Criar, conforme user_roles.
+- Pesquisar usa a busca atual compartilhada com /search; no rodapé não força teclado nem exibe botão voltar. Explore antigo substituído para evitar dois motores de busca. O feed de descoberta/personalização aguarda o próximo feedback do Fabio; não foi implementado nesta rodada.
+- Erro autenticado identificado nos logs: Supabase reutiliza canais pelo tópico. Duas instâncias de HomeHeader tentavam adicionar callbacks a um canal já inscrito. Tópicos únicos por efeito isolam cabeçalhos, contadores de mensagens e atualização do papel, mantendo cleanup e filtros existentes.
+- QA: Progresso/recompensas carregou na conta creator autenticada sem crash, com Points, ranking, nível e conquistas. Criar abriu os cinco formatos e fechou mantendo a aba. Pesquisar abriu sem teclado automático. TypeScript e três testes de navegação aprovados, incluindo regressão com o SDK real para canais simultâneos. Publicação efetiva, Classy monocromática na conta learner e Android não foram validados nesta rodada.
+- Sem push/deploy ou alterações de dependências/backend/web.

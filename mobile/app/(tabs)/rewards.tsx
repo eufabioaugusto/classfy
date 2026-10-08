@@ -287,12 +287,28 @@ export default function RewardsScreen() {
       <HomeHeader />
       {/* Title Section */}
       <View style={styles.welcomeBlock}>
-        <Text style={styles.kicker}>Classfy Diferencial</Text>
-        <Text style={styles.welcomeTitle}>Minhas Recompensas</Text>
+        <Text style={styles.kicker}>Sua evolução</Text>
+        <Text style={styles.welcomeTitle}>Progresso e recompensas</Text>
         <Text style={styles.welcomeSubtitle}>
-          Acompanhe seus Points, conquistas e saldo econômico.
+          Acompanhe seu aprendizado, conquistas e Points.
         </Text>
       </View>
+
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel="Ver progresso dos estudos e conquistas"
+        style={({ pressed }) => [styles.metricCard, pressed && { opacity: 0.7 }]}
+        onPress={() => router.push('/profile-progress')}
+      >
+        <View style={styles.cardHeaderRow}>
+          <View style={styles.cardHeaderLeft}>
+            <TrendingUp size={20} strokeWidth={1.65} color={colors.text} style={{ marginRight: 10 }} />
+            <Text style={styles.cardTitle}>Meu aprendizado</Text>
+          </View>
+          <ChevronRight size={18} color={colors.muted} />
+        </View>
+        <Text style={styles.welcomeSubtitle}>Veja seus estudos, evolução e conquistas.</Text>
+      </Pressable>
 
       {user ? (
           loading ? (

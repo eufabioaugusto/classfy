@@ -4,7 +4,8 @@ import { usePrimaryAction } from '@/contexts/PrimaryActionContext';
 import { Tabs } from 'expo-router';
 import {
   House,
-  MessageCircle,
+  TrendingUp,
+  Search,
   UserRound,
   Plus,
   type LucideIcon,
@@ -12,7 +13,6 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { TabScrollProvider } from '@/contexts/TabScrollContext';
 import { colors } from '@/theme/colors';
-import { useUnreadMessages } from '@/hooks/useUnreadMessages';
 
 function icon(Icon: LucideIcon) {
   return ({ color }: { color: string }) => (
@@ -22,7 +22,6 @@ function icon(Icon: LucideIcon) {
 
 export default function TabsLayout() {
   const insets = useSafeAreaInsets();
-  const unread = useUnreadMessages();
   const { canPublish, roleLoading, openClassy, openPublish, action } =
     usePrimaryAction();
   return (
@@ -54,6 +53,14 @@ export default function TabsLayout() {
           }}
         />
         <Tabs.Screen
+          name="rewards"
+          options={{
+            title: 'Progresso',
+            tabBarAccessibilityLabel: 'Progresso e recompensas',
+            tabBarIcon: icon(TrendingUp),
+          }}
+        />
+        <Tabs.Screen
           name="primary"
           listeners={{
             tabPress: (event) => {
@@ -64,38 +71,39 @@ export default function TabsLayout() {
           }}
           options={{
             title: roleLoading ? '…' : canPublish ? 'Criar' : 'Classy',
+            tabBarInactiveTintColor: action ? colors.text : colors.mutedDim,
             tabBarAccessibilityLabel: roleLoading
               ? 'Carregando ação principal'
               : canPublish
                 ? 'Criar publicação'
                 : 'Abrir Classy para estudar',
-            tabBarIcon: () => (
-              <View
-                style={[
-                  styles.primaryIcon,
-                  action && styles.activeIcon,
-                ]}
-              >
+            tabBarIcon: ({ color }) => (
+              <View style={styles.primaryIcon}>
                 {roleLoading ? (
                   <ActivityIndicator color={colors.muted} />
                 ) : canPublish ? (
-                  <Plus size={25} strokeWidth={1.65} color={colors.text} />
+                  <Plus
+                    size={25}
+                    strokeWidth={1.65}
+                    color={action ? colors.text : color}
+                  />
                 ) : (
-                  <ClassyAvatar size={30} />
+                  <ClassyAvatar
+                    size={28}
+                    variant={action === 'classy' ? 'color' : 'outline'}
+                    color={color}
+                  />
                 )}
               </View>
             ),
           }}
         />
         <Tabs.Screen
-          name="messages"
+          name="explore"
           options={{
-            title: 'Mensagens',
-            tabBarAccessibilityLabel:
-              unread > 0 ? `Mensagens, ${unread} não lidas` : 'Mensagens',
-            tabBarBadge:
-              unread > 0 ? (unread > 99 ? '99+' : unread) : undefined,
-            tabBarIcon: icon(MessageCircle),
+            title: 'Pesquisar',
+            tabBarAccessibilityLabel: 'Pesquisar conteúdos',
+            tabBarIcon: icon(Search),
           }}
         />
         <Tabs.Screen
@@ -107,8 +115,7 @@ export default function TabsLayout() {
           }}
         />
         <Tabs.Screen name="study" options={{ href: null }} />
-        <Tabs.Screen name="rewards" options={{ href: null }} />
-        <Tabs.Screen name="explore" options={{ href: null }} />
+        <Tabs.Screen name="messages" options={{ href: null }} />
       </Tabs>
     </TabScrollProvider>
   );
@@ -122,5 +129,4 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     borderRadius: 16,
   },
-  activeIcon: { backgroundColor: colors.surface },
 });
