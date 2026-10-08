@@ -1,3 +1,4 @@
+import { NavigationHeader } from '@/components/NavigationHeader';
 import React, { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
@@ -34,7 +35,7 @@ export default function NotificationsScreen() {
   const { user } = useAuth();
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  
+
   const [loading, setLoading] = useState(true);
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [markingAll, setMarkingAll] = useState(false);
@@ -47,16 +48,24 @@ export default function NotificationsScreen() {
         .channel(`notifications-center-${user.id}-${Date.now()}`)
         .on(
           'postgres_changes',
-          { event: '*', schema: 'public', table: 'notifications', filter: `user_id=eq.${user.id}` },
+          {
+            event: '*',
+            schema: 'public',
+            table: 'notifications',
+            filter: `user_id=eq.${user.id}`,
+          },
           () => {
             fetchNotifications();
-          }
+          },
         )
         .subscribe();
 
       return () => {
         supabase.removeChannel(channel);
       };
+    } else {
+      setNotifications([]);
+      setLoading(false);
     }
   }, [user]);
 
@@ -89,7 +98,9 @@ export default function NotificationsScreen() {
       if (error) throw error;
 
       setNotifications((prev) =>
-        prev.map((n) => (n.id === notificationId ? { ...n, is_read: true } : n))
+        prev.map((n) =>
+          n.id === notificationId ? { ...n, is_read: true } : n,
+        ),
       );
     } catch (e) {
       console.error('Error marking notification read:', e);
@@ -107,9 +118,12 @@ export default function NotificationsScreen() {
         .eq('is_read', false);
 
       if (error) throw error;
-      
+
       setNotifications((prev) => prev.map((n) => ({ ...n, is_read: true })));
-      Alert.alert('Sucesso', 'Todas as notificações foram marcadas como lidas.');
+      Alert.alert(
+        'Sucesso',
+        'Todas as notificações foram marcadas como lidas.',
+      );
     } catch (e) {
       console.error('Error marking all notifications read:', e);
     } finally {
@@ -135,7 +149,7 @@ export default function NotificationsScreen() {
     const date = new Date(dateString);
     const diffMs = now.getTime() - date.getTime();
     const diffMins = Math.floor(diffMs / 60000);
-    
+
     if (diffMins < 1) return 'Agora mesmo';
     if (diffMins < 60) return `${diffMins} min atrás`;
     const diffHours = Math.floor(diffMins / 60);
@@ -150,63 +164,66 @@ export default function NotificationsScreen() {
         onPress={() => !item.is_read && markAsRead(item.id)}
         style={[
           styles.itemContainer,
-          !item.is_read ? styles.itemUnread : styles.itemRead
+          !item.is_read ? styles.itemUnread : styles.itemRead,
         ]}
       >
         <View style={styles.iconWrap}>
           <Text style={styles.iconText}>{getNotificationIcon(item.type)}</Text>
         </View>
-        
+
         <View style={styles.contentWrap}>
           <View style={styles.headerRow}>
-            <Text style={[styles.itemTitle, !item.is_read && styles.itemTitleUnread]}>
+            <Text
+              style={[
+                styles.itemTitle,
+                !item.is_read && styles.itemTitleUnread,
+              ]}
+            >
               {item.title}
             </Text>
             {!item.is_read && <View style={styles.unreadDot} />}
           </View>
-          
+
           <Text style={styles.itemMessage} numberOfLines={3}>
             {item.message}
           </Text>
-          
-          <Text style={styles.itemTime}>
-            {formatTimeAgo(item.created_at)}
-          </Text>
+
+          <Text style={styles.itemTime}>{formatTimeAgo(item.created_at)}</Text>
         </View>
       </Pressable>
     );
   };
 
-  const unreadCount = notifications.filter(n => !n.is_read).length;
+  const unreadCount = notifications.filter((n) => !n.is_read).length;
 
   return (
     <AppScreen edgeToEdge={true} scroll={false}>
-      {/* Header Bar */}
-      <View style={[styles.headerContainer, { paddingTop: insets.top + spacing.xs }]}>
-        <View style={styles.headerLeft}>
-          <Pressable onPress={() => router.back()} style={styles.backBtn}>
-            <ArrowLeft size={22} color={colors.text} />
-          </Pressable>
-          <Text style={styles.headerTitle}>Notificações</Text>
-        </View>
-
-        {unreadCount > 0 && (
-          <Pressable 
-            onPress={markAllAsRead} 
-            disabled={markingAll}
-            style={styles.markAllBtn}
-          >
-            {markingAll ? (
-              <ActivityIndicator size="small" color={colors.accent} />
-            ) : (
-              <>
-                <CheckSquare size={14} color={colors.accent} style={{ marginRight: 4 }} />
-                <Text style={styles.markAllText}>Ler tudo</Text>
-              </>
-            )}
-          </Pressable>
-        )}
-      </View>
+      <NavigationHeader
+        title="Notificações"
+        onBack={() => router.back()}
+        right={
+          unreadCount > 0 && (
+            <Pressable
+              onPress={markAllAsRead}
+              disabled={markingAll}
+              style={styles.markAllBtn}
+            >
+              {markingAll ? (
+                <ActivityIndicator size="small" color={colors.accent} />
+              ) : (
+                <>
+                  <CheckSquare
+                    size={14}
+                    color={colors.accent}
+                    style={{ marginRight: 4 }}
+                  />
+                  <Text style={styles.markAllText}>Ler tudo</Text>
+                </>
+              )}
+            </Pressable>
+          )
+        }
+      />
 
       {loading ? (
         <View style={styles.loadingCenter}>
@@ -217,12 +234,21 @@ export default function NotificationsScreen() {
           data={notifications}
           keyExtractor={(item) => item.id}
           renderItem={renderNotificationItem}
-          contentContainerStyle={[styles.listContainer, { paddingBottom: insets.bottom + 20 }]}
+          contentContainerStyle={[
+            styles.listContainer,
+            { paddingBottom: insets.bottom + 20 },
+          ]}
           ListEmptyComponent={
             <View style={styles.emptyContainer}>
-              <Bell size={48} color={colors.mutedDim} style={{ marginBottom: 12, opacity: 0.5 }} />
+              <Bell
+                size={48}
+                color={colors.mutedDim}
+                style={{ marginBottom: 12, opacity: 0.5 }}
+              />
               <Text style={styles.emptyTitle}>Tudo limpo por aqui!</Text>
-              <Text style={styles.emptyBody}>Você não tem nenhuma notificação pendente.</Text>
+              <Text style={styles.emptyBody}>
+                Você não tem nenhuma notificação pendente.
+              </Text>
             </View>
           }
         />

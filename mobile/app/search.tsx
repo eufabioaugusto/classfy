@@ -1,3 +1,4 @@
+import { NavigationHeader } from '@/components/NavigationHeader';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useMemo, useState } from 'react';
@@ -43,17 +44,7 @@ export function SearchExperience({ embedded = false }: { embedded?: boolean }) {
   }, [query, contents, courses]);
   return (
     <AppScreen scroll={false} edgeToEdge>
-      <View style={styles.header}>
-        {!embedded && (
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Voltar"
-            onPress={() => router.back()}
-            style={styles.action}
-          >
-            <Ionicons name="arrow-back" size={24} color={colors.text} />
-          </Pressable>
-        )}
+      <NavigationHeader onBack={embedded ? undefined : () => router.back()}>
         <View style={styles.inputWrap}>
           <TextInput
             autoFocus={!embedded}
@@ -76,7 +67,7 @@ export function SearchExperience({ embedded = false }: { embedded?: boolean }) {
             </Pressable>
           ) : null}
         </View>
-      </View>
+      </NavigationHeader>
       <FlatList
         data={results}
         keyExtractor={(item) => `${item.contentType}:${item.id}`}
@@ -136,24 +127,10 @@ export function SearchExperience({ embedded = false }: { embedded?: boolean }) {
   );
 }
 const styles = StyleSheet.create({
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 8,
-    paddingBottom: 12,
-    gap: 4,
-  },
-  action: {
-    width: 44,
-    height: 48,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
   inputWrap: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    marginRight: 8,
     borderRadius: 24,
     backgroundColor: colors.surface,
   },
@@ -161,7 +138,7 @@ const styles = StyleSheet.create({
     flex: 1,
     color: colors.text,
     fontSize: 14,
-    minHeight: 48,
+    minHeight: 44,
     paddingHorizontal: 16,
   },
   clear: {

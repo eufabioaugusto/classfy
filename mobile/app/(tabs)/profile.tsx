@@ -1,3 +1,4 @@
+import { controls } from '@/theme/controls';
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { useRouter, type Href } from 'expo-router';
@@ -52,7 +53,7 @@ const styles = StyleSheet.create({
   accountCopy: { flex: 1, gap: 6 },
   name: { color: colors.text, fontSize: 18, fontWeight: '600' },
   accountText: { color: colors.muted, fontSize: 12, lineHeight: 18 },
-  accountButton: { alignSelf: 'flex-start', marginLeft: 96, marginTop: 12, borderWidth: 1, borderColor: colors.border, paddingHorizontal: 16, minHeight: 38, borderRadius: 19, justifyContent: 'center' },
+  accountButton: { alignSelf: 'flex-start', marginLeft: 96, marginTop: 12, borderWidth: 1, borderColor: colors.border, paddingHorizontal: 16, minHeight: 38, borderRadius: controls.buttonRadius, justifyContent: 'center' },
   accountButtonText: { color: colors.text, fontSize: 12, fontWeight: '600' },
   library: { flexDirection: 'row', gap: 10, padding: 20, marginTop: 12 },
   libraryCard: { flex: 1, backgroundColor: colors.surface, paddingVertical: 22, alignItems: 'center', gap: 10, borderRadius: 16 },

@@ -1,3 +1,4 @@
+import { controls } from '@/theme/controls';
 import React, { useEffect, useState, useCallback } from 'react';
 import {
   ActivityIndicator,
@@ -898,7 +899,7 @@ const styles = StyleSheet.create({
   },
   authBtnBanner: {
     backgroundColor: colors.accent,
-    borderRadius: radius.md,
+    borderRadius: controls.buttonRadius,
     paddingVertical: spacing.md,
     paddingHorizontal: spacing.xl,
   },

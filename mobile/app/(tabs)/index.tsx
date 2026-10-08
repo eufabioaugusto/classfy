@@ -1,3 +1,4 @@
+import { PlanCrown } from '@/components/PlanCrown';
 import { useMemo, useState } from 'react';
 import {
   ActivityIndicator,
@@ -28,6 +29,7 @@ type Row = {
   key: string;
   title?: string;
   premium?: boolean;
+  plan?: 'pro' | 'premium';
   bridge?: boolean;
   content?: HomeContent;
   pair?: readonly HomeContent[];
@@ -70,6 +72,12 @@ export default function HomeScreen() {
         key: `${section.key}-heading`,
         title: section.title,
         premium: section.key === 'premium',
+        plan:
+          section.key === 'pro'
+            ? 'pro'
+            : section.key === 'premium'
+              ? 'premium'
+              : undefined,
         expandKey:
           section.key !== 'premium' &&
           section.contents.length > limit &&
@@ -268,13 +276,34 @@ export default function HomeScreen() {
             <View style={styles.section}>
               {item.premium && (
                 <>
-                  <Text style={styles.eyebrow}>Classfy Premium</Text>
+                  <View
+                    style={{
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      gap: 6,
+                    }}
+                  >
+                    <PlanCrown plan="premium" />
+                    <Text style={styles.eyebrow}>Classfy Premium</Text>
+                  </View>
                 </>
               )}
               <View
                 style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}
               >
-                <Text style={[styles.heading, { flex: 1 }]}>{item.title}</Text>
+                <View
+                  style={{
+                    flex: 1,
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    gap: 8,
+                  }}
+                >
+                  {item.plan && <PlanCrown plan={item.plan} size={18} />}
+                  <Text style={[styles.heading, { flexShrink: 1 }]}>
+                    {item.title}
+                  </Text>
+                </View>
                 {item.expandKey && (
                   <Pressable
                     accessibilityRole="button"

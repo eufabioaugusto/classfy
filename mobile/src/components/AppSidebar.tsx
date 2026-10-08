@@ -1,3 +1,4 @@
+import { PlanCrown } from './PlanCrown';
 import { useRouter, Href } from 'expo-router';
 import React, { useEffect, useRef, useState } from 'react';
 import {
@@ -285,11 +286,11 @@ export function AppSidebar() {
             style={({ pressed }) => [styles.menuItem, pressed && styles.menuItemPressed]}
             onPress={item.action}
           >
-            <IconComponent
+            {item.title === 'Classfy Premium' ? <View style={styles.menuIcon}><PlanCrown plan="premium" size={18} /></View> : <IconComponent
               size={18}
               color={item.highlight ? colors.accent : colors.text}
               style={styles.menuIcon}
-            />
+            />}
             <Text style={[styles.menuText, item.highlight && styles.menuTextHighlight]}>
               {item.title}
             </Text>
@@ -346,9 +347,12 @@ export function AppSidebar() {
               <Text style={styles.profileName} numberOfLines={1}>
                 {finalDisplayName}
               </Text>
-              <Text style={styles.profilePlan}>
-                {user ? `Plano ${finalPlan}` : 'Faça login para salvar progresso'}
-              </Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+                {user && (finalPlan === 'pro' || finalPlan === 'premium') && <PlanCrown plan={finalPlan} />}
+                <Text style={styles.profilePlan}>
+                  {user ? `Plano ${finalPlan}` : 'Faça login para salvar progresso'}
+                </Text>
+              </View>
             </View>
           </Pressable>
         </View>

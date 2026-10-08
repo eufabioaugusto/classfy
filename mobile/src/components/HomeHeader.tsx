@@ -1,3 +1,4 @@
+import { controls } from '@/theme/controls';
 import { nextRealtimeTopic } from '@/lib/realtimeTopic';
 import { Bell, Search } from 'lucide-react-native';
 import Svg, { Path } from 'react-native-svg';
@@ -98,7 +99,7 @@ export function HomeHeader() {
 }
 const styles = StyleSheet.create({
   header: {
-    height: 60,
+    height: controls.headerHeight,
     paddingHorizontal: 16,
     flexDirection: 'row',
     alignItems: 'center',

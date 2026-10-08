@@ -1,7 +1,7 @@
 import { useRouter } from 'expo-router';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { Image } from 'expo-image';
-import { Crown } from 'lucide-react-native';
+import { PlanCrown } from './PlanCrown';
 import { Ionicons } from '@expo/vector-icons';
 
 import { HomeContent } from '@/features/home/homeData';
@@ -98,12 +98,7 @@ export function MobileVideoCard({
         {content.access === 'pro' || content.access === 'premium' ? (
           <View style={styles.accessPill}>
             <Text style={styles.accessText}>{content.access}</Text>
-            <Crown
-              size={12}
-              color={content.access === 'pro' ? '#e5aa25' : '#df3153'}
-              fill={content.access === 'pro' ? '#e5aa25' : '#df3153'}
-              strokeWidth={1.8}
-            />
+            <PlanCrown plan={content.access} />
           </View>
         ) : null}
       </View>

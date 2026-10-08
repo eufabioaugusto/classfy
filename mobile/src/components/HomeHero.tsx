@@ -1,3 +1,5 @@
+import { PlanCrown } from './PlanCrown';
+import { controls } from '@/theme/controls';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
@@ -75,14 +77,23 @@ export function HomeHero({
             {settings?.eyebrow_label || 'Em destaque'}
           </Text>
           {settings?.show_chip !== false && (
-            <Text style={styles.chip}>
-              {settings?.chip_label ||
-                (creator
-                  ? 'Seleção Classfy'
-                  : content?.access === 'free'
-                    ? 'Acesso Free'
-                    : `Seleção ${content?.access?.toUpperCase()}`)}
-            </Text>
+            <View style={styles.chip}>
+              {(content?.access === 'pro' || content?.access === 'premium') && (
+                <PlanCrown plan={content.access} />
+              )}
+              <Text style={styles.chipText}>
+                {settings?.chip_label?.trim() ||
+                  (creator
+                    ? 'Seleção Classfy'
+                    : content?.access === 'free'
+                      ? 'Acesso Free'
+                      : content?.access === 'paid'
+                        ? 'Conteúdo exclusivo'
+                        : content?.access === 'premium'
+                          ? 'Seleção Premium'
+                          : 'Seleção PRO')}
+              </Text>
+            </View>
           )}
         </View>
         {creator?.featured_image_url ? (
@@ -161,14 +172,16 @@ const styles = StyleSheet.create({
   },
   small: { color: '#ffffffb8', fontSize: 11 },
   chip: {
-    color: '#fff',
-    fontSize: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
     borderWidth: 1,
     borderColor: '#ffffff30',
     borderRadius: 4,
     padding: 5,
     backgroundColor: '#00000055',
   },
+  chipText: { color: '#fff', fontSize: 10 },
   title: {
     color: '#fff',
     fontSize: 38,
@@ -179,18 +192,18 @@ const styles = StyleSheet.create({
   description: { color: '#ffffffb8', fontSize: 14, lineHeight: 22 },
   actions: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginTop: 8 },
   primary: {
-    minHeight: 46,
+    minHeight: controls.buttonMinHeight,
     paddingHorizontal: 16,
-    borderRadius: 9,
+    borderRadius: controls.buttonRadius,
     backgroundColor: colors.accent,
     flexDirection: 'row',
     gap: 8,
     alignItems: 'center',
   },
   secondary: {
-    minHeight: 46,
+    minHeight: controls.buttonMinHeight,
     paddingHorizontal: 16,
-    borderRadius: 9,
+    borderRadius: controls.buttonRadius,
     backgroundColor: '#09090b88',
     borderWidth: 1,
     borderColor: '#ffffff40',

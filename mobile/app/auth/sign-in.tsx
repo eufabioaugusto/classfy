@@ -1,3 +1,4 @@
+import { controls } from '@/theme/controls';
 import { useState } from 'react';
 import { Alert, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
@@ -103,7 +104,7 @@ const styles = StyleSheet.create({
   button: {
     alignItems: 'center',
     backgroundColor: colors.accent,
-    borderRadius: radius.md,
+    borderRadius: controls.buttonRadius,
     paddingVertical: spacing.md,
   },
   buttonText: {

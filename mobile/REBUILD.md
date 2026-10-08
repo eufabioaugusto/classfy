@@ -129,3 +129,11 @@ e [streams públicos de teste da Mux](https://test-streams.mux.dev/).
 - Erro autenticado identificado nos logs: Supabase reutiliza canais pelo tópico. Duas instâncias de HomeHeader tentavam adicionar callbacks a um canal já inscrito. Tópicos únicos por efeito isolam cabeçalhos, contadores de mensagens e atualização do papel, mantendo cleanup e filtros existentes.
 - QA: Progresso/recompensas carregou na conta creator autenticada sem crash, com Points, ranking, nível e conquistas. Criar abriu os cinco formatos e fechou mantendo a aba. Pesquisar abriu sem teclado automático. TypeScript e três testes de navegação aprovados, incluindo regressão com o SDK real para canais simultâneos. Publicação efetiva, Classy monocromática na conta learner e Android não foram validados nesta rodada.
 - Sem push/deploy ou alterações de dependências/backend/web.
+
+## Padrões de apresentação — 08/10/2026
+
+- PlanCrown compartilha convenção do web: PRO amarelo #e5aa25, Premium vermelho #df3153, coroa preenchida. Hero, cards, seções da Home e sidebar usam o componente.
+- Hero consome home_hero_settings do admin; relê ao focar/retomar e a cada 30s em Home ativa. Sem alteração de produção para simular edição; catálogo de novos conteúdos pode precisar de refresh.
+- NavigationHeader compartilhado por busca/notificações, altura 60 px e toque 44 px. Safe area aplicada uma vez pelo AppScreen. Visitante recebe vazio de notificações em vez de spinner infinito.
+- controls define raio de botão 12 px, usado em Hero/login/conta/entrada em recompensas. Campos, chips, cards, avatares e ação circular continuam com formas próprias.
+- TypeScript e inspeção visual iOS visitante aprovados. Sem push/deploy.

@@ -37,20 +37,13 @@ export function useHomeEditorial(revision: number) {
   useEffect(() => {
     let active = true;
     setCreators([]);
-    setSettings(null);
     void (async () => {
-      const [featured, hero, durations] = await Promise.all([
+      const [featured, durations] = await Promise.all([
         supabase
           .from('featured_creators')
           .select('*,profiles:creator_id(display_name,creator_channel_name)')
           .eq('show_on_home', true)
           .order('order_index'),
-        supabase
-          .from('home_hero_settings')
-          .select('*')
-          .eq('id', 1)
-          .eq('is_active', true)
-          .maybeSingle(),
         user
           ? supabase
               .from('contents')
@@ -59,7 +52,6 @@ export function useHomeEditorial(revision: number) {
           : Promise.resolve({ data: null }),
       ]);
       if (!active) return;
-      setSettings(hero.error ? null : (hero.data as HeroSettings | null));
       if (!featured.error)
         setCreators(
           (featured.data || []).map((row) => {
@@ -83,6 +75,41 @@ export function useHomeEditorial(revision: number) {
       active = false;
     };
   }, [user?.id, revision]);
+  useEffect(() => {
+    let active = true;
+    let request = 0;
+    setSettings(null);
+    const load = async () => {
+      if (AppState.currentState !== 'active' || !navigation.isFocused()) return;
+      const current = ++request;
+      const { data, error } = await supabase
+        .from('home_hero_settings')
+        .select('*')
+        .eq('id', 1)
+        .eq('is_active', true)
+        .maybeSingle();
+      if (active && current === request && !error)
+        setSettings(data as HeroSettings | null);
+    };
+    void load();
+    const focus = navigation.addListener('focus', () => {
+      void load();
+    });
+    const foreground = AppState.addEventListener('change', (state) => {
+      if (state === 'active') void load();
+    });
+    // Same admin configuration, refreshed even when Home stays open.
+    const timer = setInterval(() => {
+      void load();
+    }, 30000);
+    return () => {
+      active = false;
+      request++;
+      focus();
+      foreground.remove();
+      clearInterval(timer);
+    };
+  }, [user?.id, revision, navigation]);
   useEffect(() => {
     let active = true;
     const load = async () => {
