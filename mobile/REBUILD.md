@@ -167,3 +167,11 @@ e [streams públicos de teste da Mux](https://test-streams.mux.dev/).
 - Rota `/dev/loading` permite conferir Home, discovery ou dashboard por query `variant`, sem alterar dados/backend. Fora de desenvolvimento redireciona para o início.
 - QA: TypeScript e exportação iOS aprovados. Simulador visitante: prévia do skeleton da Home conferida, retorno à Home/imagem carregada, feed da busca sem foco automático, busca por “luz” e Cancelar retornando à descoberta. Não houve throttling de produção; todos os estados autenticados e Reduce Motion não foram testados por UI nesta rodada.
 - Sem dependências novas, push/deploy ou alterações web/backend.
+
+
+## Correção do catálogo autenticado — 08/10/2026
+
+- Falha confirmada por REST read-only: courses.category_id não existe (HTTP 400 / PostgreSQL 42703). O select explícito do mobile incluía o campo; o web usa os campos existentes e visitantes usam get_public_home_catalog.
+- Removido category_id apenas do select de courses. Mantido no select de contents, onde existe. Consulta corrigida e consulta de contents responderam HTTP 200 (limit=0, sem leitura de dados privados).
+- Diagnóstico em desenvolvimento identifica tabela/código da consulta com falha, sem tokens/dados. Mensagem genérica mantém tentativa de novo carregamento, sem texto duplicado.
+- QA: TypeScript e quatro testes de catálogo aprovados. Simulador CREATOR autenticado: Home carregou sem aviso; pull-to-refresh manteve ausência do erro. Sem backend/web/dependências/push/deploy alterados.

@@ -76,12 +76,20 @@ export function useHomeSections() {
             supabase
               .from('courses')
               .select(
-                'id,title,description,tags,category_id,published_at,thumbnail_url,visibility,views_count,total_lessons,total_duration_seconds,price,discount,profiles:creator_id(display_name,creator_channel_name,avatar_url)',
+                'id,title,description,tags,published_at,thumbnail_url,visibility,views_count,total_lessons,total_duration_seconds,price,discount,profiles:creator_id(display_name,creator_channel_name,avatar_url)',
               )
               .eq('status', 'approved')
               .order('created_at', { ascending: false }),
           ]);
           if (id !== request.current) return;
+          if (__DEV__) results.forEach((result, index) => {
+            if (result.status === 'rejected' || result.value.error) {
+              console.warn('Falha ao carregar catálogo', {
+                table: index === 0 ? 'contents' : 'courses',
+                code: result.status === 'fulfilled' ? result.value.error?.code : 'NETWORK',
+              });
+            }
+          });
           setState((previous) => {
             const current = previous.owner === owner ? previous : empty(owner);
             const values = results.map((result, index) =>
@@ -99,7 +107,7 @@ export function useHomeSections() {
               contents: values[0] ?? current.contents,
               courses: values[1] ?? current.courses,
               error: values.some((value) => value === null)
-                ? 'Parte do catálogo não carregou. Você pode tentar novamente.'
+                ? 'Parte do catálogo não carregou.'
                 : null,
             };
           });
