@@ -1,4 +1,5 @@
-import { Ionicons } from '@expo/vector-icons';
+import { Bell, Search } from 'lucide-react-native';
+import Svg, { Path } from 'react-native-svg';
 import { useRouter } from 'expo-router';
 import { useAuth } from '@/features/auth/authContext';
 import { supabase } from '@/lib/supabase';
@@ -52,9 +53,17 @@ export function HomeHeader() {
           accessibilityRole="button"
           accessibilityLabel="Abrir menu"
           onPress={openSidebar}
-          style={styles.action}
+          style={({ pressed }) => [styles.action, pressed && styles.pressed]}
         >
-          <Ionicons name="menu-outline" size={25} color={colors.text} />
+          <Svg width={24} height={24} viewBox="0 0 24 24">
+            <Path
+              d="M4 8h16M4 16h10"
+              fill="none"
+              stroke={colors.text}
+              strokeWidth={1.65}
+              strokeLinecap="round"
+            />
+          </Svg>
         </Pressable>
         <Text style={styles.brand}>Classfy</Text>
       </View>
@@ -65,7 +74,7 @@ export function HomeHeader() {
           style={({ pressed }) => [styles.action, pressed && styles.pressed]}
           onPress={() => router.push('/search')}
         >
-          <Ionicons name="search-outline" size={23} color={colors.text} />
+          <Search size={24} strokeWidth={1.65} color={colors.text} />
         </Pressable>
         <Pressable
           accessibilityRole="button"
@@ -73,11 +82,7 @@ export function HomeHeader() {
           style={({ pressed }) => [styles.action, pressed && styles.pressed]}
           onPress={() => router.push('/notifications')}
         >
-          <Ionicons
-            name="notifications-outline"
-            size={23}
-            color={colors.text}
-          />
+          <Bell size={24} strokeWidth={1.65} color={colors.text} />
           {unreadCount > 0 ? (
             <View style={styles.badge}>
               <Text style={styles.badgeText}>

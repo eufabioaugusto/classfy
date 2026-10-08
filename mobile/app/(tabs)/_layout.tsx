@@ -2,16 +2,21 @@ import { ActivityIndicator, View, StyleSheet } from 'react-native';
 import { ClassyAvatar } from '@/components/ClassyAvatar';
 import { usePrimaryAction } from '@/contexts/PrimaryActionContext';
 import { Tabs } from 'expo-router';
-import { Ionicons } from '@expo/vector-icons';
+import {
+  House,
+  MessageCircle,
+  UserRound,
+  Plus,
+  type LucideIcon,
+} from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { TabScrollProvider } from '@/contexts/TabScrollContext';
 import { colors } from '@/theme/colors';
 import { useUnreadMessages } from '@/hooks/useUnreadMessages';
 
-type IconName = React.ComponentProps<typeof Ionicons>['name'];
-function icon(outline: IconName, filled: IconName) {
-  return ({ color, focused }: { color: string; focused: boolean }) => (
-    <Ionicons name={focused ? filled : outline} size={23} color={color} />
+function icon(Icon: LucideIcon) {
+  return ({ color }: { color: string }) => (
+    <Icon size={24} strokeWidth={1.65} color={color} />
   );
 }
 
@@ -35,7 +40,8 @@ export default function TabsLayout() {
             paddingBottom: Math.max(insets.bottom, 6),
             paddingTop: 6,
           },
-          tabBarLabelStyle: { fontSize: 10, fontWeight: '600' },
+          tabBarIconStyle: { height: 32, width: 40 },
+          tabBarLabelStyle: { fontSize: 10, fontWeight: '500', marginTop: 2 },
           sceneStyle: { backgroundColor: colors.background },
         }}
       >
@@ -44,15 +50,7 @@ export default function TabsLayout() {
           options={{
             title: 'Início',
             tabBarAccessibilityLabel: 'Início',
-            tabBarIcon: icon('home-outline', 'home'),
-          }}
-        />
-        <Tabs.Screen
-          name="study"
-          options={{
-            title: 'Estudar',
-            tabBarAccessibilityLabel: 'Estudar',
-            tabBarIcon: icon('sparkles-outline', 'sparkles'),
+            tabBarIcon: icon(House),
           }}
         />
         <Tabs.Screen
@@ -75,16 +73,15 @@ export default function TabsLayout() {
               <View
                 style={[
                   styles.primaryIcon,
-                  canPublish && styles.creatorIcon,
                   action && styles.activeIcon,
                 ]}
               >
                 {roleLoading ? (
                   <ActivityIndicator color={colors.muted} />
                 ) : canPublish ? (
-                  <Ionicons name="add" size={29} color="#fff" />
+                  <Plus size={25} strokeWidth={1.65} color={colors.text} />
                 ) : (
-                  <ClassyAvatar size={34} />
+                  <ClassyAvatar size={30} />
                 )}
               </View>
             ),
@@ -98,7 +95,7 @@ export default function TabsLayout() {
               unread > 0 ? `Mensagens, ${unread} não lidas` : 'Mensagens',
             tabBarBadge:
               unread > 0 ? (unread > 99 ? '99+' : unread) : undefined,
-            tabBarIcon: icon('chatbubble-outline', 'chatbubble'),
+            tabBarIcon: icon(MessageCircle),
           }}
         />
         <Tabs.Screen
@@ -106,9 +103,10 @@ export default function TabsLayout() {
           options={{
             title: 'Você',
             tabBarAccessibilityLabel: 'Você',
-            tabBarIcon: icon('person-circle-outline', 'person-circle'),
+            tabBarIcon: icon(UserRound),
           }}
         />
+        <Tabs.Screen name="study" options={{ href: null }} />
         <Tabs.Screen name="rewards" options={{ href: null }} />
         <Tabs.Screen name="explore" options={{ href: null }} />
       </Tabs>
@@ -118,16 +116,11 @@ export default function TabsLayout() {
 
 const styles = StyleSheet.create({
   primaryIcon: {
-    width: 42,
-    height: 42,
+    width: 32,
+    height: 32,
     alignItems: 'center',
     justifyContent: 'center',
-    borderRadius: 21,
-    backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderColor: colors.border,
-    marginTop: -6,
+    borderRadius: 16,
   },
-  creatorIcon: { backgroundColor: colors.accent, borderColor: colors.accent },
-  activeIcon: { borderColor: colors.accent },
+  activeIcon: { backgroundColor: colors.surface },
 });

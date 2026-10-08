@@ -111,3 +111,11 @@ e [streams públicos de teste da Mux](https://test-streams.mux.dev/).
 - Conquistas permanece no sidebar e ganha acesso em Você. Mensagens mantém contador de não lidas.
 - Verificação: TypeScript, dois testes de papéis e exportação iOS aprovados. Simulador visitante: cinco itens, ausência da barra, abertura/fechamento da Classy em Início e Mensagens com aba preservada. Creator autenticado, upload, conversa autenticada e Android continuam pendentes de QA.
 - Alterações limitadas ao mobile em `codex/mobile-dev-iphone`; sem push/deploy.
+
+## Refinamento do menu — 08/10/2026
+
+- Rodapé atual com quatro ações: Início → Classy/Criar → Mensagens → Você. Estudar sai do rodapé; rota, estudos existentes e acessos internos do painel continuam disponíveis.
+- Ícones do rodapé e do cabeçalho usam Lucide com traço 1,65, sem preenchimento ao selecionar. Estado selecionado muda a cor, mantendo peso visual uniforme.
+- Classy ocupa o mesmo espaço de ícone das outras ações, sem círculo adicional nem deslocamento vertical. Texto alinhado pelo layout padrão das abas.
+- Menu do sidebar: duas linhas arredondadas assimétricas, área de toque 44×44 e feedback ao pressionar.
+- TypeScript aprovado; quatro ações, alinhamento, ícones e abertura/retorno do sidebar conferidos no simulador iOS. Sem alteração de dependências, web ou backend e sem push/deploy.
