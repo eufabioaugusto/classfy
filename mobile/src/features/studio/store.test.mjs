@@ -13,16 +13,18 @@ function compile(file, dependencies = {}) {
 }
 function harness(initial = {}) {
   const data = new Map(Object.entries(initial));
-  let failure = false, sequence = 0;
-  const storage = { getItem: async key => data.get(key) || null, setItem: async (key, value) => {
+  let failure = false, sequence = 0, failKey = '', readbackKey = '';
+  const writes = [];
+  const storage = { getItem: async key => key === readbackKey && writes.includes(key) ? 'corrupted-readback' : data.get(key) || null, setItem: async (key, value) => {
+    if (key === failKey) throw new Error('Interrupted migration');
     if (failure) { failure = false; throw new Error('Disk full'); }
-    data.set(key, value);
+    writes.push(key); data.set(key, value);
   } };
   const store = compile('./store.ts', {
     '@react-native-async-storage/async-storage': storage, 'expo-crypto': { randomUUID: () => `project-${++sequence}` },
     'expo-file-system/legacy': { documentDirectory: 'file:///new/Documents/' }, './model': compile('./model.ts'),
   });
-  return { store, data, failNext: () => { failure = true; } };
+  return { store, data, writes, failNext: () => { failure = true; }, failKey: key => { failKey = key; }, corruptReadback: key => { readbackKey = key; } };
 }
 const take = id => ({ id, uri: `file:///${id}.mp4`, name: id, duration: 10, start: 0, end: 10 });
 test('duas anexações concorrentes e metadados não perdem takes ou texto', async () => {
@@ -138,4 +140,87 @@ test('primeiro take promovido mantém invalidação de export ao cortar e bloque
   assert.equal(h.store.isTransientStudioProject('owner', p.id), false);
   await h.store.updateStudioProject('owner', p.id, { state: 'uploading' });
   await assert.rejects(h.store.updateStudioProject('owner', p.id, { takes: [] }), /interrompa/);
+});
+
+const v1Project = (patch = {}) => ({ version: 1, id: 'legacy', ownerId: 'owner', kind: 'aula', title: 'Título anterior', description: '', objective: '', audience: '', script: '', tags: [], visibility: 'free', price: '', takes: [take('a')], state: 'draft', progress: 0, revision: 2, createdAt: 'date', updatedAt: 'date', ...patch });
+test('migração grava backup intacto antes de v2, confirma readback e serializa apenas edição', async () => {
+  const raw = JSON.stringify([v1Project({ state: 'ready', mediaAssetId: 'remote' })]);
+  const h = harness({ 'classfy:studio:v1:owner': raw });
+  await h.store.loadStudioProjects('owner');
+  assert.equal(h.store.studioSnapshot('owner').error, null);
+  assert.equal(h.data.get('classfy:studio:v1:backup:owner'), raw);
+  assert.equal(h.data.get('classfy:studio:v1:owner'), raw);
+  assert.deepEqual(h.writes.slice(0, 2), ['classfy:studio:v1:backup:owner', 'classfy:studio:v2:owner']);
+  const encoded = JSON.parse(h.data.get('classfy:studio:v2:owner'))[0];
+  assert.equal(encoded.version, 2);
+  assert.equal('takes' in encoded, false);
+  const p = h.store.getStudioProject('owner', 'legacy');
+  assert.equal(p.state, 'ready'); assert.equal(p.mediaAssetId, 'remote');
+  assert.equal(p.takes[0].id, 'a');
+});
+test('falha em backup ou escrita v2 preserva índice anterior e bloqueia novo projeto', async () => {
+  for (const failKey of ['classfy:studio:v1:backup:owner', 'classfy:studio:v2:owner']) {
+    const raw = JSON.stringify([v1Project()]); const h = harness({ 'classfy:studio:v1:owner': raw });
+    h.failKey(failKey);
+    await h.store.loadStudioProjects('owner');
+    assert.ok(h.store.studioSnapshot('owner').error);
+    await assert.rejects(h.store.createStudioProject('owner', 'aula'));
+    assert.equal(h.data.get('classfy:studio:v1:owner'), raw);
+    assert.equal(h.data.has('classfy:studio:v2:owner'), false);
+  }
+});
+test('readback diferente não anuncia migração concluída e backup permite recuperação explícita', async () => {
+  const raw = JSON.stringify([v1Project()]); const h = harness({ 'classfy:studio:v1:owner': raw });
+  h.corruptReadback('classfy:studio:v2:owner');
+  await h.store.loadStudioProjects('owner');
+  assert.ok(h.store.studioSnapshot('owner').error.includes('confirmar'));
+  assert.equal(h.store.studioSnapshot('owner').projects.length, 0);
+  assert.equal(h.data.get('classfy:studio:v1:backup:owner'), raw);
+  h.corruptReadback('');
+  await h.store.recoverStudioProjects('owner');
+  assert.equal(h.store.studioSnapshot('owner').error, null);
+  assert.equal(h.store.getStudioProject('owner', 'legacy').title, 'Título anterior');
+  assert.ok([...h.data.keys()].some(key => key.startsWith('classfy:studio:v2:recovery:owner:')));
+});
+test('v2 corrompido não é sobrescrito no load; recuperação mantém os bytes danificados', async () => {
+  const bad = '{corrupted'; const raw = JSON.stringify([v1Project()]);
+  const h = harness({ 'classfy:studio:v2:owner': bad, 'classfy:studio:v1:backup:owner': raw });
+  await h.store.loadStudioProjects('owner');
+  assert.equal(h.data.get('classfy:studio:v2:owner'), bad);
+  assert.equal(h.writes.length, 0);
+  await h.store.recoverStudioProjects('owner');
+  const recovery = [...h.data.keys()].find(key => key.startsWith('classfy:studio:v2:recovery:owner:'));
+  assert.equal(h.data.get(recovery), bad);
+  assert.equal(h.store.getStudioProject('owner', 'legacy').takes[0].id, 'a');
+});
+test('camada altera assinatura e upload bloqueia edição completa; disk full mantém projeto anterior', async () => {
+  const h = harness(), model = compile('./model.ts'); const p = await h.store.createStudioProject('owner', 'aula');
+  const base = await h.store.updateStudioProject('owner', p.id, { takes: [take('a')] });
+  await h.store.updateStudioProject('owner', p.id, { exportedUri: 'file:///render.mp4', exportedSignature: model.timelineSignature(base), mediaAssetId: 'remote' });
+  const editing = model.addStudioLayerItem(base.editing, model.createStudioTextItem({ id: 'text', clipId: 'a' }));
+  h.failNext();
+  await assert.rejects(h.store.updateStudioProject('owner', p.id, { editing }), /Disk full/);
+  assert.equal(h.store.getStudioProject('owner', p.id).editing.layers.length, 0);
+  assert.equal(h.store.getStudioProject('owner', p.id).exportedUri, 'file:///render.mp4');
+  const saved = await h.store.updateStudioProject('owner', p.id, { editing });
+  assert.equal(saved.exportedUri, undefined); assert.equal(saved.mediaAssetId, undefined);
+  await h.store.updateStudioProject('owner', p.id, { state: 'uploading' });
+  await assert.rejects(h.store.updateStudioProject('owner', p.id, { editing: model.removeStudioLayerItem(saved.editing, 'text') }), /interrompa/);
+});
+test('journal de camada mantém destino ao restart e só limpa quando o asset entra na camada', async () => {
+  const h = harness(), model = compile('./model.ts'); const p = await h.store.createStudioProject('owner', 'short', { transient: true });
+  const layerItem = { id: 'overlay', kind: 'image', assetId: 'original', atTicks: 0, durationTicks: model.studioTicks(3) };
+  const journal = [{ id: 'original', kind: 'image', uri: 'file:///slide.jpg', name: 'Slide', layerItem, layerId: 'images' }];
+  const pending = await h.store.updateStudioProject('owner', p.id, { pendingTakes: journal });
+  assert.equal(h.store.isTransientStudioProject('owner', p.id), false);
+  const restarted = harness(Object.fromEntries(h.data)); await restarted.store.loadStudioProjects('owner');
+  assert.equal(restarted.store.getStudioProject('owner', p.id).pendingTakes[0].layerItem.id, 'overlay');
+  let editing = { ...pending.editing, assets: [{ id: 'original', kind: 'image', uri: 'file:///slide.jpg', name: 'Slide', durationTicks: 0 }] };
+  const onlyAsset = await h.store.updateStudioProject('owner', p.id, { editing });
+  assert.equal(onlyAsset.pendingTakes.length, 1);
+  editing = model.addStudioLayerItem(editing, layerItem, 'images');
+  const saved = await h.store.updateStudioProject('owner', p.id, { editing });
+  assert.equal(saved.takes.length, 0); assert.equal(saved.pendingTakes.length, 0);
+  assert.equal(saved.editing.layers[0].items[0].id, 'overlay');
+  await assert.rejects(h.store.updateStudioProject('owner', p.id, { pendingTakes: [{ ...journal[0], layerItem: { ...layerItem, assetId: 'different' } }] }), /destino/);
 });

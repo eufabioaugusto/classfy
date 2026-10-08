@@ -1,11 +1,11 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
-import { ActivityIndicator, Alert, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { ActivityIndicator, Alert, FlatList, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useIsFocused, useNavigation, usePreventRemove } from '@react-navigation/native';
 import { StatusBar } from 'expo-status-bar';
 import * as Crypto from 'expo-crypto';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { ArrowDown, ArrowUp, Check, ChevronRight, Copy, FileText, Film, Maximize2, Mic, Minimize2, Pause, Pencil, Play, Scissors, Redo2, Split, Trash2, Undo2, Upload, Video, X } from 'lucide-react-native';
+import { ArrowDown, ArrowUp, Check, ChevronRight, Copy, ImagePlus, Layers, Music, Captions, SlidersHorizontal, Type, FileText, Film, Maximize2, Mic, Minimize2, Pause, Pencil, Play, Scissors, Redo2, Split, Trash2, Undo2, Upload, Video, X } from 'lucide-react-native';
 import { AppScreen } from '@/components/AppScreen';
 import { NavigationHeader } from '@/components/NavigationHeader';
 import { SheetCloseButton, SheetModal, sheetStyles } from '@/components/SheetModal';
@@ -13,11 +13,16 @@ import { useAuth } from '@/features/auth/authContext';
 import { colors } from '@/theme/colors';
 import { useStudioProject } from '@/features/studio/useStudioProjects';
 import { useStudioOrientation } from '@/features/studio/useStudioOrientation';
-import { importStudioMedia, recoverPendingStudioTakes } from '@/features/studio/media';
+import { importStudioMedia, importStudioLayer, importStudioCaptionFile, recoverPendingStudioTakes } from '@/features/studio/media';
 import { discardTransientStudioProject, getStudioProject, isTransientStudioProject, mutateStudioProject } from '@/features/studio/store';
 import { duplicateStudioTake, locateStudioTime, moveStudioTake, removeStudioTake, splitStudioTake } from '@/features/studio/timeline';
-import { formatStudioEditorTime, timelineDuration, type StudioProject, type StudioTake } from '@/features/studio/model';
+import { addStudioLayerItem, compileStudioRecipe, createStudioTextItem, deriveStudioTakes, patchStudioClipGrade, patchStudioLayerItem, removeStudioLayerItem, studioEditing, studioSeconds, studioTicks, withStudioStandardOutput, formatStudioEditorTime, timelineDuration, type StudioEditing, type StudioProject, type StudioTake } from '@/features/studio/model';
 import { StudioPreview, type StudioPlaybackState, type StudioPreviewHandle } from '@/features/studio/StudioPreview';
+import { StudioCompositionPreview } from '@/features/studio/StudioCompositionPreview';
+import { StudioLayerPanel } from '@/features/studio/StudioLayerPanel';
+import { StudioTreatmentPanel } from '@/features/studio/StudioTreatmentPanel';
+import { addStudioCaptionCues, studioTranscriptCues } from '@/features/studio/captions';
+import { isStudioCompositionAvailable, getStudioTranscriptionCapabilitiesAsync, installStudioTranscriptionModelAsync, transcribeStudioAsync, cancelStudioTranscriptionAsync } from '../../modules/classfy-studio-media';
 import { StudioTimeline } from '@/features/studio/StudioTimeline';
 import { createStudioEditingHistory } from '@/features/studio/editingHistory';
 import { captureStudioPlaybackAnchor, restoreStudioPlaybackAnchor, type StudioPlaybackAnchor } from '@/features/studio/editorInteraction';
@@ -48,6 +53,19 @@ function ProjectEditor({ project, update }: { project: StudioProject; update: (i
   const { fields, setField, flush, saving, saveError } = useStudioFields(project, update, { preventNavigation: false });
   const [panel, setPanel] = useState<Panel>(null);
   const [selectedTakeId, setSelectedTakeId] = useState<string>();
+  const [selectedLayerId, setSelectedLayerId] = useState<string>();
+  const [treating, setTreating] = useState(false);
+  const [editingPreview, setEditingPreview] = useState<StudioEditing>();
+  const [before, setBefore] = useState(false);
+  const [captionProgress, setCaptionProgress] = useState<string>();
+  const captionRequest = useRef<{ id: string; cancelled: boolean } | undefined>(undefined);
+  useEffect(() => () => { if (captionRequest.current) { captionRequest.current.cancelled = true; void cancelStudioTranscriptionAsync(captionRequest.current.id); } }, []);
+  const editing = studioEditing(project);
+  const previewProject = editingPreview ? { ...project, editing: editingPreview, takes: deriveStudioTakes(editingPreview) } : project;
+  const recipe = useMemo(() => compileStudioRecipe(previewProject), [project.editing, project.kind, project.takes, editingPreview]);
+  const layerItems = useMemo(() => editing.layers.flatMap(layer => layer.items), [editing]);
+  const layerItem = editing.layers.flatMap(layer => layer.items).find(item => item.id === selectedLayerId);
+  const advanced = isStudioCompositionAvailable() && project.kind !== 'podcast';
   const [organizing, setOrganizing] = useState(false);
   const [trimDraft, setTrimDraft] = useState<TrimRange | null>(null);
   const [trimCancelEpoch, setTrimCancelEpoch] = useState(0);
@@ -78,7 +96,7 @@ function ProjectEditor({ project, update }: { project: StudioProject; update: (i
   }, []);
   const activeTake = project.takes.find(take => take.id === (selectedTakeId || activeTakeId)) || project.takes[0];
   const activeIndex = project.takes.findIndex(take => take.id === activeTake?.id);
-  const duration = timelineDuration(project.takes);
+  const duration = studioSeconds(recipe.durationTicks);
   const previewAspect = project.kind === 'short' ? 9 / 16 : project.kind === 'aula' ? 16 / 9 : 1;
   const previewWidth = Math.max(1, Math.min(stageSize.width - 24, (stageSize.height - 42) * previewAspect));
   const previewHeight = previewWidth / previewAspect;
@@ -99,21 +117,22 @@ function ProjectEditor({ project, update }: { project: StudioProject; update: (i
     setHistoryState(history.sync(owner === project.ownerId ? getStudioProject(owner, project.id) || null : null, owner));
   }, [history, project, user?.id]);
   useEffect(() => { if (focused) allowRemoval.current = false; }, [focused]);
-  useEffect(() => { navigation.setOptions({ gestureEnabled: !busy && !trimDraft && !saving }); }, [navigation, busy, trimDraft, saving]);
-  usePreventRemove(busy || !!trimDraft || saving || !!saveError, ({ data }) => {
+  useEffect(() => { navigation.setOptions({ gestureEnabled: !busy && !trimDraft && !saving && !editingPreview }); }, [navigation, busy, trimDraft, saving, editingPreview]);
+  usePreventRemove(busy || !!trimDraft || saving || !!saveError || !!editingPreview, ({ data }) => {
     if (allowRemoval.current) { navigation.dispatch(data.action); return; }
     // A take write must settle before leaving; an unfinished drag is discarded.
     if (working.current || leaving.current) return;
     if (trimDraft) { cancelTrim(); return; }
     leaving.current = true;
-    if (!startWork()) { leaving.current = false; return; }
-    void flush().then(async () => {
+    void (async () => {
+      if (!await applyVisibleEditing() || !startWork()) return;
+      await flush();
       assertOwner();
       if (!mounted.current) return;
       await discardTransientStudioProject(project.ownerId, project.id);
       // Discarding an empty session can unmount this editor by design.
       allowRemoval.current = true; navigation.dispatch(data.action);
-    }).catch(() => {
+    })().catch(() => {
       // Metadata retains its pending patch and exposes the existing retry.
     }).finally(() => { leaving.current = false; finishWork(); });
   });
@@ -147,7 +166,7 @@ function ProjectEditor({ project, update }: { project: StudioProject; update: (i
       const saved = await mutateStudioProject(project.ownerId, project.id, latest => {
         assertOwner();
         operation = change === 'undo' ? history.beginUndo(latest) : change === 'redo' ? history.beginRedo(latest) : history.beginEdit(latest, change(latest.takes));
-        return { takes: operation ? operation.takes : [...latest.takes] };
+        return operation?.editing ? { editing: operation.editing } : { takes: operation ? operation.takes : [...latest.takes] };
       });
       if (operation) history.commit(operation, saved);
       if (mounted.current) {
@@ -161,6 +180,142 @@ function ProjectEditor({ project, update }: { project: StudioProject; update: (i
       if (mounted.current) setHistoryState(history.state());
       Alert.alert('Editar montagem', error instanceof Error ? error.message : 'Não foi possível salvar. Tente novamente.');
     } finally { finishWork(); }
+  };
+  const editEditing = async (change: (editing: StudioEditing) => StudioEditing) => {
+    if (locked || !startWork()) return;
+    const anchor = captureStudioPlaybackAnchor(current.current.project.takes, playbackRef.current);
+    let operation: ReturnType<typeof history.beginEditing> = null;
+    try {
+      await flush(); assertOwner();
+      const saved = await mutateStudioProject(project.ownerId, project.id, latest => {
+        assertOwner();
+        operation = history.beginEditing(latest, change(studioEditing(latest)));
+        return operation?.editing ? { editing: operation.editing } : {};
+      });
+      if (operation) history.commit(operation, saved);
+      if (mounted.current) {
+        setEditingPreview(undefined); setBefore(false); setHistoryState(history.state());
+        pendingRestore.current = { anchor, revision: saved.revision }; setRestoreSequence(value => value + 1);
+      }
+      return saved;
+    } catch (error) {
+      if (operation) history.abort(operation);
+      Alert.alert('Editar camada', error instanceof Error ? error.message : 'Não foi possível salvar esta edição.');
+      throw error;
+    } finally { finishWork(); }
+  };
+  const standardProfile = async () => {
+    if (editing.output.profile === 'standard') return true;
+    const chosen = await new Promise<boolean>(resolve => Alert.alert('Perfil da edição', 'Camadas e tratamentos usam 1080p, 30 FPS e SDR nesta versão. Seus originais continuam na qualidade da captura.', [{ text: 'Manter perfil original', style: 'cancel', onPress: () => resolve(false) }, { text: 'Usar 1080p · 30 FPS', onPress: () => resolve(true) }], { cancelable: false }));
+    if (chosen) {
+      try { return (await editEditing(withStudioStandardOutput))?.editing?.output.profile === 'standard'; }
+      catch { return false; }
+    }
+    return chosen;
+  };
+  const closeLayer = () => { setSelectedLayerId(undefined); setEditingPreview(undefined); setBefore(false); setTreating(false); };
+  const mergeInlineDraft = (latest: StudioEditing, draft: StudioEditing) => {
+    if (selectedLayerId) {
+      const item = draft.layers.flatMap(layer => layer.items).find(item => item.id === selectedLayerId);
+      if (!item || !latest.layers.some(layer => layer.items.some(candidate => candidate.id === selectedLayerId))) throw new Error('Esta camada não está mais na montagem.');
+      return patchStudioLayerItem(latest, selectedLayerId, item);
+    }
+    if (treating && activeTake) {
+      const clip = draft.main.find(item => item.id === activeTake.id);
+      if (!clip?.grade || !latest.main.some(item => item.id === activeTake.id)) throw new Error('Este take não está mais na montagem.');
+      return patchStudioClipGrade(latest, activeTake.id, clip.grade);
+    }
+    throw new Error('Selecione novamente o item que deseja editar.');
+  };
+  const applyInlineDraft = async (draft: StudioEditing) => {
+    const saved = await editEditing(latest => mergeInlineDraft(latest, draft));
+    if (!saved) throw new Error('Aguarde a edição atual terminar.');
+    if (mounted.current) closeLayer();
+  };
+  const applyVisibleEditing = async () => {
+    if (!editingPreview) return true;
+    try {
+      await applyInlineDraft(editingPreview);
+      return true;
+    } catch { return false; }
+  };
+  const selectLayer = (id: string) => {
+    if (busy || trimDraft) return;
+    preview.current?.pause(); setSelectedTakeId(undefined); setTreating(false); setEditingPreview(undefined); setSelectedLayerId(id);
+  };
+  const moveLayer = async (id: string, delta: number) => {
+    // Moving the selected layer commits its visible draft in the same history
+    // operation. Merge only that item into the latest document so another
+    // asset or layer cannot be overwritten by a stale preview snapshot.
+    const draft = editingPreview?.layers.flatMap(layer => layer.items).find(item => item.id === id);
+    try {
+      const saved = await editEditing(latest => {
+        const item = latest.layers.flatMap(layer => layer.items).find(item => item.id === id);
+        if (!item) throw new Error('Esta camada não está mais na montagem.');
+        const base = draft ? patchStudioLayerItem(latest, id, draft) : latest;
+        const visible = draft || item;
+        const ticks = studioTicks(delta);
+        return patchStudioLayerItem(base, id, visible.anchor ? { anchor: { ...visible.anchor, ...(visible.anchor.sourceStartTicks !== undefined ? { sourceStartTicks: Math.max(0, visible.anchor.sourceStartTicks + ticks), sourceEndTicks: Math.max(0, visible.anchor.sourceStartTicks + ticks) + visible.durationTicks } : { offsetTicks: Math.max(0, (visible.anchor.offsetTicks || 0) + ticks) }) } } : { atTicks: Math.max(0, visible.atTicks + ticks) });
+      });
+      if (saved && mounted.current) closeLayer();
+    } catch { /* editEditing already reports the failure; retain the draft. */ }
+  };
+  const addLayer = async (kind: 'text' | 'caption' | 'image' | 'video' | 'audio') => {
+    if (!advanced || busy || locked || !project.takes.length || !await standardProfile()) return;
+    const latest = current.current.project;
+    const location = locateStudioTime(latest.takes, playbackRef.current.position);
+    if (!location) return;
+    const ticks = studioTicks(playbackRef.current.position);
+    const durationTicks = studioTicks(Math.max(0.1, Math.min(3, location.take.end - location.sourceSeconds)));
+    const id = Crypto.randomUUID();
+    try {
+      if (kind === 'text' || kind === 'caption') {
+        const item = createStudioTextItem({ id, kind, content: kind === 'caption' ? 'Sua legenda' : 'Seu título', atTicks: ticks, durationTicks });
+        item.anchor = { clipId: location.takeId, offsetTicks: studioTicks(location.sourceSeconds - location.take.start) };
+        await editEditing(value => addStudioLayerItem(value, item)); selectLayer(id); return;
+      }
+      if (!startWork()) return;
+      await flush(); assertOwner();
+      const item = { id, kind, atTicks: ticks, durationTicks: kind === 'audio' ? studioTicks(Math.max(0.1, duration - playbackRef.current.position)) : durationTicks,
+        ...(kind === 'audio' ? { gain: 0.25, fadeInTicks: Math.min(studioTicks(0.5), Math.floor(durationTicks / 2)), fadeOutTicks: Math.min(studioTicks(0.5), Math.floor(durationTicks / 2)) } : { rect: { x: 0.64, y: 0.06, width: 0.3, height: 0.3 }, anchor: { clipId: location.takeId, offsetTicks: studioTicks(location.sourceSeconds - location.take.start) } }) };
+      const saved = await importStudioLayer(getStudioProject(project.ownerId, project.id) || latest, kind, item);
+      if (saved && mounted.current) { setSelectedLayerId(id); setSelectedTakeId(undefined); }
+    } catch (error) { Alert.alert('Adicionar camada', error instanceof Error ? error.message : 'Não foi possível importar.'); }
+    finally { if (working.current) finishWork(); }
+  };
+  const captionFile = async () => {
+    if (!advanced || busy || locked || !activeTake || !await standardProfile()) return;
+    try {
+      const cues = await importStudioCaptionFile(current.current.project, activeTake.duration);
+      if (cues) await editEditing(value => addStudioCaptionCues(value, activeTake.id, cues, Crypto.randomUUID));
+    } catch (error) { Alert.alert('Importar legendas', error instanceof Error ? error.message : 'Não foi possível importar.'); }
+  };
+  const generateCaptions = async () => {
+    if (!advanced || !activeTake || busy || locked || !await standardProfile() || !startWork()) return;
+    const take = activeTake; const request = { id: Crypto.randomUUID(), cancelled: false }; captionRequest.current = request;
+    try {
+      await flush(); assertOwner();
+      const capabilities = await getStudioTranscriptionCapabilitiesAsync();
+      if (!capabilities.available) throw new Error(capabilities.reason || 'A transcrição local não está disponível neste aparelho.');
+      setCaptionProgress(capabilities.requiresModelDownload ? 'Preparando o modelo de português…' : 'Gerando legendas neste aparelho…');
+      const reportProgress = (stage: string, progress: number) => {
+        if (mounted.current && !request.cancelled && captionRequest.current === request) setCaptionProgress(`${stage === 'model' ? 'Baixando modelo de português' : 'Gerando legendas'} · ${Math.round(progress * 100)}%`);
+      };
+      if (capabilities.requiresModelDownload) await installStudioTranscriptionModelAsync(request.id, reportProgress);
+      assertOwner(); if (request.cancelled || !mounted.current || captionRequest.current !== request) return;
+      const result = await transcribeStudioAsync(request.id, take.uri, reportProgress);
+      assertOwner(); if (request.cancelled || !mounted.current || captionRequest.current !== request) return;
+      const cues = studioTranscriptCues(result.segments, take.duration);
+      if (!cues.length) throw new Error('Não encontramos fala neste take. Você pode adicionar uma legenda manual.');
+      finishWork();
+      await editEditing(value => addStudioCaptionCues(value, take.id, cues, Crypto.randomUUID));
+      Alert.alert('Legendas prontas', 'Revise o texto e os tempos nas camadas de legenda.');
+    } catch (error) { if (!request.cancelled && mounted.current) Alert.alert('Gerar legendas', error instanceof Error ? error.message : 'Não foi possível transcrever este take.'); }
+    finally { if (captionRequest.current === request) { captionRequest.current = undefined; if (mounted.current) setCaptionProgress(undefined); if (working.current) finishWork(); } }
+  };
+  const openTreatment = async () => {
+    if (!activeTake || !advanced || busy || locked || !await standardProfile()) return;
+    preview.current?.pause(); setSelectedTakeId(activeTake.id); setSelectedLayerId(undefined); setEditingPreview(undefined); setTreating(true);
   };
   const addMedia = async () => {
     if (locked || !startWork()) return;
@@ -190,7 +345,8 @@ function ProjectEditor({ project, update }: { project: StudioProject; update: (i
     } },
   ]);
   const navigate = async (destination: 'record' | 'review' | 'back') => {
-    if (working.current || trimDraft || (destination === 'record' && locked)) return;
+    if (working.current || leaving.current || trimDraft || (destination === 'record' && locked)) return;
+    if (!await applyVisibleEditing()) return;
     if (!startWork()) return;
     try {
       await flush(); assertOwner();
@@ -295,10 +451,10 @@ function ProjectEditor({ project, update }: { project: StudioProject; update: (i
     </View>}
     <View style={fullscreen ? StyleSheet.absoluteFillObject : styles.previewStage} onLayout={event => { setStageSize(event.nativeEvent.layout); }}>
       <View style={fullscreen ? StyleSheet.absoluteFillObject : [styles.previewFrame, { width: previewWidth, height: previewHeight }, selectedTakeId && styles.selectedFrame]}>
-        <StudioPreview ref={preview} takes={project.takes} kind={project.kind} activeTakeId={activeTakeId} onActiveTakeChange={setActiveTakeId} onPlaybackState={receivePlayback}
+        <StudioCompositionPreview ref={preview} project={previewProject} before={before} activeTakeId={activeTakeId} onActiveTakeChange={setActiveTakeId} onPlaybackState={receivePlayback}
           paused={!!panel || busy || !!trimDraft} onCanvasPress={() => preview.current?.togglePlayback()} canvasLabel={playback.playing ? 'Pausar prévia' : 'Reproduzir prévia'} />
       </View>
-      {!fullscreen && <View style={styles.previewCaption}><Text style={styles.formatLabel}>{project.kind === 'aula' ? 'AULA · 16:9' : project.kind === 'short' ? 'SHORT · 9:16' : 'PODCAST'}{activeTake?.width && activeTake.height && Math.min(activeTake.width, activeTake.height) >= 2160 ? ' · 4K' : ''}</Text>
+      {!fullscreen && <View style={styles.previewCaption}><Text style={styles.formatLabel}>{project.kind === 'aula' ? 'AULA · 16:9' : project.kind === 'short' ? 'SHORT · 9:16' : 'PODCAST'}{editing.output.profile === 'standard' ? ' · 1080p · 30 FPS · SDR' : activeTake?.width && activeTake.height && Math.min(activeTake.width, activeTake.height) >= 2160 ? ' · ORIGINAL 4K' : ' · ORIGINAL'}</Text>
         <Pressable accessibilityRole="button" accessibilityLabel="Prévia em tela inteira" disabled={busy || !!trimDraft} onPress={() => { preview.current?.pause(); setFullscreen(true); }} style={styles.smallIconButton}><Maximize2 size={17} color={colors.muted} strokeWidth={1.5} /></Pressable>
       </View>}
     </View>
@@ -309,19 +465,22 @@ function ProjectEditor({ project, update }: { project: StudioProject; update: (i
         </Pressable>
         <View pointerEvents="none" style={styles.timeBlock}><Text style={styles.time}>{formatStudioEditorTime(playback.position)}</Text><Text style={styles.totalTime}>{formatStudioEditorTime(duration)}</Text></View>
         <View style={styles.historyButtons}>
-          <Pressable accessibilityRole="button" accessibilityLabel="Desfazer edição" disabled={!historyState.canUndo || busy || locked || !!trimDraft} onPress={() => { void editTakes('undo'); }} style={[styles.iconButton, (!historyState.canUndo || busy || locked || !!trimDraft) && styles.disabled]}><Undo2 size={23} color={colors.textSecondary} strokeWidth={1.6} /></Pressable>
-          <Pressable accessibilityRole="button" accessibilityLabel="Refazer edição" disabled={!historyState.canRedo || busy || locked || !!trimDraft} onPress={() => { void editTakes('redo'); }} style={[styles.iconButton, (!historyState.canRedo || busy || locked || !!trimDraft) && styles.disabled]}><Redo2 size={23} color={colors.textSecondary} strokeWidth={1.6} /></Pressable>
+          <Pressable accessibilityRole="button" accessibilityLabel="Desfazer edição" disabled={!historyState.canUndo || busy || locked || !!trimDraft} onPress={() => { closeLayer(); void editTakes('undo'); }} style={[styles.iconButton, (!historyState.canUndo || busy || locked || !!trimDraft) && styles.disabled]}><Undo2 size={23} color={colors.textSecondary} strokeWidth={1.6} /></Pressable>
+          <Pressable accessibilityRole="button" accessibilityLabel="Refazer edição" disabled={!historyState.canRedo || busy || locked || !!trimDraft} onPress={() => { closeLayer(); void editTakes('redo'); }} style={[styles.iconButton, (!historyState.canRedo || busy || locked || !!trimDraft) && styles.disabled]}><Redo2 size={23} color={colors.textSecondary} strokeWidth={1.6} /></Pressable>
         </View>
       </View>
-      <StudioTimeline takes={project.takes} position={playback.position} activeTakeId={selectedTakeId} audio={project.kind === 'podcast'}
+      <StudioTimeline layers={recipe.clips.filter(clip => clip.zIndex > 0)} selectedLayerId={selectedLayerId} onSelectLayer={selectLayer} onMoveLayer={moveLayer} takes={project.takes} position={playback.position} activeTakeId={selectedTakeId} audio={project.kind === 'podcast'}
         cancelEpoch={trimCancelEpoch}
-        locked={locked} busy={busy} onSelect={selectTake} onScrubStart={() => preview.current?.pause()} onSeek={seconds => preview.current?.seek(seconds)} onAppend={() => { void addMedia(); }}
+        locked={locked} busy={busy} onSelect={take => { closeLayer(); selectTake(take); }} onScrubStart={() => preview.current?.pause()} onSeek={seconds => preview.current?.seek(seconds)} onAppend={() => { void addMedia(); }}
         onTrimChange={previewTrim} onTrimCommit={commitTrim} onTrimCancel={cancelTrim} />
+      {captionProgress && <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 6 }}><Text style={{ flex: 1, color: colors.muted, fontSize: 11 }}>{captionProgress}</Text><Pressable accessibilityLabel="Cancelar transcrição" onPress={() => { const request = captionRequest.current; if (request) { request.cancelled = true; setCaptionProgress('Cancelando…'); void cancelStudioTranscriptionAsync(request.id); } }} style={styles.iconButton}><X size={18} color={colors.text} /></Pressable></View>}
+      {!!layerItems.length && <FlatList horizontal data={layerItems} keyExtractor={item => item.id} initialNumToRender={8} maxToRenderPerBatch={8} windowSize={3} style={{ flexGrow: 0, maxHeight: 32 }} showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 16, paddingVertical: 4 }} renderItem={({ item }) => <Pressable accessibilityLabel={`Selecionar camada ${item.text?.content || item.kind}`} onPress={() => selectLayer(item.id)} style={{ width: 130, marginRight: 6, paddingHorizontal: 9, paddingVertical: 6, backgroundColor: selectedLayerId === item.id ? '#343E49' : '#181E25', borderRadius: 5 }}><Text numberOfLines={1} style={{ color: colors.textSecondary, fontSize: 10 }}>{item.text?.content || (item.kind === 'audio' ? 'Áudio' : item.kind === 'image' ? 'Imagem' : 'Vídeo')}</Text></Pressable>} />}
+      {layerItem ? <StudioLayerPanel key={layerItem.id} editing={editing} item={layerItem} disabled={busy || locked} onPreview={setEditingPreview} onApply={applyInlineDraft} onRemove={() => { void editEditing(value => removeStudioLayerItem(value, layerItem.id)).then(saved => { if (saved) closeLayer(); }).catch(() => {}); }} onClose={closeLayer} /> : treating && activeTake ? <StudioTreatmentPanel key={activeTake.id} editing={editing} targetId={activeTake.id} disabled={busy || locked} onPreview={setEditingPreview} onBefore={setBefore} onApply={applyInlineDraft} onClose={closeLayer} /> : null}
       <View style={styles.selectionRow}><Text numberOfLines={1} style={styles.selectionLabel}>{selectedTakeId && activeTake ? `${activeTake.name || `Take ${activeIndex + 1}`} · ${formatStudioEditorTime(activeTake.end - activeTake.start)}` : `${project.takes.length} ${project.takes.length === 1 ? 'take' : 'takes'} · arraste para navegar`}</Text>
         <Text style={styles.editHint}>{selectedTakeId ? 'Arraste as bordas para cortar' : 'Toque em um take para editar'}</Text>
       </View>
       {orientationError ? <Text style={styles.warning}>{orientationError}</Text> : project.kind === 'short' && duration > 180 ? <Text style={styles.warning}>Ajuste a montagem para até 3 minutos.</Text> : locked ? <Text style={styles.locked}>{project.state === 'submitted' ? 'Enviado para curadoria' : 'Montagem em preparação · acompanhe na publicação'}</Text> : null}
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.toolbar}>
+      {!layerItem && !treating && <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.toolbar}>
         {selectedTakeId && activeTake ? <>
           <EditorTool label="Concluir" icon={<Check size={22} color={colors.text} strokeWidth={1.5} />} disabled={busy || !!trimDraft} onPress={() => { setSelectedTakeId(undefined); setOrganizing(false); }} />
           {organizing ? <>
@@ -331,6 +490,7 @@ function ProjectEditor({ project, update }: { project: StudioProject; update: (i
             <EditorTool label="Dividir" icon={<Split size={22} color={colors.text} strokeWidth={1.5} />} disabled={!canSplit || busy || !!trimDraft} onPress={() => { void split(); }} />
             <EditorTool label="Duplicar" icon={<Copy size={22} color={colors.text} strokeWidth={1.5} />} disabled={busy || locked || !!trimDraft} onPress={() => { void duplicate(); }} />
           </>}
+          <EditorTool label="Imagem" icon={<SlidersHorizontal size={22} color={colors.text} />} disabled={!advanced || busy || locked || !!trimDraft} onPress={() => { void openTreatment(); }} />
           <EditorTool label="Excluir" icon={<Trash2 size={22} color={colors.text} strokeWidth={1.5} />} disabled={busy || locked || !!trimDraft} onPress={deleteTake} />
           <EditorTool label={organizing ? 'Ferramentas' : 'Organizar'} icon={<Film size={22} color={colors.text} strokeWidth={1.5} />} disabled={busy || !!trimDraft} onPress={() => setOrganizing(value => !value)} />
         </> : <>
@@ -338,9 +498,14 @@ function ProjectEditor({ project, update }: { project: StudioProject; update: (i
           <EditorTool label="Importar" icon={<Upload size={22} color={colors.text} strokeWidth={1.5} />} disabled={locked || busy} onPress={() => { void addMedia(); }} />
           <EditorTool label="Editar take" icon={<Scissors size={22} color={colors.text} strokeWidth={1.5} />} disabled={locked || busy || !activeTake} onPress={() => { if (activeTake) selectTake(activeTake); }} />
           <EditorTool label="Organizar" icon={<Film size={22} color={colors.text} strokeWidth={1.5} />} disabled={busy || !activeTake} onPress={() => { if (activeTake) { selectTake(activeTake); setOrganizing(true); } }} />
+          <EditorTool label="Texto" icon={<Type size={22} color={colors.text} />} disabled={!advanced || busy || locked || !project.takes.length} onPress={() => { void addLayer('text'); }} />
+          <EditorTool label="Camada" icon={<Layers size={22} color={colors.text} />} disabled={!advanced || busy || locked || !project.takes.length} onPress={() => Alert.alert('Adicionar camada', undefined, [{ text: 'Imagem', onPress: () => { void addLayer('image'); } }, { text: 'Vídeo sobreposto', onPress: () => { void addLayer('video'); } }, { text: 'Cancelar', style: 'cancel' }])} />
+          <EditorTool label="Áudio" icon={<Music size={22} color={colors.text} />} disabled={!advanced || busy || locked || !project.takes.length} onPress={() => { void addLayer('audio'); }} />
+          <EditorTool label="Legendas" icon={<Captions size={22} color={colors.text} />} disabled={!advanced || busy || locked || !project.takes.length} onPress={() => Alert.alert('Legendas', 'Transcrição local em português. A primeira utilização pode baixar o modelo do iOS. Revise as legendas antes de publicar.', [{ text: 'Gerar no aparelho', onPress: () => { void generateCaptions(); } }, { text: 'Legenda manual', onPress: () => { void addLayer('caption'); } }, { text: 'Importar SRT/VTT', onPress: () => { void captionFile(); } }, { text: 'Cancelar', style: 'cancel' }])} />
+          <EditorTool label="Imagem" icon={<SlidersHorizontal size={22} color={colors.text} />} disabled={!advanced || busy || locked || !activeTake} onPress={() => { void openTreatment(); }} />
           <EditorTool label="Roteiro" icon={<FileText size={22} color={colors.text} strokeWidth={1.5} />} disabled={busy} onPress={() => openPanel('preparation')} />
         </>}
-      </ScrollView>
+      </ScrollView>}
     </View> : <View pointerEvents="box-none" style={[styles.fullscreenTools, { top: Math.max(insets.top, 12), right: Math.max(insets.right, 12) }]}>
       <Pressable accessibilityRole="button" accessibilityLabel={playback.playing ? 'Pausar montagem' : 'Reproduzir montagem'} onPress={() => preview.current?.togglePlayback()} style={styles.overlayButton}>{playback.playing ? <Pause size={20} color={colors.text} /> : <Play size={20} color={colors.text} />}</Pressable>
       <Pressable accessibilityRole="button" accessibilityLabel="Voltar às ferramentas do editor" onPress={() => { preview.current?.pause(); setFullscreen(false); }} style={styles.overlayButton}><Minimize2 size={20} color={colors.text} strokeWidth={1.5} /></Pressable>

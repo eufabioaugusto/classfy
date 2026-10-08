@@ -1,7 +1,7 @@
 import { useEffect, useSyncExternalStore } from 'react';
 import { useAuth } from '@/features/auth/authContext';
 import type { StudioKind, StudioProject } from './model';
-import { createStudioProject, getStudioProject, loadStudioProjects, removeStudioProject, studioSnapshot, subscribeStudio, updateStudioProject, type CreateStudioProjectOptions } from './store';
+import { createStudioProject, getStudioProject, loadStudioProjects, recoverStudioProjects, removeStudioProject, studioSnapshot, subscribeStudio, updateStudioProject, type CreateStudioProjectOptions } from './store';
 const signedOut = { projects: [] as StudioProject[], loading: false, error: null };
 export function useStudioProjects() {
   const { user } = useAuth();
@@ -13,6 +13,7 @@ export function useStudioProjects() {
     create: (kind: StudioKind, options?: CreateStudioProjectOptions) => createStudioProject(requireOwner(), kind, options),
     update: (id: string, patch: Partial<StudioProject>) => updateStudioProject(requireOwner(), id, patch),
     remove: (id: string) => removeStudioProject(requireOwner(), id),
+    recover: () => recoverStudioProjects(requireOwner()),
   };
 }
 export function useStudioProject(id: string) {

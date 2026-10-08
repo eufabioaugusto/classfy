@@ -5,7 +5,7 @@ import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, { measure, runOnJS, runOnUI, scrollTo, useAnimatedProps, useAnimatedReaction, useAnimatedRef, useAnimatedScrollHandler, useAnimatedStyle, useDerivedValue, useFrameCallback, useSharedValue, type SharedValue } from 'react-native-reanimated';
 import { Film, Mic, Minus, Plus } from 'lucide-react-native';
 import { colors } from '@/theme/colors';
-import { formatStudioDuration, formatStudioEditorTime, type StudioTake } from './model';
+import { formatStudioDuration, formatStudioEditorTime, type StudioTake, type StudioRecipeClip } from './model';
 import { canContinueStudioTrim, clampStudioTimelineScale, defaultStudioTimelineScale, freezeStudioTrim, maximumStudioTimelineScale, minimumStudioTimelineScale, studioTimelineLayout, studioTimelineSeconds, studioTimelineTicks, studioTrimRange, type StudioTimelineTrim, type StudioTrimGesture } from './timelineLayout';
 import { studioLiveSegment, studioTimelineAutoScrollVelocity, studioTrimAutoscrollStep, studioTrimDragValues } from './timelineMotion';
 import { useStudioFilmstrip } from './useStudioFilmstrip';
@@ -26,7 +26,8 @@ const rulerHeight = 26;
 const tileWidth = 48;
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 
-export function StudioTimeline({ takes, position, activeTakeId, audio = false, onSeek, onSelect, compact = false, locked = false, busy = false, cancelEpoch = 0, onAppend, onScrubStart, onTrimChange, onTrimCommit, onTrimCancel, pixelsPerSecond = defaultStudioTimelineScale }: {
+export function StudioTimeline({ layers = [], selectedLayerId, onSelectLayer, onMoveLayer, takes, position, activeTakeId, audio = false, onSeek, onSelect, compact = false, locked = false, busy = false, cancelEpoch = 0, onAppend, onScrubStart, onTrimChange, onTrimCommit, onTrimCancel, pixelsPerSecond = defaultStudioTimelineScale }: {
+  layers?: readonly StudioRecipeClip[]; selectedLayerId?: string; onSelectLayer?: (id: string) => void; onMoveLayer?: (id: string, delta: number) => Promise<void>;
   takes: readonly StudioTake[]; position: number; activeTakeId?: string; audio?: boolean; compact?: boolean; showClips?: boolean;
   locked?: boolean; busy?: boolean; cancelEpoch?: number; pixelsPerSecond?: number; onAppend?: () => void; onScrubStart?: () => void;
   onSeek: (seconds: number) => void; onSelect: (take: StudioTake) => void;
@@ -40,11 +41,17 @@ export function StudioTimeline({ takes, position, activeTakeId, audio = false, o
   const [committing, setCommitting] = useState(false);
   const [pinching, setPinching] = useState(false);
   const layout = useMemo(() => {
-    try { return { ...studioTimelineLayout(takes, scale), error: false }; }
-    catch { return { segments: [], duration: 0, width: 0, error: true }; }
-  }, [takes, scale]);
+    try { const main = studioTimelineLayout(takes, scale); return { ...main, mainDuration: main.duration, duration: Math.max(main.duration, ...layers.map(item => (item.startTicks + item.durationTicks) / 120000)), error: false }; }
+    catch { return { segments: [], mainDuration: 0, duration: 0, width: 0, error: true }; }
+  }, [takes, scale, layers]);
   const selected = layout.segments.find(segment => segment.take.id === activeTakeId);
   const trackHeight = compact ? 54 : 64;
+  const laneIndices = Array.from(new Set(layers.map(item => item.zIndex)));
+  const selectedLane = layers.find(item => item.id === selectedLayerId)?.zIndex;
+  const laneStart = selectedLane ? Math.max(0, laneIndices.indexOf(selectedLane) - 1) : 0;
+  const visibleLanes = laneIndices.slice(laneStart, laneStart + 3);
+  const layerHeight = visibleLanes.length * 28;
+  const visibleLayers = layers.filter(item => visibleLanes.includes(item.zIndex) && item.startTicks / 120000 <= (offset / scale + viewport / scale / 2 + 2) && (item.startTicks + item.durationTicks) / 120000 >= (offset / scale - viewport / scale / 2 - 2));
   const strip = useAnimatedRef<Animated.ScrollView>();
   const host = useAnimatedRef<Animated.View>();
   const mounted = useRef(true);
@@ -58,7 +65,9 @@ export function StudioTimeline({ takes, position, activeTakeId, audio = false, o
     leading: useSharedValue(0), translation: useSharedValue(0), initialOffset: useSharedValue(0), finger: useSharedValue(0),
     edge: useSharedValue(0), virtual: useSharedValue(0), epoch: useSharedValue(0),
   };
-  const baseDuration = useSharedValue(layout.duration);
+  const baseDuration = useSharedValue(layout.mainDuration);
+  const layerDuration = useSharedValue(Math.max(0, ...layers.map(item => (item.startTicks + item.durationTicks) / 120000)));
+  useEffect(() => { layerDuration.value = Math.max(0, ...layers.map(item => (item.startTicks + item.durationTicks) / 120000)); }, [layers]);
   const playerPosition = useSharedValue(position);
   const blocked = useSharedValue(!!busy);
   const lastVisible = useSharedValue(0);
@@ -66,16 +75,16 @@ export function StudioTimeline({ takes, position, activeTakeId, audio = false, o
   const lastPreview = useSharedValue(0);
   const pinchScale = useSharedValue(scale);
   const pinchAnchor = useSharedValue(0);
-  const total = useDerivedValue(() => Math.max(0, baseDuration.value + (m.trimIndex.value < 0 ? 0 : m.end.value - m.start.value - (m.originalEnd.value - m.originalStart.value))));
+  const total = useDerivedValue(() => Math.max(layerDuration.value, baseDuration.value + (m.trimIndex.value < 0 ? 0 : m.end.value - m.start.value - (m.originalEnd.value - m.originalStart.value))));
 
   useEffect(() => { m.scale.value = clampStudioTimelineScale(pixelsPerSecond); setScale(clampStudioTimelineScale(pixelsPerSecond)); }, [pixelsPerSecond]);
   useEffect(() => { playerPosition.value = Number.isFinite(position) ? position : 0; }, [position]);
   useEffect(() => { blocked.value = !!busy; }, [busy]);
   useEffect(() => {
-    baseDuration.value = layout.duration;
+    baseDuration.value = layout.mainDuration;
     // The saved geometry already contains this cut. Never apply its delta twice.
     if (!gesture.current) { m.trimIndex.value = -1; m.leading.value = 0; m.virtual.value = 0; }
-  }, [takes, layout.duration]);
+  }, [takes, layout.mainDuration]);
   const cancelTrim = useCallback(() => {
     gesture.current = null;
     m.trimIndex.value = -1; m.leading.value = 0; m.virtual.value = 0; m.phase.value = 0;
@@ -234,12 +243,13 @@ export function StudioTimeline({ takes, position, activeTakeId, audio = false, o
     <Text style={styles.emptyText}>{layout.error ? 'Revise os limites dos takes' : 'Grave ou importe seu primeiro take'}</Text>
     {onAppend ? <AppendButton disabled={locked || busy} onPress={onAppend} /> : null}
   </View>;
-  return <GestureDetector gesture={pinch}><Animated.View ref={host} onLayout={event => { const width = Math.max(1, event.nativeEvent.layout.width); m.viewport.value = width; setViewport(width); }} style={[styles.timeline, { height: rulerHeight + trackHeight + 50 }]}>
+  return <GestureDetector gesture={pinch}><Animated.View ref={host} onLayout={event => { const width = Math.max(1, event.nativeEvent.layout.width); m.viewport.value = width; setViewport(width); }} style={[styles.timeline, { height: rulerHeight + trackHeight + layerHeight + 50 }]}>
     <GestureDetector gesture={nativeGesture}><Animated.ScrollView ref={strip} horizontal showsHorizontalScrollIndicator={false} bounces={false} scrollEventThrottle={16} decelerationRate="normal" animatedProps={scrollProps} onScroll={scrollHandler} keyboardShouldPersistTaps="handled">
-      <Animated.View style={[{ height: rulerHeight + trackHeight + 6 }, canvasStyle]}>
+      <Animated.View style={[{ height: rulerHeight + trackHeight + layerHeight + 6 }, canvasStyle]}>
         {ticks.map(tick => <TimelineTick key={tick.seconds} tick={tick} motion={m} />)}
         {layout.segments.map(segment => <TimelineClip key={segment.take.id} segment={segment} motion={m} selected={segment.take.id === activeTakeId} audio={audio} height={trackHeight} draft={draft} draftIndex={draft ? selected?.index ?? -1 : -1} draftOriginal={selected?.take} visibleStart={visibleStart} visibleEnd={visibleEnd} scale={scale}
           disabled={!!(busy || dragging || committing || pinching)} onSelect={() => { live.current.onSelect(segment.take); }} />)}
+        {visibleLayers.map(item => <TimelineLayer key={item.id} item={item} motion={m} selected={item.id === selectedLayerId} top={rulerHeight + trackHeight + 5 + visibleLanes.indexOf(item.zIndex) * 28} disabled={!!(busy || dragging || committing || pinching)} onSelect={() => onSelectLayer?.(item.id)} onMove={onMoveLayer ? delta => onMoveLayer(item.id, delta) : undefined} nativeGesture={nativeGesture} />)}
         {selected && !locked && onTrimCommit ? (['start', 'end'] as const).map(edge => <TrimHandle key={edge} edge={edge} take={selected.take} index={selected.index} startSeconds={selected.start} endSeconds={selected.end} motion={m} host={host} nativeGesture={nativeGesture} disabled={trimDisabled} height={trackHeight} onBegin={beginTrim} onCommit={commitTrim} onCancel={cancelTrim} onAccessibleChange={accessibleTrim} />) : null}
         {onAppend ? <Animated.View style={[{ position: 'absolute', top: rulerHeight + (trackHeight - 44) / 2 }, appendStyle]}><AppendButton disabled={locked || busy || committing || dragging || pinching} onPress={onAppend} /></Animated.View> : null}
       </Animated.View>
@@ -248,8 +258,8 @@ export function StudioTimeline({ takes, position, activeTakeId, audio = false, o
       accessibilityValue={{ min: 0, max: layout.duration, now: Math.max(0, Math.min(layout.duration, position)), text: formatStudioEditorTime(position) }}
       accessibilityActions={[{ name: 'increment', label: 'Avançar um segundo' }, { name: 'decrement', label: 'Voltar um segundo' }]}
       onAccessibilityAction={event => { if (!busy && !dragging && !committing && !pinching) { onScrubStart?.(); onSeek(Math.max(0, Math.min(layout.duration, position + (event.nativeEvent.actionName === 'increment' ? 1 : -1)))); } }}
-      style={{ position: 'absolute', width: 44, left: viewport / 2 - 22, top: 18, height: trackHeight + 14, zIndex: 4 }}>
-      <View style={[styles.playhead, { left: 21, height: trackHeight + 14 }]}><View style={styles.playheadCap} /></View>
+      style={{ position: 'absolute', width: 44, left: viewport / 2 - 22, top: 18, height: trackHeight + layerHeight + 14, zIndex: 4 }}>
+      <View style={[styles.playhead, { left: 21, height: trackHeight + layerHeight + 14 }]}><View style={styles.playheadCap} /></View>
     </View>
     <View style={styles.caption}>
       <Text numberOfLines={1} style={styles.rangeLabel}>{selected ? `Take ${selected.index + 1} · ${formatStudioEditorTime(draft?.start ?? selected.take.start)} — ${formatStudioEditorTime(draft?.end ?? selected.take.end)}` : `${takes.length} ${takes.length === 1 ? 'take' : 'takes'}`}</Text>
@@ -261,6 +271,20 @@ export function StudioTimeline({ takes, position, activeTakeId, audio = false, o
       </View>
     </View>
   </Animated.View></GestureDetector>;
+}
+
+function TimelineLayer({ item, motion: m, selected, top, disabled, onSelect, onMove, nativeGesture }: { item: StudioRecipeClip; motion: Motion; selected: boolean; top: number; disabled: boolean; onSelect: () => void; onMove?: (delta: number) => Promise<void>; nativeGesture: ReturnType<typeof Gesture.Native> }) {
+  const translation = useSharedValue(0);
+  const geometry = useAnimatedStyle(() => ({ left: m.viewport.value / 2 + item.startTicks / 120000 * m.scale.value + translation.value, width: Math.max(8, item.durationTicks / 120000 * m.scale.value) }));
+  const commit = async (delta: number) => { try { await onMove?.(delta); } finally { translation.value = 0; m.phase.value = 0; } };
+  const pan = useMemo(() => Gesture.Pan().enabled(selected && !disabled && !!onMove).activateAfterLongPress(160).maxPointers(1).blocksExternalGesture(nativeGesture)
+    .onStart(() => { m.phase.value = 7; translation.value = 0; })
+    .onUpdate(event => { if (m.phase.value === 7) translation.value = Math.max(-item.startTicks / 120000 * m.scale.value, event.translationX); })
+    .onEnd(() => { m.phase.value = 5; runOnJS(commit)(translation.value / m.scale.value); })
+    .onFinalize((_, success) => { if (!success && m.phase.value === 7) { translation.value = 0; m.phase.value = 0; } }), [item.id, item.startTicks, selected, disabled, nativeGesture, onMove]);
+  const title = item.kind === 'text' || item.kind === 'caption' ? item.text?.content : item.kind === 'video' ? 'Vídeo' : item.kind === 'image' ? 'Imagem' : 'Áudio';
+  const tint = item.kind === 'audio' ? '#173C36' : item.kind === 'caption' ? '#45382A' : '#283548';
+  return <GestureDetector gesture={pan}><AnimatedPressable disabled={disabled} onPress={onSelect} accessibilityRole="button" accessibilityLabel={`Editar camada ${title}`} accessibilityState={{ selected }} style={[{ position: 'absolute', top, height: 24, borderRadius: 4, backgroundColor: tint, borderWidth: 1, borderColor: selected ? colors.accent : 'rgba(255,255,255,0.1)', paddingHorizontal: 7, justifyContent: 'center', overflow: 'hidden' }, geometry]}><Text numberOfLines={1} style={{ color: colors.text, fontSize: 9 }}>{title}</Text></AnimatedPressable></GestureDetector>;
 }
 
 function TimelineTick({ tick, motion: m }: { tick: { seconds: number; major: boolean }; motion: Motion }) {

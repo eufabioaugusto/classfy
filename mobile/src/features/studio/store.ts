@@ -2,7 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { randomUUID } from 'expo-crypto';
 import { documentDirectory } from 'expo-file-system/legacy';
 import type { StudioKind, StudioProject } from './model';
-import { rebaseStudioProject, timelineSignature } from './model';
+import { emptyStudioEditing, migrateStudioProject, rebaseStudioProject, reconcileStudioTakes, timelineSignature, validateStudioEditing, validateStudioPendingTakes, withStudioTakes } from './model';
 
 type Snapshot = { projects: StudioProject[]; loading: boolean; error: string | null };
 const owners = new Map<string, Snapshot>();
@@ -14,7 +14,9 @@ const queues = new Map<string, Promise<unknown>>();
 const transient = new Map<string, Map<string, StudioProject>>();
 const mediaWrites = new Map<string, number>();
 const mediaKey = (owner: string, id: string) => JSON.stringify([owner, id]);
-const key = (owner: string) => `classfy:studio:v1:${owner}`;
+const key = (owner: string) => `classfy:studio:v2:${owner}`;
+const legacyKey = (owner: string) => `classfy:studio:v1:${owner}`;
+const backupKey = (owner: string) => `classfy:studio:v1:backup:${owner}`;
 const empty: Snapshot = { projects: [], loading: true, error: null };
 export function studioSnapshot(owner: string) { return owners.get(owner) || empty; }
 export function subscribeStudio(listener: () => void) { listeners.add(listener); return () => { listeners.delete(listener); }; }
@@ -42,13 +44,16 @@ export async function loadStudioProjects(owner: string) {
   const task = (async () => {
     try {
       const raw = await AsyncStorage.getItem(key(owner));
-      const records: unknown = raw ? JSON.parse(raw) : [];
-      if (!Array.isArray(records) || records.some(p => !p || p.version !== 1 || p.ownerId !== owner || !Array.isArray(p.takes) || !['aula', 'short', 'podcast'].includes(p.kind))) {
-        throw new Error('Os rascunhos deste aparelho precisam de recuperação. Os arquivos originais foram preservados.');
+      let projects: StudioProject[];
+      if (raw !== null) projects = readProjects(raw, owner, 2);
+      else {
+        const legacy = await AsyncStorage.getItem(legacyKey(owner));
+        if (legacy !== null) projects = await migrateIndex(owner, legacy);
+        else projects = [];
       }
       // Transfers cannot survive a killed JS process. Never infer completion.
-      const projects = (records as StudioProject[]).map(p => rebaseStudioProject(p, documentDirectory)).map(p => ['uploading', 'preparing'].includes(p.state)
-        ? { ...p, state: 'error' as const, error: 'O envio foi interrompido. Retome quando estiver pronto.' }
+      projects = projects.map(p => rebaseStudioProject(p, documentDirectory)).map(p => ['uploading', 'preparing'].includes(p.state)
+        ? withStudioTakes({ ...p, editing: p.editing!, state: 'error' as const, error: 'O envio foi interrompido. Retome quando estiver pronto.' })
         : p);
       publish(owner, { projects, loading: false, error: null });
     } catch (e) {
@@ -58,6 +63,45 @@ export async function loadStudioProjects(owner: string) {
   loading.set(owner, task);
   await task;
   loading.delete(owner);
+}
+function readProjects(raw: string, owner: string, version: 1 | 2): StudioProject[] {
+  const records: unknown = JSON.parse(raw);
+  if (!Array.isArray(records) || records.some(project => !project || project.version !== version || project.ownerId !== owner
+    || !project.id || !['aula', 'short', 'podcast'].includes(project.kind)
+    || (version === 1 ? !Array.isArray(project.takes) : !project.editing || !Array.isArray(project.editing.assets) || !Array.isArray(project.editing.main) || !Array.isArray(project.editing.layers)))) {
+    throw new Error('Os rascunhos deste aparelho precisam de recuperação. Os arquivos originais foram preservados.');
+  }
+  return records.map(record => {
+    const project = migrateStudioProject(rebaseStudioProject(record, documentDirectory));
+    const issues = [...validateStudioEditing(project.editing!, project.kind), ...validateStudioPendingTakes(project.pendingTakes)];
+    // Unsupported native capabilities (e.g. a raw cinematic original) do not
+    // erase a recoverable index. They are shown when preparing the publication.
+    const structural = issues.filter(issue => !issue.includes('cinematográfico'));
+    if (structural.length) throw new Error('Os rascunhos deste aparelho precisam de recuperação. Os arquivos originais foram preservados.');
+    return project;
+  });
+}
+async function migrateIndex(owner: string, legacy: string): Promise<StudioProject[]> {
+  const projects = readProjects(legacy, owner, 1);
+  // Preserve exact v1 bytes before writing v2. Never overwrite a previous backup.
+  if (await AsyncStorage.getItem(backupKey(owner)) === null) await AsyncStorage.setItem(backupKey(owner), legacy);
+  const encoded = JSON.stringify(projects);
+  await AsyncStorage.setItem(key(owner), encoded);
+  const readback = await AsyncStorage.getItem(key(owner));
+  if (readback !== encoded) throw new Error('Não foi possível confirmar a recuperação dos rascunhos. Os originais e o índice anterior foram preservados.');
+  return readProjects(readback, owner, 2);
+}
+/** Explicit recovery only; retain the damaged v2 bytes before restoring v1. */
+export function recoverStudioProjects(owner: string): Promise<void> {
+  return serialized(owner, async () => {
+    const legacy = await AsyncStorage.getItem(backupKey(owner)) ?? await AsyncStorage.getItem(legacyKey(owner));
+    if (!legacy) throw new Error('Não há um índice anterior para recuperar. Seus arquivos originais continuam no aparelho.');
+    readProjects(legacy, owner, 1);
+    const damaged = await AsyncStorage.getItem(key(owner));
+    if (damaged !== null) await AsyncStorage.setItem(`classfy:studio:v2:recovery:${owner}:${Date.now()}`, damaged);
+    const projects = await migrateIndex(owner, legacy);
+    publish(owner, { projects, loading: false, error: null });
+  });
 }
 function serialized<T>(owner: string, work: () => Promise<T>): Promise<T> {
   const next = (queues.get(owner) || Promise.resolve()).catch(() => undefined).then(work);
@@ -74,11 +118,11 @@ export function createStudioProject(owner: string, kind: StudioKind, options: Cr
     await loadStudioProjects(owner);
     if (studioSnapshot(owner).error) throw new Error(studioSnapshot(owner).error!);
     const now = new Date().toISOString();
-    const project: StudioProject = {
-      version: 1, id: randomUUID(), ownerId: owner, kind, title: '', description: '',
+    const project = withStudioTakes({
+      version: 2, id: randomUUID(), ownerId: owner, kind, title: '', description: '',
       objective: '', audience: '', script: '', tags: [], visibility: 'free', price: '',
-      takes: [], state: 'draft', progress: 0, revision: 1, createdAt: now, updatedAt: now,
-    };
+      editing: emptyStudioEditing(kind), state: 'draft' as const, progress: 0, revision: 1, createdAt: now, updatedAt: now,
+    });
     if (options.transient) {
       const sessions = transient.get(owner) || new Map<string, StudioProject>();
       sessions.set(project.id, project); transient.set(owner, sessions);
@@ -98,8 +142,17 @@ export function mutateStudioProject(owner: string, id: string, change: (project:
     if (!existing) throw new Error('Este projeto não pertence à sessão atual.');
     if (existing.state === 'submitted') throw new Error('Este projeto já foi enviado para curadoria.');
     const patch = change(existing);
-    const updated = { ...existing, ...patch, id, ownerId: owner, version: 1 as const,
-      revision: existing.revision + 1, updatedAt: new Date().toISOString() };
+    if (patch.takes && patch.editing) throw new Error('Atualize a montagem por um único contrato de edição.');
+    const editing = patch.editing ?? (patch.takes ? reconcileStudioTakes(existing, patch.takes) : existing.editing!);
+    for (const asset of existing.editing!.assets) {
+      const retained = editing.assets.find(candidate => candidate.id === asset.id);
+      if (!retained || JSON.stringify(retained) !== JSON.stringify(asset)) throw new Error('A montagem deve preservar os arquivos originais dos takes.');
+    }
+    const issues = [...validateStudioEditing(editing, existing.kind), ...validateStudioPendingTakes(patch.pendingTakes ?? existing.pendingTakes)];
+    const structural = issues.filter(issue => !issue.includes('cinematográfico'));
+    if (structural.length) throw new Error(structural[0]);
+    const updated = withStudioTakes({ ...existing, ...patch, editing, id, ownerId: owner, version: 2 as const,
+      revision: existing.revision + 1, updatedAt: new Date().toISOString() });
     if (timelineSignature(existing) !== timelineSignature(updated)) {
       if (['preparing', 'uploading', 'processing'].includes(existing.state)) throw new Error('Aguarde ou interrompa o envio antes de editar os takes.');
       updated.state = 'draft'; updated.progress = 0; updated.error = undefined;
@@ -108,9 +161,17 @@ export function mutateStudioProject(owner: string, id: string, change: (project:
       updated.uploadUrl = undefined; updated.uploadMethod = undefined; updated.uploadHeaders = undefined; updated.tusUrl = undefined;
     }
     if (patch.coverUri !== undefined && patch.coverUri !== existing.coverUri) updated.coverUrl = undefined;
-    if (patch.takes) updated.pendingTakes = updated.pendingTakes?.filter(pending => !updated.takes.some(take => take.id === pending.id || take.uri === pending.uri));
+    if (patch.takes || patch.editing) {
+      const used = new Set([...editing.main.map(clip => clip.assetId), ...editing.layers.flatMap(layer => layer.items.map(item => item.assetId))]);
+      updated.pendingTakes = updated.pendingTakes?.filter(pending => {
+        if (pending.layerItem) return !editing.layers.some(layer => (!pending.layerId || layer.id === pending.layerId)
+          && layer.items.some(item => item.id === pending.layerItem!.id && item.assetId === pending.id)
+          && editing.assets.some(asset => asset.id === pending.id && asset.uri === pending.uri));
+        return !editing.assets.some(asset => used.has(asset.id) && (asset.id === pending.id || asset.uri === pending.uri));
+      });
+    }
     if (isTransientStudioProject(owner, id)) {
-      if (!updated.takes.length && !updated.pendingTakes?.length) {
+      if (!hasStudioMedia(updated) && !updated.pendingTakes?.length) {
         transient.get(owner)!.set(id, updated);
         publish(owner, { ...studioSnapshot(owner) });
       } else {
@@ -143,10 +204,13 @@ export function removeStudioProject(owner: string, id: string): Promise<void> {
 export function discardTransientStudioProject(owner: string, id: string): Promise<boolean> {
   return serialized(owner, async () => {
     const project = transient.get(owner)?.get(id);
-    if (!project || project.takes.length || project.pendingTakes?.length || mediaWrites.get(mediaKey(owner, id))) return false;
+    if (!project || hasStudioMedia(project) || project.pendingTakes?.length || mediaWrites.get(mediaKey(owner, id))) return false;
     transient.get(owner)?.delete(id);
     publish(owner, { ...studioSnapshot(owner) });
     return true;
   });
+}
+function hasStudioMedia(project: StudioProject) {
+  return project.takes.length > 0 || project.editing?.layers.some(layer => layer.items.some(item => !!item.assetId));
 }
 export const discardTransient = discardTransientStudioProject;

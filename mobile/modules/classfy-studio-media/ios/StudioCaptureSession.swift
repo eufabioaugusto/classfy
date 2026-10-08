@@ -1,0 +1,599 @@
+import AVFoundation
+import CoreMedia
+import Foundation
+
+struct StudioCaptureConfiguration {
+  var position = "front"
+  var quality = "1080p"
+  var fps = 30
+  var orientation = "portrait"
+  var mirrored = false
+  var cinematic = false
+}
+
+enum StudioCaptureError: LocalizedError {
+  case unavailable(String), invalid(String), busy, permission(String)
+  var errorDescription: String? {
+    switch self {
+    case .unavailable(let message), .invalid(let message), .permission(let message): return message
+    case .busy: return "Finalize o take antes de alterar a câmera ou a qualidade."
+    }
+  }
+}
+
+/// Sole owner of a Studio capture session. UIKit/Metal belong to its view;
+/// hardware configuration and recording delegates are serialized here.
+// Hardware and recording state are queue-confined; the frame mailbox and its
+// callback are protected separately because AVCapture delivers on videoQueue.
+final class StudioCaptureSession: NSObject, @unchecked Sendable, AVCaptureFileOutputRecordingDelegate,
+  AVCaptureVideoDataOutputSampleBufferDelegate, AVCaptureMetadataOutputObjectsDelegate {
+  typealias Completion = (Result<[String: Any], Error>) -> Void
+  let session = AVCaptureSession()
+  let queue = DispatchQueue(label: "br.com.classfy.studio.capture")
+  private let videoQueue = DispatchQueue(label: "br.com.classfy.studio.capture.preview", qos: .userInteractive)
+  private let movie = AVCaptureMovieFileOutput()
+  private let frames = AVCaptureVideoDataOutput()
+  private let metadata = AVCaptureMetadataOutput()
+  private let controls = StudioCameraControls()
+  private var configuration = StudioCaptureConfiguration()
+  private var videoInput: AVCaptureDeviceInput?
+  private var active = false
+  private var disposed = false
+  private var configured = false
+  private var generation = 0
+  private var revision = 0
+  private var previewProcessed = false
+  private var processedPreviewAvailable = true
+  private var operation: StudioCaptureOperation?
+  private var recordingRetention: StudioCaptureSession?
+  private var observers: [NSObjectProtocol] = []
+  private var pressureObservation: NSKeyValueObservation?
+  private var frameGeneration = 0
+  private var frameIsCinematic = false
+  private var frameEnabled = false
+  private let frameLock = NSLock()
+  private var cinematicFocusLocked = false
+  /// Enabling capture alone would lose bokeh in the existing export pipeline.
+  /// Keep this closed until the Cinematic compositor has passed end-to-end QA.
+  static let cinematicPipelineReady = false
+
+  var onEvent: ((String, [String: Any]) -> Void)?
+  private var frameCallback: ((CVPixelBuffer, Int, Bool) -> Void)?
+  var onFrame: ((CVPixelBuffer, Int, Bool) -> Void)? {
+    get { frameLock.lock(); defer { frameLock.unlock() }; return frameCallback }
+    set { frameLock.lock(); frameCallback = newValue; frameLock.unlock() }
+  }
+  var onConfiguration: ((StudioCaptureConfiguration, Bool, Int) -> Void)?
+
+  override init() {
+    super.init()
+    observeSession()
+  }
+
+  deinit {
+    observers.forEach { NotificationCenter.default.removeObserver($0) }
+    pressureObservation?.invalidate()
+  }
+
+  private func emit(_ name: String, _ payload: [String: Any] = [:]) {
+    var value = payload
+    value["generation"] = generation; value["revision"] = revision
+    if let operation { value["operationId"] = operation.id }
+    onEvent?(name, value)
+  }
+
+  private func requirePermissions() throws {
+    guard AVCaptureDevice.authorizationStatus(for: .video) == .authorized else {
+      throw StudioCaptureError.permission("Autorize a câmera nos Ajustes para gravar no Studio.")
+    }
+    guard AVCaptureDevice.authorizationStatus(for: .audio) == .authorized else {
+      throw StudioCaptureError.permission("Autorize o microfone nos Ajustes para gravar seu take com áudio.")
+    }
+  }
+
+  func setActive(_ value: Bool) {
+    queue.async {
+      guard !self.disposed else { return }
+      if value == self.active, self.configured, self.session.isRunning, value { return }
+      self.active = value
+      if value {
+        do {
+          try self.requirePermissions()
+          if !self.configured { try self.applyConfiguration(self.configuration) }
+          if !self.session.isRunning { self.session.startRunning() }
+          self.frameLock.lock(); self.frameGeneration = self.generation; self.frameEnabled = self.previewProcessed; self.frameLock.unlock()
+          self.emit("onReady", try self.snapshot())
+        } catch { self.emit("onError", ["code": "E_STUDIO_CAPTURE", "message": error.localizedDescription]) }
+      } else {
+        self.invalidateFrames()
+        if let operation = self.operation {
+          self.stopOwned(operation)
+        } else if self.session.isRunning { self.session.stopRunning() }
+        self.emitState()
+      }
+    }
+  }
+
+  func dispose() {
+    queue.async {
+      guard !self.disposed else { return }
+      self.disposed = true; self.active = false
+      self.invalidateFrames()
+      if let operation = self.operation { self.stopOwned(operation) }
+      else { self.finishDisposal() }
+    }
+  }
+
+  private func finishDisposal() {
+    if session.isRunning { session.stopRunning() }
+    frames.setSampleBufferDelegate(nil, queue: nil)
+    metadata.setMetadataObjectsDelegate(nil, queue: nil)
+    pressureObservation?.invalidate(); pressureObservation = nil
+    observers.forEach { NotificationCenter.default.removeObserver($0) }; observers.removeAll()
+    onFrame = nil; onConfiguration = nil; onEvent = nil
+  }
+
+  private func invalidateFrames() {
+    frameLock.lock(); frameEnabled = false; frameLock.unlock()
+  }
+
+  func setProcessedPreviewAvailable(_ available: Bool) {
+    queue.async {
+      self.processedPreviewAvailable = available
+      if !available {
+        self.previewProcessed = false; self.invalidateFrames()
+        self.frames.setSampleBufferDelegate(nil, queue: nil)
+        self.emitState()
+      }
+    }
+  }
+
+  func capabilities(completion: @escaping Completion) {
+    queue.async {
+      do { completion(.success(try self.snapshot())) }
+      catch { completion(.failure(error)) }
+    }
+  }
+
+  func configure(_ request: StudioCaptureConfiguration, completion: @escaping Completion) {
+    queue.async {
+      do {
+        guard self.active, !self.disposed else { throw StudioCaptureError.unavailable("Abra a câmera para escolher a qualidade.") }
+        guard self.operation == nil else { throw StudioCaptureError.busy }
+        try self.requirePermissions()
+        try self.applyConfiguration(request)
+        if !self.session.isRunning { self.session.startRunning() }
+        let state = try self.snapshot()
+        self.emit("onState", state)
+        completion(.success(state))
+      } catch { completion(.failure(error)) }
+    }
+  }
+
+  private func captureOrientation(_ value: String) throws -> AVCaptureVideoOrientation {
+    switch value {
+    case "portrait": return .portrait
+    case "landscapeLeft": return .landscapeLeft
+    case "landscape", "landscapeRight": return .landscapeRight
+    default: throw StudioCaptureError.invalid("Escolha a orientação vertical ou horizontal do take.")
+    }
+  }
+
+  private func dimensions(_ quality: String) throws -> (Int32, Int32) {
+    switch quality {
+    case "720p": return (1280, 720)
+    case "1080p": return (1920, 1080)
+    case "2160p": return (3840, 2160)
+    default: throw StudioCaptureError.invalid("Escolha uma resolução disponível nesta câmera.")
+    }
+  }
+
+  private func chooseDevice(_ request: StudioCaptureConfiguration) throws -> AVCaptureDevice {
+    let position: AVCaptureDevice.Position
+    switch request.position {
+    case "front": position = .front
+    case "back": position = .back
+    default: throw StudioCaptureError.invalid("Escolha a câmera frontal ou traseira.")
+    }
+    let type: AVCaptureDevice.DeviceType = request.cinematic
+      ? (position == .front ? .builtInTrueDepthCamera : .builtInDualWideCamera)
+      : .builtInWideAngleCamera
+    guard let device = AVCaptureDevice.default(type, for: .video, position: position) else {
+      throw StudioCaptureError.unavailable("Esta câmera não está disponível no aparelho. No simulador, importe um vídeo.")
+    }
+    return device
+  }
+
+  private func availableFormats(_ device: AVCaptureDevice, _ request: StudioCaptureConfiguration,
+                                processedPreview: Bool) throws -> [AVCaptureDevice.Format] {
+    let (width, height) = try dimensions(request.quality)
+    return device.formats.filter { format in
+      let size = CMVideoFormatDescriptionGetDimensions(format.formatDescription)
+      guard size.width == width, size.height == height,
+        format.videoSupportedFrameRateRanges.contains(where: {
+          Double(request.fps) >= $0.minFrameRate && Double(request.fps) <= $0.maxFrameRate
+        }) else { return false }
+      let outputs: [AVCaptureOutput] = processedPreview ? [movie, frames] : [movie]
+      guard !outputs.contains(where: { output in
+        format.unsupportedCaptureOutputClasses.contains(where: { output.isKind(of: $0) })
+      }) else { return false }
+      if request.cinematic {
+        if #available(iOS 26.0, *) { return format.isCinematicVideoCaptureSupported }
+        return false
+      }
+      return true
+    }
+  }
+
+  private func applyConfiguration(_ request: StudioCaptureConfiguration) throws {
+    guard [24, 30, 60].contains(request.fps) else {
+      throw StudioCaptureError.invalid("Escolha um FPS disponível nesta câmera.")
+    }
+    let orientation = try captureOrientation(request.orientation)
+    if request.cinematic && !Self.cinematicPipelineReady {
+      throw StudioCaptureError.unavailable("Edição e exportação Cinema ainda não estão disponíveis. Use os ajustes de imagem do Studio.")
+    }
+    let device = try chooseDevice(request)
+    var formats = processedPreviewAvailable ? try availableFormats(device, request, processedPreview: true) : []
+    var useProcessed = processedPreviewAvailable && !formats.isEmpty
+    if formats.isEmpty { formats = try availableFormats(device, request, processedPreview: false) }
+    guard !formats.isEmpty else {
+      throw StudioCaptureError.unavailable("Esta câmera não suporta \(request.quality) a \(request.fps) FPS. Escolha outra combinação.")
+    }
+    let format = formats.first(where: {
+      CMFormatDescriptionGetMediaSubType($0.formatDescription) == kCVPixelFormatType_420YpCbCr8BiPlanarFullRange
+    }) ?? formats[0]
+    let input = try AVCaptureDeviceInput(device: device)
+    guard let microphone = AVCaptureDevice.default(for: .audio) else {
+      throw StudioCaptureError.unavailable("O microfone não está disponível para gravar o take.")
+    }
+    let audio = try AVCaptureDeviceInput(device: microphone)
+    let previousInputs = session.inputs
+    let previousOutputs = session.outputs
+    let previousFormat = device.activeFormat
+    let previousMin = device.activeVideoMinFrameDuration
+    let previousMax = device.activeVideoMaxFrameDuration
+    let previousPreset = session.sessionPreset
+    session.beginConfiguration()
+    do {
+      previousOutputs.forEach { session.removeOutput($0) }
+      previousInputs.forEach { session.removeInput($0) }
+      guard session.canAddInput(input), session.canAddInput(audio) else {
+        throw StudioCaptureError.unavailable("Não foi possível preparar a câmera e o microfone.")
+      }
+      session.addInput(input); session.addInput(audio)
+      guard session.canSetSessionPreset(.inputPriority) else {
+        throw StudioCaptureError.unavailable("A configuração de câmera não está disponível neste aparelho.")
+      }
+      session.sessionPreset = .inputPriority
+      try device.lockForConfiguration()
+      device.activeFormat = format
+      device.activeVideoMinFrameDuration = CMTime(value: 1, timescale: CMTimeScale(request.fps))
+      device.activeVideoMaxFrameDuration = device.activeVideoMinFrameDuration
+      if device.isFocusModeSupported(.continuousAutoFocus) { device.focusMode = .continuousAutoFocus }
+      if device.isExposureModeSupported(.continuousAutoExposure) { device.exposureMode = .continuousAutoExposure }
+      let minimum = max(1, device.minAvailableVideoZoomFactor)
+      device.cancelVideoZoomRamp()
+      device.videoZoomFactor = min(device.maxAvailableVideoZoomFactor, max(minimum, device.videoZoomFactor))
+      device.unlockForConfiguration()
+      if #available(iOS 26.0, *), request.cinematic {
+        guard input.isCinematicVideoCaptureSupported else { throw StudioCaptureError.unavailable("Cinema não é compatível com este formato.") }
+        input.isCinematicVideoCaptureEnabled = true
+      }
+      guard session.canAddOutput(movie) else { throw StudioCaptureError.unavailable("Não foi possível preparar a gravação do vídeo.") }
+      session.addOutput(movie)
+      frames.alwaysDiscardsLateVideoFrames = true
+      // This output feeds the screen, never the original MovieFileOutput.
+      // Preview-sized buffers avoid shading a full 4K frame just to display it
+      // on a phone, while capture keeps its negotiated resolution and cadence.
+      frames.automaticallyConfiguresOutputBufferDimensions = false
+      frames.deliversPreviewSizedOutputBuffers = true
+      frames.videoSettings = [kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_420YpCbCr8BiPlanarFullRange]
+      if useProcessed && session.canAddOutput(frames) {
+        session.addOutput(frames)
+        frames.setSampleBufferDelegate(self, queue: videoQueue)
+      } else { useProcessed = false; frames.setSampleBufferDelegate(nil, queue: nil) }
+      if #available(iOS 26.0, *), request.cinematic {
+        guard session.canAddOutput(metadata) else { throw StudioCaptureError.unavailable("Não foi possível preparar os metadados Cinema.") }
+        session.addOutput(metadata)
+        metadata.metadataObjectTypes = metadata.requiredMetadataObjectTypesForCinematicVideoCapture
+        metadata.setMetadataObjectsDelegate(self, queue: queue)
+      }
+      for connection in [movie.connection(with: .video), frames.connection(with: .video)] {
+        guard let connection else { continue }
+        if connection.isVideoOrientationSupported { connection.videoOrientation = orientation }
+        if connection.isVideoMirroringSupported {
+          connection.automaticallyAdjustsVideoMirroring = false; connection.isVideoMirrored = request.mirrored
+        }
+      }
+      if let connection = movie.connection(with: .video), connection.isVideoStabilizationSupported {
+        connection.preferredVideoStabilizationMode = .standard
+      }
+      session.commitConfiguration()
+      videoInput = input; configuration = request; configured = true
+      previewProcessed = useProcessed; cinematicFocusLocked = false
+      generation += 1; revision += 1
+      frameLock.lock(); frameGeneration = generation; frameIsCinematic = request.cinematic; frameEnabled = active && useProcessed; frameLock.unlock()
+      pressureObservation?.invalidate()
+      pressureObservation = device.observe(\.systemPressureState, options: [.new]) { [weak self] _, _ in
+        self?.queue.async { [weak self] in self?.reportPressure() }
+      }
+      onConfiguration?(request, useProcessed, generation)
+    } catch {
+      session.outputs.forEach { session.removeOutput($0) }
+      session.inputs.forEach { session.removeInput($0) }
+      previousInputs.forEach { if session.canAddInput($0) { session.addInput($0) } }
+      if session.canSetSessionPreset(previousPreset) { session.sessionPreset = previousPreset }
+      if (try? device.lockForConfiguration()) != nil {
+        device.activeFormat = previousFormat
+        device.activeVideoMinFrameDuration = previousMin; device.activeVideoMaxFrameDuration = previousMax
+        device.unlockForConfiguration()
+      }
+      previousOutputs.forEach { if session.canAddOutput($0) { session.addOutput($0) } }
+      session.commitConfiguration()
+      throw error
+    }
+  }
+
+  private func cinematicCaptureSupported() -> Bool {
+    guard #available(iOS 26.0, *) else { return false }
+    let position: AVCaptureDevice.Position = configuration.position == "front" ? .front : .back
+    let type: AVCaptureDevice.DeviceType = position == .front ? .builtInTrueDepthCamera : .builtInDualWideCamera
+    guard let device = AVCaptureDevice.default(type, for: .video, position: position) else { return false }
+    return device.formats.contains { $0.isCinematicVideoCaptureSupported }
+  }
+
+  private func snapshot() throws -> [String: Any] {
+    var state = try controls.snapshot(session)
+    state["generation"] = generation; state["revision"] = revision
+    state["phase"] = operation?.phase.rawValue ?? (active && session.isRunning ? "idle" : "inactive")
+    state["operationId"] = operation?.id as Any? ?? NSNull()
+    state["isRecording"] = movie.isRecording || operation != nil
+    state["previewProcessed"] = previewProcessed
+    state["orientation"] = configuration.orientation; state["mirrored"] = configuration.mirrored
+    state["cinematic"] = configuration.cinematic
+    let captureSupported = cinematicCaptureSupported()
+    state["supportsCinematicCapture"] = captureSupported
+    state["supportsCinematic"] = captureSupported && Self.cinematicPipelineReady
+    if !captureSupported { state["cinematicUnavailableReason"] = "Cinema não é compatível com esta câmera e versão do iOS." }
+    else if !Self.cinematicPipelineReady { state["cinematicUnavailableReason"] = "Edição e exportação Cinema ainda não estão disponíveis." }
+    else { state["cinematicUnavailableReason"] = NSNull() }
+    state["supportsSimulatedAperture"] = false
+    if #available(iOS 26.0, *), configuration.cinematic, let input = videoInput {
+      state["focusLocked"] = cinematicFocusLocked
+      state["simulatedAperture"] = input.simulatedAperture
+      state["minSimulatedAperture"] = input.device.activeFormat.minSimulatedAperture
+      state["maxSimulatedAperture"] = input.device.activeFormat.maxSimulatedAperture
+      state["supportsSimulatedAperture"] = input.device.activeFormat.maxSimulatedAperture > input.device.activeFormat.minSimulatedAperture
+    }
+    return state
+  }
+
+  private func emitState() { if let state = try? snapshot() { emit("onState", state) } }
+
+  func startRecording(_ operationId: String, completion: @escaping Completion) {
+    queue.async {
+      do {
+        guard self.active, !self.disposed, self.session.isRunning, !self.session.isInterrupted else {
+          throw StudioCaptureError.unavailable("A câmera foi interrompida. Abra o Studio novamente para gravar.")
+        }
+        guard self.operation == nil else { throw StudioCaptureError.busy }
+        guard !operationId.isEmpty, operationId.count <= 128 else { throw StudioCaptureError.invalid("A identificação do take é inválida.") }
+        try self.requirePermissions()
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("classfy-studio-capture", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let file = directory.appendingPathComponent("\(UUID().uuidString).mov")
+        let operation = StudioCaptureOperation(id: operationId, fileURL: file, generation: self.generation,
+          sourceKind: self.configuration.cinematic ? "cinematic" : "standard", completion: completion)
+        self.operation = operation; self.recordingRetention = self
+        self.emit("onRecordingState", ["phase": "preparing", "operationId": operation.id])
+        self.movie.startRecording(to: file, recordingDelegate: self)
+        let watchdog = DispatchWorkItem { [weak self, weak operation] in
+          guard let self, let operation, self.operation === operation, !operation.settled,
+            operation.phase == .preparing || operation.phase == .stopping else { return }
+          if self.movie.isRecording {
+            if operation.didStart() { self.movie.stopRecording() }
+            self.emit("onRecordingState", ["phase": operation.phase.rawValue, "operationId": operation.id])
+          } else {
+            // Native start failed to acknowledge. Do not free this operation
+            // and allow a second REC to take ownership of a delayed callback.
+            self.stopOwned(operation)
+            self.session.stopRunning()
+            self.emit("onError", ["code": "E_STUDIO_CAPTURE_START", "message": "A câmera demorou para iniciar. Aguarde a recuperação do take e abra o Studio novamente."])
+          }
+        }
+        operation.startupWatchdog = watchdog
+        self.queue.asyncAfter(deadline: .now() + 8, execute: watchdog)
+      } catch { completion(.failure(error)) }
+    }
+  }
+
+  func stopRecording(_ operationId: String, completion: @escaping Completion) {
+    queue.async {
+      do {
+        if let operation = self.operation {
+          guard operation.id == operationId else { throw StudioCaptureError.invalid("Este comando pertence a outro take.") }
+          self.stopOwned(operation)
+        }
+        completion(.success(try self.snapshot()))
+      } catch { completion(.failure(error)) }
+    }
+  }
+
+  private func stopOwned(_ operation: StudioCaptureOperation) {
+    guard self.operation === operation, operation.requestStop() else { return }
+    if movie.isRecording { movie.stopRecording() }
+    emit("onRecordingState", ["phase": operation.phase.rawValue, "operationId": operation.id])
+  }
+
+  func fileOutput(_ output: AVCaptureFileOutput, didStartRecordingTo fileURL: URL,
+                  from connections: [AVCaptureConnection]) {
+    queue.async {
+      guard let operation = self.operation, operation.fileURL == fileURL, !operation.settled else { return }
+      let stop = operation.didStart()
+      self.emit("onRecordingState", ["phase": operation.phase.rawValue, "operationId": operation.id])
+      if stop || !self.active || self.disposed { self.stopOwned(operation) }
+    }
+  }
+
+  func fileOutput(_ output: AVCaptureFileOutput, didFinishRecordingTo fileURL: URL,
+                  from connections: [AVCaptureConnection], error: Error?) {
+    queue.async {
+      guard let operation = self.operation, operation.fileURL == fileURL, !operation.settled else { return }
+      let size = (try? FileManager.default.attributesOfItem(atPath: fileURL.path)[.size] as? NSNumber)?.int64Value ?? 0
+      guard size > 0 else { self.settle(operation, .failure(error ?? StudioCaptureError.unavailable("O take não contém um arquivo de vídeo válido."))); return }
+      // Even an unsuccessful capture delegate can leave a usable partial MOV
+      // after interruption. Inspect the original before rejecting: a valid
+      // file must reach the JS journal, including after the view unmounted.
+      Task {
+        do {
+          let asset = AVURLAsset(url: fileURL)
+          let duration = try await asset.load(.duration)
+          guard duration.isNumeric, duration.seconds > 0, let track = try await asset.loadTracks(withMediaType: .video).first else {
+            throw StudioCaptureError.unavailable("O take não contém vídeo reproduzível.")
+          }
+          let dimensions = try await track.load(.naturalSize)
+          let transform = try await track.load(.preferredTransform)
+          let rate = try await track.load(.nominalFrameRate)
+          let descriptions = try await track.load(.formatDescriptions)
+          let extensions = descriptions.first.flatMap { CMFormatDescriptionGetExtensions($0) as NSDictionary? }
+          let display = CGRect(origin: .zero, size: dimensions).applying(transform)
+          let result: [String: Any] = ["uri": fileURL.absoluteString, "operationId": operation.id,
+            "sourceKind": operation.sourceKind, "duration": duration.seconds,
+            "width": Int(abs(display.width).rounded()), "height": Int(abs(display.height).rounded()),
+            "frameRate": Double(rate), "fileSize": size, "generation": operation.generation,
+            "sourceStage": operation.sourceKind == "cinematic" ? "cinematicRaw" : "standard",
+            "colorPrimaries": extensions?[kCMFormatDescriptionExtension_ColorPrimaries] as? String ?? "unknown",
+            "transferFunction": extensions?[kCMFormatDescriptionExtension_TransferFunction] as? String ?? "unknown",
+            "yCbCrMatrix": extensions?[kCMFormatDescriptionExtension_YCbCrMatrix] as? String ?? "unknown"]
+          self.queue.async { self.settle(operation, .success(result)) }
+        } catch { self.queue.async { self.settle(operation, .failure(error)) } }
+      }
+    }
+  }
+
+  private func settle(_ operation: StudioCaptureOperation, _ result: Result<[String: Any], Error>) {
+    guard self.operation === operation, !operation.settled else { return }
+    self.operation = nil
+    var payload: [String: Any] = ["phase": "finished", "operationId": operation.id]
+    if case .success(let value) = result { payload["result"] = value }
+    if case .failure(let error) = result { payload["error"] = error.localizedDescription; payload["recoveryUri"] = operation.fileURL.absoluteString }
+    emit("onRecordingState", payload)
+    operation.finish(result)
+    recordingRetention = nil
+    if disposed { finishDisposal() }
+    else {
+      if !active && session.isRunning { session.stopRunning() }
+      emitState()
+    }
+  }
+
+  private func validationForGeneration() -> StudioCameraControls.ViewValidation {
+    let expected = generation
+    return { completion in completion(self.generation == expected && self.active && !self.disposed && self.session.isRunning && !self.session.isInterrupted) }
+  }
+
+  func zoom(_ factor: Double, completion: @escaping Completion) {
+    queue.async {
+      do { try self.controls.zoom(self.session, queue: self.queue, factor: factor, validate: self.validationForGeneration()) {
+        self.confirmControl($0, completion: completion)
+      } } catch { completion(.failure(error)) }
+    }
+  }
+
+  func exposure(_ bias: Double, completion: @escaping Completion) {
+    queue.async {
+      do { try self.controls.exposure(self.session, queue: self.queue, bias: bias, validate: self.validationForGeneration()) {
+        self.confirmControl($0, completion: completion)
+      } } catch { completion(.failure(error)) }
+    }
+  }
+
+  func focus(_ point: CGPoint, locked: Bool, completion: @escaping Completion) {
+    queue.async {
+      do {
+        guard point.x.isFinite, point.y.isFinite, (0...1).contains(point.x), (0...1).contains(point.y) else {
+          throw StudioCaptureError.invalid("Toque dentro da imagem para escolher o foco.")
+        }
+        if #available(iOS 26.0, *), self.configuration.cinematic, let input = self.videoInput {
+          input.device.setCinematicVideoTrackingFocus(at: point, focusMode: locked ? .strong : .weak)
+          self.cinematicFocusLocked = locked
+          self.confirmControl(.success(try self.snapshot()), completion: completion)
+        } else {
+          try self.controls.focus(self.session, queue: self.queue, point: point, locked: locked, validate: self.validationForGeneration()) {
+            self.confirmControl($0, completion: completion)
+          }
+        }
+      } catch { completion(.failure(error)) }
+    }
+  }
+
+  func torch(_ enabled: Bool, completion: @escaping Completion) {
+    queue.async {
+      do {
+        let device = try self.controls.device(in: self.session)
+        guard device.hasTorch, device.isTorchAvailable, device.isTorchModeSupported(enabled ? .on : .off) else {
+          throw StudioCaptureError.unavailable("A iluminação da câmera não está disponível neste aparelho.")
+        }
+        try device.lockForConfiguration()
+        device.torchMode = enabled ? .on : .off
+        device.unlockForConfiguration()
+        self.confirmControl(.success(try self.snapshot()), completion: completion)
+      } catch { completion(.failure(error)) }
+    }
+  }
+
+  private func confirmControl(_ result: Result<[String: Any], Error>, completion: @escaping Completion) {
+    switch result {
+    case .failure(let error): completion(.failure(error))
+    case .success:
+      do {
+        revision += 1
+        let state = try snapshot(); emit("onState", state); completion(.success(state))
+      } catch { completion(.failure(error)) }
+    }
+  }
+
+  func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer,
+                     from connection: AVCaptureConnection) {
+    guard let buffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
+    frameLock.lock()
+    let token = frameGeneration; let cinematic = frameIsCinematic
+    let callback = frameEnabled ? frameCallback : nil
+    frameLock.unlock()
+    callback?(buffer, token, cinematic)
+  }
+
+  func metadataOutput(_ output: AVCaptureMetadataOutput, didOutput metadataObjects: [AVMetadataObject],
+                      from connection: AVCaptureConnection) {
+    // Keeping the required metadata output active supplies Cinematic tracking.
+    // This first delivery does not expose decorative rectangles or fake depth.
+  }
+
+  private func reportPressure() {
+    guard let device = videoInput?.device else { return }
+    let level = device.systemPressureState.level
+    guard level == .serious || level == .critical || level == .shutdown else { return }
+    emit("onInterruption", ["reason": "systemPressure", "message": "O aparelho está aquecendo. A câmera pode reduzir o desempenho.", "pressure": level.rawValue])
+  }
+
+  private func observeSession() {
+    let center = NotificationCenter.default
+    observers.append(center.addObserver(forName: .AVCaptureSessionWasInterrupted, object: session, queue: nil) { [weak self] notice in
+      let reason = (notice.userInfo?[AVCaptureSessionInterruptionReasonKey] as? NSNumber)?.intValue ?? 0
+      self?.queue.async { [weak self] in
+        guard let self else { return }
+        if let operation = self.operation { self.stopOwned(operation) }
+        self.emit("onInterruption", ["reason": reason, "message": "A gravação foi interrompida. Estamos finalizando o take para recuperação."])
+      }
+    })
+    observers.append(center.addObserver(forName: .AVCaptureSessionRuntimeError, object: session, queue: nil) { [weak self] notice in
+      let error = notice.userInfo?[AVCaptureSessionErrorKey] as? Error
+      self?.queue.async { [weak self] in
+        guard let self else { return }
+        if let operation = self.operation { self.stopOwned(operation) }
+        self.emit("onError", ["code": "E_STUDIO_CAPTURE_RUNTIME", "message": error?.localizedDescription ?? "A câmera foi interrompida."])
+      }
+    })
+  }
+}

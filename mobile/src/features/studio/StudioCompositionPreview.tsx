@@ -1,0 +1,79 @@
+import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
+import { findNodeHandle, StyleSheet, Text, View } from 'react-native';
+import { requireNativeViewManager } from 'expo-modules-core';
+import { isStudioCompositionAvailable, previewStudioCompositionSourceAsync, seekStudioCompositionAsync, type StudioNativePlayback } from '../../../modules/classfy-studio-media';
+import { compileStudioRecipe, timelineSignature, type StudioProject } from './model';
+import { StudioPreview, type StudioPlaybackState, type StudioPreviewHandle } from './StudioPreview';
+
+type Props = {
+  project: StudioProject; activeTakeId?: string; paused?: boolean; before?: boolean;
+  onActiveTakeChange?: (id: string) => void; onPlaybackState?: (state: StudioPlaybackState) => void;
+  onCanvasPress?: () => void; canvasLabel?: string;
+};
+type NativeProps = { ref?: React.Ref<unknown>; recipeJSON: string; revision: string; paused: boolean; style: object;
+  onPlaybackState: (event: { nativeEvent: StudioNativePlayback }) => void;
+  onError: (event: { nativeEvent: { message: string; code?: string; revision: string; token: number } }) => void;
+};
+const NativeCanvas = isStudioCompositionAvailable() ? requireNativeViewManager<NativeProps>('ClassfyStudioMedia', 'StudioCompositionView') : null;
+
+export const StudioCompositionPreview = forwardRef<StudioPreviewHandle, Props>(function StudioCompositionPreview(props, ref) {
+  const editing = props.project.editing;
+  const enhanced = !!editing && (editing.layers.some(layer => layer.items.length) || editing.main.some(clip => clip.grade || clip.effect && clip.effect !== 'natural' || clip.gain !== undefined && clip.gain !== 1) || editing.canvas.backgroundColor !== '#000000' || editing.canvas.aspectRatio !== (props.project.kind === 'short' ? 'portrait' : 'landscape'));
+  if (enhanced && (!NativeCanvas || editing?.output.profile !== 'standard' || props.project.kind === 'podcast')) return <UnavailablePreview ref={ref} />;
+  if (!NativeCanvas || editing?.output.profile !== 'standard' || props.project.kind === 'podcast') return <StudioPreview ref={ref} takes={props.project.takes} kind={props.project.kind} activeTakeId={props.activeTakeId} paused={props.paused} onActiveTakeChange={props.onActiveTakeChange} onPlaybackState={props.onPlaybackState} onCanvasPress={props.onCanvasPress} canvasLabel={props.canvasLabel} />;
+  return <NativePreview {...props} ref={ref} />;
+});
+const UnavailablePreview = forwardRef<StudioPreviewHandle>(function UnavailablePreview(_, ref) {
+  useImperativeHandle(ref, () => ({ pause() {}, togglePlayback() {}, seek() {}, previewSourceFrame() {} }), []);
+  return <View style={[styles.canvas, { justifyContent: 'center', padding: 20 }]}><Text style={styles.text}>Esta montagem usa camadas e tratamentos. Atualize o Classfy Dev para visualizar e exportar a edição completa.</Text></View>;
+});
+const NativePreview = forwardRef<StudioPreviewHandle, Props>(function NativePreview(props, ref) {
+  const canvas = useRef(null);
+  const [paused, setPaused] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const errorCode = useRef<string | undefined>(undefined);
+  const live = useRef(props); live.current = props;
+  const token = useRef(0);
+  const transient = useRef(false);
+  const position = useRef(0);
+  const signature = useMemo(() => timelineSignature(props.project), [props.project.editing, props.project.kind, props.project.takes]);
+  const recipe = useMemo(() => {
+    const compiled = compileStudioRecipe(props.project);
+    return JSON.stringify(props.before ? { ...compiled, clips: compiled.clips.map(clip => ({ ...clip, effect: 'natural', grade: { preset: 'natural', intensity: 0, exposure: 0, contrast: 0, saturation: 0, temperature: 0 } })) } : compiled);
+  }, [signature, props.before]);
+  const revision = `${signature}:${props.before ? 'original' : 'graded'}`;
+  const currentRevision = useRef(revision); currentRevision.current = revision;
+  useEffect(() => { errorCode.current = undefined; setError(null); }, [revision]);
+  const accept = (value: StudioNativePlayback) => {
+    if (value.revision !== currentRevision.current || value.token < token.current) return;
+
+    if (transient.current) return;
+    // A successful playback confirms recovery of the shared audio session.
+    // Periodic player events cannot dismiss a compositor/frame failure.
+    if (value.playing && errorCode.current === 'E_STUDIO_AUDIO_SESSION') { errorCode.current = undefined; setError(null); }
+    position.current = value.positionSeconds;
+    if (value.clipId) live.current.onActiveTakeChange?.(value.clipId);
+    if (!value.playing && !value.loading) setPaused(true);
+    live.current.onPlaybackState?.({ position: value.positionSeconds, sourcePosition: value.sourcePositionSeconds, takeId: value.clipId || undefined, playing: value.playing, loading: value.loading });
+  };
+  const tag = () => { const value = findNodeHandle(canvas.current); if (!value) throw new Error('A prévia está preparando o vídeo.'); return value; };
+  useImperativeHandle(ref, () => ({
+    pause() { setPaused(true); },
+    togglePlayback() { transient.current = false; setPaused(value => !value); },
+    seek(seconds) {
+      transient.current = false; setPaused(true); position.current = seconds;
+      const request = ++token.current; const intentRevision = currentRevision.current;
+      void seekStudioCompositionAsync(tag(), seconds, request).then(value => { if (request === token.current && intentRevision === currentRevision.current) { errorCode.current = undefined; setError(null); accept(value); } }).catch(cause => { if (request === token.current && intentRevision === currentRevision.current) { errorCode.current = undefined; setError(cause instanceof Error ? cause.message : 'Não foi possível navegar no vídeo.'); } });
+    },
+    previewSourceFrame(source) {
+      transient.current = true; setPaused(true);
+      const request = ++token.current; const intentRevision = currentRevision.current;
+      void previewStudioCompositionSourceAsync(tag(), source.takeId, source.seconds, position.current, request).then(() => { if (request === token.current && intentRevision === currentRevision.current) { errorCode.current = undefined; setError(null); } }).catch(cause => { if (request === token.current && intentRevision === currentRevision.current) { errorCode.current = undefined; setError(cause instanceof Error ? cause.message : 'Não foi possível visualizar o corte.'); } });
+    },
+  }), []);
+  return <View style={styles.canvas} accessibilityLabel={props.canvasLabel} onTouchEnd={props.onCanvasPress}>
+    {NativeCanvas && <NativeCanvas ref={canvas} style={StyleSheet.absoluteFill} recipeJSON={recipe} revision={revision} paused={paused || !!props.paused} onPlaybackState={event => accept(event.nativeEvent)} onError={event => { if (event.nativeEvent.revision === currentRevision.current && event.nativeEvent.token >= token.current) { errorCode.current = event.nativeEvent.code; setError(event.nativeEvent.message); } }} />}
+    {error && <View style={styles.message}><Text style={styles.text}>{error}</Text></View>}
+  </View>;
+});
+const styles = StyleSheet.create({ canvas: { flex: 1, backgroundColor: '#000' }, message: { ...StyleSheet.absoluteFillObject, justifyContent: 'center', alignItems: 'center', padding: 20, backgroundColor: 'rgba(0,0,0,0.75)' }, text: { color: '#FFF', fontSize: 12, textAlign: 'center' } });

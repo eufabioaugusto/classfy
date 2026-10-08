@@ -16,7 +16,7 @@ import { controls } from '@/theme/controls';
 import { useStudioProjects } from '@/features/studio/useStudioProjects';
 import { discardTransient, getStudioProject } from '@/features/studio/store';
 import { importStudioMedia } from '@/features/studio/media';
-import { formatStudioDuration, studioFormats, studioStateLabel, timelineDuration, type StudioKind, type StudioProject } from '@/features/studio/model';
+import { compileStudioRecipe, formatStudioDuration, studioFormats, studioSeconds, studioStateLabel, type StudioKind, type StudioProject } from '@/features/studio/model';
 import { StudioAccess, studioStyles } from '@/features/studio/StudioUI';
 
 const formatIcons = { aula: Video, short: Film, podcast: Mic };
@@ -40,7 +40,7 @@ export default function StudioScreen() {
   const { user } = useAuth();
   const { canPublish } = usePrimaryAction();
   const isFocused = useIsFocused();
-  const { projects, loading, error, create, remove } = useStudioProjects();
+  const { projects, loading, error, create, remove, recover } = useStudioProjects();
   const [newProject, setNewProject] = useState(false);
   const [format, setFormat] = useState<StudioKind>('aula');
   const [selected, setSelected] = useState<StudioProject | null>(null);
@@ -51,6 +51,8 @@ export default function StudioScreen() {
   const [query, setQuery] = useState('');
   const [launching, setLaunching] = useState(false);
   const [removing, setRemoving] = useState(false);
+  const [recovering, setRecovering] = useState(false);
+  const recoveringRef = useRef(false);
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
   const columns = width >= 700 ? 3 : 2;
@@ -71,12 +73,12 @@ export default function StudioScreen() {
     if (!launchingRef.current) setLaunching(false);
   }, [user?.id]);
   const open = (project: StudioProject) => {
-    if (launchingRef.current || project.ownerId !== context.current.owner) return;
+    if (launchingRef.current || recoveringRef.current || project.ownerId !== context.current.owner) return;
     Keyboard.dismiss(); router.push({ pathname: '/studio/[id]', params: { id: project.id } });
   };
   const launchPending = useCallback(async () => {
     const request = pending.current;
-    if (!request || launchingRef.current) return;
+    if (!request || launchingRef.current || recoveringRef.current) return;
     pending.current = null;
     if (!mounted.current || !context.current.canPublish || context.current.owner !== request.owner) { if (mounted.current) setLaunching(false); return; }
     launchingRef.current = true; setLaunching(true); Keyboard.dismiss();
@@ -114,7 +116,7 @@ export default function StudioScreen() {
   }, [create, router]);
   useEffect(() => { if (!newProject && Platform.OS !== 'ios') void launchPending(); }, [newProject, launchPending]);
   const startProject = (source: CreateRequest['source']) => {
-    if (launchingRef.current || pending.current || !user?.id || !canPublish) return;
+    if (launchingRef.current || recoveringRef.current || pending.current || !user?.id || !canPublish) return;
     pending.current = { kind: format, source, owner: user.id }; setLaunching(true); setNewProject(false);
   };
   const deleteProject = (project: StudioProject) => {
@@ -126,6 +128,19 @@ export default function StudioScreen() {
         setRemoving(true); void remove(project.id).catch(cause => {
           if (mounted.current && context.current.owner === project.ownerId) Alert.alert('Projeto preservado', cause instanceof Error ? cause.message : 'Não foi possível excluir o projeto. Tente novamente.');
         }).finally(() => { if (mounted.current) setRemoving(false); });
+      } },
+    ]);
+  };
+  const recoverDrafts = () => {
+    const owner = context.current.owner;
+    if (!owner || recoveringRef.current || launchingRef.current || !context.current.canPublish) return;
+    Alert.alert('Recuperar rascunhos?', 'Vamos restaurar a lista a partir do último backup disponível neste aparelho. Edições posteriores podem não aparecer nessa lista. Os arquivos originais e uma cópia da lista atual serão preservados.', [
+      { text: 'Cancelar', style: 'cancel' }, { text: 'Recuperar backup', onPress: () => {
+        if (!mounted.current || context.current.owner !== owner || !context.current.canPublish || recoveringRef.current || launchingRef.current) return;
+        recoveringRef.current = true; setRecovering(true);
+        void recover().catch(cause => {
+          if (mounted.current && context.current.owner === owner) Alert.alert('Arquivos preservados', cause instanceof Error ? cause.message : 'Não foi possível recuperar a lista. Seus originais continuam neste aparelho.');
+        }).finally(() => { recoveringRef.current = false; if (mounted.current) setRecovering(false); });
       } },
     ]);
   };
@@ -156,7 +171,7 @@ export default function StudioScreen() {
           <View style={styles.thumbnailPlaceholder}><Icon size={32} strokeWidth={1.2} color={colors.mutedDim} /></View>
           {thumbnail ? <LoadingImage source={{ uri: thumbnail }} contentFit="cover" style={StyleSheet.absoluteFillObject} /> : null}
           <View style={styles.formatBadge}><Icon size={10} color={colors.textSecondary} strokeWidth={1.6} /><Text style={styles.badgeText}>{studioFormats.find(item => item.kind === project.kind)?.title}</Text></View>
-          {!!project.takes.length && <View style={styles.duration}><Text style={styles.badgeText}>{formatStudioDuration(timelineDuration(project.takes))}</Text></View>}
+          {!!project.takes.length && <View style={styles.duration}><Text style={styles.badgeText}>{formatStudioDuration(studioSeconds(compileStudioRecipe(project).durationTicks))}</Text></View>}
         </View>
         <View style={styles.projectCopy}><Text style={styles.projectTitle} numberOfLines={2}>{projectTitle(project)}</Text>
           <View style={styles.projectState}><View style={[styles.dot, { backgroundColor: project.state === 'error' || pendingFiles ? colors.accent : project.state === 'submitted' ? colors.free : colors.mutedDim }]} /><Text style={styles.meta} numberOfLines={1}>{state}</Text></View>
@@ -176,14 +191,18 @@ export default function StudioScreen() {
         ['draft', 'Rascunhos'], ['submitted', 'Enviados'],
       ] as const).map(([key, title]) => <Pressable accessibilityRole="tab" accessibilityLabel={`${title}, ${counts[key]} projetos`} accessibilityState={{ selected: filter === key }} key={key} onPress={() => setFilter(key)} style={({ pressed }) => [styles.filter, filter === key && styles.filterSelected, pressed && { opacity: 0.75 }]}><Text style={[styles.filterLabel, filter === key && { color: colors.text }]}>{title}</Text>{counts[key] > 0 ? <Text style={[styles.filterCount, filter === key && { color: colors.textSecondary }]}>{counts[key]}</Text> : null}</Pressable>)}</View></View>
       <View style={styles.gridCaption}><Text style={styles.caption}>{filtered.length} {filtered.length === 1 ? 'projeto' : 'projetos'}</Text><Text style={styles.caption}>{order === 'recent' ? 'Mais recentes' : 'Mais antigos'}</Text></View>
-      {error ? <View style={styles.error}><Text style={[studioStyles.hint, { color: colors.textSecondary }]}>{error}</Text></View> : null}
+      {error ? <View style={styles.error}><Text style={[studioStyles.hint, { color: colors.textSecondary }]}>{error}</Text>
+        <Pressable accessibilityRole="button" accessibilityLabel="Recuperar rascunhos do backup" accessibilityState={{ disabled: recovering || launching, busy: recovering }} disabled={recovering || launching} onPress={recoverDrafts} style={({ pressed }) => [styles.recoverButton, pressed && { opacity: 0.7 }]}>
+          {recovering ? <ActivityIndicator size="small" color={colors.text} /> : null}<Text style={styles.recoverLabel}>{recovering ? 'Recuperando…' : 'Recuperar rascunhos'}</Text>
+        </Pressable>
+      </View> : null}
       {launching ? <View style={styles.activity}><ActivityIndicator size="small" color={colors.textSecondary} /><Text style={studioStyles.hint}>Preparando seu projeto…</Text></View> : null}
       {loading ? <SkeletonGroup label="Abrindo seus projetos" style={{ flexDirection: 'row', gap: 14, paddingHorizontal: 20, paddingTop: 8 }}>
         {Array.from({ length: columns }, (_, column) => <View key={column} style={{ flex: 1, gap: 14 }}><SkeletonBlock style={{ aspectRatio: 4 / 5, borderRadius: 13 }} /><SkeletonBlock style={{ width: '85%', height: 14 }} /><SkeletonBlock style={{ width: '55%', height: 10 }} /><SkeletonBlock style={{ aspectRatio: 4 / 5, borderRadius: 13, marginTop: 8 }} /></View>)}
       </SkeletonGroup> : filtered.length ? <ScrollView keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag" showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 20, paddingTop: 8, paddingBottom: insets.bottom + 108 }}>
         <View style={styles.grid}>{grid.map((row, index) => <View key={index} style={styles.row}>{row.map(renderProject)}</View>)}</View>
       </ScrollView> : <View style={styles.empty}><View style={styles.emptyIcon}>{query ? <Search size={29} color={colors.mutedDim} strokeWidth={1.35} /> : filter === 'submitted' ? <Check size={29} color={colors.mutedDim} strokeWidth={1.35} /> : <Video size={29} color={colors.mutedDim} strokeWidth={1.35} />}</View><Text style={styles.emptyTitle}>{query ? 'Nenhum projeto encontrado' : filter === 'submitted' ? 'Nenhum projeto enviado' : 'Seu próximo projeto'}</Text><Text style={styles.emptyText}>{query ? 'Tente outro título ou tema.' : filter === 'submitted' ? 'Seus projetos enviados à curadoria aparecem aqui.' : 'Toque no + para gravar ou importar.'}</Text></View>}
-      <Pressable accessibilityRole="button" accessibilityLabel="Novo projeto" accessibilityState={{ disabled: loading || launching, busy: launching }} disabled={loading || launching} onPress={() => { Keyboard.dismiss(); setNewProject(true); }} style={({ pressed }) => [styles.fab, { bottom: Math.max(insets.bottom, 16) + 16, right: 20 }, (loading || launching) && { opacity: 0.55 }, pressed && { backgroundColor: colors.accentPressed }]}>{launching ? <ActivityIndicator color={colors.text} /> : <Plus size={29} color={colors.text} strokeWidth={1.6} />}</Pressable>
+      <Pressable accessibilityRole="button" accessibilityLabel="Novo projeto" accessibilityState={{ disabled: loading || launching || recovering || !!error, busy: launching }} disabled={loading || launching || recovering || !!error} onPress={() => { Keyboard.dismiss(); setNewProject(true); }} style={({ pressed }) => [styles.fab, { bottom: Math.max(insets.bottom, 16) + 16, right: 20 }, (loading || launching || recovering || !!error) && { opacity: 0.55 }, pressed && { backgroundColor: colors.accentPressed }]}>{launching ? <ActivityIndicator color={colors.text} /> : <Plus size={29} color={colors.text} strokeWidth={1.6} />}</Pressable>
     </View>
     <WorkspaceSheet visible={newProject} title="Novo projeto" onClose={() => setNewProject(false)} onDismiss={() => { void launchPending(); }}>
       <View style={{ gap: 22 }}><View style={styles.formats}>{studioFormats.map(item => { const Icon = formatIcons[item.kind]; return <Pressable accessibilityRole="radio" accessibilityLabel={`Formato ${item.title}`} accessibilityState={{ selected: format === item.kind }} key={item.kind} onPress={() => setFormat(item.kind)} style={({ pressed }) => [styles.format, format === item.kind && styles.formatSelected, pressed && { opacity: 0.75 }]}><Icon size={21} color={format === item.kind ? colors.text : colors.muted} strokeWidth={1.55} /><Text style={[styles.formatTitle, format === item.kind && { color: colors.text }]}>{item.title}</Text></Pressable>; })}</View>
@@ -248,6 +267,8 @@ const styles = StyleSheet.create({
   emptyTitle: { color: colors.textSecondary, fontSize: 18, fontWeight: '500', letterSpacing: -0.3, textAlign: 'center' },
   emptyText: { color: colors.muted, fontSize: 13, lineHeight: 19, textAlign: 'center', maxWidth: 250 },
   error: { margin: 20, marginTop: 6, padding: 13, borderRadius: 12, backgroundColor: colors.surface, borderWidth: 1, borderColor: 'rgba(225,29,72,0.25)' },
+  recoverButton: { minHeight: 42, marginTop: 8, borderRadius: controls.buttonRadius, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: colors.surfaceAlt },
+  recoverLabel: { color: colors.text, fontSize: 12, fontWeight: '600' },
   activity: { marginHorizontal: 20, paddingVertical: 12, flexDirection: 'row', alignItems: 'center', gap: 10 },
   formats: { flexDirection: 'row', gap: 8 },
   format: { flex: 1, minHeight: 76, justifyContent: 'center', alignItems: 'center', gap: 8, borderRadius: controls.buttonRadius, backgroundColor: colors.backgroundElevated, borderWidth: 1, borderColor: colors.border },

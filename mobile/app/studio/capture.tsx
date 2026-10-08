@@ -1,6 +1,7 @@
 import { Audio } from 'expo-av';
 import { CameraView, useCameraPermissions, useMicrophonePermissions, type CameraType } from 'expo-camera';
 import * as Device from 'expo-device';
+import * as ScreenOrientation from 'expo-screen-orientation';
 import { LinearGradient } from 'expo-linear-gradient';
 import { StatusBar } from 'expo-status-bar';
 import { useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
@@ -21,11 +22,14 @@ import { studioNormalizedZoom, studioZoomFactor, useStudioCaptureCamera } from '
 import { StudioCaptureFrame, StudioCaptureZoom } from '@/features/studio/StudioCaptureZoom';
 import { StudioCaptureScriptPanel } from '@/features/studio/StudioCaptureScriptPanel';
 import { createStudioVideoStopOperation } from '@/features/studio/StudioCaptureRecording';
+import { StudioNativeCamera, StudioNativeRecordingError, isStudioNativeCameraHandle, type StudioCaptureCameraHandle, type StudioNativeCameraHandle } from '@/features/studio/StudioNativeCamera';
+import { isStudioNativeCameraAvailable, type StudioNativeRecording } from '../../modules/classfy-studio-media';
 import { colors } from '@/theme/colors';
 import { controls } from '@/theme/controls';
 
 type Phase = 'idle' | 'countdown' | 'recording' | 'saving';
-type RecoverableTake = { project: StudioProject; uri: string; duration: number };
+type CaptureMetadata = Pick<Parameters<typeof persistStudioTake>[1], 'sourceKind' | 'sourceStage' | 'frameRate' | 'colorSpace'>;
+type RecoverableTake = { project: StudioProject; uri: string; duration: number; metadata?: CaptureMetadata };
 type CapturePanel = 'timer' | 'script' | 'quality';
 
 export default function StudioCaptureScreen() {
@@ -63,7 +67,7 @@ export default function StudioCaptureScreen() {
   const [notice, setNotice] = useState<string | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
   const [recovery, setRecovery] = useState<RecoverableTake | null>(null);
-  const camera = useRef<CameraView>(null);
+  const camera = useRef<StudioCaptureCameraHandle>(null);
   const audio = useRef<Audio.Recording | null>(null);
   const videoOperation = useRef<ReturnType<typeof createStudioVideoStopOperation> | null>(null);
   const scriptScroll = useRef<ScrollView>(null);
@@ -95,7 +99,8 @@ export default function StudioCaptureScreen() {
   const screenMatches = isAudio || (project?.kind === 'aula' ? landscape : !landscape);
   const cameraMounted = !isAudio && Device.isDevice && permitted && !busyProject && permissionGranted
     && focused && foreground && orientationReady && screenMatches;
-  const cameraControls = useStudioCaptureCamera(camera, facing, cameraMounted);
+  const nativeCamera = Platform.OS === 'ios' && isStudioNativeCameraAvailable();
+  const cameraControls = useStudioCaptureCamera(camera, facing, cameraMounted, { native: nativeCamera, orientation: project?.kind === 'aula' ? 'landscape' : 'portrait' });
   const captureReadiness = useRef({ sensorMatches, screenMatches, ready, orientationReady });
   captureReadiness.current = { sensorMatches, screenMatches, ready, orientationReady };
 
@@ -118,6 +123,16 @@ export default function StudioCaptureScreen() {
     const state = cameraControls.state;
     if (state) setZoom(studioNormalizedZoom(state.zoom, state));
   }, [cameraControls.state?.zoom, cameraControls.state?.minZoom, cameraControls.state?.maxZoom]);
+  useEffect(() => {
+    if (nativeCamera && cameraControls.state) setTorch(cameraControls.state.torchEnabled);
+  }, [nativeCamera, cameraControls.state?.torchEnabled]);
+  useEffect(() => {
+    if (!nativeCamera || !cameraMounted) return;
+    const listener = ScreenOrientation.addOrientationChangeListener(() => {
+      if (phaseRef.current === 'idle' && cameraControls.isReady()) void cameraControls.prepareRecording();
+    });
+    return () => ScreenOrientation.removeOrientationChangeListener(listener);
+  }, [nativeCamera, cameraMounted, facing]);
   function changeZoom(value: number) {
     if (phaseRef.current === 'saving' || cameraControls.isBusy()) return;
     setZoom(value);
@@ -134,14 +149,14 @@ export default function StudioCaptureScreen() {
       throw new Error('Sua sessão mudou. Abra o Studio na conta que iniciou esta gravação.');
     }
   }
-  async function saveTake(target: StudioProject, uri: string, duration: number) {
+  async function saveTake(target: StudioProject, uri: string, duration: number, metadata?: CaptureMetadata) {
     transition('saving');
-    const recoverable = { project: target, uri, duration };
+    const recoverable = { project: target, uri, duration, metadata };
     try {
       assertSession(target);
       const latest = getStudioProject(target.ownerId, target.id);
       if (!latest) throw new Error('Não foi possível encontrar o projeto desta gravação.');
-      const take = await persistStudioTake(latest, { uri, name: `Take ${latest.takes.length + 1}`, duration });
+      const take = await persistStudioTake(latest, { uri, name: `Take ${latest.takes.length + 1}`, duration, ...metadata });
       assertSession(target);
       const current = getStudioProject(target.ownerId, target.id);
       if (!current) throw new Error('O projeto desta gravação não está disponível.');
@@ -222,7 +237,7 @@ export default function StudioCaptureScreen() {
           { text: 'Ficar aqui', style: 'cancel' },
           { text: 'Salvar e sair', onPress: () => {
             pendingNavigation.current = data.action;
-            void saveTake(recovery.project, recovery.uri, recovery.duration);
+            void saveTake(recovery.project, recovery.uri, recovery.duration, recovery.metadata);
           } },
           { text: 'Sair sem salvar', style: 'destructive', onPress: () => {
             pendingNavigation.current = data.action;
@@ -345,6 +360,9 @@ export default function StudioCaptureScreen() {
       if (!isAudio && (!positioned.ready || !cameraControls.isReady())) {
         throw new Error('A câmera foi interrompida. Aguarde a imagem ficar pronta e grave novamente.');
       }
+      if (!isAudio && !await cameraControls.prepareRecording()) throw new Error('A câmera não confirmou o enquadramento. Aguarde a imagem e tente novamente.');
+      if (token !== countdownToken.current || !mounted.current || AppState.currentState !== 'active') return;
+      assertSession(project);
       setCountdown(0);
       scriptOffset.current = 0;
       scriptScroll.current?.scrollTo({ y: 0, animated: false });
@@ -399,10 +417,20 @@ export default function StudioCaptureScreen() {
             if (videoOperation.current === operation) videoOperation.current = null;
           });
         if (!result?.uri) throw new Error('A câmera não entregou um arquivo. Grave um novo take.');
-        await saveTake(project, result.uri, (Date.now() - startedAt.current) / 1000);
+        const captured = isStudioNativeCameraHandle(ownedCamera) ? result as StudioNativeRecording : undefined;
+        const metadata: CaptureMetadata | undefined = captured ? {
+          sourceKind: captured.sourceKind, sourceStage: captured.sourceStage, frameRate: captured.frameRate,
+          colorSpace: captured.colorPrimaries === 'ITU_R_709_2' && captured.transferFunction === 'ITU_R_709_2' ? 'rec709'
+            : captured.colorPrimaries && captured.colorPrimaries !== 'unknown' ? captured.colorPrimaries : undefined,
+        } : undefined;
+        await saveTake(project, result.uri, captured?.duration || (Date.now() - startedAt.current) / 1000, metadata);
       }
     } catch (cause) {
       pendingNavigation.current = null;
+      if (!isAudio && cause instanceof StudioNativeRecordingError && cause.recoveryUri) {
+        await saveTake(project, cause.recoveryUri, (Date.now() - startedAt.current) / 1000, { sourceKind: 'standard', sourceStage: 'standard' });
+        return;
+      }
       const recording = ownedRecording;
       if (audio.current === recording) audio.current = null;
       if (recording) { try { await recording.stopAndUnloadAsync(); } catch {} }
@@ -533,16 +561,21 @@ export default function StudioCaptureScreen() {
 
   return <View style={styles.screen}>
     <StatusBar hidden={focused} style="light" animated />
-    {cameraMounted && <StudioCaptureFrame key={`${project!.id}:${facing}:${cameraControls.available ? 'native' : videoQuality}`}
+    {cameraMounted && <StudioCaptureFrame key={`${project!.id}:${facing}:${nativeCamera ? 'studio-native' : cameraControls.available ? 'expo-bridge' : videoQuality}`}
       frame={{ width: cameraWidth, height: cameraHeight, left: (dimensions.width - cameraWidth) / 2, top: (dimensions.height - cameraHeight) / 2 }}
       zoom={zoom} onZoom={changeZoom} disabled={zoomDisabled}
       onFocus={cameraState?.supportsFocus ? point => { void cameraControls.focus(point); } : undefined} canLockFocus={cameraState?.supportsFocusLock}>
-      <CameraView ref={camera} style={StyleSheet.absoluteFill}
+      {nativeCamera ? <StudioNativeCamera ref={camera as React.Ref<StudioNativeCameraHandle>} style={StyleSheet.absoluteFill}
+        onCameraReady={() => { void cameraControls.initialize().then(result => { if (result !== undefined && mounted.current) setReady(result); }); }}
+        onRecordingState={event => { if (event.phase === 'recording' && phaseRef.current === 'recording') startedAt.current = Date.now(); }}
+        onInterruption={event => { if (mounted.current && event.message) setNotice(event.message); }}
+        onMountError={event => { if (mounted.current) { setReady(false); setFailure(event.message); } }} />
+      : <CameraView ref={camera as React.Ref<CameraView>} style={StyleSheet.absoluteFill}
         facing={facing} mode="video" videoQuality={cameraControls.available ? '1080p' : videoQuality} videoStabilizationMode="auto" autofocus="on"
         zoom={cameraControls.available ? 0 : zoom} enableTorch={torch && facing === 'back'} mirror={false} responsiveOrientationWhenOrientationLocked
         onResponsiveOrientationChanged={event => setSensorOrientation(event.orientation)}
         onCameraReady={() => { void cameraControls.initialize().then(result => { if (result !== undefined && mounted.current) setReady(result); }); }}
-        onMountError={() => { setReady(false); setFailure('Não foi possível iniciar a câmera. Confira as permissões ou importe um vídeo.'); }} />
+        onMountError={() => { setReady(false); setFailure('Não foi possível iniciar a câmera. Confira as permissões ou importe um vídeo.'); }} />}
     </StudioCaptureFrame>}
     {(isAudio || !!gate) && <LinearGradient colors={['#16141D', '#070708', '#000000']} locations={[0, 0.6, 1]} style={StyleSheet.absoluteFill} />}
     <LinearGradient pointerEvents="none" colors={['rgba(0,0,0,0.55)', 'transparent']} style={[styles.topShade, { height: safeTop + 130 }]} />
@@ -588,7 +621,7 @@ export default function StudioCaptureScreen() {
       : { top: safeTop + 95, right: safeRight }]}>
       {!isAudio && <CaptureTool label={torch ? 'Desligar luz' : facing === 'front' ? 'Luz disponível na câmera traseira' : 'Ligar luz'}
         disabled={toolsDisabled || facing !== 'back' || !Device.isDevice || cameraControls.available && !cameraState?.supportsTorch}
-        selected={torch} onPress={() => setTorch(previous => !previous)}>
+        selected={torch} onPress={() => { if (nativeCamera) void cameraControls.setTorch(!torch); else setTorch(previous => !previous); }}>
         {torch ? <Zap size={21} color={colors.amber} strokeWidth={1.5} /> : <ZapOff size={21} color={colors.text} strokeWidth={1.5} />}
       </CaptureTool>}
       <CaptureTool label={`Temporizador: ${countdownSeconds ? `${countdownSeconds} segundos` : 'desligado'}`} disabled={toolsDisabled} selected={countdownSeconds > 0} onPress={() => setPanel('timer')}>
@@ -637,7 +670,7 @@ export default function StudioCaptureScreen() {
       ? { bottom: Math.max(insets.bottom, 16) + 60, left: safeLeft + 64, right: safeRight + 124 }
       : { bottom: safeBottom + 228, left: safeLeft, right: safeRight }]}>
       <View style={styles.statusRow}>{!failure && !orientationError && !cameraControls.error && <Check size={16} color={colors.free} />}<Text style={[styles.statusText, (!!failure || !!orientationError || !!cameraControls.error) && styles.failure]}>{failure || orientationError || cameraControls.error || notice}</Text></View>
-      {!!recovery && <Pressable accessibilityRole="button" disabled={!idle} onPress={() => void saveTake(recovery.project, recovery.uri, recovery.duration)} style={styles.recoveryButton}>
+      {!!recovery && <Pressable accessibilityRole="button" disabled={!idle} onPress={() => void saveTake(recovery.project, recovery.uri, recovery.duration, recovery.metadata)} style={styles.recoveryButton}>
         <Text style={styles.recoveryLabel}>Salvar este take</Text><ChevronRight size={17} color={colors.text} />
       </Pressable>}
     </View>}

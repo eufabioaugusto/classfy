@@ -12,7 +12,7 @@ import { useStudioProject } from '@/features/studio/useStudioProjects';
 import { useStudioOrientation } from '@/features/studio/useStudioOrientation';
 import { importStudioCover } from '@/features/studio/media';
 import { prepareStudioUpload, submitStudioProject, refreshStudioUpload, cancelStudioUpload } from '@/features/studio/backend';
-import { formatStudioDuration, publicationIssues, studioFormats, studioStateLabel, timelineDuration, type StudioProject, type StudioVisibility } from '@/features/studio/model';
+import { compileStudioRecipe, formatStudioDuration, publicationIssues, studioFormats, studioSeconds, studioStateLabel, type StudioProject, type StudioVisibility } from '@/features/studio/model';
 import { StudioAccess, StudioButton, StudioField, StudioFooter, StudioLoading, StudioSaveStatus, studioStyles, useStudioFields } from '@/features/studio/StudioUI';
 
 const accessOptions: { key: StudioVisibility; title: string; detail: string }[] = [
@@ -129,7 +129,7 @@ function PublicationReview({ project, update }: { project: StudioProject; update
             {cover ? <LoadingImage source={{ uri: cover }} contentFit="cover" style={StyleSheet.absoluteFillObject} /> : null}
           </Pressable>
           <View style={styles.summaryCopy}>
-            <Text style={styles.summaryMeta}>{format.title} · {formatStudioDuration(timelineDuration(project.takes))} · {format.ratio}</Text>
+            <Text style={styles.summaryMeta}>{format.title} · {formatStudioDuration(studioSeconds(compileStudioRecipe(project).durationTicks))} · {format.ratio}</Text>
             <Text style={styles.summaryTitle} numberOfLines={2}>{fields.title.trim() || `${format.title} sem título`}</Text>
             {project.state !== 'submitted' ? <Pressable accessibilityRole="button" accessibilityLabel={cover ? 'Trocar capa da publicação' : 'Escolher capa da publicação'} disabled={locked} onPress={() => { void chooseCover(); }}
               style={({ pressed }) => [styles.coverAction, pressed && { backgroundColor: colors.surfaceAlt }, locked && { opacity: 0.45 }]}><ImagePlus size={15} color={colors.textSecondary} strokeWidth={1.5} /><Text style={styles.coverActionText}>{cover ? 'Trocar capa' : 'Escolher capa'}</Text></Pressable> : null}

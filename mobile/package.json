@@ -67,7 +67,10 @@
     "test:home": "node --experimental-strip-types --test src/features/home/ranking.test.mjs",
     "test:navigation": "node --experimental-strip-types --test src/features/navigation/primaryAction.test.mjs",
     "test:studio": "node --experimental-strip-types --test src/features/studio/*.test.mjs",
-    "test:studio:media": "bash modules/classfy-studio-media/tests/verify-engine.sh"
+    "test:studio:media": "bash modules/classfy-studio-media/tests/verify-engine.sh",
+    "test:studio:recipe": "bash modules/classfy-studio-media/tests/verify-recipe.sh",
+    "test:studio:capture": "bash modules/classfy-studio-media/tests/verify-capture.sh",
+    "test:studio:transcription": "bash modules/classfy-studio-media/tests/verify-transcription.sh"
   },
   "private": true
 }

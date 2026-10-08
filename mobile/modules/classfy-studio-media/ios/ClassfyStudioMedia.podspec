@@ -2,7 +2,7 @@ Pod::Spec.new do |s|
   s.name = 'ClassfyStudioMedia'
   s.version = '1.0.0'
   s.summary = 'Mídia e controles de câmera nativos do Studio Classfy'
-  s.description = 'Composição, cortes, metadados, capas e controles da sessão Expo Camera usando AVFoundation.'
+  s.description = 'Captura AVFoundation, composição Metal, camadas, tratamento de imagem e transcrição local do Studio Classfy.'
   s.license = { :type => 'Proprietary' }
   s.author = 'Classfy'
   s.homepage = 'https://classfy.com.br'
@@ -12,7 +12,7 @@ Pod::Spec.new do |s|
   s.static_framework = true
   s.dependency 'ExpoModulesCore'
   s.dependency 'ExpoCamera'
-  s.frameworks = 'AVFoundation', 'ImageIO', 'CoreGraphics', 'UniformTypeIdentifiers'
+  s.frameworks = 'AVFoundation', 'ImageIO', 'CoreGraphics', 'UniformTypeIdentifiers', 'CoreImage', 'Metal', 'MetalKit', 'CoreText', 'CoreVideo', 'Speech', 'Vision'
   # ExpoCamera imports the two ZXing subspecs. Its public module must be read
   # with the same defines, otherwise ZXing's umbrella asks for unused headers.
   s.pod_target_xcconfig = {

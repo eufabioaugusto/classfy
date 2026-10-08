@@ -27,13 +27,30 @@ struct StudioCameraFocusRecord: Record {
   @Field var locked: Bool = false
 }
 
+struct StudioRecipeExportRecord: Record {
+  @Field var requestId: String = ""
+  @Field var recipeJSON: String = ""
+  @Field var outputUri: String = ""
+}
+struct StudioNativeCaptureConfigurationRecord: Record {
+  @Field var position: String = "front"
+  @Field var quality: String = "1080p"
+  @Field var fps: Int = 30
+  @Field var orientation: String = "portrait"
+  @Field var cinematic: Bool = false
+  @Field var mirrored: Bool = false
+  var native: StudioCaptureConfiguration { StudioCaptureConfiguration(position: position, quality: quality, fps: fps, orientation: orientation, mirrored: mirrored, cinematic: cinematic) }
+}
+
 public final class ClassfyStudioMediaModule: Module {
   private let engine = StudioMediaEngine()
+  private let recipeEngine = StudioRecipeEngine()
+  private let transcription = StudioTranscription()
   private let cameraControls = StudioCameraControls()
 
   public func definition() -> ModuleDefinition {
     Name("ClassfyStudioMedia")
-    Events("onExportProgress")
+    Events("onExportProgress", "onTranscriptionProgress")
 
     AsyncFunction("getMediaInfoAsync") { (uri: String) async throws -> [String: Any] in
       try await self.engine.mediaInfo(uri)
@@ -54,6 +71,7 @@ public final class ClassfyStudioMediaModule: Module {
     }
     AsyncFunction("cancelExportAsync") { (requestId: String) in
       self.engine.cancel(requestId)
+      self.recipeEngine.cancel(requestId)
     }
 
     AsyncFunction("getStudioCameraCapabilitiesAsync") { (tag: Int, promise: Promise) in
@@ -85,7 +103,91 @@ public final class ClassfyStudioMediaModule: Module {
         }
       } catch { promise.reject("E_STUDIO_CAMERA", error.localizedDescription) }
     }.runOnQueue(.main)
-    OnDestroy { self.engine.cancelAll() }
+    AsyncFunction("exportRecipeAsync") { (options: StudioRecipeExportRecord) async throws -> [String: Any] in
+      try await self.recipeEngine.export(requestId: options.requestId, recipeJSON: options.recipeJSON, outputUri: options.outputUri,
+        progress: { [weak self] value in self?.sendEvent("onExportProgress", ["requestId": options.requestId, "progress": value]) })
+    }
+    View(StudioCaptureView.self) {
+      Events("onReady", "onState", "onRecordingState", "onInterruption", "onError")
+      Prop("active") { (view: StudioCaptureView, active: Bool) in view.setActive(active) }
+      Prop("effectRecipeJSON") { (view: StudioCaptureView, recipe: String) in view.applyEffectRecipeJSON(recipe) }
+    }
+    View(StudioCompositionView.self) {
+      Events("onPlaybackState", "onError")
+      Prop("recipeJSON") { (view: StudioCompositionView, json: String) in Task { @MainActor in view.setRecipeJSON(json) } }
+      Prop("revision") { (view: StudioCompositionView, revision: String) in Task { @MainActor in view.setRevision(revision) } }
+      Prop("paused") { (view: StudioCompositionView, paused: Bool) in Task { @MainActor in view.setPaused(paused) } }
+    }
+    AsyncFunction("getStudioNativeCameraCapabilitiesAsync") { (tag: Int, promise: Promise) in
+      self.withNativeCamera(tag, promise) { view in view.capabilities { self.settleCamera($0, promise: promise) } }
+    }.runOnQueue(.main)
+    AsyncFunction("configureStudioNativeCameraAsync") { (tag: Int, options: StudioNativeCaptureConfigurationRecord, promise: Promise) in
+      self.withNativeCamera(tag, promise) { view in view.configure(options.native) { self.settleCamera($0, promise: promise) } }
+    }.runOnQueue(.main)
+    AsyncFunction("startStudioNativeCameraRecordingAsync") { (tag: Int, operationId: String, promise: Promise) in
+      self.withNativeCamera(tag, promise) { view in view.startRecording(operationId) { self.settleCamera($0, promise: promise) } }
+    }.runOnQueue(.main)
+    AsyncFunction("stopStudioNativeCameraRecordingAsync") { (tag: Int, operationId: String, promise: Promise) in
+      self.withNativeCamera(tag, promise) { view in view.stopRecording(operationId) { self.settleCamera($0, promise: promise) } }
+    }.runOnQueue(.main)
+    AsyncFunction("setStudioNativeCameraZoomAsync") { (tag: Int, factor: Double, promise: Promise) in
+      self.withNativeCamera(tag, promise) { view in view.zoom(factor) { self.settleCamera($0, promise: promise) } }
+    }.runOnQueue(.main)
+    AsyncFunction("setStudioNativeCameraExposureAsync") { (tag: Int, bias: Double, promise: Promise) in
+      self.withNativeCamera(tag, promise) { view in view.exposure(bias) { self.settleCamera($0, promise: promise) } }
+    }.runOnQueue(.main)
+    AsyncFunction("setStudioNativeCameraTorchAsync") { (tag: Int, enabled: Bool, promise: Promise) in
+      self.withNativeCamera(tag, promise) { view in view.torch(enabled) { self.settleCamera($0, promise: promise) } }
+    }.runOnQueue(.main)
+    AsyncFunction("setStudioNativeCameraFocusAsync") { (tag: Int, options: StudioCameraFocusRecord, promise: Promise) in
+      self.withNativeCamera(tag, promise) { view in view.focus(x: options.x, y: options.y, locked: options.locked) { self.settleCamera($0, promise: promise) } }
+    }.runOnQueue(.main)
+    AsyncFunction("seekStudioCompositionAsync") { (tag: Int, seconds: Double, token: Int, promise: Promise) in
+      Task { @MainActor in
+        do { promise.resolve(try await self.compositionView(tag).seekAsync(seconds: seconds, token: token)) }
+        catch { promise.reject("E_STUDIO_PREVIEW", error.localizedDescription) }
+      }
+    }.runOnQueue(.main)
+    AsyncFunction("previewStudioCompositionSourceAsync") { (tag: Int, clipId: String, sourceSeconds: Double, timelineSeconds: Double, token: Int, promise: Promise) in
+      Task { @MainActor in
+        do { promise.resolve(try await self.compositionView(tag).previewSourceFrameAsync(clipId: clipId, sourceSeconds: sourceSeconds, timelineSeconds: timelineSeconds, token: token)) }
+        catch { promise.reject("E_STUDIO_PREVIEW", error.localizedDescription) }
+      }
+    }.runOnQueue(.main)
+    AsyncFunction("restoreStudioCompositionAsync") { (tag: Int, token: Int, promise: Promise) in
+      Task { @MainActor in
+        do { promise.resolve(try await self.compositionView(tag).restorePlaybackAsync(token: token)) }
+        catch { promise.reject("E_STUDIO_PREVIEW", error.localizedDescription) }
+      }
+    }.runOnQueue(.main)
+    AsyncFunction("getStudioTranscriptionCapabilitiesAsync") { (locale: String) async -> [String: Any] in
+      await self.transcription.capabilities(localeIdentifier: locale)
+    }
+    AsyncFunction("installStudioTranscriptionModelAsync") { (requestId: String, locale: String) async throws -> [String: Any] in
+      try await self.transcription.installModel(requestId: requestId, localeIdentifier: locale, progress: { [weak self] stage, value in
+        self?.sendEvent("onTranscriptionProgress", ["requestId": requestId, "stage": stage, "progress": value])
+      })
+    }
+    AsyncFunction("transcribeStudioAsync") { (requestId: String, uri: String, locale: String) async throws -> [String: Any] in
+      try await self.transcription.transcribe(requestId: requestId, uri: uri, localeIdentifier: locale, progress: { [weak self] stage, value in
+        self?.sendEvent("onTranscriptionProgress", ["requestId": requestId, "stage": stage, "progress": value])
+      })
+    }
+    AsyncFunction("cancelStudioTranscriptionAsync") { (requestId: String) in self.transcription.cancel(requestId) }
+    OnDestroy { self.engine.cancelAll(); self.recipeEngine.cancelAll(); self.transcription.cancelAll() }
+  }
+
+  private func withNativeCamera(_ tag: Int, _ promise: Promise, _ operation: (StudioCaptureView) -> Void) {
+    guard tag > 0, let view = appContext?.findView(withTag: tag, ofType: StudioCaptureView.self), view.window != nil else {
+      promise.reject("E_STUDIO_CAPTURE", "Abra a câmera novamente para continuar."); return
+    }
+    operation(view)
+  }
+  @MainActor private func compositionView(_ tag: Int) throws -> StudioCompositionView {
+    guard tag > 0, let view = appContext?.findView(withTag: tag, ofType: StudioCompositionView.self), view.window != nil else {
+      throw StudioRecipeError.invalid("Abra a prévia novamente para continuar.")
+    }
+    return view
   }
 
   private func cameraView(_ tag: Int) throws -> CameraView {

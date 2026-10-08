@@ -48,6 +48,9 @@ iPhone conectado e a variante para equipe Apple pessoal.
 
 A reconstrução da experiência e os gaps de paridade estão em [REBUILD.md](./REBUILD.md).
 
+O motor nativo do Studio, a edição em camadas, os perfis de saída e os comandos
+de validação estão em [STUDIO_PREMIUM.md](./STUDIO_PREMIUM.md).
+
 ## Escopo inicial
 
 - Tabs: Home, Explore, Rewards, Profile

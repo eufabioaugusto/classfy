@@ -5,8 +5,8 @@ import { ImageManipulator, SaveFormat } from 'expo-image-manipulator';
 import { randomUUID } from 'expo-crypto';
 import { Alert } from 'react-native';
 import { supabase } from '@/lib/supabase';
-import { cancelExportAsync, exportTimelineAsync, generateThumbnailAsync, getMediaInfoAsync, isStudioMediaAvailable } from '../../../modules/classfy-studio-media';
-import { timelineSignature, type StudioProject, type StudioTake } from './model';
+import { cancelExportAsync, exportRecipeAsync, isStudioCompositionAvailable, exportTimelineAsync, generateThumbnailAsync, getMediaInfoAsync, isStudioMediaAvailable } from '../../../modules/classfy-studio-media';
+import { addStudioLayerItem, compileStudioRecipe, studioEditing, studioTicks, timelineSignature, validateStudioRecipe, type StudioProject, type StudioTake, type StudioAsset, type StudioLayerItem } from './model';
 import { getStudioProject, mutateStudioProject, retainStudioProjectMedia, updateStudioProject } from './store';
 
 export async function assertStudioOwner(project: StudioProject) {
@@ -19,7 +19,7 @@ export async function studioProjectDirectory(project: StudioProject) {
   await FileSystem.makeDirectoryAsync(uri, { intermediates: true });
   return uri;
 }
-export async function persistStudioTake(project: StudioProject, source: { uri: string; name?: string; duration?: number }): Promise<StudioTake> {
+export async function persistStudioTake(project: StudioProject, source: { uri: string; name?: string; duration?: number; sourceKind?: StudioTake['sourceKind']; sourceStage?: StudioTake['sourceStage']; frameRate?: number; colorSpace?: string }): Promise<StudioTake> {
   await assertStudioOwner(project);
   if (!isStudioMediaAvailable()) throw new Error('Atualize o aplicativo para habilitar o editor nativo neste aparelho.');
   const release = retainStudioProjectMedia(project.ownerId, project.id);
@@ -28,7 +28,8 @@ export async function persistStudioTake(project: StudioProject, source: { uri: s
     const recoverable = getStudioProject(project.ownerId, project.id)?.pendingTakes?.find(take => take.sourceUri === source.uri);
     if (recoverable) return await readStudioTake(project, recoverable, directory);
     const id = randomUUID();
-    const extension = (source.name || source.uri).split('?')[0].split('.').pop()?.toLowerCase();
+    const nameExtension = source.name?.split('.').pop()?.toLowerCase();
+    const extension = nameExtension && /^[a-z0-9]{2,5}$/.test(nameExtension) ? nameExtension : source.uri.split('?')[0].split('.').pop()?.toLowerCase();
     const safeExtension = extension && /^[a-z0-9]{2,5}$/.test(extension) ? extension : project.kind === 'podcast' ? 'm4a' : 'mp4';
     const uri = `${directory}${id}.${safeExtension}`;
     await FileSystem.copyAsync({ from: source.uri, to: uri });
@@ -36,11 +37,11 @@ export async function persistStudioTake(project: StudioProject, source: { uri: s
     const name = source.name || `Take ${project.takes.length + 1}`;
     // Journal the durable copy before metadata/thumbnail work. This also
     // promotes a camera session only after its first original is on disk.
-    await mutateStudioProject(project.ownerId, project.id, current => ({ pendingTakes: [...(current.pendingTakes || []), { id, uri, name, sourceUri: source.uri }] }));
-    return await readStudioTake(project, { id, uri, name }, directory);
+    await mutateStudioProject(project.ownerId, project.id, current => ({ pendingTakes: [...(current.pendingTakes || []), { id, uri, name, sourceUri: source.uri, sourceKind: source.sourceKind, sourceStage: source.sourceStage, frameRate: source.frameRate, colorSpace: source.colorSpace }] }));
+    return await readStudioTake(project, { ...source, id, uri, name }, directory);
   } finally { release(); }
 }
-async function readStudioTake(project: StudioProject, pending: { id: string; uri: string; name: string }, directory: string): Promise<StudioTake> {
+async function readStudioTake(project: StudioProject, pending: { id: string; uri: string; name: string; sourceKind?: StudioTake['sourceKind']; sourceStage?: StudioTake['sourceStage']; frameRate?: number; colorSpace?: string }, directory: string): Promise<StudioTake> {
   const { id, uri, name } = pending;
   const info = await getMediaInfoAsync(uri);
   if (!Number.isFinite(info.duration) || info.duration < 0.1) throw new Error('O arquivo não tem duração válida. Escolha outro conteúdo.');
@@ -53,6 +54,7 @@ async function readStudioTake(project: StudioProject, pending: { id: string; uri
   }
   await assertStudioOwner(project);
   return { id, uri, name, duration: info.duration,
+    sourceKind: pending.sourceKind, sourceStage: pending.sourceStage, frameRate: pending.frameRate ?? info.frameRate, colorSpace: pending.colorSpace,
     start: 0, end: info.duration, width: info.width, height: info.height, thumbnailUri };
 }
 async function appendStudioTake(project: StudioProject, take: StudioTake) {
@@ -69,6 +71,7 @@ export async function recoverPendingStudioTakes(project: StudioProject): Promise
   const directory = await studioProjectDirectory(project);
   for (const pending of project.pendingTakes || []) {
     try {
+      if (pending.layerItem) { await finishStudioLayerImport(project, pending); recovered++; continue; }
       const thumbnail = `${directory}${pending.id}.jpg`;
       // Reuse an existing thumbnail on recovery instead of overwriting it.
       const take = await readStudioTake(project, pending, directory);
@@ -139,11 +142,19 @@ export async function exportStudioProject(project: StudioProject, onProgress?: (
   if (!project.takes.length) throw new Error('Grave ou importe um take antes de continuar.');
   const outputUri = `${await studioProjectDirectory(project)}export-${randomUUID()}.${project.kind === 'podcast' ? 'm4a' : 'mp4'}`;
   check();
-  const result = await exportTimelineAsync({ requestId: project.id, clips: project.takes.map(t => ({ uri: t.uri, startSeconds: t.start, endSeconds: t.end })),
-    outputUri, mediaType: project.kind === 'podcast' ? 'audio' : 'video', aspectRatio: project.kind === 'short' ? 'portrait' : 'landscape' }, progress => {
-      if (shouldContinue?.() === false) { void cancelExportAsync(project.id); return; }
-      onProgress?.(progress);
-    });
+  const editing = studioEditing(project);
+  const recipe = compileStudioRecipe(project);
+  const errors = validateStudioRecipe(recipe);
+  if (errors.length) throw new Error(errors[0]);
+  const progressHandler = (progress: number) => {
+    if (shouldContinue?.() === false) { void cancelExportAsync(project.id); return; }
+    onProgress?.(progress);
+  };
+  if (editing.output.profile === 'legacy-source' && (editing.layers.some(layer => layer.items.length) || editing.main.some(clip => clip.grade || clip.effect && clip.effect !== 'natural' || clip.gain !== undefined && clip.gain !== 1) || editing.canvas.backgroundColor !== '#000000' || editing.canvas.aspectRatio !== (project.kind === 'short' ? 'portrait' : 'landscape'))) throw new Error('Escolha o perfil 1080p · 30 FPS · SDR para exportar esta edição com camadas.');
+  const result = editing.output.profile === 'standard'
+    ? await exportRecipeAsync({ requestId: project.id, recipeJSON: JSON.stringify(recipe), outputUri }, progressHandler)
+    : await exportTimelineAsync({ requestId: project.id, clips: project.takes.map(t => ({ uri: t.uri, startSeconds: t.start, endSeconds: t.end })),
+    outputUri, mediaType: project.kind === 'podcast' ? 'audio' : 'video', aspectRatio: project.kind === 'short' ? 'portrait' : 'landscape' }, progressHandler);
   check();
   await assertStudioOwner(project);
   check();
@@ -151,3 +162,68 @@ export async function exportStudioProject(project: StudioProject, onProgress?: (
   return result;
 }
 export async function cancelStudioExport(project: StudioProject) { await cancelExportAsync(project.id); }
+
+async function finishStudioLayerImport(project: StudioProject, pending: NonNullable<StudioProject['pendingTakes']>[number]) {
+  await assertStudioOwner(project);
+  if (!pending.layerItem || !pending.kind) throw new Error('O destino da camada precisa de recuperação.');
+  let asset: StudioAsset;
+  if (pending.kind === 'image') {
+    const rendered = await ImageManipulator.manipulate(pending.uri).renderAsync();
+    asset = { id: pending.id, kind: 'image', uri: pending.uri, name: pending.name, durationTicks: 0, width: rendered.width, height: rendered.height, thumbnailUri: pending.uri };
+  } else {
+    const info = await getMediaInfoAsync(pending.uri);
+    if (!Number.isFinite(info.duration) || info.duration < 0.1 || pending.kind === 'video' && !info.hasVideo || pending.kind === 'audio' && !info.hasAudio) throw new Error('Este arquivo não contém a mídia selecionada.');
+    asset = { id: pending.id, kind: pending.kind, uri: pending.uri, name: pending.name, durationTicks: studioTicks(info.duration), width: info.width, height: info.height, frameRate: info.frameRate, sourceStage: pending.sourceStage, sourceKind: pending.sourceKind };
+  }
+  const item = { ...pending.layerItem };
+  if (asset.kind !== 'image') {
+    item.durationTicks = Math.min(item.durationTicks, asset.durationTicks);
+    item.sourceStartTicks = 0; item.sourceEndTicks = item.durationTicks;
+    item.fadeInTicks = Math.min(item.fadeInTicks || 0, Math.floor(item.durationTicks / 2));
+    item.fadeOutTicks = Math.min(item.fadeOutTicks || 0, Math.floor(item.durationTicks / 2));
+  }
+  await assertStudioOwner(project);
+  const saved = await mutateStudioProject(project.ownerId, project.id, latest => {
+    const editing = studioEditing(latest);
+    if (editing.layers.some(layer => layer.items.some(existing => existing.id === item.id))) return {};
+    return { editing: addStudioLayerItem({ ...editing, assets: [...editing.assets.filter(original => original.id !== asset.id), asset] }, item, pending.layerId) };
+  });
+  return saved;
+}
+export async function importStudioLayer(project: StudioProject, kind: 'image' | 'video' | 'audio', item: Omit<StudioLayerItem, 'assetId'>): Promise<StudioProject | null> {
+  await assertStudioOwner(project);
+  if (!isStudioCompositionAvailable()) throw new Error('Atualize o Classfy Dev para usar camadas.');
+  if (studioEditing(project).output.profile !== 'standard') throw new Error('Selecione o perfil 1080p · 30 FPS · SDR antes de adicionar camadas.');
+  let source: { uri: string; name: string };
+  if (kind === 'audio') {
+    const picked = await DocumentPicker.getDocumentAsync({ type: 'audio/*', copyToCacheDirectory: true });
+    if (picked.canceled) return null; source = { uri: picked.assets[0].uri, name: picked.assets[0].name };
+  } else {
+    const picked = await ImagePicker.launchImageLibraryAsync({ mediaTypes: kind === 'video' ? ['videos'] : ['images'], allowsEditing: false, preferredAssetRepresentationMode: ImagePicker.UIImagePickerPreferredAssetRepresentationMode.Current });
+    if (picked.canceled) return null;
+    source = { uri: picked.assets[0].uri, name: picked.assets[0].fileName || (kind === 'video' ? 'Vídeo.mp4' : 'Imagem.jpg') };
+  }
+  await assertStudioOwner(project);
+  const release = retainStudioProjectMedia(project.ownerId, project.id);
+  try {
+    const id = randomUUID(); const ext = source.name.split('.').pop()?.toLowerCase();
+    const uri = `${await studioProjectDirectory(project)}${id}.${ext && /^[a-z0-9]{2,5}$/.test(ext) ? ext : kind === 'image' ? 'jpg' : kind === 'video' ? 'mp4' : 'm4a'}`;
+    await FileSystem.copyAsync({ from: source.uri, to: uri });
+    await assertStudioOwner(project);
+    const pending = { id, uri, name: source.name, sourceUri: source.uri, kind, layerItem: { ...item, assetId: id }, layerId: kind === 'video' ? 'layer:video' : kind === 'audio' ? 'layer:audio' : 'layer:image' };
+    await mutateStudioProject(project.ownerId, project.id, latest => ({ pendingTakes: [...(latest.pendingTakes || []), pending] }));
+    return await finishStudioLayerImport(project, pending);
+  } finally { release(); }
+}
+export async function importStudioCaptionFile(project: StudioProject, duration: number) {
+  await assertStudioOwner(project);
+  const picked = await DocumentPicker.getDocumentAsync({ type: ['text/plain', 'application/x-subrip', 'text/vtt', 'application/octet-stream'], copyToCacheDirectory: true });
+  if (picked.canceled) return null;
+  const file = picked.assets[0];
+  if (!/\.(srt|vtt)$/i.test(file.name)) throw new Error('Escolha uma legenda SRT ou VTT.');
+  if (file.size && file.size > 2_000_000) throw new Error('Escolha uma legenda com até 2 MB.');
+  const source = await FileSystem.readAsStringAsync(file.uri);
+  await assertStudioOwner(project);
+  const { parseStudioCaptions } = await import('./captions');
+  return parseStudioCaptions(source, duration);
+}
