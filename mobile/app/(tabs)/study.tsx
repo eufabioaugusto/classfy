@@ -30,6 +30,7 @@ import {
 import React, { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  DeviceEventEmitter,
   Alert,
   Animated,
   FlatList,
@@ -178,11 +179,12 @@ export default function StudyScreen() {
   ).current;
 
   // URL params if coming from Home Page Lobby
-  const params = useLocalSearchParams<{ studyId?: string; newTopic?: string }>();
+  const params = useLocalSearchParams<{ studyId?: string; newTopic?: string; newStudyRequestId?: string }>();
   const displayName = profile?.display_name?.split(' ')[0] || 'Estudante';
 
   // Screen selection state
   const [selectedStudyId, setSelectedStudyId] = useState<string | null>(null);
+  useEffect(() => { DeviceEventEmitter.emit('classfy:active-study', { studyId: selectedStudyId, userId: user?.id }); }, [selectedStudyId, user?.id]);
 
   // Studies list for switcher
   const [studies, setStudies] = useState<Study[]>([]);
@@ -322,11 +324,11 @@ export default function StudyScreen() {
 
   // Monitor params to start a new study from home lobby
   useEffect(() => {
-    if (params.newTopic && params.newTopic !== processedTopic) {
-      setProcessedTopic(params.newTopic);
+    if (params.newTopic && (params.newStudyRequestId || params.newTopic) !== processedTopic) {
+      setProcessedTopic(params.newStudyRequestId || params.newTopic);
       handleCreateStudy(params.newTopic);
     }
-  }, [params.newTopic, processedTopic]);
+  }, [params.newTopic, params.newStudyRequestId, processedTopic]);
 
   // Load studies list for switcher on mount and periodically
   useEffect(() => {

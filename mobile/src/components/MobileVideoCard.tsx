@@ -1,6 +1,7 @@
 import { useRouter } from 'expo-router';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { Image } from 'expo-image';
+import { Crown } from 'lucide-react-native';
 import { Ionicons } from '@expo/vector-icons';
 
 import { HomeContent } from '@/features/home/homeData';
@@ -23,13 +24,20 @@ const accessColor = {
   paid: '#10b981', // Paid green
 };
 
-export function MobileVideoCard({ content, featured = false, layout = 'horizontal' }: MobileVideoCardProps) {
+export function MobileVideoCard({
+  content,
+  featured = false,
+  layout = 'horizontal',
+}: MobileVideoCardProps) {
   const { user } = useAuth();
   const router = useRouter();
   // Watch resolves actual access, including confirmed purchases and authorship.
-  const openContent = () => router.push(user
-    ? { pathname: '/watch/[id]', params: { id: content.id } }
-    : { pathname: '/auth/sign-in', params: { contentId: content.id } });
+  const openContent = () =>
+    router.push(
+      user
+        ? { pathname: '/watch/[id]', params: { id: content.id } }
+        : { pathname: '/auth/sign-in', params: { contentId: content.id } },
+    );
 
   const getAspectRatio = () => {
     if (layout === 'square') return 1;
@@ -42,37 +50,99 @@ export function MobileVideoCard({ content, featured = false, layout = 'horizonta
   const finalPrice = price * (1 - discount / 100);
 
   return (
-      <Pressable onPress={openContent} accessibilityRole="button" accessibilityLabel={`${content.title}, ${content.creator}`} style={({ pressed }) => [styles.container, pressed && { opacity: 0.8 }]}>
-        <View style={[styles.thumbnail, { backgroundColor: content.tone, aspectRatio: getAspectRatio() }]}>
-          {content.thumbnailUrl ? (
-            <Image source={{ uri: content.thumbnailUrl }} style={styles.thumbnailImage} contentFit="cover" recyclingKey={content.id} transition={180} />
-          ) : null}
+    <Pressable
+      onPress={openContent}
+      accessibilityRole="button"
+      accessibilityLabel={`${content.title}, ${content.creator}`}
+      style={({ pressed }) => [styles.container, pressed && { opacity: 0.8 }]}
+    >
+      <View
+        style={[
+          styles.thumbnail,
+          { backgroundColor: content.tone, aspectRatio: getAspectRatio() },
+        ]}
+      >
+        {content.thumbnailUrl ? (
+          <Image
+            source={{ uri: content.thumbnailUrl }}
+            style={styles.thumbnailImage}
+            contentFit="cover"
+            recyclingKey={content.id}
+            transition={180}
+          />
+        ) : null}
 
-          {content.duration ? <View style={styles.durationPill}><Text style={styles.durationText}>{content.duration}</Text></View> : null}
-          <View style={[styles.accessPill, { backgroundColor: accessColor[content.access] || '#111' }]}>
+        {content.publishedAt &&
+        Date.now() - new Date(content.publishedAt).getTime() >= 0 &&
+        Date.now() - new Date(content.publishedAt).getTime() <= 48 * 3600000 ? (
+          <View style={styles.newBadge}>
+            <Text style={styles.accessText}>NOVO</Text>
+          </View>
+        ) : null}
+        {content.lessonCount ? (
+          <View
+            style={[styles.durationPill, { right: content.duration ? 74 : 8 }]}
+          >
+            <Text style={styles.durationText}>{content.lessonCount} aulas</Text>
+          </View>
+        ) : null}
+        {content.duration ? (
+          <View style={styles.durationPill}>
+            <Text style={styles.durationText}>
+              {content.durationSeconds
+                ? `${Math.max(1, Math.round(content.durationSeconds / 60))}min`
+                : content.duration}
+            </Text>
+          </View>
+        ) : null}
+        {content.access === 'pro' || content.access === 'premium' ? (
+          <View style={styles.accessPill}>
             <Text style={styles.accessText}>{content.access}</Text>
+            <Crown
+              size={12}
+              color={content.access === 'pro' ? '#e5aa25' : '#df3153'}
+              fill={content.access === 'pro' ? '#e5aa25' : '#df3153'}
+              strokeWidth={1.8}
+            />
           </View>
+        ) : null}
+      </View>
+      <View style={styles.metaRow}>
+        <View style={styles.avatar}>
+          {content.creatorAvatarUrl ? (
+            <Image
+              source={{ uri: content.creatorAvatarUrl }}
+              style={styles.avatarImage}
+            />
+          ) : (
+            <Text style={styles.avatarText}>{content.creator[0]}</Text>
+          )}
         </View>
-        <View style={styles.metaRow}>
-          <View style={styles.avatar}>
-            {content.creatorAvatarUrl ? (
-              <Image source={{ uri: content.creatorAvatarUrl }} style={styles.avatarImage} />
-            ) : (
-              <Text style={styles.avatarText}>{content.creator[0]}</Text>
-            )}
-          </View>
-          <View style={styles.copy}>
-            <Text numberOfLines={2} style={[styles.title, featured && styles.featuredTitle]}>
+        <View style={styles.copy}>
+          <View
+            style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 8 }}
+          >
+            <Text
+              numberOfLines={2}
+              style={[
+                styles.title,
+                featured && styles.featuredTitle,
+                { flex: 1 },
+              ]}
+            >
               {content.title}
             </Text>
-            <Text numberOfLines={1} style={styles.meta}>
-              {content.creator} · {content.views}
-            </Text>
-
             {/* Informational price; Watch resolves ownership before purchase. */}
             {content.access === 'paid' && price > 0 ? (
               <View style={styles.priceTagRow}>
-                <Ionicons name="cart-outline" size={13} color="#ef4444" />
+                <View style={styles.buyButton}>
+                  <Ionicons name="cart-outline" size={13} color="#fff" />
+                  <Text
+                    style={{ color: '#fff', fontSize: 11, fontWeight: '600' }}
+                  >
+                    Comprar
+                  </Text>
+                </View>
                 <Text style={styles.priceTagText}>
                   R$ {finalPrice.toFixed(2).replace('.', ',')}
                 </Text>
@@ -81,23 +151,28 @@ export function MobileVideoCard({ content, featured = false, layout = 'horizonta
                     R$ {price.toFixed(2).replace('.', ',')}
                   </Text>
                 )}
-
               </View>
             ) : null}
           </View>
+          <Text numberOfLines={1} style={styles.meta}>
+            {content.creator}
+          </Text>
+
+          <Text style={styles.meta}>{content.views}</Text>
         </View>
-      </Pressable>
+      </View>
+    </Pressable>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     gap: spacing.md,
-    marginBottom: spacing.xxl,
+    marginBottom: 24,
     marginHorizontal: 0,
   },
   thumbnail: {
-    borderRadius: 0,
+    borderRadius: 12,
     overflow: 'hidden',
   },
   thumbnailImage: {
@@ -118,16 +193,31 @@ const styles = StyleSheet.create({
     fontSize: typography.label,
     fontWeight: typography.weightBold,
   },
+  newBadge: {
+    position: 'absolute',
+    top: 8,
+    left: 8,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 4,
+  },
   accessPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.1)',
     borderRadius: radius.xs,
-    left: spacing.sm,
+    right: spacing.sm,
     paddingHorizontal: spacing.sm,
     paddingVertical: spacing.xs,
     position: 'absolute',
     top: spacing.sm,
   },
   accessText: {
-    color: '#000',
+    color: '#fff',
     fontSize: typography.label,
     fontWeight: typography.weightBlack,
     textTransform: 'uppercase',
@@ -135,7 +225,7 @@ const styles = StyleSheet.create({
   metaRow: {
     flexDirection: 'row',
     gap: spacing.md,
-    paddingHorizontal: 16,
+    paddingHorizontal: 0,
   },
   avatar: {
     alignItems: 'center',
@@ -162,7 +252,7 @@ const styles = StyleSheet.create({
   title: {
     color: colors.text || '#FFF',
     fontSize: 15,
-    fontWeight: typography.weightBold,
+    fontWeight: '600',
     lineHeight: 21,
   },
   featuredTitle: {
@@ -174,9 +264,18 @@ const styles = StyleSheet.create({
     fontSize: typography.caption,
     fontWeight: typography.weightMedium,
   },
-  priceTagRow: {
+  buyButton: {
+    backgroundColor: colors.accent,
+    borderRadius: 6,
+    paddingHorizontal: 9,
+    paddingVertical: 6,
     flexDirection: 'row',
     alignItems: 'center',
+    gap: 5,
+  },
+  priceTagRow: {
+    alignItems: 'flex-end',
+    flexDirection: 'column',
     marginTop: 2,
     gap: 4,
   },

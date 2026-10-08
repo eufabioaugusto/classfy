@@ -1,11 +1,17 @@
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
-import React, { useEffect, useState } from 'react';
-import { FlatList, Image, Pressable, StyleSheet, Text, View } from 'react-native';
+import React from 'react';
+import {
+  FlatList,
+  Image,
+  Pressable,
+  StyleSheet,
+  Text,
+  View,
+  useWindowDimensions,
+} from 'react-native';
 
-import { useAuth } from '@/features/auth/authContext';
-import { supabase } from '@/lib/supabase';
 import { colors } from '@/theme/colors';
 import { radius } from '@/theme/radius';
 import { spacing } from '@/theme/spacing';
@@ -31,71 +37,8 @@ type FeaturedCreatorsProps = {
 
 export function FeaturedCreators({ creators }: FeaturedCreatorsProps) {
   const router = useRouter();
-  const { user } = useAuth();
-  const [followedIds, setFollowedIds] = useState<string[]>([]);
-
-  useEffect(() => {
-    if (!user) {
-      setFollowedIds([]);
-      return;
-    }
-    fetchFollows();
-  }, [user]);
-
-  const fetchFollows = async () => {
-    try {
-      const { data, error } = await supabase
-        .from('follows')
-        .select('following_id')
-        .eq('follower_id', user?.id);
-
-      if (!error && data) {
-        setFollowedIds(data.map((f: any) => f.following_id));
-      }
-    } catch (e) {
-      console.error('Error fetching follows:', e);
-    }
-  };
-
-  const handleFollowToggle = async (creatorId: string) => {
-    if (!user) {
-      router.push('/auth/sign-in' as any);
-      return;
-    }
-
-    const isFollowing = followedIds.includes(creatorId);
-    if (isFollowing) {
-      // Optimistic state update
-      setFollowedIds((prev) => prev.filter((id) => id !== creatorId));
-      try {
-        await supabase
-          .from('follows')
-          .delete()
-          .eq('follower_id', user.id)
-          .eq('following_id', creatorId);
-      } catch (e) {
-        console.error('Failed to unfollow:', e);
-      }
-    } else {
-      // Optimistic state update
-      setFollowedIds((prev) => [...prev, creatorId]);
-      try {
-        const { error } = await supabase
-          .from('follows')
-          .insert({
-            follower_id: user.id,
-            following_id: creatorId,
-          });
-        if (error) throw error;
-        await supabase.functions.invoke('process-reward', {
-          body: { actionKey: 'SUBSCRIBE_CREATOR', userId: user.id, metadata: { creatorId } },
-        });
-      } catch (e) {
-        console.error('Failed to follow:', e);
-      }
-    }
-  };
-
+  const { width } = useWindowDimensions();
+  const cardWidth = (width - 32 - spacing.md) / 1.5;
   const handlePress = (creator: FeaturedCreator) => {
     if (creator.slug) {
       router.push(`/creator/featured/${creator.slug}` as any);
@@ -110,6 +53,9 @@ export function FeaturedCreators({ creators }: FeaturedCreatorsProps) {
 
   return (
     <View style={styles.container}>
+      <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 6 }}>
+        Seleção Classfy
+      </Text>
       <Text style={styles.sectionTitle}>Creators em Destaque</Text>
       <FlatList
         horizontal
@@ -117,23 +63,34 @@ export function FeaturedCreators({ creators }: FeaturedCreatorsProps) {
         keyExtractor={(item) => item.id}
         showsHorizontalScrollIndicator={false}
         contentContainerStyle={styles.listContent}
-        snapToInterval={200 + spacing.md} // matches width + gap for clean pagination snapping
+        snapToInterval={cardWidth + spacing.md} // matches width + gap for clean pagination snapping
         decelerationRate="fast"
         renderItem={({ item }) => {
-          const isFollowing = followedIds.includes(item.creator_id);
-
           return (
-            <Pressable onPress={() => handlePress(item)} style={styles.card}>
+            <Pressable
+              onPress={() => handlePress(item)}
+              style={[
+                styles.card,
+                { width: cardWidth, height: (cardWidth * 5) / 3 },
+              ]}
+            >
               {/* Background Cover Image */}
               {item.background_image_url ? (
-                <Image source={{ uri: item.background_image_url }} style={styles.backgroundImage} />
+                <Image
+                  source={{ uri: item.background_image_url }}
+                  style={styles.backgroundImage}
+                />
               ) : (
                 <View style={styles.fallbackBackground} />
               )}
 
               {/* Dark Cinematic Gradient Overlay (transparent at top, dark at bottom/footer) */}
               <LinearGradient
-                colors={['transparent', 'rgba(0, 0, 0, 0.25)', 'rgba(0, 0, 0, 0.7)']}
+                colors={[
+                  'transparent',
+                  'rgba(0, 0, 0, 0.25)',
+                  'rgba(0, 0, 0, 0.7)',
+                ]}
                 locations={[0.0, 0.45, 0.75]}
                 style={StyleSheet.absoluteFillObject}
               />
@@ -143,29 +100,6 @@ export function FeaturedCreators({ creators }: FeaturedCreatorsProps) {
                 <View style={styles.badge}>
                   <Text style={styles.badgeText}>{item.badge_text}</Text>
                 </View>
-              ) : null}
-
-              {/* Top Right Follow Button */}
-              {item.creator_id ? (
-                <Pressable
-                  onPress={(e) => {
-                    e.stopPropagation();
-                    handleFollowToggle(item.creator_id);
-                  }}
-                  style={[
-                    styles.followBadge,
-                    isFollowing && styles.followBadgeActive
-                  ]}
-                >
-                  <Ionicons
-                    name={isFollowing ? 'checkmark-sharp' : 'add-sharp'}
-                    size={10}
-                    color="#fff"
-                  />
-                  <Text style={[styles.followBadgeText, isFollowing && styles.followBadgeTextActive]}>
-                    {isFollowing ? 'Seguindo' : 'Seguir'}
-                  </Text>
-                </Pressable>
               ) : null}
 
               {/* Main Center Content */}
@@ -190,10 +124,18 @@ export function FeaturedCreators({ creators }: FeaturedCreatorsProps) {
                 </Text>
 
                 {/* Duration with Clock Icon */}
-                <View style={styles.durationRow}>
-                  <Ionicons name="time-outline" size={14} color="rgba(255, 255, 255, 0.8)" />
-                  <Text style={styles.durationText}>{item.total_duration}</Text>
-                </View>
+                {item.total_duration ? (
+                  <View style={styles.durationRow}>
+                    <Ionicons
+                      name="time-outline"
+                      size={14}
+                      color="rgba(255, 255, 255, 0.8)"
+                    />
+                    <Text style={styles.durationText}>
+                      {item.total_duration}
+                    </Text>
+                  </View>
+                ) : null}
               </View>
             </Pressable>
           );

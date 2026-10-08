@@ -1,3 +1,4 @@
+import { calculateContentScore } from '@/features/home/ranking';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from '@/lib/supabase';
 
@@ -182,41 +183,4 @@ export function boostContentList(contents: any[], topInterests: string[]): any[]
     const bScore = calculateContentScore(b, topInterests);
     return bScore - aScore; // Highest score goes first
   });
-}
-
-function calculateContentScore(content: any, topInterests: string[]): number {
-  let score = 0;
-  if (!content) return score;
-
-  const title = (content.title || '').toLowerCase();
-  const description = (content.description || '').toLowerCase();
-  const categoryId = (content.category_id || '').toLowerCase();
-  
-  let tags: string[] = [];
-  if (Array.isArray(content.tags)) {
-    tags = content.tags.map((t: string) => t.toLowerCase());
-  } else if (typeof content.tags === 'string') {
-    tags = content.tags.split(',').map((t: string) => t.toLowerCase().trim());
-  }
-
-  topInterests.forEach((interest, index) => {
-    const cleanInterest = interest.toLowerCase();
-    // Rank boost: earlier interests in list (highest scores) get higher multiplier
-    const multiplier = Math.max(1, 5 - index);
-
-    if (title.includes(cleanInterest)) {
-      score += 10 * multiplier;
-    }
-    if (description.includes(cleanInterest)) {
-      score += 3 * multiplier;
-    }
-    if (categoryId === cleanInterest) {
-      score += 12 * multiplier;
-    }
-    if (tags.includes(cleanInterest)) {
-      score += 8 * multiplier;
-    }
-  });
-
-  return score;
 }

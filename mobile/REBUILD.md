@@ -15,7 +15,7 @@ Classy e conquistas continuam sendo parte da identidade Classfy.
 
 ## Primeira entrega local
 
-Início com catálogo real e cartões virtualizados individualmente; filtros;
+Início com catálogo real, hierarquia editorial do web e cartões virtualizados;
 atualização ao puxar; busca dedicada; navegação inferior fixa; área Você com
 biblioteca/conta; abertura guiada pela sessão, sem espera decorativa.
 
@@ -24,7 +24,7 @@ fontes de playback. Conteúdos e cursos autenticados são carregados separadamen
 falha em um preserva o outro. Cards passam a decisão de acesso para Watch;
 visitantes entram pelo login, com destino de conteúdo preservado.
 
-Creators continuam acessíveis por uma faixa compacta depois do catálogo. O
+Creators aparecem depois do Hero, em carrossel vertical com um card e meio. O menu junto ao wordmark abre o sidebar global. O
 painel anterior de perfil/progresso foi preservado em `/profile-progress`.
 Mensagens mantêm contador de não lidas. Continue de onde parou recarrega ao
 retornar à tela e limpa dados na troca de usuário.
@@ -39,7 +39,7 @@ retornar à tela e limpa dados na troca de usuário.
 | Watch e miniplayer | Sessão única com expo-video, miniplayer com pausa/fechar/retorno, posição/velocidade preservadas e fullscreen centralizado; QA nativo com vídeo HLS público |
 | Resolução de mídia | `video-playback` resolve media_asset_id após acesso autorizado, incluindo aulas de curso; validar fontes reais autenticadas e renovação de links expirados |
 | Progresso e recompensas | Contratos `record_content_progress_v2` / `record_course_lesson_progress_v1` do web; retomada separada de tempo observado, feedback por recibos do servidor e reversão econômica; QA econômico com contas reais pendente |
-| Classy e estudo | Removida persistência duplicada de chat; contexto de aula/curso e transcrição pendente alinhados; quiz usa plano real. Redesign completo do chat e modos/referências da barra global seguem para próxima rodada |
+| Classy e estudo | Removida persistência duplicada de chat; contexto de aula/curso e transcrição pendente alinhados; quiz usa plano real. Barra global nativa com SVG da menininha do web, estudos existentes, conversa, modos e referências implementados; ditado e seleção visual de elementos pendentes |
 | Shorts, podcasts e lives | Revisar experiência e suporte por formato; não considerar aprovados só por existir rota |
 | Mensagens e notificações | Conferir sincronização, retorno de push e estados de leitura; Expo Push preservado |
 | Compra/plano e distribuição | Validar conclusão/retorno e definir fluxo de cada plataforma antes de publicação |
@@ -49,6 +49,7 @@ retornar à tela e limpa dados na troca de usuário.
 
 - `npm run typecheck`
 - `npm run check:dependencies`
+- `npm run test:home` (hierarquia, sessão e ranking por interesses/views)
 - `npm run test:catalog` (Node 22.18+ / 24; regras de normalização e feed)
 - `npm run test:playback` (retomada, seeks, pausa/background, velocidade e IDs de sessão)
 - `npm run test:rewards` (recibos antes da montagem, deduplicação, conta e expiração)
@@ -61,8 +62,8 @@ reprodução HLS, minimizar/expandir, pausa preservada, avanço de posição e f
 com faixas simétricas; a saída do app pausou a sessão. Builds iOS para simulador e
 iPhone foram compiladas e instaladas. O teste de reprodução não escreveu progresso
 ou Points. O fluxo autenticado de compra, cursos, Classy e economia continua pendente.
-A entrega local está pronta para a primeira revisão visual do Fabio. Doze testes
-automatizados passaram (4 catálogo, 5 playback, 3 recibos). Exportação de
+A entrega local está pronta para a primeira revisão visual do Fabio. Dezesseis testes
+automatizados passaram (4 Home, 4 catálogo, 5 playback, 3 recibos). Exportação de
 JavaScript não substitui uma build instalada nem valida esses fluxos.
 
 Desenvolvimento local em branch isolada. Nenhum push, deploy ou publicação nas
@@ -87,3 +88,15 @@ lojas faz parte dessa primeira entrega.
 
 Referências técnicas: [Expo Video SDK 54](https://docs.expo.dev/versions/v54.0.0/sdk/video/)
 e [streams públicos de teste da Mux](https://test-streams.mux.dev/).
+
+## Feedback visual de 08/10/2026
+
+- Wordmark segue família do sistema, peso e espaçamento do web; símbolo vermelho removido. Sidebar anterior restaurado globalmente, com menu junto ao logo.
+- Home: Hero editorial → lives quando houver → creators → aviso de aprovação de creator quando aplicável → continue assistindo → Para você (autenticado) → entrada para estudo → Em Alta → coleção Premium → podcasts → shorts → cursos → exclusivos pagos → PRO. Seções vazias são ocultadas.
+- Pesos de personalização e sequência conferidos em `src/pages/Index.tsx` e `src/lib/personalization/interests.ts`. Seções padrão limitam a seis itens, com Ver todos; shorts a quatro, como web mobile.
+- Cards retomam thumbnails arredondadas, avatar, creator/views separados, coroas PRO/Premium, duração e aulas; grid de duas colunas para podcasts/shorts. Creators verticais mostram um card e meio.
+- Hero usa `home_hero_settings`, fallback original e destinos editoriais mapeados para rotas nativas existentes. Destinos sem tela mobile usam o web; lives e Studio ainda abrem o web.
+- Classy flutuante global usa o SVG original da menininha; painel escolhe/cria/abre estudos, conversa contextual via `classy-chat`, /modos, @referências de conteúdos/estudos, fontes, transcrição e salvar anotações. Mensagens são persistidas pelo backend, sem duplicar inserts. Barra fica acima das abas/miniplayer e é ocultada em fullscreen/autenticação.
+- Container de listas sem ScrollView limitado com `flex: 1`, respeitando altura disponível.
+- QA: Hero, logo, sidebar, painel da Classy e estado visitante observados no simulador. TypeScript, 16 testes e exportação iOS aprovados; Classfy Dev aberto no iPhone pelo developer CLI. Sem inspeção visual do aparelho nesta rodada e sem conversa autenticada, ditado, seleção de elementos, compras, Points ou Android.
+- App web, backend, dependências nativas e Expo Push preservados. Sem push/deploy.

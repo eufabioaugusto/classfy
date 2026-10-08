@@ -36,7 +36,7 @@ export function AppScreen({
   };
 
   if (!scroll) {
-    const nonScrollStyle = edgeToEdge ? styles.edgeContent : styles.nonScrollContent;
+    const nonScrollStyle = edgeToEdge ? styles.nonScrollEdgeContent : styles.nonScrollContent;
     return (
       <SafeAreaView edges={['top', 'left', 'right']} style={safeStyle}>
         <View style={nonScrollStyle}>{children}</View>
@@ -74,6 +74,10 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingHorizontal: spacing.lg,
     paddingTop: spacing.md,
+  },
+  nonScrollEdgeContent: {
+    flex: 1,
+    paddingTop: 0,
   },
   edgeContent: {
     flexGrow: 1,

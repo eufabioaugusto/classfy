@@ -1,5 +1,11 @@
 export type HomeContent = {
   id: string;
+  viewsCount?: number;
+  durationSeconds?: number | null;
+  lessonCount?: number | null;
+  publishedAt?: string | null;
+  tags?: string[] | string | null;
+  category_id?: string | null;
   title: string;
   creator: string;
   views: string;

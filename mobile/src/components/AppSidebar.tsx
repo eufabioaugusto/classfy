@@ -458,7 +458,7 @@ export function AppSidebar() {
                     </View>
                     <Text style={styles.limitSubtitle}>
                       Arquive estudos ou{' '}
-                      <Text style={styles.upgradeLink} onPress={() => showPlaceholder('Upgrade')}>
+                      <Text style={styles.upgradeLink} onPress={() => navigateTo('/premium')}>
                         faça upgrade
                       </Text>{' '}
                       para continuar.
@@ -479,7 +479,7 @@ export function AppSidebar() {
                 styles.upgradeCard,
                 pressed && styles.upgradeCardPressed,
               ]}
-              onPress={() => showPlaceholder('Upgrade')}
+              onPress={() => navigateTo('/premium')}
             >
               <View style={styles.upgradeTextContainer}>
                 <Text style={styles.upgradeTitle}>Fazer upgrade</Text>
