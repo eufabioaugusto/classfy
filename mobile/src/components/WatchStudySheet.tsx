@@ -39,6 +39,7 @@ type WatchStudySheetProps = {
   contentTitle: string;
   isCourse?: boolean;
   lessonId?: string | null;
+  lessonContentId?: string | null;
   getCurrentPosition: () => number;
   onSeekTo: (seconds: number) => void;
   onClose: () => void;
@@ -84,6 +85,7 @@ export function WatchStudySheet({
   contentTitle,
   isCourse = false,
   lessonId = null,
+  lessonContentId = null,
   getCurrentPosition,
   onSeekTo,
   onClose,
@@ -289,7 +291,7 @@ export function WatchStudySheet({
       const { data, error } = await supabase
         .from('transcriptions')
         .select('text')
-        .eq('content_id', contentId)
+        .eq(isCourse ? 'lesson_id' : 'content_id', isCourse ? lessonId : contentId)
         .maybeSingle();
 
       if (!error && data) {
@@ -302,7 +304,7 @@ export function WatchStudySheet({
     } finally {
       setTranscriptLoading(false);
     }
-  }, [contentId]);
+  }, [contentId, lessonId, isCourse]);
 
   const fetchSuggestions = useCallback(async () => {
     if (!contentId) return;
@@ -507,45 +509,31 @@ export function WatchStudySheet({
         body: {
           studyId: activeStudyId,
           message: userMsgText,
-          activeContentId: contentId,
+          activeContentId: isCourse ? lessonContentId : contentId,
+          references: isCourse && lessonId ? [{ type: 'lesson', id: lessonId }] : [{ type: 'content', id: contentId }],
+          pageContext: `Watch: ${contentTitle}; reprodução em ${Math.floor(getCurrentPosition())}s`,
           currentVideoTime: Math.floor(getCurrentPosition()),
           user_interests: topInterests,
           user_difficulties: activeDifficulties,
         },
       });
 
-      if (aiError) throw aiError;
+      if (aiError || aiData?.error) throw aiError || new Error(aiData.message || 'Não foi possível falar com a Classy.');
 
+      if (aiData.contextPending) { setChatInput(userMsgText); setChatMessages(prev => prev.filter(message => message.id !== optimisticUserMsg.id)); Alert.alert('Preparando o contexto', aiData.message || 'A transcrição desta aula ainda está sendo preparada. Tente novamente em instantes.'); return; }
       if (aiData.limitReached) {
+        setChatInput(userMsgText); setChatMessages(prev => prev.filter(message => message.id !== optimisticUserMsg.id));
         Alert.alert('Limite atingido', 'Você atingiu o limite de envios do seu plano.');
         setChatSending(false);
         return;
       }
 
-      await supabase.from('study_messages').insert({
-        study_id: activeStudyId,
-        role: 'user',
-        content: userMsgText,
-        metadata: {},
-      });
-
-      const assistantMessage = {
-        study_id: activeStudyId,
-        role: 'assistant',
-        content: aiData.message,
-        metadata: {
-          active_mode: aiData.studyState?.active_mode || 'explain',
-          follow_up_suggestions: aiData.suggestions || [],
-          citations: aiData.citations || [],
-        },
-        related_contents: aiData.relatedContents || null,
-      };
-      await supabase.from('study_messages').insert(assistantMessage);
-
+      // classy-chat already persists both messages, as in the current web client.
       fetchStudyMessages();
 
     } catch (e) {
-      console.error('Error sending study message in watch sheet:', e);
+      setChatInput(userMsgText);
+      setChatMessages(prev => prev.filter(message => message.id !== optimisticUserMsg.id));
       Alert.alert('Erro', 'Não foi possível enviar a mensagem.');
     } finally {
       setChatSending(false);
@@ -613,7 +601,7 @@ export function WatchStudySheet({
     setGeneratingTranscript(true);
     try {
       const { error } = await supabase.functions.invoke('transcribe-content', {
-        body: { contentId },
+        body: isCourse && lessonId ? { lessonId } : { contentId },
       });
 
       if (!error) {
@@ -632,9 +620,10 @@ export function WatchStudySheet({
   const handleGenerateQuiz = async () => {
     setQuizLoading(true);
     try {
-      // studyId can equal contentId for standalone watch quiz
+      if (isCourse && !lessonContentId) { Alert.alert('Quiz indisponível', 'Esta aula ainda não possui um conteúdo vinculado para gerar o quiz. Você pode estudá-la com a Classy.'); return; }
+      if (!activeStudyId) { setActiveTab('classy'); Alert.alert('Escolha um plano', 'Crie ou selecione um plano de estudo para guardar seu quiz.'); return; }
       const { data, error } = await supabase.functions.invoke('generate-quiz', {
-        body: { studyId: contentId, contentId },
+        body: { studyId: activeStudyId, contentId: isCourse ? lessonContentId : contentId },
       });
 
       if (!error && data && data.questions) {
@@ -684,7 +673,7 @@ export function WatchStudySheet({
 
     const timeSpent = quizStartTime ? Math.floor((Date.now() - quizStartTime) / 1000) : 0;
     try {
-      await supabase.from('quiz_attempts').insert({
+      const { error } = await supabase.from('quiz_attempts').insert({
         quiz_id: quiz.id,
         user_id: user?.id,
         answers,
@@ -693,6 +682,7 @@ export function WatchStudySheet({
         time_spent_seconds: timeSpent,
       });
 
+      if (error) throw error;
       // Register learning difficulty if score percentage is low
       const scorePercentage = (quizScore / quiz.questions.length) * 100;
       if (scorePercentage < 70) {
@@ -700,7 +690,8 @@ export function WatchStudySheet({
         registerDifficulty(user?.id, contentTitle, detail);
       }
     } catch (err) {
-      console.error('Error saving quiz attempt:', err);
+      setQuizCompleted(false);
+      Alert.alert('Quiz não sincronizado', 'Não foi possível salvar o resultado. Tente concluir novamente.');
     }
   };
 
@@ -1173,9 +1164,9 @@ export function WatchStudySheet({
         >
           <View style={styles.noStudyContainer}>
             <Ionicons name="sparkles-outline" color={colors.accent} size={44} style={{ marginBottom: spacing.md }} />
-            <Text style={styles.noStudyTitle}>Ativar Inteligência Artificial</Text>
+            <Text style={styles.noStudyTitle}>Aprenda com a Classy</Text>
             <Text style={styles.noStudyDesc}>
-              A Classy IA precisa de um plano de estudo para guiar suas dúvidas e registrar seu progresso.
+              Tire dúvidas sobre esta aula e acompanhe seu aprendizado em um plano de estudo.
             </Text>
 
             {/* Quick Create Button */}
@@ -1192,7 +1183,7 @@ export function WatchStudySheet({
               ) : (
                 <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                   <Ionicons name="flash-outline" size={16} color={colors.background} style={{ marginRight: 6 }} />
-                  <Text style={styles.quickCreateBtnText}>Criar Plano para esta Aula</Text>
+                  <Text style={styles.quickCreateBtnText}>Estudar esta aula com a Classy</Text>
                 </View>
               )}
             </Pressable>

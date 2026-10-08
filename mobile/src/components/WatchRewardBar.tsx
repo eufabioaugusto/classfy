@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
-import { View, Text, Pressable, StyleSheet, Animated, Easing } from 'react-native';
+import { View, Text, Pressable, StyleSheet, Animated, Easing, DeviceEventEmitter } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 
+import { REWARDS_CHANGED } from '@/features/rewards/events';
 import { useAuth } from '@/features/auth/authContext';
 import { supabase } from '@/lib/supabase';
 import { fetchStudyJourneySummary, toShortTitle, type StudyJourneySummary } from '@/lib/study/getStudyJourneySummary';
@@ -271,6 +272,14 @@ function PointsModeBar({
   useEffect(() => {
     if (!userId || !contentId) return;
     loadRewards(true);
+  }, [userId, contentId]);
+
+  useEffect(() => {
+    if (!userId || !contentId) return;
+    const subscription = DeviceEventEmitter.addListener(REWARDS_CHANGED, event => {
+      if (event.userId === userId && (!event.contentId || event.contentId === contentId)) void loadRewards(false);
+    });
+    return () => subscription.remove();
   }, [userId, contentId]);
 
   // React to milestone changes

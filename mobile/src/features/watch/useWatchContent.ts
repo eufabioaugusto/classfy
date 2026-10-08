@@ -19,6 +19,7 @@ export type WatchContent = {
   description: string | null;
   thumbnail_url: string | null;
   file_url: string | null;
+  media_asset_id: string | null;
   visibility: Visibility;
   price: number | null;
   duration_seconds: number | null;
@@ -47,6 +48,7 @@ type WatchRow = {
   description?: string | null;
   thumbnail_url?: string | null;
   file_url?: string | null;
+  media_asset_id?: string | null;
   visibility?: string | null;
   price?: number | null;
   duration_seconds?: number | null;
@@ -86,6 +88,7 @@ function normalizeContent(data: WatchRow): WatchContent {
     description: data.description ?? null,
     thumbnail_url: data.thumbnail_url ?? null,
     file_url: data.file_url ?? null,
+    media_asset_id: data.media_asset_id ?? null,
     visibility: normalizeVisibility(data.visibility),
     price: data.price ?? null,
     duration_seconds: data.duration_seconds ?? null,
@@ -109,6 +112,7 @@ function normalizeCourse(data: WatchRow): WatchContent {
     description: data.description ?? null,
     thumbnail_url: data.thumbnail_url ?? null,
     file_url: null,
+    media_asset_id: null,
     visibility: normalizeVisibility(data.visibility),
     price: data.price ?? null,
     duration_seconds: data.total_duration_seconds ?? null,
@@ -224,7 +228,7 @@ export function useWatchContent(contentId?: string) {
       const [contentResult, courseResult] = await Promise.all([
         supabase
           .from('contents')
-          .select('id,content_type,title,description,file_url,thumbnail_url,visibility,price,duration_seconds,views_count,likes_count,status,creator_id,category_id,created_at,tags,creator:profiles!creator_id(id,display_name,avatar_url,creator_channel_name)')
+          .select('id,content_type,title,description,file_url,media_asset_id,thumbnail_url,visibility,price,duration_seconds,views_count,likes_count,status,creator_id,category_id,created_at,tags,creator:profiles!creator_id(id,display_name,avatar_url,creator_channel_name)')
           .eq('id', contentId)
           .maybeSingle(),
         supabase
@@ -270,13 +274,7 @@ export function useWatchContent(contentId?: string) {
         if (mounted) setFollowersCount(count || 0);
       }
 
-      if (user && nextAccess.hasAccess) {
-        const fn = nextContent.isCourse ? 'increment_course_view' : 'increment_content_view';
-        const params = nextContent.isCourse
-          ? { p_user_id: user.id, p_course_id: nextContent.id }
-          : { p_user_id: user.id, p_content_id: nextContent.id };
-        supabase.rpc(fn, params).then(() => {});
-      }
+
     }
 
     load();

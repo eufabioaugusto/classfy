@@ -591,39 +591,23 @@ export default function StudyScreen() {
         },
       });
 
-      if (aiError) throw aiError;
+      if (aiError || aiData?.error) throw aiError || new Error(aiData.message || 'Não foi possível falar com a Classy.');
 
+      if (aiData.contextPending) { setInput(resolvedMessage); setMessages(prev => prev.filter(message => message.id !== optimisticMessage.id)); Alert.alert('Preparando o contexto', aiData.message || 'Tente novamente quando a transcrição estiver pronta.'); return; }
       if (aiData.limitReached) {
+        setInput(resolvedMessage); setMessages(prev => prev.filter(message => message.id !== optimisticMessage.id));
         Alert.alert('Limite atingido', 'Você atingiu o limite de envios do seu plano.');
         setSending(false);
         return;
       }
 
-      // 3. Persist user message
-      await supabase.from('study_messages').insert({
-        study_id: selectedStudyId,
-        role: 'user',
-        content: resolvedMessage,
-      });
-
-      // 4. Persist assistant message
-      await supabase.from('study_messages').insert({
-        study_id: selectedStudyId,
-        role: 'assistant',
-        content: aiData.message,
-        metadata: {
-          active_mode: aiData.studyState?.active_mode || 'explain',
-          follow_up_suggestions: aiData.suggestions || [],
-          citations: aiData.citations || [],
-        },
-        related_contents: aiData.relatedContents || null,
-      });
-
+      // The current server contract persists the conversation.
       // Reload fresh chat list
       loadStudyChat(selectedStudyId);
 
     } catch (e) {
-      console.error('Error sending study message:', e);
+      setInput(resolvedMessage);
+      setMessages(prev => prev.filter(message => message.id !== optimisticMessage.id));
       Alert.alert('Erro', 'Houve um problema de conexão com a Classy IA.');
     } finally {
       setSending(false);

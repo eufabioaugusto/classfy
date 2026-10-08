@@ -8,6 +8,7 @@ import { ActivityIndicator, Text, View } from 'react-native';
 import { MobileMiniPlayer } from '@/components/MobileMiniPlayer';
 import { AuthProvider } from '@/features/auth/AuthProvider';
 import { useAuth } from '@/features/auth/authContext';
+import { RewardFeedback } from '@/components/RewardFeedback';
 import { MiniPlayerProvider } from '@/features/watch/MiniPlayerProvider';
 import { colors } from '@/theme/tokens';
 import { initMobileMediaMonitor } from '@/lib/mediaMonitor';
@@ -68,6 +69,7 @@ export default function RootLayout() {
               />
             </Stack>
             <MobileMiniPlayer />
+            <RewardFeedback />
             <GlobalNotificationToastListener />
           </View>
         </MiniPlayerProvider>

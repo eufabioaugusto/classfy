@@ -1,12 +1,16 @@
 import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
 import { Feather, Ionicons } from '@expo/vector-icons';
-import { Audio, AVPlaybackStatus, ResizeMode, Video } from 'expo-av';
+import { VideoView } from 'expo-video';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useMiniPlayer, MiniPlayerContent } from '@/features/watch/miniPlayerContext';
 import { Animated, GestureResponderEvent, Image, LayoutChangeEvent, Modal, Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 
 import { colors } from '@/theme/colors';
 import { radius } from '@/theme/radius';
 import { spacing } from '@/theme/spacing';
 import { typography } from '@/theme/typography';
+
+export type ClassfyPlaybackStatus = { isLoaded: boolean; positionMillis: number; durationMillis: number; isPlaying: boolean };
 
 export type ClassfyVideoPlayerRef = {
   seekTo: (seconds: number) => Promise<void>;
@@ -15,13 +19,14 @@ export type ClassfyVideoPlayerRef = {
 
 type ClassfyVideoPlayerProps = {
   src: string;
+  session: MiniPlayerContent;
   poster?: string | null;
   title: string;
   creatorName?: string | null;
   onMinimize?: () => void;
   onNotesPress?: () => void;
   onPlaybackPosition?: (positionSeconds: number) => void;
-  onStatusUpdate?: (status: AVPlaybackStatus) => void;
+  onStatusUpdate?: (status: ClassfyPlaybackStatus) => void;
   isFullscreen?: boolean;
   onFullscreenToggle?: (fullscreen: boolean) => void;
   playbackRate?: number;
@@ -56,6 +61,7 @@ function formatCount(value?: number | null) {
 
 export const ClassfyVideoPlayer = forwardRef<ClassfyVideoPlayerRef, ClassfyVideoPlayerProps>(({
   src,
+  session,
   poster,
   title,
   creatorName,
@@ -78,20 +84,15 @@ export const ClassfyVideoPlayer = forwardRef<ClassfyVideoPlayerRef, ClassfyVideo
   onSharePress,
   onStudyPress,
 }, ref) => {
-  const videoRef = useRef<Video>(null);
-
-  useImperativeHandle(ref, () => ({
-    seekTo: async (seconds: number) => {
-      const status = await videoRef.current?.getStatusAsync();
-      if (status?.isLoaded) {
-        await videoRef.current?.setPositionAsync(seconds * 1000);
-        setPositionMillis(seconds * 1000);
-      }
-    },
-    getCurrentPosition: () => {
-      return positionMillis / 1000;
-    },
-  }));
+  const playback = useMiniPlayer();
+  const { player, attach, seek } = playback;
+  const isPlaying = playback.playing;
+  const positionMillis = playback.position * 1000;
+  const durationMillis = playback.duration * 1000;
+  const hasStartedPlaying = playback.position > 0 || playback.playing;
+  useEffect(() => { void attach({ ...session, fileUrl: src }); }, [session.id, session.lessonId, session.studyId, src, attach]);
+  useEffect(() => () => playback.startMiniPlayer(session), [session.id, session.lessonId]);
+  useImperativeHandle(ref, () => ({ seekTo: async (seconds) => seek(seconds), getCurrentPosition: () => player.currentTime }), [player, seek]);
   const controlsTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const singleTapTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const controlsOpacity = useRef(new Animated.Value(1)).current;
@@ -99,20 +100,9 @@ export const ClassfyVideoPlayer = forwardRef<ClassfyVideoPlayerRef, ClassfyVideo
   const lastRightTapRef = useRef(0);
   const [showControls, setShowControls] = useState(true);
   const [controlsVisible, setControlsVisible] = useState(true);
-  const [isPlaying, setIsPlaying] = useState(false);
-  const [hasStartedPlaying, setHasStartedPlaying] = useState(false);
-  const [positionMillis, setPositionMillis] = useState(0);
-  const [durationMillis, setDurationMillis] = useState(0);
   const [progressWidth, setProgressWidth] = useState(0);
 
   useEffect(() => {
-    Audio.setAudioModeAsync({
-      allowsRecordingIOS: false,
-      playsInSilentModeIOS: true,
-      shouldDuckAndroid: true,
-      staysActiveInBackground: false,
-    }).catch(() => {});
-
     return () => {
       if (controlsTimerRef.current) clearTimeout(controlsTimerRef.current);
       if (singleTapTimerRef.current) clearTimeout(singleTapTimerRef.current);
@@ -159,34 +149,13 @@ export const ClassfyVideoPlayer = forwardRef<ClassfyVideoPlayerRef, ClassfyVideo
     });
   };
 
-  const togglePlay = async () => {
-    if (!hasStartedPlaying) {
-      setHasStartedPlaying(true);
-      setIsPlaying(true);
-      setShowControls(true);
-      resetControlsTimer(true);
-      return;
-    }
-    const status = await videoRef.current?.getStatusAsync();
-    if (!status?.isLoaded) return;
-    if (status.isPlaying) {
-      await videoRef.current?.pauseAsync();
-      setIsPlaying(false);
-      if (controlsTimerRef.current) clearTimeout(controlsTimerRef.current);
-    } else {
-      await videoRef.current?.playAsync();
-      setIsPlaying(true);
-    }
+  const togglePlay = () => {
+    playback.togglePlay();
     setShowControls(true);
-    resetControlsTimer(!status.isPlaying);
+    resetControlsTimer(!isPlaying);
   };
-
-  const seekBy = async (deltaMillis: number) => {
-    const status = await videoRef.current?.getStatusAsync();
-    if (!status?.isLoaded) return;
-    const nextPosition = Math.max(0, Math.min((status.durationMillis || 0), status.positionMillis + deltaMillis));
-    await videoRef.current?.setPositionAsync(nextPosition);
-    setPositionMillis(nextPosition);
+  const seekBy = (deltaMillis: number) => {
+    seek((positionMillis + deltaMillis) / 1000);
     setShowControls(true);
     resetControlsTimer();
   };
@@ -199,8 +168,7 @@ export const ClassfyVideoPlayer = forwardRef<ClassfyVideoPlayerRef, ClassfyVideo
     if (!durationMillis || !progressWidth) return;
     const locationX = Math.max(0, Math.min(progressWidth, event.nativeEvent.locationX));
     const nextPosition = Math.round((locationX / progressWidth) * durationMillis);
-    videoRef.current?.setPositionAsync(nextPosition).catch(() => {});
-    setPositionMillis(nextPosition);
+    seek(nextPosition / 1000);
     setShowControls(true);
     resetControlsTimer();
   };
@@ -225,8 +193,10 @@ export const ClassfyVideoPlayer = forwardRef<ClassfyVideoPlayerRef, ClassfyVideo
   };
 
   useEffect(() => {
-    if (videoRef.current) {
-      videoRef.current.setRateAsync(playbackRate, true).catch(() => {});
+    if (player.playbackRate !== playbackRate) {
+      const wasPlaying = player.playing;
+      player.playbackRate = playbackRate;
+      if (!wasPlaying) player.pause();
     }
     setShowControls(true);
     resetControlsTimer();
@@ -236,39 +206,30 @@ export const ClassfyVideoPlayer = forwardRef<ClassfyVideoPlayerRef, ClassfyVideo
     onFullscreenToggle?.(!isFullscreen);
   };
 
-  const handleStatus = (status: AVPlaybackStatus) => {
-    onStatusUpdate?.(status);
-    if (!status.isLoaded) return;
-    setIsPlaying(status.isPlaying);
-    setPositionMillis(status.positionMillis);
-    setDurationMillis(status.durationMillis || 0);
-    if (status.isPlaying) onPlaybackPosition?.(status.positionMillis / 1000);
-  };
+  useEffect(() => {
+    if (playback.status !== 'readyToPlay') return;
+    onStatusUpdate?.({ isLoaded: true, positionMillis, durationMillis, isPlaying });
+    if (isPlaying) onPlaybackPosition?.(positionMillis / 1000);
+  }, [playback.status, positionMillis, durationMillis, isPlaying]);
 
   const { width: windowWidth, height: windowHeight } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
   return (
     <View style={[
       styles.container,
       isFullscreen && {
-        aspectRatio: 16 / 9,
+        aspectRatio: undefined,
         height: windowHeight,
-        width: undefined,
+        width: windowWidth,
+        alignSelf: 'center',
         justifyContent: 'center',
         alignItems: 'center',
       }
     ]}>
-      <Video
-        ref={videoRef}
-        source={hasStartedPlaying ? { uri: src } : undefined}
-        style={styles.video}
-        resizeMode={ResizeMode.CONTAIN}
-        posterSource={poster ? { uri: poster } : undefined}
-        posterStyle={styles.video}
-        shouldPlay={hasStartedPlaying}
-        useNativeControls={false}
-        progressUpdateIntervalMillis={350}
-        onPlaybackStatusUpdate={handleStatus}
-      />
+      {!playback.visible && <VideoView player={player} style={styles.video} contentFit="contain" nativeControls={false} fullscreenOptions={{ enable: false }} allowsPictureInPicture={false} />}
+      {!hasStartedPlaying && poster ? <Image source={{ uri: poster }} style={[styles.video, StyleSheet.absoluteFillObject]} resizeMode="contain" /> : null}
+      {playback.status === 'loading' ? <View pointerEvents="none" style={styles.loadingOverlay}><Text style={styles.timeText}>Carregando vídeo…</Text></View> : null}
+      {playback.error ? <View style={styles.loadingOverlay}><Text style={styles.timeText}>{playback.error}</Text><Pressable accessibilityLabel="Tentar reproduzir novamente" onPress={() => { playback.closeMiniPlayer(); void attach({ ...session, fileUrl: src }); }}><Text style={styles.timeText}>Tentar novamente</Text></Pressable></View> : null}
 
       <Pressable pointerEvents={showControls ? 'none' : 'auto'} style={styles.leftTapZone} onPress={() => handleSideTap('left')} />
       <Pressable pointerEvents={showControls ? 'none' : 'auto'} style={styles.centerTapZone} onPress={toggleControls} />
@@ -277,7 +238,7 @@ export const ClassfyVideoPlayer = forwardRef<ClassfyVideoPlayerRef, ClassfyVideo
       {controlsVisible ? (
         <Animated.View pointerEvents={showControls ? 'box-none' : 'none'} style={[styles.controls, { opacity: controlsOpacity }]}>
           <Pressable style={styles.cleanTapZone} onPress={() => setShowControls(false)} />
-          <View pointerEvents="box-none" style={styles.topRow}>
+          <View pointerEvents="box-none" style={[styles.topRow, isFullscreen && { left: insets.left, right: insets.right, top: insets.top }]}>
             <View style={styles.topLeft}>
               <Pressable hitSlop={12} style={styles.topButton} onPress={isFullscreen ? toggleFullscreen : onMinimize}>
                 <Ionicons name="chevron-down" color={colors.text} size={30} />
@@ -308,19 +269,19 @@ export const ClassfyVideoPlayer = forwardRef<ClassfyVideoPlayerRef, ClassfyVideo
           </View>
 
           <View pointerEvents="box-none" style={styles.centerControls}>
-            <Pressable style={styles.roundButton} onPress={() => seekBy(-10000)}>
+            <Pressable accessibilityLabel="Voltar 10 segundos" style={styles.roundButton} onPress={() => seekBy(-10000)}>
               <Ionicons name="play-skip-back" color={colors.text} size={23} />
             </Pressable>
-            <Pressable style={styles.playButton} onPress={togglePlay}>
+            <Pressable accessibilityLabel={isPlaying ? 'Pausar vídeo' : 'Reproduzir vídeo'} style={styles.playButton} onPress={togglePlay}>
               <Ionicons name={isPlaying ? 'pause' : 'play'} color={colors.text} size={40} />
             </Pressable>
-            <Pressable style={styles.roundButton} onPress={() => seekBy(10000)}>
+            <Pressable accessibilityLabel="Avançar 10 segundos" style={styles.roundButton} onPress={() => seekBy(10000)}>
               <Ionicons name="play-skip-forward" color={colors.text} size={23} />
             </Pressable>
           </View>
 
           {isFullscreen ? (
-            <View pointerEvents="box-none" style={styles.fullscreenBottomRow}>
+            <View pointerEvents="box-none" style={[styles.fullscreenBottomRow, { left: insets.left + spacing.md, right: insets.right + spacing.md, bottom: insets.bottom + spacing.md }]}>
               <View style={styles.fullscreenActionsRow}>
                 <View style={styles.fullscreenTimePill}>
                   <Text style={styles.timeText}>
@@ -359,7 +320,7 @@ export const ClassfyVideoPlayer = forwardRef<ClassfyVideoPlayerRef, ClassfyVideo
                     <Image source={{ uri: poster }} style={styles.moreVideosThumb} />
                   </Pressable>
                 )}
-                <Pressable style={styles.fullscreenMinimizeBtn} onPress={toggleFullscreen}>
+                <Pressable accessibilityLabel="Sair da tela cheia" style={styles.fullscreenMinimizeBtn} onPress={toggleFullscreen}>
                   <Feather name="minimize-2" color={colors.text} size={22} />
                 </Pressable>
               </View>
@@ -371,7 +332,7 @@ export const ClassfyVideoPlayer = forwardRef<ClassfyVideoPlayerRef, ClassfyVideo
                   {formatTime(positionMillis)} / {formatTime(durationMillis)}
                 </Text>
               </View>
-              <Pressable style={styles.floatButton} onPress={toggleFullscreen}>
+              <Pressable accessibilityLabel="Tela cheia" style={styles.floatButton} onPress={toggleFullscreen}>
                 <Feather name={isFullscreen ? 'minimize-2' : 'maximize-2'} color={colors.text} size={23} />
               </Pressable>
             </View>
@@ -399,6 +360,7 @@ export const ClassfyVideoPlayer = forwardRef<ClassfyVideoPlayerRef, ClassfyVideo
 });
 
 const styles = StyleSheet.create({
+  loadingOverlay: { ...StyleSheet.absoluteFillObject, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(0,0,0,0.6)', gap: 16, zIndex: 5 },
   container: {
     aspectRatio: 16 / 9,
     backgroundColor: '#000',

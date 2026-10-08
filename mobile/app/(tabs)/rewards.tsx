@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import {
   ActivityIndicator,
+  DeviceEventEmitter,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -10,7 +11,8 @@ import {
   Image,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
+import { useRouter, useFocusEffect } from 'expo-router';
+import { REWARDS_CHANGED } from '@/features/rewards/events';
 import {
   Trophy,
   Zap,
@@ -98,13 +100,13 @@ export default function RewardsScreen() {
   const [milestones, setMilestones] = useState<MilestoneWithProgress[]>([]);
   const [badgesTab, setBadgesTab] = useState<'unlocked' | 'locked'>('unlocked');
 
-  useEffect(() => {
-    if (user) {
-      fetchData();
-    } else {
-      setLoading(false);
-    }
-  }, [user]);
+  useFocusEffect(useCallback(() => {
+    if (user) void fetchData(); else setLoading(false);
+    const subscription = DeviceEventEmitter.addListener(REWARDS_CHANGED, event => {
+      if (event.userId === user?.id) void fetchData();
+    });
+    return () => subscription.remove();
+  }, [user?.id]));
 
   const fetchData = async () => {
     try {

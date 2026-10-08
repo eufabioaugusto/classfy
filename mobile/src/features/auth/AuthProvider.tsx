@@ -1,6 +1,7 @@
 import { Session } from '@supabase/supabase-js';
 import { PropsWithChildren, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
+import { notifyConfirmedRewards } from '@/features/rewards/events';
 import { isSupabaseConfigured, supabase } from '@/lib/supabase';
 import { registerForPushNotificationsAsync } from '@/lib/notifications';
 import { AuthContext, AuthContextValue, MobileProfile } from './authContext';
@@ -58,11 +59,13 @@ export function AuthProvider({ children }: PropsWithChildren) {
       loginRewardUserRef.current = null;
       return;
     }
+    notifyConfirmedRewards(daily.data?.rewards || []);
     if (Number(daily.data?.currentStreak || 0) >= 7) {
       const weekly = await supabase.functions.invoke('process-reward', {
         body: { actionKey: 'WEEKLY_STREAK', userId },
       });
       if (weekly.error) loginRewardUserRef.current = null;
+      else notifyConfirmedRewards(weekly.data?.rewards || []);
     }
   }, []);
 

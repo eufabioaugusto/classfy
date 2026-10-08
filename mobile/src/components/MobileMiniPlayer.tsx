@@ -1,109 +1,40 @@
 import { Ionicons } from '@expo/vector-icons';
-import { ResizeMode, Video } from 'expo-av';
-import { router } from 'expo-router';
-import { Dimensions, Image, Pressable, StyleSheet, Text, View } from 'react-native';
+import { VideoView } from 'expo-video';
+import { router, usePathname } from 'expo-router';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-
 import { useMiniPlayer } from '@/features/watch/miniPlayerContext';
 import { colors } from '@/theme/colors';
-import { radius } from '@/theme/radius';
-import { spacing } from '@/theme/spacing';
-import { typography } from '@/theme/typography';
-
-const screenWidth = Dimensions.get('window').width;
 
 export function MobileMiniPlayer() {
   const insets = useSafeAreaInsets();
-  const { content, visible, closeMiniPlayer } = useMiniPlayer();
-
+  const pathname = usePathname();
+  const playback = useMiniPlayer();
+  const { content, visible, player } = playback;
   if (!visible || !content) return null;
-
   const expand = () => {
-    closeMiniPlayer();
-    router.push(`/watch/${content.id}`);
+    playback.expand();
+    if (__DEV__ && content.id === 'dev-player') { router.push('/dev/player'); return; }
+    router.push({ pathname: '/watch/[id]', params: { id: content.id, ...(content.studyId ? { studyId: content.studyId } : {}), ...(content.lessonId ? { lessonId: content.lessonId } : {}) } });
   };
-
-  return (
-    <View pointerEvents="box-none" style={StyleSheet.absoluteFill}>
-      <Pressable style={[styles.container, { bottom: insets.bottom + 62 }]} onPress={expand}>
-        <View style={styles.videoBox}>
-          {content.fileUrl && (content.shouldPlay ?? true) ? (
-            <Video
-              source={{ uri: content.fileUrl }}
-              style={styles.video}
-              resizeMode={ResizeMode.COVER}
-              shouldPlay={true}
-              isMuted={false}
-              posterSource={content.thumbnailUrl ? { uri: content.thumbnailUrl } : undefined}
-              posterStyle={styles.video}
-              progressUpdateIntervalMillis={1000}
-              status={{
-                positionMillis: content.startPositionMillis || 0,
-                shouldPlay: true,
-              }}
-            />
-          ) : content.thumbnailUrl ? (
-            <Image source={{ uri: content.thumbnailUrl }} style={styles.video} />
-          ) : null}
-          <View style={styles.shade} />
-          <Ionicons name="pause" color={colors.text} size={32} style={styles.pauseIcon} />
-          <Pressable hitSlop={12} style={styles.closeButton} onPress={closeMiniPlayer}>
-            <Ionicons name="close" color={colors.text} size={24} />
-          </Pressable>
-        </View>
-        <Text numberOfLines={1} style={styles.title}>
-          {content.title}
-        </Text>
-      </Pressable>
-    </View>
-  );
+  const onTabs = ['/', '/study', '/messages', '/rewards', '/profile'].includes(pathname);
+  return <View style={[styles.container, { bottom: insets.bottom + (onTabs ? 60 : 8) }]}>
+    <Pressable accessibilityLabel={`Voltar ao vídeo ${content.title}`} style={styles.preview} onPress={expand}>
+      <VideoView player={player} style={StyleSheet.absoluteFill} contentFit="cover" nativeControls={false} fullscreenOptions={{ enable: false }} />
+    </Pressable>
+    <Pressable style={styles.meta} onPress={expand}><Text style={styles.title} numberOfLines={1}>{content.title}</Text><Text style={styles.creator} numberOfLines={1}>{content.creatorName || 'Classfy'}</Text></Pressable>
+    <Pressable accessibilityLabel={playback.playing ? 'Pausar miniplayer' : 'Reproduzir miniplayer'} style={styles.button} onPress={playback.togglePlay}><Ionicons name={playback.playing ? 'pause' : 'play'} size={24} color={colors.text} /></Pressable>
+    <Pressable accessibilityLabel="Fechar miniplayer" style={styles.button} onPress={playback.closeMiniPlayer}><Ionicons name="close" size={24} color={colors.text} /></Pressable>
+    <View style={styles.track}><View style={[styles.progress, { width: `${playback.duration ? Math.min(100, playback.position / playback.duration * 100) : 0}%` }]} /></View>
+  </View>;
 }
-
 const styles = StyleSheet.create({
-  container: {
-    position: 'absolute',
-    right: spacing.md,
-    width: Math.min(230, screenWidth * 0.52),
-  },
-  videoBox: {
-    aspectRatio: 16 / 9,
-    backgroundColor: colors.background,
-    borderRadius: radius.md,
-    overflow: 'hidden',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.36,
-    shadowRadius: 16,
-  },
-  video: {
-    height: '100%',
-    width: '100%',
-  },
-  shade: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0,0,0,0.18)',
-  },
-  pauseIcon: {
-    left: spacing.md,
-    position: 'absolute',
-    top: spacing.md,
-  },
-  closeButton: {
-    alignItems: 'center',
-    height: 44,
-    justifyContent: 'center',
-    position: 'absolute',
-    right: spacing.xs,
-    top: spacing.xs,
-    width: 44,
-  },
-  title: {
-    color: colors.text,
-    fontSize: typography.caption,
-    fontWeight: typography.weightBold,
-    marginTop: spacing.xs,
-    textShadowColor: 'rgba(0,0,0,0.65)',
-    textShadowOffset: { width: 0, height: 1 },
-    textShadowRadius: 2,
-  },
+  container: { position: 'absolute', left: 8, right: 8, height: 66, flexDirection: 'row', alignItems: 'center', backgroundColor: colors.surfaceAlt, borderRadius: 12, overflow: 'hidden', borderWidth: 1, borderColor: colors.border },
+  preview: { width: 100, height: 64, backgroundColor: '#000' },
+  meta: { flex: 1, paddingHorizontal: 12, gap: 3 },
+  title: { color: colors.text, fontSize: 13, fontWeight: '600' },
+  creator: { color: colors.muted, fontSize: 11 },
+  button: { width: 42, height: 48, alignItems: 'center', justifyContent: 'center' },
+  track: { position: 'absolute', bottom: 0, left: 0, right: 0, height: 2, backgroundColor: colors.border },
+  progress: { height: 2, backgroundColor: colors.accent },
 });

@@ -46,7 +46,8 @@
           "microphonePermission": "Permitir uso do microfone para ditar mensagens.",
           "speechRecognitionPermission": "Permitir reconhecimento de voz para transcrever ditados."
         }
-      ]
+      ],
+      "expo-video"
     ],
     "experiments": {
       "typedRoutes": true

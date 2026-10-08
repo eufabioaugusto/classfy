@@ -91,3 +91,14 @@ não publica em App Store, TestFlight, Vercel ou Supabase.
 
 Referências: [Expo development builds](https://docs.expo.dev/develop/development-builds/introduction/)
 e [DevClient SDK 54](https://docs.expo.dev/versions/v54.0.0/sdk/dev-client/).
+
+## Inspeção do player
+
+A rota `classfy://dev/player` abre uma prévia com HLS público da Mux na build
+de desenvolvimento. Usa o mesmo provider/controles/miniplayer do Watch, com
+tracking desativado. Dá para testar pausa, avanço, minimizar/expandir e tela cheia
+sem registrar progresso ou Points. Em distribuição, a rota retorna à Home.
+
+Depois de instalar `expo-video`, regenerar iOS e executar `pod install` antes
+de compilar. O player e miniplayer do Watch usam expo-video SDK 54; outras telas
+e gravação de voz ainda podem usar expo-av e serão migradas em rodadas próprias.

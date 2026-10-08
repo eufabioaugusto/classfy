@@ -10,6 +10,7 @@ export type CourseLesson = {
   title: string;
   description: string | null;
   video_url: string;
+  media_asset_id?: string | null;
   duration_seconds: number | null;
   order_index: number;
   is_preview: boolean;
@@ -31,9 +32,10 @@ export type CourseModule = {
 type UseCourseLessonsProps = {
   courseId?: string;
   enabled?: boolean;
+  initialLessonId?: string;
 };
 
-export function useCourseLessons({ courseId, enabled = false }: UseCourseLessonsProps) {
+export function useCourseLessons({ courseId, enabled = false, initialLessonId }: UseCourseLessonsProps) {
   const { user } = useAuth();
   const [modules, setModules] = useState<CourseModule[]>([]);
   const [completedLessons, setCompletedLessons] = useState<string[]>([]);
@@ -114,6 +116,7 @@ export function useCourseLessons({ courseId, enabled = false }: UseCourseLessons
 
       // 4. Determine current active lesson
       let activeLesson: CourseLesson | null = null;
+      lastLessonId = initialLessonId || lastLessonId;
       if (lastLessonId) {
         activeLesson = rawLessons.find((l) => l.id === lastLessonId) || null;
       }
@@ -135,126 +138,14 @@ export function useCourseLessons({ courseId, enabled = false }: UseCourseLessons
     } finally {
       setLoading(false);
     }
-  }, [courseId, enabled, user]);
+  }, [courseId, enabled, user?.id, initialLessonId]);
 
   useEffect(() => {
     fetchCourseData();
   }, [fetchCourseData]);
 
-  // Update last lesson watched in database
-  const selectLesson = useCallback(
-    async (lesson: CourseLesson) => {
-      setCurrentLesson(lesson);
-      if (!user || !courseId) return;
-
-      try {
-        if (enrollmentId) {
-          await supabase
-            .from('course_enrollments')
-            .update({ last_lesson_id: lesson.id })
-            .eq('id', enrollmentId);
-        } else {
-          // Create course enrollment if user clicked a lesson and didn't have enrollment row yet
-          const { data, error: insertError } = await supabase
-            .from('course_enrollments')
-            .insert({
-              course_id: courseId,
-              user_id: user.id,
-              last_lesson_id: lesson.id,
-              completed_lessons: [],
-              progress_percent: 0,
-            })
-            .select('id')
-            .single();
-
-          if (!insertError && data) {
-            setEnrollmentId(data.id);
-          }
-        }
-      } catch (err) {
-        console.error('Error updating last lesson id:', err);
-      }
-    },
-    [courseId, enrollmentId, user]
-  );
-
-  // Mark lesson as complete and recalculate progress percentage
-  const markLessonComplete = useCallback(
-    async (lessonId: string) => {
-      if (!user || !courseId) return;
-      if (completedLessons.includes(lessonId)) return; // Already completed
-
-      const newCompleted = [...completedLessons, lessonId];
-      const totalLessonsCount = modules.reduce((acc, curr) => acc + curr.lessons.length, 0);
-      const newPercent = totalLessonsCount > 0 ? Math.min(Math.round((newCompleted.length / totalLessonsCount) * 100), 100) : 0;
-
-      // Optimistic update
-      setCompletedLessons(newCompleted);
-      setProgressPercent(newPercent);
-
-      try {
-        if (enrollmentId) {
-          const updateData: any = {
-            completed_lessons: newCompleted,
-            progress_percent: newPercent,
-          };
-
-          // Also set this as last watched if we completed it
-          if (currentLesson?.id === lessonId) {
-            updateData.last_lesson_id = lessonId;
-          }
-
-          const { error: updateError } = await supabase
-            .from('course_enrollments')
-            .update(updateData)
-            .eq('id', enrollmentId);
-
-          if (updateError) throw updateError;
-        } else {
-          // Insert new enrollment if missing
-          const { data, error: insertError } = await supabase
-            .from('course_enrollments')
-            .insert({
-              course_id: courseId,
-              user_id: user.id,
-              completed_lessons: newCompleted,
-              progress_percent: newPercent,
-              last_lesson_id: currentLesson?.id === lessonId ? lessonId : null,
-            })
-            .select('id')
-            .single();
-
-          if (insertError) throw insertError;
-          if (data) {
-            setEnrollmentId(data.id);
-          }
-        }
-
-        // Trigger COMPLETE_COURSE reward system hook if all lessons completed
-        const totalLessonsResult = modules.reduce((acc, curr) => acc + curr.lessons.length, 0);
-        if (newCompleted.length === totalLessonsResult && totalLessonsResult > 0) {
-          try {
-            await supabase.functions.invoke('process-reward', {
-              body: {
-                actionKey: 'COMPLETE_COURSE',
-                userId: user.id,
-                contentId: courseId,
-                metadata: { lessonCount: totalLessonsResult },
-              },
-            });
-          } catch (e) {
-            console.error('Error invoking COMPLETE_COURSE reward:', e);
-          }
-        }
-      } catch (err) {
-        console.error('Error marking lesson complete:', err);
-        // Rollback on error
-        setCompletedLessons(completedLessons);
-        setProgressPercent(progressPercent);
-      }
-    },
-    [courseId, enrollmentId, user, completedLessons, modules, progressPercent, currentLesson]
-  );
+  // The server records last_lesson_id when playback is accepted.
+  const selectLesson = useCallback(async (lesson: CourseLesson) => setCurrentLesson(lesson), []);
 
   return {
     modules,
@@ -264,7 +155,6 @@ export function useCourseLessons({ courseId, enabled = false }: UseCourseLessons
     loading,
     error,
     selectLesson,
-    markLessonComplete,
     refresh: fetchCourseData,
   };
 }

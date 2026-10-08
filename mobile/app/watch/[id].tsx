@@ -1,5 +1,4 @@
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
-import { AVPlaybackStatus } from 'expo-av';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router, useLocalSearchParams } from 'expo-router';
 import * as ScreenOrientation from 'expo-screen-orientation';
@@ -15,6 +14,7 @@ import {
   PanResponder,
   Pressable,
   ScrollView,
+  Share,
   StatusBar,
   StyleSheet,
   Text,
@@ -26,12 +26,13 @@ import { WebView } from 'react-native-webview';
 
 const speedOptions = [0.5, 0.75, 1, 1.25, 1.5, 2];
 
-import { ClassfyVideoPlayer, ClassfyVideoPlayerRef } from '@/components/ClassfyVideoPlayer';
+import { ClassfyVideoPlayer, ClassfyVideoPlayerRef, ClassfyPlaybackStatus } from '@/components/ClassfyVideoPlayer';
 import { WatchCommentsSheet } from '@/components/WatchCommentsSheet';
 import { WatchDescriptionSheet } from '@/components/WatchDescriptionSheet';
 import { WatchRewardBar } from '@/components/WatchRewardBar';
 import { WatchStudySheet } from '@/components/WatchStudySheet';
 import { useAuth } from '@/features/auth/authContext';
+import { usePlaybackSource } from '@/features/watch/usePlaybackSource';
 import { useMiniPlayer } from '@/features/watch/miniPlayerContext';
 import { useCourseLessons } from '@/features/watch/useCourseLessons';
 import { useWatchActions } from '@/features/watch/useWatchActions';
@@ -76,7 +77,7 @@ function blockCopy(reason: string | null, requiredPlan: string) {
 }
 
 export default function WatchScreen() {
-  const { id, studyId } = useLocalSearchParams<{ id: string; studyId?: string }>();
+  const { id, studyId, lessonId } = useLocalSearchParams<{ id: string; studyId?: string; lessonId?: string }>();
   const insets = useSafeAreaInsets();
   const { width: windowWidth, height: windowHeight } = useWindowDimensions();
   const [commentsOpen, setCommentsOpen] = useState(false);
@@ -84,7 +85,8 @@ export default function WatchScreen() {
   const [studySheetOpen, setStudySheetOpen] = useState(false);
   const [studyInitialTab, setStudyInitialTab] = useState<'notes' | 'transcript' | 'quiz' | 'suggestions' | 'classy' | 'modules'>('notes');
   const [isFullscreen, setIsFullscreen] = useState(false);
-  const [playbackRate, setPlaybackRate] = useState(1);
+  const playback = useMiniPlayer();
+  const [playbackRate, setPlaybackRate] = useState(() => playback.player.playbackRate);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const playerRef = useRef<ClassfyVideoPlayerRef>(null);
   const scrollViewRef = useRef<ScrollView>(null);
@@ -110,9 +112,10 @@ export default function WatchScreen() {
   const dragY = useRef(new Animated.Value(0)).current;
   const currentPositionMillisRef = useRef(0);
   const wasPlayingRef = useRef(false);
-  const { startMiniPlayer } = useMiniPlayer();
+  const { startMiniPlayer } = playback;
   const { content, access, followersCount, loading, error } = useWatchContent(id);
   const courseLessons = useCourseLessons({
+    initialLessonId: lessonId,
     courseId: content?.isCourse ? content.id : undefined,
     enabled: Boolean(content?.isCourse && access.hasAccess),
   });
@@ -129,8 +132,9 @@ export default function WatchScreen() {
     hasAccess: access.hasAccess,
   });
   const progress = useWatchProgress({
+    lessonId: content?.isCourse ? courseLessons.currentLesson?.id : undefined,
     contentId: content?.isCourse && courseLessons.currentLesson
-      ? courseLessons.currentLesson.content_id || courseLessons.currentLesson.id
+      ? undefined
       : content?.id,
     durationSeconds: content?.isCourse && courseLessons.currentLesson
       ? courseLessons.currentLesson.duration_seconds
@@ -138,11 +142,16 @@ export default function WatchScreen() {
     enabled: Boolean(
       access.hasAccess &&
       (content?.isCourse
-        ? courseLessons.currentLesson?.video_url
-        : content?.file_url)
+        ? (courseLessons.currentLesson?.video_url || courseLessons.currentLesson?.media_asset_id)
+        : (content?.file_url || content?.media_asset_id))
     ),
   });
 
+  const source = usePlaybackSource(
+    content?.isCourse ? courseLessons.currentLesson?.media_asset_id : content?.media_asset_id,
+    content?.isCourse ? courseLessons.currentLesson?.video_url : content?.file_url,
+    access.hasAccess,
+  );
   const { user } = useAuth();
 
   const [isFollowing, setIsFollowing] = useState(false);
@@ -174,10 +183,8 @@ export default function WatchScreen() {
   }, [content, user]);
 
   useEffect(() => {
-    if (content?.isCourse && courseLessons.currentLesson && progress.watchPercent >= 90) {
-      courseLessons.markLessonComplete(courseLessons.currentLesson.id);
-    }
-  }, [content?.isCourse, courseLessons.currentLesson?.id, progress.watchPercent, courseLessons]);
+    if (content?.isCourse && playback.completed) void courseLessons.refresh();
+  }, [content?.isCourse, playback.completed]);
 
   useEffect(() => {
     if (content?.isCourse) {
@@ -304,7 +311,7 @@ export default function WatchScreen() {
   // Reset sought flag when content ID changes
   useEffect(() => {
     hasSoughtRef.current = false;
-  }, [content?.id]);
+  }, [content?.id, courseLessons.currentLesson?.id]);
 
   // Redirect paid content to dedicated purchase screen if they lack access
   useEffect(() => {
@@ -313,7 +320,7 @@ export default function WatchScreen() {
     }
   }, [access, id]);
 
-  const handlePlayerStatus = (status: AVPlaybackStatus) => {
+  const handlePlayerStatus = (status: ClassfyPlaybackStatus) => {
     if (!status.isLoaded) return;
     currentPositionMillisRef.current = status.positionMillis;
     wasPlayingRef.current = status.isPlaying;
@@ -322,7 +329,8 @@ export default function WatchScreen() {
       !hasSoughtRef.current &&
       status.isLoaded &&
       progress.savedPositionSeconds !== null &&
-      progress.savedPositionSeconds > 0
+      progress.savedPositionSeconds > 0 &&
+      playback.position < 1
     ) {
       hasSoughtRef.current = true;
       playerRef.current?.seekTo(progress.savedPositionSeconds);
@@ -333,9 +341,9 @@ export default function WatchScreen() {
     () =>
       PanResponder.create({
         onMoveShouldSetPanResponderCapture: (_, gesture) =>
-          gesture.dy > 6 && Math.abs(gesture.dy) > Math.abs(gesture.dx),
+          gesture.dy > 18 && Math.abs(gesture.dy) > Math.abs(gesture.dx) * 2,
         onMoveShouldSetPanResponder: (_, gesture) =>
-          gesture.dy > 6 && Math.abs(gesture.dy) > Math.abs(gesture.dx),
+          gesture.dy > 18 && Math.abs(gesture.dy) > Math.abs(gesture.dx) * 2,
         onPanResponderMove: (_, gesture) => {
           if (gesture.dy > 0) dragY.setValue(gesture.dy);
         },
@@ -399,9 +407,7 @@ export default function WatchScreen() {
     );
   }
 
-  const activeVideoUrl = content.isCourse
-    ? courseLessons.currentLesson?.video_url
-    : content.file_url;
+  const activeVideoUrl = source.url;
   const showPlayableVideo = Boolean(access.hasAccess && activeVideoUrl);
   const creatorName = content.creator?.creator_channel_name || content.creator?.display_name || 'Creator Classfy';
   const minimizeThreshold = Dimensions.get('window').height * 0.42;
@@ -465,20 +471,27 @@ export default function WatchScreen() {
             <View
               style={[
                 styles.playerShell,
-                isFullscreen && { height: windowHeight, aspectRatio: 16 / 9, width: undefined, alignSelf: 'center' },
+                isFullscreen && { height: windowHeight, aspectRatio: undefined, width: windowWidth, alignSelf: 'center' },
               ]}
               {...(isFullscreen ? {} : panResponder.panHandlers)}
             >
               <View
                 style={[
                   styles.player,
-                  isFullscreen && { height: windowHeight, aspectRatio: 16 / 9, width: undefined, alignSelf: 'center' },
+                  isFullscreen && { height: windowHeight, aspectRatio: undefined, width: windowWidth, alignSelf: 'center' },
                 ]}
               >
                 {showPlayableVideo ? (
                   <ClassfyVideoPlayer
                     ref={playerRef}
                     src={activeVideoUrl!}
+                    session={{ id: content.id, title: content.isCourse && courseLessons.currentLesson ? courseLessons.currentLesson.title : content.title, thumbnailUrl: content.thumbnail_url, creatorName,
+                      studyId,
+                      lessonId: content.isCourse ? courseLessons.currentLesson?.id : undefined,
+                      courseId: content.isCourse ? content.id : undefined,
+                      trackingContentId: content.isCourse ? undefined : content.id,
+                      trackingEnabled: Boolean(user && access.hasAccess && content.content_type !== 'short'),
+                    }}
                     poster={content.thumbnail_url}
                     title={content.isCourse && courseLessons.currentLesson ? courseLessons.currentLesson.title : content.title}
                     creatorName={creatorName}
@@ -500,7 +513,6 @@ export default function WatchScreen() {
                       setStudyInitialTab('notes');
                       setStudySheetOpen(true);
                     }}
-                    onPlaybackPosition={progress.handlePlaybackPosition}
                     onStatusUpdate={handlePlayerStatus}
                     isFullscreen={isFullscreen}
                     onFullscreenToggle={handleFullscreenToggle}
@@ -514,7 +526,7 @@ export default function WatchScreen() {
                     isFavorited={actions.isFavorited}
                     onFavoritePress={actions.toggleFavorite}
                     onCommentsPress={() => setCommentsOpen(true)}
-                    onSharePress={() => { }}
+                    onSharePress={() => { void Share.share({ message: `${content.title} — https://classfy.com.br/watch/${content.id}` }); }}
                     onStudyPress={(tab) => {
                       setStudyInitialTab(tab);
                       setStudySheetOpen(true);
@@ -524,6 +536,7 @@ export default function WatchScreen() {
                   <>
                     {content.thumbnail_url ? <Image source={{ uri: content.thumbnail_url }} style={styles.poster} /> : null}
                     <View style={styles.posterOverlay} />
+                    {source.loading || source.error ? <Text style={[styles.playerBadge, { top: 70 }]}>{source.error || 'Preparando vídeo…'}</Text> : null}
                     <View style={styles.playBadge}>
                       <Ionicons name={access.hasAccess ? 'play' : 'lock-closed'} color={colors.background} size={36} />
                     </View>
@@ -691,7 +704,7 @@ export default function WatchScreen() {
                     onPress={actions.toggleFavorite}
                   />
                   <ActionButton icon="chatbubble-outline" label="Comentarios" onPress={() => setCommentsOpen(true)} />
-                  <ActionButton icon="share-social-outline" label="Compartilhar" onPress={() => { }} />
+                  <ActionButton icon="share-social-outline" label="Compartilhar" onPress={() => { void Share.share({ message: `${content.title} — https://classfy.com.br/watch/${content.id}` }); }} />
                 </ScrollView>
 
                 <Pressable style={styles.descriptionCard} onPress={() => setDescriptionOpen(true)}>
@@ -753,6 +766,7 @@ export default function WatchScreen() {
         contentId={content.id}
         contentTitle={content.title}
         isCourse={content.isCourse}
+        lessonContentId={courseLessons.currentLesson?.content_id}
         lessonId={content.isCourse && courseLessons.currentLesson ? courseLessons.currentLesson.id : null}
         initialTab={studyInitialTab}
         studyId={studyId}
