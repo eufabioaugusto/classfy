@@ -14,16 +14,28 @@ export function ClassyAvatar({
         <G
           fill="none"
           stroke={color}
-          strokeWidth={3.7}
           strokeLinecap="round"
           strokeLinejoin="round"
         >
-          <Path d="M8 31C8 15 18 5 33 5s25 10 25 26v11c0 12-11 18-25 18S8 54 8 42Z" />
-          <Path d="M9 29c10 0 20-7 24-14 5 7 14 12 24 14" />
-          <Ellipse cx="20" cy="34" rx="10" ry="10" />
-          <Ellipse cx="46" cy="34" rx="10" ry="10" />
-          <Path d="M30 33h6M28 48q5 5 10-1" />
+          <Path
+            d="M8 25C10 12 19 5 33 5s23 8 25 20M8 43c0 11 11 17 25 17s25-6 25-17"
+            strokeWidth={3.2}
+          />
+          <Path
+            d="M13 27c9-1 16-7 20-12 4 5 11 10 20 12"
+            strokeWidth={3.2}
+          />
+          <Ellipse cx="20" cy="33" rx="11" ry="11" strokeWidth={3.6} />
+          <Ellipse cx="46" cy="33" rx="11" ry="11" strokeWidth={3.6} />
+          <Path d="M31 31q2-2 4 0" strokeWidth={3.6} />
+          <Path d="M28 49q5 5 10-1" strokeWidth={3.6} />
         </G>
+        {/* Pupils and transparent highlights preserve her curious expression. */}
+        <Path
+          fill={color}
+          fillRule="evenodd"
+          d="M26.2 33a5.2 6.2 0 1 0-10.4 0a5.2 6.2 0 1 0 10.4 0Z M24.2 30a1.7 1.7 0 1 0-3.4 0a1.7 1.7 0 1 0 3.4 0Z M50.2 33a5.2 6.2 0 1 0-10.4 0a5.2 6.2 0 1 0 10.4 0Z M48.2 30a1.7 1.7 0 1 0-3.4 0a1.7 1.7 0 1 0 3.4 0Z"
+        />
       </Svg>
     );
   return (
