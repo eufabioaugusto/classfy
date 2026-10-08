@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { duplicateStudioTake, locateStudioTime, moveStudioTake, removeStudioTake, splitStudioTake, studioPreviewSourceTime } from './timeline.ts';
+import { duplicateStudioTake, locateStudioTime, moveStudioTake, removeStudioTake, splitStudioTake, studioPreviewBoundedSourceTime, studioPreviewSourceTime } from './timeline.ts';
 const take = (id, start = 2, end = 8) => ({ id, uri: 'file:///original.mp4', name: 'Original', duration: 10, start, end, thumbnailUri: 'file:///original.jpg' });
 
 test('editor vazio sob a câmera não lê seconds de seek nulo ao abrir teleprompter', () => {
@@ -10,6 +10,29 @@ test('editor vazio sob a câmera não lê seconds de seek nulo ao abrir teleprom
   assert.equal(studioPreviewSourceTime(take('a'), { takeId: 'b', seconds: 5 }), 2);
   assert.equal(studioPreviewSourceTime(take('a'), { takeId: 'a', seconds: 5 }), 5);
   assert.equal(studioPreviewSourceTime(take('a'), { takeId: 'a', seconds: 20 }), 8);
+});
+
+test('corte preserva o frame pedido enquanto currentTime nativo ainda está atrasado', () => {
+  const trimmed = take('a', 3.3, 5.6);
+  assert.equal(studioPreviewBoundedSourceTime(trimmed, 5.6, { takeId: 'a', seconds: 5.595 }), 5.595);
+  assert.equal(studioPreviewBoundedSourceTime(trimmed, 7, { takeId: 'a', seconds: 4.2 }), 4.2);
+  assert.equal(studioPreviewBoundedSourceTime(trimmed, 2, { takeId: 'a', seconds: 3.3 }), 3.3);
+});
+test('novos limites prendem o frame à borda mais próxima sem voltar ao começo ao cortar o fim', () => {
+  const trimmed = take('a', 3.3, 5.6);
+  assert.equal(studioPreviewBoundedSourceTime(trimmed, 7, null), 5.6);
+  assert.equal(studioPreviewBoundedSourceTime(trimmed, 4, { takeId: 'a', seconds: 7 }), 5.6);
+  assert.equal(studioPreviewBoundedSourceTime(trimmed, 2, null), 3.3);
+  assert.equal(studioPreviewBoundedSourceTime(trimmed, 4, { takeId: 'a', seconds: 2 }), 3.3);
+  assert.equal(studioPreviewBoundedSourceTime(trimmed, 4.2, null), 4.2);
+});
+test('posição pendente de outro take não interfere e editor vazio permanece seguro', () => {
+  const trimmed = take('a', 3.3, 5.6);
+  assert.equal(studioPreviewBoundedSourceTime(trimmed, 4.2, { takeId: 'b', seconds: 3.3 }), 4.2);
+  assert.equal(studioPreviewBoundedSourceTime(trimmed, 4.2, { takeId: 'a', seconds: NaN }), 4.2);
+  assert.equal(studioPreviewBoundedSourceTime(trimmed, NaN, null), 3.3);
+  assert.equal(studioPreviewBoundedSourceTime(undefined, 4.2, null), 0);
+  assert.equal(studioPreviewBoundedSourceTime(undefined, 4.2, { takeId: 'a', seconds: 3.3 }), 0);
 });
 
 test('split mantém mídia original, duração e continuidade em dois IDs novos', () => {

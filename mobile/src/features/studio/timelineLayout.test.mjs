@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { studioTimelineLayout, studioTimelineSeconds, studioTimelineTicks, freezeStudioTrim, canContinueStudioTrim, studioTrimRange, clampStudioTimelineScale, studioTimelinePinchScale, studioTimelineZoomAnchor, studioTrimTimelinePosition } from './timelineLayout.ts';
+import { studioTimelineLayout, studioTimelineSeconds, studioTimelineTicks, freezeStudioTrim, canContinueStudioTrim, studioTrimRange, clampStudioTimelineScale, studioTimelinePinchScale, studioTimelineTouchState, studioTimelineZoomAnchor, studioTrimTimelinePosition } from './timelineLayout.ts';
 const take = (id, start = 2, end = 8) => ({ id, uri: `file:///${id}.mp4`, name: id, duration: 10, start, end });
 
 test('faixa usa a duração real dos cortes, sem largura mínima falsa ou gaps', () => {
@@ -65,4 +65,29 @@ test('cursor de corte segue fonte original e não o zero da prévia encurtada', 
   const first = freezeStudioTrim([take('a')], 'a');
   assert.equal(studioTrimTimelinePosition(first, studioTrimRange(first, 'start', -2)), -2);
   assert.throws(() => studioTrimTimelinePosition(frozen, { takeId: 'other', start: 2, end: 8 }));
+});
+test('término e cancelamento sem touches não quebram e usam contagem do gesto', () => {
+  for (const event of [undefined, null, {}, { nativeEvent: undefined }, { nativeEvent: null }, { nativeEvent: {} }, { nativeEvent: { touches: undefined } }]) {
+    assert.deepEqual(studioTimelineTouchState(event), { count: 0, distance: 0 });
+    assert.deepEqual(studioTimelineTouchState(event, { numberActiveTouches: 1 }), { count: 1, distance: 0 });
+    assert.deepEqual(studioTimelineTouchState(event, { numberActiveTouches: 2 }), { count: 2, distance: 0 });
+  }
+  // A released/cancelled event explicitly reports no fingers even if RN's
+  // gesture snapshot still holds its count from before termination.
+  assert.deepEqual(studioTimelineTouchState({ nativeEvent: { touches: [] } }, { numberActiveTouches: 2 }), { count: 0, distance: 0 });
+});
+test('um dedo corta e dois dedos fornecem distância real para pinça', () => {
+  const first = { pageX: 0, pageY: 0 };
+  const second = { pageX: 3, pageY: 4 };
+  assert.deepEqual(studioTimelineTouchState({ nativeEvent: { touches: [first] } }, { numberActiveTouches: 2 }), { count: 1, distance: 0 });
+  assert.deepEqual(studioTimelineTouchState({ nativeEvent: { touches: [first, second] } }), { count: 2, distance: 5 });
+});
+test('contagem inválida e coordenadas ausentes não inventam uma pinça', () => {
+  for (const numberActiveTouches of [undefined, NaN, Infinity, -1, '2']) {
+    assert.deepEqual(studioTimelineTouchState({}, { numberActiveTouches }), { count: 0, distance: 0 });
+  }
+  assert.deepEqual(studioTimelineTouchState({ nativeEvent: { touches: { length: 2 } } }, { numberActiveTouches: 1 }), { count: 1, distance: 0 });
+  for (const point of [undefined, null, {}, { pageX: NaN, pageY: 1 }, { pageX: 2, pageY: Infinity }]) {
+    assert.deepEqual(studioTimelineTouchState({ nativeEvent: { touches: [{ pageX: 0, pageY: 0 }, point] } }), { count: 2, distance: 0 });
+  }
 });

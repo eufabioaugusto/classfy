@@ -106,3 +106,13 @@ export function studioPreviewSourceTime(take: { id: string; start: number; end: 
   const seconds = pending && pending.takeId === take.id && Number.isFinite(pending.seconds) ? pending.seconds : take.start;
   return Math.max(take.start, Math.min(take.end, seconds));
 }
+
+// Native currentTime can lag behind an asynchronous seek while a cut is saved.
+// Keep that take's requested source frame, then clamp it to the closest new
+// boundary. A seek from another take never supplies this clip's position.
+export function studioPreviewBoundedSourceTime(take: { id: string; start: number; end: number } | undefined, nativeSeconds: number, pending: { takeId: string; seconds: number } | null) {
+  if (!take || !Number.isFinite(take.start) || !Number.isFinite(take.end) || take.end < take.start) return 0;
+  const seconds = pending && pending.takeId === take.id && Number.isFinite(pending.seconds)
+    ? pending.seconds : Number.isFinite(nativeSeconds) ? nativeSeconds : take.start;
+  return Math.max(take.start, Math.min(take.end, seconds));
+}

@@ -5,7 +5,7 @@ import { useVideoPlayer, VideoView } from 'expo-video';
 import { Mic, RotateCcw, Video } from 'lucide-react-native';
 import { colors } from '@/theme/colors';
 import { timelineDuration, type StudioKind, type StudioTake } from './model';
-import { locateStudioTime, studioPreviewSourceTime } from './timeline';
+import { locateStudioTime, studioPreviewBoundedSourceTime, studioPreviewSourceTime } from './timeline';
 import { replaceStudioPreviewSource } from './videoSourceReady';
 
 export type StudioPlaybackState = { position: number; sourcePosition: number; playing: boolean; loading: boolean; takeId?: string };
@@ -30,7 +30,7 @@ export const StudioPreview = forwardRef<StudioPreviewHandle, {
   const autoplay = useRef(false);
   const intendedPlayback = useRef(false);
   const loadedUri = useRef<string | null>(null);
-  const seeking = useRef<{ target: number; deadline: number } | null>(null);
+  const seeking = useRef<{ takeId: string; uri: string; target: number; deadline: number } | null>(null);
   const pendingSeek = useRef<{ takeId: string; seconds: number } | null>(null);
   const replacements = useRef<Promise<void>>(Promise.resolve());
   const generation = useRef(0);
@@ -42,7 +42,8 @@ export const StudioPreview = forwardRef<StudioPreviewHandle, {
   });
   const publish = useCallback((sourceSeconds?: number) => {
     const current = live.current;
-    const source = sourceSeconds ?? seeking.current?.target ?? player.currentTime;
+    const pending = seeking.current;
+    const source = sourceSeconds ?? (pending?.takeId === current.take?.id && pending?.uri === current.take?.uri ? pending?.target : undefined) ?? player.currentTime;
     const index = current.takes.findIndex(item => item.id === current.take?.id);
     const before = timelineDuration(current.takes.slice(0, Math.max(0, index)));
     const local = current.take ? Math.max(0, Math.min(current.take.end - current.take.start, source - current.take.start)) : 0;
@@ -65,7 +66,7 @@ export const StudioPreview = forwardRef<StudioPreviewHandle, {
       live.current.onActiveTakeChange?.(location.takeId);
     } else if (!moving.current) {
       player.currentTime = location.sourceSeconds;
-      seeking.current = { target: location.sourceSeconds, deadline: Date.now() + 1500 };
+      seeking.current = { takeId: location.takeId, uri: location.take.uri, target: location.sourceSeconds, deadline: Date.now() + 1500 };
       pendingSeek.current = null;
       publish(location.sourceSeconds);
     }
@@ -74,14 +75,16 @@ export const StudioPreview = forwardRef<StudioPreviewHandle, {
     if (player.playing) { pause(); return; }
     const current = live.current;
     if (!current.take || current.paused || moving.current || failure.current || !focused.current) return;
-    if ((seeking.current?.target ?? player.currentTime) >= current.take.end - 0.04) {
+    const pending = seeking.current;
+    const source = pending?.takeId === current.take.id && pending.uri === current.take.uri ? pending.target : player.currentTime;
+    if (source >= current.take.end - 0.04) {
       const index = current.takes.findIndex(item => item.id === current.take?.id);
       const next = current.takes[index + 1] || current.takes[0];
       pendingSeek.current = { takeId: next.id, seconds: next.start };
       if (next.id !== current.take.id) {
         intendedPlayback.current = true; autoplay.current = true; moving.current = true; setTakeId(next.id); current.onActiveTakeChange?.(next.id); return;
       }
-      player.currentTime = next.start; seeking.current = { target: next.start, deadline: Date.now() + 1500 }; pendingSeek.current = null;
+      player.currentTime = next.start; seeking.current = { takeId: next.id, uri: next.uri, target: next.start, deadline: Date.now() + 1500 }; pendingSeek.current = null;
     }
     intendedPlayback.current = true;
     player.play();
@@ -119,7 +122,7 @@ export const StudioPreview = forwardRef<StudioPreviewHandle, {
       if (latest) {
         target = studioPreviewSourceTime(latest, pending);
         player.currentTime = target;
-        seeking.current = { target, deadline: Date.now() + 1500 };
+        seeking.current = { takeId: latest.id, uri: latest.uri, target, deadline: Date.now() + 1500 };
       }
       pendingSeek.current = null; moving.current = false; setLoading(false);
       publish(target);
@@ -132,10 +135,16 @@ export const StudioPreview = forwardRef<StudioPreviewHandle, {
   }, [player, take?.id, take?.uri, retry, publish]);
   useEffect(() => {
     if (!take || moving.current) return;
-    if (player.currentTime < take.start || player.currentTime > take.end) {
-      pause(); player.currentTime = take.start; seeking.current = { target: take.start, deadline: Date.now() + 1500 };
+    const pending = seeking.current;
+    const ownSeek = pending?.takeId === take.id && pending.uri === take.uri ? pending : null;
+    const nativeSeconds = player.currentTime;
+    const source = ownSeek?.target ?? nativeSeconds;
+    const target = studioPreviewBoundedSourceTime(take, nativeSeconds, ownSeek ? { takeId: ownSeek.takeId, seconds: ownSeek.target } : null);
+    if (!Number.isFinite(source) || target !== source) {
+      pause(); player.currentTime = target;
+      seeking.current = { takeId: take.id, uri: take.uri, target, deadline: Date.now() + 1500 };
     }
-    publish();
+    publish(target);
   }, [take?.start, take?.end, takes, player, pause, publish]);
   useEffect(() => { if (paused) pause(); }, [paused, pause]);
   useFocusEffect(useCallback(() => {
@@ -160,12 +169,13 @@ export const StudioPreview = forwardRef<StudioPreviewHandle, {
       player.addListener('statusChange', event => { if (event.status === 'error' && !moving.current) { failure.current = true; setFailed(true); } }),
       player.addListener('timeUpdate', event => {
         if (moving.current) return;
+        const current = live.current;
+        if (seeking.current && (seeking.current.takeId !== current.take?.id || seeking.current.uri !== current.take?.uri)) seeking.current = null;
         if (seeking.current) {
           if (Math.abs(event.currentTime - seeking.current.target) <= 0.2 || Date.now() > seeking.current.deadline) seeking.current = null;
           else return;
         }
         publish(event.currentTime);
-        const current = live.current;
         if (current.take && event.currentTime >= current.take.end - 0.04) advance();
       }),
       player.addListener('playToEnd', () => advance(true)),

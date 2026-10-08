@@ -4,18 +4,14 @@ import { Film, Mic, Minus, Plus } from 'lucide-react-native';
 import { LoadingImage } from '@/components/LoadingImage';
 import { colors } from '@/theme/colors';
 import { formatStudioDuration, formatStudioEditorTime, type StudioTake } from './model';
-import { canContinueStudioTrim, clampStudioTimelineScale, defaultStudioTimelineScale, freezeStudioTrim, maximumStudioTimelineScale, minimumStudioTimelineScale, studioTimelineLayout, studioTimelinePinchScale, studioTimelineSeconds, studioTimelineTicks, studioTimelineZoomAnchor, studioTrimRange, studioTrimTimelinePosition, type StudioTimelineTrim, type StudioTrimGesture } from './timelineLayout';
+import { canContinueStudioTrim, clampStudioTimelineScale, defaultStudioTimelineScale, freezeStudioTrim, maximumStudioTimelineScale, minimumStudioTimelineScale, studioTimelineLayout, studioTimelinePinchScale, studioTimelineSeconds, studioTimelineTicks, studioTimelineTouchState, studioTimelineZoomAnchor, studioTrimRange, studioTrimTimelinePosition, type StudioTimelineTouchState, type StudioTimelineTrim, type StudioTrimGesture } from './timelineLayout';
 
 export type { StudioTimelineTrim } from './timelineLayout';
 type Edge = 'start' | 'end';
 type Gesture = { frozen: StudioTrimGesture; edge: Edge; scale: number; range: StudioTimelineTrim };
 type Pinch = { distance: number; scale: number; anchor: number };
-type Touch = { pageX: number; pageY: number };
 const rulerHeight = 26;
 const tileWidth = 48;
-function touchDistance(touches: readonly Touch[]) {
-  return touches.length >= 2 ? Math.hypot(touches[1].pageX - touches[0].pageX, touches[1].pageY - touches[0].pageY) : 0;
-}
 
 export function StudioTimeline({ takes, position, activeTakeId, audio = false, onSeek, onSelect, compact = false, locked = false, busy = false, onAppend, onScrubStart, onTrimChange, onTrimCommit, onTrimCancel, pixelsPerSecond = defaultStudioTimelineScale }: {
   takes: readonly StudioTake[]; position: number; activeTakeId?: string; audio?: boolean; compact?: boolean; showClips?: boolean;
@@ -44,6 +40,7 @@ export function StudioTimeline({ takes, position, activeTakeId, audio = false, o
   const pendingZoom = useRef<{ seconds: number; scale: number } | null>(null);
   const zoomFrame = useRef<number | null>(null);
   const viewportLive = useRef(viewport); viewportLive.current = viewport;
+  const positionLive = useRef(position); positionLive.current = position;
   const commitPending = useRef(false);
   const lastSeek = useRef(0);
   const lastTrimPreview = useRef(0);
@@ -77,12 +74,17 @@ export function StudioTimeline({ takes, position, activeTakeId, audio = false, o
     const current = gesture.current;
     if (current && (locked || busy || scale !== current.scale || !canContinueStudioTrim(current.frozen, takes, activeTakeId))) cancelTrim();
   }, [takes, activeTakeId, locked, busy, scale, cancelTrim]);
-  useEffect(() => {
-    if (gesture.current || committing || viewport <= 1 || (scrollPhase.current !== 'idle' && scrollPhase.current !== 'pinch')) return;
-    const anchor = pendingZoom.current?.seconds ?? pinch.current?.anchor ?? position;
-    const target = Math.max(0, Math.min(layout.duration, Number.isFinite(anchor) ? anchor : 0)) * scale;
+  const alignPlayback = () => {
+    if (gesture.current || commitPending.current || viewportLive.current <= 1 || (scrollPhase.current !== 'idle' && scrollPhase.current !== 'pinch')) return;
+    const anchor = pendingZoom.current?.seconds ?? pinch.current?.anchor ?? positionLive.current;
+    const target = Math.max(0, Math.min(live.current.duration, Number.isFinite(anchor) ? anchor : 0)) * live.current.scale;
     if (Math.abs(target - scrollOffset.current) > 0.75) strip.current?.scrollTo({ x: target, animated: false });
-  }, [position, activeTakeId, scale, viewport, layout.duration, committing]);
+  };
+  useEffect(() => {
+    // iOS may clamp offset after a shorter clip changes the content size. Its
+    // idle scroll event must realign to playback even when time is unchanged.
+    alignPlayback();
+  }, [position, activeTakeId, scale, viewport, layout.duration, committing, offset]);
 
   const seekOffset = (value: number, final = false) => {
     const now = Date.now();
@@ -175,14 +177,12 @@ export function StudioTimeline({ takes, position, activeTakeId, audio = false, o
     current.onScrubStart?.(); current.onSeek(anchor.seconds);
     zoomTo(current.scale * factor, anchor.seconds);
   };
-  const canPinch = (touches: readonly Touch[]) => touches.length >= 2 && !live.current.busy && !gesture.current && !commitPending.current && live.current.duration > 0;
-  const beginPinch = (touches: readonly Touch[]) => {
+  const canPinch = (touches: StudioTimelineTouchState) => touches.count >= 2 && touches.distance > 0 && !live.current.busy && !gesture.current && !commitPending.current && live.current.duration > 0;
+  const beginPinch = (touches: StudioTimelineTouchState) => {
     if (!canPinch(touches)) return;
-    const distance = touchDistance(touches);
-    if (distance <= 0) return;
     const current = live.current;
     const anchor = studioTimelineZoomAnchor(scrollOffset.current, current.scale, current.scale, current.duration).seconds;
-    pinch.current = { distance, scale: current.scale, anchor };
+    pinch.current = { distance: touches.distance, scale: current.scale, anchor };
     scrollPhase.current = 'pinch'; setPinching(true);
     current.onScrubStart?.(); current.onSeek(anchor);
     // Stop a native momentum scroll at the cursor before changing its scale.
@@ -199,16 +199,17 @@ export function StudioTimeline({ takes, position, activeTakeId, audio = false, o
   const pinchPan = useMemo(() => PanResponder.create({
     // One finger remains owned by the ScrollView or trim handle. Only a second
     // touch claims this responder, so ordinary clip selection stays native.
-    onStartShouldSetPanResponder: event => canPinch(event.nativeEvent.touches),
-    onStartShouldSetPanResponderCapture: event => canPinch(event.nativeEvent.touches),
-    onMoveShouldSetPanResponder: event => canPinch(event.nativeEvent.touches),
-    onMoveShouldSetPanResponderCapture: event => canPinch(event.nativeEvent.touches),
-    onPanResponderGrant: event => beginPinch(event.nativeEvent.touches),
-    onPanResponderMove: event => {
+    onStartShouldSetPanResponder: (event, state) => canPinch(studioTimelineTouchState(event, state)),
+    onStartShouldSetPanResponderCapture: (event, state) => canPinch(studioTimelineTouchState(event, state)),
+    onMoveShouldSetPanResponder: (event, state) => canPinch(studioTimelineTouchState(event, state)),
+    onMoveShouldSetPanResponderCapture: (event, state) => canPinch(studioTimelineTouchState(event, state)),
+    onPanResponderGrant: (event, state) => beginPinch(studioTimelineTouchState(event, state)),
+    onPanResponderMove: (event, state) => {
       const current = pinch.current;
       if (!current) return;
-      if (event.nativeEvent.touches.length < 2) { finishPinch(); return; }
-      zoomTo(studioTimelinePinchScale(current.scale, current.distance, touchDistance(event.nativeEvent.touches)), current.anchor);
+      const touches = studioTimelineTouchState(event, state);
+      if (touches.count < 2) { finishPinch(); return; }
+      if (touches.distance > 0) zoomTo(studioTimelinePinchScale(current.scale, current.distance, touches.distance), current.anchor);
     },
     onPanResponderRelease: finishPinch,
     onPanResponderTerminate: finishPinch,
@@ -232,7 +233,9 @@ export function StudioTimeline({ takes, position, activeTakeId, audio = false, o
       decelerationRate="fast" scrollEnabled={!busy && !dragging && !committing && !pinching} keyboardShouldPersistTaps="handled"
       onContentSizeChange={contentWidth => {
         const expected = viewportLive.current + live.current.duration * live.current.scale + (onAppend ? 68 : 0);
-        if (pendingZoom.current && Math.abs(contentWidth - expected) < 2) syncZoomOffset();
+        if (Math.abs(contentWidth - expected) < 2) {
+          if (pendingZoom.current) syncZoomOffset(); else alignPlayback();
+        }
       }}
       onScrollBeginDrag={event => { if (pinch.current) return; scrollPhase.current = 'drag'; live.current.onScrubStart?.(); seekOffset(event.nativeEvent.contentOffset.x, true); }}
       onScroll={event => {
@@ -319,19 +322,19 @@ function TrimHandle({ edge, disabled, value, duration, left, top, height, onBegi
   const live = useRef({ disabled, edge, onBegin, onMove, onEnd, onCancel });
   live.current = { disabled, edge, onBegin, onMove, onEnd, onCancel };
   const pan = useMemo(() => PanResponder.create({
-    onStartShouldSetPanResponder: event => !live.current.disabled && event.nativeEvent.touches.length === 1,
+    onStartShouldSetPanResponder: (event, state) => !live.current.disabled && studioTimelineTouchState(event, state).count === 1,
     onStartShouldSetPanResponderCapture: () => false,
-    onMoveShouldSetPanResponder: (event, state) => !live.current.disabled && event.nativeEvent.touches.length === 1 && Math.abs(state.dx) > 1,
-    onPanResponderGrant: () => live.current.onBegin(live.current.edge),
+    onMoveShouldSetPanResponder: (event, state) => !live.current.disabled && studioTimelineTouchState(event, state).count === 1 && Math.abs(state.dx) > 1,
+    onPanResponderGrant: (event, state) => { if (studioTimelineTouchState(event, state).count === 1) live.current.onBegin(live.current.edge); },
     onPanResponderMove: (event, state) => {
       // A second finger ends this cut before the parent can claim a pinch;
       // its averaged dx must never be applied to the original source range.
-      if (event.nativeEvent.touches.length > 1) { live.current.onCancel(); return; }
+      if (studioTimelineTouchState(event, state).count !== 1) { live.current.onCancel(); return; }
       live.current.onMove(state.dx);
     },
     onPanResponderRelease: (_, state) => { live.current.onMove(state.dx); live.current.onEnd(); },
     onPanResponderTerminate: () => live.current.onCancel(),
-    onPanResponderTerminationRequest: event => event.nativeEvent.touches.length >= 2,
+    onPanResponderTerminationRequest: (event, state) => studioTimelineTouchState(event, state).count !== 1,
   }), []);
   return <View {...pan.panHandlers} accessible accessibilityRole="adjustable" accessibilityLabel={edge === 'start' ? 'Início do take' : 'Fim do take'} accessibilityState={{ disabled }} accessibilityValue={{ min: 0, max: duration, now: value, text: formatStudioEditorTime(value) }}
     accessibilityActions={[{ name: 'increment', label: 'Avançar um décimo de segundo' }, { name: 'decrement', label: 'Voltar um décimo de segundo' }]}

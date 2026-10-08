@@ -6,6 +6,30 @@ export type StudioTrimGesture = {
   takeId: string; uri: string; duration: number; start: number; end: number;
   preceding: { id: string; uri: string; start: number; end: number }[];
 };
+export type StudioTimelineTouchState = { count: number; distance: number };
+
+function record(value: unknown): Record<string, unknown> | null {
+  return value !== null && typeof value === 'object' ? value as Record<string, unknown> : null;
+}
+function touchPoint(value: unknown) {
+  const point = record(value);
+  if (typeof point?.pageX !== 'number' || typeof point.pageY !== 'number' || !Number.isFinite(point.pageX) || !Number.isFinite(point.pageY)) return null;
+  return { pageX: point.pageX, pageY: point.pageY };
+}
+export function studioTimelineTouchState(event: unknown, gestureState?: unknown): StudioTimelineTouchState {
+  // RN termination/cancellation events can omit nativeEvent.touches entirely.
+  // An explicit empty list is authoritative; the gesture count is a fallback
+  // only when the list is absent, and cannot supply coordinates for a pinch.
+  const rawTouches = record(record(event)?.nativeEvent)?.touches;
+  const touches: unknown[] | null = Array.isArray(rawTouches) ? rawTouches : null;
+  const active = record(gestureState)?.numberActiveTouches;
+  const fallback = typeof active === 'number' && Number.isFinite(active) ? Math.max(0, Math.floor(active)) : 0;
+  const count = touches?.length ?? fallback;
+  const first = touchPoint(touches?.[0]);
+  const second = touchPoint(touches?.[1]);
+  const distance = count >= 2 && first && second ? Math.hypot(second.pageX - first.pageX, second.pageY - first.pageY) : 0;
+  return { count, distance: Number.isFinite(distance) ? distance : 0 };
+}
 
 const minimum = 0.1;
 export const minimumStudioTimelineScale = 12;
