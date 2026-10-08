@@ -148,3 +148,12 @@ e [streams públicos de teste da Mux](https://test-streams.mux.dev/).
 - SheetModal centraliza apresentação transparente sobre a tela atual, entrada por baixo e orientação. Classy, Criar, nova conversa, seletor de estudo, limites e painéis do player usam a base comum: backdrop, superfície, alça e fechar 44×44. Altura acompanha conteúdo/contexto; fechamento por X, fundo e retorno nativo. Gestos de arrastar dos painéis do player são preservados; a base não promete arrastar para fechar em todos os painéis.
 - Conteúdo de mídia em landscape continua centralizado em 16:9; alturas máximas são positivas e listas mantêm flexShrink. A base de painel não intercepta seus gestos de rolagem.
 - QA desta rodada: TypeScript e exportação iOS. Conferência visual e teste de retorno/gestos ainda pendentes: o Mac estava bloqueado e o acesso ao simulador não pôde ser realizado. Sem push/deploy; nenhuma alteração em backend ou web.
+
+
+## Busca como descoberta — 08/10/2026
+
+- `/search` (header) e Pesquisar (rodapé) usam SearchExperience, ambos sem autofocus. A rota avulsa mantém retorno à página anterior; a aba mantém navegação do rodapé.
+- Cabeçalho com campo compacto e botão Salvos. Visitante segue para login; conta autenticada abre a biblioteca de salvos existente.
+- Descoberta usa catálogo real/public RPC para visitantes; mosaico com destaque 16:9 e grade de três colunas. Personalização usa rankHomeContents, mesmos pesos da Home/web; popularidade ordena empates e visitantes. Sem novo motor remoto de recomendações.
+- Tocar no campo abre camada de busca sobre o feed, com Cancelar e sugestões de títulos reais. Resultados pesquisam título, creator, descrição e tags, ignorando acentos/maiúsculas. Cancelar limpa consulta, recolhe teclado e restaura a grade montada/posição. Ao abrir conteúdo e retornar, consulta/resultados permanecem; teclado recolhe ao sair.
+- TypeScript, quatro testes de ranking existentes e exportação iOS aprovados. QA visual/interação pendente: Mac bloqueado. Sem push/deploy, dependências ou alterações web/backend.
