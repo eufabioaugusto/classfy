@@ -1,3 +1,4 @@
+import { LoadingPlaceholder } from '@/components/LoadingPlaceholder';
 import { NavigationHeader } from '@/components/NavigationHeader';
 import React, { useEffect, useState } from 'react';
 import {
@@ -156,9 +157,7 @@ export default function PurchaseScreen() {
   if (loading) {
     return (
       <AppScreen scroll={false} edgeToEdge header={<NavigationHeader title="Conteúdo" back />}>
-        <View style={styles.centerContainer}>
-          <ActivityIndicator size="large" color={colors.accent} />
-        </View>
+        <LoadingPlaceholder variant="cards" />
       </AppScreen>
     );
   }

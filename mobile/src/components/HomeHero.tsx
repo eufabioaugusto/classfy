@@ -1,3 +1,4 @@
+import { LoadingImage } from '@/components/LoadingImage';
 import { PlanCrown } from './PlanCrown';
 import { controls } from '@/theme/controls';
 import { Image } from 'expo-image';
@@ -43,7 +44,7 @@ export function HomeHero({
         : 'flex-start';
   return (
     <View style={styles.hero}>
-      <Image
+      <LoadingImage
         source={
           settings?.thumbnail_url ||
           content?.thumbnailUrl ||

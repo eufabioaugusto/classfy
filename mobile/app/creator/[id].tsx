@@ -1,7 +1,7 @@
+import { LoadingPlaceholder } from '@/components/LoadingPlaceholder';
 import { NavigationHeader } from '@/components/NavigationHeader';
 import React, { useEffect, useState, useRef } from 'react';
 import {
-  ActivityIndicator,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -87,7 +87,6 @@ export default function CreatorProfileScreen() {
   const [togglingFollow, setTogglingFollow] = useState(false);
 
   // Animations
-  const pulseAnim = useRef(new Animated.Value(0.3)).current;
   const contentFadeAnim = useRef(new Animated.Value(0)).current;
   const followScale = useRef(new Animated.Value(1)).current;
 
@@ -101,25 +100,6 @@ export default function CreatorProfileScreen() {
     });
   }, [navigation]);
 
-  // Shimmer/Pulse loop for skeletons
-  useEffect(() => {
-    if (loading) {
-      Animated.loop(
-        Animated.sequence([
-          Animated.timing(pulseAnim, {
-            toValue: 0.8,
-            duration: 800,
-            useNativeDriver: true,
-          }),
-          Animated.timing(pulseAnim, {
-            toValue: 0.3,
-            duration: 800,
-            useNativeDriver: true,
-          }),
-        ])
-      ).start();
-    }
-  }, [loading]);
 
   useEffect(() => {
     if (rawId) {
@@ -406,50 +386,7 @@ export default function CreatorProfileScreen() {
     }
   };
 
-  const renderSkeleton = () => {
-    return (
-      <View style={styles.skeletonContainer}>
-        {/* Banner Skeleton */}
-        <Animated.View style={[styles.skeletonBanner, { opacity: pulseAnim }]} />
-
-        {/* Profile Info Block Skeleton */}
-        <View style={styles.headerInfoBlock}>
-          {/* Avatar Skeleton */}
-          <Animated.View style={[styles.skeletonAvatar, { opacity: pulseAnim }]} />
-
-          {/* Name & Handle Skeleton */}
-          <Animated.View style={[styles.skeletonTextLine, { width: 180, height: 22, marginTop: spacing.sm, opacity: pulseAnim }]} />
-          <Animated.View style={[styles.skeletonTextLine, { width: 120, height: 14, marginTop: spacing.xs, opacity: pulseAnim }]} />
-
-          {/* Bio Skeleton */}
-          <Animated.View style={[styles.skeletonTextLine, { width: '85%', height: 12, marginTop: spacing.md, opacity: pulseAnim }]} />
-          <Animated.View style={[styles.skeletonTextLine, { width: '60%', height: 12, marginTop: spacing.xs, opacity: pulseAnim }]} />
-
-          {/* Stats Bar Skeleton */}
-          <View style={[styles.statsBar, { borderColor: 'rgba(255,255,255,0.03)', marginTop: spacing.lg }]}>
-            <Animated.View style={[styles.skeletonTextLine, { width: 80, height: 14, opacity: pulseAnim }]} />
-            <View style={styles.statDivider} />
-            <Animated.View style={[styles.skeletonTextLine, { width: 80, height: 14, opacity: pulseAnim }]} />
-            <View style={styles.statDivider} />
-            <Animated.View style={[styles.skeletonTextLine, { width: 80, height: 14, opacity: pulseAnim }]} />
-          </View>
-
-          {/* Buttons Skeleton */}
-          <View style={styles.actionsRow}>
-            <Animated.View style={[styles.skeletonBtn, { opacity: pulseAnim }]} />
-            <Animated.View style={[styles.skeletonBtn, { opacity: pulseAnim }]} />
-            <Animated.View style={[styles.skeletonBtnCircle, { opacity: pulseAnim }]} />
-          </View>
-        </View>
-
-        {/* Content List Skeleton */}
-        <View style={{ paddingHorizontal: spacing.lg, marginTop: spacing.lg, gap: spacing.md }}>
-          <Animated.View style={[styles.skeletonContentCard, { opacity: pulseAnim }]} />
-          <Animated.View style={[styles.skeletonContentCard, { opacity: pulseAnim }]} />
-        </View>
-      </View>
-    );
-  };
+  const renderSkeleton = () => <LoadingPlaceholder variant="creator" inset={false} />;
 
   return (
     <AppScreen scroll={false} edgeToEdge header={<NavigationHeader title="Creator" back />}>

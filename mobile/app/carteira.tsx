@@ -1,3 +1,4 @@
+import { LoadingPlaceholder } from '@/components/LoadingPlaceholder';
 import { NavigationHeader } from '@/components/NavigationHeader';
 import React, { useEffect, useState } from 'react';
 import {
@@ -258,9 +259,7 @@ export default function CarteiraScreen() {
 
       <ScrollView contentContainerStyle={styles.scrollContainer} showsVerticalScrollIndicator={false}>
         {loading ? (
-          <View style={styles.loader}>
-            <ActivityIndicator size="large" color={colors.accent} />
-          </View>
+          <LoadingPlaceholder variant="dashboard" inset={false} />
         ) : (
           <>
             {/* Solicitar Saque Card */}

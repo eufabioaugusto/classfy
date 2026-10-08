@@ -1,7 +1,7 @@
+import { LoadingPlaceholder } from '@/components/LoadingPlaceholder';
 import { NavigationHeader } from '@/components/NavigationHeader';
 import React, { useEffect, useState } from 'react';
 import {
-  ActivityIndicator,
   FlatList,
   Pressable,
   ScrollView,
@@ -336,10 +336,7 @@ export default function ProfileScreen() {
 
     if (loadingData || authLoading) {
       return (
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator color={colors.accent} size="large" />
-          <Text style={styles.loadingText}>Carregando dados de progresso...</Text>
-        </View>
+        <LoadingPlaceholder variant="dashboard" />
       );
     }
 

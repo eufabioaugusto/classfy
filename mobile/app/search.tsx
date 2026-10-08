@@ -1,6 +1,7 @@
+import { LoadingImage } from '@/components/LoadingImage';
+import { LoadingPlaceholder } from '@/components/LoadingPlaceholder';
 import { NavigationHeader } from '@/components/NavigationHeader';
 import { Bookmark, Search, X } from 'lucide-react-native';
-import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { useCallback, useMemo, useRef, useState } from 'react';
@@ -99,7 +100,7 @@ export function SearchExperience({ embedded = false }: { embedded?: boolean }) {
           renderItem={({ item }) => <View style={styles.tileColumn}><DiscoveryTile content={item} onPress={() => openContent(item)} /></View>}
           columnWrapperStyle={styles.gridRow} refreshing={refreshing} onRefresh={refresh}
           ListHeaderComponent={discovery[0] ? <DiscoveryTile content={discovery[0]} featured onPress={() => openContent(discovery[0])} /> : null}
-          ListEmptyComponent={!discovery.length ? empty(false) : null}
+          ListEmptyComponent={!discovery.length ? (loading ? <LoadingPlaceholder variant="discovery" inset={false} /> : empty(false)) : null}
           contentContainerStyle={styles.listContent} />
       </View>
       {searching && <View style={styles.resultsOverlay}>
@@ -107,7 +108,7 @@ export function SearchExperience({ embedded = false }: { embedded?: boolean }) {
           renderItem={({ item }) => <MobileVideoCard content={item} />}
           keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag"
           ListHeaderComponent={<Text style={styles.sectionTitle}>{results.length} {results.length === 1 ? 'resultado' : 'resultados'}</Text>}
-          ListEmptyComponent={empty(true)} contentContainerStyle={styles.listContent} />
+          ListEmptyComponent={loading ? <LoadingPlaceholder /> : empty(true)} contentContainerStyle={styles.listContent} />
         : <View style={styles.suggestions}>
           <Text style={styles.sectionTitle}>Explore novos aprendizados</Text>
           <Text style={styles.emptyText}>Busque por assunto, título ou creator.</Text>
@@ -125,7 +126,7 @@ export function SearchExperience({ embedded = false }: { embedded?: boolean }) {
 function DiscoveryTile({ content, featured = false, onPress }: { content: HomeContent; featured?: boolean; onPress: () => void }) {
   return <Pressable accessibilityRole="button" accessibilityLabel={`${content.title}, ${content.creator}`}
     onPress={onPress} style={({ pressed }) => [styles.tile, featured && styles.featured, pressed && { opacity: 0.8 }]}>
-    {content.thumbnailUrl && <Image source={{ uri: content.thumbnailUrl }} style={StyleSheet.absoluteFillObject}
+    {content.thumbnailUrl && <LoadingImage source={{ uri: content.thumbnailUrl }} style={StyleSheet.absoluteFillObject}
       contentFit="cover" recyclingKey={`${content.contentType}:${content.id}`} />}
     <LinearGradient colors={['transparent', 'rgba(0,0,0,0.85)']} style={StyleSheet.absoluteFillObject} />
     <View style={styles.tileTop}>

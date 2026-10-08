@@ -1,7 +1,7 @@
+import { LoadingPlaceholder } from '@/components/LoadingPlaceholder';
 import { NavigationHeader } from '@/components/NavigationHeader';
 import React, { useEffect, useState } from 'react';
 import {
-  ActivityIndicator,
   FlatList,
   Pressable,
   StyleSheet,
@@ -191,9 +191,7 @@ export default function SavedScreen() {
       {/* Main Content Area */}
       <View style={styles.container}>
         {loading ? (
-          <View style={styles.centerContainer}>
-            <ActivityIndicator size="large" color={colors.accent} />
-          </View>
+          <LoadingPlaceholder variant="library" />
         ) : filteredItems.length > 0 ? (
           <FlatList
             data={filteredItems}

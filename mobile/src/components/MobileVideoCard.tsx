@@ -1,3 +1,4 @@
+import { LoadingImage } from '@/components/LoadingImage';
 import { useRouter } from 'expo-router';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { Image } from 'expo-image';
@@ -63,7 +64,7 @@ export function MobileVideoCard({
         ]}
       >
         {content.thumbnailUrl ? (
-          <Image
+          <LoadingImage
             source={{ uri: content.thumbnailUrl }}
             style={styles.thumbnailImage}
             contentFit="cover"

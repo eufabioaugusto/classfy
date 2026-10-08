@@ -1,3 +1,4 @@
+import { LoadingPlaceholder } from '@/components/LoadingPlaceholder';
 import { NavigationHeader } from '@/components/NavigationHeader';
 import { Ionicons } from '@expo/vector-icons';
 import { ResizeMode, Video } from 'expo-av';
@@ -7,7 +8,6 @@ import { useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
 import * as WebBrowser from 'expo-web-browser';
 import React, { useEffect, useRef, useState } from 'react';
 import {
-  ActivityIndicator,
   Alert,
   Animated,
   Pressable,
@@ -146,9 +146,7 @@ export default function FeaturedCreatorLandingScreen() {
   if (loading) {
     return (
       <AppScreen scroll={false} edgeToEdge header={<NavigationHeader title="Creator" back />}>
-        <View style={styles.centerContainer}>
-          <ActivityIndicator size="large" color={colors.accent} />
-        </View>
+        <LoadingPlaceholder variant="creator" />
       </AppScreen>
     );
   }

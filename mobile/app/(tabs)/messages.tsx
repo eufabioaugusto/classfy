@@ -1,3 +1,4 @@
+import { LoadingPlaceholder } from '@/components/LoadingPlaceholder';
 import { SheetModal, SheetCloseButton, sheetStyles } from '@/components/SheetModal';
 import { NavigationHeader } from '@/components/NavigationHeader';
 import React, { useEffect, useState, useRef, useCallback } from 'react';
@@ -473,9 +474,7 @@ export default function MessagesScreen() {
             </View>
 
             {loading ? (
-              <View style={styles.centerLoading}>
-                <ActivityIndicator color={colors.accent} size="large" />
-              </View>
+              <LoadingPlaceholder variant="list" />
             ) : filteredConversations.length === 0 ? (
               <View style={styles.emptyInbox}>
                 <MessageSquare size={36} color={colors.muted} style={{ opacity: 0.5, marginBottom: spacing.md }} />

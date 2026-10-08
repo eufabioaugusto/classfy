@@ -157,3 +157,13 @@ e [streams públicos de teste da Mux](https://test-streams.mux.dev/).
 - Descoberta usa catálogo real/public RPC para visitantes; mosaico com destaque 16:9 e grade de três colunas. Personalização usa rankHomeContents, mesmos pesos da Home/web; popularidade ordena empates e visitantes. Sem novo motor remoto de recomendações.
 - Tocar no campo abre camada de busca sobre o feed, com Cancelar e sugestões de títulos reais. Resultados pesquisam título, creator, descrição e tags, ignorando acentos/maiúsculas. Cancelar limpa consulta, recolhe teclado e restaura a grade montada/posição. Ao abrir conteúdo e retornar, consulta/resultados permanecem; teclado recolhe ao sair.
 - TypeScript, quatro testes de ranking existentes e exportação iOS aprovados. QA visual/interação pendente: Mac bloqueado. Sem push/deploy, dependências ou alterações web/backend.
+
+
+## Skeletons sutis — 08/10/2026
+
+- LoadingPlaceholder/SkeletonGroup padronizam carregamento: blocos #1B1B1B, pulsação de opacidade entre 0,7 e 1 em ciclo lento de 2,8s, sem brilho atravessando a tela. Uma animação por grupo, native driver, cleanup ao desmontar, pausa em background e respeito a Reduce Motion.
+- Formatos específicos para Home (hero/creators/cards), descoberta (destaque/grade), biblioteca, notificações/mensagens, creators e painéis de progresso/recompensas/carteira. Indicadores de envio, compra, saque e outras ações continuam próprios das ações.
+- LoadingImage cobre o intervalo entre os dados chegarem e o decode/exibição das thumbnails de Hero, cards e descoberta. Fecha o placeholder também em erro de imagem. Home mantém catálogo no pull-to-refresh; não simula atraso nas requisições.
+- Rota `/dev/loading` permite conferir Home, discovery ou dashboard por query `variant`, sem alterar dados/backend. Fora de desenvolvimento redireciona para o início.
+- QA: TypeScript e exportação iOS aprovados. Simulador visitante: prévia do skeleton da Home conferida, retorno à Home/imagem carregada, feed da busca sem foco automático, busca por “luz” e Cancelar retornando à descoberta. Não houve throttling de produção; todos os estados autenticados e Reduce Motion não foram testados por UI nesta rodada.
+- Sem dependências novas, push/deploy ou alterações web/backend.

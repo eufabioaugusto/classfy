@@ -1,7 +1,7 @@
+import { LoadingPlaceholder } from '@/components/LoadingPlaceholder';
 import { controls } from '@/theme/controls';
 import React, { useEffect, useState, useCallback } from 'react';
 import {
-  ActivityIndicator,
   DeviceEventEmitter,
   Pressable,
   ScrollView,
@@ -312,9 +312,7 @@ export default function RewardsScreen() {
 
       {user ? (
           loading ? (
-            <View style={styles.loadingWrapper}>
-              <ActivityIndicator size="small" color={colors.accent} />
-            </View>
+            <LoadingPlaceholder variant="dashboard" inset={false} />
           ) : stats ? (
             <>
               {/* Pontos do ciclo; o valor em reais so existe apos o fechamento */}

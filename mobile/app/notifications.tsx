@@ -1,3 +1,4 @@
+import { LoadingPlaceholder } from '@/components/LoadingPlaceholder';
 import { NavigationHeader } from '@/components/NavigationHeader';
 import React, { useEffect, useState } from 'react';
 import {
@@ -226,9 +227,7 @@ export default function NotificationsScreen() {
       />
 
       {loading ? (
-        <View style={styles.loadingCenter}>
-          <ActivityIndicator size="large" color={colors.accent} />
-        </View>
+        <LoadingPlaceholder variant="list" />
       ) : (
         <FlatList
           data={notifications}

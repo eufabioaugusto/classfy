@@ -1,7 +1,7 @@
+import { LoadingPlaceholder } from '@/components/LoadingPlaceholder';
 import { PlanCrown } from '@/components/PlanCrown';
 import { useMemo, useState } from 'react';
 import {
-  ActivityIndicator,
   FlatList,
   Linking,
   Pressable,
@@ -148,7 +148,7 @@ export default function HomeScreen() {
     <AppScreen scroll={false} edgeToEdge>
       <HomeHeader />
       <FlatList
-        data={rows}
+        data={loading && !contents.length && !courses.length ? [] : rows}
         keyExtractor={(row) => row.key}
         showsVerticalScrollIndicator={false}
         initialNumToRender={5}
@@ -169,12 +169,9 @@ export default function HomeScreen() {
                 </Text>
               </Pressable>
             ) : null}
-            {loading && !contents.length ? (
-              <ActivityIndicator
-                style={{ paddingVertical: 32 }}
-                color={colors.accent}
-              />
-            ) : null}
+            {loading && !contents.length && !courses.length ? (
+              <LoadingPlaceholder variant="home" inset={false} />
+            ) : <>
             <HomeHero
               content={hero}
               creator={creator}
@@ -243,6 +240,7 @@ export default function HomeScreen() {
                 <ContinueWatching userId={user.id} />
               </View>
             )}
+            </>}
           </View>
         }
         renderItem={({ item }) =>
