@@ -1,11 +1,13 @@
 import { useEffect, useState } from 'react';
-import { Linking, Pressable, Text, View } from 'react-native';
+import { Pressable, Text, View } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useRouter } from 'expo-router';
 import { useAuth } from '@/features/auth/authContext';
 import { supabase } from '@/lib/supabase';
 import { colors } from '@/theme/colors';
 export function CreatorApprovedBanner() {
   const { user } = useAuth();
+  const router = useRouter();
   const [visible, setVisible] = useState(false);
   useEffect(() => {
     let active = true;
@@ -60,7 +62,7 @@ export function CreatorApprovedBanner() {
       <Pressable
         onPress={() => {
           dismiss();
-          void Linking.openURL('https://classfy.com.br/studio');
+          router.push('/studio');
         }}
       >
         <Text style={{ color: colors.accent }}>Acessar meu Studio →</Text>

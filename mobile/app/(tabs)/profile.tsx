@@ -6,6 +6,7 @@ import { useRouter, type Href } from 'expo-router';
 import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
 import { AppScreen } from '@/components/AppScreen';
 import { ContinueWatching } from '@/components/ContinueWatching';
+import { usePrimaryAction } from '@/contexts/PrimaryActionContext';
 import { useAuth } from '@/features/auth/authContext';
 import { colors } from '@/theme/colors';
 
@@ -19,6 +20,7 @@ const library: { title: string; description: string; icon: Icon; route: Href }[]
 export default function YouScreen() {
   const router = useRouter();
   const { user, profile, signOut } = useAuth();
+  const { canPublish } = usePrimaryAction();
   const open = (route: Href) => router.push(user ? route : '/auth/sign-in');
   const row = (label: string, icon: Icon, route: Href) => <Pressable key={label} accessibilityRole="button" style={({ pressed }) => [styles.row, pressed && styles.pressed]} onPress={() => open(route)}><Ionicons name={icon} size={21} color={colors.textSecondary} /><Text style={styles.rowLabel}>{label}</Text><Ionicons name="chevron-forward" size={17} color={colors.mutedDim} /></Pressable>;
   return (
@@ -33,6 +35,7 @@ export default function YouScreen() {
       {user ? <View style={styles.resume}><ContinueWatching userId={user.id} /></View> : null}
       <View style={styles.group}>
         <Text style={styles.groupTitle}>Seu espaço</Text>
+        {canPublish ? row('Meu Studio', 'videocam-outline', '/studio') : null}
         {row('Meus estudos com a Classy', 'sparkles-outline', '/study')}
         {row('Conquistas e recompensas', 'trophy-outline', '/rewards')}
         {row('Perfil e progresso', 'person-circle-outline', '/profile-progress')}

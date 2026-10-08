@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { Ionicons } from '@expo/vector-icons';
 import { VideoView } from 'expo-video';
 import { router, usePathname } from 'expo-router';
@@ -11,7 +12,11 @@ export function MobileMiniPlayer() {
   const pathname = usePathname();
   const playback = useMiniPlayer();
   const { content, visible, player } = playback;
-  if (!visible || !content) return null;
+  const inStudio = pathname.startsWith('/studio');
+  useEffect(() => {
+    if (inStudio) playback.closeMiniPlayer();
+  }, [inStudio]);
+  if (inStudio || !visible || !content) return null;
   const expand = () => {
     playback.expand();
     if (__DEV__ && content.id === 'dev-player') { router.push('/dev/player'); return; }

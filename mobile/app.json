@@ -3,13 +3,14 @@
     "name": "Classfy",
     "slug": "classfy-mobile",
     "version": "1.0.0",
-    "orientation": "portrait",
+    "orientation": "default",
     "icon": "./assets/images/icon.png",
     "scheme": "classfy",
     "userInterfaceStyle": "automatic",
     "ios": {
       "icon": "./assets/expo.icon",
-      "bundleIdentifier": "br.com.classfy.mobile"
+      "bundleIdentifier": "br.com.classfy.mobile",
+      "requireFullScreen": true
     },
     "android": {
       "adaptiveIcon": {
@@ -47,7 +48,29 @@
           "speechRecognitionPermission": "Permitir reconhecimento de voz para transcrever ditados."
         }
       ],
-      "expo-video"
+      "expo-video",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "A Classfy usa a câmera para gravar suas aulas no Studio.",
+          "microphonePermission": "A Classfy usa o microfone para gravar o áudio das suas aulas e podcasts.",
+          "recordAudioAndroid": true
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Escolha vídeos e capas para seus projetos no Studio Classfy.",
+          "cameraPermission": false,
+          "microphonePermission": false
+        }
+      ],
+      [
+        "expo-screen-orientation",
+        {
+          "initialOrientation": "PORTRAIT_UP"
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true
