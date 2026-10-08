@@ -71,29 +71,27 @@ export default function TabsLayout() {
           }}
           options={{
             title: roleLoading ? '…' : canPublish ? 'Criar' : 'Classy',
-            tabBarLabel: roleLoading
-              ? '…'
-              : canPublish
-                ? 'Criar'
-                : () => <View style={styles.labelSpacer} accessible={false} />,
+            tabBarLabel: () => null,
+            tabBarItemStyle: { justifyContent: 'center', padding: 0 },
+            tabBarIconStyle: { width: 46, height: 46 },
             tabBarInactiveTintColor: action ? colors.text : colors.mutedDim,
             tabBarAccessibilityLabel: roleLoading
               ? 'Carregando ação principal'
               : canPublish
                 ? 'Criar publicação'
                 : 'Abrir Classy para estudar',
-            tabBarIcon: ({ color }) => (
+            tabBarIcon: () => (
               <View style={styles.primaryIcon}>
                 {roleLoading ? (
                   <ActivityIndicator color={colors.muted} />
                 ) : canPublish ? (
                   <Plus
-                    size={25}
+                    size={26}
                     strokeWidth={1.65}
-                    color={action ? colors.text : color}
+                    color={colors.text}
                   />
                 ) : (
-                  <ClassyAvatar size={32} />
+                  <ClassyAvatar size={36} />
                 )}
               </View>
             ),
@@ -123,12 +121,12 @@ export default function TabsLayout() {
 }
 
 const styles = StyleSheet.create({
-  labelSpacer: { height: 12, marginTop: 2 },
   primaryIcon: {
-    width: 32,
-    height: 32,
+    width: 46,
+    height: 46,
     alignItems: 'center',
     justifyContent: 'center',
-    borderRadius: 16,
+    borderRadius: 23,
+    backgroundColor: colors.surface,
   },
 });
