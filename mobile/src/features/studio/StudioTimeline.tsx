@@ -510,10 +510,10 @@ export function StudioTimeline({ playbackChannel, layers: providedLayers = [], e
       <Animated.View testID="studio-lane-controls-content" pointerEvents="box-none" style={[{ height: laneIndices.length * laneHeight, width: railWidth }, laneRailStyle]}>
         {controlledLanes.filter(lane => visibleLanes.includes(lane.zIndex)).map(lane => <View key={lane.id ?? lane.zIndex} pointerEvents="box-none" style={[styles.laneRailRow, { top: lane.index * laneHeight, width: railWidth }]}>
           {lane.visibility ? <Pressable accessibilityRole="button" accessibilityLabel={`${lane.hidden ? 'Mostrar' : 'Ocultar'} faixa ${lane.zIndex}`} accessibilityState={{ disabled: railDisabled, selected: lane.hidden }} disabled={railDisabled} onPress={() => toggleRail('visibility', lane.zIndex, lane.id)} style={({ pressed }) => [styles.railAction, pressed && styles.railPressed, railDisabled && styles.railDisabled]}>
-            {lane.hidden ? <EyeOff size={20} color={colors.mutedDim} strokeWidth={1.6} /> : <Eye size={20} color={colors.textSecondary} strokeWidth={1.6} />}
+            {lane.hidden ? <EyeOff size={18} color={colors.mutedDim} strokeWidth={1.6} /> : <Eye size={18} color={colors.textSecondary} strokeWidth={1.6} />}
           </Pressable> : null}
           {lane.mute ? <Pressable accessibilityRole="button" accessibilityLabel={`${lane.muted ? 'Ativar' : 'Silenciar'} áudio da faixa ${lane.zIndex}`} accessibilityState={{ disabled: railDisabled, selected: lane.muted }} disabled={railDisabled} onPress={() => toggleRail('mute', lane.zIndex, lane.id)} style={({ pressed }) => [styles.railAction, pressed && styles.railPressed, railDisabled && styles.railDisabled]}>
-            {lane.muted ? <VolumeX size={20} color={colors.mutedDim} strokeWidth={1.6} /> : <Volume2 size={20} color={colors.textSecondary} strokeWidth={1.6} />}
+            {lane.muted ? <VolumeX size={18} color={colors.mutedDim} strokeWidth={1.6} /> : <Volume2 size={18} color={colors.textSecondary} strokeWidth={1.6} />}
           </Pressable> : null}
         </View>)}
       </Animated.View>
@@ -521,7 +521,7 @@ export function StudioTimeline({ playbackChannel, layers: providedLayers = [], e
     {!previewOnly && onToggleMainMute ? <View testID="studio-main-control" pointerEvents="box-none" style={[styles.laneRail, { top: mainTop, height: trackHeight, width: railButtonSize, justifyContent: 'center' }]}>
       <View pointerEvents="none" style={styles.railBackground} />
       <Pressable accessibilityRole="button" accessibilityLabel={`${editing?.mainMuted ? 'Ativar' : 'Silenciar'} áudio principal`} accessibilityState={{ disabled: railDisabled, selected: !!editing?.mainMuted }} disabled={railDisabled} onPress={() => toggleRail('main')} style={({ pressed }) => [styles.railAction, pressed && styles.railPressed, railDisabled && styles.railDisabled]}>
-        {editing?.mainMuted ? <VolumeX size={20} color={colors.mutedDim} strokeWidth={1.6} /> : <Volume2 size={20} color={colors.textSecondary} strokeWidth={1.6} />}
+        {editing?.mainMuted ? <VolumeX size={18} color={colors.mutedDim} strokeWidth={1.6} /> : <Volume2 size={18} color={colors.textSecondary} strokeWidth={1.6} />}
       </Pressable>
     </View> : null}
     {laneIndices.length > rowCount ? <View pointerEvents="none" style={{ position: 'absolute', top: rulerHeight, right: 2, height: layerHeight, width: 3, zIndex: 5 }}><Animated.View style={[{ width: 3, borderRadius: 2, backgroundColor: 'rgba(255,255,255,0.24)' }, laneIndicatorStyle]} /></View> : null}
@@ -920,7 +920,7 @@ function TrimHandle({ edge, take, index, startSeconds, endSeconds, motion: m, ho
     style={[styles.handleTouch, { top: top - 4, height: height + 8 }, style]}><Animated.View pointerEvents="none" style={[styles.handle, disabled && { opacity: 0.45 }, visualStyle]}>{edge === 'start' ? <ChevronLeft size={16} strokeWidth={3} color="#0B0E11" /> : <ChevronRight size={16} strokeWidth={3} color="#0B0E11" />}</Animated.View></Animated.View></GestureDetector>;
 }
 function AppendButton({ disabled, onPress }: { disabled?: boolean; onPress: () => void }) {
-  return <Pressable accessibilityRole="button" accessibilityLabel="Adicionar take à montagem" accessibilityState={{ disabled: !!disabled }} disabled={disabled} onPress={onPress} style={({ pressed }) => [styles.append, disabled && { opacity: 0.4 }, pressed && { backgroundColor: colors.surfaceAlt }]}><Plus size={22} color={colors.text} strokeWidth={1.5} /></Pressable>;
+  return <Pressable accessibilityRole="button" accessibilityLabel="Adicionar take à montagem" accessibilityState={{ disabled: !!disabled }} disabled={disabled} onPress={onPress} style={({ pressed }) => [styles.append, disabled && { opacity: 0.4 }, pressed && { backgroundColor: colors.surfaceAlt }]}><Plus size={20} color={colors.text} strokeWidth={1.5} /></Pressable>;
 }
 const styles = StyleSheet.create({
   timeline: { width: '100%', overflow: 'hidden' },

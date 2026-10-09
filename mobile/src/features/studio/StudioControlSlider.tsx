@@ -66,7 +66,7 @@ export function StudioControlSlider(props: Props) {
   return <View style={[s.control, blocked && s.disabled]}>
     <View style={s.caption}><Text style={s.label}>{props.label}</Text><Text style={s.value}>{props.formatValue ? props.formatValue(value) : String(value)}</Text></View>
     <View style={s.row}>
-      <Pressable accessibilityRole="button" accessibilityLabel={`Diminuir ${props.label}`} disabled={blocked || dragging} onPress={() => increment(-1)} style={({ pressed }) => [s.button, pressed && s.pressed]}><Minus size={20} color={colors.text} strokeWidth={1.6} /></Pressable>
+      <Pressable accessibilityRole="button" accessibilityLabel={`Diminuir ${props.label}`} disabled={blocked || dragging} onPress={() => increment(-1)} style={({ pressed }) => [s.button, pressed && s.pressed]}><Minus size={18} color={colors.text} strokeWidth={1.6} /></Pressable>
       <View accessibilityRole="adjustable" accessibilityLabel={props.label} accessibilityState={{ disabled: blocked }}
         accessibilityValue={{ min: props.min, max: props.max, now: value, text: props.formatValue?.(value) }}
         accessibilityActions={[{ name: 'increment' }, { name: 'decrement' }]}
@@ -79,14 +79,14 @@ export function StudioControlSlider(props: Props) {
         <View pointerEvents="none" style={s.track}><View style={[s.fill, { width: `${fraction * 100}%` }]} /></View>
         <View pointerEvents="none" style={[s.thumb, { left: Math.max(0, Math.min(width - 20, fraction * (width - 20))) }]} />
       </View>
-      <Pressable accessibilityRole="button" accessibilityLabel={`Aumentar ${props.label}`} disabled={blocked || dragging} onPress={() => increment(1)} style={({ pressed }) => [s.button, pressed && s.pressed]}><Plus size={20} color={colors.text} strokeWidth={1.6} /></Pressable>
+      <Pressable accessibilityRole="button" accessibilityLabel={`Aumentar ${props.label}`} disabled={blocked || dragging} onPress={() => increment(1)} style={({ pressed }) => [s.button, pressed && s.pressed]}><Plus size={18} color={colors.text} strokeWidth={1.6} /></Pressable>
     </View>
   </View>;
 }
 const s = StyleSheet.create({
   control: { paddingHorizontal: 10, paddingTop: 5, paddingBottom: 2 }, disabled: { opacity: 0.4 },
   caption: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 10 },
-  label: { fontSize: 12, color: colors.textSecondary, fontWeight: '500' }, value: { fontSize: 12, color: colors.text, fontVariant: ['tabular-nums'] },
+  label: { fontSize: 11, color: colors.textSecondary, fontWeight: '500' }, value: { fontSize: 11, color: colors.text, fontVariant: ['tabular-nums'] },
   row: { flexDirection: 'row', alignItems: 'center', gap: 8 }, button: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center', borderRadius: 12 },
   pressed: { backgroundColor: colors.surfaceMuted }, hitArea: { height: 48, flex: 1, justifyContent: 'center' },
   track: { height: 4, borderRadius: 2, backgroundColor: '#3B3B3F', marginHorizontal: 10 }, fill: { height: 4, borderRadius: 2, backgroundColor: colors.text },

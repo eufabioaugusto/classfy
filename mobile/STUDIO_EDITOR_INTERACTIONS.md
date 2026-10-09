@@ -110,6 +110,14 @@ QA no Simulator CREATOR: ocultar/restaurar texto e imagem, persistir/recarregar 
 
 Builds Debug finais de simulador e iOS genérico passaram. O binário final foi instalado no Simulator e mute/unmute reconferido; o build de dispositivo está em `/tmp/classfy-studio-device-build/Build/Products/Debug-iphoneos/ClassfyDev.app`. O bundle iOS respondeu HTTP200 pelo túnel Metro existente, com os controles e canal presentes. Os botões chegam por Reload; a renderização interativa e o prime corrigido exigem o novo Classfy Dev. Sem instalação no iPhone remoto, publicação web, push ou alteração de dependências.
 
+## Margem inferior e controles compactos — nona rodada de 09/10/2026
+
+Os dois prints seguintes do Fabio mostraram a barra de ferramentas encostada na navegação do iPhone e controles visualmente pesados. O `KeyboardAvoidingView` instalado sobrescreve seu próprio `paddingBottom` no modo `padding`, inclusive com teclado fechado. A margem de segurança agora pertence ao workspace: safe area inferior (mínimo de 8 pontos) mais 20 pontos de folga. Com teclado aberto, o workspace usa 8 pontos e deixa a compensação ao componente de teclado. A prévia ampliada recebeu a mesma folga; os painéis modais mantêm safe area mais 12 pontos.
+
+Ícones e fontes maiores dos controles foram reduzidos em aproximadamente dois pontos. Rótulos pequenos mantêm piso de 11 pontos; amostras de fonte, campo de texto e conteúdo da cena conservam seus tamanhos. Ferramentas principais usam ícones de 20 pontos com traço de 1,5 e área de 62×56 pontos; ações compactas mantêm alvos de pelo menos 44 pontos. A coluna de hide/mute usa ícones de 18 pontos, sem alterar sua geometria de toque. Nenhum gesto, intervalo, receita, fonte exportada ou código nativo mudou.
+
+Validação: TypeScript, diff check e os 41 testes existentes de posição/rota passaram. O Simulator CREATOR conferiu margem na barra normal e na seleção de camada, edição com teclado visível e retorno à barra sem sobreposição ou perda da folga. Nenhum conteúdo da fixture foi editado ou publicado. O bundle iOS remoto respondeu HTTP200 e contém a margem nova. Essa rodada chega por Reload no Classfy Dev já instalado; não requer rebuild nem push. A redução de conflitos com o gesto Home ainda depende do uso físico no iPhone remoto.
+
 ## Origem dos requisitos
 
 Os prints, gravações e orientações do Fabio são a referência de produto: edição direta na prévia, corte integrado à timeline, ferramentas contextuais e seleção que não salta o cursor. CapCut e Edits ajudam a modelar a experiência; a identidade continua Classfy.
