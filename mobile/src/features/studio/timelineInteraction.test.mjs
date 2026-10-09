@@ -177,6 +177,11 @@ function harness(options = {}) {
     const node = nodes('TimelineClip').find(item => item.props.segment.take.id === id);
     return render(`clip-${id}`, node.type, node.props);
   };
+  const clipImages = id => {
+    const clip = childClip(id);
+    const frames = all(clip, node => typeof node.type === 'function' && node.type.name === 'ClipFrames')[0];
+    return all(render(`frames-${id}`, frames.type, frames.props), node => node.type === 'image');
+  };
   const childLayer = id => {
     const node = nodes('TimelineLayer').find(item => item.props.item.id === id);
     assert.ok(node, 'selected layer remains mounted');
@@ -219,7 +224,7 @@ function harness(options = {}) {
   all(context('timeline').tree, node => node.type === 'animated-view' && node.props?.onLayout)[0].props.onLayout({ nativeEvent: { layout: { width: 300 } } });
   renderParent(); flushUI();
   scroll().onScroll({ contentOffset: { x: 60 } }); flushJS(); animate(); flushJS(); scrolls.length = 0;
-  return { scroll, scrollProps, pinch, m, pan, childClip, childLayer, snapGuide, nodes, control, laneStatus, seeks, selections, previews, commits, cancellations, scrolls, jsQueue, uiQueue,
+  return { scroll, scrollProps, pinch, m, pan, childClip, clipImages, childLayer, snapGuide, nodes, control, laneStatus, seeks, selections, previews, commits, cancellations, scrolls, jsQueue, uiQueue,
     animate, reactions, frame, flushJS, flushUI, stepJS, pump,
     playerPosition: () => context('timeline').reactions.find(reaction => reaction.prepare()?.viewport !== undefined).prepare().position,
     update: next => { props = { ...props, ...next }; renderParent(); },
@@ -1152,7 +1157,9 @@ test('zoom mínimo ainda move pixels em cada frame e o relógio respeita o fim d
     // A deliberate seek establishes an exact paused anchor before Play.
     view.update({ position: 11.99, playing: false }); settlePlaybackSample(view);
     view.update({ playing: true }); view.flushUI(); playbackFrame(view, 100);
-    assert.equal(view.playerPosition(), 12); assert.equal(view.scrolls.at(-1).x, 144);
+    assert.equal(view.playerPosition(), 11.99, 'prediction cannot draw the end before the media reaches it');
+    view.update({ position: 12, playing: false }); settlePlaybackSample(view);
+    assert.equal(view.playerPosition(), 12);
     assert.equal(view.m().offset.value, 144, 'the native scroll reaches the exact final endpoint even at low zoom');
     view.scrolls.length = 0; playbackFrame(view, 100); assert.equal(view.playerPosition(), 12); assert.deepEqual(view.scrolls, []); assert.deepEqual(view.seeks, []);
   } finally { view.dispose(); }
@@ -1173,7 +1180,7 @@ test('samples ausentes e um frame suspenso param o avanço em vez de inventar m�
   try {
     beginPlayback(view);
     for (let index = 0; index < 20; index++) playbackFrame(view);
-    const stalled = view.playerPosition(); assert.ok(stalled >= 1.2 && stalled <= 1.251, 'clock has a bounded allowance for sparse player events');
+    const stalled = view.playerPosition(); assert.ok(stalled >= 1.119 && stalled <= 1.121, 'clock has at most120ms of unconfirmed prediction');
     view.scrolls.length = 0; playbackFrame(view); playbackFrame(view); assert.equal(view.playerPosition(), stalled); assert.deepEqual(view.scrolls, []);
     view.update({ position: 1.5 }); view.flushUI(); settlePlaybackSample(view); const beforeGap = view.playerPosition(); playbackFrame(view, 200);
     assert.equal(view.playerPosition(), beforeGap, 'long dropped frame must not advance by its whole gap');
@@ -1192,10 +1199,10 @@ test('eventos nativos15Hz com mídia congelada não renovam o watchdog; o retorn
       if (frame % 4 === 0) channel.value = { ...channel.value, sequence: channel.value.sequence + 1 };
       view.reactions(); view.frame(1000 / 60); view.reactions();
       assert.ok(view.playerPosition() >= previous, 'duplicate samples cannot rewind the strip');
-      assert.ok(view.playerPosition() <= 1.251, 'buffering cannot keep the visual clock alive forever');
+      assert.ok(view.playerPosition() <= 1.121, 'buffering cannot keep the visual clock alive forever');
       previous = view.playerPosition();
     }
-    assert.ok(Math.abs(previous - 1.25) < .001);
+    assert.ok(Math.abs(previous - 1.12) < .001);
     channel.value = { ...channel.value, sequence: channel.value.sequence + 1, position: 1.3 };
     view.reactions();
     assert.equal(view.playerPosition(), previous, 'recovery changes speed, not the displayed position');
@@ -1210,7 +1217,7 @@ test('sample atrasado após watchdog retoma a mesma reprodução sem voltar o cu
     beginPlayback(view, 0);
     for (let frame = 0; frame < 20; frame++) playbackFrame(view);
     const stalled = view.playerPosition();
-    assert.ok(Math.abs(stalled - .25) < .001);
+    assert.ok(Math.abs(stalled - .12) < .001);
     view.update({ position: 1 / 15 }); view.flushUI(); settlePlaybackSample(view);
     assert.equal(view.playerPosition(), stalled, 'a still-progressive native sample cannot become a backward seek');
     const moves = playbackFrame(view);
@@ -1361,6 +1368,58 @@ for (const release of ['drag', 'momentum']) {
     } finally { view.dispose(); }
   });
 }
+
+for (const fps of [60, 120]) {
+  test(`janela prepara a faixa adiante sem depender do feedback de scroll em ${fps}Hz`, () => {
+    const longTake = { ...take('a'), duration: 3600, start: 0, end: 3600 };
+    const channel = { value: { active: true, sequence: 1, position: 50, playing: true, loading: false } };
+    const view = harness({ nativeSharedValues: true, nativeWorklets: true, takes: [longTake], position: 50, playbackChannel: channel });
+    try {
+      view.reactions(); view.flushJS(); view.flushUI();
+      for (let frame = 0; frame < fps * 3; frame++) {
+        if (frame && frame % (fps / 15) === 0) {
+          channel.value = { ...channel.value, sequence: channel.value.sequence + 1, position: 50 + frame / fps };
+          view.reactions();
+        }
+        view.frame(1000 / fps);
+        // UIKit does not emit a scroll event in this scenario. React only
+        // prepares thumbnails; it has no role in animating the displayed strip.
+        if (frame % Math.ceil(fps / 16) === 0) view.flushJS();
+        const images = view.clipImages('a');
+        const left = Math.min(...images.map(image => image.props.style.left));
+        const right = Math.max(...images.map(image => image.props.style.left + image.props.style.width));
+        const x = view.playerPosition() * 60;
+        assert.ok(left <= x - 150, 'the full visible portion has mounted cover cells');
+        assert.ok(right >= x + 150 + 48, 'the next cells already exist before they enter the viewport');
+        assert.ok(images.length <= 17, 'an hour-long take keeps a bounded number of mounted thumbnails');
+        assert.ok(images.every(image => image.props.source.uri === longTake.thumbnailUri), 'covers are available before native JPEG extraction finishes');
+        assert.ok(Math.abs(view.m().offset.value - x) < .01, 'UI geometry uses the current display position without UIKit feedback');
+      }
+      assert.deepEqual(view.seeks, [], 'preparation is not a media seek');
+    } finally { view.dispose(); }
+  });
+}
+
+test('seek distante prepara régua, camadas e miniaturas, ignorando scroll antigo da reprodução', () => {
+  const longTake = { ...take('a'), duration: 3600, start: 0, end: 3600 };
+  const item = { id: 'future', kind: 'text', zIndex: 1, startTicks: 1001 * 120000, durationTicks: 2 * 120000 };
+  const view = harness({ nativeSharedValues: true, nativeWorklets: true, takes: [longTake], layers: [item] });
+  try {
+    assert.equal(view.nodes('TimelineLayer').length, 0);
+    view.update({ position: 1000 }); view.flushUI(); view.reactions(); view.flushJS();
+    assert.equal(view.m().offset.value, 60000);
+    assert.equal(view.nodes('TimelineLayer').length, 1, 'the upcoming overlay is prepared along with the main track');
+    const images = view.clipImages('a');
+    assert.ok(images[0].props.style.left <= 60000 - 150);
+    assert.ok(images.at(-1).props.style.left + 48 >= 60000 + 150);
+    const ticks = view.nodes('TimelineTick').map(node => node.props.tick.seconds);
+    assert.ok(ticks.some(seconds => seconds >= 1000 && seconds <= 1002));
+    view.scroll().onScroll({ contentOffset: { x: 60 } }); view.flushJS();
+    assert.equal(view.m().offset.value, 60000, 'an obsolete programmatic scroll event cannot rewind the authoritative offset');
+    view.scroll().onBeginDrag(); view.scroll().onScroll({ contentOffset: { x: 300 } });
+    assert.equal(view.m().offset.value, 300, 'a new physical scrub takes ownership of the native offset');
+  } finally { view.dispose(); }
+});
 
 // Exercise both production components with one channel. Loading the existing
 // controlled adapter harness in memory preserves real useEvent/Fabric handling

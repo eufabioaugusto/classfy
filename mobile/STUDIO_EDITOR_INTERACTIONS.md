@@ -54,6 +54,16 @@ O Simulator CREATOR recebeu os eventos pelo host animado e confirmou Play, pausa
 
 Fontes técnicas: [Reanimated — memoizar frame callbacks](https://docs.swmansion.com/react-native-reanimated/docs/guides/performance/#-memoize-frame-callbacks), [useEvent](https://docs.swmansion.com/react-native-reanimated/docs/advanced/useEvent/) e [Expo — eventos de views nativas](https://docs.expo.dev/modules/native-view-tutorial/). A [documentação pública da Meta sobre o Edits](https://about.fb.com/news/2025/04/introducing-edits-streamlined-video-creation-app/) descreve precisão de timeline por quadro, mas não identifica seu motor interno. A arquitetura desta rodada foi baseada nas APIs instaladas e no comportamento medido, sem atribuir uma implementação privada à Meta.
 
+## Sincronismo e preparação da faixa — quinta rodada de 09/10/2026
+
+Fabio confirmou que a quarta rodada melhorou fortemente a fluidez e eliminou os travamentos. A gravação seguinte mostrou outro defeito: o fim da faixa chegava antes do vídeo e o restante reaparecia. A régua independente das miniaturas confirma posição visual de aproximadamente 9,63s com contador em 5,5s e recuo de 10,36s para 6,23s. Depois desse recuo, a geometria continuava presente, mas uma parte das miniaturas demorava cerca de 585ms para aparecer. A duração do take não aumentou.
+
+O relógio agora usa o timestamp monotônico do display, ignora o mesmo quadro recebido duas vezes e limita a previsão a 120ms além da última amostra real da mídia. A taxa visual acompanha a cadência observada, sem deixar um player mais lento renovar indefinidamente um relógio a 1x. O fim exige confirmação nativa. Essa proteção cobre deltas incorretos/repetidos e progresso lento; a origem específica do avanço de 1,7x no aparelho não foi comprovada por trace físico.
+
+A UI publica sua posição para preparar miniaturas, régua e camadas sem depender do feedback de `onScroll`. Eventos antigos de rolagem não substituem essa posição durante a reprodução; o gesto físico assume o offset ao começar. A janela React avança em blocos de 96 pontos, com margem de pelo menos 192 pontos de cada lado. Células seguintes já existem com a capa enquanto quadros específicos chegam; a extração continua limitada a 10 timestamps por take/janela e um decoder global. Não se extrai nem se monta a aula inteira. Movimento por quadro permanece na UI e não depende de render React.
+
+497/497 testes Studio, TypeScript e diff check passaram. Os testes exercitam os componentes Babel reais e os registries instalados em 60/120Hz, mídia com cadência irregular, timestamps duplicados, espera/retomada, EOF e cobertura das células sem evento de scroll, inclusive em take de uma hora. O Simulator CREATOR confirmou régua alinhada ao contador, replay, zoom ampliado e término em 8,5s na fixture nativa. Isso não substitui a repetição deste cenário específico no iPhone. A entrega continua JS pelo Metro/túnel existente do Classfy Dev, sem build novo ou publicação web.
+
 ## Origem dos requisitos
 
 Os prints, gravações e orientações do Fabio são a referência de produto: edição direta na prévia, corte integrado à timeline, ferramentas contextuais e seleção que não salta o cursor. CapCut e Edits ajudam a modelar a experiência; a identidade continua Classfy.

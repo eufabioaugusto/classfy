@@ -238,6 +238,36 @@ for (const fps of [60, 120]) {
   test(`amostras nativas atrasadas300ms não recuam nem saltam o scroll após watchdog em ${fps}Hz`, () => {
     exerciseDelayedPlayback(fps);
   });
+  test(`Timeline real em${fps}Hz acompanha mídia lenta sem avançar segundos além do decoder`, () => {
+    const channel = { value: { active: true, sequence: 1, position: .5, playing: false, loading: false } };
+    const lifecycle = frameLifecycle();
+    const view = timelineHarness({ nativeSharedValues: true, nativeWorklets: true, frameLifecycle: lifecycle, playbackChannel: channel, position: .5 });
+    try {
+      displayFrame(view, lifecycle, 1000 / fps);
+      channel.value = { ...channel.value, sequence: 2, playing: true }; view.reactions();
+      let previous = .5;
+      for (let frame = 1; frame <= fps * 10; frame++) {
+        if (frame % (fps / 15) === 0) {
+          const native = .5 + frame / fps * .5;
+          channel.value = { ...channel.value, sequence: channel.value.sequence + 1, position: native };
+          view.update({ position: native, playing: true }); view.flushUI(); view.reactions();
+        }
+        const result = displayFrame(view, lifecycle, 1000 / fps);
+        assert.ok(result.position >= previous - 1e-8);
+        assert.ok(result.position <= channel.value.position + .12 + 1e-8, '15Hz progressive media cannot keep an unrelated wall clock alive');
+        previous = result.position;
+      }
+      assert.equal(channel.value.position, 5.5);
+      assert.ok(Math.abs(previous - 5.5) <= .12 + 1e-8);
+      assert.equal(lifecycle.stats.registrations, 1);
+      assert.equal(lifecycle.stats.frames.length, fps * 10 + 1);
+      const elapsed = lifecycle.stats.frames.reduce((sum, frame) => sum + (frame.timeSincePreviousFrame || 0), 0);
+      assert.ok(Math.abs(elapsed - 10000) < .001, 'installed registry deltas total ten elapsed seconds');
+      channel.value = { ...channel.value, sequence: channel.value.sequence + 1, playing: false }; view.reactions();
+      assert.ok(Math.abs(previous - view.playerPosition()) <= .12 + 1e-8, 'pause cannot expose several seconds of artificial lead');
+      assert.deepEqual(view.seeks, []);
+    } finally { view.dispose(); view.flushUI(); }
+  });
 }
 
 test('TimelineLayer Babel preserva seu registro ao acompanhar os renders reais do parent', () => {

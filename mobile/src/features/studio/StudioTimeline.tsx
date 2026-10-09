@@ -35,6 +35,7 @@ type Motion = {
 };
 const rulerHeight = 26;
 const tileWidth = 48;
+const preparedWindowStep = tileWidth * 2;
 const visibleLaneCount = 3;
 const laneHeight = 44;
 const handleInset = 28;
@@ -93,7 +94,10 @@ export function StudioTimeline({ playbackChannel, layers: providedLayers = [], e
   const mainTop = previewOnly ? 0 : rulerHeight + layerHeight + (layerHeight ? 8 : 0);
   // A held layer must retain its native view/recognizer while vertical paging
   // reveals a destination outside its original window.
-  const visibleLayers = layers.filter(item => item.id === selectedLayerId || visibleLanes.includes(item.zIndex) && item.startTicks / 120000 <= (offset / scale + viewport / scale / 2 + 2) && (item.startTicks + item.durationTicks) / 120000 >= (offset / scale - viewport / scale / 2 - 2));
+  const preparedMargin = Math.max(tileWidth * 4, viewport / 2);
+  const visibleStart = offset - viewport / 2 - preparedMargin;
+  const visibleEnd = offset + viewport / 2 + preparedMargin;
+  const visibleLayers = layers.filter(item => item.id === selectedLayerId || visibleLanes.includes(item.zIndex) && item.startTicks / 120000 <= visibleEnd / scale && (item.startTicks + item.durationTicks) / 120000 >= visibleStart / scale);
   const strip = useAnimatedRef<Animated.ScrollView>();
   const host = useAnimatedRef<Animated.View>();
   const mounted = useRef(true);
@@ -128,6 +132,7 @@ export function StudioTimeline({ playbackChannel, layers: providedLayers = [], e
   const foreground = useSharedValue(AppState.currentState === undefined || AppState.currentState === 'active');
   const blocked = useSharedValue(!!busy);
   const lastVisible = useSharedValue(0);
+  const publishedOffset = useSharedValue(0);
   const lastSeek = useSharedValue(0);
   const lastPreview = useSharedValue(0);
   const pinchScale = useSharedValue(scale);
@@ -198,7 +203,12 @@ export function StudioTimeline({ playbackChannel, layers: providedLayers = [], e
   }, [takes, activeTakeId, locked, busy, cancelTrim]);
   useEffect(() => { if (gesture.current) cancelTrim(); }, [cancelEpoch, lifecycleEpoch, cancelTrim]);
 
-  const receiveOffset = useCallback((value: number) => { if (mounted.current) setOffset(value); }, []);
+  // Keep the prepared cells alive across several display frames. This is a
+  // bounded tile window, not a request to decode an entire lesson. Updating
+  // every fractional pixel would cancel/rebuild its thumbnail subscriptions.
+  const receiveOffset = useCallback((value: number) => {
+    if (mounted.current) setOffset(Math.floor(value / preparedWindowStep) * preparedWindowStep);
+  }, []);
   const receiveScale = useCallback((value: number) => { if (mounted.current) setScale(value); }, []);
   const startScrub = useCallback((expected: number) => {
     if (mounted.current && m.epoch.value === expected && [1, 2, 4, 6].includes(m.phase.value) && !live.current.busy) live.current.onScrubStart?.();
@@ -275,12 +285,21 @@ export function StudioTimeline({ playbackChannel, layers: providedLayers = [], e
     previewTrim(range.start, range.end, drag.epoch); void commitTrim(range.start, range.end, drag.epoch);
   };
 
-  useAnimatedReaction(() => ({ phase: m.phase.value, position: playerPosition.value, scale: m.scale.value, offset: m.offset.value, duration: total.value, viewport: m.viewport.value, blocked: blocked.value, foreground: foreground.value, playing: playbackClock.value.running }), state => {
+  useAnimatedReaction(() => ({ phase: m.phase.value, position: playerPosition.value, scale: m.scale.value, duration: total.value, viewport: m.viewport.value, blocked: blocked.value, foreground: foreground.value, playing: playbackClock.value.running }), state => {
     if (state.phase !== 0 || state.viewport <= 1 || state.blocked || !state.foreground) return;
     const target = Math.max(0, Math.min(state.duration, state.position)) * state.scale;
     // Fractional offsets matter at low zoom: a 0.75 px deadband would discard
     // several display frames and recreate the same visible stepping.
-    if (Math.abs(target - state.offset) > 0.01) scrollTo(strip, target, 0, false);
+    if (Math.abs(target - m.offset.value) > 0.01) scrollTo(strip, target, 0, false);
+    // Programmatic scroll feedback can be absent or delayed on iOS. The UI
+    // clock owns both the displayed offset and the upcoming thumbnail window;
+    // a late native scroll notification must not put either one behind it.
+    m.offset.value = target;
+    const now = Date.now();
+    if (now - lastVisible.value >= 64 || Math.abs(target - publishedOffset.value) >= Math.max(preparedWindowStep, state.viewport / 2)) {
+      lastVisible.value = now; publishedOffset.value = target;
+      runOnJS(receiveOffset)(target);
+    }
   });
   useAnimatedReaction(() => ({ phase: m.phase.value, start: m.start.value, end: m.end.value }), state => {
     if (state.phase !== 3) return;
@@ -290,6 +309,7 @@ export function StudioTimeline({ playbackChannel, layers: providedLayers = [], e
   const scrollHandler = useAnimatedScrollHandler({
     onBeginDrag: () => { if ((m.phase.value >= 3 && m.phase.value !== 6) || blocked.value) return; seekTarget.value = null; m.epoch.value += 1; m.phase.value = 1; runOnJS(startScrub)(m.epoch.value); },
     onScroll: event => {
+      if (m.phase.value === 0) return;
       m.offset.value = Math.max(0, event.contentOffset.x);
       const now = Date.now();
       if (now - lastVisible.value >= 64) { lastVisible.value = now; runOnJS(receiveOffset)(m.offset.value + m.virtual.value); }
@@ -317,7 +337,7 @@ export function StudioTimeline({ playbackChannel, layers: providedLayers = [], e
   useFrameCallback(useCallback(frame => {
     'worklet';
     if (m.phase.value === 0 && !blocked.value && foreground.value) {
-      const next = advanceStudioTimelinePlayback(playbackClock.value, frame.timeSincePreviousFrame, total.value);
+      const next = advanceStudioTimelinePlayback(playbackClock.value, frame.timeSincePreviousFrame, total.value, frame.timestamp);
       if (next !== playbackClock.value) { playbackClock.value = next; playerPosition.value = next.position; }
     } else if (playbackClock.value.running || playbackClock.value.stalled) {
       playbackClock.value = { ...playbackClock.value, running: false, stalled: false, correction: 0 };
@@ -366,8 +386,6 @@ export function StudioTimeline({ playbackChannel, layers: providedLayers = [], e
   // their activation mutates the ancestor recognizer during the same touch.
   const scrollProps = useAnimatedProps(() => ({ scrollEnabled: !blocked.value && m.phase.value !== 4 && m.phase.value !== 5 }));
   const canvasStyle = useAnimatedStyle(() => ({ width: Math.max(m.viewport.value, m.viewport.value + total.value * m.scale.value + Math.max(0, m.leading.value * m.scale.value) + Math.max(0, -m.virtual.value) + (onAppend ? 68 : 0)), transform: [{ translateX: -m.virtual.value }] }));
-  const visibleStart = offset - viewport / 2 - 64;
-  const visibleEnd = offset + viewport / 2 + 64;
   const previewDuration = layout.duration + (draft && selected ? draft.end - draft.start - (selected.take.end - selected.take.start) : 0);
   const ticks = previewOnly ? [] : studioTimelineTicks(scale, Math.max(0, visibleStart / scale), Math.max(0, visibleEnd / scale), previewDuration);
   const trimDisabled = !!(locked || busy || committing || pinching || !onTrimCommit || layout.error);
