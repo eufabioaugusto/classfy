@@ -26,6 +26,18 @@ Duplicar e dividir camadas mesclam o draft visível com o projeto atual em uma e
 
 426/426 testes Studio e typecheck passaram. A inspeção no simulador CREATOR iOS26.5 conferiu seleção e conclusão de texto, grade de fontes, paleta, painel de legendas, abrir/selecionar/cancelar filtro, prévia ampliada e retorno ao retrato, sem bloqueio observado nesses passos. Os testes reais de callbacks/worklets cobrem aquisição/liberação de guias, geometria, cancels, intervalos, cursor e undo. Esta rodada não confirma fluidez por toque físico nem revalida exportação nativa. A tentativa de recarregar o iPhone falhou: CoreDevice listou iPhone F. como unavailable; Metro continua ativo em 8081. Sem push, publicação ou mudança de dependências/motor nativo.
 
+## Reprodução contínua da timeline — terceira rodada de 09/10/2026
+
+O player nativo envia tempo a 15Hz e o fallback Expo a 10Hz. Antes, cada amostra movia a faixa diretamente: no zoom padrão de 60 pontos/s, o avanço nativo acontecia em degraus de 4 pontos; no zoom máximo, 16 pontos. A prévia não era a origem dessa cadência.
+
+`timelinePlayback.ts` sincroniza um relógio visual em `useFrameCallback`, no UI thread do Reanimated. A faixa avança pelo intervalo real de cada quadro, com correção gradual de pequenos desvios entre amostras. Pausa, carregamento, seek e replay usam a posição do player; esse relógio nunca faz seek, muda receita ou grava tempo. O zoom mínimo também conserva movimento fracionário, incluindo a posição final. As camadas compiladas mantêm uma referência estável entre eventos de reprodução.
+
+Gestos, operações pendentes e background interrompem a extrapolação. A confirmação do arraste/pinça protege o destino contra amostras antigas até o player confirmar o seek. O adapter nativo publica pausa imediatamente e rejeita eventos `playing=true` já enfileirados. Sem amostras avançando por 250ms, ou após um quadro suspenso por mais de 100ms, o relógio congela até confirmação fresca; isso também limita buffering em binários antigos que ainda informam a taxa desejada do AVPlayer.
+
+444/444 testes Studio e TypeScript passaram. As regressões executam os handlers reais com amostras a 15Hz, quadros a 60/120Hz, feedback de scroll nativo, SharedValues assíncronos, worklets do preset Expo, pausa/carregamento, operações pendentes, seek, pinça, background e fim da montagem. A confirmação do seek conta tanto antes quanto depois da liberação UI, inclusive com o primeiro Play recebido já além do destino. Inspeção do Simulator CREATOR pelo túnel remoto confirmou Play, avanço e término na posição final, sem erro de renderização. Esta evidência não mede FPS físico do iPhone. Somente JS/TypeScript; sem novo binário, dependências, push ou publicação de produção. Disponível pelo Metro/túnel existente no Classfy Dev.
+
+Referência da API usada: [Reanimated4 — useFrameCallback](https://docs.swmansion.com/react-native-reanimated/docs/advanced/useFrameCallback/).
+
 ## Origem dos requisitos
 
 Os prints, gravações e orientações do Fabio são a referência de produto: edição direta na prévia, corte integrado à timeline, ferramentas contextuais e seleção que não salta o cursor. CapCut e Edits ajudam a modelar a experiência; a identidade continua Classfy.

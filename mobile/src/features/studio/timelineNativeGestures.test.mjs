@@ -43,6 +43,7 @@ test('Babel Expo real transforma TODOS os callbacks da fábrica condicional de c
 test('helpers de snap e geometria de arraste são worklets no preset real do Metro', () => {
   for (const [file, names] of [
     ['./timelineSnap.ts', ['studioTimelineSnapTargets', 'snapStudioTimelineRange']],
+    ['./timelinePlayback.ts', ['resetStudioTimelinePlayback', 'sampleStudioTimelinePlayback', 'advanceStudioTimelinePlayback']],
     ['./StudioTimeline.tsx', ['applyLayerRange', 'updateLayerDrag', 'applyMainSnap']],
   ]) {
     const { ast } = transformFileSync(fileURLToPath(new URL(file, import.meta.url)), {

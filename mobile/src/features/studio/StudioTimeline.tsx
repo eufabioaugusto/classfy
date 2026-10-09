@@ -13,6 +13,7 @@ import { canContinueStudioLayerTimeline, freezeStudioLayerTimeline, studioLayerD
   type StudioLayerTimelineMode, type StudioLayerTimelineRange, type StudioLayerTimelineSnapshot } from './layerTimelineInteraction';
 import { snapStudioTimelineRange, studioTimelineSnapPoints, studioTimelineSnapTargets,
   type StudioTimelineSnapPoint, type StudioTimelineSnapMatch } from './timelineSnap';
+import { advanceStudioTimelinePlayback, resetStudioTimelinePlayback, sampleStudioTimelinePlayback } from './timelinePlayback';
 
 export type { StudioTimelineTrim } from './timelineLayout';
 export type { StudioLayerTimelineRange } from './layerTimelineInteraction';
@@ -40,13 +41,13 @@ const snapColor = '#FFD54A';
 const noLayers: readonly StudioRecipeClip[] = [];
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 
-export function StudioTimeline({ layers: providedLayers = [], editing, selectedLayerId, onSelectLayer, onEditLayer, onMoveLayer, onLayerTrimPreview, onLayerTrimCommit, onLayerInteractionStart, onLayerInteractionEnd, takes, position, activeTakeId, audio = false, onSeek, onSelect, compact = false, previewOnly = false, locked = false, busy = false, cancelEpoch = 0, onAppend, onScrubStart, onTrimChange, onTrimCommit, onTrimCancel, pixelsPerSecond = defaultStudioTimelineScale }: {
+export function StudioTimeline({ layers: providedLayers = [], editing, selectedLayerId, onSelectLayer, onEditLayer, onMoveLayer, onLayerTrimPreview, onLayerTrimCommit, onLayerInteractionStart, onLayerInteractionEnd, takes, position, playing = false, loading = false, activeTakeId, audio = false, onSeek, onSelect, compact = false, previewOnly = false, locked = false, busy = false, cancelEpoch = 0, onAppend, onScrubStart, onTrimChange, onTrimCommit, onTrimCancel, pixelsPerSecond = defaultStudioTimelineScale }: {
   layers?: readonly StudioRecipeClip[]; selectedLayerId?: string; onSelectLayer?: (id: string) => void; onMoveLayer?: (id: string, delta: number, targetZIndex?: number) => Promise<void>;
   onEditLayer?: (id: string) => void;
   editing?: StudioEditing; onLayerTrimPreview?: (id: string, range: StudioLayerTimelineRange | undefined) => void;
   onLayerTrimCommit?: (id: string, range: StudioLayerTimelineRange) => void | Promise<void>;
   onLayerInteractionStart?: () => void; onLayerInteractionEnd?: () => void;
-  takes: readonly StudioTake[]; position: number; activeTakeId?: string; audio?: boolean; compact?: boolean; previewOnly?: boolean; showClips?: boolean;
+  takes: readonly StudioTake[]; position: number; playing?: boolean; loading?: boolean; activeTakeId?: string; audio?: boolean; compact?: boolean; previewOnly?: boolean; showClips?: boolean;
   locked?: boolean; busy?: boolean; cancelEpoch?: number; pixelsPerSecond?: number; onAppend?: () => void; onScrubStart?: () => void;
   onSeek: (seconds: number) => void; onSelect: (take: StudioTake) => void;
   onTrimChange?: (range: StudioTimelineTrim) => void; onTrimCommit?: (range: StudioTimelineTrim) => void | Promise<void>; onTrimCancel?: () => void;
@@ -118,6 +119,9 @@ export function StudioTimeline({ layers: providedLayers = [], editing, selectedL
   const layerDuration = useSharedValue(Math.max(0, ...layers.map(item => (item.startTicks + item.durationTicks) / 120000)));
   useEffect(() => { layerDuration.value = Math.max(0, ...layers.map(item => (item.startTicks + item.durationTicks) / 120000)); }, [layers]);
   const playerPosition = useSharedValue(position);
+  const playbackClock = useSharedValue(resetStudioTimelinePlayback(position, layout.duration));
+  const seekTarget = useSharedValue<number | null>(null);
+  const foreground = useSharedValue(AppState.currentState === undefined || AppState.currentState === 'active');
   const blocked = useSharedValue(!!busy);
   const lastVisible = useSharedValue(0);
   const lastSeek = useSharedValue(0);
@@ -127,7 +131,24 @@ export function StudioTimeline({ layers: providedLayers = [], editing, selectedL
   const total = useDerivedValue(() => Math.max(layerDuration.value, baseDuration.value + (m.trimIndex.value < 0 ? 0 : m.end.value - m.start.value - (m.originalEnd.value - m.originalStart.value))));
 
   useEffect(() => { m.scale.value = clampStudioTimelineScale(pixelsPerSecond); setScale(clampStudioTimelineScale(pixelsPerSecond)); }, [pixelsPerSecond]);
-  useEffect(() => { playerPosition.value = Number.isFinite(position) ? position : 0; }, [position]);
+  useEffect(() => {
+    // Update the sample atomically on UI. Never restart the clock on each
+    // React render, or let a pending edit/gesture borrow a stale Play intent.
+    const sampleDuration = layout.duration;
+    runOnUI(() => {
+      'worklet';
+      if (busy || !foreground.value || m.phase.value !== 0 && m.phase.value !== 6) seekTarget.value = null;
+      else if (seekTarget.value !== null) {
+        // The scroll gesture finishes before AVPlayer acknowledges its seek.
+        // A queued pre-seek sample must not pull the released cursor backward.
+        if (Math.abs(position - seekTarget.value) > 0.05) return;
+        seekTarget.value = null;
+      }
+      const next = sampleStudioTimelinePlayback(playbackClock.value, position, sampleDuration,
+        playing && !loading && !busy && foreground.value && m.phase.value === 0);
+      playbackClock.value = next; playerPosition.value = next.position;
+    })();
+  }, [position, playing, loading, busy, layout.duration]);
   useEffect(() => { blocked.value = !!busy; }, [busy]);
   useEffect(() => {
     baseDuration.value = layout.mainDuration;
@@ -147,7 +168,9 @@ export function StudioTimeline({ layers: providedLayers = [], editing, selectedL
   }, []);
   useEffect(() => {
     const subscription = AppState.addEventListener('change', state => {
+      foreground.value = state === 'active';
       if (state === 'active') return;
+      runOnUI(() => { 'worklet'; seekTarget.value = null; playbackClock.value = { ...playbackClock.value, running: false, correction: 0 }; })();
       m.epoch.value += 1; m.snap.value = null; m.phase.value = 0;
       setPinching(false);
       if (gesture.current) cancelTrim();
@@ -184,6 +207,7 @@ export function StudioTimeline({ layers: providedLayers = [], editing, selectedL
     runOnUI(() => {
       'worklet';
       if (m.phase.value !== 6 || m.epoch.value !== epoch) return;
+      playbackClock.value = resetStudioTimelinePlayback(seconds, total.value);
       playerPosition.value = seconds; m.phase.value = 0;
     })();
   }, [seekOffset]);
@@ -237,10 +261,12 @@ export function StudioTimeline({ layers: providedLayers = [], editing, selectedL
     previewTrim(range.start, range.end, drag.epoch); void commitTrim(range.start, range.end, drag.epoch);
   };
 
-  useAnimatedReaction(() => ({ phase: m.phase.value, position: playerPosition.value, scale: m.scale.value, offset: m.offset.value, duration: total.value, viewport: m.viewport.value }), state => {
-    if (state.phase !== 0 || state.viewport <= 1) return;
+  useAnimatedReaction(() => ({ phase: m.phase.value, position: playerPosition.value, scale: m.scale.value, offset: m.offset.value, duration: total.value, viewport: m.viewport.value, blocked: blocked.value, foreground: foreground.value, playing: playbackClock.value.running }), state => {
+    if (state.phase !== 0 || state.viewport <= 1 || state.blocked || !state.foreground) return;
     const target = Math.max(0, Math.min(state.duration, state.position)) * state.scale;
-    if (Math.abs(target - state.offset) > 0.75) scrollTo(strip, target, 0, false);
+    // Fractional offsets matter at low zoom: a 0.75 px deadband would discard
+    // several display frames and recreate the same visible stepping.
+    if (Math.abs(target - state.offset) > 0.01) scrollTo(strip, target, 0, false);
   });
   useAnimatedReaction(() => ({ phase: m.phase.value, start: m.start.value, end: m.end.value }), state => {
     if (state.phase !== 3) return;
@@ -248,7 +274,7 @@ export function StudioTimeline({ layers: providedLayers = [], editing, selectedL
     if (now - lastPreview.value >= 40) { lastPreview.value = now; runOnJS(previewTrim)(state.start, state.end, m.epoch.value); }
   });
   const scrollHandler = useAnimatedScrollHandler({
-    onBeginDrag: () => { if ((m.phase.value >= 3 && m.phase.value !== 6) || blocked.value) return; m.epoch.value += 1; m.phase.value = 1; runOnJS(startScrub)(m.epoch.value); },
+    onBeginDrag: () => { if ((m.phase.value >= 3 && m.phase.value !== 6) || blocked.value) return; seekTarget.value = null; m.epoch.value += 1; m.phase.value = 1; runOnJS(startScrub)(m.epoch.value); },
     onScroll: event => {
       m.offset.value = Math.max(0, event.contentOffset.x);
       const now = Date.now();
@@ -259,16 +285,28 @@ export function StudioTimeline({ layers: providedLayers = [], editing, selectedL
       if (m.phase.value !== 1) return;
       const target = event.targetContentOffset?.x;
       const stationary = Number.isFinite(target) && Math.abs(target! - event.contentOffset.x) <= 0.5;
-      if (Math.abs(event.velocity?.x ?? 0) <= 0.05 || stationary) { m.phase.value = 6; runOnJS(finishScrub)(event.contentOffset.x, m.scale.value, m.epoch.value); }
+      if (Math.abs(event.velocity?.x ?? 0) <= 0.05 || stationary) {
+        // Arm before JS dispatch: the player can acknowledge the seek before
+        // the release worklet runs, and that acknowledgement must count.
+        seekTarget.value = Math.max(0, Math.min(total.value, event.contentOffset.x / m.scale.value));
+        m.phase.value = 6; runOnJS(finishScrub)(event.contentOffset.x, m.scale.value, m.epoch.value);
+      }
       else runOnJS(seekOffset)(event.contentOffset.x, m.scale.value, m.epoch.value);
     },
     onMomentumBegin: () => { if (m.phase.value === 1) m.phase.value = 2; },
     onMomentumEnd: event => {
       if (m.phase.value !== 1 && m.phase.value !== 2) return;
+      seekTarget.value = Math.max(0, Math.min(total.value, event.contentOffset.x / m.scale.value));
       m.phase.value = 6; runOnJS(finishScrub)(event.contentOffset.x, m.scale.value, m.epoch.value);
     },
   });
   useFrameCallback(frame => {
+    if (m.phase.value === 0 && !blocked.value && foreground.value) {
+      const next = advanceStudioTimelinePlayback(playbackClock.value, frame.timeSincePreviousFrame, total.value);
+      if (next !== playbackClock.value) { playbackClock.value = next; playerPosition.value = next.position; }
+    } else if (playbackClock.value.running) {
+      playbackClock.value = { ...playbackClock.value, running: false, correction: 0 };
+    }
     if (m.phase.value !== 3) return;
     const speed = studioTimelineAutoScrollVelocity(m.finger.value, m.viewport.value);
     if (speed === 0) return;
@@ -292,6 +330,8 @@ export function StudioTimeline({ layers: providedLayers = [], editing, selectedL
       const now = Date.now(); if (now - lastVisible.value >= 64) { lastVisible.value = now; runOnJS(receiveScale)(m.scale.value); runOnJS(receiveOffset)(next); }
     }).onFinalize(() => {
       if (m.phase.value !== 4) return;
+      seekTarget.value = pinchAnchor.value;
+      playbackClock.value = resetStudioTimelinePlayback(pinchAnchor.value, total.value);
       playerPosition.value = pinchAnchor.value; m.phase.value = 0;
       runOnJS(receiveScale)(m.scale.value); runOnJS(receivePinching)(false, m.epoch.value); runOnJS(seekOffset)(pinchAnchor.value * m.scale.value, m.scale.value, m.epoch.value);
     }), [busy, committing, dragging, nativeGesture]);

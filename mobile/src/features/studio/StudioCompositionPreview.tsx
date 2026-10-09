@@ -36,6 +36,8 @@ const NativePreview = forwardRef<StudioPreviewHandle, Props>(function NativePrev
   const token = useRef(0);
   const transient = useRef(false);
   const position = useRef(0);
+  const intendedPaused = useRef(true);
+  const playback = useRef<StudioPlaybackState>({ position: 0, sourcePosition: 0, playing: false, loading: false });
   // The editor already compiled the visible document. Reuse it and send the
   // JSON once; an opaque revision must not echo a whole lesson in every event.
   const compiled = useMemo(() => props.recipe || compileStudioRecipe(props.project), [props.recipe, props.project.editing, props.project.kind, props.project.takes]);
@@ -47,29 +49,46 @@ const NativePreview = forwardRef<StudioPreviewHandle, Props>(function NativePrev
   const revision = `${props.project.id}:${revisionSequence.current.value}`;
   const currentRevision = useRef(revision); currentRevision.current = revision;
   useEffect(() => { errorCode.current = undefined; setError(null); }, [revision]);
+  const pausePlayback = () => {
+    // Prop delivery and native events are asynchronous. Stop the editor clock
+    // now; a previously queued playing event cannot undo this local intent.
+    intendedPaused.current = true; setPaused(true);
+    if (playback.current.playing) {
+      const stopped = { ...playback.current, playing: false };
+      playback.current = stopped;
+      live.current.onPlaybackState?.(stopped);
+    }
+  };
   const accept = (value: StudioNativePlayback) => {
     if (value.revision !== currentRevision.current || value.token < token.current) return;
 
     if (transient.current) return;
+    if (value.playing && (intendedPaused.current || live.current.paused)) return;
     // A successful playback confirms recovery of the shared audio session.
     // Periodic player events cannot dismiss a compositor/frame failure.
     if (value.playing && errorCode.current === 'E_STUDIO_AUDIO_SESSION') { errorCode.current = undefined; setError(null); }
     position.current = value.positionSeconds;
     if (value.clipId) live.current.onActiveTakeChange?.(value.clipId);
-    if (!value.playing && !value.loading) setPaused(true);
-    live.current.onPlaybackState?.({ position: value.positionSeconds, sourcePosition: value.sourcePositionSeconds, takeId: value.clipId || undefined, playing: value.playing, loading: value.loading });
+    if (!value.playing && !value.loading) { intendedPaused.current = true; setPaused(true); }
+    const state = { position: value.positionSeconds, sourcePosition: value.sourcePositionSeconds, takeId: value.clipId || undefined, playing: value.playing, loading: value.loading };
+    playback.current = state;
+    live.current.onPlaybackState?.(state);
   };
   const tag = () => { const value = findNodeHandle(canvas.current); if (!value) throw new Error('A prévia está preparando o vídeo.'); return value; };
   useImperativeHandle(ref, () => ({
-    pause() { setPaused(true); },
-    togglePlayback() { transient.current = false; setPaused(value => !value); },
+    pause() { pausePlayback(); },
+    togglePlayback() {
+      transient.current = false;
+      if (!intendedPaused.current) { pausePlayback(); return; }
+      intendedPaused.current = false; setPaused(false);
+    },
     seek(seconds) {
-      transient.current = false; setPaused(true); position.current = seconds;
+      transient.current = false; pausePlayback(); position.current = seconds;
       const request = ++token.current; const intentRevision = currentRevision.current;
       void seekStudioCompositionAsync(tag(), seconds, request).then(value => { if (request === token.current && intentRevision === currentRevision.current) { errorCode.current = undefined; setError(null); accept(value); } }).catch(cause => { if (request === token.current && intentRevision === currentRevision.current) { errorCode.current = undefined; setError(cause instanceof Error ? cause.message : 'Não foi possível navegar no vídeo.'); } });
     },
     previewSourceFrame(source) {
-      transient.current = true; setPaused(true);
+      pausePlayback(); transient.current = true;
       const request = ++token.current; const intentRevision = currentRevision.current;
       void previewStudioCompositionSourceAsync(tag(), source.takeId, source.seconds, position.current, request).then(() => { if (request === token.current && intentRevision === currentRevision.current) { errorCode.current = undefined; setError(null); } }).catch(cause => { if (request === token.current && intentRevision === currentRevision.current) { errorCode.current = undefined; setError(cause instanceof Error ? cause.message : 'Não foi possível visualizar o corte.'); } });
     },

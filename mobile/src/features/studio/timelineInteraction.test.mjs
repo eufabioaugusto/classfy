@@ -10,6 +10,7 @@ import * as model from './model.ts';
 import * as layout from './timelineLayout.ts';
 import * as motionHelpers from './timelineMotion.ts';
 import * as snapHelpers from './timelineSnap.ts';
+import * as playbackHelpers from './timelinePlayback.ts';
 const layerModule = { exports: {} };
 new Function('require', 'module', 'exports', ts.transpileModule(readFileSync(new URL('./layerTimelineInteraction.ts', import.meta.url), 'utf8'), {
   compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
@@ -124,7 +125,7 @@ function harness(options = {}) {
     'react-native-gesture-handler': { GestureDetector: 'gesture-detector', Gesture: { Native: () => gesture('native'), Pinch: () => gesture('pinch'), Pan: () => gesture('pan'), Tap: () => gesture('tap'), Race: (...gestures) => ({ kind: 'race', gestures }) } },
     'lucide-react-native': { ChevronDown: 'chevron-down', ChevronUp: 'chevron-up', Film: 'film', Mic: 'mic', Minus: 'minus', Plus: 'plus' },
     '@/theme/colors': { colors: {} }, './model': model, './timelineLayout': layout, './timelineMotion': motionHelpers,
-    './useStudioFilmstrip': { useStudioFilmstrip: () => ({}) }, './layerTimelineInteraction': layerModule.exports, './timelineSnap': snapHelpers,
+    './useStudioFilmstrip': { useStudioFilmstrip: () => ({}) }, './layerTimelineInteraction': layerModule.exports, './timelineSnap': snapHelpers, './timelinePlayback': playbackHelpers,
   };
   const compiled = options.nativeWorklets ? compileNative() : ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX } }).outputText;
   const module = { exports: {} };
@@ -185,16 +186,22 @@ function harness(options = {}) {
     const node = nodes('TimelineSnapGuide')[0];
     return render('snap-guide', node.type, node.props).props.style.at(-1).__style();
   };
-  const animate = () => {
-    now += 64;
+  const reactions = () => {
     for (const scope of contexts.values()) for (const reaction of scope.reactions) {
       const next = reaction.prepare(); const signature = JSON.stringify(next);
       if (signature !== reaction.signature) { const previous = reaction.previous; reaction.previous = next; reaction.signature = signature; reaction.react(next, previous); }
     }
   };
+  const animate = (animateWithoutTime = false) => {
+    if (!animateWithoutTime) now += 64;
+    reactions();
+  };
   const frame = (elapsed = 16) => {
     now += elapsed;
-    for (const scope of contexts.values()) for (const callback of scope.frames) callback.current({ timeSincePreviousFrame: elapsed });
+    for (const scope of contexts.values()) for (const callback of scope.frames) callback.current({ timestamp: now, timeSincePreviousFrame: elapsed });
+    // A UI frame updates shared values before its reactions run. Do not add
+    // animate()'s legacy64ms step, which would manufacture playback drift.
+    reactions();
   };
   const flushJS = () => {
     while (jsQueue.length) { const job = jsQueue.shift(); job.callback(...job.args); }
@@ -208,12 +215,12 @@ function harness(options = {}) {
     if (context('timeline').dirty) renderParent();
   };
   renderParent();
-  if (nativeSharedValues) flushUI();
+  flushUI();
   all(context('timeline').tree, node => node.type === 'animated-view' && node.props?.onLayout)[0].props.onLayout({ nativeEvent: { layout: { width: 300 } } });
-  renderParent(); if (nativeSharedValues) flushUI();
+  renderParent(); flushUI();
   scroll().onScroll({ contentOffset: { x: 60 } }); flushJS(); animate(); flushJS(); scrolls.length = 0;
   return { scroll, scrollProps, pinch, m, pan, childClip, childLayer, snapGuide, nodes, control, laneStatus, seeks, selections, previews, commits, cancellations, scrolls, jsQueue, uiQueue,
-    animate, frame, flushJS, flushUI, stepJS, pump,
+    animate, reactions, frame, flushJS, flushUI, stepJS, pump,
     playerPosition: () => context('timeline').reactions[0].prepare().position,
     update: next => { props = { ...props, ...next }; renderParent(); },
     appState: state => { for (const callback of appStateListeners) callback(state); if (context('timeline').dirty) renderParent(); },
@@ -1044,3 +1051,204 @@ test('snap do main seguinte usa posição atual depois de cortar o take anterior
     assert.equal(view.snapGuide().opacity, 0); assert.deepEqual(view.commits, []); assert.deepEqual(view.seeks, []);
   } finally { view.dispose(); }
 });
+
+// Native playback sends sparse samples; between them the UI frame clock must
+// move the real scroll view, without asking the player to seek every frame.
+const playbackFrame = (view, elapsed = 1000 / 60) => {
+  const before = view.scrolls.length;
+  view.frame(elapsed); view.flushJS(); view.flushUI();
+  const next = view.scrolls.slice(before);
+  if (next.length) {
+    // Feed back the native scroll position, as UIScrollView does after scrollTo.
+    view.scroll().onScroll({ contentOffset: { x: next.at(-1).x } });
+    view.flushJS(); view.flushUI();
+  }
+  return next;
+};
+const settlePlaybackSample = view => {
+  view.flushUI(); view.flushJS(); view.flushUI(); view.reactions();
+  if (view.scrolls.length) { view.scroll().onScroll({ contentOffset: { x: view.scrolls.at(-1).x } }); view.flushJS(); view.flushUI(); }
+  view.scrolls.length = 0;
+};
+const beginPlayback = (view, position = 1, scale = 60) => {
+  view.update({ position, playing: true, loading: false }); view.flushUI();
+  view.scroll().onScroll({ contentOffset: { x: position * scale } }); view.flushJS(); view.flushUI();
+  settlePlaybackSample(view);
+};
+for (const fps of [60, 120]) for (const nativeSharedValues of [false, true]) {
+  test(`playback15Hz move scrollTo em cada frame${fps}Hz sem seeks, sharedValuesNative=${nativeSharedValues}`, () => {
+    const view = harness({ nativeSharedValues, nativeWorklets: fps === 120 && nativeSharedValues });
+    try {
+      beginPlayback(view);
+      let previous = view.playerPosition(), lastX = 60;
+      for (let index = 0; index < fps / 2; index++) {
+        if (index && index % (fps / 15) === 0) { view.update({ position: 1 + index / fps }); view.flushUI(); }
+        const moves = playbackFrame(view, 1000 / fps);
+        assert.equal(moves.length, 1, `one scroll in frame${index}`);
+        assert.ok(view.playerPosition() > previous, `frame${index} advances the reaction's actual position`);
+        assert.ok(moves[0].x > lastX, `frame${index} scrolls forward`);
+        assert.equal(moves[0].animated, false, 'frame clock drives pixels directly');
+        previous = view.playerPosition(); lastX = moves[0].x;
+      }
+      assert.ok(Math.abs(view.playerPosition() - 1.5) < .005, 'the half-second playback time has no manufactured animate64ms drift');
+      assert.deepEqual(view.seeks, []);
+    } finally { view.dispose(); }
+  });
+}
+test('pausa e carregamento imobilizam o relógio; retomar não inclui o tempo parado', () => {
+  const view = harness();
+  try {
+    beginPlayback(view); playbackFrame(view);
+    view.update({ position: 1.1, playing: false }); view.flushUI(); settlePlaybackSample(view);
+    const paused = view.playerPosition();
+    playbackFrame(view, 100); playbackFrame(view, 100);
+    assert.equal(view.playerPosition(), paused); assert.deepEqual(view.scrolls, []);
+    view.update({ position: 1.1, playing: true, loading: true }); view.flushUI(); settlePlaybackSample(view);
+    const loading = view.playerPosition();
+    playbackFrame(view, 100); playbackFrame(view, 100);
+    assert.equal(view.playerPosition(), loading); assert.deepEqual(view.scrolls, []);
+    view.update({ position: 1.1, loading: false }); view.flushUI(); view.reactions(); playbackFrame(view);
+    assert.ok(view.playerPosition() > 1.1 && view.playerPosition() < 1.14, 'resume advances a fresh frame, not the paused or loading interval');
+    assert.deepEqual(view.seeks, []);
+  } finally { view.dispose(); }
+});
+test('scrub prevalece sobre relógio e sample antigo; só confirmação nova libera reprodução', async () => {
+  const view = harness({ nativeSharedValues: true });
+  try {
+    beginPlayback(view); playbackFrame(view);
+    view.scroll().onBeginDrag(); view.flushJS(); view.flushUI();
+    view.update({ position: 1.2, playing: true }); view.flushUI(); view.scrolls.length = 0;
+    playbackFrame(view, 100); assert.deepEqual(view.scrolls, [], 'clock cannot reposition an active finger gesture');
+    view.scroll().onEndDrag({ contentOffset: { x: 180 }, targetContentOffset: { x: 180 }, velocity: { x: 0 } }); await view.pump();
+    assert.equal(view.playerPosition(), 3); assert.deepEqual(view.seeks, [3]); settlePlaybackSample(view);
+    view.update({ position: 1.3 }); view.flushUI(); view.reactions(); view.scrolls.length = 0;
+    playbackFrame(view, 100); assert.equal(view.playerPosition(), 3, 'obsolete sample cannot rewind the completed scrub'); assert.deepEqual(view.scrolls, []);
+    view.update({ position: 3, playing: false }); view.flushUI(); view.reactions(); view.update({ playing: true }); view.flushUI();
+    playbackFrame(view); assert.ok(view.playerPosition() > 3 && view.playerPosition() < 3.04);
+    assert.deepEqual(view.seeks, [3], 'resuming never manufactures another seek');
+  } finally { view.dispose(); }
+});
+test('background congela timeline sem salto ao reativar antes de sample novo', () => {
+  const view = harness({ nativeSharedValues: true });
+  try {
+    beginPlayback(view); playbackFrame(view); const before = view.playerPosition();
+    view.appState('inactive'); view.flushUI(); view.scrolls.length = 0;
+    playbackFrame(view, 300); playbackFrame(view, 300); assert.equal(view.playerPosition(), before); assert.deepEqual(view.scrolls, []);
+    view.appState('background'); view.flushUI(); playbackFrame(view, 300); assert.equal(view.playerPosition(), before);
+    view.appState('active'); view.flushUI(); playbackFrame(view, 300); assert.equal(view.playerPosition(), before, 'foreground does not extrapolate the suspended interval');
+    view.update({ position: 1.1, playing: true, loading: false }); view.flushUI(); view.reactions(); playbackFrame(view);
+    assert.ok(view.playerPosition() > 1.1 && view.playerPosition() < 1.14); assert.deepEqual(view.seeks, []);
+  } finally { view.dispose(); }
+});
+test('zoom mínimo ainda move pixels em cada frame e o relógio respeita o fim da montagem', () => {
+  const view = harness({ pixelsPerSecond: 12 });
+  try {
+    beginPlayback(view, 1, 12);
+    let lastX = 12;
+    for (let index = 0; index < 8; index++) {
+      if (index && index % 4 === 0) view.update({ position: 1 + index / 60 });
+      const moves = playbackFrame(view); assert.equal(moves.length, 1, `subpixel movement survives frame${index}`); assert.ok(moves[0].x > lastX); lastX = moves[0].x;
+    }
+    view.update({ position: 11.99 }); settlePlaybackSample(view); playbackFrame(view, 100);
+    assert.equal(view.playerPosition(), 12); assert.equal(view.scrolls.at(-1).x, 144);
+    assert.equal(view.m().offset.value, 144, 'the native scroll reaches the exact final endpoint even at low zoom');
+    view.scrolls.length = 0; playbackFrame(view, 100); assert.equal(view.playerPosition(), 12); assert.deepEqual(view.scrolls, []); assert.deepEqual(view.seeks, []);
+  } finally { view.dispose(); }
+});
+
+test('ocupado bloqueia extrapolação e scroll; liberar começa do novo sample sem buscar o player', () => {
+  const view = harness({ nativeSharedValues: true });
+  try {
+    beginPlayback(view); playbackFrame(view); view.update({ position: 1.2, busy: true }); view.flushUI(); view.reactions();
+    const blocked = view.playerPosition(); view.scrolls.length = 0; playbackFrame(view, 100); playbackFrame(view, 100);
+    assert.equal(view.playerPosition(), blocked); assert.deepEqual(view.scrolls, []);
+    view.update({ position: 1.2, busy: false }); view.flushUI(); settlePlaybackSample(view); playbackFrame(view);
+    assert.ok(view.playerPosition() > 1.2 && view.playerPosition() < 1.24); assert.deepEqual(view.seeks, []);
+  } finally { view.dispose(); }
+});
+test('samples ausentes e um frame suspenso param o avanço em vez de inventar mídia em reprodução', () => {
+  const view = harness();
+  try {
+    beginPlayback(view);
+    for (let index = 0; index < 20; index++) playbackFrame(view);
+    const stalled = view.playerPosition(); assert.ok(stalled >= 1.2 && stalled <= 1.251, 'clock has a bounded allowance for sparse player events');
+    view.scrolls.length = 0; playbackFrame(view); playbackFrame(view); assert.equal(view.playerPosition(), stalled); assert.deepEqual(view.scrolls, []);
+    view.update({ position: 1.5 }); view.flushUI(); settlePlaybackSample(view); const beforeGap = view.playerPosition(); playbackFrame(view, 200);
+    assert.equal(view.playerPosition(), beforeGap, 'long dropped frame must not advance by its whole gap');
+    view.update({ position: 1.6 }); view.flushUI(); settlePlaybackSample(view); playbackFrame(view);
+    assert.ok(view.playerPosition() > 1.6 && view.playerPosition() < 1.64); assert.deepEqual(view.seeks, []);
+  } finally { view.dispose(); }
+});
+test('pinça preserva sua âncora no fim e ignora playback antigo até confirmar o seek', async () => {
+  const view = harness({ nativeSharedValues: true });
+  try {
+    beginPlayback(view); playbackFrame(view); const anchor = view.playerPosition();
+    view.pinch().onStart(); view.flushJS(); view.flushUI(); view.pinch().onUpdate({ scale: 2 }); view.flushJS(); view.flushUI();
+    view.update({ position: 1.5, playing: true }); view.flushUI(); view.scrolls.length = 0;
+    playbackFrame(view, 100); assert.deepEqual(view.scrolls, [], 'samples cannot move a pinch-controlled strip');
+    view.pinch().onFinalize(); await view.pump(); settlePlaybackSample(view);
+    assert.equal(view.playerPosition(), anchor); assert.ok(Math.abs(view.seeks.at(-1) - anchor) < .002);
+    const count = view.seeks.length; view.update({ position: 1.7 }); view.flushUI(); view.reactions(); view.scrolls.length = 0;
+    playbackFrame(view); assert.equal(view.playerPosition(), anchor); assert.deepEqual(view.scrolls, []);
+    view.update({ position: anchor, playing: false }); view.flushUI(); settlePlaybackSample(view); view.update({ playing: true }); view.flushUI(); playbackFrame(view);
+    assert.ok(view.playerPosition() > anchor && view.playerPosition() < anchor + .04); assert.equal(view.seeks.length, count);
+  } finally { view.dispose(); }
+});
+
+for (const release of ['drag', 'momentum']) {
+  const expectedSeeks = release === 'momentum' ? [2, 3] : [3];
+  const releaseScrub = view => {
+    if (release === 'momentum') {
+      view.scroll().onEndDrag({ contentOffset: { x: 120 }, targetContentOffset: { x: 180 }, velocity: { x: .3 } });
+      view.scroll().onMomentumBegin();
+      view.scroll().onMomentumEnd({ contentOffset: { x: 180 } });
+    } else {
+      view.scroll().onEndDrag({ contentOffset: { x: 180 }, targetContentOffset: { x: 180 }, velocity: { x: 0 } });
+    }
+  };
+  test(`ACK do seek antes do releaseUI de ${release} permite Playing posterior sem congelar o relógio`, () => {
+    let view;
+    const seeks = [];
+    view = harness({ nativeSharedValues: true, nativeWorklets: true, onSeek: seconds => {
+      assert.equal(view.m().phase.value, 6, 'seek acknowledgement can arrive before the release transaction');
+      seeks.push(seconds);
+      // The native acknowledgement causes a React sample while phase6 is
+      // still active; its UI worklet is queued before finishScrub's release.
+      view.update({ position: seconds, playing: false, loading: false });
+    } });
+    try {
+      view.scroll().onBeginDrag(); view.flushJS(); view.flushUI();
+      releaseScrub(view); view.flushJS(); view.flushUI();
+      assert.equal(view.m().phase.value, 0);
+      assert.equal(view.playerPosition(), 3);
+      assert.deepEqual(seeks, expectedSeeks);
+      settlePlaybackSample(view);
+      // Batched JS delivery can first report Playing more than50ms later.
+      // An already confirmed seek must not require its exact time again.
+      view.update({ position: 3.1, playing: true }); view.flushUI();
+      playbackFrame(view);
+      assert.ok(view.playerPosition() > 3.1 && view.playerPosition() < 3.14);
+      const previous = view.playerPosition();
+      view.update({ position: 3.2 }); view.flushUI(); playbackFrame(view);
+      assert.ok(view.playerPosition() > previous && view.playerPosition() < 3.24, 'ordinary samples continue the smooth display clock');
+      assert.deepEqual(seeks, expectedSeeks, 'display frames never manufacture another seek');
+    } finally { view.dispose(); }
+  });
+  test(`ACK após releaseUI de ${release} bloqueia sample antigo até confirmar o seek e então retoma`, () => {
+    const view = harness({ nativeSharedValues: true, nativeWorklets: true });
+    try {
+      view.scroll().onBeginDrag(); view.flushJS(); view.flushUI();
+      releaseScrub(view); view.flushJS(); view.flushUI();
+      assert.equal(view.m().phase.value, 0); assert.equal(view.playerPosition(), 3);
+      assert.deepEqual(view.seeks, expectedSeeks); settlePlaybackSample(view);
+      view.update({ position: 1.3, playing: true }); view.flushUI(); view.reactions();
+      view.scrolls.length = 0; playbackFrame(view);
+      assert.equal(view.playerPosition(), 3, 'an obsolete playing sample cannot rewind or start the clock');
+      assert.deepEqual(view.scrolls, []);
+      view.update({ position: 3, playing: false }); view.flushUI(); settlePlaybackSample(view);
+      view.update({ position: 3.1, playing: true }); view.flushUI(); playbackFrame(view);
+      assert.ok(view.playerPosition() > 3.1 && view.playerPosition() < 3.14);
+      assert.deepEqual(view.seeks, expectedSeeks);
+    } finally { view.dispose(); }
+  });
+}

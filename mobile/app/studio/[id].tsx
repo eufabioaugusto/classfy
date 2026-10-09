@@ -87,6 +87,7 @@ function ProjectEditor({ project, update }: { project: StudioProject; update: (i
   const previewProject = editingPreview ? { ...project, editing: editingPreview, takes: deriveStudioTakes(editingPreview) } : project;
   const recipe = useMemo(() => compileStudioRecipe(previewProject), [project.editing, project.kind, project.takes, editingPreview]);
   const timelineRecipe = useMemo(() => compileStudioRecipe(project), [project.editing, project.kind, project.takes]);
+  const timelineLayers = useMemo(() => timelineRecipe.clips.filter(clip => clip.zIndex > 0), [timelineRecipe]);
   const layerItem = visibleEditing.layers.flatMap(layer => layer.items).find(item => item.id === selectedLayerId);
   const advanced = isStudioCompositionAvailable() && project.kind !== 'podcast';
   const [organizing, setOrganizing] = useState(false);
@@ -113,7 +114,7 @@ function ProjectEditor({ project, update }: { project: StudioProject; update: (i
     // fall back to the first clip; retain the cursor until its anchor is restored.
     const anchor = playbackRef.current;
     const next = working.current || pendingRestore.current || canvasDraft.current || canvasGesture.current || layerTrimDraft.current || layerGesture.current
-      ? { ...state, position: anchor.position, sourcePosition: anchor.sourcePosition, takeId: anchor.takeId } : state;
+      ? { ...state, playing: false, position: anchor.position, sourcePosition: anchor.sourcePosition, takeId: anchor.takeId } : state;
     playbackRef.current = next;
     setPlayback(previous => previous.position === next.position && previous.sourcePosition === next.sourcePosition && previous.playing === next.playing && previous.loading === next.loading && previous.takeId === next.takeId ? previous : next);
   }, []);
@@ -607,7 +608,7 @@ function ProjectEditor({ project, update }: { project: StudioProject; update: (i
           <Pressable accessibilityRole="button" accessibilityLabel="Refazer edição" disabled={!historyState.canRedo || busy || canvasInteracting || layerInteracting || locked || !!trimDraft} onPress={() => { closeLayer(); void editTakes('redo'); }} style={[styles.iconButton, (!historyState.canRedo || busy || canvasInteracting || layerInteracting || locked || !!trimDraft) && styles.disabled]}><Redo2 size={28} color={colors.textSecondary} strokeWidth={1.6} /></Pressable>
         </View>
       </View>}
-      {!keyboardVisible && !layerPanelExpanded && !treating && <StudioTimeline editing={editing} layers={timelineRecipe.clips.filter(clip => clip.zIndex > 0)} selectedLayerId={selectedLayerId} onSelectLayer={selectLayer} onMoveLayer={moveLayer} onEditLayer={editCanvasElement} onLayerTrimPreview={previewLayerTrim} onLayerTrimCommit={commitLayerTrim} onLayerInteractionStart={() => { layerGesture.current = true; preview.current?.pause(); setLayerInteracting(true); }} onLayerInteractionEnd={() => { layerGesture.current = false; setLayerInteracting(false); }} takes={project.takes} position={playback.position} activeTakeId={selectedTakeId} audio={project.kind === 'podcast'}
+      {!keyboardVisible && !layerPanelExpanded && !treating && <StudioTimeline editing={editing} layers={timelineLayers} selectedLayerId={selectedLayerId} onSelectLayer={selectLayer} onMoveLayer={moveLayer} onEditLayer={editCanvasElement} onLayerTrimPreview={previewLayerTrim} onLayerTrimCommit={commitLayerTrim} onLayerInteractionStart={() => { layerGesture.current = true; preview.current?.pause(); setLayerInteracting(true); }} onLayerInteractionEnd={() => { layerGesture.current = false; setLayerInteracting(false); }} takes={project.takes} position={playback.position} playing={playback.playing && !panel && !trimDraft && !editingPreview && !canvasInteracting && !layerInteracting && !pendingRestore.current} loading={playback.loading} activeTakeId={selectedTakeId} audio={project.kind === 'podcast'}
         cancelEpoch={trimCancelEpoch}
         locked={locked} busy={!focused || busy || canvasInteracting} onSelect={selectTake} onScrubStart={() => preview.current?.pause()} onSeek={seconds => preview.current?.seek(seconds)} onAppend={() => { void addMedia(); }}
         onTrimChange={previewTrim} onTrimCommit={commitTrim} onTrimCancel={cancelTrim} />}
@@ -646,7 +647,7 @@ function ProjectEditor({ project, update }: { project: StudioProject; update: (i
         <Pressable accessibilityRole="button" accessibilityLabel="Desfazer edição" disabled={!historyState.canUndo || busy || locked} onPress={() => { closeLayer(); void editTakes('undo'); }} style={[styles.overlayButton, !historyState.canUndo && styles.disabled]}><Undo2 size={26} color={colors.text} /></Pressable>
         <Pressable accessibilityRole="button" accessibilityLabel="Refazer edição" disabled={!historyState.canRedo || busy || locked} onPress={() => { closeLayer(); void editTakes('redo'); }} style={[styles.overlayButton, !historyState.canRedo && styles.disabled]}><Redo2 size={26} color={colors.text} /></Pressable>
       </View>
-      <StudioTimeline previewOnly compact takes={project.takes} position={playback.position} locked busy={busy} audio={project.kind === 'podcast'} onSelect={() => {}} onScrubStart={() => preview.current?.pause()} onSeek={seconds => preview.current?.seek(seconds)} />
+      <StudioTimeline previewOnly compact takes={project.takes} position={playback.position} playing={playback.playing && !pendingRestore.current} loading={playback.loading} locked busy={!focused || busy} audio={project.kind === 'podcast'} onSelect={() => {}} onScrubStart={() => preview.current?.pause()} onSeek={seconds => preview.current?.seek(seconds)} />
     </View>}
     <SheetModal visible={!!panel} onRequestClose={closePanel}>
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={[sheetStyles.backdrop, { paddingTop: insets.top + 12 }]}>

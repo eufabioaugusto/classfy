@@ -183,6 +183,74 @@ test('selecionar outro take, pausar e alterar tratamento não envia seek nem mud
   assert.equal(recipe.clips.find(clip => clip.id === 'a').grade.preset, 'studio');
 });
 
+test('pausa publica o relógio parado imediatamente e vence playing antigo até um novo Play', async () => {
+  const h = harness(); await h.pump();
+  h.ref.current.togglePlayback(); await h.pump();
+  h.emit({ positionSeconds: 4, sourcePositionSeconds: 6, playing: true }); await h.pump();
+  const count = h.published.length;
+  h.ref.current.pause();
+  assert.equal(h.published.length, count + 1, 'pause must freeze before React or a native acknowledgement');
+  assert.deepEqual(h.published.at(-1), { position: 4, sourcePosition: 6, takeId: 'a', playing: false, loading: false });
+  h.emit({ positionSeconds: 4.1, sourcePositionSeconds: 6.1, playing: true });
+  await h.pump();
+  h.emit({ positionSeconds: 4.2, sourcePositionSeconds: 6.2, playing: true }); await h.pump();
+  assert.equal(h.published.length, count + 1, 'queued playing events cannot move or resume the paused clock');
+  assert.equal(h.canvas().paused, true);
+  assert.equal(h.calls.length, 0, 'pausing cannot seek or rebuild the player');
+  h.emit({ positionSeconds: 4.15, sourcePositionSeconds: 6.15, playing: false }); await h.pump();
+  assert.equal(h.published.at(-1).position, 4.15, 'the native pause acknowledgement remains authoritative');
+  h.ref.current.togglePlayback(); await h.pump();
+  h.emit({ positionSeconds: 4.15, sourcePositionSeconds: 6.15, playing: false, loading: true }); await h.pump();
+  assert.equal(h.canvas().paused, false, 'loading must preserve the renewed Play intention');
+  h.emit({ positionSeconds: 4.3, sourcePositionSeconds: 6.3, playing: true }); await h.pump();
+  assert.equal(h.published.at(-1).playing, true);
+  assert.equal(h.published.at(-1).position, 4.3);
+});
+
+test('toggle para pausa e EOF impedem que um evento enfileirado reative a reprodução', async () => {
+  const h = harness(); await h.pump();
+  h.ref.current.togglePlayback(); await h.pump();
+  h.emit({ playing: true }); await h.pump();
+  h.ref.current.togglePlayback();
+  assert.equal(h.published.at(-1).playing, false);
+  const pausedCount = h.published.length;
+  h.emit({ playing: true }); await h.pump();
+  assert.equal(h.published.length, pausedCount);
+  h.ref.current.togglePlayback(); await h.pump();
+  h.emit({ playing: true }); await h.pump();
+  h.emit({ positionSeconds: 12, clipId: 'b', playing: false }); await h.pump();
+  const eofCount = h.published.length;
+  h.emit({ positionSeconds: 11.9, clipId: 'b', playing: true }); await h.pump();
+  assert.equal(h.published.length, eofCount, 'automatic EOF pause also owns the pause intention');
+  assert.equal(h.published.at(-1).position, 12);
+  assert.equal(h.canvas().paused, true);
+  assert.equal(h.calls.length, 0);
+});
+
+test('seek e inspeção congelam o relógio antes da operação nativa sem publicar frames temporários', async () => {
+  const h = harness(); await h.pump();
+  h.ref.current.togglePlayback(); await h.pump();
+  h.emit({ positionSeconds: 4, sourcePositionSeconds: 6, playing: true }); await h.pump();
+  h.ref.current.seek(7);
+  assert.deepEqual(h.published.at(-1), { position: 4, sourcePosition: 6, takeId: 'a', playing: false, loading: false });
+  const seek = h.calls.at(-1), count = h.published.length;
+  h.emit({ positionSeconds: 4.1, playing: true, token: seek.args.at(-1) }); await h.pump();
+  assert.equal(h.published.length, count, 'even a current-token playing event cannot defeat seek pause');
+  seek.resolve(h.state({ positionSeconds: 7, sourcePositionSeconds: 3, clipId: 'b' })); await h.pump();
+  h.ref.current.togglePlayback(); await h.pump();
+  h.emit({ positionSeconds: 7.1, sourcePositionSeconds: 3.1, clipId: 'b', playing: true }); await h.pump();
+  h.ref.current.previewSourceFrame({ takeId: 'a', uri: 'file:///a.mp4', seconds: 1 });
+  const frame = h.calls.at(-1), frozen = h.published.length;
+  assert.equal(h.published.at(-1).playing, false);
+  assert.equal(h.published.at(-1).position, 7.1);
+  assert.equal(frame.kind, 'source');
+  assert.equal(frame.args[3], 7.1, 'frame inspection keeps the playback anchor');
+  h.emit({ positionSeconds: 7.2, clipId: 'a', sourcePositionSeconds: 1, playing: true });
+  frame.resolve(h.state({ clipId: 'a', sourcePositionSeconds: 1 })); await h.pump();
+  assert.equal(h.published.length, frozen, 'source frames never become playback samples');
+  assert.equal(h.canvas().paused, true);
+});
+
 test('replay no EOF mantém intenção de reproduzir durante seek; seek posterior cancela eventos antigos', async () => {
   const h = harness(); await h.pump();
   const end = model.studioSeconds(model.compileStudioRecipe(h.project()).durationTicks);
