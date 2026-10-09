@@ -17,8 +17,8 @@ export type StudioPreviewHandle = { togglePlayback: () => void; pause: () => voi
 export const StudioPreview = forwardRef<StudioPreviewHandle, {
   takes: readonly StudioTake[]; kind: StudioKind; activeTakeId?: string;
   onActiveTakeChange?: (id: string) => void; onPlaybackState?: (state: StudioPlaybackState) => void;
-  onCanvasPress?: () => void; canvasLabel?: string; paused?: boolean;
-}>(function StudioPreview({ takes, kind, activeTakeId, onActiveTakeChange, onPlaybackState, onCanvasPress, canvasLabel = 'Mostrar ou ocultar ferramentas do editor', paused = false }, ref) {
+  onCanvasPress?: () => void; canvasLabel?: string; paused?: boolean; muted?: boolean;
+}>(function StudioPreview({ takes, kind, activeTakeId, onActiveTakeChange, onPlaybackState, onCanvasPress, canvasLabel = 'Mostrar ou ocultar ferramentas do editor', paused = false, muted = false }, ref) {
   const [takeId, setTakeId] = useState(activeTakeId || takes[0]?.id);
   const [failed, setFailed] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -45,6 +45,7 @@ export const StudioPreview = forwardRef<StudioPreviewHandle, {
     instance.audioMixingMode = 'doNotMix';
     instance.staysActiveInBackground = false;
   });
+  useEffect(() => { try { player.muted = muted; } catch { /* Player was released. */ } }, [player, muted]);
   const publish = useCallback((sourceSeconds?: number) => {
     if (sourceFrame.current) return;
     const current = live.current;

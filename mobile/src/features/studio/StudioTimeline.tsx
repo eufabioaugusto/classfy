@@ -3,7 +3,7 @@ import { AppState, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Image } from 'expo-image';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, { measure, runOnJS, runOnUI, scrollTo, useAnimatedProps, useAnimatedReaction, useAnimatedRef, useAnimatedScrollHandler, useAnimatedStyle, useDerivedValue, useFrameCallback, useSharedValue, type SharedValue } from 'react-native-reanimated';
-import { ChevronLeft, ChevronRight, Film, Mic, Minus, Plus } from 'lucide-react-native';
+import { ChevronLeft, ChevronRight, Eye, EyeOff, Film, Mic, Minus, Plus, Volume2, VolumeX } from 'lucide-react-native';
 import { colors } from '@/theme/colors';
 import { formatStudioDuration, formatStudioEditorTime, type StudioTake, type StudioRecipeClip, type StudioEditing } from './model';
 import { canContinueStudioTrim, clampStudioTimelineScale, defaultStudioTimelineScale, freezeStudioTrim, maximumStudioTimelineScale, minimumStudioTimelineScale, studioTimelineLayout, studioTimelineSeconds, studioTimelineTicks, studioTrimRange, type StudioTimelineTrim, type StudioTrimGesture } from './timelineLayout';
@@ -44,6 +44,7 @@ const handleInset = 44;
 const handleTouchWidth = 44;
 const handleWidth = 18;
 const snapColor = '#FFDB00';
+const railButtonSize = 44;
 const noLayers: readonly StudioRecipeClip[] = [];
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 
@@ -54,13 +55,15 @@ function trimHandleLayout(width: number, edge: Edge) {
     visualOffset: (edge === 'start' ? 1 : -1) * (handleTouchWidth / 2 - inside) };
 }
 
-export function StudioTimeline({ playbackChannel, layers: providedLayers = [], editing, selectedLayerId, onSelectLayer, onEditLayer, onMoveLayer, onLayerTrimPreview, onLayerTrimCommit, onLayerInteractionStart, onLayerInteractionEnd, takes, position, playing = false, loading = false, activeTakeId, audio = false, onSeek, onSelect, compact = false, previewOnly = false, locked = false, busy = false, cancelEpoch = 0, onAppend, onScrubStart, onTrimChange, onTrimCommit, onTrimCancel, pixelsPerSecond = defaultStudioTimelineScale }: {
+export function StudioTimeline({ playbackChannel, layers: providedLayers = [], editing, selectedLayerId, onSelectLayer, onEditLayer, onMoveLayer, onLayerTrimPreview, onLayerTrimCommit, onLayerInteractionStart, onLayerInteractionEnd, onToggleLaneVisibility, onToggleLaneMute, onToggleMainMute, takes, position, playing = false, loading = false, activeTakeId, audio = false, onSeek, onSelect, compact = false, previewOnly = false, locked = false, busy = false, cancelEpoch = 0, onAppend, onScrubStart, onTrimChange, onTrimCommit, onTrimCancel, pixelsPerSecond = defaultStudioTimelineScale }: {
   playbackChannel?: SharedValue<StudioTimelinePlaybackChannel>;
   layers?: readonly StudioRecipeClip[]; selectedLayerId?: string; onSelectLayer?: (id: string) => void; onMoveLayer?: (id: string, delta: number, targetZIndex?: number) => Promise<void>;
   onEditLayer?: (id: string) => void;
   editing?: StudioEditing; onLayerTrimPreview?: (id: string, range: StudioLayerTimelineRange | undefined) => void;
   onLayerTrimCommit?: (id: string, range: StudioLayerTimelineRange) => void | Promise<void>;
   onLayerInteractionStart?: () => void; onLayerInteractionEnd?: () => void;
+  onToggleLaneVisibility?: (zIndex: number) => void | Promise<void>; onToggleLaneMute?: (zIndex: number) => void | Promise<void>;
+  onToggleMainMute?: () => void | Promise<void>;
   takes: readonly StudioTake[]; position: number; playing?: boolean; loading?: boolean; activeTakeId?: string; audio?: boolean; compact?: boolean; previewOnly?: boolean; showClips?: boolean;
   locked?: boolean; busy?: boolean; cancelEpoch?: number; pixelsPerSecond?: number; onAppend?: () => void; onScrubStart?: () => void;
   onSeek: (seconds: number) => void; onSelect: (take: StudioTake) => void;
@@ -77,6 +80,10 @@ export function StudioTimeline({ playbackChannel, layers: providedLayers = [], e
   const [firstLane, setFirstLane] = useState(0);
   const [heldLayerId, setHeldLayerId] = useState<string>();
   const [lifecycleEpoch, setLifecycleEpoch] = useState(0);
+  const [railPending, setRailPending] = useState(false);
+  const railOperation = useRef(false);
+  const railLive = useRef({ editing, onToggleLaneVisibility, onToggleLaneMute, onToggleMainMute, locked, busy });
+  railLive.current = { editing, onToggleLaneVisibility, onToggleLaneMute, onToggleMainMute, locked, busy };
   const layout = useMemo(() => {
     try { const main = studioTimelineLayout(takes, scale); return { ...main, mainDuration: main.duration, duration: Math.max(main.duration, ...layers.map(item => (item.startTicks + item.durationTicks) / 120000)), error: false }; }
     catch { return { segments: [], mainDuration: 0, duration: 0, width: 0, error: true }; }
@@ -100,6 +107,14 @@ export function StudioTimeline({ playbackChannel, layers: providedLayers = [], e
   const visibleStart = offset - viewport / 2 - preparedMargin;
   const visibleEnd = offset + viewport / 2 + preparedMargin;
   const visibleLayers = layers.filter(item => item.id === selectedLayerId || item.id === heldLayerId || visibleLanes.includes(item.zIndex) && item.startTicks / 120000 <= visibleEnd / scale && (item.startTicks + item.durationTicks) / 120000 >= visibleStart / scale);
+  const controlledLanes = useMemo(() => laneIndices.map((zIndex, index) => {
+    const lane = editing?.layers[zIndex - 1];
+    const items = lane?.items ?? layers.filter(item => item.zIndex === zIndex);
+    return { zIndex, index, id: lane?.id, hidden: !!lane?.hidden, muted: !!lane?.muted,
+      visibility: !!onToggleLaneVisibility && items.some(item => item.kind !== 'audio'),
+      mute: !!onToggleLaneMute && items.some(item => item.kind === 'video' || item.kind === 'audio') };
+  }), [laneIndices, editing?.layers, layers, !!onToggleLaneVisibility, !!onToggleLaneMute]);
+  const railWidth = controlledLanes.some(lane => lane.visibility && lane.mute) ? railButtonSize * 2 : railButtonSize;
   const strip = useAnimatedRef<Animated.ScrollView>();
   const host = useAnimatedRef<Animated.View>();
   const laneStrip = useAnimatedRef<Animated.ScrollView>();
@@ -155,6 +170,24 @@ export function StudioTimeline({ playbackChannel, layers: providedLayers = [], e
   const pinchScale = useSharedValue(scale);
   const pinchAnchor = useSharedValue(0);
   const total = useDerivedValue(() => Math.max(layerDuration.value, baseDuration.value + (m.trimIndex.value < 0 ? 0 : m.end.value - m.start.value - (m.originalEnd.value - m.originalStart.value))));
+  const toggleRail = useCallback((action: 'visibility' | 'mute' | 'main', zIndex = 0, laneId?: string) => {
+    const current = railLive.current;
+    // A control belongs to its original lane. A queued press after reordering,
+    // backgrounding or an active gesture must not toggle a different track.
+    if (!mounted.current || railOperation.current || current.locked || current.busy || blocked.value || !foreground.value
+      || m.phase.value !== 0 || m.laneScrolling.value
+      || action !== 'main' && laneId !== current.editing?.layers[zIndex - 1]?.id) return;
+    const callback = action === 'main' ? current.onToggleMainMute : action === 'visibility' ? current.onToggleLaneVisibility : current.onToggleLaneMute;
+    if (!callback) return;
+    railOperation.current = true; setRailPending(true);
+    let result: void | Promise<void>;
+    try { result = action === 'main' ? current.onToggleMainMute?.() : action === 'visibility' ? current.onToggleLaneVisibility?.(zIndex) : current.onToggleLaneMute?.(zIndex); }
+    catch { result = undefined; /* Parent owns the visible persistence error. */ }
+    void Promise.resolve(result).catch(() => { /* Parent owns the visible persistence error. */ }).finally(() => {
+      railOperation.current = false;
+      if (mounted.current) setRailPending(false);
+    });
+  }, []);
 
   useEffect(() => { m.scale.value = clampStudioTimelineScale(pixelsPerSecond); setScale(clampStudioTimelineScale(pixelsPerSecond)); }, [pixelsPerSecond]);
   const applyPlaybackSample = useCallback((samplePosition: number, samplePlaying: boolean, sampleLoading: boolean, sampleDuration: number, sampleBusy: boolean) => {
@@ -440,10 +473,12 @@ export function StudioTimeline({ playbackChannel, layers: providedLayers = [], e
     height: Math.max(20, layerHeight * rowCount / Math.max(1, laneIndices.length)),
     transform: [{ translateY: lastLaneStart ? m.laneStart.value / lastLaneStart * (layerHeight - Math.max(20, layerHeight * rowCount / Math.max(1, laneIndices.length))) : 0 }],
   }));
+  const laneRailStyle = useAnimatedStyle(() => ({ transform: [{ translateY: -m.laneStart.value * laneHeight }] }));
   const canvasStyle = useAnimatedStyle(() => ({ width: Math.max(m.viewport.value, m.viewport.value + total.value * m.scale.value + Math.max(0, m.leading.value * m.scale.value) + Math.max(0, -m.virtual.value) + (onAppend ? 68 : 0)), transform: [{ translateX: -m.virtual.value }] }));
   const previewDuration = layout.duration + (draft && selected ? draft.end - draft.start - (selected.take.end - selected.take.start) : 0);
   const ticks = previewOnly ? [] : studioTimelineTicks(scale, Math.max(0, visibleStart / scale), Math.max(0, visibleEnd / scale), previewDuration);
   const trimDisabled = !!(locked || busy || committing || pinching || !onTrimCommit || layout.error);
+  const railDisabled = !!(locked || busy || committing || dragging || pinching || railPending);
 
   if (!takes.length || layout.error) return <View style={[styles.empty, { height: rulerHeight + trackHeight + 26 }]}>
     {audio ? <Mic size={19} color={colors.mutedDim} strokeWidth={1.4} /> : <Film size={19} color={colors.mutedDim} strokeWidth={1.4} />}
@@ -470,6 +505,25 @@ export function StudioTimeline({ playbackChannel, layers: providedLayers = [], e
         <TimelineSnapGuide motion={m} height={mainTop + trackHeight} />
       </Animated.View>
     </Animated.ScrollView></GestureDetector>
+    {!previewOnly && layerHeight && controlledLanes.some(lane => lane.visibility || lane.mute) ? <View testID="studio-lane-controls" pointerEvents="box-none" style={[styles.laneRail, { top: rulerHeight, height: layerHeight, width: railWidth }]}>
+      <View pointerEvents="none" style={styles.railBackground} />
+      <Animated.View testID="studio-lane-controls-content" pointerEvents="box-none" style={[{ height: laneIndices.length * laneHeight, width: railWidth }, laneRailStyle]}>
+        {controlledLanes.filter(lane => visibleLanes.includes(lane.zIndex)).map(lane => <View key={lane.id ?? lane.zIndex} pointerEvents="box-none" style={[styles.laneRailRow, { top: lane.index * laneHeight, width: railWidth }]}>
+          {lane.visibility ? <Pressable accessibilityRole="button" accessibilityLabel={`${lane.hidden ? 'Mostrar' : 'Ocultar'} faixa ${lane.zIndex}`} accessibilityState={{ disabled: railDisabled, selected: lane.hidden }} disabled={railDisabled} onPress={() => toggleRail('visibility', lane.zIndex, lane.id)} style={({ pressed }) => [styles.railAction, pressed && styles.railPressed, railDisabled && styles.railDisabled]}>
+            {lane.hidden ? <EyeOff size={20} color={colors.mutedDim} strokeWidth={1.6} /> : <Eye size={20} color={colors.textSecondary} strokeWidth={1.6} />}
+          </Pressable> : null}
+          {lane.mute ? <Pressable accessibilityRole="button" accessibilityLabel={`${lane.muted ? 'Ativar' : 'Silenciar'} áudio da faixa ${lane.zIndex}`} accessibilityState={{ disabled: railDisabled, selected: lane.muted }} disabled={railDisabled} onPress={() => toggleRail('mute', lane.zIndex, lane.id)} style={({ pressed }) => [styles.railAction, pressed && styles.railPressed, railDisabled && styles.railDisabled]}>
+            {lane.muted ? <VolumeX size={20} color={colors.mutedDim} strokeWidth={1.6} /> : <Volume2 size={20} color={colors.textSecondary} strokeWidth={1.6} />}
+          </Pressable> : null}
+        </View>)}
+      </Animated.View>
+    </View> : null}
+    {!previewOnly && onToggleMainMute ? <View testID="studio-main-control" pointerEvents="box-none" style={[styles.laneRail, { top: mainTop, height: trackHeight, width: railButtonSize, justifyContent: 'center' }]}>
+      <View pointerEvents="none" style={styles.railBackground} />
+      <Pressable accessibilityRole="button" accessibilityLabel={`${editing?.mainMuted ? 'Ativar' : 'Silenciar'} áudio principal`} accessibilityState={{ disabled: railDisabled, selected: !!editing?.mainMuted }} disabled={railDisabled} onPress={() => toggleRail('main')} style={({ pressed }) => [styles.railAction, pressed && styles.railPressed, railDisabled && styles.railDisabled]}>
+        {editing?.mainMuted ? <VolumeX size={20} color={colors.mutedDim} strokeWidth={1.6} /> : <Volume2 size={20} color={colors.textSecondary} strokeWidth={1.6} />}
+      </Pressable>
+    </View> : null}
     {laneIndices.length > rowCount ? <View pointerEvents="none" style={{ position: 'absolute', top: rulerHeight, right: 2, height: layerHeight, width: 3, zIndex: 5 }}><Animated.View style={[{ width: 3, borderRadius: 2, backgroundColor: 'rgba(255,255,255,0.24)' }, laneIndicatorStyle]} /></View> : null}
     {onAppend && !previewOnly ? <View style={{ position: 'absolute', top: mainTop + (trackHeight - 44) / 2, right: 8, zIndex: 6 }}><AppendButton disabled={locked || busy || committing || dragging || pinching} onPress={onAppend} /></View> : null}
     <View pointerEvents="none" accessible accessibilityRole="adjustable" accessibilityLabel="Posição da montagem" accessibilityState={{ disabled: busy || dragging || committing || pinching }}
@@ -750,7 +804,7 @@ function TimelineLayer({ item, editing, motion: m, host, strip, laneStrip, viewp
     <GestureDetector gesture={bodyGesture}><AnimatedPressable disabled={disabled} onPress={onSelect} accessibilityRole="button" accessibilityLabel={`Selecionar camada ${title}`} accessibilityHint="Toque duas vezes para editar. Segure para mover no tempo ou entre faixas." accessibilityState={{ selected, disabled }}
       accessibilityActions={moveEnabled && lanes.length > 1 ? [{ name: 'moveUp', label: 'Mover para a faixa anterior' }, { name: 'moveDown', label: 'Mover para a próxima faixa' }] : undefined}
       onAccessibilityAction={event => { if (event.nativeEvent.actionName === 'moveUp') accessibleMoveLane(-1); else if (event.nativeEvent.actionName === 'moveDown') accessibleMoveLane(1); }}
-      style={[StyleSheet.absoluteFillObject, { left: handleInset, right: handleInset, top: 2, bottom: 2, borderRadius: 7, backgroundColor: tint, borderWidth: selected ? 3 : 1, borderColor: selected ? snapColor : 'rgba(255,255,255,0.1)', paddingHorizontal: selected ? 14 : 9, justifyContent: 'center', overflow: 'hidden' }]}>
+      style={[StyleSheet.absoluteFillObject, { left: handleInset, right: handleInset, top: 2, bottom: 2, borderRadius: 7, backgroundColor: tint, borderWidth: selected ? 3 : 1, borderColor: selected ? snapColor : 'rgba(255,255,255,0.1)', paddingHorizontal: selected ? 14 : 9, justifyContent: 'center', overflow: 'hidden', opacity: editing?.layers[item.zIndex - 1]?.hidden ? 0.35 : 1 }]}>
       {thumbnail ? <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFillObject, thumbnailStyle]}>{thumbnailTiles.map(index => <Image key={index} source={{ uri: thumbnail }} pointerEvents="none" contentFit="cover" transition={0} cachePolicy="memory-disk" style={{ position: 'absolute', left: index * tileWidth, width: tileWidth, top: 0, bottom: 0 }} />)}</Animated.View> : <Text numberOfLines={1} style={{ color: colors.text, fontSize: 12, fontWeight: '500' }}>{title}</Text>}
     </AnimatedPressable></GestureDetector>
     {selected && editing && onTrimCommit ? (['start', 'end'] as const).map(edge => <GestureDetector key={edge} gesture={edge === 'start' ? startPan : endPan}><Animated.View
@@ -871,6 +925,12 @@ function AppendButton({ disabled, onPress }: { disabled?: boolean; onPress: () =
 const styles = StyleSheet.create({
   timeline: { width: '100%', overflow: 'hidden' },
   laneBackground: { position: 'absolute', left: 0, right: 0, borderRadius: 8, backgroundColor: 'rgba(255,255,255,0.035)' },
+  laneRail: { position: 'absolute', left: 0, overflow: 'hidden', zIndex: 7 },
+  railBackground: { ...StyleSheet.absoluteFillObject, backgroundColor: colors.background, borderRightWidth: StyleSheet.hairlineWidth, borderRightColor: colors.border },
+  laneRailRow: { position: 'absolute', left: 0, height: laneHeight, flexDirection: 'row' },
+  railAction: { width: railButtonSize, height: railButtonSize, alignItems: 'center', justifyContent: 'center' },
+  railPressed: { backgroundColor: colors.surfaceAlt },
+  railDisabled: { opacity: 0.4 },
   snapGuide: { position: 'absolute', width: 0, borderLeftWidth: 1.5, borderStyle: 'dashed', borderColor: snapColor, zIndex: 20 },
   clip: { position: 'absolute', overflow: 'hidden', borderRadius: 7, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.background },
   selected: { borderWidth: 3, borderColor: snapColor },

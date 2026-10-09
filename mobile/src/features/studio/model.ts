@@ -167,7 +167,11 @@ export type StudioLayerItem = {
   rect?: StudioRect; rotationDegrees?: number; fit?: 'contain' | 'cover'; opacity?: number;
   gain?: number; fadeInTicks?: number; fadeOutTicks?: number; effect?: StudioEffect; grade?: StudioGrade; text?: StudioTextStyle;
 };
-export type StudioLayer = { id: string; kind: StudioLayerKind; items: StudioLayerItem[] };
+export type StudioLayer = {
+  id: string; kind: StudioLayerKind; items: StudioLayerItem[];
+  /** Reversible track switches; source opacity and gain stay on each item. */
+  hidden?: boolean; muted?: boolean;
+};
 export type StudioOutputProfile = {
   profile: 'standard' | 'legacy-source'; width: number; height: number;
   frameRateNumerator: number; frameRateDenominator: number; colorSpace: 'rec709' | 'source';
@@ -175,6 +179,8 @@ export type StudioOutputProfile = {
 export type StudioEditing = {
   version: 2; timebase: typeof STUDIO_TIMEBASE; assets: StudioAsset[]; main: StudioMainClip[]; layers: StudioLayer[];
   canvas: { aspectRatio: 'landscape' | 'portrait' | 'square'; backgroundColor: string }; output: StudioOutputProfile;
+  /** Mute the complete main sequence without replacing clip gains. */
+  mainMuted?: boolean;
 };
 export type StudioRecipeClip = {
   id: string; kind: StudioLayerKind; assetId?: string; startTicks: number; durationTicks: number;
@@ -350,12 +356,13 @@ export function compileStudioRecipe(project: Pick<StudioProject, 'kind' | 'takes
     const duration = mainDuration(clip, asset);
     mainStarts.set(clip.id, { clip, start: cursor, duration });
     clips.push({ ...baseRecipeClip(clip.id, asset.kind, cursor, duration), assetId: clip.assetId,
-      sourceStartTicks: clip.sourceStartTicks, sourceEndTicks: clip.sourceEndTicks, effect: clip.effect ?? 'natural', grade: clip.grade, gain: clip.gain ?? 1,
+      sourceStartTicks: clip.sourceStartTicks, sourceEndTicks: clip.sourceEndTicks, effect: clip.effect ?? 'natural', grade: clip.grade, gain: editing.mainMuted === true ? 0 : clip.gain ?? 1,
       rect: clip.rect ?? { x: 0, y: 0, width: 1, height: 1 }, fit: clip.fit ?? 'contain', rotationDegrees: clip.rotationDegrees ?? 0 });
     cursor += duration;
   }
   for (let layerIndex = 0; layerIndex < editing.layers.length; layerIndex++) {
-    for (const item of editing.layers[layerIndex].items) {
+    const layer = editing.layers[layerIndex];
+    for (const item of layer.items) {
       let start = item.atTicks, duration = item.durationTicks;
       let sourceStart = item.sourceStartTicks ?? 0;
       let sourceEnd = item.sourceEndTicks ?? (item.assetId && assets.get(item.assetId)?.kind !== 'image' ? sourceStart + duration : 0);
@@ -374,7 +381,7 @@ export function compileStudioRecipe(project: Pick<StudioProject, 'kind' | 'takes
       clips.push({ ...baseRecipeClip(item.id, item.kind, start, duration), assetId: item.assetId,
         sourceStartTicks: sourceStart, sourceEndTicks: sourceEnd, zIndex: layerIndex + 1,
         rect: item.rect ?? { x: 0, y: 0, width: 1, height: 1 }, rotationDegrees: item.rotationDegrees ?? 0, fit: item.fit ?? 'contain',
-        opacity: item.opacity ?? 1, gain: item.gain ?? 1, fadeInTicks: Math.min(item.fadeInTicks ?? 0, duration), fadeOutTicks: Math.min(item.fadeOutTicks ?? 0, Math.max(0, duration - Math.min(item.fadeInTicks ?? 0, duration))),
+        opacity: layer.hidden === true ? 0 : item.opacity ?? 1, gain: layer.muted === true ? 0 : item.gain ?? 1, fadeInTicks: Math.min(item.fadeInTicks ?? 0, duration), fadeOutTicks: Math.min(item.fadeOutTicks ?? 0, Math.max(0, duration - Math.min(item.fadeInTicks ?? 0, duration))),
         effect: item.effect ?? 'natural', grade: item.grade, text: item.text });
     }
   }
@@ -439,6 +446,9 @@ export function validateStudioRecipe(recipe: StudioRenderRecipe): string[] {
 export function validateStudioEditing(editing: StudioEditing, kind: StudioKind): string[] {
   const issues: string[] = [];
   if (editing.version !== 2 || editing.timebase !== STUDIO_TIMEBASE) issues.push('A edição precisa de recuperação.');
+  if (editing.mainMuted !== undefined && typeof editing.mainMuted !== 'boolean'
+    || editing.layers.some(layer => layer.hidden !== undefined && typeof layer.hidden !== 'boolean'
+      || layer.muted !== undefined && typeof layer.muted !== 'boolean')) issues.push('Revise os controles das faixas.');
   const assetIds = editing.assets.map(asset => asset.id), clipIds = editing.main.map(clip => clip.id), layerIds = editing.layers.map(layer => layer.id);
   const allItemIds = [...clipIds, ...editing.layers.flatMap(layer => layer.items.map(item => item.id))];
   if (new Set(allItemIds).size !== allItemIds.length || allItemIds.some(id => !id)
@@ -448,6 +458,8 @@ export function validateStudioEditing(editing: StudioEditing, kind: StudioKind):
     const asset = assets.get(clip.assetId);
     if (!asset || !isTicks(clip.sourceStartTicks) || !isTicks(clip.sourceEndTicks) || mainDuration(clip, asset) < STUDIO_TIMEBASE / 10
       || asset.kind === 'image' && (clip.sourceStartTicks !== 0 || clip.sourceEndTicks !== 0 || !isTicks(clip.durationTicks!))) issues.push('Revise os cortes dos takes.');
+    // A track mute must not mask corrupt gain stored on an original clip.
+    if (clip.gain !== undefined && (!Number.isFinite(clip.gain) || clip.gain < 0 || clip.gain > 4)) issues.push('Revise o enquadramento e o volume das camadas.');
   }
   const originals: StudioRecipeClip[] = [];
   for (const layer of editing.layers) for (const item of layer.items) {
@@ -495,6 +507,29 @@ export function addStudioLayerItem(editing: StudioEditing, item: StudioLayerItem
   return { ...editing, layers: existing ? editing.layers.map(layer => layer.id === layerId ? { ...layer, items: [...layer.items, { ...item }] } : layer)
     : [...editing.layers, { id: layerId, kind: item.kind, items: [{ ...item }] }] };
 }
+function setStudioLayerSwitch(editing: StudioEditing, id: string, key: 'hidden' | 'muted', enabled: boolean): StudioEditing {
+  if (typeof enabled !== 'boolean') throw new Error('O controle da faixa precisa ser verdadeiro ou falso.');
+  const layer = editing.layers.find(value => value.id === id);
+  if (!layer) throw new Error('Esta faixa não está mais na montagem.');
+  if ((layer[key] === true) === enabled) return editing;
+  const next = { ...layer };
+  if (enabled) next[key] = true;
+  else delete next[key];
+  return { ...editing, layers: editing.layers.map(value => value.id === id ? next : value) };
+}
+export function setStudioLayerHidden(editing: StudioEditing, layerId: string, hidden: boolean): StudioEditing {
+  return setStudioLayerSwitch(editing, layerId, 'hidden', hidden);
+}
+export function setStudioLayerMuted(editing: StudioEditing, layerId: string, muted: boolean): StudioEditing {
+  return setStudioLayerSwitch(editing, layerId, 'muted', muted);
+}
+export function setStudioMainMuted(editing: StudioEditing, muted: boolean): StudioEditing {
+  if (typeof muted !== 'boolean') throw new Error('O controle da faixa precisa ser verdadeiro ou falso.');
+  if ((editing.mainMuted === true) === muted) return editing;
+  if (muted) return { ...editing, mainMuted: true };
+  const { mainMuted: _mainMuted, ...next } = editing;
+  return next;
+}
 /** Move one element to a final, one-based lane without moving grouped siblings. */
 export function moveStudioLayerItemToLane(editing: StudioEditing, id: string, targetZIndex: number): StudioEditing {
   if (!Number.isSafeInteger(targetZIndex)) throw new Error('A posição da camada não é válida.');
@@ -514,7 +549,7 @@ export function moveStudioLayerItemToLane(editing: StudioEditing, id: string, ta
     const existingIds = new Set(editing.layers.map(layer => layer.id));
     let layerId = baseId, suffix = 1;
     while (existingIds.has(layerId)) layerId = `${baseId}:${suffix++}`;
-    moved = { id: layerId, kind: source.kind, items: [item] };
+    moved = { ...source, id: layerId, items: [item] };
     layers = editing.layers.map((layer, index) => index === sourceIndex
       ? { ...layer, items: layer.items.filter(value => value.id !== id) } : layer);
   }

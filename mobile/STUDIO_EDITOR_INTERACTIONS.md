@@ -94,6 +94,22 @@ Aceite no iPhone remoto: Fabio recarregou o Classfy Dev e respondeu **“Todas a
 
 Referências técnicas: [React Native 0.81 — ScrollView](https://reactnative.dev/docs/0.81/scrollview) e [Reanimated 4 — scrollTo na UI thread](https://docs.swmansion.com/react-native-reanimated/docs/scroll/scrollTo/).
 
+## Controles por faixa e transformação nativa — oitava rodada de 09/10/2026
+
+Cada faixa tem controles fixos no extremo esquerdo: olho para ocultar/mostrar conteúdo visual e áudio para silenciar/restaurar vídeo ou áudio. O principal tem seu próprio mute. A coluna acompanha a rolagem vertical na UI e permanece fixa durante navegação horizontal. Ícones de 20 pontos têm alvos de 44 pontos; uma faixa de vídeo expõe os dois controles. Faixas ocultas continuam editáveis e aparecem atenuadas.
+
+`hidden`, `muted` e `mainMuted` são opções reversíveis do documento v2. Compilar aplica opacity/gain zero sem remover intervalos, IDs, mídia ou o ganho original. Os controles preservam cursor/seleção, mesclam o draft visível e geram uma escrita e uma etapa de histórico. Presses tardios, troca de faixa/conta, gesto ou escrita em curso não podem alterar outro alvo. O exportador legado rejeita flags que não conseguiria representar.
+
+O contorno da seleção já movia na UI, mas a imagem ainda seguia drafts JS a cada 33ms, recompilando a composição e substituindo o player. O novo binário confirma capacidade Metal e recebe um canal UI compacto de geometria. `StudioCompositionInteractiveSurface` conserva os quadros do instante pausado e seus grafos Core Image de orientação/tratamento; cada movimento renderiza a composição diretamente na GPU, preservando ordem, alpha, grade e sobreposições. Vision não é repetido por amostra. Texto redimensionado usa o mesmo CoreText da exportação. A fila admite até dois comandos GPU e mantém a geometria mais recente, sem acumular todos os movimentos.
+
+Ao soltar, a receita durável é salva uma vez. A superfície transitória só cede ao primeiro quadro canônico depois de confirmar a escrita. As ordens receita→recibo e recibo→receita, prime tardio, prop canônica antes do patch terminal, ACK de operação anterior e restauração do cursor são protegidas. Mudança real de instante/fonte, background, cancelamento ou remoção encerram a superfície. O Dev anterior conserva o caminho JS compatível; Reload não instala o Swift novo.
+
+Validação: 588/588 testes Studio, TypeScript e diff check passaram. A fixture nativa comparou vídeo principal, PiP, imagem e texto com a receita final e encontrou diferença de pixels 0/255; conferiu protocolo e handoff nas ordens acima. Podcast mutado preservou faixa/duração de 1s com RMS0; restaurar produziu RMS0,088. Substituir composição inicial→mute→unmute manteve frame0 real, cursor0 e pausa, sem quadro preto. Os testes nativos de recipe, compositor e initial-frame também passaram. `test:studio:interaction` integra essa regressão ao runner headless.
+
+QA no Simulator CREATOR: ocultar/restaurar texto e imagem, persistir/recarregar flags e alinhamento da coluna em X/Y passaram. O novo binário manteve a prévia intacta após mute/unmute; reduzir e deslocar o principal por acessibilidade preservou posições dos overlays. Undo restaurou a geometria; quatro overlays, seis takes e 8,5s da fixture foram preservados. Esses comandos não comprovam a cadência do arraste físico. A nova fluidez ainda requer instalação do binário no iPhone e aceite por toque; o aparelho remoto está indisponível ao CoreDevice nesta rodada.
+
+Builds Debug finais de simulador e iOS genérico passaram. O binário final foi instalado no Simulator e mute/unmute reconferido; o build de dispositivo está em `/tmp/classfy-studio-device-build/Build/Products/Debug-iphoneos/ClassfyDev.app`. O bundle iOS respondeu HTTP200 pelo túnel Metro existente, com os controles e canal presentes. Os botões chegam por Reload; a renderização interativa e o prime corrigido exigem o novo Classfy Dev. Sem instalação no iPhone remoto, publicação web, push ou alteração de dependências.
+
 ## Origem dos requisitos
 
 Os prints, gravações e orientações do Fabio são a referência de produto: edição direta na prévia, corte integrado à timeline, ferramentas contextuais e seleção que não salta o cursor. CapCut e Edits ajudam a modelar a experiência; a identidade continua Classfy.
@@ -175,6 +191,7 @@ A geometria do toque usa o canvas realmente exibido, incluindo margens de aspect
 ## Timeline: selecionar, navegar e editar
 
 - Deslizar verticalmente na área das camadas rola a pilha completa acima do principal, preservando seleção, cursor e escala horizontal. O vídeo principal, a régua e as ferramentas permanecem fixos. Segurar um elemento continua iniciando sua movimentação, sem transformar a navegação comum em edição.
+- Ocultar uma faixa visual remove sua imagem da composição sem apagar itens; mute silencia a faixa de vídeo/áudio ou o principal sem perder o ganho original. Controles ficam fixos à esquerda, acompanham a rolagem vertical, preservam cursor/seleção e têm undo/redo.
 - Toque em clip ou camada **apenas seleciona**; mantém o cursor e não força rolagem para o centro do item. Arrastar a faixa/régua navega no tempo sob o cursor fixo. Pinça amplia/reduz a escala temporal preservando o instante de referência.
 - Segurar e arrastar o corpo de uma camada desloca seu intervalo no projeto. Arraste vertical muda sua faixa e ordem de sobreposição; agrupar mídia não pode deslocar outros itens silenciosamente. As alças de início/fim ajustam sua duração; o corpo não pode roubar o gesto de uma alça. Rolar e mover uma camada precisam de reconhecimento distinto.
 - Snapping indica bordas/cursor com guia amarela tracejada e preserva ajuste fino: o dedo adquire o alvo em 8 pontos e solta após 14. Encostar no limite da origem não conta como snapping. Estado e cancelamento ainda exigem aceite por toque físico.

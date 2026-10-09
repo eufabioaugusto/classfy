@@ -310,6 +310,20 @@ test('legado simples usa export original; efeito ou camada não podem cair no ex
   const before = h.nativeExports(); await assert.rejects(h.media.exportStudioProject(graded), /perfil 1080p/);
   assert.equal(h.nativeExports(), before);
 });
+test('mute principal exporta receita silenciosa sem perder o ganho original e nunca cai no export legado', async () => {
+  const h = harness(), p = await h.store.createStudioProject('owner', 'aula');
+  const created = await h.store.updateStudioProject('owner', p.id, { takes: [baseTake] });
+  const output = h.model.withStudioStandardOutput(created.editing);
+  const standard = { ...output, main: output.main.map(clip => ({ ...clip, gain: 0.4 })) };
+  const muted = await h.store.updateStudioProject('owner', p.id, { editing: h.model.setStudioMainMuted(standard, true) });
+  await h.media.exportStudioProject(muted);
+  const call = h.nativeCalls.at(-1); assert.equal(call.kind, 'recipe');
+  assert.equal(JSON.parse(call.recipeJSON).clips[0].gain, 0);
+  assert.equal(h.store.getStudioProject('owner', p.id).editing.main[0].gain, 0.4);
+  const legacy = await h.store.updateStudioProject('owner', p.id, { editing: { ...muted.editing, output: { ...muted.editing.output, profile: 'legacy-source', colorSpace: 'source' } } });
+  const before = h.nativeExports(); await assert.rejects(h.media.exportStudioProject(legacy), /perfil 1080p/);
+  assert.equal(h.nativeExports(), before);
+});
 test('áudio curto ajusta fades à duração conhecida depois do picker sem perder journal', async () => {
   const h = harness({ mediaInfo: uri => uri.endsWith('.m4a') ? { duration: 0.2, width: 0, height: 0, frameRate: 0, hasVideo: false, hasAudio: true, fileSize: 100 } : undefined });
   const p = await h.store.createStudioProject('owner', 'aula');

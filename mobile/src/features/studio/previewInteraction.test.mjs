@@ -234,3 +234,20 @@ test('commit de corte mantém a montagem salva durante a prévia e restaura o fr
     assert.equal(view.published.at(-1).takeId, 'b');
   } finally { await view.dispose(); }
 });
+
+test('mute do áudio principal atua no player real sem seek ou reload e acompanha podcast/novo original', async () => {
+  const view = harness([take('a'), take('b')]);
+  try {
+    await view.load(); view.player.tick(5);
+    const requests = view.player.requests.length, writes = view.player.writes.length;
+    view.update({ kind: 'podcast', muted: true }); await view.pump();
+    assert.equal(view.player.muted, true); assert.equal(view.player.requests.length, requests);
+    assert.equal(view.player.writes.length, writes);
+    view.ref.current.togglePlayback(); await view.pump(); assert.equal(view.player.muted, true);
+    view.ref.current.pause(); view.ref.current.seek(9); await view.load();
+    assert.equal(view.player.muted, true, 'source replacement cannot silently reactivate the original audio');
+    const after = view.player.writes.length;
+    view.update({ muted: false }); await view.pump();
+    assert.equal(view.player.muted, false); assert.equal(view.player.writes.length, after);
+  } finally { await view.dispose(); }
+});

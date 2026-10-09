@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { transformFileSync } from '@babel/core';
 import ts from 'typescript';
 import * as model from './model.ts';
+import { initialStudioCanvasTransformChannel } from './canvasTransformChannel.ts';
 const require = createRequire(import.meta.url);
 const reanimatedSource = join(dirname(require.resolve('react-native-reanimated/package.json')), 'src');
 const moduleSources = new Map();
@@ -42,7 +43,7 @@ function graded(value) {
 // Execute the production wrapper and NativePreview hooks, imperative handle,
 // native event handlers and promise continuations. AVPlayer's async command
 // completion is stubbed independently from periodic events and React renders.
-function harness({ available = true, initialProject = project(), playbackChannel, nativeRuntime = false } = {}) {
+function harness({ available = true, initialProject = project(), playbackChannel, nativeRuntime = false, interactive = false, capability = { version: 1, available: true } } = {}) {
   const slots = []; let cursor = 0, dirty = true, effects = [], tree, nativeProps;
   const published = [], selected = [], calls = [];
   const uiQueue = [], jsQueue = [], registrations = new Map();
@@ -60,6 +61,7 @@ function harness({ available = true, initialProject = project(), playbackChannel
     } };
   };
   const channel = playbackChannel ? shared({ active: false, sequence: 0, position: 0, playing: false, loading: false }) : undefined;
+  const transformChannel = interactive ? shared(initialStudioCanvasTransformChannel()) : undefined;
   let timerSequence = 0, now = 0;
   const timers = new Map();
   const setTimer = (callback, delay) => { const id = ++timerSequence; timers.set(id, { callback, at: now + delay }); return id; };
@@ -118,6 +120,11 @@ function harness({ available = true, initialProject = project(), playbackChannel
   const reanimated = { __esModule: true,
     default: { createAnimatedComponent: () => { nativeStats.wrappers++; return 'animated-native-canvas'; } },
     useSharedValue: initial => { const ref = hooks.useRef(null); return ref.current ||= shared(initial); },
+    useAnimatedProps: callback => {
+      if (nativeRuntime) assert.equal(typeof callback.__workletHash, 'number', 'animatedProps must use a Metro worklet');
+      const value = hooks.useRef(callback); value.current = callback;
+      return { initial: { value: onUI(callback)() }, getProps: () => onUI(value.current)() };
+    },
     useEvent,
     runOnJS: callback => (...args) => jsQueue.push(() => callback(...args)),
     runOnUI: callback => (...args) => {
@@ -145,6 +152,8 @@ function harness({ available = true, initialProject = project(), playbackChannel
       StyleSheet: { create: styles => styles, absoluteFill: {}, absoluteFillObject: {} } },
     'expo-modules-core': { requireNativeViewManager: () => 'native-canvas' },
     '../../../modules/classfy-studio-media': { isStudioCompositionAvailable: () => available,
+      isStudioInteractiveCompositionAvailable: () => interactive,
+      getStudioInteractiveCompositionVersionAsync: () => Promise.resolve(capability),
       seekStudioCompositionAsync: (...args) => command('seek', args),
       previewStudioCompositionSourceAsync: (...args) => command('source', args) },
     './model': model, './StudioPreview': { StudioPreview: 'legacy-preview' },
@@ -159,7 +168,7 @@ function harness({ available = true, initialProject = project(), playbackChannel
     throw new Error(`Unexpected dependency: ${name}`);
   }, module, module.exports, setTimer, clearTimer);
   const component = module.exports.StudioCompositionPreview;
-  let props = { project: initialProject, activeTakeId: 'a', playbackChannel: channel, onPlaybackState: value => published.push(value), onActiveTakeChange: id => selected.push(id) };
+  let props = { project: initialProject, activeTakeId: 'a', playbackChannel: channel, canvasTransformChannel: transformChannel, onPlaybackState: value => published.push(value), onActiveTakeChange: id => selected.push(id) };
   function render() {
     dirty = false; cursor = 0; effects = []; nativeProps = undefined;
     tree = component(props, ref);
@@ -189,7 +198,7 @@ function harness({ available = true, initialProject = project(), playbackChannel
       for (const entry of registered) onUI(entry.callback)({ ...payload, eventName });
     } else nativeProps[eventName]({ nativeEvent: payload });
   };
-  return { ref, calls, published, selected, pump, channel, nativeStats,
+  return { ref, calls, published, selected, pump, channel, nativeStats, transformChannel,
     rawCanvas: () => rawNativeProps,
     flushUI: () => { for (const job of uiQueue.splice(0)) job(); },
     flushJS: () => { for (const job of jsQueue.splice(0)) job(); },
@@ -201,7 +210,7 @@ function harness({ available = true, initialProject = project(), playbackChannel
     pendingTimers: () => timers.size,
     dispose: () => { for (const slot of slots) slot?.cleanup?.(); nativeManager?.manager.detachEvents(); },
     update: patch => { props = { ...props, ...patch }; dirty = true; },
-    project: () => props.project, canvas: () => nativeProps,
+    project: () => props.project, canvas: () => nativeProps, tree: () => tree,
     state, emit: overrides => dispatch('onPlaybackState', state(overrides)),
     error: (message, overrides = {}) => dispatch('onError', { revision: nativeProps.revision, token: calls.at(-1)?.args.at(-1) || 0, message, ...overrides }),
     text: () => nodes(tree).filter(value => typeof value === 'string').join(' '),
@@ -819,4 +828,54 @@ test('ACK de seek confirmado no UI antes de novo Play libera guarda JS antiga me
   assert.equal(h.canvas().paused, true, 'the stale JS seek target cannot keep EOF permanently pending');
   seek.resolve(h.state({ positionSeconds: 3, playing: false })); await h.pump();
   assert.equal(h.published.at(-1).position, 12);
+});
+
+test('patch interativo usa animatedProps no UI e preserva recipe/revision, fontes e relógio sem React por frame', async () => {
+  const h = harness({ interactive: true, playbackChannel: true, nativeRuntime: true }); await h.pump();
+  try {
+    const recipe = h.canvas().recipeJSON, revision = h.canvas().revision, clock = { ...h.channel.value }, count = h.published.length;
+    assert.equal(h.transformChannel.value.available, true);
+    for (let i = 1; i <= 120; i++) {
+      h.transformChannel.value = { ...h.transformChannel.value, active: true, operationId: 'a:1:1', epoch: 1, clipId: 'a', phase: 'gesture', sequence: i,
+        transform: { rect: { x: i / 1000, y: 0.1, width: 0.7, height: 0.7 } } };
+      h.flushUI();
+      const patch = JSON.parse(h.rawCanvas().animatedProps.getProps().liveVisualJSON);
+      assert.equal(patch.sequence, i); assert.equal(patch.transform.rect.x, i / 1000);
+      assert.equal(patch.revision, revision); assert.equal(patch.version, 1);
+      assert.ok(!Object.hasOwn(patch, 'assets') && !Object.hasOwn(patch, 'clips'), 'no lesson or URI crosses the geometry channel');
+    }
+    assert.equal(h.canvas().recipeJSON, recipe); assert.equal(h.canvas().revision, revision);
+    assert.deepEqual(h.calls, []); assert.deepEqual(h.channel.value, clock); assert.equal(h.published.length, count);
+    const clips = JSON.parse(recipe).clips;
+    const next = { ...h.project(), editing: { ...h.project().editing, main: h.project().editing.main.map((clip, index) => index ? clip : { ...clip, rect: { x: 0.12, y: 0.1, width: 0.7, height: 0.7 } }) } };
+    h.update({ project: next }); await h.pump();
+    assert.notEqual(h.canvas().revision, revision);
+    const saved = JSON.parse(h.canvas().recipeJSON).clips;
+    assert.deepEqual(saved[1], clips[1]); assert.equal(saved[0].assetId, clips[0].assetId);
+  } finally { h.dispose(); }
+});
+
+for (const capability of [{ version: 1, available: false }, { version: 2, available: true }]) test(`capacidade ${JSON.stringify(capability)} conserva fallback sem tratamento interativo fictício`, async () => {
+  const h = harness({ interactive: true, nativeRuntime: true, capability }); await h.pump();
+  try { assert.equal(h.transformChannel.value.available, false); assert.equal(h.transformChannel.value.active, false); }
+  finally { h.dispose(); }
+});
+
+test('erro da superfície interativa desativa canal e desmontagem invalida operação sem alterar receita', async () => {
+  const h = harness({ interactive: true, playbackChannel: true, nativeRuntime: true }); await h.pump();
+  const recipe = h.canvas().recipeJSON;
+  h.transformChannel.value = { ...h.transformChannel.value, active: true, operationId: 'a:1:1', clipId: 'a', phase: 'gesture', sequence: 1 }; h.flushUI();
+  h.error('Falha na GPU', { code: 'E_STUDIO_INTERACTION' }); await h.pump();
+  assert.equal(h.transformChannel.value.available, false); assert.equal(h.transformChannel.value.active, false);
+  assert.equal(h.transformChannel.value.finish, 'cancel'); assert.equal(h.canvas().recipeJSON, recipe);
+  h.dispose(); h.flushUI(); assert.equal(h.transformChannel.value.available, false);
+});
+
+test('podcast silenciado mantém fallback de áudio com mute real; binário antigo não toca vídeo tratado como se fosse simples', async () => {
+  const audio = model.withStudioTakes({ ...project(), kind: 'podcast', editing: { ...model.emptyStudioEditing('podcast'), mainMuted: true,
+    assets: project().editing.assets, main: project().editing.main } });
+  const h = harness({ available: false, initialProject: audio }); await h.pump();
+  try {
+    assert.ok(h.tree().type === 'legacy-preview'); assert.equal(h.tree().props.muted, true);
+  } finally { h.dispose(); }
 });

@@ -17,10 +17,11 @@ import { useStudioOrientation } from '@/features/studio/useStudioOrientation';
 import { importStudioMedia, importStudioLayer, importStudioCaptionFile, recoverPendingStudioTakes } from '@/features/studio/media';
 import { discardTransientStudioProject, getStudioProject, isTransientStudioProject, mutateStudioProject } from '@/features/studio/store';
 import { duplicateStudioTake, locateStudioTime, moveStudioTake, removeStudioTake, splitStudioTake } from '@/features/studio/timeline';
-import { addStudioLayerItem, compileStudioRecipe, createStudioTextItem, deriveStudioTakes, moveStudioLayerItemToLane, patchStudioClipGrade, patchStudioLayerItem, removeStudioLayerItem, studioEditing, studioSeconds, studioTicks, withStudioStandardOutput, formatStudioEditorTime, timelineDuration, type StudioEditing, type StudioProject, type StudioTake } from '@/features/studio/model';
+import { addStudioLayerItem, compileStudioRecipe, createStudioTextItem, deriveStudioTakes, moveStudioLayerItemToLane, patchStudioClipGrade, patchStudioLayerItem, removeStudioLayerItem, setStudioLayerHidden, setStudioLayerMuted, setStudioMainMuted, studioEditing, studioSeconds, studioTicks, withStudioStandardOutput, formatStudioEditorTime, timelineDuration, type StudioEditing, type StudioProject, type StudioTake } from '@/features/studio/model';
 import { StudioPreview, type StudioPlaybackState, type StudioPreviewHandle } from '@/features/studio/StudioPreview';
 import { StudioCompositionPreview } from '@/features/studio/StudioCompositionPreview';
 import { StudioCanvasEditor, type StudioCanvasTransform } from '@/features/studio/StudioCanvasEditor';
+import { initialStudioCanvasTransformChannel } from '@/features/studio/canvasTransformChannel';
 import { mergeStudioCanvasDraft, patchStudioCanvasTransform } from '@/features/studio/canvasEditing';
 import { applyStudioLayerTimelineRange, freezeStudioLayerTimeline, type StudioLayerTimelineRange } from '@/features/studio/layerTimelineInteraction';
 import { StudioLayerPanel, type StudioTextEditRequest } from '@/features/studio/StudioLayerPanel';
@@ -49,6 +50,7 @@ function ProjectEditor({ project, update }: { project: StudioProject; update: (i
   const router = useRouter();
   const navigation = useNavigation();
   const focused = useIsFocused();
+  const focusRef = useRef(focused); focusRef.current = focused;
   const insets = useSafeAreaInsets();
   const { height, width } = useWindowDimensions();
   const landscape = width > height;
@@ -109,6 +111,7 @@ function ProjectEditor({ project, update }: { project: StudioProject; update: (i
   const mounted = useRef(true);
   const preview = useRef<StudioPreviewHandle>(null);
   const playbackChannel = useSharedValue<StudioTimelinePlaybackChannel>({ active: false, sequence: 0, position: 0, playing: false, loading: false });
+  const canvasTransformChannel = useSharedValue(initialStudioCanvasTransformChannel());
   const [playback, setPlayback] = useState<StudioPlaybackState>({ position: 0, sourcePosition: 0, playing: false, loading: false });
   const playbackRef = useRef(playback); playbackRef.current = playback;
   const receivePlayback = useCallback((state: StudioPlaybackState) => {
@@ -267,8 +270,10 @@ function ProjectEditor({ project, update }: { project: StudioProject; update: (i
     const session = canvasDraft.current?.id === id ? canvasDraft.current : { id, base: editingPreviewRef.current || studioEditing(current.current.project) };
     const draft = patchStudioCanvasTransform(session.base, id, transform);
     previewEditing(draft); canvasDraft.current = undefined; canvasGesture.current = false; setCanvasInteracting(false);
-    try { await editEditing(latest => mergeStudioCanvasDraft(latest, draft, id)); }
-    catch { previewEditing(draft); }
+    try {
+      const saved = await editEditing(latest => mergeStudioCanvasDraft(latest, draft, id));
+      if (!saved) throw new Error('Aguarde a edição atual terminar.');
+    } catch (error) { previewEditing(draft); throw error; }
   };
   const mergeInlineDraft = (latest: StudioEditing, draft: StudioEditing) => {
     if (selectedLayerId) {
@@ -283,6 +288,23 @@ function ProjectEditor({ project, update }: { project: StudioProject; update: (i
     }
     if (selectedTakeId) return mergeStudioCanvasDraft(latest, draft, selectedTakeId);
     throw new Error('Selecione novamente o item que deseja editar.');
+  };
+  const toggleTrackControl = async (action: 'visibility' | 'mute' | 'main', zIndex = 0) => {
+    if (!focusRef.current || locked || working.current || trimDraft || canvasGesture.current || layerTrimDraft.current || layerGesture.current || pendingRestore.current) return;
+    // Resolve the persistent lane ID before the profile/save await. A reorder
+    // must never redirect an already accepted button to another visual lane.
+    const visible = editingPreviewRef.current || studioEditing(current.current.project);
+    const lane = action === 'main' ? undefined : visible.layers[zIndex - 1];
+    if (action !== 'main' && !lane) return;
+    const enabled = action === 'main' ? !visible.mainMuted : action === 'visibility' ? !lane!.hidden : !lane!.muted;
+    if (!await standardProfile()) return;
+    if (!mounted.current || !focusRef.current || working.current || canvasGesture.current || layerGesture.current || layerTrimDraft.current) return;
+    const draft = editingPreviewRef.current;
+    await editEditing(latest => {
+      const merged = draft ? mergeInlineDraft(latest, draft) : latest;
+      if (action === 'main') return setStudioMainMuted(merged, enabled);
+      return action === 'visibility' ? setStudioLayerHidden(merged, lane!.id, enabled) : setStudioLayerMuted(merged, lane!.id, enabled);
+    });
   };
   const applyInlineDraft = async (draft: StudioEditing) => {
     const saved = await editEditing(latest => mergeInlineDraft(latest, draft));
@@ -586,13 +608,13 @@ function ProjectEditor({ project, update }: { project: StudioProject; update: (i
     </View>}
     <View style={fullscreen ? StyleSheet.absoluteFillObject : styles.previewStage} onLayout={event => { setStageSize(event.nativeEvent.layout); }}>
       <View style={fullscreen ? StyleSheet.absoluteFillObject : [styles.previewFrame, { width: previewWidth, height: previewHeight }]}>
-        <StudioCompositionPreview ref={preview} project={previewProject} recipe={recipe} playbackChannel={playbackChannel} before={before} activeTakeId={activeTakeId} onActiveTakeChange={setActiveTakeId} onPlaybackState={receivePlayback}
+        <StudioCompositionPreview ref={preview} project={previewProject} recipe={recipe} playbackChannel={playbackChannel} canvasTransformChannel={canvasTransformChannel} before={before} activeTakeId={activeTakeId} onActiveTakeChange={setActiveTakeId} onPlaybackState={receivePlayback}
           paused={!focused || !!pendingRestore.current || !!panel || busy || !!trimDraft || canvasInteracting || layerInteracting || treating || (!fullscreen && (layerPanelExpanded || keyboardVisible))} onCanvasPress={() => {
             if (!fullscreen && (selectedLayerId || selectedTakeId)) {
               void applyVisibleEditing().then(saved => { if (saved && mounted.current) { closeLayer(); setSelectedTakeId(undefined); } });
             } else preview.current?.togglePlayback();
           }} canvasLabel={playback.playing ? 'Pausar prévia' : 'Reproduzir prévia'} />
-        {!fullscreen && advanced && <StudioCanvasEditor editing={visibleEditing} recipe={recipe} positionSeconds={playback.position} selectedLayerId={selectedLayerId} selectedMainClipId={selectedTakeId}
+        {!fullscreen && advanced && <StudioCanvasEditor editing={visibleEditing} recipe={recipe} canvasTransformChannel={canvasTransformChannel} positionSeconds={playback.position} selectedLayerId={selectedLayerId} selectedMainClipId={selectedTakeId}
           disabled={!focused || busy || locked || !!panel || !!trimDraft || layerInteracting || treating}
           onSelectLayer={selectLayer} onSelectMainClip={selectMainCanvas} onCanvasPress={() => preview.current?.togglePlayback()} onPreviewRect={previewCanvas} onCommitRect={commitCanvas} onEditText={editCanvasElement}
           onInteractionStart={() => { canvasGesture.current = true; preview.current?.pause(); setCanvasInteracting(true); }} onInteractionEnd={() => { canvasGesture.current = false; setCanvasInteracting(false); }} />}
@@ -613,6 +635,7 @@ function ProjectEditor({ project, update }: { project: StudioProject; update: (i
       </View>}
       {!keyboardVisible && !layerPanelExpanded && !treating && <StudioTimeline editing={editing} layers={timelineLayers} selectedLayerId={selectedLayerId} onSelectLayer={selectLayer} onMoveLayer={moveLayer} onEditLayer={editCanvasElement} onLayerTrimPreview={previewLayerTrim} onLayerTrimCommit={commitLayerTrim} onLayerInteractionStart={() => { layerGesture.current = true; preview.current?.pause(); setLayerInteracting(true); }} onLayerInteractionEnd={() => { layerGesture.current = false; setLayerInteracting(false); }} takes={project.takes} position={playback.position} playing={playback.playing && !panel && !trimDraft && !editingPreview && !canvasInteracting && !layerInteracting && !pendingRestore.current} loading={playback.loading} activeTakeId={selectedTakeId} audio={project.kind === 'podcast'}
         playbackChannel={playbackChannel} cancelEpoch={trimCancelEpoch}
+        onToggleLaneVisibility={zIndex => toggleTrackControl('visibility', zIndex)} onToggleLaneMute={zIndex => toggleTrackControl('mute', zIndex)} onToggleMainMute={() => toggleTrackControl('main')}
         locked={locked} busy={!focused || busy || canvasInteracting} onSelect={selectTake} onScrubStart={() => preview.current?.pause()} onSeek={seconds => preview.current?.seek(seconds)} onAppend={() => { void addMedia(); }}
         onTrimChange={previewTrim} onTrimCommit={commitTrim} onTrimCancel={cancelTrim} />}
       {captionProgress && <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 6 }}><Text style={{ flex: 1, color: colors.muted, fontSize: 11 }}>{captionProgress}</Text><Pressable accessibilityLabel="Cancelar transcrição" onPress={() => { const request = captionRequest.current; if (request) { request.cancelled = true; setCaptionProgress('Cancelando…'); void cancelStudioTranscriptionAsync(request.id); } }} style={styles.iconButton}><X size={18} color={colors.text} /></Pressable></View>}

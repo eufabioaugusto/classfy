@@ -44,12 +44,24 @@ final class StudioCompositionView: ExpoView {
   private let player = AVPlayer()
   private let playerLayer = AVPlayerLayer()
   private let inspectedFrame = UIImageView()
+  private let interactiveSurface = StudioCompositionInteractiveSurface()
+  private var interactivePatch: StudioCompositionInteractionPatch?
+  private var lastLiveSequence = -1
+  private var interactiveHandoffGate = StudioCompositionHandoffGate()
+  private var interactiveHandoff = false
+  private var interactiveCanonicalRecipe: StudioRecipe?
+  private var frozen: StudioRecipeFrozenFrame?
+  private var frozenGeneration = -1
+  private var frozenPosition = -1.0
+  private var frozenTask: Task<Void, Never>?
+  private var frozenRequest = 0
   private var prepared: StudioPreparedRecipe?
   private var recipeJSON = ""
   private var revision = ""
   private var paused = true
   private var loading = false
   private var buildGeneration = 0
+  private var recipeBuildPending = false
   private var commandToken = 0
   private var disposed = false
   private var sourceInspection: (clipId: String, seconds: Double)?
@@ -82,11 +94,17 @@ final class StudioCompositionView: ExpoView {
     inspectedFrame.contentMode = .scaleAspectFit; inspectedFrame.backgroundColor = .black
     inspectedFrame.isHidden = true; inspectedFrame.isUserInteractionEnabled = false
     addSubview(inspectedFrame)
+    if let surface = interactiveSurface {
+      addSubview(surface.view)
+      surface.onFailure = { [weak self] error in
+        self?.cancelInteractive(); self?.fail(error, code: "E_STUDIO_INTERACTION")
+      }
+    }
     periodicObserver = player.addPeriodicTimeObserver(forInterval: CMTime(value: 1, timescale: 15), queue: .main) { [weak self] _ in
       Task { @MainActor [weak self] in self?.publish() }
     }
     backgroundObserver = NotificationCenter.default.addObserver(forName: UIApplication.willResignActiveNotification, object: nil, queue: .main) { [weak self] _ in
-      Task { @MainActor [weak self] in self?.setPaused(true) }
+      Task { @MainActor [weak self] in self?.cancelInteractive(); self?.setPaused(true) }
     }
     interruptionObserver = NotificationCenter.default.addObserver(forName: AVAudioSession.interruptionNotification, object: nil, queue: .main) { [weak self] _ in
       Task { @MainActor [weak self] in self?.setPaused(true) }
@@ -103,13 +121,14 @@ final class StudioCompositionView: ExpoView {
   override func layoutSubviews() {
     super.layoutSubviews()
     CATransaction.begin(); CATransaction.setDisableActions(true)
-    playerLayer.frame = bounds; inspectedFrame.frame = bounds
+    playerLayer.frame = bounds; inspectedFrame.frame = bounds; interactiveSurface?.view.frame = bounds
     CATransaction.commit()
   }
 
   override func didMoveToWindow() {
     super.didMoveToWindow()
     if window == nil {
+      cancelInteractive()
       player.pause(); frameTask?.cancel(); cancelReplay()
       sourceInspection = nil; inspectedFrame.isHidden = true
     }
@@ -117,9 +136,104 @@ final class StudioCompositionView: ExpoView {
 
   func setRevision(_ value: String) { revision = value }
 
+  func setLiveVisualJSON(_ json: String) {
+    guard !disposed, let patch = try? StudioCompositionInteractionPatch.decode(json),
+      patch.sequence > lastLiveSequence else { return }
+    lastLiveSequence = patch.sequence
+    if !patch.active {
+      guard interactivePatch?.operationId == patch.operationId else { return }
+      if patch.finish == "commit" {
+        interactivePatch = interactiveCanonicalRecipe.map(patch.withCanonicalTransform) ?? patch
+        interactiveHandoffGate.acknowledgeCommit(operationId: patch.operationId)
+        if let prepared, interactivePatch?.matches(prepared.recipe) == true, interactiveHandoffGate.canRevealCanonical, initializingItem == nil, !loading { cancelInteractive() }
+        else if let frozen, let current = interactivePatch { interactiveSurface?.update(frozen, patch: current) }
+      } else { cancelInteractive() }
+      return
+    }
+    if interactivePatch?.operationId == patch.operationId && interactiveHandoff {
+      // Late gesture samples cannot replace the canonical pose received on
+      // Fabric. A terminal phase still belongs to the same live operation.
+      if patch.phase == "committing", let recipe = interactiveCanonicalRecipe { interactivePatch = patch.withCanonicalTransform(recipe) }
+      return
+    }
+    guard window != nil, UIApplication.shared.applicationState == .active,
+      interactiveSurface != nil, patch.revision == revision, !loading,
+      sourceInspection == nil, let prepared,
+      prepared.layers.contains(where: { $0.clip.id == patch.clipId }) else { return }
+    if interactivePatch?.operationId != patch.operationId {
+      cancelInteractive(keepFrozen: true)
+      paused = true; player.pause(); cancelReplay()
+    }
+    interactivePatch = patch
+    let raw = player.currentTime().seconds
+    let at = max(0, min(raw.isFinite ? raw : 0, prepared.recipe.durationSeconds - 1 / 120_000))
+    if frozenGeneration == buildGeneration, abs(frozenPosition - at) < 1 / 120_000, let frozen {
+      interactiveSurface?.update(frozen, patch: patch)
+    } else { prepareInteractiveFrame(prepared, at: at) }
+  }
+
+  private func cancelInteractive(keepFrozen: Bool = false) {
+    interactivePatch = nil; interactiveSurface?.clear()
+    interactiveHandoffGate.reset()
+    interactiveHandoff = false
+    interactiveCanonicalRecipe = nil
+    if keepFrozen { return }
+    frozenRequest += 1; frozenTask?.cancel(); frozenTask = nil
+    frozen = nil; frozenGeneration = -1; frozenPosition = -1
+  }
+
+  private func warmInteractiveFrame() {
+    guard interactivePatch == nil, paused, !loading, player.rate == 0,
+      initializingItem == nil, !disposed, window != nil,
+      UIApplication.shared.applicationState == .active, sourceInspection == nil,
+      interactiveSurface != nil, let prepared else { return }
+    let raw = player.currentTime().seconds
+    let at = max(0, min(raw.isFinite ? raw : 0, prepared.recipe.durationSeconds - 1 / 120_000))
+    prepareInteractiveFrame(prepared, at: at)
+  }
+
+  private func prepareInteractiveFrame(_ prepared: StudioPreparedRecipe, at seconds: Double) {
+    if frozenGeneration == buildGeneration && abs(frozenPosition - seconds) < 1 / 120_000 && (frozen != nil || frozenTask != nil) { return }
+    frozenRequest += 1; let request = frozenRequest, generation = buildGeneration
+    frozenTask?.cancel(); frozen = nil; frozenGeneration = generation; frozenPosition = seconds
+    let engine = self.engine
+    frozenTask = Task { [weak self] in
+      let worker = Task.detached(priority: .userInitiated) { try await engine.frozenFrame(prepared, at: seconds).processed() }
+      do {
+        let frame = try await withTaskCancellationHandler(operation: { try await worker.value }, onCancel: { worker.cancel() })
+        try Task.checkCancellation()
+        guard let self, !disposed, generation == buildGeneration, request == frozenRequest, window != nil else { return }
+        frozen = frame; frozenTask = nil
+        if let patch = interactivePatch { interactiveSurface?.update(frame, patch: patch) }
+      } catch {
+        guard let self, request == frozenRequest, generation == buildGeneration, !Task.isCancelled else { return }
+        frozenTask = nil; frozenGeneration = -1; frozenPosition = -1
+        if interactivePatch != nil { cancelInteractive(); fail(error, code: "E_STUDIO_INTERACTION") }
+      }
+    }
+  }
+
   func setRecipeJSON(_ value: String) {
     guard !disposed, value != recipeJSON else { return }
     recipeJSON = value; buildGeneration += 1
+    recipeBuildPending = true
+    // A successful write replaces the canonical recipe once. Keep its live
+    // Metal frame until that exact pose has been primed in AVPlayerLayer.
+    let nextRecipe = try? StudioRecipeEngine.decode(value)
+    let handingOff = interactivePatch.map { patch in
+      guard let previous = prepared?.recipe, let nextRecipe else { return false }
+      return patch.preservesComposition(previous, nextRecipe)
+    } ?? false
+    if handingOff, let nextRecipe, let patch = interactivePatch {
+      interactiveHandoffGate.begin(operationId: patch.operationId,
+        committed: patch.phase == "idle" && patch.finish == "commit")
+      interactiveHandoff = true
+      interactiveCanonicalRecipe = nextRecipe
+      interactivePatch = interactivePatch?.withCanonicalTransform(nextRecipe)
+      if let frozen, let patch = interactivePatch { interactiveSurface?.update(frozen, patch: patch) }
+    }
+    if !handingOff { cancelInteractive() }
+    frozenTask?.cancel(); frozenTask = nil; frozenRequest += 1
     let generation = buildGeneration
     let oldPosition = pendingSeek?.seconds ?? max(0, player.currentTime().seconds.isFinite ? player.currentTime().seconds : 0)
     buildTask?.cancel(); frameTask?.cancel(); cancelReplay()
@@ -138,6 +252,12 @@ final class StudioCompositionView: ExpoView {
     // therefore been set when a result is emitted, regardless of prop order.
     buildTask = Task { [weak self] in
       guard let self else { return }
+      defer {
+        if generation == buildGeneration {
+          recipeBuildPending = false
+          drainPendingSeek()
+        }
+      }
       do {
         await Task.yield()
         try Task.checkCancellation()
@@ -154,13 +274,15 @@ final class StudioCompositionView: ExpoView {
           guard generation == buildGeneration, !disposed else { return }
           if let updated, let item = player.currentItem, item.status == .readyToPlay {
             self.prepared = updated; item.videoComposition = updated.videoComposition
-            if initializingItem === item {
+            if initializingItem === item || handingOff {
+              initializingItem = item
               let raw = player.currentTime().seconds
               let position = min(pendingSeek?.seconds ?? (raw.isFinite ? max(0, raw) : oldPosition),
                 max(0, updated.recipe.durationSeconds - 1 / 30.0))
               try await primeInitialFrame(item: item, seconds: position, generation: generation)
             }
             loading = false
+            if handingOff { completeInteractiveHandoff() }
             if !paused && window != nil { startPlayback() }
             drainPendingSeek(); publish(); return
           }
@@ -213,12 +335,14 @@ final class StudioCompositionView: ExpoView {
         guard generation == buildGeneration, !Task.isCancelled, !disposed,
               player.currentItem === item else { return }
         loading = item.status != .readyToPlay
+        if handingOff { completeInteractiveHandoff() }
         if !paused && !loading && window != nil { startPlayback() }
         drainPendingSeek()
         publish()
       } catch {
         guard generation == buildGeneration, !Task.isCancelled else { return }
         loading = false; prepared = nil; initializingItem = nil; player.replaceCurrentItem(with: nil)
+        cancelInteractive()
         pendingSeek?.continuation.resume(throwing: error); pendingSeek = nil
         fail(error)
       }
@@ -231,6 +355,7 @@ final class StudioCompositionView: ExpoView {
     paused = value
     if value { player.pause() }
     else if !loading, window != nil, sourceInspection == nil, let prepared {
+      cancelInteractive()
       let position = player.currentTime().seconds
       if position.isFinite && position >= prepared.recipe.durationSeconds - 1 / 30.0 {
         let generation = buildGeneration, token = commandToken, item = player.currentItem
@@ -254,6 +379,12 @@ final class StudioCompositionView: ExpoView {
       } else { startPlayback() }
     }
     publish()
+  }
+
+  private func completeInteractiveHandoff() {
+    guard let patch = interactivePatch else { return }
+    interactiveHandoffGate.prime(operationId: patch.operationId)
+    if interactiveHandoffGate.canRevealCanonical { cancelInteractive() }
   }
 
   private func cancelReplay() {
@@ -281,9 +412,10 @@ final class StudioCompositionView: ExpoView {
     }
   }
 
-  private func claim(_ token: Int) throws {
+  private func claim(_ token: Int, preserveInteractive: Bool = false) throws {
     guard !disposed, token >= commandToken else { throw StudioRecipeError.cancelled }
     commandToken = token; frameTask?.cancel(); cancelReplay()
+    if !preserveInteractive { cancelInteractive() }
     // A restore/seek arriving during replacement must not cancel the only
     // request for the paused first frame. seekAsync queues the latest intent.
     if initializingItem == nil || player.currentItem !== initializingItem { player.currentItem?.cancelPendingSeeks() }
@@ -291,7 +423,7 @@ final class StudioCompositionView: ExpoView {
   }
 
   private func drainPendingSeek() {
-    guard let pending = pendingSeek, prepared != nil, !loading else { return }
+    guard let pending = pendingSeek, prepared != nil, !loading, !recipeBuildPending, initializingItem == nil else { return }
     pendingSeek = nil
     Task { [weak self] in
       guard let self else { pending.continuation.resume(throwing: StudioRecipeError.cancelled); return }
@@ -318,9 +450,12 @@ final class StudioCompositionView: ExpoView {
   }
 
   func seekAsync(seconds: Double, token: Int) async throws -> [String: Any] {
-    try claim(token)
     guard seconds.isFinite else { throw StudioRecipeError.invalid("Escolha um tempo válido da edição.") }
-    if loading || prepared == nil {
+    // The editor restores its stationary anchor after a durable pose change.
+    // It must not tear down the live frame or race the canonical first seek.
+    let sameAnchor = interactivePatch != nil && abs(seconds - frozenPosition) <= 1 / 30.0 + 0.001
+    try claim(token, preserveInteractive: sameAnchor)
+    if loading || prepared == nil || recipeBuildPending || initializingItem != nil {
       return try await withCheckedThrowingContinuation { continuation in
         pendingSeek = PendingSeek(seconds: seconds, token: token, continuation: continuation)
       }
@@ -402,13 +537,14 @@ final class StudioCompositionView: ExpoView {
             "clipId": clipID as Any? ?? NSNull(), "playing": player.rate > 0,
             "loading": loading || replayPending, "revision": revision, "token": commandToken]
   }
-  private func publish() { onPlaybackState(state()) }
+  private func publish() { onPlaybackState(state()); warmInteractiveFrame() }
   private func fail(_ error: Error, code: String = "E_STUDIO_COMPOSITION") {
     onError(["message": error.localizedDescription, "code": code, "revision": revision, "token": commandToken]); publish()
   }
 
   func dispose() {
     disposed = true; buildGeneration += 1
+    cancelInteractive()
     buildTask?.cancel(); frameTask?.cancel(); cancelReplay(); player.pause(); player.replaceCurrentItem(with: nil)
     pendingSeek?.continuation.resume(throwing: StudioRecipeError.cancelled); pendingSeek = nil
     prepared = nil; initializingItem = nil; inspectedFrame.image = nil; sourceInspection = nil
@@ -423,6 +559,7 @@ final class StudioCompositionView: ExpoView {
 
   deinit {
     pendingSeek?.continuation.resume(throwing: StudioRecipeError.cancelled)
+    frozenTask?.cancel()
     buildTask?.cancel(); frameTask?.cancel(); replayTask?.cancel(); statusObserver?.invalidate()
     if let periodicObserver { player.removeTimeObserver(periodicObserver) }
     for observer in [endObserver, backgroundObserver, interruptionObserver, captureObserver].compactMap({ $0 }) {

@@ -50,6 +50,7 @@ export type StudioExportOptions = {
 export type StudioExportResult = StudioMediaInfo & { uri: string; mimeType: string };
 type StudioMediaEvents = { onExportProgress: (event: { requestId: string; progress: number }) => void; onTranscriptionProgress: (event: { requestId: string; stage: string; progress: number }) => void };
 declare class StudioMediaModule extends NativeModule<StudioMediaEvents> {
+  getStudioInteractiveCompositionVersionAsync?(): Promise<{ version: number; available: boolean }>;
   performStudioSelectionFeedbackAsync?(): Promise<boolean>;
   getStudioTranscriptionCapabilitiesAsync(locale: string): Promise<StudioTranscriptionCapabilities>;
   installStudioTranscriptionModelAsync(requestId: string, locale: string): Promise<StudioTranscriptionCapabilities>;
@@ -124,6 +125,13 @@ export async function cancelExportAsync(requestId: string) { await native?.cance
 // A stale development binary may run new JavaScript. Gate the entire native
 // composition rather than silently exporting a sequential file without layers.
 export function isStudioCompositionAvailable() { return !!native && typeof native.exportRecipeAsync === 'function' && typeof native.seekStudioCompositionAsync === 'function'; }
+// Presence gates old development clients. The view validates every v1 patch.
+export function isStudioInteractiveCompositionAvailable() { return isStudioCompositionAvailable() && typeof native?.getStudioInteractiveCompositionVersionAsync === 'function'; }
+export async function getStudioInteractiveCompositionVersionAsync() {
+  if (!isStudioInteractiveCompositionAvailable()) return { version: 0, available: false };
+  const value = await native!.getStudioInteractiveCompositionVersionAsync!();
+  return { version: value.version, available: value.version === 1 && value.available === true };
+}
 export function isStudioNativeCameraAvailable() { return !!native && ['getStudioNativeCameraCapabilitiesAsync','configureStudioNativeCameraAsync','startStudioNativeCameraRecordingAsync','stopStudioNativeCameraRecordingAsync','setStudioNativeCameraZoomAsync','setStudioNativeCameraExposureAsync','setStudioNativeCameraFocusAsync','setStudioNativeCameraTorchAsync'].every(name => typeof (native as unknown as Record<string, unknown>)[name] === 'function'); }
 export function isStudioNativeCameraEffectsAvailable() {
   return isStudioNativeCameraAvailable() && isStudioCompositionAvailable() && typeof native?.setStudioNativeCameraEffectAsync === 'function';

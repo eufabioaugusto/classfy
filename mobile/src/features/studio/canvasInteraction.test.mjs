@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
 import babel from '@babel/core';
 import * as geometry from './canvasGeometry.ts';
+import { initialStudioCanvasTransformChannel } from './canvasTransformChannel.ts';
 import { emptyStudioEditing, addStudioLayerItem, createStudioTextItem, compileStudioRecipe, patchStudioLayerItem, studioTicks } from './model.ts';
 
 const source = readFileSync(new URL('./StudioCanvasEditor.tsx', import.meta.url), 'utf8');
@@ -33,6 +34,7 @@ function harness(options = {}) {
     let value = initial;
     return { get value() { return value; }, set value(next) { if (options.asyncShared && runtime === 'js') uiQueue.push(() => { value = next; }); else value = next; } };
   };
+  const transformChannel = options.interactive ? shared({ ...initialStudioCanvasTransformChannel(), available: options.ready !== false }) : undefined;
   const scope = id => { if (!contexts.has(id)) contexts.set(id, { slots: [], cursor: 0, effects: [] }); return contexts.get(id); };
   const hooks = {
     useRef: initial => { const index = current.cursor++; return current.slots[index] ||= { current: initial }; },
@@ -74,6 +76,7 @@ function harness(options = {}) {
     } },
     './canvasGeometry': geometry,
     './snapFeedback': { performStudioSnapFeedback: () => feedback.push(now) },
+    '../../../modules/classfy-studio-media': { isStudioInteractiveCompositionAvailable: () => options.native !== false },
   };
   const module = { exports: {} };
   const compiled = ts.transpileModule(options.worklets ? workletSource : source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX } }).outputText;
@@ -81,7 +84,7 @@ function harness(options = {}) {
     if (!Object.hasOwn(dependencies, name)) throw new Error(`Unexpected dependency ${name}`);
     return dependencies[name];
   }, module, module.exports, { now: () => now }, false);
-  let props = { editing, recipe: compileStudioRecipe({ kind: 'aula', takes: [], editing }), positionSeconds: 1, selectedLayerId: 'title',
+  let props = { editing, recipe: compileStudioRecipe({ kind: 'aula', takes: [], editing }), positionSeconds: 1, selectedLayerId: 'title', canvasTransformChannel: transformChannel,
     onSelectLayer: id => selections.push(id), onPreviewRect: (id, transform) => previews.push({ id, transform }),
     onCommitRect: (id, transform) => { commits.push({ id, transform }); if (options.deferred) return new Promise(resolve => { resolveCommit = resolve; }); if (options.fail) return Promise.reject(new Error('Disco indisponível')); },
     onInteractionStart: () => events.push('start'), onInteractionEnd: () => events.push('end'),
@@ -116,7 +119,7 @@ function harness(options = {}) {
   const flushUI = () => { while (uiQueue.length) uiQueue.shift()(); };
   const pump = async () => { flushUI(); flush(); await new Promise(resolve => setImmediate(resolve)); flushUI(); flush(); draw(); flushUI(); flush(); };
   draw(); scope('root').tree.props.onLayout({ nativeEvent: { layout: { width: 320, height: 300 } } }); draw(); flushUI(); flush();
-  return { selections, previews, commits, events, edits, playback, feedback, queue, uiQueue, getGesture, body, flush, flushUI, pump,
+  return { selections, previews, commits, events, edits, playback, feedback, queue, uiQueue, getGesture, body, flush, flushUI, pump, transformChannel,
     accessibility: (action, id = 'title') => bodyDetector(id).props.children.props.onAccessibilityAction({ nativeEvent: { actionName: action } }),
     update: next => { props = { ...props, ...next }; draw(); },
     layout: (width, height) => { scope('root').tree.props.onLayout({ nativeEvent: { layout: { width, height } } }); draw(); },
@@ -764,5 +767,90 @@ for (const terminal of ['cancel', 'end', 'deselect', 'disable', 'background', 'u
     if (terminal === 'background') view.changeAppState('background');
     if (terminal === 'unmount') view.dispose();
     await view.pump(); assert.deepEqual(view.feedback, []);
+  } finally { view.dispose(); }
+});
+
+test('vídeo principal publica geometria a120Hz no UI sem document drafts e persiste apenas após soltar', async () => {
+  const view = harness({ interactive: true, asyncShared: true, worklets: true, deferred: true,
+    props: { selectedLayerId: undefined, selectedMainClipId: 'main', onSelectMainClip() {} } });
+  try {
+    const original = view.editing(), pan = view.getGesture('pan', 'main');
+    pan.handlers.onStart();
+    for (let i = 1; i <= 120; i++) {
+      view.setNow(1000 + i * 1000 / 120);
+      pan.handlers.onUpdate({ translationX: -i / 2, translationY: -i / 4 });
+    }
+    assert.equal(view.transformChannel.value.phase, 'gesture');
+    assert.equal(view.transformChannel.value.sequence, 121);
+    near(view.transformChannel.value.transform.rect.x, -60 / 320);
+    near(view.frame('main').left, view.transformChannel.value.transform.rect.x * 320);
+    assert.deepEqual(view.previews, []); assert.deepEqual(view.commits, []);
+    assert.equal(view.editing(), original, 'neither original nor overlays are mutated by UI geometry');
+    assert.deepEqual(view.playback, []);
+    pan.handlers.onEnd({ translationX: -60, translationY: -30 }, true);
+    assert.equal(view.transformChannel.value.phase, 'committing');
+    assert.equal(view.transformChannel.value.finish, null, 'a gesture end is not a durable save acknowledgement');
+    view.flush(); assert.equal(view.commits.length, 1);
+    assert.equal(view.transformChannel.value.phase, 'committing');
+    view.resolve(); await view.pump();
+    assert.equal(view.transformChannel.value.active, false); assert.equal(view.transformChannel.value.finish, 'commit');
+    assert.deepEqual(view.events, ['start', 'end']);
+  } finally { view.dispose(); }
+});
+
+for (const terminal of ['cancel', 'background', 'disable', 'unmount', 'fail']) test(`canal interativo restaura/cancela com ownership após ${terminal}`, async () => {
+  const view = harness({ interactive: true, asyncShared: true, worklets: true, fail: terminal === 'fail' });
+  try {
+    const pan = view.getGesture('pan'); pan.handlers.onStart(); view.flush();
+    pan.handlers.onUpdate({ translationX: 32, translationY: 10 });
+    const owned = view.transformChannel.value.operationId;
+    if (terminal === 'cancel') pan.handlers.onTouchesCancelled({});
+    if (terminal === 'background') view.changeAppState('background');
+    if (terminal === 'disable') view.update({ disabled: true });
+    if (terminal === 'unmount') view.dispose();
+    if (terminal === 'fail') pan.handlers.onEnd({ translationX: 32, translationY: 10 }, true);
+    await view.pump();
+    assert.equal(view.transformChannel.value.active, false);
+    assert.equal(view.transformChannel.value.finish, 'cancel');
+    assert.equal(view.transformChannel.value.operationId, owned);
+    assert.equal(view.commits.length, terminal === 'fail' ? 1 : 0);
+  } finally { view.dispose(); }
+});
+
+test('capacidade confirmada no meio do toque só vale para o gesto seguinte, preservando recognizers', async () => {
+  const view = harness({ interactive: true, ready: false, asyncShared: true, worklets: true });
+  try {
+    const pan = view.getGesture('pan'); pan.handlers.onStart(); view.flush();
+    pan.handlers.onUpdate({ translationX: 32, translationY: 10 }); view.flush();
+    view.transformChannel.value = { ...view.transformChannel.value, available: true }; view.flushUI();
+    view.setNow(1100); pan.handlers.onUpdate({ translationX: 40, translationY: 10 }); view.flush();
+    assert.equal(view.transformChannel.value.active, false); assert.equal(view.previews.length, 2);
+    assert.equal(view.getGesture('pan'), pan);
+    pan.handlers.onTouchesCancelled({}); await view.pump();
+    pan.handlers.onStart(); view.flush(); pan.handlers.onUpdate({ translationX: 18, translationY: 10 });
+    assert.equal(view.transformChannel.value.active, true);
+    assert.equal(view.getGesture('pan'), pan);
+    pan.handlers.onTouchesCancelled({}); await view.pump();
+  } finally { view.dispose(); }
+});
+
+test('binário anterior conserva previews e não oferece canal apenas porque recebeu um SharedValue', async () => {
+  const view = harness({ interactive: true, native: false, asyncShared: true, worklets: true });
+  try {
+    const pan = view.getGesture('pan'); pan.handlers.onStart(); view.flush();
+    pan.handlers.onUpdate({ translationX: 20, translationY: 10 }); view.flush();
+    assert.equal(view.transformChannel.value.active, false); assert.equal(view.previews.length, 1);
+    pan.handlers.onTouchesCancelled({}); await view.pump();
+  } finally { view.dispose(); }
+});
+
+test('camada ocultada no instante atual não gera aviso falso de fora do tempo', () => {
+  const view = harness();
+  try {
+    const editing = { ...view.editing(), layers: view.editing().layers.map(layer => ({ ...layer, hidden: true })) };
+    view.update({ editing, recipe: compileStudioRecipe({ kind: 'aula', takes: [], editing }) });
+    assert.ok(!view.visibleIds().includes('title'));
+    const tree = JSON.stringify(view.tree('root'));
+    assert.ok(!tree.includes('fora deste momento'));
   } finally { view.dispose(); }
 });

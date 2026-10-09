@@ -73,7 +73,8 @@
     "test:studio:capture": "bash modules/classfy-studio-media/tests/verify-capture.sh",
     "test:studio:transcription": "bash modules/classfy-studio-media/tests/verify-transcription.sh",
     "test:studio:compositor": "bash modules/classfy-studio-media/tests/verify-compositor.sh",
-    "test:studio:initial-frame": "bash modules/classfy-studio-media/tests/verify-composition-initialization.sh"
+    "test:studio:initial-frame": "bash modules/classfy-studio-media/tests/verify-composition-initialization.sh",
+    "test:studio:interaction": "bash modules/classfy-studio-media/tests/verify-interaction.sh"
   },
   "private": true
 }

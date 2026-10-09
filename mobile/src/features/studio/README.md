@@ -1,6 +1,6 @@
 # Studio nativo para iPhone
 
-O botão central de criar, o aviso de aprovação de creator e a entrada “Meu Studio” em Você abrem `/studio` dentro do aplicativo. Esta versão oferece Aula, Short e Podcast. Curso estruturado, transmissão ao vivo, fundos, filtros, legendas e assistência de IA são etapas posteriores; não aparecem como funções prontas.
+O botão central de criar, o aviso de aprovação de creator e a entrada “Meu Studio” em Você abrem `/studio` dentro do aplicativo. Esta versão oferece Aula, Short e Podcast, com camadas, texto, legendas e tratamentos descritos em [STUDIO_PREMIUM.md](../../../STUDIO_PREMIUM.md). Curso estruturado, transmissão ao vivo, cenários virtuais e assistência de edição com IA continuam fora desta entrega.
 
 ## Experiência entregue
 
@@ -13,6 +13,7 @@ O botão central de criar, o aviso de aprovação de creator e a entrada “Meu 
 - Importação pelo seletor do sistema, com cópia para Documents antes de confirmar salvamento. Importações parciais preservam os takes válidos.
 - Editor em retrato para todos os formatos: prévia de Aula 16:9 ou Short 9:16 acima da timeline sempre visível. Tela inteira é uma prévia opcional; ao fechar, as ferramentas retornam ao retrato. A captura de Aula continua horizontal.
 - Timeline com duração proporcional, régua, cursor fixo, rolagem para navegar e zoom por pinça ou botões. Selecionar um take abre ferramentas contextuais; arrastar suas bordas corta com prévia simultânea, sem modal sobre o vídeo. Divisão, ordem, duplicação e retirada preservam os originais.
+- As camadas acima do principal rolam verticalmente. Seus controles de ocultar/mutar permanecem à esquerda e acompanham a faixa em Y. Ocultar conserva o elemento editável; mutar conserva seu volume original. Ambas as ações persistem e participam do desfazer/refazer sem mover o cursor.
 - Seleção e reprodução são independentes: tocar outro take mantém o tempo e o vídeo sob o cursor. Durante um corte, a prévia mostra a borda na fonte original; ao terminar, restaura o frame de reprodução, limitado ao intervalo que sobrou. Cortar um trecho anterior altera apenas o deslocamento desse mesmo frame na montagem.
 - Alças e geometria da timeline usam Gesture Handler/Reanimated na camada de interface. Há um único clipe por take; cortes reposicionam os vizinhos continuamente. Arrastar perto das laterais move a faixa e permite restaurar material cortado, inclusive no primeiro take quando a rolagem nativa já está no início. O salvamento acontece ao soltar a alça.
 - Miniaturas reais por trecho usam a ponte nativa existente, cache por origem/timestamp e fila de extração serial. A grade mantém a capa enquanto o frame não chega; solicitações de trechos fora da janela visível são canceladas antes de iniciar a extração.

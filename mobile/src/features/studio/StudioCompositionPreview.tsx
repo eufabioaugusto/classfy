@@ -1,20 +1,22 @@
 import { forwardRef, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { findNodeHandle, StyleSheet, Text, View } from 'react-native';
-import Animated, { runOnJS, runOnUI, useEvent, useSharedValue, type SharedValue } from 'react-native-reanimated';
+import Animated, { runOnJS, runOnUI, useAnimatedProps, useEvent, useSharedValue, type SharedValue } from 'react-native-reanimated';
 import { requireNativeViewManager } from 'expo-modules-core';
-import { isStudioCompositionAvailable, previewStudioCompositionSourceAsync, seekStudioCompositionAsync, type StudioNativePlayback } from '../../../modules/classfy-studio-media';
+import { getStudioInteractiveCompositionVersionAsync, isStudioCompositionAvailable, isStudioInteractiveCompositionAvailable, previewStudioCompositionSourceAsync, seekStudioCompositionAsync, type StudioNativePlayback } from '../../../modules/classfy-studio-media';
 import { compileStudioRecipe, type StudioProject, type StudioRenderRecipe } from './model';
 import { StudioPreview, type StudioPlaybackState, type StudioPreviewHandle } from './StudioPreview';
 import type { StudioTimelinePlaybackChannelRef } from './timelinePlaybackChannel';
+import type { StudioCanvasTransformChannelRef } from './canvasTransformChannel';
 
 type Props = {
   project: StudioProject; recipe?: StudioRenderRecipe; activeTakeId?: string; paused?: boolean; before?: boolean;
   onActiveTakeChange?: (id: string) => void; onPlaybackState?: (state: StudioPlaybackState) => void;
   onCanvasPress?: () => void; canvasLabel?: string;
   playbackChannel?: StudioTimelinePlaybackChannelRef;
+  canvasTransformChannel?: StudioCanvasTransformChannelRef;
 };
 type NativeError = { message: string; code?: string; revision: string; token: number };
-type NativeProps = { ref?: React.Ref<unknown>; recipeJSON: string; revision: string; paused: boolean; style: object;
+type NativeProps = { ref?: React.Ref<unknown>; recipeJSON: string; revision: string; paused: boolean; style: object; liveVisualJSON?: string;
   onPlaybackState: (event: { nativeEvent: StudioNativePlayback }) => void;
   onError: (event: { nativeEvent: NativeError }) => void;
 };
@@ -65,9 +67,9 @@ export const StudioCompositionPreview = forwardRef<StudioPreviewHandle, Props>(f
       'worklet'; stopPlaybackChannel(channel); channel.value = { ...channel.value, active: false };
     })();
   }, [native, props.playbackChannel]);
-  const enhanced = !!editing && (editing.layers.some(layer => layer.items.length) || editing.main.some(clip => clip.rect || clip.rotationDegrees || clip.fit === 'cover' || clip.grade || clip.effect && clip.effect !== 'natural' || clip.gain !== undefined && clip.gain !== 1) || editing.canvas.backgroundColor !== '#000000' || editing.canvas.aspectRatio !== (props.project.kind === 'short' ? 'portrait' : 'landscape'));
+  const enhanced = !!editing && (editing.mainMuted === true && props.project.kind !== 'podcast' || editing.layers.some(layer => layer.items.length) || editing.main.some(clip => clip.rect || clip.rotationDegrees || clip.fit === 'cover' || clip.grade || clip.effect && clip.effect !== 'natural' || clip.gain !== undefined && clip.gain !== 1) || editing.canvas.backgroundColor !== '#000000' || editing.canvas.aspectRatio !== (props.project.kind === 'short' ? 'portrait' : 'landscape'));
   if (enhanced && (!NativeCanvas || editing?.output.profile !== 'standard' || props.project.kind === 'podcast')) return <UnavailablePreview ref={ref} />;
-  if (!NativeCanvas || editing?.output.profile !== 'standard' || props.project.kind === 'podcast') return <StudioPreview ref={ref} takes={props.project.takes} kind={props.project.kind} activeTakeId={props.activeTakeId} paused={props.paused} onActiveTakeChange={props.onActiveTakeChange} onPlaybackState={props.onPlaybackState} onCanvasPress={props.onCanvasPress} canvasLabel={props.canvasLabel} />;
+  if (!NativeCanvas || editing?.output.profile !== 'standard' || props.project.kind === 'podcast') return <StudioPreview ref={ref} takes={props.project.takes} kind={props.project.kind} activeTakeId={props.activeTakeId} paused={props.paused} muted={editing?.mainMuted === true} onActiveTakeChange={props.onActiveTakeChange} onPlaybackState={props.onPlaybackState} onCanvasPress={props.onCanvasPress} canvasLabel={props.canvasLabel} />;
   return <NativePreview {...props} ref={ref} />;
 });
 const UnavailablePreview = forwardRef<StudioPreviewHandle>(function UnavailablePreview(_, ref) {
@@ -91,6 +93,24 @@ const NativePreview = forwardRef<StudioPreviewHandle, Props>(function NativePrev
   const pendingPlay = useRef<{ timer?: ReturnType<typeof setTimeout> } | null>(null);
   const controls = useSharedValue<PlaybackControls>({ mounted: false, revision: '', minToken: 0,
     intendedPaused: true, pendingPlay: false, transient: false, externalPaused: !!props.paused, intentSequence: 0, pendingSeek: null });
+  const transformChannel = isStudioInteractiveCompositionAvailable() ? props.canvasTransformChannel : undefined;
+  useEffect(() => {
+    if (!transformChannel) return;
+    let current = true;
+    void getStudioInteractiveCompositionVersionAsync().then(value => {
+      if (!current) return;
+      runOnUI(() => { 'worklet'; transformChannel.value = { ...transformChannel.value, available: value.available && value.version === 1 }; })();
+    }).catch(() => { /* Old/unsupported binaries retain the existing preview. */ });
+    return () => { current = false; runOnUI(() => {
+      'worklet'; transformChannel.value = { ...transformChannel.value, available: false, active: false,
+        phase: 'idle', finish: 'cancel', sequence: transformChannel.value.sequence + 1 };
+    })(); };
+  }, [transformChannel]);
+  const liveVisualProps = useAnimatedProps<NativeProps>(() => {
+    'worklet';
+    if (!transformChannel) return {};
+    return { liveVisualJSON: JSON.stringify({ version: 1, revision: controls.value.revision, ...transformChannel.value }) };
+  });
   // The editor already compiled the visible document. Reuse it and send the
   // JSON once; an opaque revision must not echo a whole lesson in every event.
   const compiled = useMemo(() => props.recipe || compileStudioRecipe(props.project), [props.recipe, props.project.editing, props.project.kind, props.project.takes]);
@@ -212,6 +232,10 @@ const NativePreview = forwardRef<StudioPreviewHandle, Props>(function NativePrev
   const acceptError = (value: NativeError, expectedIntent?: number) => {
     if (mounted.current && value.revision === currentRevision.current && value.token >= token.current
         && (expectedIntent === undefined || expectedIntent === intentSequence.current)) {
+      if (value.code === 'E_STUDIO_INTERACTION' && transformChannel) runOnUI(() => {
+        'worklet'; transformChannel.value = { ...transformChannel.value, available: false,
+          active: false, phase: 'idle', finish: 'cancel', sequence: transformChannel.value.sequence + 1 };
+      })();
       pendingSeek.current = null; updateUI({ pendingSeek: null });
       pausePlayback(); errorCode.current = value.code; setError(value.message);
     }
@@ -262,8 +286,9 @@ const NativePreview = forwardRef<StudioPreviewHandle, Props>(function NativePrev
     },
   }), []);
   return <View style={styles.canvas} accessibilityLabel={props.canvasLabel} onTouchEnd={props.onCanvasPress}>
-    {channel && AnimatedNativeCanvas
-      ? <AnimatedNativeCanvas ref={canvas} style={StyleSheet.absoluteFill} recipeJSON={recipe} revision={revision} paused={paused || !!props.paused} onPlaybackState={onUIPlayback as unknown as NativeProps['onPlaybackState']} onError={onUIError as unknown as NativeProps['onError']} />
+    {(channel || transformChannel) && AnimatedNativeCanvas
+      ? <AnimatedNativeCanvas ref={canvas} style={StyleSheet.absoluteFill} recipeJSON={recipe} revision={revision} paused={paused || !!props.paused}
+        animatedProps={liveVisualProps} onPlaybackState={channel ? onUIPlayback as unknown as NativeProps['onPlaybackState'] : event => accept(event.nativeEvent)} onError={channel ? onUIError as unknown as NativeProps['onError'] : event => acceptError(event.nativeEvent)} />
       : NativeCanvas && <NativeCanvas ref={canvas} style={StyleSheet.absoluteFill} recipeJSON={recipe} revision={revision} paused={paused || !!props.paused} onPlaybackState={event => accept(event.nativeEvent)} onError={event => acceptError(event.nativeEvent)} />}
     {error && <View style={styles.message}><Text style={styles.text}>{error}</Text></View>}
   </View>;

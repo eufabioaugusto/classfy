@@ -36,3 +36,9 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer bash modules/classfy-st
 O teste verifica duração efetiva dos cortes, ordem por pixels do arquivo exportado, rotação por metadata, centralização de conteúdo vertical, formatos horizontal/vertical/UHD, 24/25/30/60 FPS e misturas, áudio após take silencioso, duração com take final silencioso, capa, preservação de originais e cancelamento. Os arquivos gerados ficam em diretórios temporários para inspeção.
 
 O harness fica em `tests/`, fora de `ios/`, e não entra no pod ou no aplicativo. Gravação de câmera e microfone precisa de QA no iPhone físico; o simulador permite importar e exportar os fixtures.
+
+## Transformação interativa da prévia
+
+`getStudioInteractiveCompositionVersionAsync` confirma versão 1 e disponibilidade de Metal. `StudioCompositionView.liveVisualJSON` recebe apenas a geometria transitória do elemento selecionado, com operação, sequência, revisão e recibo de commit/cancel. A superfície Metal reutiliza o quadro decodificado e seus grafos Core Image imutáveis de orientação/tratamento, com o mesmo compositor da exportação e sem bitmap intermediário; não substitui `AVPlayerItem` durante o movimento. O quadro final só assume a tela depois do primeiro frame canônico e da escrita confirmada. Seek para outro instante, inspeção de fonte, background e remoção da view cancelam a superfície.
+
+`tests/verify-interaction.sh` verifica paridade da transformação e da receita final com fixtures locais. Compilação e testes no Mac não confirmam a sensação de arraste no iPhone. Um Dev instalado antes dessa API continua no renderer anterior até instalar o novo binário.

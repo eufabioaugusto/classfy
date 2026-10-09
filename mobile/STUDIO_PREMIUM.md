@@ -8,11 +8,15 @@ A interface é React Native com TypeScript. Os gestos da timeline rodam na UI th
 
 `StudioRecipeEngine` prepara uma composição AVFoundation. `StudioCompositionView` usa um único AVPlayerItem para a montagem inteira; escolher um take ou uma camada não navega o cursor. O AVVideoCompositor e o `StudioEffectRenderer` são compartilhados por prévia e exportação. Inspecionar um quadro excluído por um corte usa uma superfície separada e não move a reprodução.
 
+O arraste/redimensionamento da prévia tem um canal transitório de geometria no UI thread. Binários que confirmam `getStudioInteractiveCompositionVersionAsync` v1 com Metal disponível usam `StudioCompositionInteractiveSurface`: o instante pausado é decodificado uma vez e conserva grafos Core Image imutáveis de orientação/tratamento, sem converter para bitmap intermediário. Cada movimento renderiza esses grafos com a geometria, alpha e ordem atuais no Metal. Não recompila receita, substitui player ou executa Vision a cada amostra. Texto redimensionado refaz CoreText para manter a quebra e as margens da exportação. Ao soltar, a receita é gravada uma vez e a superfície permanece até o quadro canônico estar pronto e a escrita confirmada. Sem essa capacidade, o Dev conserva o caminho anterior; recarregar JavaScript não instala Swift novo.
+
 A prévia ativa a sessão de áudio em modo playback ao reproduzir, inclusive no silencioso, e pausa quando a câmera inicia. O estado de gravação não é reutilizado como modo de reprodução depois de retornar ao editor. Uma falha de ativação é mostrada e só desaparece após recuperação confirmada.
 
 ## Documento de edição
 
 O schema v2 distingue originais imutáveis (`assets`), sequência principal (`main`), camadas (`layers`), canvas e perfil de saída. O tempo usa ticks inteiros com timebase de 120.000. O array `takes` continua disponível como adaptador para as telas existentes, mas não é uma segunda fonte de verdade persistida.
+
+Cada faixa visual tem `hidden`; vídeo/áudio têm `muted`, e a sequência principal tem `mainMuted`. São overrides opcionais: não substituem opacidade, ganhos, fades, origens ou duração dos elementos. A compilação envia opacity/gain zero, preservando as referências e o intervalo. Faixas ocultas continuam presentes na timeline e no histórico. O motor mantém o stream de áudio com mix zero quando tudo está silenciado, inclusive podcast.
 
 A migração salva backup, escreve a versão nova e relê antes de adotá-la. IDs, cortes, originais e estado de envio são preservados. Uma falha de leitura oferece recuperação do snapshot anterior. Importações mantêm um journal com o destino completo, incluindo camada e item, para recuperar arquivos copiados antes de uma interrupção. Abrir a câmera sem criar conteúdo mantém uma sessão transitória.
 
@@ -60,6 +64,7 @@ npm run test:navigation
 npm run test:studio:media
 npm run test:studio:capture
 npm run test:studio:recipe
+npm run test:studio:interaction
 npm run test:studio:transcription
 npm run test:studio:headless
 ```

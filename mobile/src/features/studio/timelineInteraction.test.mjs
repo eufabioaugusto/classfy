@@ -134,7 +134,7 @@ function harness(options = {}) {
     'react-native': { AppState: { addEventListener: (_event, callback) => { appStateListeners.add(callback); return { remove: () => appStateListeners.delete(callback) }; } }, Pressable: 'pressable', Text: 'text', View: 'view', StyleSheet: { create: styles => styles } },
     'expo-image': { Image: 'image' }, 'react-native-reanimated': reanimated,
     'react-native-gesture-handler': { GestureDetector: 'gesture-detector', Gesture: { Native: () => gesture('native'), Pinch: () => gesture('pinch'), Pan: () => gesture('pan'), Tap: () => gesture('tap'), Race: (...gestures) => ({ kind: 'race', gestures }) } },
-    'lucide-react-native': { ChevronDown: 'chevron-down', ChevronLeft: 'chevron-left', ChevronRight: 'chevron-right', ChevronUp: 'chevron-up', Film: 'film', Mic: 'mic', Minus: 'minus', Plus: 'plus' },
+    'lucide-react-native': { ChevronDown: 'chevron-down', ChevronLeft: 'chevron-left', ChevronRight: 'chevron-right', ChevronUp: 'chevron-up', Eye: 'eye', EyeOff: 'eye-off', Film: 'film', Mic: 'mic', Minus: 'minus', Plus: 'plus', Volume2: 'volume', VolumeX: 'volume-off' },
     '@/theme/colors': { colors: {} }, './model': model, './timelineLayout': layout, './timelineMotion': motionHelpers,
     './useStudioFilmstrip': { useStudioFilmstrip: () => ({}) }, './layerTimelineInteraction': layerModule.exports, './timelineSnap': snapHelpers, './timelinePlayback': playbackHelpers,
     './snapFeedback': { performStudioSnapFeedback: () => feedbacks.push(now) },
@@ -175,6 +175,10 @@ function harness(options = {}) {
   };
   const nodes = name => all(context('timeline').tree, node => typeof node.type === 'function' && node.type.name === name);
   const control = label => all(context('timeline').tree, node => node.props?.accessibilityLabel === label)[0]?.props;
+  const railNode = id => all(context('timeline').tree, node => node.props?.testID === id)[0];
+  const railGeometry = () => ({ fixed: resolveStyle(railNode('studio-lane-controls')?.props.style),
+    content: resolveStyle(railNode('studio-lane-controls-content')?.props.style),
+    main: resolveStyle(railNode('studio-main-control')?.props.style) });
   const laneView = () => all(context('timeline').tree, node => node.props?.accessibilityLabel === 'Faixas da montagem')[0];
   const laneScroll = () => laneView()?.props.onScroll;
   const laneScrollProps = () => laneView()?.props.animatedProps.__props();
@@ -241,7 +245,7 @@ function harness(options = {}) {
   all(context('timeline').tree, node => node.type === 'animated-view' && node.props?.onLayout)[0].props.onLayout({ nativeEvent: { layout: { width: 300 } } });
   renderParent(); flushUI();
   scroll().onScroll({ contentOffset: { x: 60 } }); flushJS(); animate(); flushJS(); scrolls.length = 0;
-  return { scroll, scrollProps, pinch, m, pan, childHandle, childClip, clipImages, childLayer, snapGuide, nodes, control, laneScroll, laneScrollProps, laneAxis, laneWindow, seeks, selections, previews, commits, cancellations, scrolls, feedbacks, jsQueue, uiQueue,
+  return { scroll, scrollProps, pinch, m, pan, childHandle, childClip, clipImages, childLayer, snapGuide, nodes, control, railNode, railGeometry, laneScroll, laneScrollProps, laneAxis, laneWindow, seeks, selections, previews, commits, cancellations, scrolls, feedbacks, jsQueue, uiQueue,
     animate, reactions, frame, flushJS, flushUI, stepJS, pump,
     playerPosition: () => context('timeline').reactions.find(reaction => reaction.prepare()?.viewport !== undefined).prepare().position,
     update: next => { props = { ...props, ...next }; renderParent(); },
@@ -1786,6 +1790,163 @@ function studioCompositionHarness() {
     assert, readFileSync, createRequire, dirname, join, fileURLToPath, transformFileSync, ts, model);
   return compositionHarness;
 }
+
+function railFixture() {
+  const base = manyLayerFixture();
+  const editing = { ...base.editing, assets: [...base.editing.assets,
+    { id: 'overlay-asset', kind: 'video', uri: 'file:///overlay.mp4', name: 'Overlay', durationTicks: model.studioTicks(10), width: 320, height: 180 }],
+  layers: [...base.editing.layers, { id: 'video-lane', kind: 'video', items: [{ id: 'overlay-video', kind: 'video', assetId: 'overlay-asset', atTicks: model.studioTicks(1), durationTicks: model.studioTicks(3), sourceStartTicks: 0, sourceEndTicks: model.studioTicks(3) }] }] };
+  return { editing, layers: model.compileStudioRecipe({ kind: 'aula', takes: [], editing }).clips.filter(item => item.zIndex > 0) };
+}
+
+test('controles de faixa mostram apenas visibilidade e áudio aplicáveis ao tipo real', () => {
+  const view = harness({ ...railFixture(), onToggleLaneVisibility: () => {}, onToggleLaneMute: () => {}, onToggleMainMute: () => {} });
+  try {
+    for (const zIndex of [1, 2, 3, 5]) assert.ok(view.control(`Ocultar faixa ${zIndex}`));
+    assert.equal(view.control('Ocultar faixa 4'), undefined, 'audio has no picture to hide');
+    for (const zIndex of [4, 5]) assert.ok(view.control(`Silenciar áudio da faixa ${zIndex}`));
+    for (const zIndex of [1, 2, 3]) assert.equal(view.control(`Silenciar áudio da faixa ${zIndex}`), undefined);
+    assert.ok(view.control('Silenciar áudio principal')); assert.equal(view.control('Ocultar faixa 0'), undefined);
+    const button = view.control('Ocultar faixa 5');
+    assert.equal(resolveStyle(button.style({ pressed: false })).width, 44);
+    assert.equal(resolveStyle(button.style({ pressed: false })).height, 44);
+    assert.equal(button.children.props.size, 20);
+    assert.equal(view.railNode('studio-lane-controls').props.pointerEvents, 'box-none');
+    assert.equal(view.railNode('studio-lane-controls').props.children[0].props.pointerEvents, 'none');
+  } finally { view.dispose(); }
+});
+
+test('rail fica em x0 e acompanha scrollY fracionário no UI sem esperar React ou deslocar main', async () => {
+  const view = harness({ ...railFixture(), nativeWorklets: true, nativeSharedValues: true,
+    onToggleLaneVisibility: () => {}, onToggleLaneMute: () => {}, onToggleMainMute: () => {} });
+  try {
+    const mainTop = view.nodes('TimelineClip')[0].props.top, epoch = view.m().epoch.value;
+    view.update({ position: 4 }); view.flushUI(); view.reactions(); view.flushJS();
+    const x = view.m().offset.value;
+    view.laneAxis().handlers.onStart(); view.laneScroll().onBeginDrag();
+    view.laneScroll().onScroll({ contentOffset: { y: 70.5 } });
+    const geometry = view.railGeometry();
+    assert.equal(geometry.fixed.left, 0); assert.equal(geometry.fixed.top, 26);
+    assert.equal(geometry.fixed.width, 88); assert.equal(geometry.fixed.height, 132);
+    assert.deepEqual(geometry.content.transform, [{ translateY: -70.5 }]);
+    assert.equal(geometry.main.left, 0); assert.equal(geometry.main.top, mainTop); assert.equal(geometry.main.height, 72);
+    assert.equal(view.nodes('TimelineClip')[0].props.top, mainTop);
+    assert.equal(view.m().offset.value, x); assert.equal(view.playerPosition(), 4); assert.equal(view.m().epoch.value, epoch);
+    view.laneScroll().onEndDrag(); view.laneAxis().handlers.onFinalize(); await view.pump();
+    assert.deepEqual(view.seeks, []); assert.deepEqual(view.selections, []);
+    assert.equal(view.laneScrollProps().scrollEnabled, true); assert.equal(view.scrollProps().scrollEnabled, true);
+  } finally { view.dispose(); }
+});
+
+test('ocultar grupo preserva ambos textos selecionáveis, tempo e faixa, e mostrar restaura valores', async () => {
+  const fixture = railFixture();
+  fixture.editing.layers[0] = { ...fixture.editing.layers[0], items: [
+    model.createStudioTextItem({ id: 'title', content: 'Texto1', atTicks: model.studioTicks(1), durationTicks: model.studioTicks(1) }),
+    { ...model.createStudioTextItem({ id: 'title2', content: 'Texto2', atTicks: model.studioTicks(2.2), durationTicks: model.studioTicks(1) }), opacity: .6 },
+  ] };
+  fixture.layers = model.compileStudioRecipe({ kind: 'aula', takes: [], editing: fixture.editing }).clips.filter(item => item.zIndex > 0);
+  const toggles = [], selections = [], scrubs = [];
+  let view;
+  view = harness({ ...fixture, selectedLayerId: 'title', onSelectLayer: id => selections.push(id), onScrubStart: () => scrubs.push(true),
+    onToggleLaneVisibility: zIndex => {
+      toggles.push(zIndex);
+      const lane = fixture.editing.layers[zIndex - 1];
+      fixture.editing = model.setStudioLayerHidden(fixture.editing, lane.id, !lane.hidden);
+      fixture.layers = model.compileStudioRecipe({ kind: 'aula', takes: [], editing: fixture.editing }).clips.filter(item => item.zIndex > 0);
+      view.update(fixture);
+    } });
+  try {
+    const mainTop = view.nodes('TimelineClip')[0].props.top, axis = view.laneAxis(), before = view.playerPosition();
+    view.control('Ocultar faixa 1').onPress(); await view.pump();
+    assert.deepEqual(toggles, [1]); assert.ok(view.control('Mostrar faixa 1'));
+    const hidden = view.nodes('TimelineLayer').filter(node => node.props.item.zIndex === 1);
+    assert.equal(hidden.length, 2); assert.ok(hidden.every(node => node.props.item.opacity === 0));
+    const body = view.childLayer('title').props.children[0].props.children.props;
+    assert.equal(body.disabled, false); assert.equal(resolveStyle(body.style).opacity, .35);
+    assert.equal(body.accessibilityState.selected, true);
+    body.onPress(); assert.deepEqual(selections, ['title']);
+    assert.equal(view.nodes('TimelineClip')[0].props.top, mainTop); assert.equal(view.laneAxis(), axis);
+    assert.equal(view.playerPosition(), before); assert.deepEqual(view.seeks, []); assert.deepEqual(scrubs, []);
+    view.control('Mostrar faixa 1').onPress(); await view.pump();
+    assert.deepEqual(toggles, [1, 1]);
+    assert.deepEqual(view.nodes('TimelineLayer').filter(node => node.props.item.zIndex === 1).map(node => node.props.item.opacity), [1, .6]);
+    assert.equal(resolveStyle(view.childLayer('title').props.children[0].props.children.props.style).opacity, 1);
+  } finally { view.dispose(); }
+});
+
+test('silenciar vídeo, faixa de áudio e principal são ações independentes sem selecionar nem seek', async () => {
+  const fixture = railFixture(), actions = [];
+  let view;
+  const refresh = () => { fixture.layers = model.compileStudioRecipe({ kind: 'aula', takes: [], editing: fixture.editing }).clips.filter(item => item.zIndex > 0); view.update(fixture); };
+  view = harness({ ...fixture, onToggleLaneVisibility: () => {},
+    onToggleLaneMute: zIndex => { actions.push(['lane', zIndex]); const lane = fixture.editing.layers[zIndex - 1]; fixture.editing = model.setStudioLayerMuted(fixture.editing, lane.id, !lane.muted); refresh(); },
+    onToggleMainMute: () => { actions.push(['main']); fixture.editing = model.setStudioMainMuted(fixture.editing, !fixture.editing.mainMuted); refresh(); } });
+  try {
+    view.control('Silenciar áudio da faixa 5').onPress(); await view.pump();
+    assert.ok(view.control('Ativar áudio da faixa 5')); assert.ok(view.control('Ocultar faixa 5'));
+    const video = view.nodes('TimelineLayer').find(node => node.props.item.id === 'overlay-video').props.item;
+    assert.equal(video.gain, 0); assert.equal(video.opacity, 1);
+    view.control('Silenciar áudio da faixa 4').onPress(); await view.pump();
+    assert.ok(view.control('Ativar áudio da faixa 4')); assert.equal(view.control('Mostrar faixa 4'), undefined);
+    view.control('Silenciar áudio principal').onPress(); await view.pump();
+    assert.ok(view.control('Ativar áudio principal')); assert.equal(fixture.editing.mainMuted, true);
+    assert.deepEqual(actions, [['lane', 5], ['lane', 4], ['main']]);
+    assert.equal(view.playerPosition(), 1); assert.deepEqual(view.seeks, []); assert.deepEqual(view.selections, []);
+  } finally { view.dispose(); }
+});
+
+test('ações em voo bloqueiam toque duplicado e voltam após erro sem interferir nos gestos', async () => {
+  let finish;
+  const calls = [];
+  const view = harness({ ...railFixture(), onToggleLaneVisibility: zIndex => { calls.push(zIndex); return new Promise((_resolve, reject) => { finish = reject; }); }, onToggleMainMute: () => calls.push('main') });
+  try {
+    const press = view.control('Ocultar faixa 1').onPress;
+    press(); press(); view.control('Silenciar áudio principal').onPress(); await view.pump();
+    assert.deepEqual(calls, [1]); assert.equal(view.control('Ocultar faixa 1').disabled, true);
+    assert.equal(view.laneScrollProps().scrollEnabled, true); assert.equal(view.scrollProps().scrollEnabled, true);
+    finish(new Error('Falha de salvamento')); await view.pump();
+    assert.equal(view.control('Ocultar faixa 1').disabled, false);
+    view.control('Silenciar áudio principal').onPress(); await view.pump(); assert.deepEqual(calls, [1, 'main']);
+    assert.deepEqual(view.seeks, []);
+  } finally { view.dispose(); }
+});
+
+for (const blockedBy of ['busy', 'locked', 'pinch', 'hold', 'scrollY', 'background', 'unmount']) test(`controle atrasado não altera faixa durante ${blockedBy}`, async () => {
+  const calls = [];
+  const fixture = railFixture();
+  const view = harness({ ...fixture, nativeSharedValues: true, nativeWorklets: true, selectedLayerId: 'title', onMoveLayer: async () => {}, onToggleLaneVisibility: zIndex => calls.push(zIndex) });
+  try {
+    const stalePress = view.control('Ocultar faixa 1').onPress;
+    if (blockedBy === 'busy' || blockedBy === 'locked') { view.update({ [blockedBy]: true }); await view.pump(); assert.equal(view.control('Ocultar faixa 1').disabled, true); }
+    else if (blockedBy === 'pinch') view.pinch().onStart();
+    else if (blockedBy === 'hold') view.childLayer('title').props.children[0].props.gesture.gestures[0].handlers.onStart({ absoluteX: 180, absoluteY: 50 });
+    else if (blockedBy === 'scrollY') view.laneScroll().onBeginDrag();
+    else if (blockedBy === 'background') { view.appState('inactive'); view.flushUI(); }
+    else view.dispose();
+    stalePress(); await view.pump(); assert.deepEqual(calls, []); assert.deepEqual(view.seeks, []);
+  } finally { view.dispose(); }
+});
+
+test('controle antigo de zIndex não afeta outra faixa depois de reorder', async () => {
+  const calls = [], fixture = railFixture();
+  const view = harness({ ...fixture, onToggleLaneVisibility: zIndex => calls.push(zIndex) });
+  try {
+    const stalePress = view.control('Ocultar faixa 1').onPress;
+    fixture.editing = { ...fixture.editing, layers: [fixture.editing.layers[1], fixture.editing.layers[0], ...fixture.editing.layers.slice(2)] };
+    fixture.layers = model.compileStudioRecipe({ kind: 'aula', takes: [], editing: fixture.editing }).clips.filter(item => item.zIndex > 0);
+    view.update(fixture); await view.pump(); stalePress(); await view.pump();
+    assert.deepEqual(calls, []);
+    view.control('Ocultar faixa 2').onPress(); await view.pump(); assert.deepEqual(calls, [2]);
+  } finally { view.dispose(); }
+});
+
+test('callers existentes e previewOnly não ganham controles inativos', () => {
+  for (const options of [{}, { previewOnly: true, onToggleLaneVisibility: () => {}, onToggleLaneMute: () => {}, onToggleMainMute: () => {} }]) {
+    const view = harness({ ...railFixture(), ...options });
+    try { assert.equal(view.railNode('studio-lane-controls'), undefined); assert.equal(view.railNode('studio-main-control'), undefined); }
+    finally { view.dispose(); }
+  }
+});
 
 for (const release of ['drag', 'momentum']) {
   test(`adapter real e Timeline preservam o seek de ${release} quando o token atual ainda publica a posição anterior`, async () => {

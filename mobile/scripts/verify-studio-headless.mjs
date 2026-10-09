@@ -42,6 +42,7 @@ const steps = [
   { name: 'legacy-media', args: ['run', 'test:studio:media'], limitMs: 300_000 },
   { name: 'composition', args: ['run', 'test:studio:recipe'], limitMs: 180_000 },
   { name: 'composition-initial-frame', args: ['run', 'test:studio:initial-frame'], limitMs: 120_000 },
+  { name: 'composition-interaction', args: ['run', 'test:studio:interaction'], limitMs: 180_000 },
   { name: 'transcription-contracts', args: ['run', 'test:studio:transcription'], limitMs: 180_000 },
 ];
 if (speechSmoke) steps.push({ name: 'transcription-local', executable: 'bash', args: ['modules/classfy-studio-media/tests/verify-transcription-local.sh'],

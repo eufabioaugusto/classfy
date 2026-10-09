@@ -20,6 +20,7 @@ function compile(source, dependencies, globals = {}) {
 }
 const interaction = compile(readFileSync(new URL('./editorInteraction.ts', import.meta.url), 'utf8'), { './timeline': timeline });
 const canvasEditing = compile(readFileSync(new URL('./canvasEditing.ts', import.meta.url), 'utf8'), { './model': model });
+const canvasTransformChannel = compile(readFileSync(new URL('./canvasTransformChannel.ts', import.meta.url), 'utf8'), {});
 const layerTimeline = compile(readFileSync(new URL('./layerTimelineInteraction.ts', import.meta.url), 'utf8'), { './model': model });
 const layerActions = compile(readFileSync(new URL('./layerActions.ts', import.meta.url), 'utf8'), { './model': model, './layerTimelineInteraction': layerTimeline });
 const take = id => ({ id, uri: `file:///${id}.mp4`, name: id, duration: 10, start: 2, end: 8 });
@@ -127,6 +128,7 @@ function harness(takes = [take('a'), take('b')], options = {}) {
     '@/features/studio/StudioCompositionPreview': { StudioCompositionPreview: 'preview' },
     '@/features/studio/StudioCanvasEditor': { StudioCanvasEditor: 'canvas-editor' },
     '@/features/studio/canvasEditing': canvasEditing,
+    '@/features/studio/canvasTransformChannel': canvasTransformChannel,
     '@/features/studio/layerTimelineInteraction': layerTimeline,
     '@/features/studio/layerActions': layerActions,
     '@/features/studio/StudioLayerPanel': { StudioLayerPanel: 'layerPanel' },
@@ -663,7 +665,7 @@ test('erro de disco em main mantém draft e alvo ao Concluir ou abrir tratamento
     await view.pump(); view.canvasProps().onSelectMainClip('a'); await view.pump();
     const canvas = view.canvasProps(), transform = { rect: { x: 0.2, y: 0.15, width: 0.65, height: 0.65 } };
     canvas.onInteractionStart(); canvas.onPreviewRect('a', transform); await view.pump();
-    view.failNextMutation('Disco cheio'); await canvas.onCommitRect('a', transform);
+    view.failNextMutation('Disco cheio'); await assert.rejects(canvas.onCommitRect('a', transform), /Disco cheio/);
     canvas.onPreviewRect('a', undefined); canvas.onInteractionEnd(); await view.pump();
     assert.equal(view.canvasProps().selectedMainClipId, 'a'); assert.deepEqual(view.previewProps().project.editing.main[0].rect, transform.rect);
     assert.equal(view.project().editing.main[0].rect, undefined); assert.equal(view.button('Desfazer edição').disabled, true);
@@ -889,5 +891,70 @@ test('ações de camada enfileiradas durante gesto não duplicam nem dividem', a
     await panel.onDuplicate(); await panel.onSplit(); await view.pump();
     assert.deepEqual(view.writes(), { attempted: 0, completed: 0 }); assert.equal(view.timelineProps().position, 8);
     view.timelineProps().onLayerInteractionEnd(); await view.pump(); assert.equal(view.layerProps().disabled, false);
+  } finally { view.dispose(); }
+});
+
+test('ocultar faixa salva texto provisório e visibilidade juntos sem deslocar cursor; undo restaura ambos', async () => {
+  const initial = editingWithCaptions(), view = harness(undefined, { initialEditing: initial, advanced: true });
+  let panel;
+  try {
+    await view.pump(); view.publish({ position: 8, sourcePosition: 4, takeId: 'b', playing: false, loading: false }); await view.pump();
+    view.canvasProps().onSelectLayer('caption'); await view.pump(); panel = renderLayerPanel(view.layerProps());
+    panel.text('Texto preservado ao ocultar'); await view.pump();
+    const saving = view.timelineProps().onToggleLaneVisibility(1); await view.pump();
+    assert.equal(view.project().editing.layers[0].hidden, true);
+    view.publish({ position: 0, sourcePosition: 2, takeId: 'a', playing: false, loading: true }, false); await view.pump();
+    assert.equal(view.timelineProps().position, 8);
+    view.finishSave(); await saving; await view.pump();
+    assert.equal(view.project().editing.layers[0].items[0].text.content, 'Texto preservado ao ocultar');
+    assert.equal(view.canvasProps().selectedLayerId, 'caption');
+    assert.deepEqual(view.writes(), { attempted: 1, completed: 1 });
+    view.button('Desfazer edição').onPress(); await view.pump(); view.finishSave(); await view.pump();
+    assert.deepEqual(JSON.parse(JSON.stringify(view.project().editing)), JSON.parse(JSON.stringify(initial))); assert.equal(view.timelineProps().position, 8);
+    view.button('Refazer edição').onPress(); await view.pump(); view.finishSave(); await view.pump();
+    assert.equal(view.project().editing.layers[0].hidden, true);
+  } finally { panel?.dispose(); view.dispose(); }
+});
+
+test('silenciar principal não destrói volumes e ignora novo toque enquanto a escrita está pendente', async () => {
+  const initial = editingWithCaptions(); initial.main[0].gain = 0.35;
+  const view = harness(undefined, { initialEditing: initial, advanced: true });
+  try {
+    await view.pump(); view.publish({ position: 3, sourcePosition: 5, takeId: 'a', playing: false, loading: false }); await view.pump();
+    const saving = view.timelineProps().onToggleMainMute(); await view.pump();
+    await view.timelineProps().onToggleMainMute(); assert.equal(view.writes().attempted, 1);
+    view.finishSave(); await saving; await view.pump();
+    assert.equal(view.project().editing.mainMuted, true); assert.equal(view.project().editing.main[0].gain, 0.35);
+    assert.equal(model.compileStudioRecipe(view.project()).clips.find(clip => clip.id === 'a').gain, 0);
+    const restore = view.timelineProps().onToggleMainMute(); await view.pump(); view.finishSave(); await restore; await view.pump();
+    assert.equal(view.project().editing.mainMuted, undefined); assert.equal(view.project().editing.main[0].gain, 0.35);
+    assert.equal(view.timelineProps().position, 3);
+  } finally { view.dispose(); }
+});
+
+test('controle de faixa falho preserva seleção e permite retry sem histórico fantasma', async () => {
+  const initial = editingWithCaptions(), view = harness(undefined, { initialEditing: initial, advanced: true });
+  try {
+    await view.pump(); view.canvasProps().onSelectLayer('caption'); await view.pump();
+    view.failNextMutation('Disco cheio');
+    await assert.rejects(view.timelineProps().onToggleLaneVisibility(1), /Disco cheio/); await view.pump();
+    assert.deepEqual(view.project().editing, initial); assert.equal(view.canvasProps().selectedLayerId, 'caption');
+    assert.equal(view.button('Desfazer edição').disabled, true);
+    assert.equal(view.alerts.filter(alert => alert[1].includes('Disco cheio')).length, 1);
+    const retry = view.timelineProps().onToggleLaneVisibility(1); await view.pump(); view.finishSave(); await retry; await view.pump();
+    assert.equal(view.project().editing.layers[0].hidden, true);
+  } finally { view.dispose(); }
+});
+
+for (const gesture of ['canvas', 'layer']) test(`controle de faixa não disputa propriedade com gesto ${gesture}`, async () => {
+  const view = harness(undefined, { initialEditing: editingWithCaptions(), advanced: true });
+  try {
+    await view.pump();
+    if (gesture === 'canvas') view.canvasProps().onInteractionStart(); else view.timelineProps().onLayerInteractionStart();
+    await view.timelineProps().onToggleLaneVisibility(1); await view.timelineProps().onToggleLaneMute(1); await view.timelineProps().onToggleMainMute();
+    assert.equal(view.writes().attempted, 0);
+    if (gesture === 'canvas') view.canvasProps().onInteractionEnd(); else view.timelineProps().onLayerInteractionEnd();
+    await view.pump();
+    assert.equal(view.previewProps().canvasTransformChannel, view.canvasProps().canvasTransformChannel, 'native preview and gesture share one transient channel');
   } finally { view.dispose(); }
 });

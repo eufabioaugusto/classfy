@@ -154,7 +154,7 @@ export async function exportStudioProject(project: StudioProject, onProgress?: (
     if (shouldContinue?.() === false) { void cancelExportAsync(project.id); return; }
     onProgress?.(progress);
   };
-  if (editing.output.profile === 'legacy-source' && (editing.layers.some(layer => layer.items.length) || editing.main.some(clip => clip.grade || clip.effect && clip.effect !== 'natural' || clip.gain !== undefined && clip.gain !== 1) || editing.canvas.backgroundColor !== '#000000' || editing.canvas.aspectRatio !== (project.kind === 'short' ? 'portrait' : 'landscape'))) throw new Error('Escolha o perfil 1080p · 30 FPS · SDR para exportar esta edição com camadas.');
+  if (editing.output.profile === 'legacy-source' && (editing.mainMuted || editing.layers.some(layer => layer.items.length) || editing.main.some(clip => clip.grade || clip.effect && clip.effect !== 'natural' || clip.gain !== undefined && clip.gain !== 1) || editing.canvas.backgroundColor !== '#000000' || editing.canvas.aspectRatio !== (project.kind === 'short' ? 'portrait' : 'landscape'))) throw new Error('Escolha o perfil 1080p · 30 FPS · SDR para exportar esta edição com camadas.');
   if (editing.output.profile === 'standard' && !isStudioCompositionAvailable()) throw new Error('Atualize o Classfy Dev para editar e exportar camadas e tratamentos de imagem.');
   const result = editing.output.profile === 'standard'
     ? await exportRecipeAsync({ requestId: project.id, recipeJSON: JSON.stringify(recipe), outputUri }, progressHandler)

@@ -73,6 +73,62 @@ struct StudioRecipeLayer {
   let sourceStage: StudioSourceStage
 }
 
+/// Transient canvas geometry. Source ranges, effects and paint order remain
+/// immutable, shared with preview/export's exact composition implementation.
+struct StudioRecipeVisualOverride {
+  let clipId: String
+  let rect: StudioRecipe.Rect
+  let textFontSize: Double?
+  var raster: CIImage? = nil
+}
+struct StudioRecipeFrozenFrame {
+  let prepared: StudioPreparedRecipe
+  let layers: [StudioRecipeLayer]
+  let frames: [String: CIImage]
+  let seconds: Double
+  var sourcesPreprocessed = false
+  /// Build oriented, treated CI graphs once. Vision runs during graph creation,
+  /// never at gesture cadence; GPU evaluation preserves export alpha/color.
+  func processed() throws -> StudioRecipeFrozenFrame {
+    if sourcesPreprocessed { return self }
+    var pixels: [String: CIImage] = [:]
+    for layer in layers {
+      try Task.checkCancellation()
+      guard var image = frames[layer.clip.id] ?? layer.raster else { continue }
+      image = image.transformed(by: layer.sourceTransform)
+      let extent = image.extent
+      guard extent.width > 0, extent.height > 0, !extent.isInfinite else { continue }
+      image = image.transformed(by: CGAffineTransform(translationX: -extent.minX, y: -extent.minY))
+      image = prepared.renderer.outputImage(image, grade: layer.clip.effectiveGrade, sourceStage: layer.sourceStage)
+      // Retaining the CI graph avoids an intermediate bitmap/color conversion
+      // which changes antialiased alpha and clips extended grade values.
+      pixels[layer.clip.id] = image
+    }
+    return StudioRecipeFrozenFrame(prepared: prepared, layers: layers, frames: pixels, seconds: seconds, sourcesPreprocessed: true)
+  }
+  func image(override: StudioRecipeVisualOverride? = nil) throws -> CIImage {
+    var visual = override
+    if var value = visual, let layer = layers.first(where: { $0.clip.id == value.clipId }), let text = layer.clip.text,
+      value.rect.width != layer.clip.rect.width || value.rect.height != layer.clip.rect.height || value.textFontSize.map({ $0 != text.fontSize }) == true {
+      let original = layer.clip
+      let editedText = StudioRecipe.Text(content: text.content, fontFamily: text.fontFamily,
+        fontSize: value.textFontSize ?? text.fontSize, color: text.color, backgroundColor: text.backgroundColor, alignment: text.alignment)
+      let edited = StudioRecipe.Clip(id: original.id, kind: original.kind, assetId: original.assetId,
+        startTicks: original.startTicks, durationTicks: original.durationTicks,
+        sourceStartTicks: original.sourceStartTicks, sourceEndTicks: original.sourceEndTicks,
+        zIndex: original.zIndex, rect: value.rect, rotationDegrees: original.rotationDegrees,
+        fit: original.fit, opacity: original.opacity, gain: original.gain,
+        fadeInTicks: original.fadeInTicks, fadeOutTicks: original.fadeOutTicks,
+        effect: original.effect, text: editedText, grade: original.grade)
+      value.raster = try StudioRecipeEngine.textImage(edited, canvas: prepared.recipe.size)
+      if sourcesPreprocessed, let raster = value.raster { value.raster = prepared.renderer.outputImage(raster, grade: original.effectiveGrade, sourceStage: layer.sourceStage) }
+      visual = value
+    }
+    return StudioRecipeCompositor.compose(layers: layers, frames: frames, recipe: prepared.recipe,
+      seconds: seconds, renderer: prepared.renderer, visualOverride: visual, sourcesPreprocessed: sourcesPreprocessed)
+  }
+}
+
 final class StudioPreparedRecipe {
   let recipe: StudioRecipe
   let composition: AVMutableComposition
@@ -170,17 +226,18 @@ final class StudioRecipeCompositor: NSObject, AVVideoCompositing {
   }
 
   static func compose(layers: [StudioRecipeLayer], frames: [String: CIImage], recipe: StudioRecipe,
-                      seconds: Double, renderer: StudioEffectRenderer) -> CIImage {
+                      seconds: Double, renderer: StudioEffectRenderer,
+                      visualOverride: StudioRecipeVisualOverride? = nil, sourcesPreprocessed: Bool = false) -> CIImage {
     let canvas = CGRect(origin: .zero, size: recipe.size)
     var output = CIImage(color: StudioRecipeEngine.color(recipe.canvas.backgroundColor) ?? .black).cropped(to: canvas)
     for layer in layers {
-      guard var image = frames[layer.clip.id] ?? layer.raster else { continue }
-      image = image.transformed(by: layer.sourceTransform)
+      guard var image = (visualOverride?.clipId == layer.clip.id ? visualOverride?.raster : nil) ?? frames[layer.clip.id] ?? layer.raster else { continue }
+      if !sourcesPreprocessed { image = image.transformed(by: layer.sourceTransform) }
       let extent = image.extent
       guard extent.width > 0, extent.height > 0, !extent.isInfinite, !extent.isNull else { continue }
       image = image.transformed(by: CGAffineTransform(translationX: -extent.minX, y: -extent.minY))
-      image = renderer.outputImage(image, grade: layer.clip.effectiveGrade, sourceStage: layer.sourceStage)
-      let rect = layer.clip.rect
+      if !sourcesPreprocessed { image = renderer.outputImage(image, grade: layer.clip.effectiveGrade, sourceStage: layer.sourceStage) }
+      let rect = visualOverride?.clipId == layer.clip.id ? visualOverride!.rect : layer.clip.rect
       let box = CGRect(x: rect.x * canvas.width, y: (1 - rect.y - rect.height) * canvas.height,
                        width: rect.width * canvas.width, height: rect.height * canvas.height)
       let ratio = layer.clip.fit == "cover" ? max(box.width / extent.width, box.height / extent.height)
@@ -481,7 +538,7 @@ final class StudioRecipeEngine {
           lanes[laneIndex].1 = clip.endTicks
           trackID = lanes[laneIndex].0.trackID; preferred = source.transform
         }
-        if let audio = source.audio, clip.gain > 0 {
+        if let audio = source.audio {
           guard let track = composition.addMutableTrack(withMediaType: .audio, preferredTrackID: kCMPersistentTrackID_Invalid) else {
             throw StudioRecipeError.invalid("Não foi possível preparar o áudio.")
           }
@@ -564,6 +621,19 @@ final class StudioRecipeEngine {
 
   func frame(_ prepared: StudioPreparedRecipe, at seconds: Double,
              sourceOverride: (clipId: String, seconds: Double)? = nil) async throws -> CGImage {
+    let frozen = try await frozenFrame(prepared, at: seconds, sourceOverride: sourceOverride)
+    let image = try frozen.image()
+    guard let cg = prepared.renderer.context.createCGImage(image, from: CGRect(origin: .zero, size: prepared.recipe.size),
+      format: .RGBA8, colorSpace: StudioEffectRenderer.outputColorSpace) else {
+      throw StudioRecipeError.invalid("Não foi possível visualizar este quadro.")
+    }
+    return cg
+  }
+
+  /// Decode the visible sources once; a drag only changes the CI geometry.
+  /// The recipe validator bounds simultaneous video decoders to two.
+  func frozenFrame(_ prepared: StudioPreparedRecipe, at seconds: Double,
+                   sourceOverride: (clipId: String, seconds: Double)? = nil) async throws -> StudioRecipeFrozenFrame {
     guard seconds.isFinite, seconds >= 0, seconds < prepared.recipe.durationSeconds else {
       throw StudioRecipeError.invalid("Escolha um tempo válido da edição.")
     }
@@ -630,13 +700,7 @@ final class StudioRecipeEngine {
       }
       try Task.checkCancellation()
     }
-    let image = StudioRecipeCompositor.compose(layers: layers, frames: frames, recipe: prepared.recipe,
-                                              seconds: seconds, renderer: prepared.renderer)
-    guard let cg = prepared.renderer.context.createCGImage(image, from: CGRect(origin: .zero, size: prepared.recipe.size),
-      format: .RGBA8, colorSpace: StudioEffectRenderer.outputColorSpace) else {
-      throw StudioRecipeError.invalid("Não foi possível visualizar este quadro.")
-    }
-    return cg
+    return StudioRecipeFrozenFrame(prepared: prepared, layers: layers, frames: frames, seconds: seconds)
   }
 
   func cancel(_ requestId: String) {

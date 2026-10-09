@@ -6,6 +6,8 @@ import type { StudioEditing, StudioRecipeClip, StudioRenderRecipe } from './mode
 import { studioCanvasFocalPoint, studioCanvasFrame, studioCanvasHandleCanvasPosition, studioCanvasMove, studioCanvasPinch, studioCanvasResize, studioCanvasScale, studioCanvasSnapCenter, studioCanvasTransformChanged,
   studioVisibleCanvasLayers, type StudioCanvasCorner, type StudioCanvasFrame, type StudioCanvasSnapState, type StudioCanvasTransform } from './canvasGeometry';
 import { performStudioSnapFeedback } from './snapFeedback';
+import { isStudioInteractiveCompositionAvailable } from '../../../modules/classfy-studio-media';
+import type { StudioCanvasTransformChannelRef } from './canvasTransformChannel';
 
 export type { StudioCanvasTransform } from './canvasGeometry';
 export type StudioCanvasEditorProps = {
@@ -16,6 +18,7 @@ export type StudioCanvasEditorProps = {
   onCommitRect: (id: string, transform: StudioCanvasTransform) => void | Promise<void>;
   onEditText?: (id: string) => void;
   onInteractionStart?: () => void; onInteractionEnd?: () => void;
+  canvasTransformChannel?: StudioCanvasTransformChannelRef;
 };
 const corners: StudioCanvasCorner[] = ['topLeft', 'topRight', 'bottomLeft', 'bottomRight'];
 type CanvasGuides = StudioCanvasSnapState & { owner: string };
@@ -29,8 +32,10 @@ export function StudioCanvasEditor(props: StudioCanvasEditorProps) {
   const layers = useMemo(() => studioVisibleCanvasLayers(props.editing, props.recipe, props.positionSeconds, !!props.onSelectMainClip), [props.editing, props.recipe, props.positionSeconds, !!props.onSelectMainClip]);
   const selected = props.selectedLayerId && props.editing.layers.flatMap(layer => layer.items).find(item => item.id === props.selectedLayerId);
   const selectedMain = props.selectedMainClipId && props.editing.main.find(item => item.id === props.selectedMainClipId);
-  const outsideTime = selected ? selected.kind !== 'audio' && !layers.some(clip => clip.id === selected.id)
-    : !!selectedMain && !!props.onSelectMainClip && !layers.some(clip => clip.id === selectedMain.id);
+  const atTime = (id: string) => props.recipe.clips.some(clip => clip.id === id && Math.min(Math.round(props.positionSeconds * props.recipe.timebase), props.recipe.durationTicks - 1) >= clip.startTicks
+    && Math.min(Math.round(props.positionSeconds * props.recipe.timebase), props.recipe.durationTicks - 1) < clip.startTicks + clip.durationTicks);
+  const outsideTime = selected ? selected.kind !== 'audio' && !atTime(selected.id)
+    : !!selectedMain && !!props.onSelectMainClip && !atTime(selectedMain.id);
   const layout = (event: LayoutChangeEvent) => {
     const { width, height } = event.nativeEvent.layout;
     setViewport(previous => previous.width === width && previous.height === height ? previous : { width, height });
@@ -49,6 +54,7 @@ type LayerProps = StudioCanvasEditorProps & { clip: StudioRecipeClip; frame: Stu
 function CanvasLayer(props: LayerProps) {
   const { clip, frame, selected, disabled, owner, guides } = props;
   const main = clip.zIndex === 0;
+  const interactiveChannel = props.canvasTransformChannel && props.editing.output.profile === 'standard' && props.recipe.mediaType === 'video' && isStudioInteractiveCompositionAvailable() ? props.canvasTransformChannel : undefined;
   const live = useRef(props); live.current = props;
   const mounted = useRef(true);
   const transaction = useRef<{ epoch: number; finishing: boolean } | undefined>(undefined);
@@ -69,9 +75,19 @@ function CanvasLayer(props: LayerProps) {
   const configuration = useSharedValue({ selected, disabled: !!disabled, width: frame.width, height: frame.height, rotation: clip.rotationDegrees, suspended: false });
   const panEpoch = useSharedValue(-1), pinchEpoch = useSharedValue(-1), handleEpoch = useSharedValue(-1);
   const alive = useSharedValue(true);
+  const interactiveSession = useSharedValue(false);
   const currentTransform = () => {
     'worklet';
     return { rect: { ...rect.value }, ...(font.value > 0 ? { textFontSize: font.value } : {}) };
+  };
+  const publishInteractive = (phase: 'gesture' | 'committing' | 'idle', completion: 'commit' | 'cancel' | null = null) => {
+    'worklet';
+    if (!interactiveChannel || !interactiveSession.value) return;
+    const previous = interactiveChannel.value;
+    const operationId = previous.clipId === clip.id && previous.epoch === epoch.value && previous.operationId
+      ? previous.operationId : `${clip.id}:${epoch.value}:${previous.sequence + 1}`;
+    interactiveChannel.value = { available: previous.available, active: phase !== 'idle', sequence: previous.sequence + 1,
+      operationId, epoch: epoch.value, clipId: clip.id, phase, transform: currentTransform(), finish: completion };
   };
   const clearGuides = () => {
     'worklet';
@@ -120,7 +136,8 @@ function CanvasLayer(props: LayerProps) {
     const active = transaction.current;
     if (!mounted.current || active?.epoch !== value || active.finishing || value !== epoch.value) return;
     active.finishing = true;
-    try { if (save) await live.current.onCommitRect(clip.id, transform); }
+    let committed = false;
+    try { if (save) { await live.current.onCommitRect(clip.id, transform); committed = true; } }
     catch (cause) { if (mounted.current) setError(cause instanceof Error ? cause.message : 'Não foi possível salvar a posição.'); }
     finally {
       if (transaction.current !== active) return;
@@ -130,6 +147,8 @@ function CanvasLayer(props: LayerProps) {
       runOnUI(() => {
         'worklet';
         if (owner.value !== clip.id || !pending.value) return;
+        publishInteractive('idle', committed ? 'commit' : 'cancel');
+        interactiveSession.value = false;
         pending.value = false; owner.value = '';
         if (alive.value && !mask.value) { rect.value = nextRect; font.value = nextFont; }
       })();
@@ -152,10 +171,14 @@ function CanvasLayer(props: LayerProps) {
     runOnUI(() => {
       'worklet';
       const through = epoch.value;
+      if (!writing && interactiveChannel?.value.clipId === clip.id) publishInteractive('idle', 'cancel');
+      if (!writing) interactiveSession.value = false;
       epoch.value++; mask.value = 0; cancelled.value = true; cornerOwner.value = '';
       clearGuides();
       // A durable write retains its reservation until its promise settles.
       if (!writing) {
+        // A cancellation owns only this layer's channel; an unmounted sibling
+        // cannot erase the next selected element's live preview.
         pending.value = false; if (owner.value === clip.id) owner.value = '';
         rect.value = nextRect; font.value = nextFont;
       }
@@ -192,6 +215,8 @@ function CanvasLayer(props: LayerProps) {
       owner.value = clip.id; epoch.value++; cancelled.value = false; lastPreview.value = 0;
       clearGuides();
       baseline.value = currentTransform(); runOnJS(beginJS)(epoch.value);
+      interactiveSession.value = interactiveChannel?.value.available === true;
+      publishInteractive('gesture');
     }
     if (bit === 2) clearGuides();
     mask.value |= bit;
@@ -200,6 +225,8 @@ function CanvasLayer(props: LayerProps) {
   const publish = () => {
     'worklet';
     if (cancelled.value) return;
+    if (interactiveSession.value && interactiveChannel?.value.available !== true) interactiveSession.value = false;
+    if (interactiveSession.value) { publishInteractive('gesture'); return; }
     const now = Date.now();
     if (now - lastPreview.value >= 33) { lastPreview.value = now; runOnJS(previewJS)(epoch.value, currentTransform()); }
   };
@@ -217,6 +244,7 @@ function CanvasLayer(props: LayerProps) {
     const save = !cancelled.value && studioCanvasTransformChanged(baseline.value, transform);
     if (!save) { rect.value = { ...baseline.value.rect }; font.value = baseline.value.textFontSize ?? 0; }
     pending.value = true;
+    publishInteractive(save ? 'committing' : 'idle', save ? null : 'cancel');
     runOnJS(endJS)(epoch.value, transform, save);
   };
   const selectJS = () => {
@@ -342,7 +370,7 @@ function CanvasLayer(props: LayerProps) {
         if (cornerOwner.value === corner) { cornerOwner.value = ''; finish(4, false, handleEpoch.value); }
       }));
     return { body: Gesture.Race(Gesture.Simultaneous(pan, pinch), Gesture.Exclusive(doubleTap, tap)), handles };
-  }, [clip.id, main]);
+  }, [clip.id, main, interactiveChannel]);
   const geometry = useAnimatedStyle(() => ({ left: rect.value.x * frame.width, top: rect.value.y * frame.height,
     width: rect.value.width * frame.width, height: rect.value.height * frame.height, transform: [{ rotate: `${clip.rotationDegrees}deg` }] }));
   const title = clip.kind === 'text' || clip.kind === 'caption' ? clip.text?.content || 'Texto' : clip.kind === 'image' ? 'Imagem' : 'Vídeo';

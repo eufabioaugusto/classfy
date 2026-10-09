@@ -2,6 +2,7 @@ import ExpoModulesCore
 import ExpoCamera
 import AVFoundation
 import UIKit
+import Metal
 
 struct StudioClipRecord: Record {
   @Field var uri: String = ""
@@ -124,6 +125,10 @@ public final class ClassfyStudioMediaModule: Module {
       Prop("recipeJSON") { (view: StudioCompositionView, json: String) in Task { @MainActor in view.setRecipeJSON(json) } }
       Prop("revision") { (view: StudioCompositionView, revision: String) in Task { @MainActor in view.setRevision(revision) } }
       Prop("paused") { (view: StudioCompositionView, paused: Bool) in Task { @MainActor in view.setPaused(paused) } }
+      Prop("liveVisualJSON") { (view: StudioCompositionView, json: String) in Task { @MainActor in view.setLiveVisualJSON(json) } }
+    }
+    AsyncFunction("getStudioInteractiveCompositionVersionAsync") { () -> [String: Any] in
+      ["version": 1, "available": MTLCreateSystemDefaultDevice() != nil]
     }
     AsyncFunction("getStudioNativeCameraCapabilitiesAsync") { (tag: Int, promise: Promise) in
       self.withNativeCamera(tag, promise) { view in view.capabilities { self.settleCamera($0, promise: promise) } }
