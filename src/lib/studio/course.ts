@@ -105,7 +105,7 @@ export function getCourseDraftIssues(draft: CoursePublicationDraft) {
   if (!lessons.length) issues.push("Adicione pelo menos uma aula");
   if (lessons.some((lesson) => !lesson.title.trim())) issues.push("Dê um título a todas as aulas");
   if (lessons.some((lesson) => lesson.lessonType === "text" && !lesson.body.trim())) issues.push("Preencha o texto das aulas adicionadas");
-  if (lessons.some((lesson) => lesson.lessonType !== "text" && (!lesson.mediaAssetId || lesson.uploadState !== "ready"))) {
+  if (lessons.some((lesson) => lesson.lessonType !== "text" && (!lesson.mediaAssetId || !["processing", "ready"].includes(lesson.uploadState)))) {
     issues.push("Conclua o envio das mídias das aulas");
   }
 

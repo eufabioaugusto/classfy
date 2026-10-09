@@ -126,6 +126,29 @@ describe("validação do construtor de curso", () => {
   it("aceita curso mínimo íntegro", () =>
     expect(getCourseDraftIssues(course())).toEqual([]));
 
+  it("permite enviar curso enquanto vídeo e áudio processam", () => {
+    const value = course();
+    value.modules[0].lessons[0].uploadState = "processing";
+    value.modules[0].lessons.push({
+      ...value.modules[0].lessons[0], id: "audio", lessonType: "audio",
+    });
+    expect(getCourseDraftIssues(value)).toEqual([]);
+  });
+
+  it.each(["idle", "preparing", "uploading", "failed", "cancelled"] as const)(
+    "bloqueia transferência incompleta ou inválida: %s", (uploadState) => {
+      const value = course();
+      value.modules[0].lessons[0].uploadState = uploadState;
+      expect(getCourseDraftIssues(value)).toContain("Conclua o envio das mídias das aulas");
+    },
+  );
+
+  it("não aceita aula sem asset mesmo marcada como processing", () => {
+    const value = course();
+    Object.assign(value.modules[0].lessons[0], { uploadState: "processing", mediaAssetId: null });
+    expect(getCourseDraftIssues(value)).toContain("Conclua o envio das mídias das aulas");
+  });
+
   it("permite aula textual como unidade válida", () => {
     const value = course();
     value.modules[0].lessons[0] = {

@@ -1,4 +1,5 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { requireUser } from "../_shared/video/http.ts";
 import { requestAiTextCompletion } from "../_shared/ai-provider.ts";
 
 const corsHeaders = {
@@ -12,9 +13,16 @@ serve(async (req) => {
   }
 
   try {
+    try {
+      await requireUser(req);
+    } catch {
+      return new Response(JSON.stringify({ error: "Faça login para gerar tags." }), {
+        status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
     const { title, description, contentType } = await req.json();
 
-    if (!title) {
+    if (typeof title !== "string" || !title.trim()) {
       throw new Error("Título é obrigatório");
     }
 
@@ -52,7 +60,7 @@ Responda APENAS com as tags separadas por vírgula, sem numeração ou formataç
         },
       ],
       temperature: 0.7,
-      maxTokens: 200,
+      maxTokens: 1000,
     });
 
     if (!response.ok) {
@@ -68,16 +76,16 @@ Responda APENAS com as tags separadas por vírgula, sem numeração ou formataç
           { status: 402, headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
       }
-      const errorText = await response.text();
-      console.error("Erro da API de IA:", response.status, errorText);
+      console.error("Erro da API de IA:", response.status);
       throw new Error("Erro ao gerar tags com IA");
     }
 
     // Parse tags from the response
-    const tags = text
-      .split(",")
+    const tags = Array.from(new Set(text
+      .split(/[,\n]+/)
       .map((tag: string) => tag.trim())
-      .filter((tag: string) => tag.length > 0 && tag.length <= 50);
+      .filter((tag: string) => tag.length > 0 && tag.length <= 50))).slice(0, 8);
+    if (!tags.length) throw new Error("A IA não retornou tags. Tente novamente.");
 
     return new Response(JSON.stringify({ tags }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },

@@ -596,6 +596,45 @@ function StudioUploadCurso() {
       activeLessonUploadRef.current = null;
   }, [mediaUpload.state]);
 
+  // Cada aula acompanha seu próprio asset, inclusive após reabrir o rascunho.
+  // O hook de transferência observa apenas o último arquivo enviado.
+  const lessonAssetIds = useMemo(
+    () => modules.flatMap((module) => module.lessons)
+      .filter((lesson) => lesson.lessonType !== "text" && lesson.mediaAssetId)
+      .map((lesson) => lesson.mediaAssetId!).sort().join(","),
+    [modules],
+  );
+  useEffect(() => {
+    if (!lessonAssetIds) return;
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout>;
+    const refresh = async () => {
+      const { data, error } = await supabase.from("media_assets")
+        .select("id, status").in("id", lessonAssetIds.split(","));
+      if (cancelled) return;
+      if (!error && data) {
+        const states = new Map(data.map((asset) => [asset.id, asset.status]));
+        setModules((current) => current.map((module) => ({
+          ...module,
+          lessons: module.lessons.map((lesson) => {
+            const status = states.get(lesson.mediaAssetId ?? "");
+            const nextState = status === "ready" ? "ready"
+              : ["failed", "deleted", "missing"].includes(status ?? "") ? "failed"
+              : status === "processing" ? "processing" : null;
+            return nextState && nextState !== lesson.uploadState
+              ? { ...lesson, uploadState: nextState as CourseLessonDraft["uploadState"] }
+              : lesson;
+          }),
+        })));
+        if (data.length === lessonAssetIds.split(",").length &&
+          data.every((asset) => ["ready", "failed", "deleted", "missing"].includes(asset.status))) return;
+      }
+      timer = setTimeout(() => void refresh(), 2500);
+    };
+    void refresh();
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [lessonAssetIds]);
+
   const updateModule = (
     moduleId: string,
     updater: (module: CourseModuleDraft) => CourseModuleDraft,
@@ -749,25 +788,29 @@ function StudioUploadCurso() {
   const uploadCover = async (file: File) => {
     if (!user) return;
     setThumbnailUploading(true);
-    setThumbnailPreview(URL.createObjectURL(file));
+    const previewUrl = URL.createObjectURL(file);
+    setThumbnailPreview(previewUrl);
     try {
       const compressed = await compressImage(file, 1600, 900, 0.85);
       const extension = compressed.name.split(".").pop() || "jpg";
-      const path = `covers/${user.id}/${crypto.randomUUID()}.${extension}`;
+      const path = `${user.id}/covers/${crypto.randomUUID()}.${extension}`;
       const { error } = await supabase.storage
         .from("courses")
         .upload(path, compressed, { cacheControl: "31536000" });
       if (error) throw error;
       const { data } = supabase.storage.from("courses").getPublicUrl(path);
       setThumbnailUrl(data.publicUrl);
+      setThumbnailPreview(data.publicUrl);
       toast.success("Capa pronta.");
     } catch (error) {
+      setThumbnailPreview(thumbnailUrl);
       toast.error(
         error instanceof Error
           ? error.message
           : "Não foi possível enviar a capa.",
       );
     } finally {
+      URL.revokeObjectURL(previewUrl);
       setThumbnailUploading(false);
     }
   };
@@ -865,7 +908,7 @@ function StudioUploadCurso() {
         ),
       }));
       toast.success(
-        "Arquivo enviado. A aula ficará pronta após o processamento.",
+        "Arquivo enviado. Você já pode enviar o curso para análise; o processamento continua em segundo plano.",
       );
     } catch (error) {
       if (!(error instanceof DOMException && error.name === "AbortError"))
@@ -894,7 +937,7 @@ function StudioUploadCurso() {
         .find((module) => module.id === moduleId)
         ?.materials.find((item) => item.id === materialId)?.fileUrl;
       const extension = file.name.split(".").pop() || "bin";
-      const path = `materials/${user.id}/${crypto.randomUUID()}.${extension}`;
+      const path = `${user.id}/materials/${crypto.randomUUID()}.${extension}`;
       const { error } = await supabase.storage
         .from("courses")
         .upload(path, file, { cacheControl: "31536000" });
@@ -955,14 +998,23 @@ function StudioUploadCurso() {
         body: { title, description, contentType: "curso" },
       });
       if (error) throw error;
-      setTags(data?.tags ?? []);
-    } catch {
-      toast.error("Não foi possível sugerir tags agora.");
+      if (!Array.isArray(data?.tags) || !data.tags.length) {
+        throw new Error("Não foi possível sugerir tags agora.");
+      }
+      setTags((current) => Array.from(new Set([...current, ...data.tags])));
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Não foi possível sugerir tags agora.");
     } finally {
       setIsGeneratingTags(false);
     }
   };
-  const issues = useMemo(() => getCourseDraftIssues(payload), [payload]);
+  const issues = useMemo(() => [
+    ...getCourseDraftIssues(payload),
+    ...(thumbnailUploading ? ["Aguarde o envio da capa"] : []),
+    ...(compression.isCompressing || ["preparing", "uploading"].includes(mediaUpload.state)
+      ? ["Conclua o envio das mídias das aulas"] : []),
+    ...(materialUploading ? ["Aguarde o envio do material"] : []),
+  ], [payload, thumbnailUploading, compression.isCompressing, mediaUpload.state, materialUploading]);
   const totalUnits = modules.reduce(
     (total, module) => total + module.lessons.length + module.quizzes.length,
     0,
@@ -1628,8 +1680,8 @@ function StudioUploadCurso() {
                   <div>
                     <h2>Pronto para apresentar?</h2>
                     <p>
-                      Confira o que ainda falta. O curso só entra em análise
-                      quando estiver completo.
+                      Após o envio dos arquivos, você pode concluir o curso.
+                      As mídias continuam processando em segundo plano.
                     </p>
                   </div>
                   <div
@@ -2169,7 +2221,11 @@ function LessonEditor({
                   ? "Mídia pronta"
                   : lesson.uploadState === "failed"
                     ? "Falha no processamento"
-                    : "Processando mídia"}
+                    : lesson.uploadState === "uploading" || lesson.uploadState === "preparing"
+                      ? "Enviando mídia"
+                      : lesson.uploadState === "cancelled"
+                        ? "Envio cancelado"
+                        : "Processando em segundo plano"}
               </strong>
               <small>{formatDuration(lesson.duration)}</small>
             </span>
