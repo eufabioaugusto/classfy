@@ -66,8 +66,9 @@ Deno.serve(async (req) => {
     const resolvedItemType = approval?.sourceType || itemType;
     const table = resolvedItemType === "course" ? "courses" : "contents";
     const { data: content } = await service.from(table)
-      .select("creator_id, title, content_type")
+      .select(resolvedItemType === "course" ? "creator_id, title" : "creator_id, title, content_type")
       .eq("id", resolvedContentId)
+      .returns<Array<{ creator_id: string; title: string; content_type?: string }>>()
       .single();
 
     if (content?.creator_id) {
@@ -111,7 +112,7 @@ Deno.serve(async (req) => {
 
       if (
         resolvedItemType === "content" &&
-        ["aula", "podcast"].includes(content.content_type)
+        ["aula", "podcast"].includes(content.content_type ?? "")
       ) {
         EdgeRuntime.waitUntil(service.functions.invoke("transcribe-content", { body: { contentId: resolvedContentId } })
           .then(({ error }) =>
@@ -124,7 +125,9 @@ Deno.serve(async (req) => {
   } catch (error) {
     console.error("approve-content V1 error", error);
     return json({
-      error: error instanceof Error ? error.message : "Unknown error",
+      error: error instanceof Error ? error.message
+        : typeof error === "object" && error !== null && "message" in error
+          ? String(error.message) : "Não foi possível aprovar o conteúdo.",
     }, 400);
   }
 });

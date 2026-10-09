@@ -14,6 +14,8 @@ import { FeaturedBadge } from "@/components/FeaturedBadge";
 import { GlobalLoader } from "@/components/GlobalLoader";
 import { ContentAnalysisModal } from "@/components/ContentAnalysisModal";
 
+import { moderationErrorMessage } from "@/lib/studio/moderationError";
+
 interface Content {
   id: string;
   source_id: string;
@@ -129,7 +131,7 @@ export default function AdminContents() {
       setContents(prev => prev.filter(c => c.id !== contentId));
     } catch (error: any) {
       console.error('Error approving content:', error);
-      toast.error(error.message || "Erro ao aprovar");
+      toast.error(await moderationErrorMessage(error, "Não foi possível aprovar o conteúdo."));
     } finally {
       setProcessingId(null);
     }
@@ -154,7 +156,7 @@ export default function AdminContents() {
       setContents(prev => prev.filter(c => c.id !== contentId));
     } catch (error: any) {
       console.error('Error rejecting content:', error);
-      toast.error(error.message || "Erro ao reprovar");
+      toast.error(await moderationErrorMessage(error, "Não foi possível reprovar o conteúdo."));
     } finally {
       setProcessingId(null);
     }
@@ -167,7 +169,7 @@ export default function AdminContents() {
       for (const contentId of Array.from(selectedContents)) {
         const content = contents.find(c => c.id === contentId);
         if (!content) continue;
-        await supabase.functions.invoke('approve-content', {
+        const { error } = await supabase.functions.invoke('approve-content', {
           body: { 
             contentId: content.source_id,
             submissionId: content.submission_id,
@@ -175,13 +177,14 @@ export default function AdminContents() {
             reason: reason.trim(),
           },
         });
+        if (error) throw error;
       }
       toast.success(`${selectedContents.size} conteúdos aprovados!`);
       setContents(prev => prev.filter(c => !selectedContents.has(c.id)));
       setSelectedContents(new Set());
     } catch (error: any) {
       console.error('Error bulk approving:', error);
-      toast.error(error.message || "Erro ao aprovar");
+      toast.error(await moderationErrorMessage(error, "Não foi possível aprovar o conteúdo."));
     }
   };
   const handleBulkReject = async () => {
@@ -201,7 +204,7 @@ export default function AdminContents() {
       setContents(prev => prev.filter(c => !selectedContents.has(c.id)));
       setSelectedContents(new Set());
     } catch (error: any) {
-      toast.error(error.message || "Erro ao reprovar");
+      toast.error(await moderationErrorMessage(error, "Não foi possível reprovar o conteúdo."));
     }
   };
 
