@@ -1,6 +1,7 @@
 import ExpoModulesCore
 import ExpoCamera
 import AVFoundation
+import UIKit
 
 struct StudioClipRecord: Record {
   @Field var uri: String = ""
@@ -47,10 +48,16 @@ public final class ClassfyStudioMediaModule: Module {
   private let recipeEngine = StudioRecipeEngine()
   private let transcription = StudioTranscription()
   private let cameraControls = StudioCameraControls()
+  private var selectionFeedback: UISelectionFeedbackGenerator?
+  private var lastSelectionFeedbackAt: TimeInterval?
 
   public func definition() -> ModuleDefinition {
     Name("ClassfyStudioMedia")
     Events("onExportProgress", "onTranscriptionProgress")
+
+    AsyncFunction("performStudioSelectionFeedbackAsync") { () -> Bool in
+      self.performSelectionFeedback()
+    }.runOnQueue(.main)
 
     AsyncFunction("getMediaInfoAsync") { (uri: String) async throws -> [String: Any] in
       try await self.engine.mediaInfo(uri)
@@ -193,6 +200,24 @@ public final class ClassfyStudioMediaModule: Module {
       throw StudioRecipeError.invalid("Abra a prévia novamente para continuar.")
     }
     return view
+  }
+
+  private func performSelectionFeedback() -> Bool {
+    guard UIApplication.shared.applicationState == .active else {
+      selectionFeedback = nil
+      lastSelectionFeedbackAt = nil
+      return false
+    }
+    let now = ProcessInfo.processInfo.systemUptime
+    if let last = lastSelectionFeedbackAt, now - last < 0.07 { return false }
+    let generator = selectionFeedback ?? UISelectionFeedbackGenerator()
+    selectionFeedback = generator
+    lastSelectionFeedbackAt = now
+    generator.selectionChanged()
+    // Preparing after this tick reduces latency for a subsequent snap. Apple
+    // does not promise a benefit from preparing immediately before a tick.
+    generator.prepare()
+    return true
   }
 
   private func cameraView(_ tag: Int) throws -> CameraView {

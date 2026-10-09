@@ -64,6 +64,20 @@ A UI publica sua posição para preparar miniaturas, régua e camadas sem depend
 
 497/497 testes Studio, TypeScript e diff check passaram. Os testes exercitam os componentes Babel reais e os registries instalados em 60/120Hz, mídia com cadência irregular, timestamps duplicados, espera/retomada, EOF e cobertura das células sem evento de scroll, inclusive em take de uma hora. O Simulator CREATOR confirmou régua alinhada ao contador, replay, zoom ampliado e término em 8,5s na fixture nativa. Isso não substitui a repetição deste cenário específico no iPhone. A entrega continua JS pelo Metro/túnel existente do Classfy Dev, sem build novo ou publicação web.
 
+## Arraste do principal, proporções e feedback — sexta rodada de 09/10/2026
+
+Fabio confirmou a correção anterior do sincronismo/faixa no iPhone: “Melhorou, resolvi dessa questão”. O novo relato trata do arraste do vídeo principal, das proporções das ferramentas e do feedback sensorial ao encaixar nas guias.
+
+O pan do principal selecionado exigia 150ms de pressão antes de ativar. No recognizer iOS do RNGH2.28 instalado, movimento maior que 10 pontos durante essa espera faz o gesto falhar. Removemos a espera do corpo já selecionado, conservando a seleção no primeiro toque, os recognizers estáveis, a pinça e os cantos separados. O teste reproduz deslocamento de 16 pontos em 40ms antes de executar os callbacks reais: a versão anterior falhava, e o arraste corrigido grava posição sem alterar tamanho ou cursor, inclusive com Babel/worklets e filas UI/JS independentes.
+
+A seleção da prévia agora usa um contorno fino, pontos menores e somente o frame do elemento; o contorno adicional do canvas saiu. As alças da timeline ficaram mais largas, com chevrons e amarelo vivo. Cabeçalho, transporte e ferramentas contextuais usam proporções menores; os alvos dos controles permanecem alcançáveis. Nos trechos curtos, os alvos das duas alças são separados no meio do trecho e estendidos para fora, preservando o tempo real e evitando que tocar o início acione o fim.
+
+O encaixe produz feedback somente ao adquirir uma guia/alvo novo. Aquisições antigas são descartadas após sair da guia, cancelar, terminar, trocar seleção, interromper ou desmontar. O módulo Swift usa `UISelectionFeedbackGenerator` na main queue, retém o generator, prepara o próximo tick e limita chamadas a uma por 70ms com o app ativo. Não há vibrador genérico de 400ms como substituição. A presença do método é opcional: o Classfy Dev antigo continua editando normalmente, mas a vibração exige rebuild/instalação do binário novo. As alterações de arraste e interface chegam pelo Metro/túnel existente.
+
+537/537 testes Studio, TypeScript e diff check passaram. As regressões executam os callbacks reais com Babel/worklets, qualificam o pan do principal no recognizer instalado, descartam feedback atrasado e verificam os dois alvos/cortes em trechos de 6, 8 e 36 pontos. Builds Debug para Simulator CREATOR e dispositivo iOS genérico passaram com a função Swift. A inspeção do Classfy Dev antigo pelo túnel confirmou compatibilidade, bordas/alças e ferramentas compactas; os comandos AX de posição/tamanho renderizaram a alteração e o undo. O mouse CUA não confirmou arraste contínuo, e o simulador não comprova sensação háptica. Esses dois aceites continuam físicos. O bundle iOS atualizado respondeu HTTP200 pelo Metro existente; o novo build nativo está preparado, sem instalação no iPhone remoto, push ou publicação web.
+
+Referência nativa: [Apple — UISelectionFeedbackGenerator](https://developer.apple.com/documentation/uikit/uiselectionfeedbackgenerator).
+
 ## Origem dos requisitos
 
 Os prints, gravações e orientações do Fabio são a referência de produto: edição direta na prévia, corte integrado à timeline, ferramentas contextuais e seleção que não salta o cursor. CapCut e Edits ajudam a modelar a experiência; a identidade continua Classfy.

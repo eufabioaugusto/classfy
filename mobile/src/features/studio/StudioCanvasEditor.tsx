@@ -5,6 +5,7 @@ import Animated, { runOnJS, runOnUI, useAnimatedStyle, useSharedValue, type Shar
 import type { StudioEditing, StudioRecipeClip, StudioRenderRecipe } from './model';
 import { studioCanvasFocalPoint, studioCanvasFrame, studioCanvasHandleCanvasPosition, studioCanvasMove, studioCanvasPinch, studioCanvasResize, studioCanvasScale, studioCanvasSnapCenter, studioCanvasTransformChanged,
   studioVisibleCanvasLayers, type StudioCanvasCorner, type StudioCanvasFrame, type StudioCanvasSnapState, type StudioCanvasTransform } from './canvasGeometry';
+import { performStudioSnapFeedback } from './snapFeedback';
 
 export type { StudioCanvasTransform } from './canvasGeometry';
 export type StudioCanvasEditorProps = {
@@ -53,6 +54,7 @@ function CanvasLayer(props: LayerProps) {
   const transaction = useRef<{ epoch: number; finishing: boolean } | undefined>(undefined);
   const cancelledThrough = useRef(-1);
   const accessibilitySequence = useRef(0), accessibilityRequest = useRef<number | undefined>(undefined);
+  const lastSnapFeedback = useRef<{ epoch: number; at: number } | undefined>(undefined);
   const [error, setError] = useState<string>();
   const rect = useSharedValue({ ...clip.rect });
   const font = useSharedValue(clip.text?.fontSize ?? 0);
@@ -62,7 +64,7 @@ function CanvasLayer(props: LayerProps) {
   const pinchFocal = useSharedValue({ x: 0, y: 0 });
   const mask = useSharedValue(0), epoch = useSharedValue(0), pending = useSharedValue(false), cancelled = useSharedValue(false);
   const panOriginX = useSharedValue(0), panOriginY = useSharedValue(0), panLastX = useSharedValue(0), panLastY = useSharedValue(0);
-  const cornerOwner = useSharedValue(''), lastPreview = useSharedValue(0);
+  const cornerOwner = useSharedValue(''), lastPreview = useSharedValue(0), snapRevision = useSharedValue(0);
   const snap = useSharedValue<StudioCanvasSnapState>({ x: false, y: false });
   const configuration = useSharedValue({ selected, disabled: !!disabled, width: frame.width, height: frame.height, rotation: clip.rotationDegrees, suspended: false });
   const panEpoch = useSharedValue(-1), pinchEpoch = useSharedValue(-1), handleEpoch = useSharedValue(-1);
@@ -73,16 +75,34 @@ function CanvasLayer(props: LayerProps) {
   };
   const clearGuides = () => {
     'worklet';
+    snapRevision.value++;
     snap.value = { x: false, y: false };
     if (guides.value.owner === clip.id) guides.value = { owner: '', x: false, y: false };
+  };
+  const feedbackJS = (value: number, revision: number) => {
+    const active = transaction.current;
+    if (!mounted.current || !live.current.selected || live.current.disabled || active?.epoch !== value || active.finishing
+      || value !== epoch.value || owner.value !== clip.id || pending.value || cancelled.value || !(mask.value & 1)
+      || revision !== snapRevision.value || guides.value.owner !== clip.id || !(snap.value.x || snap.value.y)) return;
+    // Budget only feedback which is still valid when delivered. A queued
+    // acquisition that left/reentered must not suppress the newer request.
+    const now = Date.now(), previous = lastSnapFeedback.current;
+    if (previous?.epoch === value && now - previous.at < 16) return;
+    lastSnapFeedback.current = { epoch: value, at: now };
+    performStudioSnapFeedback();
   };
   const movePan = (translationX: number, translationY: number) => {
     'worklet';
     const settings = configuration.value;
     const candidate = studioCanvasMove(panBase.value, translationX - panOriginX.value, translationY - panOriginY.value, settings.width, settings.height);
-    const next = studioCanvasSnapCenter(candidate, settings.width, settings.height, snap.value);
+    const previous = snap.value;
+    const next = studioCanvasSnapCenter(candidate, settings.width, settings.height, previous);
+    if (next.snap.x !== previous.x || next.snap.y !== previous.y) snapRevision.value++;
     rect.value = next.rect; snap.value = next.snap;
     guides.value = { owner: clip.id, ...next.snap };
+    // One acquisition request covers both axes. Coalesce closely spaced UI
+    // updates, while steady alignment and leaving a guide remain silent.
+    if (next.snap.x && !previous.x || next.snap.y && !previous.y) runOnJS(feedbackJS)(epoch.value, snapRevision.value);
   };
   const synchronize = () => {
     rect.value = { ...live.current.clip.rect }; font.value = live.current.clip.text?.fontSize ?? 0;
@@ -214,8 +234,9 @@ function CanvasLayer(props: LayerProps) {
     // Keep native recognizers and their relationships stable throughout a touch.
     // Gating on touch-down prevents a tap which selects a layer from activating
     // a newly enabled pan while that same touch is ending.
-    const pan = Gesture.Pan().minDistance(4).averageTouches(true);
-    if (main) pan.activateAfterLongPress(150);
+    // Selection already reserves the body for editing. A long-press qualifier
+    // would fail an ordinary drag before its delay on iOS, unlike the layers.
+    const pan = Gesture.Pan().minDistance(4).averageTouches(true).shouldCancelWhenOutside(false);
     pan.onTouchesDown((_, manager) => {
       'worklet';
       const settings = configuration.value;
@@ -403,10 +424,9 @@ function CanvasCornerHandle({ gesture, corner, rect, frame, rotationDegrees, sel
 const styles = StyleSheet.create({
   canvas: { position: 'absolute', overflow: 'hidden' },
   layer: { position: 'absolute', backgroundColor: 'transparent' },
-  outline: { ...StyleSheet.absoluteFillObject, borderWidth: 1.5, borderColor: '#FFD45C', borderRadius: 1,
-    shadowColor: '#000', shadowRadius: 1, shadowOpacity: 0.8, shadowOffset: { width: 0, height: 0 } },
+  outline: { ...StyleSheet.absoluteFillObject, borderWidth: 1, borderColor: '#FFDB00', borderRadius: 1 },
   handleTarget: { position: 'absolute', zIndex: 1000, width: 32, height: 32, alignItems: 'center', justifyContent: 'center' },
-  handle: { width: 12, height: 12, borderRadius: 3, backgroundColor: '#FFD45C', borderWidth: 1.5, borderColor: '#20242B' },
+  handle: { width: 8, height: 8, borderRadius: 4, backgroundColor: '#FFF9E8', borderWidth: 1, borderColor: '#FFDB00' },
   guides: { zIndex: 1001 },
   guideVertical: { position: 'absolute', left: '50%', top: 0, bottom: 0, width: 1, transform: [{ translateX: -0.5 }], backgroundColor: '#4AA3FF' },
   guideHorizontal: { position: 'absolute', top: '50%', left: 0, right: 0, height: 1, transform: [{ translateY: -0.5 }], backgroundColor: '#4AA3FF' },

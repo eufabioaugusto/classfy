@@ -25,7 +25,7 @@ function harness(options = {}) {
       ...(options.kind === 'video' ? { sourceStartTicks: 0, sourceEndTicks: studioTicks(2) } : {}) };
   }
   editing = addStudioLayerItem(editing, item);
-  const contexts = new Map(), queue = [], uiQueue = [], selections = [], previews = [], commits = [], events = [], edits = [], playback = [], appStateListeners = new Set();
+  const contexts = new Map(), queue = [], uiQueue = [], selections = [], previews = [], commits = [], events = [], edits = [], playback = [], feedback = [], appStateListeners = new Set();
   let current, now = 1000, resolveCommit;
   let runtime = 'js';
   const onUI = callback => (...args) => { const before = runtime; runtime = 'ui'; try { return callback(...args); } finally { runtime = before; } };
@@ -73,6 +73,7 @@ function harness(options = {}) {
       Race: (...items) => ({ kind: 'race', items }), Simultaneous: (...items) => ({ kind: 'simultaneous', items }), Exclusive: (...items) => ({ kind: 'exclusive', items }),
     } },
     './canvasGeometry': geometry,
+    './snapFeedback': { performStudioSnapFeedback: () => feedback.push(now) },
   };
   const module = { exports: {} };
   const compiled = ts.transpileModule(options.worklets ? workletSource : source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX } }).outputText;
@@ -115,7 +116,7 @@ function harness(options = {}) {
   const flushUI = () => { while (uiQueue.length) uiQueue.shift()(); };
   const pump = async () => { flushUI(); flush(); await new Promise(resolve => setImmediate(resolve)); flushUI(); flush(); draw(); flushUI(); flush(); };
   draw(); scope('root').tree.props.onLayout({ nativeEvent: { layout: { width: 320, height: 300 } } }); draw(); flushUI(); flush();
-  return { selections, previews, commits, events, edits, playback, queue, uiQueue, getGesture, body, flush, flushUI, pump,
+  return { selections, previews, commits, events, edits, playback, feedback, queue, uiQueue, getGesture, body, flush, flushUI, pump,
     accessibility: (action, id = 'title') => bodyDetector(id).props.children.props.onAccessibilityAction({ nativeEvent: { actionName: action } }),
     update: next => { props = { ...props, ...next }; draw(); },
     layout: (width, height) => { scope('root').tree.props.onLayout({ nativeEvent: { layout: { width, height } } }); draw(); },
@@ -132,10 +133,40 @@ function harness(options = {}) {
     },
     changeAppState: state => { for (const callback of appStateListeners) callback(state); },
     visibleIds: () => [...contexts.keys()].filter(id => id !== 'root' && id !== 'guides'),
+    editing: () => props.editing,
     recipe: () => props.recipe,
     resolve: () => { assert.ok(resolveCommit); resolveCommit(); },
     dispose: () => { for (const context of contexts.values()) for (const slot of context.slots) slot?.cleanup?.(); },
   };
+}
+
+// Exercise touch qualification before invoking the actual component callbacks.
+// RNGH 2.28's iOS recognizer fails a pending long-press pan after >10pt of
+// movement, and resets translation when an ordinary distance pan activates.
+// Calling onStart directly would conceal that failure in the selected main.
+function nativeBodyDrag(view, id, moves, cancel = false) {
+  const pan = view.getGesture('pan', id);
+  let failed = false, activated = false, origin = { x: 0, y: 0 };
+  pan.handlers.onTouchesDown({}, { fail: () => { failed = true; } });
+  for (const move of moves) {
+    view.setNow(1000 + move.elapsed);
+    if (failed) break;
+    if (!activated) {
+      const hold = pan.configuration.activateAfterLongPress;
+      if (hold !== undefined && move.elapsed < hold && Math.hypot(move.x, move.y) > 10) { failed = true; break; }
+      if (hold !== undefined ? move.elapsed < hold : Math.hypot(move.x, move.y) < (pan.configuration.minDistance ?? 0)) continue;
+      activated = true; origin = move;
+      pan.handlers.onStart({ translationX: 0, translationY: 0 }); view.flush();
+    }
+    pan.handlers.onUpdate({ translationX: move.x - origin.x, translationY: move.y - origin.y }); view.flush();
+  }
+  if (activated) {
+    const last = moves.at(-1);
+    if (cancel) pan.handlers.onTouchesCancelled({});
+    else pan.handlers.onEnd({ translationX: last.x - origin.x, translationY: last.y - origin.y }, true);
+  }
+  pan.handlers.onFinalize({}, activated && !cancel);
+  return activated;
 }
 
 test('tap seleciona sem alterar tempo, iniciar interação ou salvar; double tap abre texto', () => {
@@ -234,7 +265,7 @@ test('camada fora do tempo não cria área falsa; tap no principal selecionado n
     view.update({ selectedMainClipId: 'main', onSelectMainClip: id => view.selections.push(id) });
     assert.deepEqual(view.visibleIds(), ['main']);
     view.getGesture('tap', 'main').handlers.onEnd({}, true); view.flush(); assert.equal(view.playback.length, 0); assert.deepEqual(view.selections, ['main']);
-    assert.equal(view.getGesture('pan', 'main').configuration.activateAfterLongPress, 150);
+    assert.equal(view.getGesture('pan', 'main').configuration.activateAfterLongPress, undefined);
   } finally { view.dispose(); }
 });
 
@@ -610,5 +641,128 @@ test('cancelar AX durante gravação mantém reserva até persistência resolver
     view.resolve(); await view.pump(); assert.deepEqual(view.events, ['start', 'end']);
     view.accessibility('moveDown'); view.flushUI(); view.flush(); assert.equal(view.commits.length, 2);
     view.resolve(); await view.pump(); assert.deepEqual(view.events, ['start', 'end', 'start', 'end']);
+  } finally { view.dispose(); }
+});
+
+for (const runtime of ['js', 'ui-worklet']) test(`arraste imediato do principal reduzido move a mídia sem resize, seek ou seleção (${runtime})`, async () => {
+  const original = { x: 0, y: 0, width: 0.77, height: 0.77 };
+  const view = harness({ mainRect: original, asyncShared: runtime === 'ui-worklet', worklets: runtime === 'ui-worklet',
+    props: { selectedLayerId: undefined, selectedMainClipId: 'main', onSelectMainClip: id => view.selections.push(id) } });
+  try {
+    // The real model contains a visual overlay. This lower-left body point
+    // hits the main rather than the text or any corner's native touch target.
+    const canvas = geometry.studioCanvasFrame(320, 300, 'landscape');
+    const hit = geometry.studioCanvasHitTest(geometry.studioVisibleCanvasLayers(view.editing(), view.recipe(), 1, true), 40, 170, canvas);
+    assert.equal(hit, 'main');
+    assert.equal(nativeBodyDrag(view, 'main', [{ elapsed: 40, x: 16, y: 0 }, { elapsed: 80, x: 48, y: 18 }, { elapsed: 120, x: 80, y: 54 }]), true);
+    await view.pump();
+    assert.equal(view.commits.length, 1); assert.equal(view.commits[0].id, 'main');
+    const next = view.commits[0].transform.rect;
+    near(next.x, 64 / 320); near(next.y, 54 / 180);
+    near(next.width, original.width); near(next.height, original.height);
+    assert.deepEqual(view.playback, []); assert.deepEqual(view.selections, []);
+    assert.deepEqual(view.events, ['start', 'end']);
+    assert.equal(view.previews.at(-1).transform, undefined);
+  } finally { view.dispose(); }
+});
+
+test('toque que seleciona principal não começa arraste; o próximo arraste cancelado restaura a mídia', async () => {
+  const original = { x: 0.1, y: 0.1, width: 0.75, height: 0.75 };
+  const view = harness({ mainRect: original, asyncShared: true, worklets: true,
+    props: { selectedLayerId: undefined, onSelectMainClip: id => view.selections.push(id) } });
+  try {
+    const pan = view.getGesture('pan', 'main'); let failed = false;
+    pan.handlers.onTouchesDown({}, { fail: () => { failed = true; } });
+    assert.equal(failed, true);
+    view.getGesture('tap', 'main').handlers.onEnd({}, true); view.flush();
+    view.update({ selectedMainClipId: 'main' }); view.flushUI();
+    // The same touch which selected the clip stays failed; it cannot begin
+    // moving simply because React has now rendered the selected state.
+    assert.equal(view.getGesture('pan', 'main'), pan);
+    assert.deepEqual(view.commits, []); assert.deepEqual(view.events, []);
+    assert.equal(nativeBodyDrag(view, 'main', [{ elapsed: 30, x: 18, y: 0 }, { elapsed: 90, x: 72, y: 32 }], true), true);
+    await view.pump();
+    assert.deepEqual(view.commits, []); assert.deepEqual(view.events, ['start', 'end']);
+    near(view.frame('main').left, original.x * 320); near(view.frame('main').top, original.y * 180);
+    assert.equal(view.previews.at(-1).transform, undefined); assert.deepEqual(view.playback, []);
+  } finally { view.dispose(); }
+});
+
+test('guias X/Y adquiridas juntas têm feedback único, silêncio na permanência e feedback ao reentrar', async () => {
+  const view = harness({ asyncShared: true, worklets: true });
+  try {
+    const pan = view.getGesture('pan'); pan.handlers.onStart(); view.flush();
+    pan.handlers.onUpdate({ translationX: 7, translationY: 18 }); view.flush();
+    assert.deepEqual(view.feedback, [1000]);
+    assert.deepEqual(view.guides().map(guide => guide.opacity), [0.9, 0.9]);
+    view.setNow(1040); pan.handlers.onUpdate({ translationX: 10, translationY: 20 }); view.flush();
+    assert.deepEqual(view.feedback, [1000]);
+    view.setNow(1080); pan.handlers.onUpdate({ translationX: 30, translationY: 45 }); view.flush();
+    assert.deepEqual(view.guides().map(guide => guide.opacity), [0, 0]);
+    assert.deepEqual(view.feedback, [1000]);
+    view.setNow(1120); pan.handlers.onUpdate({ translationX: 6, translationY: 18 }); view.flush();
+    assert.deepEqual(view.feedback, [1000, 1120]);
+    pan.handlers.onTouchesCancelled({}); await view.pump(); assert.deepEqual(view.commits, []);
+  } finally { view.dispose(); }
+});
+
+test('aquisições próximas dos dois eixos são coalescidas; pinça e alças não vibram', async () => {
+  const view = harness({ asyncShared: true, worklets: true });
+  try {
+    const pan = view.getGesture('pan'); pan.handlers.onStart(); view.flush();
+    pan.handlers.onUpdate({ translationX: 7, translationY: 0 }); view.flush();
+    assert.deepEqual(view.guides().map(guide => guide.opacity), [0.9, 0]);
+    view.setNow(1008); pan.handlers.onUpdate({ translationX: 7, translationY: 18 }); view.flush();
+    assert.deepEqual(view.guides().map(guide => guide.opacity), [0.9, 0.9]); assert.deepEqual(view.feedback, [1000]);
+    pan.handlers.onTouchesCancelled({}); await view.pump();
+    const pinch = view.getGesture('pinch'); pinch.handlers.onStart({ focalX: 64, focalY: 18 }); view.flush();
+    pinch.handlers.onEnd({ scale: 1.1 }, true); await view.pump();
+    const corner = view.handle(3); corner.handlers.onStart(); view.flush(); corner.handlers.onEnd({ translationX: 18, translationY: 7 }, true); await view.pump();
+    assert.deepEqual(view.feedback, [1000]);
+  } finally { view.dispose(); }
+});
+
+test('aquisição enfileirada que saiu das guias antes do JS não produz feedback obsoleto', async () => {
+  const view = harness({ rect: { x: 0.28, y: 0.3, width: 0.4, height: 0.2 }, asyncShared: true, worklets: true });
+  try {
+    const pan = view.getGesture('pan'); pan.handlers.onStart(); view.flush();
+    pan.handlers.onUpdate({ translationX: 7, translationY: 18 });
+    assert.deepEqual(view.guides().map(guide => guide.opacity), [0.9, 0.9]);
+    view.setNow(1080); pan.handlers.onUpdate({ translationX: 30, translationY: 45 });
+    assert.deepEqual(view.guides().map(guide => guide.opacity), [0, 0]);
+    view.flush(); assert.deepEqual(view.feedback, []);
+    pan.handlers.onTouchesCancelled({}); await view.pump();
+  } finally { view.dispose(); }
+});
+
+test('sair e reentrar antes do JS invalida aquisição antiga e entrega apenas a atual no mesmo frame', async () => {
+  const view = harness({ rect: { x: 0.28, y: 0.3, width: 0.4, height: 0.2 }, asyncShared: true, worklets: true });
+  try {
+    const pan = view.getGesture('pan'); pan.handlers.onStart(); view.flush();
+    pan.handlers.onUpdate({ translationX: 7, translationY: 18 });
+    pan.handlers.onUpdate({ translationX: 30, translationY: 45 });
+    pan.handlers.onUpdate({ translationX: 7, translationY: 18 });
+    assert.deepEqual(view.guides().map(guide => guide.opacity), [0.9, 0.9]);
+    // Deliver the old acquisition first. It must neither vibrate nor spend
+    // the one-frame feedback budget belonging to the latest acquisition.
+    assert.ok(view.queue.length >= 2); view.queue.shift()();
+    assert.deepEqual(view.feedback, []);
+    view.flush(); assert.deepEqual(view.feedback, [1000]);
+    pan.handlers.onTouchesCancelled({}); await view.pump();
+  } finally { view.dispose(); }
+});
+
+for (const terminal of ['cancel', 'end', 'deselect', 'disable', 'background', 'unmount']) test(`feedback enfileirado não dispara depois de ${terminal}`, async () => {
+  const view = harness({ asyncShared: true, worklets: true });
+  try {
+    const pan = view.getGesture('pan'); pan.handlers.onStart(); view.flush();
+    pan.handlers.onUpdate({ translationX: 7, translationY: 18 }); // UI owns the snap; JS is still queued.
+    if (terminal === 'cancel') pan.handlers.onTouchesCancelled({});
+    if (terminal === 'end') pan.handlers.onEnd({ translationX: 7, translationY: 18 }, true);
+    if (terminal === 'deselect') view.update({ selectedLayerId: undefined });
+    if (terminal === 'disable') view.update({ disabled: true });
+    if (terminal === 'background') view.changeAppState('background');
+    if (terminal === 'unmount') view.dispose();
+    await view.pump(); assert.deepEqual(view.feedback, []);
   } finally { view.dispose(); }
 });

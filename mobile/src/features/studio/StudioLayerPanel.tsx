@@ -109,11 +109,11 @@ export function StudioLayerPanel(props: Props) {
   </View>;
 }
 function Tool({ label, accessibilityLabel, icon: Icon, disabled, onPress, accent, busy }: { label: string; accessibilityLabel?: string; icon: typeof Check; disabled?: boolean; onPress: () => void; accent?: boolean; busy?: boolean }) {
-  return <Pressable accessibilityRole="button" accessibilityLabel={accessibilityLabel || label} accessibilityState={{ disabled, busy }} disabled={disabled} onPress={onPress} style={({ pressed }) => [s.tool, pressed && s.pressed, disabled && s.disabled]}>{busy ? <ActivityIndicator size="small" color={colors.accent} /> : <Icon size={26} color={accent ? colors.accent : colors.text} strokeWidth={1.6} />}<Text style={[s.toolLabel, accent && { color: colors.accent }]}>{label}</Text></Pressable>;
+  return <Pressable accessibilityRole="button" accessibilityLabel={accessibilityLabel || label} accessibilityState={{ disabled, busy }} disabled={disabled} onPress={onPress} style={({ pressed }) => [s.tool, pressed && s.pressed, disabled && s.disabled]}>{busy ? <ActivityIndicator size="small" color={colors.accent} /> : <Icon size={22} color={accent ? colors.accent : colors.text} strokeWidth={1.6} />}<Text style={[s.toolLabel, accent && { color: colors.accent }]}>{label}</Text></Pressable>;
 }
 const s = StyleSheet.create({
   panel: { backgroundColor: colors.surface, borderTopWidth: 1, borderTopColor: colors.borderSubtle, paddingBottom: 6 },
-  tools: { paddingHorizontal: 6, paddingTop: 4, gap: 2 }, tool: { width: 66, height: 72, justifyContent: 'center', alignItems: 'center', gap: 7, borderRadius: 12 },
+  tools: { paddingHorizontal: 8, paddingTop: 6 }, tool: { width: 64, height: 60, justifyContent: 'center', alignItems: 'center', gap: 6, borderRadius: 12 },
   toolLabel: { color: colors.textSecondary, fontSize: 11, fontWeight: '500' }, pressed: { backgroundColor: colors.surfaceMuted }, disabled: { opacity: 0.35 },
   header: { height: 44, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 5 }, icon: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' }, title: { flex: 1, color: colors.text, fontSize: 14, fontWeight: '600', textAlign: 'center' },
   tabs: { flexDirection: 'row', paddingHorizontal: 12, gap: 4 }, tab: { minHeight: 36, flex: 1, paddingHorizontal: 10, alignItems: 'center', justifyContent: 'center', borderRadius: 9 }, tabLabel: { color: colors.muted, fontSize: 13, fontWeight: '500' }, selected: { backgroundColor: colors.surfaceMuted }, selectedLabel: { color: colors.text },

@@ -3,7 +3,7 @@ import { AppState, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Image } from 'expo-image';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, { measure, runOnJS, runOnUI, scrollTo, useAnimatedProps, useAnimatedReaction, useAnimatedRef, useAnimatedScrollHandler, useAnimatedStyle, useDerivedValue, useFrameCallback, useSharedValue, type SharedValue } from 'react-native-reanimated';
-import { ChevronDown, ChevronUp, Film, Mic, Minus, Plus } from 'lucide-react-native';
+import { ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Film, Mic, Minus, Plus } from 'lucide-react-native';
 import { colors } from '@/theme/colors';
 import { formatStudioDuration, formatStudioEditorTime, type StudioTake, type StudioRecipeClip, type StudioEditing } from './model';
 import { canContinueStudioTrim, clampStudioTimelineScale, defaultStudioTimelineScale, freezeStudioTrim, maximumStudioTimelineScale, minimumStudioTimelineScale, studioTimelineLayout, studioTimelineSeconds, studioTimelineTicks, studioTrimRange, type StudioTimelineTrim, type StudioTrimGesture } from './timelineLayout';
@@ -15,6 +15,7 @@ import { snapStudioTimelineRange, studioTimelineSnapPoints, studioTimelineSnapTa
   type StudioTimelineSnapPoint, type StudioTimelineSnapMatch } from './timelineSnap';
 import { advanceStudioTimelinePlayback, resetStudioTimelinePlayback, sampleStudioTimelinePlayback } from './timelinePlayback';
 import type { StudioTimelinePlaybackChannel } from './timelinePlaybackChannel';
+import { performStudioSnapFeedback } from './snapFeedback';
 
 export type { StudioTimelineTrim } from './timelineLayout';
 export type { StudioLayerTimelineRange } from './layerTimelineInteraction';
@@ -38,10 +39,19 @@ const tileWidth = 48;
 const preparedWindowStep = tileWidth * 2;
 const visibleLaneCount = 3;
 const laneHeight = 44;
-const handleInset = 28;
-const snapColor = '#FFD54A';
+const handleInset = 44;
+const handleTouchWidth = 44;
+const handleWidth = 18;
+const snapColor = '#FFDB00';
 const noLayers: readonly StudioRecipeClip[] = [];
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
+
+function trimHandleLayout(width: number, edge: Edge) {
+  'worklet';
+  const inside = Math.min(handleTouchWidth / 2, width / 2);
+  return { outside: handleTouchWidth - inside, visualWidth: Math.min(handleWidth, width),
+    visualOffset: (edge === 'start' ? 1 : -1) * (handleTouchWidth / 2 - inside) };
+}
 
 export function StudioTimeline({ playbackChannel, layers: providedLayers = [], editing, selectedLayerId, onSelectLayer, onEditLayer, onMoveLayer, onLayerTrimPreview, onLayerTrimCommit, onLayerInteractionStart, onLayerInteractionEnd, takes, position, playing = false, loading = false, activeTakeId, audio = false, onSeek, onSelect, compact = false, previewOnly = false, locked = false, busy = false, cancelEpoch = 0, onAppend, onScrubStart, onTrimChange, onTrimCommit, onTrimCancel, pixelsPerSecond = defaultStudioTimelineScale }: {
   playbackChannel?: SharedValue<StudioTimelinePlaybackChannel>;
@@ -133,6 +143,7 @@ export function StudioTimeline({ playbackChannel, layers: providedLayers = [], e
   const blocked = useSharedValue(!!busy);
   const lastVisible = useSharedValue(0);
   const publishedOffset = useSharedValue(0);
+  const feedbackSnap = useSharedValue<{ epoch: number; seconds: number } | null>(null);
   const lastSeek = useSharedValue(0);
   const lastPreview = useSharedValue(0);
   const pinchScale = useSharedValue(scale);
@@ -216,6 +227,19 @@ export function StudioTimeline({ playbackChannel, layers: providedLayers = [], e
   const receivePinching = useCallback((value: boolean, expected: number) => {
     if (mounted.current && m.epoch.value === expected && (!value || m.phase.value === 4)) setPinching(value);
   }, []);
+  const receiveSnapFeedback = useCallback((expected: number, seconds: number) => {
+    if (!mounted.current || !foreground.value || blocked.value || m.epoch.value !== expected || ![3, 7, 8].includes(m.phase.value)
+      || !m.snap.value || Math.abs(m.snap.value.seconds - seconds) >= 1 / 120000
+      || m.phase.value === 3 && gesture.current?.epoch !== expected) return;
+    performStudioSnapFeedback();
+  }, []);
+  useAnimatedReaction(() => ({ epoch: m.epoch.value, phase: m.phase.value, foreground: foreground.value, blocked: blocked.value, snap: m.snap.value }), state => {
+    if (!state.foreground || state.blocked || ![3, 7, 8].includes(state.phase) || !state.snap) { feedbackSnap.value = null; return; }
+    const previous = feedbackSnap.value;
+    if (previous?.epoch === state.epoch && Math.abs(previous.seconds - state.snap.seconds) < 1 / 120000) return;
+    feedbackSnap.value = { epoch: state.epoch, seconds: state.snap.seconds };
+    runOnJS(receiveSnapFeedback)(state.epoch, state.snap.seconds);
+  });
   const seekOffset = useCallback((value: number, nextScale: number, epoch: number) => {
     // A queued scrub can arrive after a layer gesture starts or even ends.
     // Bind every seek to the originating operation, including pinch release.
@@ -542,6 +566,16 @@ function TimelineLayer({ item, editing, motion: m, host, strip, viewport, durati
       ? Math.max(rowTop - 2, Math.min(rowTop + (rowCount - 1) * laneHeight - 2, initialTop.value + dragY.value + verticalSteps.value * laneHeight + (initialWindow.value - m.laneStart.value) * laneHeight))
       : top - 2,
   }));
+  const startTouchStyle = useAnimatedStyle(() => ({ left: handleInset - trimHandleLayout(Math.max(8, (end.value - start.value) * m.scale.value), 'start').outside }));
+  const endTouchStyle = useAnimatedStyle(() => ({ right: handleInset - trimHandleLayout(Math.max(8, (end.value - start.value) * m.scale.value), 'end').outside }));
+  const startVisualStyle = useAnimatedStyle(() => {
+    const layout = trimHandleLayout(Math.max(8, (end.value - start.value) * m.scale.value), 'start');
+    return { width: layout.visualWidth, transform: [{ translateX: layout.visualOffset }] };
+  });
+  const endVisualStyle = useAnimatedStyle(() => {
+    const layout = trimHandleLayout(Math.max(8, (end.value - start.value) * m.scale.value), 'end');
+    return { width: layout.visualWidth, transform: [{ translateX: layout.visualOffset }] };
+  });
   useAnimatedReaction(() => ({ phase: m.phase.value, epoch: epoch.value, start: start.value, end: end.value }), value => {
     if (value.phase !== 8 || value.epoch !== m.epoch.value || !original.value) return;
     const now = Date.now();
@@ -678,7 +712,7 @@ function TimelineLayer({ item, editing, motion: m, host, strip, viewport, durati
     <GestureDetector gesture={bodyGesture}><AnimatedPressable disabled={disabled} onPress={onSelect} accessibilityRole="button" accessibilityLabel={`Selecionar camada ${title}`} accessibilityHint="Toque duas vezes para editar. Segure para mover no tempo ou entre faixas." accessibilityState={{ selected, disabled }}
       accessibilityActions={moveEnabled && lanes.length > 1 ? [{ name: 'moveUp', label: 'Mover para a faixa anterior' }, { name: 'moveDown', label: 'Mover para a próxima faixa' }] : undefined}
       onAccessibilityAction={event => { if (event.nativeEvent.actionName === 'moveUp') accessibleMoveLane(-1); else if (event.nativeEvent.actionName === 'moveDown') accessibleMoveLane(1); }}
-      style={[StyleSheet.absoluteFillObject, { left: handleInset, right: handleInset, top: 2, bottom: 2, borderRadius: 7, backgroundColor: tint, borderWidth: selected ? 2 : 1, borderColor: selected ? snapColor : 'rgba(255,255,255,0.1)', paddingHorizontal: selected ? 10 : 9, justifyContent: 'center', overflow: 'hidden' }]}>
+      style={[StyleSheet.absoluteFillObject, { left: handleInset, right: handleInset, top: 2, bottom: 2, borderRadius: 7, backgroundColor: tint, borderWidth: selected ? 3 : 1, borderColor: selected ? snapColor : 'rgba(255,255,255,0.1)', paddingHorizontal: selected ? 14 : 9, justifyContent: 'center', overflow: 'hidden' }]}>
       {thumbnail ? <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFillObject, thumbnailStyle]}>{thumbnailTiles.map(index => <Image key={index} source={{ uri: thumbnail }} pointerEvents="none" contentFit="cover" transition={0} cachePolicy="memory-disk" style={{ position: 'absolute', left: index * tileWidth, width: tileWidth, top: 0, bottom: 0 }} />)}</Animated.View> : <Text numberOfLines={1} style={{ color: colors.text, fontSize: 12, fontWeight: '500' }}>{title}</Text>}
     </AnimatedPressable></GestureDetector>
     {selected && editing && onTrimCommit ? (['start', 'end'] as const).map(edge => <GestureDetector key={edge} gesture={edge === 'start' ? startPan : endPan}><Animated.View
@@ -686,8 +720,8 @@ function TimelineLayer({ item, editing, motion: m, host, strip, viewport, durati
       accessibilityValue={{ min: frozen?.minimumStart ?? 0, max: frozen?.maximumEnd ?? duration, now: edge === 'start' ? item.startTicks / 120000 : (item.startTicks + item.durationTicks) / 120000, text: formatStudioEditorTime(edge === 'start' ? item.startTicks / 120000 : (item.startTicks + item.durationTicks) / 120000) }}
       accessibilityActions={[{ name: 'increment', label: 'Avançar um décimo de segundo' }, { name: 'decrement', label: 'Voltar um décimo de segundo' }]}
       onAccessibilityAction={event => accessibleTrim(edge, event.nativeEvent.actionName === 'increment' ? 0.1 : -0.1)}
-      style={{ position: 'absolute', top: 0, height: laneHeight, width: 32, ...(edge === 'start' ? { left: 0, alignItems: 'flex-end' as const } : { right: 0, alignItems: 'flex-start' as const }), justifyContent: 'center', zIndex: 2 }}>
-      <View style={{ height: laneHeight - 4, width: 8, borderRadius: 4, backgroundColor: snapColor, alignItems: 'center', justifyContent: 'center', opacity: trimEnabled ? 1 : 0.45 }}><View style={{ width: 2, height: 20, borderRadius: 1, backgroundColor: '#0B0E11' }} /></View>
+      style={[{ position: 'absolute', top: 0, height: laneHeight, width: handleTouchWidth, alignItems: 'center', justifyContent: 'center', zIndex: 2 }, edge === 'start' ? startTouchStyle : endTouchStyle]}>
+      <Animated.View pointerEvents="none" style={[{ height: laneHeight - 4, borderRadius: 5, backgroundColor: snapColor, alignItems: 'center', justifyContent: 'center', overflow: 'hidden', opacity: trimEnabled ? 1 : 0.45 }, edge === 'start' ? startVisualStyle : endVisualStyle]}>{edge === 'start' ? <ChevronLeft size={16} strokeWidth={3} color="#0B0E11" /> : <ChevronRight size={16} strokeWidth={3} color="#0B0E11" />}</Animated.View>
     </Animated.View></GestureDetector>) : null}
   </Animated.View>;
 }
@@ -758,7 +792,13 @@ function TrimHandle({ edge, take, index, startSeconds, endSeconds, motion: m, ho
 }) {
   const style = useAnimatedStyle(() => {
     const geometry = studioLiveSegment(startSeconds, endSeconds, index, m.trimIndex.value, m.originalStart.value, m.originalEnd.value, m.start.value, m.end.value, m.scale.value, m.leading.value);
-    return { left: m.viewport.value / 2 + geometry.x + (edge === 'end' ? geometry.width - 4 : -40) };
+    const layout = trimHandleLayout(geometry.width, edge);
+    return { left: m.viewport.value / 2 + geometry.x + (edge === 'end' ? geometry.width - (handleTouchWidth - layout.outside) : -layout.outside) };
+  });
+  const visualStyle = useAnimatedStyle(() => {
+    const geometry = studioLiveSegment(startSeconds, endSeconds, index, m.trimIndex.value, m.originalStart.value, m.originalEnd.value, m.start.value, m.end.value, m.scale.value, m.leading.value);
+    const layout = trimHandleLayout(geometry.width, edge);
+    return { width: layout.visualWidth, transform: [{ translateX: layout.visualOffset }] };
   });
   const pan = useMemo(() => Gesture.Pan().enabled(!disabled).maxPointers(1).minDistance(1).shouldCancelWhenOutside(false).blocksExternalGesture(nativeGesture)
     .onStart(event => {
@@ -785,7 +825,7 @@ function TrimHandle({ edge, take, index, startSeconds, endSeconds, motion: m, ho
       if (!success && m.phase.value === 3) { m.trimIndex.value = -1; m.leading.value = 0; m.virtual.value = 0; m.snap.value = null; m.phase.value = 0; runOnJS(onCancel)(m.epoch.value); }
     }), [disabled, take.id, take.uri, take.start, take.end, take.duration, index, startSeconds, endSeconds, edge, nativeGesture, onBegin, onCommit, onCancel]);
   return <GestureDetector gesture={pan}><Animated.View accessible accessibilityRole="adjustable" accessibilityLabel={edge === 'start' ? 'Início do take' : 'Fim do take'} accessibilityState={{ disabled }} accessibilityValue={{ min: 0, max: take.duration, now: take[edge], text: formatStudioEditorTime(take[edge]) }} accessibilityActions={[{ name: 'increment', label: 'Avançar um décimo de segundo' }, { name: 'decrement', label: 'Voltar um décimo de segundo' }]} onAccessibilityAction={event => { if (!disabled) onAccessibleChange(edge, event.nativeEvent.actionName === 'increment' ? 0.1 : -0.1); }}
-    style={[styles.handleTouch, { top: top - 4, height: height + 8, alignItems: edge === 'start' ? 'flex-end' : 'flex-start' }, style]}><View style={[styles.handle, disabled && { opacity: 0.45 }]}><View style={styles.grip} /></View></Animated.View></GestureDetector>;
+    style={[styles.handleTouch, { top: top - 4, height: height + 8 }, style]}><Animated.View pointerEvents="none" style={[styles.handle, disabled && { opacity: 0.45 }, visualStyle]}>{edge === 'start' ? <ChevronLeft size={16} strokeWidth={3} color="#0B0E11" /> : <ChevronRight size={16} strokeWidth={3} color="#0B0E11" />}</Animated.View></Animated.View></GestureDetector>;
 }
 function AppendButton({ disabled, onPress }: { disabled?: boolean; onPress: () => void }) {
   return <Pressable accessibilityRole="button" accessibilityLabel="Adicionar take à montagem" accessibilityState={{ disabled: !!disabled }} disabled={disabled} onPress={onPress} style={({ pressed }) => [styles.append, disabled && { opacity: 0.4 }, pressed && { backgroundColor: colors.surfaceAlt }]}><Plus size={22} color={colors.text} strokeWidth={1.5} /></Pressable>;
@@ -795,16 +835,15 @@ const styles = StyleSheet.create({
   laneBackground: { position: 'absolute', left: 0, right: 0, borderRadius: 8, backgroundColor: 'rgba(255,255,255,0.035)' },
   snapGuide: { position: 'absolute', width: 0, borderLeftWidth: 1.5, borderStyle: 'dashed', borderColor: snapColor, zIndex: 20 },
   clip: { position: 'absolute', overflow: 'hidden', borderRadius: 7, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.background },
-  selected: { borderWidth: 2, borderColor: snapColor },
+  selected: { borderWidth: 3, borderColor: snapColor },
   audio: { ...StyleSheet.absoluteFillObject, justifyContent: 'center', alignItems: 'center', backgroundColor: colors.surfaceAlt },
   shade: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.15)' },
   tick: { position: 'absolute', width: 1, backgroundColor: colors.mutedDim },
   tickLabel: { position: 'absolute', width: 64, left: -32, top: -17, textAlign: 'center', color: colors.mutedDim, fontSize: 9, fontVariant: ['tabular-nums'] },
   playhead: { position: 'absolute', width: 2, backgroundColor: colors.text, zIndex: 4 },
   playheadCap: { position: 'absolute', width: 6, height: 6, borderRadius: 2, left: -2, top: -2, backgroundColor: colors.text },
-  handleTouch: { position: 'absolute', width: 44, justifyContent: 'center', zIndex: 5 },
-  handle: { width: 8, height: '100%', maxHeight: 72, borderRadius: 3, backgroundColor: snapColor, alignItems: 'center', justifyContent: 'center' },
-  grip: { width: 2, height: 18, borderRadius: 1, backgroundColor: '#0B0E11' },
+  handleTouch: { position: 'absolute', width: handleTouchWidth, alignItems: 'center', justifyContent: 'center', zIndex: 5 },
+  handle: { width: handleWidth, height: '100%', maxHeight: 72, borderRadius: 5, backgroundColor: snapColor, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
   append: { width: 44, height: 44, borderRadius: 11, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, alignItems: 'center', justifyContent: 'center' },
   caption: { flexDirection: 'row', alignItems: 'center', gap: 8, height: 44, paddingHorizontal: 8 },
   laneControls: { flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center' },

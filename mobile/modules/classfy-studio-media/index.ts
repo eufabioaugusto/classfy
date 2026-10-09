@@ -50,6 +50,7 @@ export type StudioExportOptions = {
 export type StudioExportResult = StudioMediaInfo & { uri: string; mimeType: string };
 type StudioMediaEvents = { onExportProgress: (event: { requestId: string; progress: number }) => void; onTranscriptionProgress: (event: { requestId: string; stage: string; progress: number }) => void };
 declare class StudioMediaModule extends NativeModule<StudioMediaEvents> {
+  performStudioSelectionFeedbackAsync?(): Promise<boolean>;
   getStudioTranscriptionCapabilitiesAsync(locale: string): Promise<StudioTranscriptionCapabilities>;
   installStudioTranscriptionModelAsync(requestId: string, locale: string): Promise<StudioTranscriptionCapabilities>;
   transcribeStudioAsync(requestId: string, uri: string, locale: string): Promise<StudioTranscript>;
@@ -80,6 +81,10 @@ declare class StudioMediaModule extends NativeModule<StudioMediaEvents> {
 const native = requireOptionalNativeModule<StudioMediaModule>('ClassfyStudioMedia');
 
 export function isStudioMediaAvailable() { return !!native; }
+export async function performStudioSelectionFeedbackAsync(): Promise<boolean> {
+  if (typeof native?.performStudioSelectionFeedbackAsync !== 'function') return false;
+  return (await native.performStudioSelectionFeedbackAsync()) === true;
+}
 export function isStudioCameraControlsAvailable() {
   return !!native && typeof native.getStudioCameraCapabilitiesAsync === 'function' &&
     typeof native.configureStudioCameraAsync === 'function' && typeof native.setStudioCameraZoomAsync === 'function' &&

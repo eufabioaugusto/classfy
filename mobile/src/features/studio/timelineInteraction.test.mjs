@@ -26,6 +26,12 @@ const compileNative = () => nativeCompiled ||= transformFileSync(fileURLToPath(n
 }).code;
 const take = id => ({ id, uri: `file:///${id}.mp4`, name: id, duration: 10, start: 2, end: 8, thumbnailUri: `file:///${id}.jpg` });
 const equalDependencies = (a, b) => !!a && !!b && a.length === b.length && a.every((value, index) => Object.is(value, b[index]));
+const resolveStyle = style => Object.assign({}, ...[].concat(style || []).flat(Infinity).filter(Boolean).map(value => value.__style ? value.__style() : value));
+const layerVisibleWidth = tree => {
+  const parent = resolveStyle(tree.props.style), body = resolveStyle(tree.props.children[0].props.children.props.style);
+  return parent.width - body.left - body.right;
+};
+const layerVisibleLeft = tree => resolveStyle(tree.props.style).left + resolveStyle(tree.props.children[0].props.children.props.style).left;
 
 // UI worklets and JS callbacks have independent queues. This executes the
 // component's real handlers while allowing either side of a gesture race to
@@ -50,6 +56,7 @@ function harness(options = {}) {
   const commits = [];
   const cancellations = [];
   const scrolls = [];
+  const feedbacks = [];
   const appStateListeners = new Set();
   const context = key => {
     if (!contexts.has(key)) contexts.set(key, { slots: [], cursor: 0, effects: [], dirty: true, reactions: [], frames: [] });
@@ -123,9 +130,10 @@ function harness(options = {}) {
     'react-native': { AppState: { addEventListener: (_event, callback) => { appStateListeners.add(callback); return { remove: () => appStateListeners.delete(callback) }; } }, Pressable: 'pressable', Text: 'text', View: 'view', StyleSheet: { create: styles => styles } },
     'expo-image': { Image: 'image' }, 'react-native-reanimated': reanimated,
     'react-native-gesture-handler': { GestureDetector: 'gesture-detector', Gesture: { Native: () => gesture('native'), Pinch: () => gesture('pinch'), Pan: () => gesture('pan'), Tap: () => gesture('tap'), Race: (...gestures) => ({ kind: 'race', gestures }) } },
-    'lucide-react-native': { ChevronDown: 'chevron-down', ChevronUp: 'chevron-up', Film: 'film', Mic: 'mic', Minus: 'minus', Plus: 'plus' },
+    'lucide-react-native': { ChevronDown: 'chevron-down', ChevronLeft: 'chevron-left', ChevronRight: 'chevron-right', ChevronUp: 'chevron-up', Film: 'film', Mic: 'mic', Minus: 'minus', Plus: 'plus' },
     '@/theme/colors': { colors: {} }, './model': model, './timelineLayout': layout, './timelineMotion': motionHelpers,
     './useStudioFilmstrip': { useStudioFilmstrip: () => ({}) }, './layerTimelineInteraction': layerModule.exports, './timelineSnap': snapHelpers, './timelinePlayback': playbackHelpers,
+    './snapFeedback': { performStudioSnapFeedback: () => feedbacks.push(now) },
   };
   const compiled = options.nativeWorklets ? compileNative() : ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX } }).outputText;
   const module = { exports: {} };
@@ -168,11 +176,12 @@ function harness(options = {}) {
   const scrollProps = () => all(context('timeline').tree, node => node.type === 'animated-scroll')[0].props.animatedProps.__props();
   const pinch = () => context('timeline').tree.props.gesture.handlers;
   const m = () => (nodes('TrimHandle')[0] || nodes('TimelineClip')[0]).props.motion;
-  const pan = edge => {
+  const childHandle = edge => {
     const node = nodes('TrimHandle').find(item => item.props.edge === edge);
     assert.ok(node, 'selected trim handle expected');
-    return render(`handle-${edge}`, node.type, node.props).props.gesture.handlers;
+    return render(`handle-${edge}`, node.type, node.props);
   };
+  const pan = edge => childHandle(edge).props.gesture.handlers;
   const childClip = id => {
     const node = nodes('TimelineClip').find(item => item.props.segment.take.id === id);
     return render(`clip-${id}`, node.type, node.props);
@@ -224,7 +233,7 @@ function harness(options = {}) {
   all(context('timeline').tree, node => node.type === 'animated-view' && node.props?.onLayout)[0].props.onLayout({ nativeEvent: { layout: { width: 300 } } });
   renderParent(); flushUI();
   scroll().onScroll({ contentOffset: { x: 60 } }); flushJS(); animate(); flushJS(); scrolls.length = 0;
-  return { scroll, scrollProps, pinch, m, pan, childClip, clipImages, childLayer, snapGuide, nodes, control, laneStatus, seeks, selections, previews, commits, cancellations, scrolls, jsQueue, uiQueue,
+  return { scroll, scrollProps, pinch, m, pan, childHandle, childClip, clipImages, childLayer, snapGuide, nodes, control, laneStatus, seeks, selections, previews, commits, cancellations, scrolls, feedbacks, jsQueue, uiQueue,
     animate, reactions, frame, flushJS, flushUI, stepJS, pump,
     playerPosition: () => context('timeline').reactions.find(reaction => reaction.prepare()?.viewport !== undefined).prepare().position,
     update: next => { props = { ...props, ...next }; renderParent(); },
@@ -512,10 +521,10 @@ test('alça da camada desenha duração no UI, confirma uma vez e não desloca c
     onLayerTrimCommit: (id, range) => { commits.push({ id, range }); return new Promise(done => { resolve = done; }); } });
   try {
     const tree = view.childLayer('title'); const edge = tree.props.children[1][1]; const pan = edge.props.gesture.handlers;
-    assert.ok(edge.props.children.props.style.width >= 32, 'touch surface is at least32pt');
+    assert.ok(resolveStyle(edge.props.children.props.style).width >= 44, 'touch surface is at least44pt');
     pan.onStart({ absoluteX: 180 }); view.flushJS();
     pan.onUpdate({ absoluteX: 240, translationX: 60 });
-    assert.equal(tree.props.style.at(-1).__style().width - 56, 180, 'live width, no second ghost clip');
+    assert.equal(layerVisibleWidth(tree), 180, 'live width, no second ghost clip');
     assert.equal(view.childClip('a').props.style.at(-1).__style().width, 360);
     view.animate(); view.flushJS();
     pan.onEnd(); view.flushJS(); pan.onEnd(); view.flushJS();
@@ -524,9 +533,9 @@ test('alça da camada desenha duração no UI, confirma uma vez e não desloca c
     const saved = layerModule.exports.applyStudioLayerTimelineRange(fixture.editing, 'title', commits[0].range);
     const layers = model.compileStudioRecipe({ kind: 'aula', takes: [], editing: saved }).clips.filter(clip => clip.zIndex > 0);
     view.update({ editing: saved, layers }); const updated = view.childLayer('title');
-    assert.equal(updated.props.style.at(-1).__style().width - 56, 180, 'saved props do not apply trim twice');
+    assert.equal(layerVisibleWidth(updated), 180, 'saved props do not apply trim twice');
     resolve(); await view.pump();
-    assert.equal(view.m().phase.value, 0); assert.equal(updated.props.style.at(-1).__style().width - 56, 180);
+    assert.equal(view.m().phase.value, 0); assert.equal(layerVisibleWidth(updated), 180);
     assert.equal(previews.at(-1).range, undefined);
   } finally { view.dispose(); }
 });
@@ -544,8 +553,8 @@ test('corpo tem hold220ms, doubletap edita; mover só confirma delta e nunca cha
     assert.deepEqual(lifecycle, [], 'selection and editing are not drag operations');
     pan.handlers.onStart({ absoluteX: 180 }); view.flushJS();
     pan.handlers.onUpdate({ absoluteX: 240, translationX: 60 });
-    assert.equal(tree.props.style.at(-1).__style().left + 28, 270);
-    assert.equal(tree.props.style.at(-1).__style().width - 56, 120);
+    assert.equal(layerVisibleLeft(tree), 270);
+    assert.equal(layerVisibleWidth(tree), 120);
     pan.handlers.onEnd(); view.flushJS(); await view.pump();
     assert.deepEqual(moves, [1]); assert.deepEqual(view.seeks, []); assert.equal(view.playerPosition(), 1);
     assert.deepEqual(lifecycle, ['start', 'end']);
@@ -620,7 +629,7 @@ test('hold diagonal muda tempo e faixa no UI e confirma uma única operação se
     pan.onStart({ absoluteX: 180, absoluteY: 105 }); view.flushJS();
     pan.onUpdate({ absoluteX: 240, absoluteY: 133, translationX: 60, translationY: 44 });
     assert.equal(tree.props.style.at(-1).__style().top, top + 44);
-    assert.equal(tree.props.style.at(-1).__style().left + 28, 270);
+    assert.equal(layerVisibleLeft(tree), 270);
     pan.onEnd(); pan.onEnd(); view.flushJS();
     assert.deepEqual(moves, [{ id: 'title', delta: 1, target: 2 }]);
     assert.deepEqual(lifecycle, ['start']);
@@ -629,7 +638,7 @@ test('hold diagonal muda tempo e faixa no UI e confirma uma única operação se
     view.update({ editing: saved, layers: model.compileStudioRecipe({ kind: 'aula', takes: [], editing: saved }).clips.filter(clip => clip.zIndex > 0) });
     const updated = view.childLayer('title'); resolve(); await view.pump();
     assert.equal(updated.props.style.at(-1).__style().top, top + 44);
-    assert.equal(updated.props.style.at(-1).__style().left + 28, 270);
+    assert.equal(layerVisibleLeft(updated), 270);
     assert.deepEqual(lifecycle, ['start', 'end']); assert.deepEqual(view.seeks, []); assert.equal(view.playerPosition(), 1);
   } finally { view.dispose(); }
 });
@@ -676,7 +685,7 @@ test('item agrupado pode sair para Nova faixa sem puxar irmãos nem trocar sua d
     const tree = view.childLayer('title'), pan = tree.props.children[0].props.gesture.gestures[0].handlers;
     pan.onStart({ absoluteX: 180, absoluteY: 100 }); view.flushJS();
     pan.onUpdate({ absoluteX: 420, absoluteY: 128, translationX: 240, translationY: 44 });
-    assert.equal(tree.props.style.at(-1).__style().width - 56, 120);
+    assert.equal(layerVisibleWidth(tree), 120);
     pan.onEnd(); view.flushJS(); await view.pump();
     assert.deepEqual(moves, [{ id: 'title', delta: 4, target: 2 }]);
     assert.equal(fixture.editing.layers[0].items[1].atTicks, model.studioTicks(5));
@@ -898,11 +907,123 @@ test('visual ampliado conserva ordem das faixas acima do main, alças grandes e 
     assert.deepEqual(rows.map(node => node.props.item.zIndex), [1, 2, 3]);
     const layer = view.childLayer('title');
     assert.equal(layer.props.style[0].height, 44);
-    assert.ok(layer.props.children[1].every(node => node.props.children.props.style.width >= 32));
+    assert.ok(layer.props.children[1].every(node => resolveStyle(node.props.children.props.style).width >= 44));
     assert.equal(main.props.height, 72); assert.equal(view.childClip('a').props.children.length, 2, 'filmstrip and shade only; no permanent number/duration labels');
     assert.ok(view.control('Próximas faixas')); assert.ok(view.control('Aumentar zoom da timeline'));
   } finally { view.dispose(); }
 });
+
+test('alças ampliadas centralizam toque na borda real e acompanham corte sem deslocar o cursor', async () => {
+  const view = harness({ nativeSharedValues: true });
+  try {
+    const verifyBorders = () => {
+      const clip = view.childClip('a').props.style.at(-1).__style();
+      for (const edge of ['start', 'end']) {
+        const handle = view.childHandle(edge).props.children;
+        const touch = resolveStyle(handle.props.style), visual = resolveStyle(handle.props.children.props.style);
+        const left = handle.props.style.at(-1).__style().left;
+        assert.equal(left + touch.width / 2 + visual.transform[0].translateX, clip.left + (edge === 'end' ? clip.width : 0), 'the visible handle remains centered on the original edge');
+        assert.ok(touch.width >= 44);
+        assert.ok(visual.width < touch.width, 'visible handle does not consume the entire finger target');
+      }
+    };
+    verifyBorders();
+    const pan = view.pan('start');
+    pan.onStart({ absoluteX: 150 }); view.flushJS(); view.flushUI();
+    pan.onUpdate({ absoluteX: 174, translationX: 24 }); view.flushUI(); verifyBorders();
+    pan.onEnd({ translationX: 24 }, true); await view.pump();
+    assert.equal(view.commits.length, 1); assert.equal(view.commits[0].start, 2.4);
+    assert.equal(view.playerPosition(), 1); assert.deepEqual(view.seeks, []);
+  } finally { view.dispose(); }
+});
+
+test('toque44pt das alças da camada cabe no pai e fica centrado em ambas as bordas', () => {
+  const fixture = layerFixture(), view = harness({ ...fixture, selectedLayerId: 'title', onLayerTrimCommit: async () => {} });
+  try {
+    const layer = view.childLayer('title');
+    const parent = layer.props.style.at(-1).__style();
+    const body = layer.props.children[0].props.children.props.style[1];
+    for (const [index, detector] of layer.props.children[1].entries()) {
+      const touch = resolveStyle(detector.props.children.props.style);
+      const start = index === 0 ? touch.left : parent.width - touch.right - touch.width;
+      const edge = index === 0 ? body.left : parent.width - body.right;
+      assert.equal(start + touch.width / 2, edge);
+      assert.ok(start >= 0 && start + touch.width <= parent.width, 'RN can reach the whole hit area inside its parent bounds');
+      assert.ok(touch.width >= 44);
+    }
+    assert.equal(view.playerPosition(), 1); assert.deepEqual(view.seeks, []);
+  } finally { view.dispose(); }
+});
+
+for (const width of [6, 8, 36]) {
+  for (const edge of ['start', 'end']) {
+    test(`main${width}pt distingue o centro da alça ${edge} e salva o corte real com Babel`, async () => {
+      const short = { ...take('a'), end: 2 + width / 60 }, saves = [];
+      const view = harness({ nativeSharedValues: true, nativeWorklets: true, takes: [short], position: 0,
+        onTrimCommit: async range => saves.push(range) });
+      try {
+        const clip = resolveStyle(view.childClip('a').props.style);
+        const targets = ['start', 'end'].map(name => {
+          const handle = view.childHandle(name).props.children;
+          const touch = resolveStyle(handle.props.style), visual = resolveStyle(handle.props.children.props.style);
+          const expected = clip.left + (name === 'end' ? clip.width : 0);
+          assert.equal(touch.width, 44);
+          assert.ok(Math.abs(touch.left + touch.width / 2 + visual.transform[0].translateX - expected) < 1e-9);
+          assert.ok(visual.width <= clip.width && visual.overflow === 'hidden', 'the yellow handle and chevron cannot cover the neighboring edge');
+          assert.equal(handle.props.children.props.pointerEvents, 'none');
+          return { name, left: touch.left, right: touch.left + touch.width };
+        });
+        assert.ok(targets[0].right <= targets[1].left + 1e-9, 'start and end targets do not overlap');
+        const center = clip.left + (edge === 'end' ? clip.width : 0);
+        assert.deepEqual(targets.filter(target => center >= target.left && center < target.right).map(target => target.name), [edge], 'native hit-testing can only choose the intended handle');
+        const absoluteX = center - view.m().offset.value, translationX = edge === 'start' ? -12 : 12;
+        const pan = view.pan(edge);
+        pan.onStart({ absoluteX }); view.flushJS(); view.flushUI();
+        pan.onUpdate({ absoluteX: absoluteX + translationX, translationX }); view.reactions(); view.flushJS(); view.flushUI();
+        pan.onEnd({ absoluteX: absoluteX + translationX, translationX }, true); await view.pump();
+        assert.equal(saves.length, 1); assert.equal(saves[0].takeId, 'a');
+        assert.equal(saves[0][edge], edge === 'start' ? 1.8 : Math.round((short.end + .2) * 1000) / 1000);
+        assert.deepEqual(view.seeks, []); assert.equal(view.playerPosition(), 0);
+      } finally { view.dispose(); }
+    });
+  }
+  test(`camada${width}pt mantém body no tempo real e oferece centros distintos para ambos os trims`, async () => {
+    for (const edge of ['start', 'end']) {
+      const fixture = layerFixture(), saves = [];
+      fixture.editing.layers[0].items[0].durationTicks = model.studioTicks(width / 60);
+      fixture.layers = model.compileStudioRecipe({ kind: 'aula', takes: [], editing: fixture.editing }).clips.filter(clip => clip.zIndex > 0);
+      const view = harness({ ...fixture, nativeSharedValues: true, nativeWorklets: true, selectedLayerId: 'title',
+        onLayerTrimCommit: async (id, range) => saves.push({ id, range }) });
+      try {
+        const layer = view.childLayer('title'), parent = resolveStyle(layer.props.style), body = resolveStyle(layer.props.children[0].props.children.props.style);
+        const visibleWidth = parent.width - body.left - body.right;
+        assert.ok(Math.abs(parent.left + body.left - 210) < 1e-9, 'the larger transparent wrapper does not move the layer from its original1s');
+        assert.ok(Math.abs(visibleWidth - Math.max(8, width)) < 1e-9);
+        const targets = layer.props.children[1].map((detector, index) => {
+          const handle = detector.props.children, touch = resolveStyle(handle.props.style), visual = resolveStyle(handle.props.children.props.style);
+          const left = index === 0 ? touch.left : parent.width - touch.right - touch.width;
+          const center = index === 0 ? body.left : parent.width - body.right;
+          assert.equal(touch.width, 44); assert.ok(left >= 0 && left + touch.width <= parent.width);
+          assert.ok(Math.abs(left + touch.width / 2 + visual.transform[0].translateX - center) < 1e-9);
+          assert.ok(visual.width <= visibleWidth && visual.overflow === 'hidden');
+          assert.equal(handle.props.children.props.pointerEvents, 'none');
+          return { name: index === 0 ? 'start' : 'end', left, right: left + touch.width, pan: detector.props.gesture.handlers };
+        });
+        assert.ok(targets[0].right <= targets[1].left + 1e-9);
+        const center = edge === 'start' ? body.left : parent.width - body.right;
+        assert.deepEqual(targets.filter(target => center >= target.left && center < target.right).map(target => target.name), [edge]);
+        const absoluteX = parent.left + center - view.m().offset.value, translationX = edge === 'start' ? -12 : 12;
+        const pan = targets.find(target => target.name === edge).pan;
+        pan.onStart({ absoluteX, absoluteY: 45 }); view.flushJS(); view.flushUI();
+        pan.onUpdate({ absoluteX: absoluteX + translationX, absoluteY: 45, translationX, translationY: 0 }); view.reactions(); view.flushJS(); view.flushUI();
+        pan.onEnd({ absoluteX: absoluteX + translationX, absoluteY: 45, translationX, translationY: 0 }, true); await view.pump();
+        assert.equal(saves.length, 1); assert.equal(saves[0].id, 'title');
+        assert.ok(Math.abs(saves[0].range[edge === 'start' ? 'startSeconds' : 'endSeconds'] - (edge === 'start' ? .8 : 1 + width / 60 + .2)) < 1e-5);
+        assert.deepEqual(view.seeks, []); assert.equal(view.playerPosition(), 1);
+      } finally { view.dispose(); }
+    }
+  });
+}
 
 test('snap da alça confirma borda de outra camada, mostra guia no UI e não muda cursor', async () => {
   const fixture = manyLayerFixture(), commits = [];
@@ -921,6 +1042,61 @@ test('snap da alça confirma borda de outra camada, mostra guia no UI e não mud
   } finally { view.dispose(); }
 });
 
+test('feedback acompanha aquisição física do snap sem repetir em updates ou keys coincidentes', () => {
+  const view = harness({ ...manyLayerFixture(), nativeWorklets: true, selectedLayerId: 'title', onLayerTrimCommit: async () => {} });
+  try {
+    const pan = view.childLayer('title').props.children[1][1].props.gesture.handlers;
+    pan.onStart({ absoluteX: 240, absoluteY: 45 }); view.flushJS();
+    const update = translationX => { pan.onUpdate({ absoluteX: 240 + translationX, absoluteY: 45, translationX, translationY: 0 }); view.reactions(); view.flushJS(); };
+    update(55); assert.equal(view.feedbacks.length, 1);
+    update(57); update(60); assert.equal(view.feedbacks.length, 1, 'resting at the same target does not buzz on each display frame');
+    view.m().snap.value = { ...view.m().snap.value, key: 'another-layer:same-edge' }; view.reactions(); view.flushJS();
+    assert.equal(view.feedbacks.length, 1, 'coincident source keys are the same physical alignment');
+    update(177); assert.equal(view.feedbacks.length, 2, 'a different physical edge can give new feedback');
+    pan.onEnd({}, false); pan.onFinalize({}, false); view.reactions(); view.flushJS();
+    assert.equal(view.feedbacks.length, 2, 'cancel and release do not produce feedback');
+    assert.deepEqual(view.seeks, []);
+  } finally { view.dispose(); }
+});
+
+for (const invalidation of ['cancel', 'background', 'unmount', 'new-gesture', 'new-target']) {
+  test(`feedback atrasado de snap não pertence mais ao gesto após ${invalidation}`, () => {
+    const view = harness({ ...manyLayerFixture(), nativeSharedValues: true, nativeWorklets: true, selectedLayerId: 'title', onLayerTrimCommit: async () => {} });
+    try {
+      const pan = view.childLayer('title').props.children[1][1].props.gesture.handlers;
+      pan.onStart({ absoluteX: 240, absoluteY: 45 }); view.flushJS(); view.flushUI();
+      pan.onUpdate({ absoluteX: 295, absoluteY: 45, translationX: 55, translationY: 0 }); view.reactions();
+      assert.equal(view.feedbacks.length, 0, 'JS is still blocked while the yellow guide is already visible');
+      if (invalidation === 'background') { view.appState('background'); view.flushUI(); }
+      else if (invalidation === 'unmount') view.dispose();
+      else if (invalidation === 'new-target') {
+        pan.onUpdate({ absoluteX: 417, absoluteY: 45, translationX: 177, translationY: 0 }); view.reactions();
+      } else {
+        pan.onEnd({}, false); pan.onFinalize({}, false);
+        if (invalidation === 'new-gesture') pan.onStart({ absoluteX: 240, absoluteY: 45 });
+        view.reactions();
+      }
+      view.flushJS(); view.flushUI();
+      assert.equal(view.feedbacks.length, invalidation === 'new-target' ? 1 : 0, 'only a current live target may produce feedback');
+      assert.deepEqual(view.seeks, []);
+    } finally { view.dispose(); }
+  });
+}
+
+test('snap principal só produz feedback enquanto sua operação de corte está ativa', () => {
+  const view = harness({ nativeSharedValues: true, nativeWorklets: true });
+  try {
+    const pan = view.pan('start');
+    pan.onStart({ absoluteX: 150 }); view.flushJS(); view.flushUI();
+    pan.onUpdate({ absoluteX: 205, translationX: 55 }); view.reactions(); view.flushJS(); view.flushUI();
+    assert.equal(view.m().snap.value.seconds, 1); assert.equal(view.feedbacks.length, 1);
+    pan.onUpdate({ absoluteX: 207, translationX: 57 }); view.reactions(); view.flushJS();
+    assert.equal(view.feedbacks.length, 1);
+    pan.onEnd({}, false); pan.onFinalize({}, false); view.reactions(); view.flushJS(); view.flushUI();
+    assert.equal(view.feedbacks.length, 1); assert.deepEqual(view.commits, []); assert.deepEqual(view.seeks, []);
+  } finally { view.dispose(); }
+});
+
 test('snap de move preserva duração e END usa deslocamento final uma vez', async () => {
   const fixture = layerFixture(), moves = [];
   const view = harness({ ...fixture, selectedLayerId: 'title', onMoveLayer: async (_id, delta) => moves.push(delta) });
@@ -929,7 +1105,7 @@ test('snap de move preserva duração e END usa deslocamento final uma vez', asy
     pan.onStart({ absoluteX: 180, absoluteY: 45 }); view.flushJS();
     pan.onEnd({ absoluteX: 357, absoluteY: 45, translationX: 177, translationY: 0 }, true); await view.pump();
     assert.deepEqual(moves, [3], 'end of the 2s layer aligns to the main boundary at6s');
-    assert.equal(tree.props.style.at(-1).__style().width - 56, 120, 'unchanged duration/source speed');
+    assert.equal(layerVisibleWidth(tree), 120, 'unchanged duration/source speed');
     assert.equal(view.m().snap.value, null); assert.deepEqual(view.seeks, []);
   } finally { view.dispose(); }
 });
