@@ -2,143 +2,74 @@
 
 Revisado em 09/10/2026. Este é o comportamento obrigatório para implementação e aceite. Não é uma declaração de que todos os gestos já foram entregues ou validados. A arquitetura e os limites atuais estão em [STUDIO_PREMIUM.md](STUDIO_PREMIUM.md).
 
-## Verificação de 09/10/2026
-
-A pinça usa o ponto focal inicial, inclusive em vídeo principal, texto e itens rotacionados. Alças de cantos fora do canvas são projetadas para dentro da área visível sem mudar o enquadramento real. Tap no principal somente seleciona. O duplo toque de texto é vinculado ao ID e consumido uma vez; seleção, remount e saída de tela não herdam um pedido antigo de teclado.
-
-Seeks enfileirados pertencem ao gesto que os originou e são descartados ao iniciar outro gesto de camada. A timeline mostra três faixas por janela; controles e paginação durante o hold revelam as demais, inclusive áudio, preservando cursor e seleção. Novos elementos manuais/importados ganham faixas independentes. Hold altera tempo e ordem em uma operação; itens antigos agrupados podem ser separados por arraste para outra faixa.
-
-Os callbacks de factories de gestos usam worklets explícitos, conferidos pelo Babel real do Expo54. As alças da prévia são alvos irmãos do corpo, e os recognizers permanecem estáveis durante a transformação. END sem sucesso, cancelamento/background e callbacks atrasados não gravam nem prendem a sessão; uma escrita já iniciada mantém sua reserva até concluir. O scroll nativo não é desligado no início do hold. Os comandos de acessibilidade reservam a operação atomicamente na UI antes de iniciar a persistência no JS, respeitando os SharedValues assíncronos. A importação usa dimensões do picker e libera o raster de fallback; uma segunda ação não libera a sessão de importação que continua pendente.
-
-A preparação nativa espera o item ficar pronto e um seek exato concluído. Comandos de restauração ficam enfileirados sem cancelar esse primeiro quadro. Testes nativos confirmaram vídeo e imagem pausados em zero em três escalas, inclusive após substituição da composição, sem play prévio.
-
-353 testes Studio e typecheck passaram nesta rodada; as regressões cobrem componentes reais com eventos enfileirados, geometria, worklets, foco, faixas, persistência e SharedValues assíncronos. A exportação de fixtures locais no iPhone14 nesta rodada passou com 3s, 1920×1080, 30FPS e áudio. Importar uma imagem e selecionar/confirmar texto liberaram os controles na inspeção do simulador. Comandos AX consecutivos alteraram duração, faixa e tamanho sem mudar o cursor; desfazer restaurou a geometria e reabrir preservou as alterações salvas. O mouse via CUA entregou deslocamento zero nos drags, portanto não comprova arraste contínuo. Pinça, alças, hold e sensação de fluidez por toque físico continuam pendentes de aceite. Nenhum recurso ausente na matriz abaixo foi marcado como implementado por essas correções.
-
-## Interface e guias — segunda rodada de 09/10/2026
-
-Os 15 prints do Edits enviados nesta rodada definem a hierarquia aplicada: cabeçalho compacto, ferramentas maiores por contexto, principal abaixo das camadas, texto roxo e bordas/alças amarelas. Os avisos permanentes de posicionamento, formato, contagem e seleção saíram da tela; ajuda de gestos continua na acessibilidade. A qualidade efetiva permanece acessível no cabeçalho e exibe somente os perfis que o motor realmente exporta.
-
-Texto tem ferramentas rápidas (dividir, editar, duplicar, excluir e opacidade), seguidas de conteúdo, fontes, cores e estilo. A grade oferece seis famílias reais do iOS com amostras, quinze cores, alinhamento, negrito/itálico e fundo. Os painéis de conteúdo e tratamento recolhem transporte/timeline para ampliar a prévia; voltar às ferramentas restaura a timeline no mesmo cursor. A edição de intervalo continua diretamente na faixa, sem modal de corte sobre a montagem. Prévia ampliada mantém reprodução, histórico e uma faixa principal para navegação; retornar restaura retrato.
-
-A prévia encaixa o centro de vídeo principal, texto e imagens/vídeos sobrepostos em X e Y, com guias azuis independentes. A timeline encaixa movimento e alças às bordas de outros elementos/takes e ao cursor, com uma guia amarela tracejada. A tolerância adquire a guia em 8 pontos e libera em 14, usando o deslocamento bruto do dedo; o zoom temporal não altera essa distância visual. Guias são UI transitória, não entram na receita nem na exportação e desaparecem ao terminar/cancelar/interromper o gesto.
-
-Duplicar e dividir camadas mesclam o draft visível com o projeto atual em uma escrita e uma etapa de undo, sem seek provocado pela seleção. Dividir preserva frames, âncoras, alpha e ganho nos pontos permitidos. O schema atual não representa continuidade interna de um fade: dividir dentro de uma rampa fica indisponível, em vez de mudar a curva; suas bordas são permitidas. Abrir tratamento pausa o player e fixa o alvo mesmo com o transporte recolhido.
-
-426/426 testes Studio e typecheck passaram. A inspeção no simulador CREATOR iOS26.5 conferiu seleção e conclusão de texto, grade de fontes, paleta, painel de legendas, abrir/selecionar/cancelar filtro, prévia ampliada e retorno ao retrato, sem bloqueio observado nesses passos. Os testes reais de callbacks/worklets cobrem aquisição/liberação de guias, geometria, cancels, intervalos, cursor e undo. Esta rodada não confirma fluidez por toque físico nem revalida exportação nativa. A tentativa de recarregar o iPhone falhou: CoreDevice listou iPhone F. como unavailable; Metro continua ativo em 8081. Sem push, publicação ou mudança de dependências/motor nativo.
-
-## Reprodução contínua da timeline — terceira rodada de 09/10/2026
-
-O player nativo envia tempo a 15Hz e o fallback Expo a 10Hz. Antes, cada amostra movia a faixa diretamente: no zoom padrão de 60 pontos/s, o avanço nativo acontecia em degraus de 4 pontos; no zoom máximo, 16 pontos. A prévia não era a origem dessa cadência.
-
-`timelinePlayback.ts` sincroniza um relógio visual em `useFrameCallback`, no UI thread do Reanimated. A faixa avança pelo intervalo real de cada quadro, com correção gradual de pequenos desvios entre amostras. Pausa, carregamento, seek e replay usam a posição do player; esse relógio nunca faz seek, muda receita ou grava tempo. O zoom mínimo também conserva movimento fracionário, incluindo a posição final. As camadas compiladas mantêm uma referência estável entre eventos de reprodução.
-
-Gestos, operações pendentes e background interrompem a extrapolação. A confirmação do arraste/pinça protege o destino contra amostras antigas até o player confirmar o seek. O adapter nativo publica pausa imediatamente e rejeita eventos `playing=true` já enfileirados. Sem amostras avançando por 250ms, ou após um quadro suspenso por mais de 100ms, o relógio congela até confirmação fresca; isso também limita buffering em binários antigos que ainda informam a taxa desejada do AVPlayer.
-
-444/444 testes Studio e TypeScript passaram. As regressões executam os handlers reais com amostras a 15Hz, quadros a 60/120Hz, feedback de scroll nativo, SharedValues assíncronos, worklets do preset Expo, pausa/carregamento, operações pendentes, seek, pinça, background e fim da montagem. A confirmação do seek conta tanto antes quanto depois da liberação UI, inclusive com o primeiro Play recebido já além do destino. Inspeção do Simulator CREATOR pelo túnel remoto confirmou Play, avanço e término na posição final, sem erro de renderização. Esta evidência não mede FPS físico do iPhone. Somente JS/TypeScript; sem novo binário, dependências, push ou publicação de produção. Disponível pelo Metro/túnel existente no Classfy Dev.
-
-Referência da API usada: [Reanimated4 — useFrameCallback](https://docs.swmansion.com/react-native-reanimated/docs/advanced/useFrameCallback/).
-
-## Cadência real e eventos nativos na UI — quarta rodada de 09/10/2026
-
-A gravação enviada após a terceira rodada mostrou que o movimento ainda falhava. A régua tinha escala de 180 pixels/s; o recuo visível foi de 28 a 51 pixels, aproximadamente 0,15 a 0,28 segundo, enquanto o vídeo e o contador continuavam. Portanto, o aceite anterior não comprovava fluidez física.
-
-O hook `useFrameCallback` da versão instalada usa a identidade do callback para registrar/remover o loop. O callback inline e o objeto `Motion` recriados pelos renders reiniciavam a cadência; o harness anterior apenas substituía uma referência e não reproduzia esse ciclo. Os callbacks agora usam `useCallback`, worklet explícito e handles estáveis. O novo teste executa o hook e ambos os registries instalados, com React/filas controlados, além do componente transformado pelo Babel/Metro. Com amostras a 15Hz, renders e feedback de scroll, a timeline mantém um único registro em 60/120Hz. O teste de controle reproduz os reinícios da versão inline.
-
-No compositor nativo, `useEvent` recebe `onPlaybackState` no runtime UI do Reanimated, diretamente do evento Fabric, antes da fila JS/React. `timelinePlaybackChannel.ts` define o canal compartilhado entre a prévia e ambas as apresentações da timeline. A UI consome essa amostra e anima cada quadro; React conserva contador, seleção e edição persistente. A cópia JS atrasada nunca substitui a amostra nativa mais recente. Podcast/perfis legados conservam o caminho de amostras JS e o mesmo relógio visual estável.
-
-Um watchdog expirado não equivale a seek: a recuperação mantém a posição visual e corrige a velocidade gradualmente, sem recuos periódicos ou saltos para um timestamp atrasado. Eventos repetidos com mídia congelada não renovam a extrapolação. Pausa, carregamento, erro, seek, inspeção de origem, background e desmontagem continuam interrompendo o avanço. Revisão, token e sequência da intenção protegem o canal e a cópia JS contra confirmações antigas de Play, EOF e comandos assíncronos; o alvo otimista do seek não autoriza amostras antigas enquanto o player ainda navega.
-
-O Simulator CREATOR recebeu os eventos pelo host animado e confirmou Play, pausa em 1,5s, retomada a partir desse instante e término/replay, com régua acompanhando o contador e sem erro de renderização. Isso confirma a integração nativa, mas não mede FPS físico do iPhone nem comprova equivalência absoluta com o Edits. A alteração é JS/TypeScript, usa o binário já instalado e chega pelo Metro/túnel remoto existente; não requer push, publicação de produção, dependências novas ou build nativo.
-
-475/475 testes Studio, TypeScript e `git diff --check` passaram. Regressões de duas corridas foram reproduzidas antes de corrigir: Promise de seek antiga pausando um Play novo e token nativo atual publicando a posição anterior ao seek. Os testes integrados executam adapter e Timeline reais sobre o mesmo canal; a fila JS bloqueada também cobre ACK do seek na UI, novo Play, EOF e Promise atrasada. O bundle iOS atualizado respondeu HTTP 200 pelo túnel remoto, com o canal e as guardas finais presentes.
-
-Fontes técnicas: [Reanimated — memoizar frame callbacks](https://docs.swmansion.com/react-native-reanimated/docs/guides/performance/#-memoize-frame-callbacks), [useEvent](https://docs.swmansion.com/react-native-reanimated/docs/advanced/useEvent/) e [Expo — eventos de views nativas](https://docs.expo.dev/modules/native-view-tutorial/). A [documentação pública da Meta sobre o Edits](https://about.fb.com/news/2025/04/introducing-edits-streamlined-video-creation-app/) descreve precisão de timeline por quadro, mas não identifica seu motor interno. A arquitetura desta rodada foi baseada nas APIs instaladas e no comportamento medido, sem atribuir uma implementação privada à Meta.
-
-## Sincronismo e preparação da faixa — quinta rodada de 09/10/2026
-
-Fabio confirmou que a quarta rodada melhorou fortemente a fluidez e eliminou os travamentos. A gravação seguinte mostrou outro defeito: o fim da faixa chegava antes do vídeo e o restante reaparecia. A régua independente das miniaturas confirma posição visual de aproximadamente 9,63s com contador em 5,5s e recuo de 10,36s para 6,23s. Depois desse recuo, a geometria continuava presente, mas uma parte das miniaturas demorava cerca de 585ms para aparecer. A duração do take não aumentou.
-
-O relógio agora usa o timestamp monotônico do display, ignora o mesmo quadro recebido duas vezes e limita a previsão a 120ms além da última amostra real da mídia. A taxa visual acompanha a cadência observada, sem deixar um player mais lento renovar indefinidamente um relógio a 1x. O fim exige confirmação nativa. Essa proteção cobre deltas incorretos/repetidos e progresso lento; a origem específica do avanço de 1,7x no aparelho não foi comprovada por trace físico.
-
-A UI publica sua posição para preparar miniaturas, régua e camadas sem depender do feedback de `onScroll`. Eventos antigos de rolagem não substituem essa posição durante a reprodução; o gesto físico assume o offset ao começar. A janela React avança em blocos de 96 pontos, com margem de pelo menos 192 pontos de cada lado. Células seguintes já existem com a capa enquanto quadros específicos chegam; a extração continua limitada a 10 timestamps por take/janela e um decoder global. Não se extrai nem se monta a aula inteira. Movimento por quadro permanece na UI e não depende de render React.
-
-497/497 testes Studio, TypeScript e diff check passaram. Os testes exercitam os componentes Babel reais e os registries instalados em 60/120Hz, mídia com cadência irregular, timestamps duplicados, espera/retomada, EOF e cobertura das células sem evento de scroll, inclusive em take de uma hora. O Simulator CREATOR confirmou régua alinhada ao contador, replay, zoom ampliado e término em 8,5s na fixture nativa. Isso não substitui a repetição deste cenário específico no iPhone. A entrega continua JS pelo Metro/túnel existente do Classfy Dev, sem build novo ou publicação web.
-
-## Arraste do principal, proporções e feedback — sexta rodada de 09/10/2026
-
-Fabio confirmou a correção anterior do sincronismo/faixa no iPhone: “Melhorou, resolvi dessa questão”. O novo relato trata do arraste do vídeo principal, das proporções das ferramentas e do feedback sensorial ao encaixar nas guias.
-
-O pan do principal selecionado exigia 150ms de pressão antes de ativar. No recognizer iOS do RNGH2.28 instalado, movimento maior que 10 pontos durante essa espera faz o gesto falhar. Removemos a espera do corpo já selecionado, conservando a seleção no primeiro toque, os recognizers estáveis, a pinça e os cantos separados. O teste reproduz deslocamento de 16 pontos em 40ms antes de executar os callbacks reais: a versão anterior falhava, e o arraste corrigido grava posição sem alterar tamanho ou cursor, inclusive com Babel/worklets e filas UI/JS independentes.
-
-A seleção da prévia agora usa um contorno fino, pontos menores e somente o frame do elemento; o contorno adicional do canvas saiu. As alças da timeline ficaram mais largas, com chevrons e amarelo vivo. Cabeçalho, transporte e ferramentas contextuais usam proporções menores; os alvos dos controles permanecem alcançáveis. Nos trechos curtos, os alvos das duas alças são separados no meio do trecho e estendidos para fora, preservando o tempo real e evitando que tocar o início acione o fim.
-
-O encaixe produz feedback somente ao adquirir uma guia/alvo novo. Aquisições antigas são descartadas após sair da guia, cancelar, terminar, trocar seleção, interromper ou desmontar. O módulo Swift usa `UISelectionFeedbackGenerator` na main queue, retém o generator, prepara o próximo tick e limita chamadas a uma por 70ms com o app ativo. Não há vibrador genérico de 400ms como substituição. A presença do método é opcional: o Classfy Dev antigo continua editando normalmente, mas a vibração exige rebuild/instalação do binário novo. As alterações de arraste e interface chegam pelo Metro/túnel existente.
-
-537/537 testes Studio, TypeScript e diff check passaram. As regressões executam os callbacks reais com Babel/worklets, qualificam o pan do principal no recognizer instalado, descartam feedback atrasado e verificam os dois alvos/cortes em trechos de 6, 8 e 36 pontos. Builds Debug para Simulator CREATOR e dispositivo iOS genérico passaram com a função Swift. A inspeção do Classfy Dev antigo pelo túnel confirmou compatibilidade, bordas/alças e ferramentas compactas; os comandos AX de posição/tamanho renderizaram a alteração e o undo. O mouse CUA não confirmou arraste contínuo, e o simulador não comprova sensação háptica. Esses dois aceites continuam físicos. O bundle iOS atualizado respondeu HTTP200 pelo Metro existente; o novo build nativo está preparado, sem instalação no iPhone remoto, push ou publicação web.
-
-Referência nativa: [Apple — UISelectionFeedbackGenerator](https://developer.apple.com/documentation/uikit/uiselectionfeedbackgenerator).
-
-## Rolagem vertical de camadas — sétima rodada de 09/10/2026
-
-O vídeo do Edits enviado por Fabio mostra somente a pilha de sobreposições rolando dentro de uma área fixa. Principal, régua, playhead, contador e ferramentas ficam ancorados. A camada selecionada pode sair desse recorte mantendo seleção e contorno da prévia; a navegação não altera tempo nem gera edição.
-
-O Studio substitui as setas e os grupos de três por um ScrollView vertical nativo na área das camadas. A área continua mostrando até três faixas por altura, mas todas as faixas são alcançáveis por rolagem contínua. Um gesto comum sobe/desce a pilha; hold continua reservado a mover o elemento no tempo ou entre faixas, e as alças continuam cortando duração. A arbitragem de eixo mantém swipe vertical separado do scrub horizontal; navegar em Y não chama seek, não grava receita, não cria undo nem interrompe o relógio.
-
-O conteúdo tem altura total, fundos de todas as faixas e preparação de uma altura de viewport adicional em cada direção. A UI acompanha o offset fracionário; React prepara linhas somente quando muda a linha visível. O item selecionado permanece montado mesmo fora do recorte, inclusive durante gesto e escrita pendente. O hold usa o deslocamento do dedo mais o avanço vertical real, com autoscroll contínuo nas bordas. Selecionar externamente uma camada fora da janela a revela sem mudar o offset horizontal.
-
-Validação: `npm run test:studio` passou 547/547 e `npm run typecheck` passou. As regressões executam os callbacks transformados pelo Babel real com 13 faixas, relógio a 60/120 Hz, fila JS atrasada, hold até a última faixa, escrita pendente, crescimento da pilha após montagem, pinça e retorno do background. A revisão independente não encontrou bloqueadores. O bundle iOS remoto respondeu HTTP 200 com o ScrollView novo e sem as setas antigas; não houve alteração nativa, rebuild ou push de produção nesta rodada.
-
-QA visual no Simulator CREATOR: 12 sobreposições preparadas, faixas fora do viewport reveladas pela acessibilidade com prévia, seleção e tempo preservados. A fixture foi restaurada, removendo somente as oito cópias temporárias; quatro sobreposições e seis takes originais ficaram intactos. Wheel e drag CUA não produziram swipe iOS e não validam a sensação física. O reveal automático de um texto por AX também moveu X sem seek, comportamento observado anteriormente nessa automação; isso não foi usado para alterar o relógio aprovado no iPhone.
-
-Aceite no iPhone remoto: Fabio recarregou o Classfy Dev e respondeu **“Todas as camadas acessíveis”** ao teste de deslizar verticalmente sobre a pilha sem hold, alcançando texto e legenda fora das três faixas com principal fixo. O teste físico fecha a limitação de gesto da automação do Simulator.
-
-Referências técnicas: [React Native 0.81 — ScrollView](https://reactnative.dev/docs/0.81/scrollview) e [Reanimated 4 — scrollTo na UI thread](https://docs.swmansion.com/react-native-reanimated/docs/scroll/scrollTo/).
-
-## Controles por faixa e transformação nativa — oitava rodada de 09/10/2026
-
-Cada faixa tem controles fixos no extremo esquerdo: olho para ocultar/mostrar conteúdo visual e áudio para silenciar/restaurar vídeo ou áudio. O principal tem seu próprio mute. A coluna acompanha a rolagem vertical na UI e permanece fixa durante navegação horizontal. Ícones de 20 pontos têm alvos de 44 pontos; uma faixa de vídeo expõe os dois controles. Faixas ocultas continuam editáveis e aparecem atenuadas.
-
-`hidden`, `muted` e `mainMuted` são opções reversíveis do documento v2. Compilar aplica opacity/gain zero sem remover intervalos, IDs, mídia ou o ganho original. Os controles preservam cursor/seleção, mesclam o draft visível e geram uma escrita e uma etapa de histórico. Presses tardios, troca de faixa/conta, gesto ou escrita em curso não podem alterar outro alvo. O exportador legado rejeita flags que não conseguiria representar.
-
-O contorno da seleção já movia na UI, mas a imagem ainda seguia drafts JS a cada 33ms, recompilando a composição e substituindo o player. O novo binário confirma capacidade Metal e recebe um canal UI compacto de geometria. `StudioCompositionInteractiveSurface` conserva os quadros do instante pausado e seus grafos Core Image de orientação/tratamento; cada movimento renderiza a composição diretamente na GPU, preservando ordem, alpha, grade e sobreposições. Vision não é repetido por amostra. Texto redimensionado usa o mesmo CoreText da exportação. A fila admite até dois comandos GPU e mantém a geometria mais recente, sem acumular todos os movimentos.
-
-Ao soltar, a receita durável é salva uma vez. A superfície transitória só cede ao primeiro quadro canônico depois de confirmar a escrita. As ordens receita→recibo e recibo→receita, prime tardio, prop canônica antes do patch terminal, ACK de operação anterior e restauração do cursor são protegidas. Mudança real de instante/fonte, background, cancelamento ou remoção encerram a superfície. O Dev anterior conserva o caminho JS compatível; Reload não instala o Swift novo.
-
-Validação: 588/588 testes Studio, TypeScript e diff check passaram. A fixture nativa comparou vídeo principal, PiP, imagem e texto com a receita final e encontrou diferença de pixels 0/255; conferiu protocolo e handoff nas ordens acima. Podcast mutado preservou faixa/duração de 1s com RMS0; restaurar produziu RMS0,088. Substituir composição inicial→mute→unmute manteve frame0 real, cursor0 e pausa, sem quadro preto. Os testes nativos de recipe, compositor e initial-frame também passaram. `test:studio:interaction` integra essa regressão ao runner headless.
-
-QA no Simulator CREATOR: ocultar/restaurar texto e imagem, persistir/recarregar flags e alinhamento da coluna em X/Y passaram. O novo binário manteve a prévia intacta após mute/unmute; reduzir e deslocar o principal por acessibilidade preservou posições dos overlays. Undo restaurou a geometria; quatro overlays, seis takes e 8,5s da fixture foram preservados. Esses comandos não comprovam a cadência do arraste físico. A nova fluidez ainda requer instalação do binário no iPhone e aceite por toque; o aparelho remoto está indisponível ao CoreDevice nesta rodada.
-
-Builds Debug finais de simulador e iOS genérico passaram. O binário final foi instalado no Simulator e mute/unmute reconferido; o build de dispositivo está em `/tmp/classfy-studio-device-build/Build/Products/Debug-iphoneos/ClassfyDev.app`. O bundle iOS respondeu HTTP200 pelo túnel Metro existente, com os controles e canal presentes. Os botões chegam por Reload; a renderização interativa e o prime corrigido exigem o novo Classfy Dev. Sem instalação no iPhone remoto, publicação web, push ou alteração de dependências.
-
-## Margem inferior e controles compactos — nona rodada de 09/10/2026
-
-Os dois prints seguintes do Fabio mostraram a barra de ferramentas encostada na navegação do iPhone e controles visualmente pesados. O `KeyboardAvoidingView` instalado sobrescreve seu próprio `paddingBottom` no modo `padding`, inclusive com teclado fechado. A margem de segurança agora pertence ao workspace: safe area inferior (mínimo de 8 pontos) mais 20 pontos de folga. Com teclado aberto, o workspace usa 8 pontos e deixa a compensação ao componente de teclado. A prévia ampliada recebeu a mesma folga; os painéis modais mantêm safe area mais 12 pontos.
-
-Ícones e fontes maiores dos controles foram reduzidos em aproximadamente dois pontos. Rótulos pequenos mantêm piso de 11 pontos; amostras de fonte, campo de texto e conteúdo da cena conservam seus tamanhos. Ferramentas principais usam ícones de 20 pontos com traço de 1,5 e área de 62×56 pontos; ações compactas mantêm alvos de pelo menos 44 pontos. A coluna de hide/mute usa ícones de 18 pontos, sem alterar sua geometria de toque. Nenhum gesto, intervalo, receita, fonte exportada ou código nativo mudou.
-
-Validação: TypeScript, diff check e os 41 testes existentes de posição/rota passaram. O Simulator CREATOR conferiu margem na barra normal e na seleção de camada, edição com teclado visível e retorno à barra sem sobreposição ou perda da folga. Nenhum conteúdo da fixture foi editado ou publicado. O bundle iOS remoto respondeu HTTP200 e contém a margem nova. Essa rodada chega por Reload no Classfy Dev já instalado; não requer rebuild nem push. A redução de conflitos com o gesto Home ainda depende do uso físico no iPhone remoto.
-
-## Pinça, ferramentas e adição de arquivos — décima rodada de 09/10/2026
-
-O novo relato do Fabio pede controles leves, a ação Editar centralizada na tela inteira, zoom somente por gesto, pinça ampla na prévia e o botão de adicionar concentrando gravação e galeria. Play, chevrons e histórico na prévia ampliada usam ícones brancos de 20 pontos, sem círculos ou faixa escura. Editar usa posição absoluta no meio da largura; o histórico fica à direita. Os alvos continuam com pelo menos 44 pontos. Filtros usa círculos sobrepostos; Ajustar conserva os sliders.
-
-A linha de zoom mais/menos e os 48 pontos que reservava saíram. A pinça da timeline continua no ancestral fixo, em simultaneidade com a navegação horizontal/vertical; pan de um dedo e alças mantêm reconhecimento separado. O controle acessível de posição oferece também Ampliar/Reduzir timeline, anuncia a porcentagem e respeita os limites de escala, sem exigir os botões visuais.
-
-Na prévia, a pinça pertence ao canvas fixo e atinge o elemento selecionado mesmo quando os dois dedos começam fora de um texto ou imagem pequena. Sem seleção, o alvo é o principal visível. Uma seleção fora do tempo não é redirecionada para outro item. O ponto médio dos dedos aplica escala e deslocamento em coordenadas do canvas; retirar um dedo conserva o último centro válido, evitando salto no término. Pan e pinça podem compartilhar uma transação; alças de canto permanecem exclusivas. Cancelamento, background, seleção e escrita pendente preservam o contrato de uma operação por gesto. O perfil original exige a opção de composição pelo fluxo existente antes de alterar geometria.
-
-O botão mais abre Adicionar, com Gravar e Arquivo da galeria (Arquivo de áudio no podcast). As ações repetidas Gravar/Importar saíram da barra inferior. Antes de navegar ou abrir o picker, o editor confirma o draft e faz flush; perda de foco durante essas esperas impede abrir outro fluxo em segundo plano. Cancelar o submenu ou picker mantém montagem e cursor.
-
-### Continuidade ao ocultar/mutar e confirmar gestos
-
-Mute não altera mídia nem intervalos: a receita preparada conserva os IDs de áudio e troca somente o `AVAudioMix`, mantendo `AVPlayerItem` e `AVVideoComposition`. No fallback compatível, mute simples usa a propriedade do player. Ocultar muda a composição visual, mas conserva item, cursor e pausa. A rota deixa de pedir outro seek depois de hide/mute; edições estruturais continuam restaurando a âncora.
-
-Um seek concluído podia devolver o raster anterior do compositor. O caminho nativo agora marca os buffers com uma revisão visual efêmera e exige revisão e tempo correspondentes antes de ceder a superfície transitória. Na prévia pausada, o quadro apresentado fica coberto pelo snapshot do buffer anterior até essa confirmação; não há espera fixa usada para presumir prontidão. Uma reserva por geração/epoch impede reinstalar snapshot antigo após seek, outra receita, background ou dispose. A reserva do gesto também mantém seu operationId durante a escrita durável: busy, blur ou desmontagem interrompem recognizers sem renomear a operação que ainda precisa receber seu resultado.
-
-Validação JS final: 625/625 testes Studio, TypeScript e diff check passaram. As regressões exercitam callbacks reais transformados por Babel/worklets, pinça com centro móvel, término com um dedo restante, bloqueio pelas alças, seleção fora do tempo, zoom acessível, filas atrasadas, foco durante flush e recibo de escrita durante busy/background/unmount. O bundle remoto respondeu HTTP200 com o submenu e a pinça ampla, sem os botões de zoom antigos. O Simulator conferiu controles sem fundo, Editar centralizado, ícones distintos, ausência da linha de zoom e abertura/cancelamento da galeria e captura; a fixture de quatro sobreposições, seis takes e 8,5s foi preservada. Mouse e comandos AX não comprovam pinça física no iPhone.
-
-Validação nativa final: a fixture de interação confirmou mute/unmute PCM real com o mesmo item/composição (RMS0 e RMS0,088), alteração somente da região da camada ocultada no output real do AVPlayer e ausência de buffers da revisão anterior no handoff. Fonte/composição de 24fps confirmaram seek em 0,04s sem alinhar nem mudar o cursor; a tolerância acompanha a duração real do quadro. Workers reais atrasados foram descartados após seek/background/outra receita/dispose. A paridade Core Image dos quatro cenários manteve diferença 0/255; reconstrução inicial, mute e unmute mantiveram frame0 real sem preto.
-
-Builds Debug finais para Simulator CREATOR e iOS genérico passaram. O binário final foi instalado no Simulator, onde hide da imagem e mute do principal preservaram os demais elementos, pausa e cursor0; undo restaurou os flags. A versão para dispositivo está em `/tmp/classfy-studio-device-build/Build/Products/Debug-iphoneos/ClassfyDev.app`. Interface, menu e pinça chegam por Reload no Metro/túnel existente; confirmação de quadro, fast path de áudio e superfície Metal exigem instalar o novo Classfy Dev. Sem iPhone no cabo, push, publicação web ou alteração de dependências nesta rodada. O aceite físico de pinça/fluidez continua pendente.
+## Programa de qualidade: validar o editor como conjunto
+
+Auditoria de 09/10/2026 sobre a implementação `d731f92`, branch `codex/mobile-dev-iphone`. O objetivo é fechar o núcleo de edição com regras consistentes e jornadas completas antes de ampliar a superfície de recursos. Corrigir um sintoma exige procurar a mesma regra nos outros tipos de elemento e pontos de entrada. Uma função isolada passar não encerra o aceite da jornada.
+
+### Estado e evidência atual
+
+A última rodada registrou 625 testes Studio, TypeScript, fixtures nativas e builds Debug de Simulator/iOS aprovados. Não foram executados novamente nesta auditoria de leitura. Fabio já confirmou melhora da reprodução da timeline e acesso a todas as camadas pela rolagem vertical. A nova pinça e a continuidade da superfície Metal ainda precisam de instalação do binário e toque físico. Esses resultados não comprovam paridade integral com o Edits nem a jornada completa de edição/exportação.
+
+O [histórico de validação](STUDIO_EDITOR_VALIDATION_HISTORY.md) conserva as dez rodadas e seus limites. Números e comportamentos antigos, como a paginação de três faixas, pertencem àquelas versões; não substituem o contrato operacional abaixo. A matriz de recursos é um inventário datado, não uma lista de itens aprovados.
+
+### Regras compartilhadas que governam todas as ferramentas
+
+| Área | Regra de implementação e revisão |
+| --- | --- |
+| Seleção | Mesmo ID e mesma intenção em prévia/timeline; selecionar não busca outro tempo. O tipo do item determina a ferramenta, sem trocar o alvo durante um gesto. |
+| Gestos | Prévia: arrastar item selecionado, pinça e alças. Timeline: deslizar navega, hold move item, borda corta, pinça amplia tempo. Testar também transições entre dedos e gestos diagonais. |
+| Transação | Estado comum `idle → gesture → committing → settled/cancelled`; uma reserva por operação, uma entrada de undo por mudança, nenhuma para no-op. ACK corresponde à operação que iniciou a escrita. Cancelar antes da escrita restaura; depois de iniciar a escrita, aguardar seu resultado real. |
+| Draft e teclado | Concluir confirma; cancelar descarta; voltar de subpainel conserva draft. Trocar seleção e sair exigem resolução explícita do draft. Botões com o mesmo nome não podem conservar em uma ferramenta e descartar em outra sem indicação. |
+| Fluxos externos | Galeria, câmera, áudio e arquivo de legenda seguem a mesma exclusão/reserva. Salvar e fazer flush antes de sair; revalidar foco/alvo após awaits; cancelamento e perda de foco não abrem outra tela nem apagam edição. |
+| Player e apresentação | Atualizar pose/visibilidade/áudio mantém tempo e intenção de reprodução. Identidade do item, geração da receita e confirmação do quadro têm vidas distintas; eventos antigos não comandam a cena atual. |
+| Persistência e exportação | Receita não destrutiva; fontes intactas; recuperação verdadeira após interrupção; prévia e exportação concordam em tempo, geometria, ordem, texto, tratamento e som. Histórico de undo, cursor e seleção são estados da sessão atual, sem promessa de persistência na reabertura. |
+| Design e acessibilidade | Hierarquia e dimensões comuns, safe area inferior, alças alcançáveis, ferramentas contextuais e estados claros. Ícone menor não significa reduzir o alvo de toque. Não recolocar instruções permanentes para compensar um gesto difícil. |
+
+### Divergências demonstradas na leitura
+
+São diferenças verificadas no código/contrato, ainda não corrigidas nesta auditoria. Não confundir com defeitos novos reproduzidos no aparelho.
+
+| Divergência | Evidência | Próxima correção e regressão |
+| --- | --- | --- |
+| Toque vazio tem dois significados com item selecionado | [Rota, callbacks da prévia e Canvas](app/studio/[id].tsx): a primeira confirma/desmarca; o segundo apenas alterna Play. | Uma política comum de toque vazio. Testar principal, texto, imagem, área vazia e tela inteira sem seek ou Play acidental. |
+| Política de galeria/legenda não é uniforme | [Rota, addMedia/navigate/addLayer/captionFile](app/studio/[id].tsx): os dois primeiros revalidam foco após espera; importação de camada não revalida da mesma forma; arquivo de legenda não reserva trabalho. | Aplicar a mesma política a todos os pontos de entrada. Testar blur durante save/flush, toque duplicado e picker cancelado. |
+| Observers do item usam a geração de um prepare antigo | [View nativa, setRecipeJSON e observers](modules/classfy-studio-media/ios/StudioCompositionView.swift): fast path incrementa buildGeneration preservando item e observers; guard dos callbacks fica obsoleto. | Guard ligado à vida do item e teste EOF/erro após hide/mute/resize, mantendo rejeição de eventos de itens substituídos. Ainda não há falha visível reproduzida. |
+| Aviso permanente fora do tempo contraria a interface acordada | [Canvas, outsideTime/notice](src/features/studio/StudioCanvasEditor.tsx): renderiza aviso contínuo. | Faixa e seleção devem comunicar intervalo sem preencher a prévia com instrução permanente; conservar informação acessível quando necessária. |
+| Contrato antigo dizia hold também na prévia | Canvas usa arraste imediato no corpo já selecionado; hold de 220 ms pertence à timeline. | Redação operacional corrigida nesta auditoria. Captura comparativa deve confirmar a mecânica do concorrente, sem atribuição presumida. |
+
+### Matriz de jornadas integradas
+
+Usar dois projetos reproduzíveis: Short vertical e Aula horizontal, com principal, imagem, vídeo sobreposto, texto/legenda e áudio. Conservar fontes locais e versão da receita. Para cada caso registrar build/revisão, estado inicial, passos, cancelamento/retorno, resultado esperado e evidência. Os casos abaixo são trabalho pendente ou parcialmente coberto, não falhas confirmadas.
+
+| ID | Jornada | Aceite de ponta a ponta | Lacuna atual |
+| --- | --- | --- | --- |
+| J01 | Selecionar principal/overlay/texto → arrastar → pinçar → cantos → vazio → undo/redo | Alvo correto, cursor estável, pose contínua; mesmo resultado nas superfícies; uma operação por gesto. | Callbacks/worklets cobertos; arbitragem UIKit completa e nova pinça física pendentes. |
+| J02 | Play/Pause → scrub X → scroll Y com 12 faixas → zoom → seleção fora do tempo | Régua e principal ancorados em Y; sem salto, trecho visual ausente ou seleção redirecionando tempo. | Reprodução/scroll tiveram aceite do Fabio; sequência combinada ainda sem evidência completa. |
+| J03 | Hold temporal/vertical → trim início/fim → restaurar → dividir → duplicar | Respeitar origem e duração; mudar faixa/ordem sem cortar vizinhos; guias e undo coerentes. | Testes de operações e estado; recognizers físicos em clips curtos/diagonal/transição entre dedos pendentes. |
+| J04 | Duplo toque → texto/teclado → fonte/cor → voltar → trocar alvo → cancelar/concluir | Draft resolvido conforme ação; sem teclado herdado, bloqueio, texto perdido ou confirmação duplicada. | Rota testada com componentes substituídos; falta fluxo real conjunto. |
+| J05 | Mais/Sobrepor/Áudio/Legendas → picker/câmera → cancelar/importar → editor | Um fluxo por vez; nenhum picker após blur; posição/seleção/orientação/sessão de áudio preservadas. | Cancelamento visual do menu coberto; política comum de todos os pontos de entrada e importação real completa pendentes. |
+| J06 | Play → Pause → seek → resize → hide/mute → undo → fim/erro | Sem quadro preto/pose antiga ou alteração involuntária de tempo/reprodução; fim e erro reconhecidos após fast path. | Paridade/handoff em fixtures; view Expo/UIKit/Metal completa e observers após fast path precisam de validação. |
+| J07 | Editar → interromper antes/depois da escrita/ACK → reiniciar runtime | Receita/journal recuperados sem perda ou duplicação; falha de save nunca anuncia sucesso; originais intactos. | Store/journal testados isoladamente; falta recuperação da montagem produzida pela jornada de gestos. |
+| J08 | Inserir todas as mídias → transformar/cortar/mover → Play → undo/redo → salvar → reabrir → exportar | IDs/fontes/intervalos/geometria/texto/som coerentes no projeto e arquivo; histórico por operação na sessão. | Não há teste único executando Canvas+Timeline+Preview+store reais em toda a sequência. |
+| J09 | HEVC/VFR/HDR importado → rotação/fades/cortes → comparar prévia/export | Mesma orientação, enquadramento, tempo, tratamento e som; conversão de perfil explícita; tolerância de cor considera codec. | Fixtures RGB curtas têm boa cobertura; matriz de arquivos reais ainda incompleta. Composição atual: 1080p30 SDR. |
+| J10 | Exportar → cancelar após progresso real → falha de escrita → exportar novamente | Remover somente saída parcial; conservar fonte/edição; liberar sessão; sucesso somente após arquivo válido. | O teste atual de cancelamento nativo ocorre no progress(0), antes do encoding; faltam interrupções durante escrita efetiva. |
+| J11 | Aula de 20–30 min → fontes 4K, dois vídeos, 12+ faixas, centenas de legendas → editar/reproduzir/exportar | Medir frame pacing, memória e aquecimento; sem crescimento contínuo por gesto, perda de áudio ou encerramento. | Relógio/cache e 100 legendas em 2 s testados; carga longa real no iPhone14 não comprovada. |
+| J12 | Safe area → rolar ferramentas → fullscreen → teclado → câmera → background/retorno | Controles acessíveis; orientação/áudio corretos; nenhum recognizer ou comando antigo deixa sessão presa. | Inspeções pontuais e guards existentes; falta sequência combinada de lifecycle/entradas externas. |
+
+### Sequência de execução
+
+1. **Uniformizar o núcleo:** corrigir as divergências acima e aplicar as políticas comuns de seleção, transação e entrada externa. Cobrir ordens diferentes entre UI, JS, armazenamento e confirmação nativa. Preferir consolidar regras existentes; não reescrever todo o editor por conta da auditoria.
+2. **Fechar as jornadas:** executar J01–J08 e J12 com componentes reais e mesmo conjunto de mídia. Cada defeito recebe uma regressão de sua causa e revisão de todos os lugares que usam aquela regra.
+3. **Comparar a referência:** observar o Edits iOS real por jornadas, registrando versão, dedos/hold, prioridade, cancelamento, teclado, retorno e resultado. Capturas do usuário complementam a referência; não substituem uma sessão completa. Documentar comportamentos observados, sem inferir código ou linguagem privada.
+4. **Provar carga e saída:** executar J09–J11, comparar arquivo final e medir a apresentação física. Depois ampliar recursos conforme a matriz, passando pelo mesmo aceite integrado.
+
+### Condição para declarar uma entrega pronta
+
+- Evidência automatizada identifica revisão e fontes; reaproveitar [verify-studio-headless.mjs](scripts/verify-studio-headless.mjs), que registra fingerprint e resultados, sem transformar a contagem de testes em selo de usabilidade.
+- Mudança precisa passar sua jornada e as vizinhas afetadas; testes isolados, compilação, UI no simulador, toque físico e exportação são evidências distintas. Sem ampliar/repetir checks que não correspondam a uma mudança ou risco novo.
+- Regra de gesto/comportamento tem resultado registrado; tarefa não termina ao apenas adicionar contorno, botão ou callback. Medir a sequência até persistência/apresentação/exportação relevante.
+- Diferenças, limitações e pendências permanecem explícitas. Simulator/fixtures antecipam problemas; o aceite físico confirma sensação de toque e háptica. Fabio faz o aceite de produto, não deve ser o único mecanismo de descoberta de regressões.
+- Build/install, atualização JS e publicação são etapas distintas. Esta auditoria altera documentação; não instala binário, publica app, faz push ou amplia perfis de exportação.
 
 ## Origem dos requisitos
 
@@ -208,13 +139,13 @@ Vale para **vídeo principal, vídeo sobreposto, imagem, texto e legenda**. Áud
 | Ação | Resultado obrigatório |
 | --- | --- |
 | Toque em um elemento visível | Seleciona seu ID e mostra contorno/alças e ferramentas contextuais. Mantém o cursor. Em sobreposição, prioriza o elemento visível superior. |
-| Segurar e arrastar | Move o elemento selecionado dentro do canvas, com resposta contínua. Vídeo principal também é manipulável. |
+| Arrastar elemento já selecionado | Move dentro do canvas com resposta contínua, sem exigir hold. Vídeo principal também é manipulável. Hold para mover intervalo/faixa pertence à timeline. |
 | Pinça | Redimensiona o elemento selecionado, preservando sua proporção e o ponto de apoio do gesto. Não altera o formato do projeto. |
 | Arrastar perto do centro | Encaixa em X/Y e mostra a guia azul correspondente; afastar o dedo libera o encaixe. |
 | Arrastar alça de canto | Redimensiona diretamente na prévia; a alça deve ser fácil de alcançar sem mudar a posição por um toque acidental. |
 | Duplo toque em texto/legenda | Abre a edição do conteúdo com teclado e foco no campo correto. |
 | Duplo toque em vídeo/imagem | Abre as ferramentas do clip selecionado. Não dispara edição de outro item nem desloca a reprodução. |
-| Toque em área vazia | Remove a seleção, sem mudar tempo, conteúdo ou escala. |
+| Toque em área vazia com seleção | Resolve o draft e remove a seleção, sem mudar tempo, conteúdo, escala ou reprodução. Sem seleção e na tela inteira, o transporte pode usar o toque para Play/Pause. |
 
 A geometria do toque usa o canvas realmente exibido, incluindo margens de aspect-fit. Pinça no elemento e zoom da timeline têm áreas de atuação distintas. Contorno e alças são UI de edição: não entram na exportação. Durante reprodução, a composição continua respeitando o tempo real de cada camada.
 
@@ -234,7 +165,7 @@ A geometria do toque usa o canvas realmente exibido, incluindo margens de aspect
 
 - Cortes, posição e tamanho são receita não destrutiva; o original permanece intacto. Prévia e arquivo exportado devem concordar em enquadramento, ordem, intervalos e tratamentos.
 - Zoom, régua, cursor e geometria do gesto atualizam na UI thread; não dependem de salvar o projeto ou compilar vídeo a cada movimento do dedo. Atualizações nativas antigas não podem sobrescrever a edição recente.
-- Cada gesto concluído gera **uma operação de undo**; movimentos intermediários não criam dezenas de entradas. Um gesto sem alteração não cria histórico. Cancelamento/interrupção restaura o estado inicial, inclusive seleção, faixa e cursor de edição.
+- Cada gesto concluído gera **uma operação de undo**; movimentos intermediários não criam dezenas de entradas. Um gesto sem alteração não cria histórico. Cancelamento/interrupção antes da escrita restaura o estado inicial, inclusive seleção, faixa e cursor de edição. Se a escrita já começou, sua reserva permanece até o resultado real; não anunciar cancelamento de uma alteração que foi persistida.
 - O ID e a geometria inicial do item ficam fixos durante o gesto. Troca de projeto, remoção do item, nova receita incompatível, navegação ou background encerram o gesto com segurança. Falha ao salvar mantém a edição recuperável e informa o erro.
 - Overlays transparentes e controles decorativos não capturam toques indevidos (`pointerEvents`). Safe area/notch, header, teclado e sheets devem preservar acesso aos controles; evitar padding duplicado e alturas negativas.
 - Editor e revisão usam retrato; a prévia respeita o formato do projeto. A orientação de captura pode mudar conforme o formato, mas deve ser restaurada ao retornar. Câmera, teclado ou modal não podem deixar gestos/áudio/reprodução presos ao modo anterior.
