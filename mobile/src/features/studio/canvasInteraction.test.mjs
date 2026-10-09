@@ -1,11 +1,15 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
+import babel from '@babel/core';
 import * as geometry from './canvasGeometry.ts';
 import { emptyStudioEditing, addStudioLayerItem, createStudioTextItem, compileStudioRecipe, patchStudioLayerItem, studioTicks } from './model.ts';
 
 const source = readFileSync(new URL('./StudioCanvasEditor.tsx', import.meta.url), 'utf8');
+const workletSource = babel.transformSync(source, { filename: fileURLToPath(new URL('./StudioCanvasEditor.tsx', import.meta.url)), configFile: false, babelrc: false,
+  plugins: [['@babel/plugin-transform-typescript', { isTSX: true }], 'react-native-worklets/plugin'] }).code;
 const equal = (a, b) => !!a && !!b && a.length === b.length && a.every((value, index) => Object.is(value, b[index]));
 const near = (actual, expected) => assert.ok(Math.abs(actual - expected) < 1e-7, `${actual} != ${expected}`);
 function harness(options = {}) {
@@ -13,8 +17,14 @@ function harness(options = {}) {
   editing.assets.push({ id: 'source', kind: 'video', uri: 'file:///original.mov', name: 'Original', durationTicks: studioTicks(4) });
   editing.main.push({ id: 'main', assetId: 'source', sourceStartTicks: 0, sourceEndTicks: studioTicks(4) });
   editing = addStudioLayerItem(editing, { ...createStudioTextItem({ id: 'title', content: 'Texto real', durationTicks: studioTicks(2) }), rect: { x: 0.3, y: 0.3, width: 0.4, height: 0.2 } });
-  const contexts = new Map(), queue = [], selections = [], previews = [], commits = [], events = [], edits = [], playback = [];
+  const contexts = new Map(), queue = [], uiQueue = [], selections = [], previews = [], commits = [], events = [], edits = [], playback = [], appStateListeners = new Set();
   let current, now = 1000, resolveCommit;
+  let runtime = 'js';
+  const onUI = callback => (...args) => { const before = runtime; runtime = 'ui'; try { return callback(...args); } finally { runtime = before; } };
+  const shared = initial => {
+    let value = initial;
+    return { get value() { return value; }, set value(next) { if (options.asyncShared && runtime === 'js') uiQueue.push(() => { value = next; }); else value = next; } };
+  };
   const scope = id => { if (!contexts.has(id)) contexts.set(id, { slots: [], cursor: 0, effects: [] }); return contexts.get(id); };
   const hooks = {
     useRef: initial => { const index = current.cursor++; return current.slots[index] ||= { current: initial }; },
@@ -37,17 +47,19 @@ function harness(options = {}) {
     const handlers = {}, configuration = {};
     const chain = new Proxy({ kind, handlers, configuration }, { get: (target, property) => {
       if (property in target) return target[property];
-      return (...args) => { if (String(property).startsWith('on')) handlers[property] = args[0]; else configuration[property] = args[0]; return chain; };
+      return (...args) => { if (String(property).startsWith('on')) handlers[property] = options.asyncShared ? Object.assign(onUI(args[0]), args[0]) : args[0]; else configuration[property] = args[0]; return chain; };
     } });
     return chain;
   };
   const dependencies = {
     react: hooks,
     'react/jsx-runtime': { jsx: (type, props) => ({ type, props }), jsxs: (type, props) => ({ type, props }) },
-    'react-native': { View: 'view', Text: 'text', StyleSheet: { create: value => value, absoluteFill: {}, absoluteFillObject: {} } },
-    'react-native-reanimated': { __esModule: true, default: { View: 'animated-view' }, useSharedValue: value => hooks.useRef({ value }).current,
+    'react-native': { View: 'view', Text: 'text', StyleSheet: { create: value => value, absoluteFill: {}, absoluteFillObject: {} },
+      AppState: { currentState: 'active', addEventListener: (_, callback) => { appStateListeners.add(callback); return { remove: () => appStateListeners.delete(callback) }; } } },
+    'react-native-reanimated': { __esModule: true, default: { View: 'animated-view' }, useSharedValue: value => hooks.useRef(shared(value)).current,
       useAnimatedStyle: callback => { const ref = hooks.useRef(callback); ref.current = callback; return { getStyle: () => ref.current() }; },
-      runOnJS: callback => (...args) => queue.push(() => callback(...args)) },
+      runOnJS: callback => (...args) => queue.push(() => callback(...args)),
+      runOnUI: callback => (...args) => { if (options.asyncShared) uiQueue.push(() => onUI(callback)(...args)); else return onUI(callback)(...args); } },
     'react-native-gesture-handler': { GestureDetector: 'detector', Gesture: {
       Pan: () => gesture('pan'), Pinch: () => gesture('pinch'), Tap: () => gesture('tap'),
       Race: (...items) => ({ kind: 'race', items }), Simultaneous: (...items) => ({ kind: 'simultaneous', items }), Exclusive: (...items) => ({ kind: 'exclusive', items }),
@@ -55,11 +67,11 @@ function harness(options = {}) {
     './canvasGeometry': geometry,
   };
   const module = { exports: {} };
-  const compiled = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX } }).outputText;
-  new Function('require', 'module', 'exports', 'Date', compiled)(name => {
+  const compiled = ts.transpileModule(options.worklets ? workletSource : source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX } }).outputText;
+  new Function('require', 'module', 'exports', 'Date', '__DEV__', compiled)(name => {
     if (!Object.hasOwn(dependencies, name)) throw new Error(`Unexpected dependency ${name}`);
     return dependencies[name];
-  }, module, module.exports, { now: () => now });
+  }, module, module.exports, { now: () => now }, false);
   let props = { editing, recipe: compileStudioRecipe({ kind: 'aula', takes: [], editing }), positionSeconds: 1, selectedLayerId: 'title',
     onSelectLayer: id => selections.push(id), onPreviewRect: (id, transform) => previews.push({ id, transform }),
     onCommitRect: (id, transform) => { commits.push({ id, transform }); if (options.deferred) return new Promise(resolve => { resolveCommit = resolve; }); if (options.fail) return Promise.reject(new Error('Disco indisponível')); },
@@ -85,18 +97,28 @@ function harness(options = {}) {
     return parent;
   };
   const flatten = value => Array.isArray(value.items) ? value.items.flatMap(flatten) : [value];
-  const body = (id = 'title') => flatten(scope(id).tree.props.gesture);
+  const bodyDetector = (id = 'title') => findAll(scope(id).tree, node => node.type === 'detector')[0];
+  const body = (id = 'title') => flatten(bodyDetector(id).props.gesture);
   const getGesture = (kind, id = 'title', double = false) => body(id).find(value => value.kind === kind && (kind !== 'tap' || (value.configuration.numberOfTaps === 2) === double));
   const flush = () => { while (queue.length) queue.shift()(); };
-  const pump = async () => { flush(); await new Promise(resolve => setImmediate(resolve)); draw(); };
-  draw(); scope('root').tree.props.onLayout({ nativeEvent: { layout: { width: 320, height: 300 } } }); draw();
-  return { selections, previews, commits, events, edits, playback, queue, getGesture, body, flush, pump,
+  const flushUI = () => { while (uiQueue.length) uiQueue.shift()(); };
+  const pump = async () => { flushUI(); flush(); await new Promise(resolve => setImmediate(resolve)); flushUI(); flush(); draw(); flushUI(); flush(); };
+  draw(); scope('root').tree.props.onLayout({ nativeEvent: { layout: { width: 320, height: 300 } } }); draw(); flushUI(); flush();
+  return { selections, previews, commits, events, edits, playback, queue, uiQueue, getGesture, body, flush, flushUI, pump,
+    accessibility: (action, id = 'title') => bodyDetector(id).props.children.props.onAccessibilityAction({ nativeEvent: { actionName: action } }),
     update: next => { props = { ...props, ...next }; draw(); },
     layout: (width, height) => { scope('root').tree.props.onLayout({ nativeEvent: { layout: { width, height } } }); draw(); },
     echo: transform => { const next = patchStudioLayerItem(props.editing, 'title', { rect: transform.rect, ...(transform.textFontSize ? { text: { fontSize: transform.textFontSize } } : {}) }); props = { ...props, editing: next, recipe: compileStudioRecipe({ kind: 'aula', takes: [], editing: next }) }; draw(); },
     setNow: value => { now = value; },
     handle: (index, id = 'title') => findAll(scope(id).tree, node => typeof node.type === 'function' && node.type.name === 'CanvasCornerHandle')[index].props.gesture,
-    frame: id => scope(id || 'title').tree.props.children.props.style.find(value => value?.getStyle)?.getStyle(),
+    frame: id => bodyDetector(id).props.children.props.style.find(value => value?.getStyle)?.getStyle(),
+    tree: id => scope(id || 'title').tree,
+    cornerView: (index, id = 'title') => {
+      const node = findAll(scope(id).tree, item => typeof item.type === 'function' && item.type.name === 'CanvasCornerHandle')[index];
+      // A separate hook scope models the always-mounted sibling native target.
+      return render(`handle-${id}-${index}`, node.type, node.props);
+    },
+    changeAppState: state => { for (const callback of appStateListeners) callback(state); },
     visibleIds: () => [...contexts.keys()].filter(id => id !== 'root'),
     recipe: () => props.recipe,
     resolve: () => { assert.ok(resolveCommit); resolveCommit(); },
@@ -293,5 +315,177 @@ test('sequência real do simulador com tradução zero termina sem escrita e lib
     assert.deepEqual(view.events, ['start', 'end']); assert.deepEqual(view.commits, []);
     pan.handlers.onStart(); view.flush(); pan.handlers.onEnd({ translationX: 20, translationY: 0 }); pan.handlers.onFinalize({}, true); await view.pump();
     assert.deepEqual(view.events, ['start', 'end', 'start', 'end']); assert.equal(view.commits.length, 1);
+  } finally { view.dispose(); }
+});
+
+test('recognizers preservam identidade em seleção, preview, bloqueio e resize; pan de texto não ativa por timer', () => {
+  const view = harness({ props: { selectedLayerId: undefined } });
+  try {
+    const pan = view.getGesture('pan'), pinch = view.getGesture('pinch'), tap = view.getGesture('tap'), handle = view.handle(3);
+    assert.equal(pan.configuration.activateAfterLongPress, undefined);
+    let failed = 0;
+    pan.handlers.onTouchesDown({}, { fail: () => failed++ });
+    assert.equal(failed, 1);
+    tap.handlers.onEnd({}, true); view.flush(); view.update({ selectedLayerId: 'title' });
+    view.echo({ rect: { x: 0.4, y: 0.2, width: 0.4, height: 0.2 }, textFontSize: 0.05 });
+    view.update({ disabled: true }); view.layout(400, 300); view.update({ disabled: false });
+    assert.equal(view.getGesture('pan'), pan); assert.equal(view.getGesture('pinch'), pinch);
+    assert.equal(view.getGesture('tap'), tap); assert.equal(view.handle(3), handle);
+    assert.equal(handle.configuration.blocksExternalGesture, undefined);
+    assert.deepEqual(view.events, []); assert.deepEqual(view.commits, []);
+    pan.handlers.onTouchesDown({}, { fail: () => failed++ }); assert.equal(failed, 1);
+  } finally { view.dispose(); }
+});
+
+test('as quatro alças são alvos irmãos absolutos e mantêm centros físicos após seleção', () => {
+  const view = harness({ props: { selectedLayerId: undefined } });
+  try {
+    const tree = view.tree(), body = tree.props.children[0];
+    const corners = tree.props.children[1];
+    assert.equal(body.type, 'detector'); assert.equal(corners.length, 4);
+    assert.ok(corners.every(node => node.type.name === 'CanvasCornerHandle'));
+    assert.equal(body.props.children.props.children.some(node => node?.type?.name === 'CanvasCornerHandle'), false);
+    for (let index = 0; index < 4; index++) assert.equal(view.cornerView(index).props.children.props.pointerEvents, 'none');
+    view.update({ selectedLayerId: 'title' });
+    const expected = [[96, 54], [224, 54], [96, 90], [224, 90]];
+    for (let index = 0; index < 4; index++) {
+      const nativeView = view.cornerView(index).props.children;
+      const style = Object.assign({}, ...nativeView.props.style.map(value => value.getStyle ? value.getStyle() : value));
+      assert.equal(nativeView.props.pointerEvents, 'auto'); assert.equal(style.position, 'absolute'); assert.equal(style.zIndex, 1000);
+      near(style.left + style.width / 2, expected[index][0]); near(style.top + style.height / 2, expected[index][1]);
+      assert.equal(style.transform, undefined);
+    }
+  } finally { view.dispose(); }
+});
+
+test('fim sem finalize salva uma vez e cancelamento touch sem finalize libera sem escrita', async () => {
+  const view = harness();
+  try {
+    const handle = view.handle(3), pan = view.getGesture('pan');
+    handle.handlers.onStart(); view.flush(); handle.handlers.onEnd({ translationX: 64, translationY: 18 }, true); await view.pump();
+    assert.equal(view.commits.length, 1); assert.deepEqual(view.events, ['start', 'end']);
+    handle.handlers.onFinalize({}, true); await view.pump(); assert.equal(view.commits.length, 1);
+    pan.handlers.onStart(); view.flush(); pan.handlers.onUpdate({ translationX: 32, translationY: 0 }); view.flush();
+    pan.handlers.onTouchesCancelled({}); await view.pump();
+    assert.equal(view.commits.length, 1); assert.deepEqual(view.events, ['start', 'end', 'start', 'end']);
+    assert.equal(view.previews.at(-1).transform, undefined);
+    pan.handlers.onFinalize({}, false); await view.pump(); assert.deepEqual(view.events, ['start', 'end', 'start', 'end']);
+  } finally { view.dispose(); }
+});
+
+test('alça e corpo não participam da mesma transação, mesmo se recognizer concorrente iniciar', async () => {
+  const view = harness();
+  try {
+    const handle = view.handle(3), pan = view.getGesture('pan'), pinch = view.getGesture('pinch');
+    handle.handlers.onStart(); pan.handlers.onStart(); pinch.handlers.onStart({ focalX: 32, focalY: 9 }); view.flush();
+    let failed = 0; pan.handlers.onTouchesDown({}, { fail: () => failed++ }); assert.equal(failed, 1);
+    pan.handlers.onUpdate({ translationX: 100, translationY: 100 }); pinch.handlers.onUpdate({ scale: 2 });
+    pan.handlers.onFinalize({}, false); pinch.handlers.onFinalize({}, false);
+    handle.handlers.onEnd({ translationX: 64, translationY: 18 }, true); await view.pump();
+    assert.equal(view.commits.length, 1); near(view.commits[0].transform.rect.width, 0.6); near(view.commits[0].transform.rect.x, 0.3);
+    assert.deepEqual(view.events, ['start', 'end']);
+  } finally { view.dispose(); }
+});
+
+test('background e bloqueio invalidam callbacks tardios sem timer de recuperação artificial', async () => {
+  const view = harness();
+  try {
+    const pan = view.getGesture('pan');
+    pan.handlers.onStart(); view.flush(); pan.handlers.onUpdate({ translationX: 20, translationY: 0 }); view.flush();
+    view.changeAppState('inactive'); pan.handlers.onStart(); pan.handlers.onEnd({ translationX: 40, translationY: 0 }, true); await view.pump();
+    assert.deepEqual(view.events, ['start', 'end']); assert.deepEqual(view.commits, []);
+    view.changeAppState('active'); view.update({ disabled: true });
+    pan.handlers.onStart(); pan.handlers.onUpdate({ translationX: 50, translationY: 0 }); pan.handlers.onEnd({ translationX: 50, translationY: 0 }, true); await view.pump();
+    assert.deepEqual(view.events, ['start', 'end']);
+    view.update({ disabled: false }); pan.handlers.onStart(); view.flush(); pan.handlers.onEnd({ translationX: 32, translationY: 0 }, true); await view.pump();
+    assert.equal(view.commits.length, 1); assert.deepEqual(view.events, ['start', 'end', 'start', 'end']);
+  } finally { view.dispose(); }
+});
+
+test('compilação Babel instalada marca callbacks de todos recognizers como worklets executáveis', async () => {
+  const view = harness({ worklets: true });
+  try {
+    const gestures = [...view.body(), ...[0, 1, 2, 3].map(index => view.handle(index))];
+    for (const gesture of gestures) for (const [name, callback] of Object.entries(gesture.handlers)) {
+      assert.equal(typeof callback.__workletHash, 'number', `${gesture.kind}.${name} precisa executar no runtime UI`);
+    }
+    const handle = view.handle(3); handle.handlers.onStart(); view.flush(); handle.handlers.onEnd({ translationX: 64, translationY: 18 }, true); await view.pump();
+    assert.equal(view.commits.length, 1); near(view.commits[0].transform.rect.width, 0.6); assert.deepEqual(view.events, ['start', 'end']);
+  } finally { view.dispose(); }
+});
+
+for (const target of ['title', 'main']) test(`AX de ${target} reserva no UI antes de salvar, com SharedValue assíncrono no JS`, async () => {
+  const view = harness({ asyncShared: true, deferred: true, worklets: true, props: target === 'main'
+    ? { selectedLayerId: undefined, selectedMainClipId: 'main', onSelectMainClip: id => {} } : {} });
+  try {
+    const original = view.frame(target);
+    view.accessibility('increment', target); view.accessibility('moveRight', target);
+    assert.deepEqual(view.commits, []); assert.deepEqual(view.events, []);
+    view.flush(); assert.deepEqual(view.commits, [], 'JS cannot use an epoch written but not yet applied on UI');
+    view.flushUI();
+    const pan = view.getGesture('pan', target); pan.handlers.onStart(); pan.handlers.onEnd({ translationX: 32, translationY: 0 }, true);
+    view.flush();
+    assert.equal(view.commits.length, 1); assert.deepEqual(view.events, ['start']);
+    near(view.commits[0].transform.rect.width * 320, original.width * 1.1);
+    if (target === 'title') assert.ok(view.commits[0].transform.textFontSize > 0);
+    view.accessibility('moveRight', target); view.flushUI(); view.flush(); assert.equal(view.commits.length, 1);
+    view.resolve(); await view.pump(); assert.deepEqual(view.events, ['start', 'end']);
+    view.getGesture('tap', target).handlers.onEnd({}, true); view.flush();
+    if (target === 'title') assert.deepEqual(view.selections, ['title']);
+  } finally { view.dispose(); }
+});
+
+test('AX move respeita fila UI/JS, libera após falha de disco e permite retry sem owner preso', async () => {
+  const view = harness({ asyncShared: true, fail: true });
+  try {
+    view.accessibility('moveDown'); view.flushUI(); view.flush(); await view.pump();
+    assert.equal(view.commits.length, 1); near(view.commits[0].transform.rect.y, 0.325);
+    assert.deepEqual(view.events, ['start', 'end']); assert.equal(view.previews.at(-1).transform, undefined);
+    view.accessibility('moveRight'); await view.pump();
+    assert.equal(view.commits.length, 2); near(view.commits[1].transform.rect.x, 0.325);
+    assert.deepEqual(view.events, ['start', 'end', 'start', 'end']);
+  } finally { view.dispose(); }
+});
+
+for (const reservationApplied of [false, true]) test(`cancelar AX ${reservationApplied ? 'após' : 'antes da'} reserva UI impede commit tardio e libera próximo gesto`, async () => {
+  const view = harness({ asyncShared: true });
+  try {
+    view.accessibility('increment'); if (reservationApplied) view.flushUI();
+    view.update({ disabled: true }); view.flush(); await view.pump();
+    assert.deepEqual(view.events, []); assert.deepEqual(view.commits, []); assert.deepEqual(view.previews, []);
+    view.update({ disabled: false }); view.flushUI(); view.flush();
+    const pan = view.getGesture('pan'); pan.handlers.onStart(); view.flush(); pan.handlers.onEnd({ translationX: 32, translationY: 0 }, true); await view.pump();
+    assert.equal(view.commits.length, 1); assert.deepEqual(view.events, ['start', 'end']);
+  } finally { view.dispose(); }
+});
+
+test('cancelamento JS reconhece epoch que iniciou antes do cancel chegar ao UI, sem flag órfã', async () => {
+  const view = harness({ asyncShared: true });
+  try {
+    // The layout effect has scheduled a cancellation, but UI still has the
+    // previous configuration. A native activation can arrive in this gap.
+    view.layout(400, 300);
+    const pan = view.getGesture('pan'); pan.handlers.onStart(); view.flush();
+    assert.deepEqual(view.events, ['start']);
+    view.flushUI(); view.flush();
+    assert.deepEqual(view.events, ['start', 'end']); assert.deepEqual(view.commits, []);
+    pan.handlers.onEnd({ translationX: 80, translationY: 0 }, true); await view.pump();
+    assert.deepEqual(view.commits, []); assert.deepEqual(view.events, ['start', 'end']);
+    pan.handlers.onStart(); view.flush(); pan.handlers.onEnd({ translationX: 20, translationY: 0 }, true); await view.pump();
+    assert.equal(view.commits.length, 1); assert.deepEqual(view.events, ['start', 'end', 'start', 'end']);
+  } finally { view.dispose(); }
+});
+
+test('cancelar AX durante gravação mantém reserva até persistência resolver com setters JS assíncronos', async () => {
+  const view = harness({ asyncShared: true, deferred: true });
+  try {
+    view.accessibility('moveRight'); view.flushUI(); view.flush(); assert.equal(view.commits.length, 1);
+    view.update({ disabled: true }); view.update({ disabled: false }); view.flushUI(); view.flush();
+    const pan = view.getGesture('pan'); pan.handlers.onStart(); pan.handlers.onEnd({ translationX: 80, translationY: 0 }, true); view.flush();
+    view.accessibility('moveDown'); view.flushUI(); view.flush();
+    assert.equal(view.commits.length, 1); assert.deepEqual(view.events, ['start']);
+    view.resolve(); await view.pump(); assert.deepEqual(view.events, ['start', 'end']);
+    view.accessibility('moveDown'); view.flushUI(); view.flush(); assert.equal(view.commits.length, 2);
+    view.resolve(); await view.pump(); assert.deepEqual(view.events, ['start', 'end', 'start', 'end']);
   } finally { view.dispose(); }
 });

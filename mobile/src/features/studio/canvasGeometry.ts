@@ -124,14 +124,25 @@ export function studioCanvasHandlePosition(rect: StudioRect, corner: StudioCanva
   const width = rect.width * canvasWidth, height = rect.height * canvasHeight;
   const centerX = (rect.x + rect.width / 2) * canvasWidth, centerY = (rect.y + rect.height / 2) * canvasHeight;
   const radians = rotationDegrees * Math.PI / 180, cos = Math.cos(radians), sin = Math.sin(radians);
+  const point = studioCanvasHandleCanvasPosition(rect, corner, canvasWidth, canvasHeight, rotationDegrees, inset);
+  // The handle is a child of the rotated layer, so return unrotated local coordinates.
+  return { x: width / 2 + (point.x - centerX) * cos + (point.y - centerY) * sin,
+    y: height / 2 - (point.x - centerX) * sin + (point.y - centerY) * cos };
+}
+
+/** Sibling touch targets use stable canvas coordinates rather than a transformed parent. */
+export function studioCanvasHandleCanvasPosition(rect: StudioRect, corner: StudioCanvasCorner, canvasWidth: number, canvasHeight: number,
+  rotationDegrees = 0, inset = 16): StudioCanvasPoint {
+  'worklet';
+  const width = rect.width * canvasWidth, height = rect.height * canvasHeight;
+  const centerX = (rect.x + rect.width / 2) * canvasWidth, centerY = (rect.y + rect.height / 2) * canvasHeight;
+  const radians = rotationDegrees * Math.PI / 180, cos = Math.cos(radians), sin = Math.sin(radians);
   const dx = (corner.endsWith('Left') ? -1 : 1) * width / 2;
   const dy = (corner.startsWith('top') ? -1 : 1) * height / 2;
   const marginX = Math.min(inset, canvasWidth / 2), marginY = Math.min(inset, canvasHeight / 2);
   const worldX = bounded(centerX + dx * cos - dy * sin, marginX, canvasWidth - marginX);
   const worldY = bounded(centerY + dx * sin + dy * cos, marginY, canvasHeight - marginY);
-  // The handle is a child of the rotated layer, so return unrotated local coordinates.
-  return { x: width / 2 + (worldX - centerX) * cos + (worldY - centerY) * sin,
-    y: height / 2 - (worldX - centerX) * sin + (worldY - centerY) * cos };
+  return { x: worldX, y: worldY };
 }
 
 /** Project a corner drag onto the diagonal instead of independently stretching axes. */

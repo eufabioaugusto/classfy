@@ -18,6 +18,12 @@ const equalDependencies = (a, b) => !!a && !!b && a.length === b.length && a.eve
 // component's real handlers while allowing either side of a gesture race to
 // arrive later, without asserting on source text or copying its decisions.
 function harness(options = {}) {
+  const nativeSharedValues = !!options.nativeSharedValues;
+  let uiRuntime = false;
+  const onUI = callback => (...args) => {
+    const previous = uiRuntime; uiRuntime = true;
+    try { return callback(...args); } finally { uiRuntime = previous; }
+  };
   const contexts = new Map();
   let current;
   let now = 1000;
@@ -31,6 +37,7 @@ function harness(options = {}) {
   const commits = [];
   const cancellations = [];
   const scrolls = [];
+  const appStateListeners = new Set();
   const context = key => {
     if (!contexts.has(key)) contexts.set(key, { slots: [], cursor: 0, effects: [], dirty: true, reactions: [], frames: [] });
     return contexts.get(key);
@@ -60,7 +67,7 @@ function harness(options = {}) {
     const handlers = {};
     const chain = new Proxy({ kind, handlers }, { get: (target, name) => {
       if (name in target) return target[name];
-      return value => { if (String(name).startsWith('on')) handlers[name] = value; else target[name] = value; return chain; };
+      return value => { if (String(name).startsWith('on')) handlers[name] = onUI(value); else target[name] = value; return chain; };
     } });
     return chain;
   };
@@ -68,17 +75,29 @@ function harness(options = {}) {
   const reanimated = {
     __esModule: true,
     default: { View: 'animated-view', ScrollView: 'animated-scroll', createAnimatedComponent: type => `animated-${type}` },
-    useSharedValue: value => hooks.useRef({ value }).current,
+    useSharedValue: initial => {
+      const ref = hooks.useRef(null);
+      if (!ref.current) {
+        let value = initial;
+        ref.current = { get value() { return value; }, set value(next) {
+          // Reanimated native setters on JS schedule a UI microtask; an
+          // immediate JS read still sees the previous UI value.
+          if (nativeSharedValues && !uiRuntime) uiQueue.push({ callback: () => { value = next; }, args: [] });
+          else value = next;
+        } };
+      }
+      return ref.current;
+    },
     useDerivedValue: callback => { const ref = hooks.useRef(callback); ref.current = callback; return dynamic(() => ref.current()); },
     useAnimatedRef: () => hooks.useRef(null),
-    useAnimatedStyle: callback => { const ref = hooks.useRef(callback); ref.current = callback; return { __style: () => ref.current() }; },
-    useAnimatedProps: callback => { const ref = hooks.useRef(callback); ref.current = callback; return { __props: () => ref.current() }; },
+    useAnimatedStyle: callback => { const ref = hooks.useRef(callback); ref.current = onUI(callback); return { __style: () => ref.current() }; },
+    useAnimatedProps: callback => { const ref = hooks.useRef(callback); ref.current = onUI(callback); return { __props: () => ref.current() }; },
     useAnimatedReaction: (prepare, react) => {
       const ref = hooks.useRef({ prepare, react, previous: undefined, signature: undefined });
-      ref.current.prepare = prepare; ref.current.react = react; current.reactions.push(ref.current);
+      ref.current.prepare = onUI(prepare); ref.current.react = onUI(react); current.reactions.push(ref.current);
     },
-    useAnimatedScrollHandler: handlers => { const ref = hooks.useRef(handlers); ref.current = handlers; return handlers; },
-    useFrameCallback: callback => { const ref = hooks.useRef(callback); ref.current = callback; current.frames.push(ref); },
+    useAnimatedScrollHandler: handlers => { const ref = hooks.useRef(handlers); ref.current = Object.fromEntries(Object.entries(handlers).map(([name, callback]) => [name, onUI(callback)])); return ref.current; },
+    useFrameCallback: callback => { const ref = hooks.useRef(callback); ref.current = onUI(callback); current.frames.push(ref); },
     runOnJS: callback => (...args) => jsQueue.push({ callback, args }),
     runOnUI: callback => (...args) => uiQueue.push({ callback, args }),
     scrollTo: (_, x, y, animated) => scrolls.push({ x, y, animated }),
@@ -87,7 +106,7 @@ function harness(options = {}) {
   const dependencies = {
     react: hooks,
     'react/jsx-runtime': { jsx: (type, props) => ({ type, props }), jsxs: (type, props) => ({ type, props }) },
-    'react-native': { Pressable: 'pressable', Text: 'text', View: 'view', StyleSheet: { create: styles => styles } },
+    'react-native': { AppState: { addEventListener: (_event, callback) => { appStateListeners.add(callback); return { remove: () => appStateListeners.delete(callback) }; } }, Pressable: 'pressable', Text: 'text', View: 'view', StyleSheet: { create: styles => styles } },
     'expo-image': { Image: 'image' }, 'react-native-reanimated': reanimated,
     'react-native-gesture-handler': { GestureDetector: 'gesture-detector', Gesture: { Native: () => gesture('native'), Pinch: () => gesture('pinch'), Pan: () => gesture('pan'), Tap: () => gesture('tap'), Race: (...gestures) => ({ kind: 'race', gestures }) } },
     'lucide-react-native': { ChevronDown: 'chevron-down', ChevronUp: 'chevron-up', Film: 'film', Mic: 'mic', Minus: 'minus', Plus: 'plus' },
@@ -96,10 +115,10 @@ function harness(options = {}) {
   };
   const compiled = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX } }).outputText;
   const module = { exports: {} };
-  new Function('require', 'module', 'exports', 'Date', compiled)(name => {
+  new Function('require', 'module', 'exports', 'Date', '__DEV__', compiled)(name => {
     if (Object.hasOwn(dependencies, name)) return dependencies[name];
     throw new Error(`Unexpected dependency: ${name}`);
-  }, module, module.exports, { now: () => now });
+  }, module, module.exports, { now: () => now }, false);
   props = { takes: [take('a'), take('b')], activeTakeId: 'a', position: 1, cancelEpoch: 0,
     onSeek: seconds => seeks.push(seconds), onSelect: value => selections.push(value.id),
     onTrimChange: range => previews.push(range), onTrimCancel: () => cancellations.push(true),
@@ -131,6 +150,8 @@ function harness(options = {}) {
   const control = label => all(context('timeline').tree, node => node.props?.accessibilityLabel === label)[0]?.props;
   const laneStatus = () => all(context('timeline').tree, node => node.props?.accessibilityLiveRegion === 'polite')[0]?.props.children;
   const scroll = () => all(context('timeline').tree, node => node.type === 'animated-scroll')[0].props.onScroll;
+  const scrollProps = () => all(context('timeline').tree, node => node.type === 'animated-scroll')[0].props.animatedProps.__props();
+  const pinch = () => context('timeline').tree.props.gesture.handlers;
   const m = () => nodes('TrimHandle')[0].props.motion;
   const pan = edge => {
     const node = nodes('TrimHandle').find(item => item.props.edge === edge);
@@ -153,25 +174,31 @@ function harness(options = {}) {
       if (signature !== reaction.signature) { const previous = reaction.previous; reaction.previous = next; reaction.signature = signature; reaction.react(next, previous); }
     }
   };
+  const frame = (elapsed = 16) => {
+    now += elapsed;
+    for (const scope of contexts.values()) for (const callback of scope.frames) callback.current({ timeSincePreviousFrame: elapsed });
+  };
   const flushJS = () => {
     while (jsQueue.length) { const job = jsQueue.shift(); job.callback(...job.args); }
     if (context('timeline').dirty) renderParent();
   };
-  const flushUI = () => { while (uiQueue.length) { const job = uiQueue.shift(); job.callback(...job.args); } };
+  const flushUI = () => { while (uiQueue.length) { const job = uiQueue.shift(); onUI(job.callback)(...job.args); } };
   const stepJS = () => { assert.ok(jsQueue.length); const job = jsQueue.shift(); job.callback(...job.args); };
   const pump = async () => {
-    flushJS(); flushUI();
+    flushJS(); flushUI(); flushJS(); flushUI();
     await new Promise(resolve => setImmediate(resolve));
     if (context('timeline').dirty) renderParent();
   };
   renderParent();
+  if (nativeSharedValues) flushUI();
   all(context('timeline').tree, node => node.type === 'animated-view' && node.props?.onLayout)[0].props.onLayout({ nativeEvent: { layout: { width: 300 } } });
-  renderParent();
+  renderParent(); if (nativeSharedValues) flushUI();
   scroll().onScroll({ contentOffset: { x: 60 } }); flushJS(); animate(); flushJS(); scrolls.length = 0;
-  return { scroll, m, pan, childClip, childLayer, nodes, control, laneStatus, seeks, selections, previews, commits, cancellations, scrolls, jsQueue, uiQueue,
-    animate, flushJS, flushUI, stepJS, pump,
+  return { scroll, scrollProps, pinch, m, pan, childClip, childLayer, nodes, control, laneStatus, seeks, selections, previews, commits, cancellations, scrolls, jsQueue, uiQueue,
+    animate, frame, flushJS, flushUI, stepJS, pump,
     playerPosition: () => context('timeline').reactions[0].prepare().position,
     update: next => { props = { ...props, ...next }; renderParent(); },
+    appState: state => { for (const callback of appStateListeners) callback(state); if (context('timeline').dirty) renderParent(); },
     completeCommit: () => { assert.ok(commitResolver); commitResolver(); },
     dispose: () => { for (const scope of contexts.values()) for (const slot of scope.slots) slot?.cleanup?.(); } };
 }
@@ -533,5 +560,300 @@ test('begin atrasado de uma camada já bloqueada não anuncia lifecycle nem salv
     view.update({ busy: true }); view.childLayer('title'); view.flushJS();
     pan.onUpdate({ absoluteX: 240, translationX: 60 }); pan.onEnd(); view.flushJS();
     assert.deepEqual(lifecycle, []); assert.deepEqual(moves, []); assert.equal(view.m().phase.value, 0);
+  } finally { view.dispose(); }
+});
+
+test('grafo nativo bloqueia o ScrollView com os pans sem desligar o ancestor durante hold/alça', () => {
+  const fixture = layerFixture();
+  const view = harness({ ...fixture, selectedLayerId: 'title', onMoveLayer: async () => {}, onLayerTrimCommit: async () => {} });
+  try {
+    const node = view.nodes('TimelineLayer')[0], tree = view.childLayer('title');
+    const body = tree.props.children[0].props.gesture.gestures[0];
+    assert.equal(body.blocksExternalGesture, node.props.nativeGesture);
+    assert.equal(body.activateAfterLongPress, 220);
+    for (const edge of tree.props.children[1]) assert.equal(edge.props.gesture.blocksExternalGesture, node.props.nativeGesture);
+    body.handlers.onStart({ absoluteX: 180, absoluteY: 100 }); view.flushJS();
+    assert.equal(view.scrollProps().scrollEnabled, true, 'RNGH wait relation owns the touch; do not toggle UIScrollView mid-recognition');
+    body.handlers.onFinalize({}, false); view.flushJS();
+    tree.props.children[1][1].props.gesture.handlers.onStart({ absoluteX: 240, absoluteY: 100 }); view.flushJS();
+    assert.equal(view.scrollProps().scrollEnabled, true);
+  } finally { view.dispose(); }
+});
+
+test('hold diagonal muda tempo e faixa no UI e confirma uma única operação sem deslocar cursor', async () => {
+  const fixture = manyLayerFixture(), moves = [], lifecycle = []; let resolve;
+  const view = harness({ ...fixture, selectedLayerId: 'title', onMoveLayer: (id, delta, target) => { moves.push({ id, delta, target }); return new Promise(done => { resolve = done; }); },
+    onLayerInteractionStart: () => lifecycle.push('start'), onLayerInteractionEnd: () => lifecycle.push('end') });
+  try {
+    const tree = view.childLayer('title'), pan = tree.props.children[0].props.gesture.gestures[0].handlers;
+    const top = tree.props.style.at(-1).__style().top;
+    pan.onStart({ absoluteX: 180, absoluteY: 105 }); view.flushJS();
+    pan.onUpdate({ absoluteX: 240, absoluteY: 133, translationX: 60, translationY: 28 });
+    assert.equal(tree.props.style.at(-1).__style().top, top + 28);
+    assert.equal(tree.props.style.at(-1).__style().left + 24, 270);
+    pan.onEnd(); pan.onEnd(); view.flushJS();
+    assert.deepEqual(moves, [{ id: 'title', delta: 1, target: 2 }]);
+    assert.deepEqual(lifecycle, ['start']);
+    const reordered = model.moveStudioLayerItemToLane(fixture.editing, 'title', 2);
+    const saved = layerModule.exports.applyStudioLayerTimelineRange(reordered, 'title', { startSeconds: 2, endSeconds: 4 }, 'move');
+    view.update({ editing: saved, layers: model.compileStudioRecipe({ kind: 'aula', takes: [], editing: saved }).clips.filter(clip => clip.zIndex > 0) });
+    const updated = view.childLayer('title'); resolve(); await view.pump();
+    assert.equal(updated.props.style.at(-1).__style().top, top + 28);
+    assert.equal(updated.props.style.at(-1).__style().left + 24, 270);
+    assert.deepEqual(lifecycle, ['start', 'end']); assert.deepEqual(view.seeks, []); assert.equal(view.playerPosition(), 1);
+  } finally { view.dispose(); }
+});
+
+test('hold vertical puro e ação acessível persistem a ordem mesmo com delta temporal zero', async () => {
+  const fixture = manyLayerFixture(), moves = [];
+  const view = harness({ ...fixture, selectedLayerId: 'title', onMoveLayer: async (id, delta, target) => moves.push({ id, delta, target }) });
+  try {
+    const tree = view.childLayer('title'), pan = tree.props.children[0].props.gesture.gestures[0].handlers;
+    pan.onStart({ absoluteX: 180, absoluteY: 105 }); view.flushJS();
+    pan.onUpdate({ absoluteX: 180, absoluteY: 133, translationX: 0, translationY: 28 }); pan.onEnd(); view.flushJS(); await view.pump();
+    assert.deepEqual(moves, [{ id: 'title', delta: 0, target: 2 }]);
+    const body = view.childLayer('title').props.children[0].props.children.props;
+    assert.ok(body.accessibilityActions.some(action => action.name === 'moveDown'));
+    body.onAccessibilityAction({ nativeEvent: { actionName: 'moveDown' } }); await view.pump();
+    assert.equal(moves.length, 2); assert.deepEqual(moves[1], moves[0]); assert.deepEqual(view.seeks, []);
+  } finally { view.dispose(); }
+});
+
+test('hold revela áudio4 por borda vertical sem desmontar o reconhecedor da camada segurada', async () => {
+  const fixture = manyLayerFixture(), moves = [];
+  const view = harness({ ...fixture, selectedLayerId: 'title', onMoveLayer: async (id, delta, target) => moves.push({ id, delta, target }) });
+  try {
+    const tree = view.childLayer('title'), gesture = tree.props.children[0].props.gesture, pan = gesture.gestures[0].handlers;
+    pan.onStart({ absoluteX: 180, absoluteY: 100 }); view.flushJS();
+    pan.onUpdate({ absoluteX: 180, absoluteY: 176, translationX: 0, translationY: 56 });
+    view.frame(300); view.flushJS();
+    assert.equal(view.laneStatus(), 'Faixas 2–4 de 4');
+    assert.ok(view.nodes('TimelineLayer').some(node => node.props.item.id === 'title'), 'selected source remains mounted outside its old page');
+    const updated = view.childLayer('title');
+    assert.equal(updated.props.children[0].props.gesture, gesture, 'paging never reconstructs the active recognizer');
+    pan.onEnd(); view.flushJS(); await view.pump();
+    assert.deepEqual(moves, [{ id: 'title', delta: 0, target: 4 }]); assert.deepEqual(view.seeks, []);
+  } finally { view.dispose(); }
+});
+
+test('item agrupado pode sair para Nova faixa sem puxar irmãos nem trocar sua duração', async () => {
+  const fixture = layerFixture(), moves = [];
+  fixture.editing.layers[0].items.push(model.createStudioTextItem({ id: 'sibling', atTicks: model.studioTicks(5), durationTicks: model.studioTicks(2) }));
+  fixture.layers = model.compileStudioRecipe({ kind: 'aula', takes: [], editing: fixture.editing }).clips.filter(clip => clip.zIndex > 0);
+  const view = harness({ ...fixture, selectedLayerId: 'title', onMoveLayer: async (id, delta, target) => moves.push({ id, delta, target }) });
+  try {
+    assert.equal(view.nodes('TimelineLaneTarget').length, 1);
+    const tree = view.childLayer('title'), pan = tree.props.children[0].props.gesture.gestures[0].handlers;
+    pan.onStart({ absoluteX: 180, absoluteY: 100 }); view.flushJS();
+    pan.onUpdate({ absoluteX: 420, absoluteY: 128, translationX: 240, translationY: 28 });
+    assert.equal(tree.props.style.at(-1).__style().width - 48, 120);
+    pan.onEnd(); view.flushJS(); await view.pump();
+    assert.deepEqual(moves, [{ id: 'title', delta: 4, target: 2 }]);
+    assert.equal(fixture.editing.layers[0].items[1].atTicks, model.studioTicks(5));
+    assert.deepEqual(view.seeks, []);
+  } finally { view.dispose(); }
+});
+
+test('background antes do begin JS ou após begin cancela pan e libera lifecycle; eventos antigos não salvam', () => {
+  for (const started of [false, true]) {
+    const fixture = layerFixture(), moves = [], lifecycle = [];
+    const view = harness({ ...fixture, selectedLayerId: 'title', onMoveLayer: async (_id, delta) => moves.push(delta),
+      onLayerInteractionStart: () => lifecycle.push('start'), onLayerInteractionEnd: () => lifecycle.push('end') });
+    try {
+      const tree = view.childLayer('title'), pan = tree.props.children[0].props.gesture.gestures[0].handlers;
+      pan.onStart({ absoluteX: 180, absoluteY: 100 }); if (started) view.flushJS();
+      view.appState('inactive'); view.childLayer('title'); view.flushJS();
+      pan.onUpdate({ absoluteX: 240, absoluteY: 100, translationX: 60, translationY: 0 }); pan.onEnd(); pan.onFinalize({}, false); view.flushJS();
+      assert.equal(view.m().phase.value, 0); assert.deepEqual(moves, []);
+      assert.deepEqual(lifecycle, started ? ['start', 'end'] : []);
+      assert.equal(view.scrollProps().scrollEnabled, true);
+    } finally { view.dispose(); }
+  }
+});
+
+test('onStart recusado no UI não transforma onEnd em commit nem destrava operação alheia', () => {
+  const fixture = layerFixture(), moves = [], lifecycle = [];
+  const view = harness({ ...fixture, selectedLayerId: 'title', onMoveLayer: async (_id, delta) => moves.push(delta),
+    onLayerInteractionStart: () => lifecycle.push('start'), onLayerInteractionEnd: () => lifecycle.push('end') });
+  try {
+    const pan = view.childLayer('title').props.children[0].props.gesture.gestures[0].handlers;
+    view.m().phase.value = 3; // another main trim owns the touch/phase
+    pan.onStart({ absoluteX: 180, absoluteY: 100 }); pan.onEnd(); pan.onFinalize({}, false); view.flushJS();
+    assert.equal(view.m().phase.value, 3); assert.deepEqual(lifecycle, []); assert.deepEqual(moves, []);
+  } finally { view.dispose(); }
+});
+
+test('background durante persistência mantém ownership até terminar e não reaplica o movimento', async () => {
+  const fixture = layerFixture(), moves = [], lifecycle = []; let resolve;
+  const view = harness({ ...fixture, selectedLayerId: 'title', onMoveLayer: (_id, delta) => { moves.push(delta); return new Promise(done => { resolve = done; }); },
+    onLayerInteractionStart: () => lifecycle.push('start'), onLayerInteractionEnd: () => lifecycle.push('end') });
+  try {
+    const pan = view.childLayer('title').props.children[0].props.gesture.gestures[0].handlers;
+    pan.onStart({ absoluteX: 180, absoluteY: 100 }); view.flushJS();
+    pan.onUpdate({ absoluteX: 240, absoluteY: 100, translationX: 60, translationY: 0 }); pan.onEnd(); view.flushJS();
+    view.update({ busy: true }); view.childLayer('title');
+    view.appState('background'); view.childLayer('title'); view.flushJS();
+    assert.deepEqual(lifecycle, ['start'], 'an already started durable write keeps ownership until settlement');
+    pan.onStart({ absoluteX: 180, absoluteY: 100 }); pan.onUpdate({ absoluteX: 300, absoluteY: 100, translationX: 120, translationY: 0 }); pan.onEnd(); view.flushJS();
+    assert.deepEqual(moves, [1], 'background cannot start a second operation on the same camera-free view');
+    resolve(); await view.pump();
+    assert.deepEqual(lifecycle, ['start', 'end']); assert.equal(view.m().phase.value, 0);
+    assert.deepEqual(view.seeks, []);
+  } finally { view.dispose(); }
+});
+
+test('END(false) antes de FINALIZE(false) cancela corpo e alças da camada sem persistir', async () => {
+  for (const mode of ['move', 'start', 'end']) {
+    const fixture = layerFixture(), saves = [], previews = [], lifecycle = [];
+    const view = harness({ ...fixture, selectedLayerId: 'title',
+      onMoveLayer: async (...args) => saves.push(args), onLayerTrimCommit: async (...args) => saves.push(args),
+      onLayerTrimPreview: (_id, range) => previews.push(range),
+      onLayerInteractionStart: () => lifecycle.push('start'), onLayerInteractionEnd: () => lifecycle.push('end') });
+    try {
+      const tree = view.childLayer('title'), initial = tree.props.style.at(-1).__style();
+      const pan = mode === 'move' ? tree.props.children[0].props.gesture.gestures[0].handlers
+        : tree.props.children[1][mode === 'start' ? 0 : 1].props.gesture.handlers;
+      pan.onStart({ absoluteX: 180, absoluteY: 100 }); view.flushJS();
+      pan.onUpdate({ absoluteX: 240, absoluteY: 128, translationX: 60, translationY: 28 }); view.animate(); view.flushJS();
+      assert.notDeepEqual(tree.props.style.at(-1).__style(), initial, `${mode} changes the provisional geometry`);
+      // RNGH calls END(false) before FINALIZE(false) after an ACTIVE cancel.
+      pan.onEnd({}, false); pan.onFinalize({}, false); await view.pump();
+      assert.deepEqual(saves, []); assert.deepEqual(lifecycle, ['start', 'end']);
+      assert.deepEqual(tree.props.style.at(-1).__style(), initial);
+      assert.equal(previews.at(-1), undefined); assert.equal(view.m().phase.value, 0);
+      assert.equal(view.scrollProps().scrollEnabled, true); assert.deepEqual(view.seeks, []);
+    } finally { view.dispose(); }
+  }
+});
+
+test('cancelar camada antes do begin JS não abre lifecycle nem grava um draft tardio', async () => {
+  const fixture = layerFixture(), saves = [], lifecycle = [], previews = [];
+  const view = harness({ ...fixture, selectedLayerId: 'title',
+    onLayerTrimCommit: async (...args) => saves.push(args), onLayerTrimPreview: (_id, range) => previews.push(range),
+    onLayerInteractionStart: () => lifecycle.push('start'), onLayerInteractionEnd: () => lifecycle.push('end') });
+  try {
+    const tree = view.childLayer('title'), pan = tree.props.children[1][1].props.gesture.handlers;
+    pan.onStart({ absoluteX: 180, absoluteY: 100 });
+    pan.onUpdate({ absoluteX: 240, absoluteY: 100, translationX: 60, translationY: 0 });
+    pan.onEnd({}, false); pan.onFinalize({}, false); await view.pump();
+    assert.deepEqual(saves, []); assert.deepEqual(lifecycle, []);
+    assert.equal(previews.every(range => range === undefined), true);
+    assert.equal(view.m().phase.value, 0); assert.equal(view.scrollProps().scrollEnabled, true);
+  } finally { view.dispose(); }
+});
+
+test('cancelamento nativo do corte principal restaura geometria sem salvar nem mover cursor', () => {
+  const view = harness();
+  try {
+    const pan = view.pan('end'), clip = view.childClip('a'), initial = clip.props.style.at(-1).__style();
+    pan.onStart({ absoluteX: 250 }); view.flushJS();
+    pan.onUpdate({ absoluteX: 70, translationX: -180 }); view.animate(); view.flushJS();
+    assert.notDeepEqual(clip.props.style.at(-1).__style(), initial);
+    pan.onEnd({}, false); pan.onFinalize({}, false); view.flushJS(); view.flushUI();
+    assert.deepEqual(view.commits, []); assert.equal(view.cancellations.length, 1);
+    assert.deepEqual(clip.props.style.at(-1).__style(), initial);
+    assert.equal(view.m().phase.value, 0); assert.equal(view.m().trimIndex.value, -1);
+    assert.equal(view.control('Aumentar zoom da timeline').disabled, false);
+    assert.equal(view.nodes('TrimHandle')[0].props.disabled, false);
+    assert.equal(view.playerPosition(), 1); assert.deepEqual(view.seeks, []);
+  } finally { view.dispose(); }
+});
+
+test('corte válido que termina no UI antes de begin JS persiste exatamente uma vez', async () => {
+  const view = harness();
+  try {
+    const pan = view.pan('end');
+    pan.onStart({ absoluteX: 250 }); pan.onUpdate({ absoluteX: 70, translationX: -180 });
+    pan.onEnd({}, true); pan.onFinalize({}, true);
+    assert.equal(view.m().phase.value, 5); view.flushJS();
+    assert.equal(view.commits.length, 1); assert.equal(view.commits[0].end, 5);
+    view.completeCommit(); await view.pump();
+    assert.equal(view.m().phase.value, 0); assert.equal(view.playerPosition(), 1);
+  } finally { view.dispose(); }
+});
+
+test('background durante pinça libera controles mesmo com begin JS atrasado e finalize falso', () => {
+  for (const started of [false, true]) {
+    const view = harness();
+    try {
+      const pinch = view.pinch();
+      pinch.onStart(); if (started) view.flushJS();
+      pinch.onUpdate({ scale: 1.5 });
+      view.appState('inactive'); view.flushJS(); pinch.onFinalize({}, false); view.flushJS();
+      assert.equal(view.m().phase.value, 0);
+      assert.equal(view.control('Aumentar zoom da timeline').disabled, false);
+      assert.equal(view.nodes('TrimHandle')[0].props.disabled, false);
+      assert.equal(view.scrollProps().scrollEnabled, true); assert.deepEqual(view.seeks, []);
+      // A new pinch is usable after returning to the foreground.
+      view.appState('active'); const next = view.pinch(); next.onStart(); view.flushJS();
+      assert.equal(view.m().phase.value, 4); assert.equal(view.control('Aumentar zoom da timeline').disabled, true);
+      next.onFinalize({}, true); view.flushJS();
+      assert.equal(view.control('Aumentar zoom da timeline').disabled, false);
+    } finally { view.dispose(); }
+  }
+});
+
+test('begin principal entregue depois do background não reabre draft nem trava controles', () => {
+  const view = harness();
+  try {
+    const pan = view.pan('start');
+    pan.onStart({ absoluteX: 150 }); pan.onUpdate({ absoluteX: 210, translationX: 60 });
+    view.appState('inactive'); view.flushJS();
+    pan.onEnd({}, false); pan.onFinalize({}, false); view.animate(); view.flushJS();
+    assert.deepEqual(view.previews, []); assert.deepEqual(view.commits, []); assert.deepEqual(view.cancellations, []);
+    assert.equal(view.m().phase.value, 0); assert.equal(view.nodes('TrimHandle')[0].props.disabled, false);
+    assert.equal(view.control('Aumentar zoom da timeline').disabled, false); assert.deepEqual(view.seeks, []);
+  } finally { view.dispose(); }
+});
+
+test('ajuste acessível confirma com setters JS assíncronos e continua utilizável após salvar', async () => {
+  const fixture = layerFixture(), commits = [], lifecycle = []; let resolve;
+  const view = harness({ ...fixture, nativeSharedValues: true, selectedLayerId: 'title',
+    onLayerTrimCommit: (_id, range) => { commits.push(range); return new Promise(done => { resolve = done; }); },
+    onLayerInteractionStart: () => lifecycle.push('start'), onLayerInteractionEnd: () => lifecycle.push('end') });
+  try {
+    const action = view.childLayer('title').props.children[1][1].props.children.props.onAccessibilityAction;
+    view.flushUI(); action({ nativeEvent: { actionName: 'increment' } }); await view.pump();
+    assert.equal(commits.length, 1, 'the native UI transaction must precede the JS begin/commit');
+    assert.ok(Math.abs(commits[0].endSeconds - 3.1) < 1e-8); assert.deepEqual(lifecycle, ['start']);
+    resolve(); await view.pump(); view.flushUI();
+    assert.equal(view.m().phase.value, 0); assert.deepEqual(lifecycle, ['start', 'end']);
+    action({ nativeEvent: { actionName: 'decrement' } }); await view.pump();
+    assert.equal(commits.length, 2); resolve(); await view.pump(); view.flushUI();
+    assert.equal(view.m().phase.value, 0); assert.deepEqual(view.seeks, []);
+  } finally { view.dispose(); }
+});
+
+test('mover faixa pela acessibilidade passa epoch confirmado mesmo com shared setters assíncronos', async () => {
+  const fixture = manyLayerFixture(), moves = [], lifecycle = [];
+  const view = harness({ ...fixture, nativeSharedValues: true, selectedLayerId: 'title',
+    onMoveLayer: async (id, delta, target) => moves.push({ id, delta, target }),
+    onLayerInteractionStart: () => lifecycle.push('start'), onLayerInteractionEnd: () => lifecycle.push('end') });
+  try {
+    const action = view.childLayer('title').props.children[0].props.children.props.onAccessibilityAction;
+    view.flushUI(); action({ nativeEvent: { actionName: 'moveDown' } }); await view.pump(); view.flushUI();
+    assert.deepEqual(moves, [{ id: 'title', delta: 0, target: 2 }]);
+    assert.deepEqual(lifecycle, ['start', 'end']); assert.equal(view.m().phase.value, 0);
+    assert.deepEqual(view.seeks, []);
+  } finally { view.dispose(); }
+});
+
+test('liberar movimento acessível revela destino fora da janela sem publicar getter antigo', async () => {
+  const fixture = manyLayerFixture(); let resolve;
+  const view = harness({ ...fixture, nativeSharedValues: true, selectedLayerId: 'caption',
+    onMoveLayer: () => new Promise(done => { resolve = done; }) });
+  try {
+    assert.equal(view.laneStatus(), 'Faixas 1–3 de 4');
+    const action = view.childLayer('caption').props.children[0].props.children.props.onAccessibilityAction;
+    view.flushUI(); action({ nativeEvent: { actionName: 'moveDown' } }); await view.pump();
+    assert.equal(view.m().phase.value, 5);
+    const editing = model.moveStudioLayerItemToLane(fixture.editing, 'caption', 4);
+    const layers = model.compileStudioRecipe({ kind: 'aula', takes: [], editing }).clips.filter(clip => clip.zIndex > 0);
+    view.update({ editing, layers }); view.flushJS(); view.childLayer('caption'); view.flushUI();
+    resolve(); await view.pump(); view.flushUI(); view.flushJS();
+    assert.equal(view.m().phase.value, 0);
+    assert.equal(view.m().laneStart.value, 1, 'the selected lane must remain in the native window');
+    assert.equal(view.laneStatus(), 'Faixas 2–4 de 4', 'React receives the computed window, not its stale SharedValue getter');
+    assert.deepEqual(view.seeks, []); assert.equal(view.playerPosition(), 1);
   } finally { view.dispose(); }
 });

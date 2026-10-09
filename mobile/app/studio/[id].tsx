@@ -16,7 +16,7 @@ import { useStudioOrientation } from '@/features/studio/useStudioOrientation';
 import { importStudioMedia, importStudioLayer, importStudioCaptionFile, recoverPendingStudioTakes } from '@/features/studio/media';
 import { discardTransientStudioProject, getStudioProject, isTransientStudioProject, mutateStudioProject } from '@/features/studio/store';
 import { duplicateStudioTake, locateStudioTime, moveStudioTake, removeStudioTake, splitStudioTake } from '@/features/studio/timeline';
-import { addStudioLayerItem, compileStudioRecipe, createStudioTextItem, deriveStudioTakes, patchStudioClipGrade, patchStudioLayerItem, removeStudioLayerItem, studioEditing, studioSeconds, studioTicks, withStudioStandardOutput, formatStudioEditorTime, timelineDuration, type StudioEditing, type StudioProject, type StudioTake } from '@/features/studio/model';
+import { addStudioLayerItem, compileStudioRecipe, createStudioTextItem, deriveStudioTakes, moveStudioLayerItemToLane, patchStudioClipGrade, patchStudioLayerItem, removeStudioLayerItem, studioEditing, studioSeconds, studioTicks, withStudioStandardOutput, formatStudioEditorTime, timelineDuration, type StudioEditing, type StudioProject, type StudioTake } from '@/features/studio/model';
 import { StudioPreview, type StudioPlaybackState, type StudioPreviewHandle } from '@/features/studio/StudioPreview';
 import { StudioCompositionPreview } from '@/features/studio/StudioCompositionPreview';
 import { StudioCanvasEditor, type StudioCanvasTransform } from '@/features/studio/StudioCanvasEditor';
@@ -74,6 +74,7 @@ function ProjectEditor({ project, update }: { project: StudioProject; update: (i
   }, []);
   const canvasDraft = useRef<{ id: string; base: StudioEditing; previous?: StudioEditing } | undefined>(undefined);
   const layerTrimDraft = useRef<{ id: string; base: StudioEditing; previous?: StudioEditing } | undefined>(undefined);
+  const pendingLayerMove = useRef<{ id: string; targetZIndex: number } | undefined>(undefined);
   const [before, setBefore] = useState(false);
   const [captionProgress, setCaptionProgress] = useState<string>();
   const captionRequest = useRef<{ id: string; cancelled: boolean } | undefined>(undefined);
@@ -108,7 +109,7 @@ function ProjectEditor({ project, update }: { project: StudioProject; update: (i
     // Removing/splitting the playing ID makes the native preview temporarily
     // fall back to the first clip; retain the cursor until its anchor is restored.
     const anchor = playbackRef.current;
-    const next = working.current || pendingRestore.current || canvasDraft.current || canvasGesture.current || layerTrimDraft.current
+    const next = working.current || pendingRestore.current || canvasDraft.current || canvasGesture.current || layerTrimDraft.current || layerGesture.current
       ? { ...state, position: anchor.position, sourcePosition: anchor.sourcePosition, takeId: anchor.takeId } : state;
     playbackRef.current = next;
     setPlayback(previous => previous.position === next.position && previous.sourcePosition === next.sourcePosition && previous.playing === next.playing && previous.loading === next.loading && previous.takeId === next.takeId ? previous : next);
@@ -202,16 +203,24 @@ function ProjectEditor({ project, update }: { project: StudioProject; update: (i
   };
   const editEditing = async (change: (editing: StudioEditing) => StudioEditing) => {
     if (locked || !startWork()) return;
+    const laneIntent = pendingLayerMove.current;
     const anchor = captureStudioPlaybackAnchor(current.current.project.takes, playbackRef.current);
     let operation: ReturnType<typeof history.beginEditing> = null;
     try {
       await flush(); assertOwner();
       const saved = await mutateStudioProject(project.ownerId, project.id, latest => {
         assertOwner();
-        operation = history.beginEditing(latest, change(studioEditing(latest)));
+        let next = change(studioEditing(latest));
+        // A failed vertical move stays recoverable when the next action is
+        // Confirm, trim or a canvas transform. Merge only its lane intent.
+        if (laneIntent && next.layers.some(layer => layer.items.some(item => item.id === laneIntent.id))) {
+          next = moveStudioLayerItemToLane(next, laneIntent.id, laneIntent.targetZIndex);
+        }
+        operation = history.beginEditing(latest, next);
         return operation?.editing ? { editing: operation.editing } : {};
       });
       if (operation) history.commit(operation, saved);
+      if (pendingLayerMove.current === laneIntent) pendingLayerMove.current = undefined;
       if (mounted.current) {
         setEditingPreview(undefined); editingPreviewRef.current = undefined; setBefore(false); setHistoryState(history.state());
         pendingRestore.current = { anchor, revision: saved.revision }; setRestoreSequence(value => value + 1);
@@ -232,7 +241,7 @@ function ProjectEditor({ project, update }: { project: StudioProject; update: (i
     }
     return chosen;
   };
-  const closeLayer = () => { setEditTextRequest(undefined); setSelectedLayerId(undefined); setEditingPreview(undefined); editingPreviewRef.current = undefined; setBefore(false); setTreating(false); };
+  const closeLayer = () => { pendingLayerMove.current = undefined; setEditTextRequest(undefined); setSelectedLayerId(undefined); setEditingPreview(undefined); editingPreviewRef.current = undefined; setBefore(false); setTreating(false); };
   const previewEditing = (value?: StudioEditing) => { editingPreviewRef.current = value; setEditingPreview(value); };
   const previewCanvas = (id: string, transform?: StudioCanvasTransform) => {
     if (working.current || locked) return;
@@ -315,38 +324,49 @@ function ProjectEditor({ project, update }: { project: StudioProject; update: (i
     try { await editEditing(latest => mergeStudioCanvasDraft(latest, draft, id)); }
     catch { previewEditing(draft); throw new Error('A duração ainda não foi salva. Tente novamente.'); }
   };
-  const moveLayer = async (id: string, delta: number) => {
+  const moveLayer = async (id: string, delta: number, targetZIndex?: number) => {
     const base = editingPreviewRef.current || studioEditing(current.current.project);
-    const frozen = freezeStudioLayerTimeline(base, id);
-    const draft = applyStudioLayerTimelineRange(base, id, {
+    const ordered = targetZIndex === undefined ? base : moveStudioLayerItemToLane(base, id, targetZIndex);
+    const frozen = freezeStudioLayerTimeline(ordered, id);
+    const draft = applyStudioLayerTimelineRange(ordered, id, {
       startSeconds: frozen.startSeconds + delta, endSeconds: frozen.endSeconds + delta,
     }, 'move');
+    if (targetZIndex !== undefined) pendingLayerMove.current = { id, targetZIndex };
     previewEditing(draft);
-    try { await editEditing(latest => mergeStudioCanvasDraft(latest, draft, id)); }
+    try { await editEditing(latest => {
+      const orderedLatest = targetZIndex === undefined ? latest : moveStudioLayerItemToLane(latest, id, targetZIndex);
+      return mergeStudioCanvasDraft(orderedLatest, draft, id);
+    }); }
     catch { previewEditing(draft); throw new Error('A posição na timeline ainda não foi salva. Tente novamente.'); }
   };
   const addLayer = async (kind: 'text' | 'caption' | 'image' | 'video' | 'audio') => {
-    if (!advanced || busy || locked || !project.takes.length || !await standardProfile()) return;
+    if (!advanced || working.current || busy || locked || canvasGesture.current || layerGesture.current || !project.takes.length || !await applyVisibleEditing() || !await standardProfile()) return;
     const latest = current.current.project;
     const location = locateStudioTime(latest.takes, playbackRef.current.position);
     if (!location) return;
     const ticks = studioTicks(playbackRef.current.position);
     const durationTicks = studioTicks(Math.max(0.1, Math.min(3, location.take.end - location.sourceSeconds)));
     const id = Crypto.randomUUID();
+    let ownsWork = false;
     try {
       if (kind === 'text' || kind === 'caption') {
         const item = createStudioTextItem({ id, kind, content: kind === 'caption' ? 'Sua legenda' : 'Seu título', atTicks: ticks, durationTicks });
         item.anchor = { clipId: location.takeId, offsetTicks: studioTicks(location.sourceSeconds - location.take.start) };
-        await editEditing(value => addStudioLayerItem(value, item)); selectLayer(id); return;
+        await editEditing(value => addStudioLayerItem(value, item, `layer:item:${id}`)); selectLayer(id); return;
       }
       if (!startWork()) return;
+      ownsWork = true;
       await flush(); assertOwner();
+      const anchor = captureStudioPlaybackAnchor(latest.takes, playbackRef.current);
       const item = { id, kind, atTicks: ticks, durationTicks: kind === 'audio' ? studioTicks(Math.max(0.1, duration - playbackRef.current.position)) : durationTicks,
         ...(kind === 'audio' ? { gain: 0.25, fadeInTicks: Math.min(studioTicks(0.5), Math.floor(durationTicks / 2)), fadeOutTicks: Math.min(studioTicks(0.5), Math.floor(durationTicks / 2)) } : { rect: { x: 0.64, y: 0.06, width: 0.3, height: 0.3 }, anchor: { clipId: location.takeId, offsetTicks: studioTicks(location.sourceSeconds - location.take.start) } }) };
       const saved = await importStudioLayer(getStudioProject(project.ownerId, project.id) || latest, kind, item);
-      if (saved && mounted.current) { setSelectedLayerId(id); setSelectedTakeId(undefined); }
+      if (saved && mounted.current) {
+        setSelectedLayerId(id); setSelectedTakeId(undefined); setEditTextRequest(undefined); setTreating(false);
+        pendingRestore.current = { anchor, revision: saved.revision }; setRestoreSequence(value => value + 1);
+      }
     } catch (error) { Alert.alert('Adicionar camada', error instanceof Error ? error.message : 'Não foi possível importar.'); }
-    finally { if (working.current) finishWork(); }
+    finally { if (ownsWork) finishWork(); }
   };
   const captionFile = async () => {
     if (!advanced || busy || locked || !activeTake || !await standardProfile()) return;
@@ -560,7 +580,7 @@ function ProjectEditor({ project, update }: { project: StudioProject; update: (i
       </View>}
       {!keyboardVisible && <StudioTimeline editing={editing} layers={timelineRecipe.clips.filter(clip => clip.zIndex > 0)} selectedLayerId={selectedLayerId} onSelectLayer={selectLayer} onMoveLayer={moveLayer} onEditLayer={editCanvasElement} onLayerTrimPreview={previewLayerTrim} onLayerTrimCommit={commitLayerTrim} onLayerInteractionStart={() => { layerGesture.current = true; preview.current?.pause(); setLayerInteracting(true); }} onLayerInteractionEnd={() => { layerGesture.current = false; setLayerInteracting(false); }} takes={project.takes} position={playback.position} activeTakeId={selectedTakeId} audio={project.kind === 'podcast'}
         cancelEpoch={trimCancelEpoch}
-        locked={locked} busy={busy || canvasInteracting} onSelect={selectTake} onScrubStart={() => preview.current?.pause()} onSeek={seconds => preview.current?.seek(seconds)} onAppend={() => { void addMedia(); }}
+        locked={locked} busy={!focused || busy || canvasInteracting} onSelect={selectTake} onScrubStart={() => preview.current?.pause()} onSeek={seconds => preview.current?.seek(seconds)} onAppend={() => { void addMedia(); }}
         onTrimChange={previewTrim} onTrimCommit={commitTrim} onTrimCancel={cancelTrim} />}
       {captionProgress && <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 6 }}><Text style={{ flex: 1, color: colors.muted, fontSize: 11 }}>{captionProgress}</Text><Pressable accessibilityLabel="Cancelar transcrição" onPress={() => { const request = captionRequest.current; if (request) { request.cancelled = true; setCaptionProgress('Cancelando…'); void cancelStudioTranscriptionAsync(request.id); } }} style={styles.iconButton}><X size={18} color={colors.text} /></Pressable></View>}
       {layerItem ? <StudioLayerPanel key={layerItem.id} editing={visibleEditing} item={layerItem} canvasEditing editTextRequest={editTextRequest} onTextEditConsumed={request => setEditTextRequest(pending => pending?.id === request.id && pending.sequence === request.sequence ? undefined : pending)} disabled={busy || locked || canvasInteracting || layerInteracting || !focused} onPreview={previewEditing} onApply={applyInlineDraft} onRemove={() => { void editEditing(value => removeStudioLayerItem(value, layerItem.id)).then(saved => { if (saved) closeLayer(); }).catch(() => {}); }} onClose={closeLayer} /> : treating && activeTake ? <StudioTreatmentPanel key={activeTake.id} editing={editing} targetId={activeTake.id} disabled={busy || locked} onPreview={previewEditing} onBefore={setBefore} onApply={applyInlineDraft} onClose={closeLayer} /> : null}

@@ -6,8 +6,18 @@ export type StudioLayerTimelineMode = 'start' | 'end' | 'move';
 export type StudioLayerTimelineSnapshot = {
   id: string; signature: string; startSeconds: number; endSeconds: number; minimumDuration: number;
   minimumStart: number; maximumEnd: number; moveMinimum: number; moveMaximum: number;
+  independentMoveMinimum?: number; independentMoveMaximum?: number;
   sourceStartSeconds: number; sourceEndSeconds: number; temporal: boolean;
 };
+
+/** Vertical intent is a final canonical lane position, never a media merge. */
+export function studioLayerDragDestination(sourceZIndex: number, lanes: readonly number[], translationY: number, rowHeight = 28): number {
+  'worklet';
+  const sourceIndex = lanes.indexOf(sourceZIndex);
+  if (sourceIndex < 0 || !Number.isFinite(translationY) || !Number.isFinite(rowHeight) || rowHeight <= 0) return sourceZIndex;
+  const steps = Math.sign(translationY) * Math.floor(Math.abs(translationY) / rowHeight + 0.5);
+  return lanes[Math.max(0, Math.min(lanes.length - 1, sourceIndex + steps))] ?? sourceZIndex;
+}
 
 /** Freeze the visible interval, original media and neighboring items together. */
 export function freezeStudioLayerTimeline(editing: StudioEditing, id: string): StudioLayerTimelineSnapshot {
@@ -34,6 +44,7 @@ export function freezeStudioLayerTimeline(editing: StudioEditing, id: string): S
   const maximumEnd = Math.max(endSeconds, Math.min(moveMaximum,
     temporal ? endSeconds + studioSeconds(asset!.durationTicks) - sourceEndSeconds : moveMaximum));
   return { id, startSeconds, endSeconds, minimumStart, maximumEnd, moveMinimum, moveMaximum,
+    independentMoveMinimum: 0, independentMoveMaximum: Math.max(mainEnd, endSeconds),
     minimumDuration: Math.min(0.1, endSeconds - startSeconds), sourceStartSeconds, sourceEndSeconds, temporal,
     signature: JSON.stringify([track.id, item, editing.main, editing.assets.map(value => [value.id, value.uri, value.durationTicks, value.kind]),
       siblings.map(value => [value.id, value.startTicks, value.durationTicks]), mainEnd]) };
@@ -45,13 +56,15 @@ export function canContinueStudioLayerTimeline(snapshot: StudioLayerTimelineSnap
 }
 
 /** Shared with UI worklets: a trim changes source range, a move preserves it. */
-export function studioLayerDragRange(snapshot: StudioLayerTimelineSnapshot, mode: StudioLayerTimelineMode, deltaSeconds: number): StudioLayerTimelineRange {
+export function studioLayerDragRange(snapshot: StudioLayerTimelineSnapshot, mode: StudioLayerTimelineMode, deltaSeconds: number, independentLane = false): StudioLayerTimelineRange {
   'worklet';
   const delta = Number.isFinite(deltaSeconds) ? deltaSeconds : 0;
   const round = (value: number) => Math.round(value * 120000) / 120000;
   if (mode === 'move') {
     const duration = snapshot.endSeconds - snapshot.startSeconds;
-    const startSeconds = Math.max(snapshot.moveMinimum, Math.min(snapshot.moveMaximum - duration, round(snapshot.startSeconds + delta)));
+    const minimum = independentLane ? snapshot.independentMoveMinimum ?? snapshot.moveMinimum : snapshot.moveMinimum;
+    const maximum = independentLane ? snapshot.independentMoveMaximum ?? snapshot.moveMaximum : snapshot.moveMaximum;
+    const startSeconds = Math.max(minimum, Math.min(maximum - duration, round(snapshot.startSeconds + delta)));
     return { startSeconds, endSeconds: startSeconds + duration };
   }
   return {

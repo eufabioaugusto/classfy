@@ -1,5 +1,35 @@
-#if canImport(UIKit) && canImport(ExpoModulesCore)
 import AVFoundation
+import Foundation
+
+/** Readiness precedes the first exact seek; a cancelled seek is never a frame. */
+@MainActor
+enum StudioCompositionInitialFrame {
+  static func prime(player: AVPlayer, item: AVPlayerItem, seconds: Double,
+                    isCurrent: () -> Bool) async throws {
+    let deadline = Date().addingTimeInterval(15)
+    while item.status == .unknown {
+      try Task.checkCancellation()
+      guard isCurrent(), player.currentItem === item else { throw StudioRecipeError.cancelled }
+      guard Date() < deadline else { throw StudioRecipeError.invalid("A prévia demorou para preparar o primeiro quadro. Tente abrir o projeto novamente.") }
+      try await Task.sleep(nanoseconds: 10_000_000)
+    }
+    try Task.checkCancellation()
+    guard isCurrent(), player.currentItem === item else { throw StudioRecipeError.cancelled }
+    guard item.status == .readyToPlay else {
+      throw item.error ?? StudioRecipeError.invalid("Não foi possível preparar o primeiro quadro desta edição.")
+    }
+    let finished = await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
+      player.seek(to: CMTime(seconds: seconds, preferredTimescale: 120_000), toleranceBefore: .zero, toleranceAfter: .zero) {
+        continuation.resume(returning: $0)
+      }
+    }
+    try Task.checkCancellation()
+    guard isCurrent(), player.currentItem === item else { throw StudioRecipeError.cancelled }
+    guard finished else { throw StudioRecipeError.invalid("O primeiro quadro da prévia foi interrompido. Tente abrir o projeto novamente.") }
+  }
+}
+
+#if canImport(UIKit) && canImport(ExpoModulesCore)
 import ExpoModulesCore
 import UIKit
 
@@ -29,6 +59,7 @@ final class StudioCompositionView: ExpoView {
     let continuation: CheckedContinuation<[String: Any], Error>
   }
   private var pendingSeek: PendingSeek?
+  private var initializingItem: AVPlayerItem?
   private var buildTask: Task<Void, Never>?
   private var frameTask: Task<CGImage, Error>?
   private var replayTask: Task<Void, Never>?
@@ -123,6 +154,12 @@ final class StudioCompositionView: ExpoView {
           guard generation == buildGeneration, !disposed else { return }
           if let updated, let item = player.currentItem, item.status == .readyToPlay {
             self.prepared = updated; item.videoComposition = updated.videoComposition
+            if initializingItem === item {
+              let raw = player.currentTime().seconds
+              let position = min(pendingSeek?.seconds ?? (raw.isFinite ? max(0, raw) : oldPosition),
+                max(0, updated.recipe.durationSeconds - 1 / 30.0))
+              try await primeInitialFrame(item: item, seconds: position, generation: generation)
+            }
             loading = false
             if !paused && window != nil { startPlayback() }
             drainPendingSeek(); publish(); return
@@ -139,6 +176,7 @@ final class StudioCompositionView: ExpoView {
         guard generation == buildGeneration else { return }
         self.prepared = prepared
         let item = prepared.playerItem()
+        initializingItem = item
         statusObserver?.invalidate()
         if let endObserver { NotificationCenter.default.removeObserver(endObserver) }
         statusObserver = item.observe(\.status, options: [.initial, .new]) { [weak self, weak item] _, _ in
@@ -148,8 +186,12 @@ final class StudioCompositionView: ExpoView {
               self.loading = false; self.paused = true; self.player.pause()
               self.fail(item.error ?? StudioRecipeError.invalid("Não foi possível abrir esta edição."))
             } else if item.status == .readyToPlay {
-              self.loading = false
-              if !self.paused && self.window != nil { self.startPlayback() }
+              // The decoder becoming ready can precede the first composed
+              // frame. Keep commands queued until the exact seek completes.
+              if self.initializingItem !== item {
+                self.loading = false
+                if !self.paused && self.window != nil { self.startPlayback() }
+              }
               self.publish()
             }
           }
@@ -167,7 +209,7 @@ final class StudioCompositionView: ExpoView {
         let position = min(rebuildPosition, max(0, prepared.recipe.durationSeconds - 1 / 30.0))
         // Even a paused item at zero must request its first composed frame.
         // Merely becoming ready does not prime AVPlayerLayer on every device.
-        await seekPlayer(position)
+        try await primeInitialFrame(item: item, seconds: position, generation: generation)
         guard generation == buildGeneration, !Task.isCancelled, !disposed,
               player.currentItem === item else { return }
         loading = item.status != .readyToPlay
@@ -176,7 +218,7 @@ final class StudioCompositionView: ExpoView {
         publish()
       } catch {
         guard generation == buildGeneration, !Task.isCancelled else { return }
-        loading = false; prepared = nil; player.replaceCurrentItem(with: nil)
+        loading = false; prepared = nil; initializingItem = nil; player.replaceCurrentItem(with: nil)
         pendingSeek?.continuation.resume(throwing: error); pendingSeek = nil
         fail(error)
       }
@@ -202,11 +244,11 @@ final class StudioCompositionView: ExpoView {
               self.replayPending = false; self.replayTask = nil; self.publish()
             }
           }
-          await self.seekPlayer(0)
+          let finished = await self.seekPlayer(0)
           guard !Task.isCancelled, !self.disposed, !self.paused, self.window != nil,
                 self.sourceInspection == nil, self.buildGeneration == generation,
                 self.commandToken == token, self.replayGeneration == replay,
-                self.player.currentItem === item else { return }
+                self.player.currentItem === item, finished else { return }
           self.startPlayback(); self.publish()
         }
       } else { startPlayback() }
@@ -241,12 +283,15 @@ final class StudioCompositionView: ExpoView {
 
   private func claim(_ token: Int) throws {
     guard !disposed, token >= commandToken else { throw StudioRecipeError.cancelled }
-    commandToken = token; frameTask?.cancel(); cancelReplay(); player.currentItem?.cancelPendingSeeks()
+    commandToken = token; frameTask?.cancel(); cancelReplay()
+    // A restore/seek arriving during replacement must not cancel the only
+    // request for the paused first frame. seekAsync queues the latest intent.
+    if initializingItem == nil || player.currentItem !== initializingItem { player.currentItem?.cancelPendingSeeks() }
     if let pending = pendingSeek { pending.continuation.resume(throwing: StudioRecipeError.cancelled); pendingSeek = nil }
   }
 
   private func drainPendingSeek() {
-    guard let pending = pendingSeek, prepared != nil else { return }
+    guard let pending = pendingSeek, prepared != nil, !loading else { return }
     pendingSeek = nil
     Task { [weak self] in
       guard let self else { pending.continuation.resume(throwing: StudioRecipeError.cancelled); return }
@@ -255,10 +300,19 @@ final class StudioCompositionView: ExpoView {
     }
   }
 
-  private func seekPlayer(_ seconds: Double) async {
-    await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-      player.seek(to: CMTime(seconds: seconds, preferredTimescale: 120_000), toleranceBefore: .zero, toleranceAfter: .zero) { _ in
-        continuation.resume()
+  private func primeInitialFrame(item: AVPlayerItem, seconds: Double, generation: Int) async throws {
+    try await StudioCompositionInitialFrame.prime(player: player, item: item, seconds: seconds) { [weak self, weak item] in
+      guard let self, let item else { return false }
+      return !self.disposed && self.buildGeneration == generation && self.initializingItem === item
+    }
+    guard generation == buildGeneration, !disposed, initializingItem === item else { throw StudioRecipeError.cancelled }
+    initializingItem = nil
+  }
+
+  private func seekPlayer(_ seconds: Double) async -> Bool {
+    await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
+      player.seek(to: CMTime(seconds: seconds, preferredTimescale: 120_000), toleranceBefore: .zero, toleranceAfter: .zero) { finished in
+        continuation.resume(returning: finished)
       }
     }
   }
@@ -281,8 +335,8 @@ final class StudioCompositionView: ExpoView {
     paused = true; player.pause(); sourceInspection = nil
     inspectedFrame.isHidden = true
     let target = max(0, min(seconds, max(0, prepared.recipe.durationSeconds - 1 / 30.0)))
-    await seekPlayer(target)
-    guard commandToken == token, generation == buildGeneration else { throw StudioRecipeError.cancelled }
+    let finished = await seekPlayer(target)
+    guard commandToken == token, generation == buildGeneration, finished else { throw StudioRecipeError.cancelled }
     publish(); return state()
   }
 
@@ -357,7 +411,7 @@ final class StudioCompositionView: ExpoView {
     disposed = true; buildGeneration += 1
     buildTask?.cancel(); frameTask?.cancel(); cancelReplay(); player.pause(); player.replaceCurrentItem(with: nil)
     pendingSeek?.continuation.resume(throwing: StudioRecipeError.cancelled); pendingSeek = nil
-    prepared = nil; inspectedFrame.image = nil; sourceInspection = nil
+    prepared = nil; initializingItem = nil; inspectedFrame.image = nil; sourceInspection = nil
     statusObserver?.invalidate()
     if let periodicObserver { player.removeTimeObserver(periodicObserver); self.periodicObserver = nil }
     for observer in [endObserver, backgroundObserver, interruptionObserver, captureObserver].compactMap({ $0 }) {

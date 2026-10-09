@@ -26,6 +26,7 @@ function harness(options = {}) {
     getItem: async key => data.get(key) || null, setItem: async (key, value) => { data.set(key, value); },
   }, 'expo-file-system/legacy': fileSystem, 'expo-crypto': crypto, './model': model });
   const nativeCalls = [];
+  const imageCalls = [];
   const copies = [];
   const copy = fileSystem.copyAsync;
   fileSystem.copyAsync = async options => { copies.push(options); await copy(options); };
@@ -46,11 +47,18 @@ function harness(options = {}) {
     'expo-image-picker': { UIImagePickerPreferredAssetRepresentationMode: { Current: 'current' }, launchImageLibraryAsync: async () => ({ canceled: pickerCanceled,
       assets: options.pickerAssets || [{ uri: 'file:///good.mp4', fileName: 'Bom' }, { uri: 'file:///broken.mp4', fileName: 'Pendente' }] }) },
     'expo-document-picker': { getDocumentAsync: async () => ({ canceled: pickerCanceled, assets: options.pickerAssets || [{ uri: 'file:///audio.m4a', name: 'Áudio.m4a' }] }) },
-    'expo-image-manipulator': { ImageManipulator: { manipulate: uri => ({ renderAsync: async () => { if (!repair && disk.get(uri)?.bad) throw new Error('Imagem ilegível'); return { width: 1200, height: 800 }; } }) } }, '@/lib/supabase': { supabase: { auth: { getSession: async () => {
+    'expo-image-manipulator': { ImageManipulator: { manipulate: uri => ({
+      renderAsync: async () => {
+        imageCalls.push({ operation: 'render', uri });
+        if (!repair && disk.get(uri)?.bad) throw new Error('Imagem ilegível');
+        return { width: options.imageWidth ?? 1200, height: options.imageHeight ?? 800,
+          release: () => imageCalls.push({ operation: 'release-image', uri }) };
+      }, release: () => imageCalls.push({ operation: 'release-context', uri }),
+    }) } }, '@/lib/supabase': { supabase: { auth: { getSession: async () => {
       await sessionCheck?.(); return { data: { session: { user: { id: sessionOwner } } } };
     } } } }, '../../../modules/classfy-studio-media': native, './model': model, './store': store,
   });
-  return { media, store, model, nativeCalls, copies, disk, data, repair: () => { repair = true; }, nativeExports: () => nativeExports,
+  return { media, store, model, nativeCalls, imageCalls, copies, disk, data, repair: () => { repair = true; }, nativeExports: () => nativeExports,
     sessionCheck: fn => { sessionCheck = fn; }, copyCheck: fn => { copyCheck = fn; }, owner: id => { sessionOwner = id; }, cancelPicker: () => { pickerCanceled = true; } };
 }
 test('lote parcialmente ilegível preserva take pronto e journal do arquivo pendente', async () => {
@@ -162,7 +170,7 @@ test('journal de overlay sobrevive restart e recupera camada, não take principa
   const item = { id: 'pip', kind: 'video', atTicks: 0, durationTicks: h.model.studioTicks(2), anchor: { clipId: 'base', offsetTicks: 0 }, rect: { x: 0.6, y: 0.05, width: 0.35, height: 0.35 } };
   await assert.rejects(h.media.importStudioLayer(base, 'video', item), /ilegível/);
   const pending = h.store.getStudioProject('owner', p.id).pendingTakes[0];
-  assert.equal(pending.layerItem.id, 'pip'); assert.equal(pending.layerId, 'layer:video');
+  assert.equal(pending.layerItem.id, 'pip'); assert.equal(pending.layerId, 'layer:item:pip');
   const restarted = harness({ data: h.data, disk: h.disk }); restarted.repair(); await restarted.store.loadStudioProjects('owner');
   const result = await restarted.media.recoverPendingStudioTakes(restarted.store.getStudioProject('owner', p.id));
   assert.equal(result.recovered, 1); assert.equal(result.errors.length, 0);
@@ -181,6 +189,7 @@ test('imagem importada preserva original e export envia mesma receita com texto,
   const p = await h.store.createStudioProject('owner', 'short');
   const base = await h.store.updateStudioProject('owner', p.id, { takes: [baseTake] });
   const imported = await h.media.importStudioLayer(base, 'image', { id: 'slide', kind: 'image', atTicks: 0, durationTicks: h.model.studioTicks(1.5), anchor: { clipId: 'base', offsetTicks: 0 } });
+  assert.deepEqual(h.imageCalls.map(call => call.operation), ['render', 'release-image', 'release-context']);
   let editing = h.model.patchStudioClipGrade(imported.editing, 'base', { preset: 'studio', exposure: 0.25 });
   editing = h.model.addStudioLayerItem(editing, h.model.createStudioTextItem({ id: 'title', content: 'Aprender', durationTicks: h.model.studioTicks(1), clipId: 'base' }));
   editing = { ...editing, assets: [...editing.assets, { id: 'music', kind: 'audio', uri: 'file:///music.m4a', name: 'Música', durationTicks: h.model.studioTicks(4), width: 0, height: 0, frameRate: 0 }] };
@@ -193,6 +202,104 @@ test('imagem importada preserva original e export envia mesma receita com texto,
   assert.equal(h.store.getStudioProject('owner', p.id).exportedUri, result.uri);
   const asset = expected.assets.find(asset => asset.kind === 'image'); assert.ok(h.disk.has(asset.uri)); assert.ok(asset.uri.endsWith('.png'));
   assert.equal(expected.durationTicks, h.model.studioTicks(4)); assert.equal(expected.output.width, 1080); assert.equal(expected.output.height, 1920);
+});
+test('imagem usa dimensões visuais do picker sem criar outra rasterização nem alterar o original', async () => {
+  const h = harness({ pickerAssets: [{ uri: 'file:///photo.heic', fileName: 'Foto.heic', width: 8064, height: 6048 }] });
+  const p = await h.store.createStudioProject('owner', 'aula');
+  const base = await h.store.updateStudioProject('owner', p.id, { takes: [baseTake] });
+  const saved = await h.media.importStudioLayer(base, 'image', { id: 'photo', kind: 'image', atTicks: 0,
+    durationTicks: h.model.studioTicks(1), anchor: { clipId: 'base', offsetTicks: 0 } });
+  assert.equal(h.imageCalls.length, 0, 'dimension metadata must not decode another full-resolution image');
+  assert.equal(h.copies.length, 1);
+  const asset = saved.editing.assets.find(asset => asset.kind === 'image');
+  assert.equal(asset.width, 8064); assert.equal(asset.height, 6048); assert.ok(asset.uri.endsWith('.heic'));
+  assert.equal(h.model.validateStudioEditing(saved.editing, 'aula').length, 0);
+  assert.equal(saved.pendingTakes.length, 0);
+});
+test('duas imagens no mesmo intervalo entram em faixas próprias sem migrar grupos existentes', async () => {
+  const h = harness({ pickerAssets: [{ uri: 'file:///slide.png', fileName: 'Slide.png', width: 1200, height: 800 }] });
+  const p = await h.store.createStudioProject('owner', 'aula');
+  let saved = await h.store.updateStudioProject('owner', p.id, { takes: [baseTake] });
+  const item = id => ({ id, kind: 'image', atTicks: 0, durationTicks: h.model.studioTicks(1),
+    anchor: { clipId: 'base', offsetTicks: 0 }, rect: { x: 0.1, y: 0.1, width: 0.3, height: 0.3 } });
+  saved = await h.media.importStudioLayer(saved, 'image', item('first'));
+  // Simulate an existing grouped track. New imports must neither rewrite it
+  // nor append a new manual element to this legacy group.
+  const firstAsset = saved.editing.layers[0].items[0].assetId;
+  const legacy = h.model.addStudioLayerItem({ ...saved.editing, layers: [] }, { ...item('legacy'), assetId: firstAsset }, 'layer:image');
+  saved = await h.store.updateStudioProject('owner', p.id, { editing: legacy });
+  saved = await h.media.importStudioLayer(saved, 'image', item('second'));
+  saved = await h.media.importStudioLayer(saved, 'image', item('third'));
+  assert.deepEqual(plain(saved.editing.layers.map(layer => [layer.id, layer.kind, layer.items.map(value => value.id)])), [
+    ['layer:image', 'image', ['legacy']], ['layer:item:second', 'image', ['second']], ['layer:item:third', 'image', ['third']],
+  ]);
+  const clips = h.model.compileStudioRecipe(saved).clips.filter(clip => clip.kind === 'image');
+  assert.equal(clips.length, 3);
+  assert.deepEqual(plain(clips.map(clip => [clip.startTicks, clip.durationTicks, clip.zIndex])), [
+    [0, h.model.studioTicks(1), 1], [0, h.model.studioTicks(1), 2], [0, h.model.studioTicks(1), 3],
+  ]);
+  assert.equal(h.model.validateStudioEditing(saved.editing, 'aula').length, 0);
+  assert.equal(saved.pendingTakes.length, 0);
+  const restarted = harness({ data: h.data, disk: h.disk }); await restarted.store.loadStudioProjects('owner');
+  assert.deepEqual(plain(restarted.store.getStudioProject('owner', p.id).editing.layers), plain(saved.editing.layers));
+});
+test('recovery conserva dimensões do picker após interrupção e não rasteriza nem copia novamente', async () => {
+  const h = harness({ pickerAssets: [{ uri: 'file:///photo.heic', fileName: 'Foto.heic', width: 3024, height: 4032 }] });
+  const p = await h.store.createStudioProject('owner', 'aula');
+  const base = await h.store.updateStudioProject('owner', p.id, { takes: [baseTake] });
+  h.sessionCheck(() => {
+    if (h.store.getStudioProject('owner', p.id).pendingTakes?.length) throw new Error('Interrompido após o journal');
+  });
+  await assert.rejects(h.media.importStudioLayer(base, 'image', { id: 'photo', kind: 'image', atTicks: 0,
+    durationTicks: h.model.studioTicks(1), anchor: { clipId: 'base', offsetTicks: 0 } }), /Interrompido/);
+  const pending = h.store.getStudioProject('owner', p.id).pendingTakes[0];
+  assert.deepEqual(plain(pending.imageSize), { width: 3024, height: 4032 });
+  const restarted = harness({ data: h.data, disk: h.disk }); await restarted.store.loadStudioProjects('owner');
+  const result = await restarted.media.recoverPendingStudioTakes(restarted.store.getStudioProject('owner', p.id));
+  assert.deepEqual(plain(result), { recovered: 1, errors: [] });
+  assert.equal(restarted.imageCalls.length, 0); assert.equal(restarted.copies.length, 0);
+  const saved = restarted.store.getStudioProject('owner', p.id);
+  const asset = saved.editing.assets.find(asset => asset.kind === 'image');
+  assert.equal(asset.width, 3024); assert.equal(asset.height, 4032); assert.equal(asset.uri, pending.uri);
+});
+test('dimensões ausentes ou inválidas do picker usam fallback e liberam ambas as referências', async () => {
+  for (const dimensions of [{}, { width: 0, height: 4032 }, { width: NaN, height: 4032 }, { width: 3024, height: Infinity }]) {
+    const h = harness({ pickerAssets: [{ uri: 'file:///slide.png', fileName: 'Slide.png', ...dimensions }] });
+    const p = await h.store.createStudioProject('owner', 'aula');
+    const base = await h.store.updateStudioProject('owner', p.id, { takes: [baseTake] });
+    const saved = await h.media.importStudioLayer(base, 'image', { id: 'slide', kind: 'image', atTicks: 0, durationTicks: h.model.studioTicks(1) });
+    assert.deepEqual(h.imageCalls.map(call => call.operation), ['render', 'release-image', 'release-context']);
+    const asset = saved.editing.assets.find(asset => asset.kind === 'image');
+    assert.equal(asset.width, 1200); assert.equal(asset.height, 800);
+  }
+});
+test('falha ao ler imagem libera o contexto; recovery reutiliza o original e libera as duas referências', async () => {
+  const h = harness({ pickerAssets: [{ uri: 'file:///broken-slide.png', fileName: 'Slide.png' }] });
+  const p = await h.store.createStudioProject('owner', 'aula');
+  const base = await h.store.updateStudioProject('owner', p.id, { takes: [baseTake] });
+  await assert.rejects(h.media.importStudioLayer(base, 'image', { id: 'slide', kind: 'image', atTicks: 0,
+    durationTicks: h.model.studioTicks(1), anchor: { clipId: 'base', offsetTicks: 0 } }), /Imagem ilegível/);
+  assert.deepEqual(h.imageCalls.map(call => call.operation), ['render', 'release-context']);
+  const pending = h.store.getStudioProject('owner', p.id).pendingTakes[0];
+  assert.equal(h.copies.length, 1); assert.ok(h.disk.has(pending.uri));
+  h.repair();
+  const result = await h.media.recoverPendingStudioTakes(h.store.getStudioProject('owner', p.id));
+  assert.deepEqual(plain(result), { recovered: 1, errors: [] });
+  assert.equal(h.copies.length, 1, 'recovery must not copy or replace the original again');
+  assert.deepEqual(h.imageCalls.slice(2).map(call => call.operation), ['render', 'release-image', 'release-context']);
+  const saved = h.store.getStudioProject('owner', p.id);
+  assert.equal(saved.editing.assets.find(asset => asset.kind === 'image').uri, pending.uri);
+  assert.equal(saved.pendingTakes.length, 0);
+});
+test('dimensões inválidas do fallback não deixam referências retidas nem salvam overlay inválido', async () => {
+  const h = harness({ imageWidth: 0, pickerAssets: [{ uri: 'file:///slide.png', fileName: 'Slide.png' }] });
+  const p = await h.store.createStudioProject('owner', 'aula');
+  const base = await h.store.updateStudioProject('owner', p.id, { takes: [baseTake] });
+  await assert.rejects(h.media.importStudioLayer(base, 'image', { id: 'slide', kind: 'image', atTicks: 0,
+    durationTicks: h.model.studioTicks(1) }), /dimensões/);
+  assert.deepEqual(h.imageCalls.map(call => call.operation), ['render', 'release-image', 'release-context']);
+  assert.equal(h.store.getStudioProject('owner', p.id).editing.layers.length, 0);
+  assert.equal(h.store.getStudioProject('owner', p.id).pendingTakes.length, 1);
 });
 test('legado simples usa export original; efeito ou camada não podem cair no export que os perde', async () => {
   const h = harness(); const p = await h.store.createStudioProject('owner', 'aula');

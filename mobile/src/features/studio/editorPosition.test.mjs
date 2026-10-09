@@ -107,7 +107,7 @@ function harness(takes = [take('a'), take('b')], options = {}) {
     '@/features/auth/authContext': { useAuth: () => ({ user: { id: 'owner' } }) }, '@/theme/colors': { colors: {} },
     '@/features/studio/useStudioProjects': { useStudioProject: () => ({ project }) },
     '@/features/studio/useStudioOrientation': { useStudioOrientation: () => ({ orientationReady: true }) },
-    '@/features/studio/media': {},
+    '@/features/studio/media': { importStudioLayer: options.importLayer },
     '@/features/studio/store': { discardTransientStudioProject: async () => undefined, getStudioProject: () => project,
       isTransientStudioProject: () => false,
       mutateStudioProject: async (_, __, change) => {
@@ -316,6 +316,58 @@ function appendMediaAndUpdateOtherTitle(project) {
   const latest = model.withStudioTakes({ ...project, editing });
   return model.reconcileStudioTakes(latest, [...latest.takes, take('c')]);
 }
+test('hold move tempo e faixa em uma edição e um undo restaura ambos sem mover cursor', async () => {
+  const initial = editingWithCaptions();
+  const view = harness(undefined, { initialEditing: initial, advanced: true });
+  try {
+    await view.pump(); view.publish({ position: 8, sourcePosition: 4, takeId: 'b', playing: false, loading: false }); await view.pump();
+    view.timelineProps().onSelectLayer('caption'); await view.pump();
+    const timeline = view.timelineProps(); timeline.onLayerInteractionStart();
+    const saving = timeline.onMoveLayer('caption', 0.5, 2); await view.pump();
+    view.finishSave(); await saving; timeline.onLayerInteractionEnd(); await view.pump();
+    assert.equal(view.project().editing.layers[1].items[0].id, 'caption');
+    assert.equal(view.project().editing.layers[1].items[0].anchor.sourceStartTicks, model.studioTicks(3.5));
+    assert.equal(view.timelineProps().position, 8); assert.deepEqual(view.writes(), { attempted: 1, completed: 1 });
+    view.button('Desfazer edição').onPress(); await view.pump(); view.finishSave(); await view.pump();
+    assert.deepEqual(view.project().editing.layers, initial.layers); assert.equal(view.timelineProps().position, 8);
+  } finally { view.dispose(); }
+});
+
+test('hold mantém cursor antes de qualquer preview de duração e libera os controles ao cancelar', async () => {
+  const view = harness(undefined, { initialEditing: editingWithCaptions(), advanced: true });
+  try {
+    await view.pump(); view.publish({ position: 8, sourcePosition: 4, takeId: 'b', playing: false, loading: false }); await view.pump();
+    view.timelineProps().onSelectLayer('caption'); await view.pump();
+    const timeline = view.timelineProps(); timeline.onLayerInteractionStart();
+    view.publish({ position: 0, sourcePosition: 2, takeId: 'a', playing: false, loading: true }, false); await view.pump();
+    assert.equal(view.timelineProps().position, 8); assert.equal(view.button('Revisar publicação').disabled, true);
+    timeline.onLayerInteractionEnd(); await view.pump();
+    assert.equal(view.button('Revisar publicação').disabled, false); assert.deepEqual(view.writes(), { attempted: 0, completed: 0 });
+  } finally { view.dispose(); }
+});
+
+test('falha ao mover faixa mantém tempo e ordem recuperáveis no Confirmar sem sobrescrever outros itens', async () => {
+  const view = harness(undefined, { initialEditing: editingWithCaptions(), advanced: true });
+  try {
+    await view.pump(); view.publish({ position: 8, sourcePosition: 4, takeId: 'b', playing: false, loading: false }); await view.pump();
+    view.timelineProps().onSelectLayer('caption'); await view.pump();
+    const timeline = view.timelineProps(); timeline.onLayerInteractionStart();
+    view.failNextMutation('Disco cheio');
+    await assert.rejects(timeline.onMoveLayer('caption', 0.5, 2), /ainda não foi salva/);
+    timeline.onLayerInteractionEnd(); await view.pump();
+    assert.equal(view.project().editing.layers[0].items[0].id, 'caption');
+    assert.equal(view.previewProps().project.editing.layers[1].items[0].id, 'caption');
+    const latest = model.patchStudioLayerItem(view.project().editing, 'other-text', { text: { content: 'Outro item atualizado durante a tentativa' } });
+    view.externalEditing(latest); await view.pump();
+    const saving = view.layerProps().onApply(view.layerProps().editing); await view.pump();
+    view.finishSave(); await saving; await view.pump();
+    assert.equal(view.project().editing.layers[1].items[0].id, 'caption');
+    assert.equal(view.project().editing.layers[1].items[0].anchor.sourceStartTicks, model.studioTicks(3.5));
+    assert.equal(view.project().editing.layers[0].items[0].text.content, 'Outro item atualizado durante a tentativa');
+    assert.equal(view.timelineProps().position, 8); assert.equal(view.hasLayerPanel(), false);
+    assert.deepEqual(view.writes(), { attempted: 2, completed: 1 });
+  } finally { view.dispose(); }
+});
 test('texto provisório e arraste de legenda salvam juntos, preservam cursor e desfazem como uma edição', async () => {
   const view = harness(undefined, { initialEditing: editingWithCaptions(), advanced: true });
   try {
@@ -735,4 +787,32 @@ test('sair do editor cancela foco pendente sem perder seleção ou texto visíve
     assert.equal(panel.focusCount(), 0); assert.equal(view.layerProps().disabled, false);
     assert.equal(panel.input().value, 'Texto ainda em edição'); assert.deepEqual(view.writes(), { attempted: 0, completed: 0 });
   } finally { panel?.dispose(); view.dispose(); }
+});
+
+for (const outcome of ['cancel', 'error']) test(`importação ${outcome}: segundo toque não libera a sessão que ainda possui o seletor`, async () => {
+  let settle, calls = 0;
+  const pending = new Promise((resolve, reject) => { settle = outcome === 'cancel' ? () => resolve(null) : () => reject(new Error('Imagem indisponível')); });
+  const view = harness(undefined, { initialEditing: editingWithCaptions(), advanced: true,
+    importLayer: () => { calls += 1; return pending; } });
+  try {
+    await view.pump(); view.tool('Camada').onPress();
+    const insert = view.alerts.at(-1)[2].find(option => option.text === 'Imagem').onPress;
+    // Both callbacks were queued before React rendered the disabled state.
+    insert(); insert(); await view.pump();
+    assert.equal(calls, 1);
+    assert.equal(view.tool('Camada').disabled, true);
+    assert.equal(view.canvasProps().disabled, true);
+    assert.equal(view.timelineProps().busy, true);
+    const selection = view.canvasProps().selectedLayerId;
+    view.canvasProps().onSelectLayer('caption'); await view.pump();
+    assert.equal(view.canvasProps().selectedLayerId, selection);
+    view.back(); await view.pump();
+    assert.equal(view.navigationEvents.length, 0);
+    settle(); await view.pump();
+    assert.equal(view.tool('Camada').disabled, false);
+    assert.equal(view.canvasProps().disabled, false);
+    assert.equal(view.timelineProps().busy, false);
+    assert.deepEqual(view.writes(), { attempted: 0, completed: 0 });
+    if (outcome === 'error') assert.equal(view.alerts.at(-1)[1], 'Imagem indisponível');
+  } finally { view.dispose(); }
 });

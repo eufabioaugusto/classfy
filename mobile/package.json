@@ -72,7 +72,8 @@
     "test:studio:recipe": "bash modules/classfy-studio-media/tests/verify-recipe.sh",
     "test:studio:capture": "bash modules/classfy-studio-media/tests/verify-capture.sh",
     "test:studio:transcription": "bash modules/classfy-studio-media/tests/verify-transcription.sh",
-    "test:studio:compositor": "bash modules/classfy-studio-media/tests/verify-compositor.sh"
+    "test:studio:compositor": "bash modules/classfy-studio-media/tests/verify-compositor.sh",
+    "test:studio:initial-frame": "bash modules/classfy-studio-media/tests/verify-composition-initialization.sh"
   },
   "private": true
 }

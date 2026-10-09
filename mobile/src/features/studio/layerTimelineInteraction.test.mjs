@@ -12,7 +12,7 @@ new Function('require', 'module', 'exports', compiled)(name => {
   assert.equal(name, './model'); return model;
 }, module, module.exports);
 const { freezeStudioLayerTimeline: freeze, studioLayerDragRange: drag, applyStudioLayerTimelineRange: apply,
-  canContinueStudioLayerTimeline: continues } = module.exports;
+  canContinueStudioLayerTimeline: continues, studioLayerDragDestination: destination } = module.exports;
 const ticks = model.studioTicks;
 function fixture(item, neighbors = []) {
   return { ...model.emptyStudioEditing('aula'), assets: [
@@ -29,6 +29,33 @@ const interval = editing => {
   return { start: model.studioSeconds(clip.startTicks), end: model.studioSeconds(clip.startTicks + clip.durationTicks),
     sourceStart: model.studioSeconds(clip.sourceStartTicks), sourceEnd: model.studioSeconds(clip.sourceEndTicks) };
 };
+
+test('destino vertical usa posições canônicas, limiar simétrico e clamp sem fundir faixas', () => {
+  assert.equal(destination(3, [1, 3, 8], 13), 3);
+  assert.equal(destination(3, [1, 3, 8], 14), 8);
+  assert.equal(destination(3, [1, 3, 8], -14), 1);
+  assert.equal(destination(3, [1, 3, 8], 10000), 8);
+  assert.equal(destination(3, [1, 3, 8], -10000), 1);
+  assert.equal(destination(3, [1, 3, 8], NaN), 3);
+  assert.equal(destination(9, [1, 3, 8], 28), 9);
+  assert.equal(destination(3, [1, 3, 8], 28, 0), 3);
+});
+
+test('diagonal extraído de grupo usa limites da aula, mantendo vizinhos e trecho original', () => {
+  const audio = { ...video, kind: 'audio' };
+  const neighbor = { ...audio, id: 'neighbor', atTicks: ticks(6) };
+  const editing = fixture(audio, [neighbor]);
+  const frozen = freeze(editing, 'layer');
+  assert.deepEqual(drag(frozen, 'move', 4), { startSeconds: 3, endSeconds: 6 });
+  const range = drag(frozen, 'move', 4, true);
+  assert.deepEqual(range, { startSeconds: 6, endSeconds: 9 });
+  const reordered = model.moveStudioLayerItemToLane(editing, 'layer', 2);
+  const saved = apply(reordered, 'layer', range, 'move');
+  assert.deepEqual(interval(saved), { start: 6, end: 9, sourceStart: 1, sourceEnd: 4 });
+  assert.deepEqual(saved.layers[0].items, [neighbor]);
+  assert.deepEqual(model.validateStudioEditing(saved, 'aula'), []);
+  assert.deepEqual(drag(frozen, 'move', 100, true), { startSeconds: 9, endSeconds: 12 });
+});
 
 for (const kind of ['video', 'audio']) test(`${kind}: bordas respeitam o original e mantêm duração 1:1, sem esticar velocidade`, () => {
   const editing = fixture({ ...video, kind }); const snapshot = freeze(editing, 'layer');

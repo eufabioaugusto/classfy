@@ -173,8 +173,8 @@ async function finishStudioLayerImport(project: StudioProject, pending: NonNulla
   if (!pending.layerItem || !pending.kind) throw new Error('O destino da camada precisa de recuperação.');
   let asset: StudioAsset;
   if (pending.kind === 'image') {
-    const rendered = await ImageManipulator.manipulate(pending.uri).renderAsync();
-    asset = { id: pending.id, kind: 'image', uri: pending.uri, name: pending.name, durationTicks: 0, width: rendered.width, height: rendered.height, thumbnailUri: pending.uri };
+    const dimensions = studioImageSize(pending.imageSize) ?? await readStudioImageSize(pending.uri);
+    asset = { id: pending.id, kind: 'image', uri: pending.uri, name: pending.name, durationTicks: 0, ...dimensions, thumbnailUri: pending.uri };
   } else {
     const info = await getMediaInfoAsync(pending.uri);
     if (!Number.isFinite(info.duration) || info.duration < 0.1 || pending.kind === 'video' && !info.hasVideo || pending.kind === 'audio' && !info.hasAudio) throw new Error('Este arquivo não contém a mídia selecionada.');
@@ -195,18 +195,38 @@ async function finishStudioLayerImport(project: StudioProject, pending: NonNulla
   });
   return saved;
 }
+function studioImageSize(value?: { width: number; height: number }) {
+  return value && [value.width, value.height].every(dimension => Number.isFinite(dimension) && dimension > 0)
+    ? { width: value.width, height: value.height } : undefined;
+}
+async function readStudioImageSize(uri: string) {
+  const context = ImageManipulator.manipulate(uri);
+  let rendered: Awaited<ReturnType<typeof context.renderAsync>> | undefined;
+  try {
+    rendered = await context.renderAsync();
+    const dimensions = studioImageSize(rendered);
+    if (!dimensions) throw new Error('Não foi possível ler as dimensões desta imagem.');
+    return dimensions;
+  } finally {
+    // Release the metadata raster immediately; the recipe keeps the original.
+    try { rendered?.release(); } finally { context.release(); }
+  }
+}
 export async function importStudioLayer(project: StudioProject, kind: 'image' | 'video' | 'audio', item: Omit<StudioLayerItem, 'assetId'>): Promise<StudioProject | null> {
   await assertStudioOwner(project);
   if (!isStudioCompositionAvailable()) throw new Error('Atualize o Classfy Dev para usar camadas.');
   if (studioEditing(project).output.profile !== 'standard') throw new Error('Selecione o perfil 1080p · 30 FPS · SDR antes de adicionar camadas.');
-  let source: { uri: string; name: string };
+  let source: { uri: string; name: string; imageSize?: { width: number; height: number } };
   if (kind === 'audio') {
     const picked = await DocumentPicker.getDocumentAsync({ type: 'audio/*', copyToCacheDirectory: true });
     if (picked.canceled) return null; source = { uri: picked.assets[0].uri, name: picked.assets[0].name };
   } else {
     const picked = await ImagePicker.launchImageLibraryAsync({ mediaTypes: kind === 'video' ? ['videos'] : ['images'], allowsEditing: false, preferredAssetRepresentationMode: ImagePicker.UIImagePickerPreferredAssetRepresentationMode.Current });
     if (picked.canceled) return null;
-    source = { uri: picked.assets[0].uri, name: picked.assets[0].fileName || (kind === 'video' ? 'Vídeo.mp4' : 'Imagem.jpg') };
+    const asset = picked.assets[0];
+    if (!asset) throw new Error('Nenhum arquivo foi selecionado.');
+    source = { uri: asset.uri, name: asset.fileName || (kind === 'video' ? 'Vídeo.mp4' : 'Imagem.jpg'),
+      ...(kind === 'image' ? { imageSize: studioImageSize(asset) } : {}) };
   }
   await assertStudioOwner(project);
   const release = retainStudioProjectMedia(project.ownerId, project.id);
@@ -215,7 +235,8 @@ export async function importStudioLayer(project: StudioProject, kind: 'image' | 
     const uri = `${await studioProjectDirectory(project)}${id}.${ext && /^[a-z0-9]{2,5}$/.test(ext) ? ext : kind === 'image' ? 'jpg' : kind === 'video' ? 'mp4' : 'm4a'}`;
     await FileSystem.copyAsync({ from: source.uri, to: uri });
     await assertStudioOwner(project);
-    const pending = { id, uri, name: source.name, sourceUri: source.uri, kind, layerItem: { ...item, assetId: id }, layerId: kind === 'video' ? 'layer:video' : kind === 'audio' ? 'layer:audio' : 'layer:image' };
+    const pending = { id, uri, name: source.name, sourceUri: source.uri, kind, layerItem: { ...item, assetId: id }, layerId: `layer:item:${item.id}`,
+      ...(source.imageSize ? { imageSize: source.imageSize } : {}) };
     await mutateStudioProject(project.ownerId, project.id, latest => ({ pendingTakes: [...(latest.pendingTakes || []), pending] }));
     return await finishStudioLayerImport(project, pending);
   } finally { release(); }

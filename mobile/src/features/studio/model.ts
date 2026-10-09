@@ -142,6 +142,8 @@ export type StudioPendingTake = {
   /** Captured recipe snapshot, persisted before metadata work for recovery. */
   grade?: StudioGrade;
   layerItem?: StudioLayerItem; layerId?: string;
+  /** Visual dimensions already read by the picker; recovery can avoid decoding twice. */
+  imageSize?: { width: number; height: number };
 };
 export type StudioRect = { x: number; y: number; width: number; height: number };
 export type StudioTextStyle = { content: string; fontFamily: string; fontSize: number; color: string; backgroundColor: string; alignment: 'left' | 'center' | 'right' };
@@ -493,6 +495,32 @@ export function addStudioLayerItem(editing: StudioEditing, item: StudioLayerItem
   return { ...editing, layers: existing ? editing.layers.map(layer => layer.id === layerId ? { ...layer, items: [...layer.items, { ...item }] } : layer)
     : [...editing.layers, { id: layerId, kind: item.kind, items: [{ ...item }] }] };
 }
+/** Move one element to a final, one-based lane without moving grouped siblings. */
+export function moveStudioLayerItemToLane(editing: StudioEditing, id: string, targetZIndex: number): StudioEditing {
+  if (!Number.isSafeInteger(targetZIndex)) throw new Error('A posição da camada não é válida.');
+  const sourceIndex = editing.layers.findIndex(layer => layer.items.some(item => item.id === id));
+  if (sourceIndex < 0) throw new Error('Este elemento não está mais na montagem.');
+  const source = editing.layers[sourceIndex];
+  const target = Math.max(1, Math.min(editing.layers.length + (source.items.length > 1 ? 1 : 0), targetZIndex));
+  if (target === sourceIndex + 1) return editing;
+  const item = source.items.find(item => item.id === id)!;
+  let moved: StudioLayer;
+  let layers: StudioLayer[];
+  if (source.items.length === 1) {
+    moved = source;
+    layers = editing.layers.filter((_, index) => index !== sourceIndex);
+  } else {
+    const baseId = `layer:item:${id}`;
+    const existingIds = new Set(editing.layers.map(layer => layer.id));
+    let layerId = baseId, suffix = 1;
+    while (existingIds.has(layerId)) layerId = `${baseId}:${suffix++}`;
+    moved = { id: layerId, kind: source.kind, items: [item] };
+    layers = editing.layers.map((layer, index) => index === sourceIndex
+      ? { ...layer, items: layer.items.filter(value => value.id !== id) } : layer);
+  }
+  layers.splice(target - 1, 0, moved);
+  return { ...editing, layers };
+}
 export type StudioLayerPatch = Partial<Omit<StudioLayerItem, 'text' | 'rect'>> & { text?: Partial<StudioTextStyle>; rect?: Partial<StudioRect> };
 export function patchStudioLayerItem(editing: StudioEditing, id: string, patch: StudioLayerPatch): StudioEditing {
   let found = false;
@@ -532,6 +560,8 @@ export function validateStudioPendingTakes(pending: StudioProject['pendingTakes'
       || entry.frameRate !== undefined && (!Number.isFinite(entry.frameRate) || entry.frameRate < 0)
       || entry.colorSpace !== undefined && typeof entry.colorSpace !== 'string') return ['Os metadados da captura pendente precisam de recuperação.'];
     if (entry.layerId !== undefined && (typeof entry.layerId !== 'string' || !entry.layerId)) return ['O destino da camada pendente precisa de recuperação.'];
+    if (entry.imageSize !== undefined && (entry.kind !== 'image' || !entry.imageSize
+      || ![entry.imageSize.width, entry.imageSize.height].every(value => Number.isFinite(value) && value > 0))) return ['As dimensões da imagem pendente precisam de recuperação.'];
     if (entry.layerItem) {
       const item = entry.layerItem;
       if (entry.grade !== undefined || item.grade !== undefined && validateStudioGrade(item.grade).length
