@@ -78,6 +78,22 @@ O encaixe produz feedback somente ao adquirir uma guia/alvo novo. Aquisições a
 
 Referência nativa: [Apple — UISelectionFeedbackGenerator](https://developer.apple.com/documentation/uikit/uiselectionfeedbackgenerator).
 
+## Rolagem vertical de camadas — sétima rodada de 09/10/2026
+
+O vídeo do Edits enviado por Fabio mostra somente a pilha de sobreposições rolando dentro de uma área fixa. Principal, régua, playhead, contador e ferramentas ficam ancorados. A camada selecionada pode sair desse recorte mantendo seleção e contorno da prévia; a navegação não altera tempo nem gera edição.
+
+O Studio substitui as setas e os grupos de três por um ScrollView vertical nativo na área das camadas. A área continua mostrando até três faixas por altura, mas todas as faixas são alcançáveis por rolagem contínua. Um gesto comum sobe/desce a pilha; hold continua reservado a mover o elemento no tempo ou entre faixas, e as alças continuam cortando duração. A arbitragem de eixo mantém swipe vertical separado do scrub horizontal; navegar em Y não chama seek, não grava receita, não cria undo nem interrompe o relógio.
+
+O conteúdo tem altura total, fundos de todas as faixas e preparação de uma altura de viewport adicional em cada direção. A UI acompanha o offset fracionário; React prepara linhas somente quando muda a linha visível. O item selecionado permanece montado mesmo fora do recorte, inclusive durante gesto e escrita pendente. O hold usa o deslocamento do dedo mais o avanço vertical real, com autoscroll contínuo nas bordas. Selecionar externamente uma camada fora da janela a revela sem mudar o offset horizontal.
+
+Validação: `npm run test:studio` passou 547/547 e `npm run typecheck` passou. As regressões executam os callbacks transformados pelo Babel real com 13 faixas, relógio a 60/120 Hz, fila JS atrasada, hold até a última faixa, escrita pendente, crescimento da pilha após montagem, pinça e retorno do background. A revisão independente não encontrou bloqueadores. O bundle iOS remoto respondeu HTTP 200 com o ScrollView novo e sem as setas antigas; não houve alteração nativa, rebuild ou push de produção nesta rodada.
+
+QA visual no Simulator CREATOR: 12 sobreposições preparadas, faixas fora do viewport reveladas pela acessibilidade com prévia, seleção e tempo preservados. A fixture foi restaurada, removendo somente as oito cópias temporárias; quatro sobreposições e seis takes originais ficaram intactos. Wheel e drag CUA não produziram swipe iOS e não validam a sensação física. O reveal automático de um texto por AX também moveu X sem seek, comportamento observado anteriormente nessa automação; isso não foi usado para alterar o relógio aprovado no iPhone.
+
+Aceite no iPhone remoto: Fabio recarregou o Classfy Dev e respondeu **“Todas as camadas acessíveis”** ao teste de deslizar verticalmente sobre a pilha sem hold, alcançando texto e legenda fora das três faixas com principal fixo. O teste físico fecha a limitação de gesto da automação do Simulator.
+
+Referências técnicas: [React Native 0.81 — ScrollView](https://reactnative.dev/docs/0.81/scrollview) e [Reanimated 4 — scrollTo na UI thread](https://docs.swmansion.com/react-native-reanimated/docs/scroll/scrollTo/).
+
 ## Origem dos requisitos
 
 Os prints, gravações e orientações do Fabio são a referência de produto: edição direta na prévia, corte integrado à timeline, ferramentas contextuais e seleção que não salta o cursor. CapCut e Edits ajudam a modelar a experiência; a identidade continua Classfy.
@@ -158,6 +174,7 @@ A geometria do toque usa o canvas realmente exibido, incluindo margens de aspect
 
 ## Timeline: selecionar, navegar e editar
 
+- Deslizar verticalmente na área das camadas rola a pilha completa acima do principal, preservando seleção, cursor e escala horizontal. O vídeo principal, a régua e as ferramentas permanecem fixos. Segurar um elemento continua iniciando sua movimentação, sem transformar a navegação comum em edição.
 - Toque em clip ou camada **apenas seleciona**; mantém o cursor e não força rolagem para o centro do item. Arrastar a faixa/régua navega no tempo sob o cursor fixo. Pinça amplia/reduz a escala temporal preservando o instante de referência.
 - Segurar e arrastar o corpo de uma camada desloca seu intervalo no projeto. Arraste vertical muda sua faixa e ordem de sobreposição; agrupar mídia não pode deslocar outros itens silenciosamente. As alças de início/fim ajustam sua duração; o corpo não pode roubar o gesto de uma alça. Rolar e mover uma camada precisam de reconhecimento distinto.
 - Snapping indica bordas/cursor com guia amarela tracejada e preserva ajuste fino: o dedo adquire o alvo em 8 pontos e solta após 14. Encostar no limite da origem não conta como snapping. Estado e cancelamento ainda exigem aceite por toque físico.

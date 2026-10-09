@@ -3,7 +3,7 @@ import { AppState, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Image } from 'expo-image';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, { measure, runOnJS, runOnUI, scrollTo, useAnimatedProps, useAnimatedReaction, useAnimatedRef, useAnimatedScrollHandler, useAnimatedStyle, useDerivedValue, useFrameCallback, useSharedValue, type SharedValue } from 'react-native-reanimated';
-import { ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Film, Mic, Minus, Plus } from 'lucide-react-native';
+import { ChevronLeft, ChevronRight, Film, Mic, Minus, Plus } from 'lucide-react-native';
 import { colors } from '@/theme/colors';
 import { formatStudioDuration, formatStudioEditorTime, type StudioTake, type StudioRecipeClip, type StudioEditing } from './model';
 import { canContinueStudioTrim, clampStudioTimelineScale, defaultStudioTimelineScale, freezeStudioTrim, maximumStudioTimelineScale, minimumStudioTimelineScale, studioTimelineLayout, studioTimelineSeconds, studioTimelineTicks, studioTrimRange, type StudioTimelineTrim, type StudioTrimGesture } from './timelineLayout';
@@ -29,7 +29,7 @@ type Motion = {
   originalStart: SharedValue<number>; originalEnd: SharedValue<number>; sourceDuration: SharedValue<number>;
   leading: SharedValue<number>; translation: SharedValue<number>; initialOffset: SharedValue<number>; finger: SharedValue<number>;
   edge: SharedValue<number>; virtual: SharedValue<number>; epoch: SharedValue<number>;
-  laneStart: SharedValue<number>;
+  laneStart: SharedValue<number>; lanePublished: SharedValue<number>; laneScrolling: SharedValue<boolean>;
   snapPoints: SharedValue<readonly StudioTimelineSnapPoint[]>; snap: SharedValue<StudioTimelineSnapMatch | null>;
   mainSnapPoints: SharedValue<readonly StudioTimelineSnapPoint[]>;
   mainTimelineStart: SharedValue<number>; mainTimelineEnd: SharedValue<number>;
@@ -38,6 +38,7 @@ const rulerHeight = 26;
 const tileWidth = 48;
 const preparedWindowStep = tileWidth * 2;
 const visibleLaneCount = 3;
+const laneOverscan = visibleLaneCount;
 const laneHeight = 44;
 const handleInset = 44;
 const handleTouchWidth = 44;
@@ -74,6 +75,7 @@ export function StudioTimeline({ playbackChannel, layers: providedLayers = [], e
   const [committing, setCommitting] = useState(false);
   const [pinching, setPinching] = useState(false);
   const [firstLane, setFirstLane] = useState(0);
+  const [heldLayerId, setHeldLayerId] = useState<string>();
   const [lifecycleEpoch, setLifecycleEpoch] = useState(0);
   const layout = useMemo(() => {
     try { const main = studioTimelineLayout(takes, scale); return { ...main, mainDuration: main.duration, duration: Math.max(main.duration, ...layers.map(item => (item.startTicks + item.durationTicks) / 120000)), error: false }; }
@@ -86,35 +88,26 @@ export function StudioTimeline({ playbackChannel, layers: providedLayers = [], e
   const laneIndices = useMemo(() => Array.from(new Set([...layers.map(item => item.zIndex), ...(newLane === undefined ? [] : [newLane])])).sort((a, b) => a - b), [layers, newLane]);
   const selectedLane = layers.find(item => item.id === selectedLayerId)?.zIndex;
   const selectedLaneIndex = selectedLane === undefined ? -1 : laneIndices.indexOf(selectedLane);
-  const lastLaneStart = Math.max(0, laneIndices.length - visibleLaneCount);
+  const rowCount = Math.min(visibleLaneCount, laneIndices.length);
+  const lastLaneStart = Math.max(0, laneIndices.length - rowCount);
   const laneStart = Math.max(0, Math.min(lastLaneStart, firstLane));
-  const visibleLanes = laneIndices.slice(laneStart, laneStart + visibleLaneCount);
-  useEffect(() => {
-    setFirstLane(previous => {
-      const start = Math.max(0, Math.min(lastLaneStart, previous));
-      // Reveal an externally selected lane without shifting rows that are
-      // already visible. Deselecting keeps the user's current window.
-      if (selectedLaneIndex < 0) return start;
-      if (selectedLaneIndex < start) return selectedLaneIndex;
-      if (selectedLaneIndex >= start + visibleLaneCount) return selectedLaneIndex - visibleLaneCount + 1;
-      return start;
-    });
-  }, [selectedLayerId, selectedLaneIndex, lastLaneStart]);
-  const layerHeight = visibleLanes.length * laneHeight;
+  // The native viewport scrolls continuously; React only prepares bounded
+  // rows with a viewport of overscan on either side. A selected item retains its recognizer.
+  const visibleLanes = laneIndices.slice(Math.max(0, Math.floor(laneStart) - laneOverscan), Math.ceil(laneStart) + rowCount + laneOverscan);
+  const layerHeight = rowCount * laneHeight;
   const mainTop = previewOnly ? 0 : rulerHeight + layerHeight + (layerHeight ? 8 : 0);
-  // A held layer must retain its native view/recognizer while vertical paging
-  // reveals a destination outside its original window.
   const preparedMargin = Math.max(tileWidth * 4, viewport / 2);
   const visibleStart = offset - viewport / 2 - preparedMargin;
   const visibleEnd = offset + viewport / 2 + preparedMargin;
-  const visibleLayers = layers.filter(item => item.id === selectedLayerId || visibleLanes.includes(item.zIndex) && item.startTicks / 120000 <= visibleEnd / scale && (item.startTicks + item.durationTicks) / 120000 >= visibleStart / scale);
+  const visibleLayers = layers.filter(item => item.id === selectedLayerId || item.id === heldLayerId || visibleLanes.includes(item.zIndex) && item.startTicks / 120000 <= visibleEnd / scale && (item.startTicks + item.durationTicks) / 120000 >= visibleStart / scale);
   const strip = useAnimatedRef<Animated.ScrollView>();
   const host = useAnimatedRef<Animated.View>();
+  const laneStrip = useAnimatedRef<Animated.ScrollView>();
   const mounted = useRef(true);
   const gesture = useRef<Trim | null>(null);
   const commitPending = useRef(false);
-  const live = useRef({ takes, activeTakeId, locked, busy, onSeek, onSelect, onScrubStart, onTrimChange, onTrimCommit, onTrimCancel, scale, duration: layout.duration });
-  live.current = { takes, activeTakeId, locked, busy, onSeek, onSelect, onScrubStart, onTrimChange, onTrimCommit, onTrimCancel, scale, duration: layout.duration };
+  const live = useRef({ takes, activeTakeId, locked, busy, onSeek, onSelect, onScrubStart, onTrimChange, onTrimCommit, onTrimCancel, scale, duration: layout.duration, hasLanes: layerHeight > 0 });
+  live.current = { takes, activeTakeId, locked, busy, onSeek, onSelect, onScrubStart, onTrimChange, onTrimCommit, onTrimCancel, scale, duration: layout.duration, hasLanes: layerHeight > 0 };
   // Shared-value handles and their container keep one identity for the entire
   // mounted timeline. React sample/thumbnail renders must not restart UI mappers.
   const m = useRef<Motion>({
@@ -122,17 +115,30 @@ export function StudioTimeline({ playbackChannel, layers: providedLayers = [], e
     trimIndex: useSharedValue(-1), start: useSharedValue(0), end: useSharedValue(0), originalStart: useSharedValue(0), originalEnd: useSharedValue(0), sourceDuration: useSharedValue(0),
     leading: useSharedValue(0), translation: useSharedValue(0), initialOffset: useSharedValue(0), finger: useSharedValue(0),
     edge: useSharedValue(0), virtual: useSharedValue(0), epoch: useSharedValue(0),
-    laneStart: useSharedValue(laneStart),
+    laneStart: useSharedValue(laneStart), lanePublished: useSharedValue(Math.floor(laneStart)), laneScrolling: useSharedValue(false),
     snapPoints: useSharedValue<readonly StudioTimelineSnapPoint[]>([]), snap: useSharedValue<StudioTimelineSnapMatch | null>(null),
     mainSnapPoints: useSharedValue<readonly StudioTimelineSnapPoint[]>([]),
     mainTimelineStart: useSharedValue(0), mainTimelineEnd: useSharedValue(0),
   }).current;
   const snapPoints = useMemo(() => studioTimelineSnapPoints(layout.segments.map(segment => ({ id: segment.take.id, start: segment.start, end: segment.end })), layers, position), [layout.segments, layers, position]);
   useEffect(() => { m.snapPoints.value = snapPoints; }, [snapPoints]);
-  useEffect(() => { if (![5, 7, 8].includes(m.phase.value)) m.laneStart.value = laneStart; }, [laneStart]);
   const receiveLaneWindow = useCallback((start: number, epoch: number) => {
-    if (mounted.current && m.epoch.value === epoch && [0, 5, 7].includes(m.phase.value)) setFirstLane(start);
+    if (mounted.current && m.epoch.value === epoch && [0, 5, 7].includes(m.phase.value)) setFirstLane(Math.floor(start));
   }, []);
+  useEffect(() => {
+    runOnUI((index: number, count: number, rows: number) => {
+      'worklet';
+      if ([3, 4, 5, 7, 8].includes(m.phase.value)) return;
+      const maximum = Math.max(0, count - rows);
+      let next = Math.max(0, Math.min(maximum, m.laneStart.value));
+      // Reveal an external selection only when it is outside the viewport;
+      // ordinary scrolling/deselecting never resets its fractional offset.
+      if (index >= 0) next = index < next ? index : index + 1 > next + rows ? index + 1 - rows : next;
+      m.laneStart.value = next; m.lanePublished.value = Math.floor(next);
+      if (count) scrollTo(laneStrip, 0, next * laneHeight, false);
+      runOnJS(receiveLaneWindow)(next, m.epoch.value);
+    })(selectedLaneIndex, laneIndices.length, rowCount);
+  }, [selectedLayerId, selectedLaneIndex, laneIndices.length, rowCount, receiveLaneWindow]);
   const baseDuration = useSharedValue(layout.mainDuration);
   const layerDuration = useSharedValue(Math.max(0, ...layers.map(item => (item.startTicks + item.durationTicks) / 120000)));
   useEffect(() => { layerDuration.value = Math.max(0, ...layers.map(item => (item.startTicks + item.durationTicks) / 120000)); }, [layers]);
@@ -200,7 +206,7 @@ export function StudioTimeline({ playbackChannel, layers: providedLayers = [], e
     const subscription = AppState.addEventListener('change', state => {
       foreground.value = state === 'active';
       if (state === 'active') return;
-      runOnUI(() => { 'worklet'; seekTarget.value = null; playbackClock.value = { ...playbackClock.value, running: false, stalled: false, correction: 0 }; })();
+      runOnUI((hasLanes: boolean) => { 'worklet'; seekTarget.value = null; m.laneScrolling.value = false; if (hasLanes) scrollTo(laneStrip, 0, m.laneStart.value * laneHeight, false); playbackClock.value = { ...playbackClock.value, running: false, stalled: false, correction: 0 }; })(live.current.hasLanes);
       m.epoch.value += 1; m.snap.value = null; m.phase.value = 0;
       setPinching(false);
       if (gesture.current) cancelTrim();
@@ -331,7 +337,7 @@ export function StudioTimeline({ playbackChannel, layers: providedLayers = [], e
     if (now - lastPreview.value >= 40) { lastPreview.value = now; runOnJS(previewTrim)(state.start, state.end, m.epoch.value); }
   });
   const scrollHandler = useAnimatedScrollHandler({
-    onBeginDrag: () => { if ((m.phase.value >= 3 && m.phase.value !== 6) || blocked.value) return; seekTarget.value = null; m.epoch.value += 1; m.phase.value = 1; runOnJS(startScrub)(m.epoch.value); },
+    onBeginDrag: () => { if ((m.phase.value >= 3 && m.phase.value !== 6) || blocked.value || m.laneScrolling.value) return; seekTarget.value = null; m.epoch.value += 1; m.phase.value = 1; runOnJS(startScrub)(m.epoch.value); },
     onScroll: event => {
       if (m.phase.value === 0) return;
       m.offset.value = Math.max(0, event.contentOffset.x);
@@ -377,9 +383,36 @@ export function StudioTimeline({ playbackChannel, layers: providedLayers = [], e
     if (now - lastVisible.value >= 64) { lastVisible.value = now; runOnJS(receiveOffset)(range.offset + range.virtualOffset); }
   }, [m, blocked, foreground, playbackClock, playerPosition, total, strip, lastVisible, receiveOffset]));
   const nativeGesture = useMemo(() => Gesture.Native(), []);
-  const pinch = useMemo(() => Gesture.Pinch().enabled(!busy && !committing && !dragging).simultaneousWithExternalGesture(nativeGesture)
+  const laneNativeGesture = useMemo(() => Gesture.Native().simultaneousWithExternalGesture(nativeGesture), [nativeGesture]);
+  // The qualifier chooses an axis while UIScrollView performs the vertical
+  // scroll/momentum. Horizontal Native waits until horizontal motion fails it.
+  const laneAxisGesture = useMemo(() => Gesture.Pan().enabled(laneIndices.length > rowCount).maxPointers(1)
+    .activeOffsetY([-8, 8]).failOffsetX([-12, 12])
+    .simultaneousWithExternalGesture(laneNativeGesture).blocksExternalGesture(nativeGesture)
+    .onStart(() => {
+      if (blocked.value || !foreground.value || [3, 4, 5, 7, 8].includes(m.phase.value)) return;
+      m.laneScrolling.value = true;
+    }).onFinalize(() => { m.laneScrolling.value = false; }), [laneIndices.length > rowCount, nativeGesture, laneNativeGesture]);
+  const laneScrollHandler = useAnimatedScrollHandler({
+    onBeginDrag: () => {
+      if (blocked.value || !foreground.value || [3, 4, 5, 7, 8].includes(m.phase.value)) return;
+      m.laneScrolling.value = true;
+    },
+    onScroll: event => {
+      if (blocked.value || !foreground.value || [3, 4, 5, 7, 8].includes(m.phase.value)) return;
+      const next = Math.max(0, Math.min(lastLaneStart, event.contentOffset.y / laneHeight));
+      m.laneStart.value = next;
+      const bucket = Math.floor(next);
+      if (bucket !== m.lanePublished.value) { m.lanePublished.value = bucket; runOnJS(receiveLaneWindow)(next, m.epoch.value); }
+    },
+    onEndDrag: () => { m.laneScrolling.value = false; },
+    onMomentumBegin: () => { if (!blocked.value && foreground.value && ![3, 4, 5, 7, 8].includes(m.phase.value)) m.laneScrolling.value = true; },
+    onMomentumEnd: () => { m.laneScrolling.value = false; },
+  });
+  const pinch = useMemo(() => Gesture.Pinch().enabled(!busy && !committing && !dragging).simultaneousWithExternalGesture(nativeGesture, laneNativeGesture, laneAxisGesture)
     .onStart(() => {
       if (m.phase.value >= 3 && m.phase.value !== 6 || blocked.value) return;
+      m.laneScrolling.value = false; if (rowCount) scrollTo(laneStrip, 0, m.laneStart.value * laneHeight, false);
       pinchScale.value = m.scale.value; pinchAnchor.value = Math.max(0, Math.min(total.value, m.offset.value / m.scale.value));
       m.epoch.value += 1; m.phase.value = 4; runOnJS(receivePinching)(true, m.epoch.value); runOnJS(startScrub)(m.epoch.value);
     }).onUpdate(event => {
@@ -393,22 +426,20 @@ export function StudioTimeline({ playbackChannel, layers: providedLayers = [], e
       playbackClock.value = resetStudioTimelinePlayback(pinchAnchor.value, total.value);
       playerPosition.value = pinchAnchor.value; m.phase.value = 0;
       runOnJS(receiveScale)(m.scale.value); runOnJS(receivePinching)(false, m.epoch.value); runOnJS(seekOffset)(pinchAnchor.value * m.scale.value, m.scale.value, m.epoch.value);
-    }), [busy, committing, dragging, nativeGesture]);
+    }), [busy, committing, dragging, nativeGesture, laneNativeGesture, laneAxisGesture, rowCount]);
   const changeZoom = (factor: number) => {
     if (busy || dragging || committing || pinching || m.phase.value >= 3 && m.phase.value !== 6) return;
     const next = clampStudioTimelineScale(scale * factor);
     m.scale.value = next; setScale(next);
   };
-  const laneNavigationDisabled = locked || busy || dragging || committing || pinching;
-  const changeLanes = (direction: number) => {
-    // Paging has its own touch targets. It cannot replace a row under an
-    // active hold, edge trim, save or horizontal scrub.
-    if (laneNavigationDisabled || m.phase.value !== 0) return;
-    setFirstLane(Math.max(0, Math.min(lastLaneStart, laneStart + direction * visibleLaneCount)));
-  };
   // Child pans already block this Native gesture. Disabling UIScrollView at
   // their activation mutates the ancestor recognizer during the same touch.
   const scrollProps = useAnimatedProps(() => ({ scrollEnabled: !blocked.value && m.phase.value !== 4 && m.phase.value !== 5 }));
+  const laneScrollProps = useAnimatedProps(() => ({ scrollEnabled: !blocked.value && m.phase.value !== 4 && m.phase.value !== 5 }));
+  const laneIndicatorStyle = useAnimatedStyle(() => ({
+    height: Math.max(20, layerHeight * rowCount / Math.max(1, laneIndices.length)),
+    transform: [{ translateY: lastLaneStart ? m.laneStart.value / lastLaneStart * (layerHeight - Math.max(20, layerHeight * rowCount / Math.max(1, laneIndices.length))) : 0 }],
+  }));
   const canvasStyle = useAnimatedStyle(() => ({ width: Math.max(m.viewport.value, m.viewport.value + total.value * m.scale.value + Math.max(0, m.leading.value * m.scale.value) + Math.max(0, -m.virtual.value) + (onAppend ? 68 : 0)), transform: [{ translateX: -m.virtual.value }] }));
   const previewDuration = layout.duration + (draft && selected ? draft.end - draft.start - (selected.take.end - selected.take.start) : 0);
   const ticks = previewOnly ? [] : studioTimelineTicks(scale, Math.max(0, visibleStart / scale), Math.max(0, visibleEnd / scale), previewDuration);
@@ -420,19 +451,26 @@ export function StudioTimeline({ playbackChannel, layers: providedLayers = [], e
     {onAppend ? <AppendButton disabled={locked || busy} onPress={onAppend} /> : null}
   </View>;
   return <GestureDetector gesture={pinch}><Animated.View ref={host} onLayout={event => { const width = Math.max(1, event.nativeEvent.layout.width); m.viewport.value = width; setViewport(width); }} style={[styles.timeline, { height: mainTop + trackHeight + (previewOnly ? 0 : 48) }]}>
-    {visibleLanes.map((lane, index) => <View key={lane} pointerEvents="none" style={[styles.laneBackground, { top: rulerHeight + index * laneHeight, height: laneHeight - 4 }]} />)}
     <View pointerEvents="none" style={[styles.laneBackground, { top: mainTop, height: trackHeight }]} />
-    <GestureDetector gesture={nativeGesture}><Animated.ScrollView ref={strip} horizontal showsHorizontalScrollIndicator={false} bounces={false} scrollEventThrottle={16} decelerationRate="normal" animatedProps={scrollProps} onScroll={scrollHandler} keyboardShouldPersistTaps="handled">
+    <GestureDetector gesture={nativeGesture}><Animated.ScrollView ref={strip} horizontal directionalLockEnabled showsHorizontalScrollIndicator={false} bounces={false} scrollEventThrottle={16} decelerationRate="normal" animatedProps={scrollProps} onScroll={scrollHandler} keyboardShouldPersistTaps="handled">
       <Animated.View style={[{ height: mainTop + trackHeight + (previewOnly ? 0 : 4) }, canvasStyle]}>
         {ticks.map(tick => <TimelineTick key={tick.seconds} tick={tick} motion={m} />)}
         {layout.segments.map(segment => <TimelineClip key={segment.take.id} segment={segment} motion={m} selected={segment.take.id === activeTakeId} audio={audio} top={mainTop} height={trackHeight} draft={draft} draftIndex={draft ? selected?.index ?? -1 : -1} draftOriginal={selected?.take} visibleStart={visibleStart} visibleEnd={visibleEnd} scale={scale}
           disabled={!!(busy || dragging || committing || pinching)} onSelect={() => { live.current.onSelect(segment.take); }} />)}
-        {newLane !== undefined && visibleLanes.includes(newLane) ? <TimelineLaneTarget motion={m} top={rulerHeight + (laneIndices.indexOf(newLane) - laneStart) * laneHeight} /> : null}
-        {visibleLayers.map(item => <TimelineLayer key={item.id} item={item} editing={editing} motion={m} host={host} strip={strip} viewport={viewport} duration={layout.mainDuration} cancelEpoch={`${cancelEpoch}:${lifecycleEpoch}`} selected={item.id === selectedLayerId} lanes={laneIndices} rowTop={rulerHeight} rowCount={visibleLanes.length} top={rulerHeight + (laneIndices.indexOf(item.zIndex) - laneStart) * laneHeight} disabled={!!(locked || busy || dragging || committing || pinching)} onSelect={() => onSelectLayer?.(item.id)} onEdit={() => (onEditLayer ?? onSelectLayer)?.(item.id)} onMove={onMoveLayer ? (delta, destination) => onMoveLayer(item.id, delta, destination) : undefined} onLaneWindowChange={receiveLaneWindow} onInteractionStart={onLayerInteractionStart} onInteractionEnd={onLayerInteractionEnd} onTrimPreview={onLayerTrimPreview} onTrimCommit={onLayerTrimCommit} nativeGesture={nativeGesture} />)}
+        {layerHeight ? <GestureDetector gesture={laneAxisGesture}><View style={{ position: 'absolute', top: rulerHeight, left: 0, right: 0, height: layerHeight, overflow: 'hidden' }}>
+          <GestureDetector gesture={laneNativeGesture}><Animated.ScrollView ref={laneStrip} accessibilityLabel="Faixas da montagem" directionalLockEnabled nestedScrollEnabled removeClippedSubviews={false} showsVerticalScrollIndicator={false} bounces={false} scrollEventThrottle={16} decelerationRate="normal" animatedProps={laneScrollProps} onScroll={laneScrollHandler} keyboardShouldPersistTaps="handled" style={{ height: layerHeight }}>
+            <View style={{ height: laneIndices.length * laneHeight, width: '100%' }}>
+              {laneIndices.map(lane => <View key={lane} pointerEvents="none" style={[styles.laneBackground, { top: laneIndices.indexOf(lane) * laneHeight + 2, height: laneHeight - 4 }]} />)}
+              {newLane !== undefined && visibleLanes.includes(newLane) ? <TimelineLaneTarget motion={m} top={laneIndices.indexOf(newLane) * laneHeight} /> : null}
+              {visibleLayers.map(item => <TimelineLayer key={item.id} item={item} editing={editing} motion={m} host={host} strip={strip} laneStrip={laneStrip} viewport={viewport} duration={layout.mainDuration} cancelEpoch={`${cancelEpoch}:${lifecycleEpoch}`} selected={item.id === selectedLayerId} lanes={laneIndices} rowTop={rulerHeight} rowCount={rowCount} top={laneIndices.indexOf(item.zIndex) * laneHeight} disabled={!!(locked || busy || dragging || committing || pinching)} onSelect={() => onSelectLayer?.(item.id)} onEdit={() => (onEditLayer ?? onSelectLayer)?.(item.id)} onMove={onMoveLayer ? (delta, destination) => onMoveLayer(item.id, delta, destination) : undefined} onLaneWindowChange={receiveLaneWindow} onInteractionStart={() => { setHeldLayerId(item.id); onLayerInteractionStart?.(); }} onInteractionEnd={() => { setHeldLayerId(previous => previous === item.id ? undefined : previous); onLayerInteractionEnd?.(); }} onTrimPreview={onLayerTrimPreview} onTrimCommit={onLayerTrimCommit} nativeGesture={nativeGesture} laneNativeGesture={laneNativeGesture} laneAxisGesture={laneAxisGesture} />)}
+            </View>
+          </Animated.ScrollView></GestureDetector>
+        </View></GestureDetector> : null}
         {selected && !previewOnly && !locked && onTrimCommit ? (['start', 'end'] as const).map(edge => <TrimHandle key={edge} edge={edge} take={selected.take} index={selected.index} startSeconds={selected.start} endSeconds={selected.end} motion={m} host={host} nativeGesture={nativeGesture} disabled={trimDisabled} top={mainTop} height={trackHeight} onBegin={beginTrim} onCommit={commitTrim} onCancel={cancelTrim} onAccessibleChange={accessibleTrim} />) : null}
         <TimelineSnapGuide motion={m} height={mainTop + trackHeight} />
       </Animated.View>
     </Animated.ScrollView></GestureDetector>
+    {laneIndices.length > rowCount ? <View pointerEvents="none" style={{ position: 'absolute', top: rulerHeight, right: 2, height: layerHeight, width: 3, zIndex: 5 }}><Animated.View style={[{ width: 3, borderRadius: 2, backgroundColor: 'rgba(255,255,255,0.24)' }, laneIndicatorStyle]} /></View> : null}
     {onAppend && !previewOnly ? <View style={{ position: 'absolute', top: mainTop + (trackHeight - 44) / 2, right: 8, zIndex: 6 }}><AppendButton disabled={locked || busy || committing || dragging || pinching} onPress={onAppend} /></View> : null}
     <View pointerEvents="none" accessible accessibilityRole="adjustable" accessibilityLabel="Posição da montagem" accessibilityState={{ disabled: busy || dragging || committing || pinching }}
       accessibilityValue={{ min: 0, max: layout.duration, now: Math.max(0, Math.min(layout.duration, position)), text: formatStudioEditorTime(position) }}
@@ -442,10 +480,7 @@ export function StudioTimeline({ playbackChannel, layers: providedLayers = [], e
       <View style={[styles.playhead, { left: 21, height: mainTop + trackHeight - (previewOnly ? 0 : 18) }]}><View style={styles.playheadCap} /></View>
     </View>
     {!previewOnly ? <View style={styles.caption}>
-      {laneIndices.length > visibleLaneCount ? <View accessibilityLiveRegion="polite" accessibilityValue={{ text: `Faixas ${laneStart + 1}–${laneStart + visibleLanes.length} de ${laneIndices.length}` }} style={styles.laneControls}>
-        <Pressable accessibilityRole="button" accessibilityLabel="Faixas anteriores" disabled={laneNavigationDisabled || laneStart === 0} onPress={() => changeLanes(-1)} style={styles.laneButton}><ChevronUp size={16} color={laneNavigationDisabled || laneStart === 0 ? colors.mutedDim : colors.textSecondary} strokeWidth={1.6} /></Pressable>
-        <Pressable accessibilityRole="button" accessibilityLabel="Próximas faixas" disabled={laneNavigationDisabled || laneStart === lastLaneStart} onPress={() => changeLanes(1)} style={styles.laneButton}><ChevronDown size={16} color={laneNavigationDisabled || laneStart === lastLaneStart ? colors.mutedDim : colors.textSecondary} strokeWidth={1.6} /></Pressable>
-      </View> : <View style={{ flex: 1 }} />}
+      <View style={{ flex: 1 }} />
       <View style={styles.scaleControls}>
         <Pressable accessibilityRole="button" accessibilityLabel="Diminuir zoom da timeline" disabled={busy || dragging || committing || pinching || scale <= minimumStudioTimelineScale} onPress={() => changeZoom(1 / 1.5)} style={styles.scaleButton}><Minus size={15} color={colors.textSecondary} strokeWidth={1.6} /></Pressable>
         <Pressable accessibilityRole="button" accessibilityLabel="Aumentar zoom da timeline" disabled={busy || dragging || committing || pinching || scale >= maximumStudioTimelineScale} onPress={() => changeZoom(1.5)} style={styles.scaleButton}><Plus size={15} color={colors.textSecondary} strokeWidth={1.6} /></Pressable>
@@ -454,16 +489,17 @@ export function StudioTimeline({ playbackChannel, layers: providedLayers = [], e
   </Animated.View></GestureDetector>;
 }
 
-function TimelineLayer({ item, editing, motion: m, host, strip, viewport, duration, cancelEpoch, selected, top, lanes, rowTop, rowCount, disabled, onSelect, onEdit, onMove, onLaneWindowChange, onInteractionStart, onInteractionEnd, onTrimPreview, onTrimCommit, nativeGesture }: {
+function TimelineLayer({ item, editing, motion: m, host, strip, laneStrip, viewport, duration, cancelEpoch, selected, top, lanes, rowTop, rowCount, disabled, onSelect, onEdit, onMove, onLaneWindowChange, onInteractionStart, onInteractionEnd, onTrimPreview, onTrimCommit, nativeGesture, laneNativeGesture, laneAxisGesture }: {
   item: StudioRecipeClip; editing?: StudioEditing; motion: Motion; selected: boolean; top: number; disabled: boolean; duration: number; cancelEpoch: number | string;
   lanes: readonly number[]; rowTop: number; rowCount: number; viewport: number; onLaneWindowChange: (start: number, epoch: number) => void;
-  host: ReturnType<typeof useAnimatedRef<Animated.View>>; strip: ReturnType<typeof useAnimatedRef<Animated.ScrollView>>;
+  host: ReturnType<typeof useAnimatedRef<Animated.View>>; strip: ReturnType<typeof useAnimatedRef<Animated.ScrollView>>; laneStrip: ReturnType<typeof useAnimatedRef<Animated.ScrollView>>;
   onSelect: () => void; onEdit: () => void; onMove?: (delta: number, targetZIndex?: number) => Promise<void>; onInteractionStart?: () => void; onInteractionEnd?: () => void;
   onTrimPreview?: (id: string, range: StudioLayerTimelineRange | undefined) => void;
   onTrimCommit?: (id: string, range: StudioLayerTimelineRange) => void | Promise<void>; nativeGesture: ReturnType<typeof Gesture.Native>;
+  laneNativeGesture: ReturnType<typeof Gesture.Native>; laneAxisGesture: ReturnType<typeof Gesture.Pan>;
 }) {
-  const live = useRef({ item, editing, selected, disabled, lanes, onMove, onLaneWindowChange, onTrimPreview, onTrimCommit, onInteractionStart, onInteractionEnd, onEdit });
-  live.current = { item, editing, selected, disabled, lanes, onMove, onLaneWindowChange, onTrimPreview, onTrimCommit, onInteractionStart, onInteractionEnd, onEdit };
+  const live = useRef({ item, editing, selected, disabled, lanes, rowCount, onMove, onLaneWindowChange, onTrimPreview, onTrimCommit, onInteractionStart, onInteractionEnd, onEdit });
+  live.current = { item, editing, selected, disabled, lanes, rowCount, onMove, onLaneWindowChange, onTrimPreview, onTrimCommit, onInteractionStart, onInteractionEnd, onEdit };
   const mounted = useRef(true);
   const operation = useRef<{ epoch: number; mode: StudioLayerTimelineMode; frozen: StudioLayerTimelineSnapshot; committing?: boolean } | null>(null);
   const frozen = useMemo(() => {
@@ -485,7 +521,7 @@ function TimelineLayer({ item, editing, motion: m, host, strip, viewport, durati
   const laneBounds = useSharedValue({ source: item.zIndex, lanes, top });
   const originalLanes = useSharedValue<readonly number[]>([]), sourceLane = useSharedValue(item.zIndex), targetLane = useSharedValue(item.zIndex);
   const dragY = useSharedValue(0), fingerY = useSharedValue(0), initialTop = useSharedValue(top - 2), initialWindow = useSharedValue(0);
-  const verticalSteps = useSharedValue(0), lastVerticalScroll = useSharedValue(0);
+
   const lastPublish = useSharedValue(0);
   const activeSnapPoints = useSharedValue<readonly StudioTimelineSnapPoint[]>([]);
   const trimEnabled = selected && !disabled && !!editing && !!onTrimCommit && !!frozen;
@@ -497,15 +533,20 @@ function TimelineLayer({ item, editing, motion: m, host, strip, viewport, durati
     operation.current = null;
     start.value = live.current.item.startTicks / 120000; end.value = (live.current.item.startTicks + live.current.item.durationTicks) / 120000;
     original.value = null;
-    dragY.value = 0; verticalSteps.value = 0;
+    dragY.value = 0;
     if (m.epoch.value === expected && (m.phase.value === 7 || m.phase.value === 8 || m.phase.value === 5)) {
       m.snap.value = null;
       m.phase.value = 0;
       const index = live.current.lanes.indexOf(live.current.item.zIndex);
-      const lastStart = Math.max(0, live.current.lanes.length - visibleLaneCount);
+      const rows = live.current.rowCount;
+      const lastStart = Math.max(0, live.current.lanes.length - rows);
       const window = Math.max(0, Math.min(lastStart, m.laneStart.value));
-      const nextWindow = index < window ? Math.max(0, index) : index >= window + visibleLaneCount ? index - visibleLaneCount + 1 : window;
-      m.laneStart.value = nextWindow;
+      const nextWindow = index < window ? Math.max(0, index) : index + 1 > window + rows ? index + 1 - rows : window;
+      runOnUI((next: number, owner: number) => {
+        'worklet';
+        if (m.epoch.value !== owner || [3, 4, 7, 8].includes(m.phase.value)) return;
+        m.laneStart.value = next; m.lanePublished.value = Math.floor(next); scrollTo(laneStrip, 0, next * laneHeight, false);
+      })(nextWindow, expected);
       live.current.onLaneWindowChange(nextWindow, expected);
     }
     live.current.onTrimPreview?.(live.current.item.id, undefined);
@@ -558,12 +599,12 @@ function TimelineLayer({ item, editing, motion: m, host, strip, viewport, durati
   }, [disabled, selected, editing, item.id, cancel]);
   useEffect(() => { if (original.value) cancel(epoch.value); }, [cancelEpoch, cancel]);
   // Handles live inside their parent's hit bounds, including their outward
-  // 32pt touch targets; RN cannot hit-test children outside parent bounds.
+  // 44pt touch targets; RN cannot hit-test children outside parent bounds.
   const geometry = useAnimatedStyle(() => ({
     left: m.viewport.value / 2 + start.value * m.scale.value - handleInset,
     width: Math.max(8, (end.value - start.value) * m.scale.value) + handleInset * 2,
     top: original.value && mode.value === 'move' && epoch.value === m.epoch.value
-      ? Math.max(rowTop - 2, Math.min(rowTop + (rowCount - 1) * laneHeight - 2, initialTop.value + dragY.value + verticalSteps.value * laneHeight + (initialWindow.value - m.laneStart.value) * laneHeight))
+      ? Math.max(m.laneStart.value * laneHeight - 2, Math.min((m.laneStart.value + rowCount - 1) * laneHeight - 2, initialTop.value + dragY.value + (m.laneStart.value - initialWindow.value) * laneHeight))
       : top - 2,
   }));
   const startTouchStyle = useAnimatedStyle(() => ({ left: handleInset - trimHandleLayout(Math.max(8, (end.value - start.value) * m.scale.value), 'start').outside }));
@@ -592,16 +633,16 @@ function TimelineLayer({ item, editing, motion: m, host, strip, viewport, durati
     'worklet';
     if (![7, 8].includes(m.phase.value) || epoch.value !== m.epoch.value || !original.value) return;
     if (mode.value === 'move' && originalLanes.value.length > rowCount) {
-      const direction = fingerY.value < rowTop + laneHeight * 0.4 ? -1 : fingerY.value > rowTop + rowCount * laneHeight - laneHeight * 0.4 ? 1 : 0;
-      const currentIndex = originalLanes.value.indexOf(targetLane.value);
-      const now = Date.now();
-      if (direction && now - lastVerticalScroll.value >= 280 && currentIndex + direction >= 0 && currentIndex + direction < originalLanes.value.length) {
-        lastVerticalScroll.value = now; verticalSteps.value += direction;
-        targetLane.value = studioLayerDragDestination(sourceLane.value, originalLanes.value, dragY.value + verticalSteps.value * laneHeight, laneHeight);
+      const localY = fingerY.value - rowTop;
+      const direction = localY < laneHeight * 0.4 ? -1 : localY > rowCount * laneHeight - laneHeight * 0.4 ? 1 : 0;
+      const next = Math.max(0, Math.min(originalLanes.value.length - rowCount, m.laneStart.value + direction * 4 * Math.min(32, frame.timeSincePreviousFrame ?? 16) / 1000));
+      if (next !== m.laneStart.value) {
+        m.laneStart.value = next;
+        scrollTo(laneStrip, 0, next * laneHeight, false);
+        targetLane.value = studioLayerDragDestination(sourceLane.value, originalLanes.value, dragY.value + (next - initialWindow.value) * laneHeight, laneHeight);
         applyLayerRange(original.value, 'move', (translation.value + m.offset.value - initialOffset.value) / frozenScale.value, targetLane.value !== sourceLane.value);
-        const nextIndex = originalLanes.value.indexOf(targetLane.value), window = m.laneStart.value;
-        const nextWindow = Math.max(0, Math.min(originalLanes.value.length - rowCount, nextIndex < window ? nextIndex : nextIndex >= window + rowCount ? nextIndex - rowCount + 1 : window));
-        if (nextWindow !== window) { m.laneStart.value = nextWindow; runOnJS(onLaneWindowChange)(nextWindow, epoch.value); }
+        const bucket = Math.floor(next);
+        if (bucket !== m.lanePublished.value) { m.lanePublished.value = bucket; runOnJS(onLaneWindowChange)(next, epoch.value); }
       }
     }
     const speed = studioTimelineAutoScrollVelocity(finger.value, m.viewport.value);
@@ -610,7 +651,7 @@ function TimelineLayer({ item, editing, motion: m, host, strip, viewport, durati
     applyLayerRange(original.value, mode.value, (translation.value + nextOffset - initialOffset.value) / frozenScale.value, mode.value === 'move' && targetLane.value !== sourceLane.value);
     m.offset.value = nextOffset;
     scrollTo(strip, nextOffset, 0, false);
-  }, [m, epoch, original, mode, originalLanes, rowCount, rowTop, fingerY, targetLane, lastVerticalScroll, verticalSteps, sourceLane, dragY, applyLayerRange, translation, initialOffset, frozenScale, onLaneWindowChange, finger, duration, strip]));
+  }, [m, epoch, original, mode, originalLanes, rowCount, rowTop, fingerY, targetLane, sourceLane, dragY, initialWindow, applyLayerRange, translation, initialOffset, frozenScale, onLaneWindowChange, finger, duration, strip, laneStrip]));
   const updateLayerDrag = (event: { translationX: number; absoluteX: number; translationY?: number; absoluteY?: number }) => {
     'worklet';
     if (![7, 8].includes(m.phase.value) || epoch.value !== m.epoch.value || !original.value) return;
@@ -618,14 +659,11 @@ function TimelineLayer({ item, editing, motion: m, host, strip, viewport, durati
     if (mode.value === 'move') {
       dragY.value = Number.isFinite(event.translationY) ? event.translationY! : 0;
       fingerY.value = (event.absoluteY ?? 0) - (measure(host)?.pageY ?? 0);
-      targetLane.value = studioLayerDragDestination(sourceLane.value, originalLanes.value, dragY.value + verticalSteps.value * laneHeight, laneHeight);
-      const index = originalLanes.value.indexOf(targetLane.value), window = m.laneStart.value;
-      const nextWindow = Math.max(0, Math.min(Math.max(0, originalLanes.value.length - rowCount), index < window ? index : index >= window + rowCount ? index - rowCount + 1 : window));
-      if (nextWindow !== window) { m.laneStart.value = nextWindow; runOnJS(onLaneWindowChange)(nextWindow, epoch.value); }
+      targetLane.value = studioLayerDragDestination(sourceLane.value, originalLanes.value, dragY.value + (m.laneStart.value - initialWindow.value) * laneHeight, laneHeight);
     }
     applyLayerRange(original.value, mode.value, (event.translationX + m.offset.value - initialOffset.value) / frozenScale.value, mode.value === 'move' && targetLane.value !== sourceLane.value);
   };
-  const makePan = (nextMode: StudioLayerTimelineMode, enabled: boolean) => (nextMode === 'move' ? Gesture.Pan().activateAfterLongPress(220) : Gesture.Pan()).enabled(enabled).maxPointers(1).minDistance(1).shouldCancelWhenOutside(false).blocksExternalGesture(nativeGesture)
+  const makePan = (nextMode: StudioLayerTimelineMode, enabled: boolean) => (nextMode === 'move' ? Gesture.Pan().activateAfterLongPress(220) : Gesture.Pan()).enabled(enabled).maxPointers(1).minDistance(1).shouldCancelWhenOutside(false).blocksExternalGesture(nativeGesture, laneNativeGesture, laneAxisGesture)
     .onStart(event => {
       // Conditional factories are outside Babel's automatic Gesture.Pan
       // detection. Keep every callback explicitly on the UI thread.
@@ -639,7 +677,7 @@ function TimelineLayer({ item, editing, motion: m, host, strip, viewport, durati
       finger.value = event.absoluteX - (measure(host)?.pageX ?? 0);
       const lane = laneBounds.value;
       originalLanes.value = lane.lanes; sourceLane.value = lane.source; targetLane.value = lane.source;
-      dragY.value = 0; verticalSteps.value = 0; lastVerticalScroll.value = Date.now();
+      dragY.value = 0; m.laneScrolling.value = false; scrollTo(laneStrip, 0, m.laneStart.value * laneHeight, false);
       initialTop.value = lane.top - 2; initialWindow.value = m.laneStart.value;
       fingerY.value = event.absoluteY - (measure(host)?.pageY ?? 0);
       runOnJS(begin)(epoch.value, nextMode, snapshot);
@@ -651,7 +689,7 @@ function TimelineLayer({ item, editing, motion: m, host, strip, viewport, durati
       if (![7, 8].includes(m.phase.value) || epoch.value !== m.epoch.value || !original.value) return;
       if (success === false) {
         start.value = original.value.startSeconds; end.value = original.value.endSeconds;
-        original.value = null; dragY.value = 0; verticalSteps.value = 0; m.snap.value = null;
+        original.value = null; dragY.value = 0; m.snap.value = null;
         runOnJS(cancel)(epoch.value); return;
       }
       if (Number.isFinite(event?.translationX)) updateLayerDrag(event);
@@ -662,13 +700,13 @@ function TimelineLayer({ item, editing, motion: m, host, strip, viewport, durati
     });
   // Callbacks read their latest props through refs. Preview rerenders must not
   // replace the recognizer or the source snapshot under the user's finger.
-  const bodyPan = useMemo(() => makePan('move', moveEnabled), [moveEnabled, nativeGesture, rowCount, rowTop]);
+  const bodyPan = useMemo(() => makePan('move', moveEnabled), [moveEnabled, nativeGesture, laneNativeGesture, laneAxisGesture, rowCount, rowTop]);
   const edit = useCallback(() => { if (!live.current.disabled) live.current.onEdit(); }, []);
   const doubleTap = useMemo(() => Gesture.Tap().enabled(!disabled).numberOfTaps(2).maxDuration(220).maxDelay(280)
     .onEnd((_, success) => { if (success) runOnJS(edit)(); }), [disabled, edit]);
   const bodyGesture = useMemo(() => Gesture.Race(bodyPan, doubleTap), [bodyPan, doubleTap]);
-  const startPan = useMemo(() => makePan('start', trimEnabled), [trimEnabled, nativeGesture, rowCount, rowTop]);
-  const endPan = useMemo(() => makePan('end', trimEnabled), [trimEnabled, nativeGesture, rowCount, rowTop]);
+  const startPan = useMemo(() => makePan('start', trimEnabled), [trimEnabled, nativeGesture, laneNativeGesture, laneAxisGesture, rowCount, rowTop]);
+  const endPan = useMemo(() => makePan('end', trimEnabled), [trimEnabled, nativeGesture, laneNativeGesture, laneAxisGesture, rowCount, rowTop]);
   const commitAccessible = useCallback((expected: number, nextMode: StudioLayerTimelineMode, snapshot: StudioLayerTimelineSnapshot, range: StudioLayerTimelineRange, destination?: number) => {
     begin(expected, nextMode, snapshot);
     if (operation.current?.epoch === expected) void commit(expected, range, destination);
@@ -694,7 +732,7 @@ function TimelineLayer({ item, editing, motion: m, host, strip, viewport, durati
       'worklet';
       if (original.value || m.epoch.value !== previous || m.phase.value >= 3 && m.phase.value !== 6) return;
       m.epoch.value += 1; epoch.value = m.epoch.value; original.value = snapshot; mode.value = 'move';
-      targetLane.value = nextLane; dragY.value = 0; verticalSteps.value = 0;
+      targetLane.value = nextLane; dragY.value = 0;
       initialTop.value = laneBounds.value.top - 2; initialWindow.value = m.laneStart.value;
       start.value = snapshot.startSeconds; end.value = snapshot.endSeconds; m.phase.value = 5;
       runOnJS(commitAccessible)(epoch.value, 'move', snapshot, { startSeconds: snapshot.startSeconds, endSeconds: snapshot.endSeconds }, nextLane);
@@ -846,8 +884,6 @@ const styles = StyleSheet.create({
   handle: { width: handleWidth, height: '100%', maxHeight: 72, borderRadius: 5, backgroundColor: snapColor, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
   append: { width: 44, height: 44, borderRadius: 11, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, alignItems: 'center', justifyContent: 'center' },
   caption: { flexDirection: 'row', alignItems: 'center', gap: 8, height: 44, paddingHorizontal: 8 },
-  laneControls: { flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center' },
-  laneButton: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
   scaleControls: { flexDirection: 'row', alignItems: 'center', flexShrink: 0 },
   scaleButton: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
   empty: { width: '100%', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10 },
