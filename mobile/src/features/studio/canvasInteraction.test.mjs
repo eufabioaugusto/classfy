@@ -131,6 +131,7 @@ function harness(options = {}) {
     frame: id => bodyDetector(id).props.children.props.style.find(value => value?.getStyle)?.getStyle(),
     guides: () => findAll(scope('guides').tree, node => node.type === 'animated-view').map(node => Object.assign({}, ...node.props.style.map(value => value.getStyle ? value.getStyle() : value))),
     tree: id => scope(id || 'title').tree,
+    status: () => findAll(scope('root').tree, node => node.props?.accessible && node.props?.accessibilityRole === 'text'),
     cornerView: (index, id = 'title') => {
       const node = findAll(scope(id).tree, item => typeof item.type === 'function' && item.type.name === 'CanvasCornerHandle')[index];
       // A separate hook scope models the always-mounted sibling native target.
@@ -271,6 +272,31 @@ test('camada fora do tempo não cria área falsa; tap no principal selecionado n
     assert.deepEqual(view.visibleIds(), ['main']);
     view.getGesture('tap', 'main').handlers.onEnd({}, true); view.flush(); assert.equal(view.playback.length, 0); assert.deepEqual(view.selections, ['main']);
     assert.equal(view.getGesture('pan', 'main').configuration.activateAfterLongPress, undefined);
+  } finally { view.dispose(); }
+});
+
+test('seleção fora do tempo comunica intervalo só por acessibilidade, sem instrução pintada ou área falsa', () => {
+  const view = harness();
+  try {
+    view.update({ positionSeconds: 3 });
+    assert.deepEqual(view.visibleIds(), []);
+    const status = view.status();
+    assert.equal(status.length, 1); assert.match(status[0].props.accessibilityLabel, /Camada selecionada fora do tempo atual/);
+    assert.equal(status[0].props.children, undefined, 'the status does not paint text over the video');
+    assert.equal(status[0].props.pointerEvents, 'none'); assert.equal(status[0].props.style.width, 1);
+    assert.deepEqual(view.commits, []); assert.deepEqual(view.playback, []);
+    view.update({ positionSeconds: 1 }); assert.deepEqual(view.status(), []);
+  } finally { view.dispose(); }
+});
+
+test('principal fora do tempo informa seleção acessível sem substituir o vídeo ativo', () => {
+  const view = harness({ props: { selectedLayerId: undefined, selectedMainClipId: 'main', onSelectMainClip() {} } });
+  try {
+    const editing = { ...view.editing(), main: [...view.editing().main, { ...view.editing().main[0], id: 'second-main' }] };
+    view.update({ editing, recipe: compileStudioRecipe({ kind: 'aula', takes: [], editing }), positionSeconds: 5 });
+    assert.deepEqual(view.visibleIds(), ['second-main']);
+    assert.match(view.status()[0].props.accessibilityLabel, /Vídeo principal selecionado fora do tempo atual/);
+    assert.deepEqual(view.playback, []); assert.deepEqual(view.commits, []);
   } finally { view.dispose(); }
 });
 

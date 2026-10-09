@@ -6,6 +6,7 @@ import * as model from './model.ts';
 import * as timeline from './timeline.ts';
 import * as timelineLayout from './timelineLayout.ts';
 import * as history from './editingHistory.ts';
+import * as captions from './captions.ts';
 
 function compile(source, dependencies, globals = {}) {
   const code = ts.transpileModule(source, { compilerOptions: {
@@ -34,6 +35,7 @@ function harness(takes = [take('a'), take('b')], options = {}) {
   const alerts = [];
   const navigationEvents = [];
   let focused = true;
+  let owner = 'owner';
   let completedWrites = 0;
   let attemptedWrites = 0;
   const keyboardListeners = new Map();
@@ -74,7 +76,7 @@ function harness(takes = [take('a'), take('b')], options = {}) {
       if (!slots[index] || !equals(slots[index].dependencies, dependencies)) effects.push({ index, callback, dependencies });
     },
   };
-  const preview = { seeks: [], pauses: 0, pause() { this.pauses += 1; }, previewSourceFrame() {}, togglePlayback() {},
+  const preview = { seeks: [], pauses: 0, toggles: 0, pause() { this.pauses += 1; }, previewSourceFrame() {}, togglePlayback() { this.toggles += 1; },
     seek(position, frame) {
       if (!frame) {
         const location = timeline.locateStudioTime(project.takes, position);
@@ -107,10 +109,10 @@ function harness(takes = [take('a'), take('b')], options = {}) {
     'lucide-react-native': toolIcons,
     '@/components/AppScreen': { AppScreen: 'screen' }, '@/components/NavigationHeader': { NavigationHeader: 'header' },
     '@/components/SheetModal': { SheetCloseButton: 'close', SheetModal: 'sheet', sheetStyles: {} },
-    '@/features/auth/authContext': { useAuth: () => ({ user: { id: 'owner' } }) }, '@/theme/colors': { colors: {} },
+    '@/features/auth/authContext': { useAuth: () => ({ user: { id: owner } }) }, '@/theme/colors': { colors: {} },
     '@/features/studio/useStudioProjects': { useStudioProject: () => ({ project }) },
     '@/features/studio/useStudioOrientation': { useStudioOrientation: () => ({ orientationReady: true }) },
-    '@/features/studio/media': { importStudioLayer: options.importLayer, importStudioMedia: options.importMedia || (async () => []) },
+    '@/features/studio/media': { importStudioLayer: options.importLayer, importStudioMedia: options.importMedia || (async () => []), importStudioCaptionFile: options.importCaptions },
     '@/features/studio/store': { discardTransientStudioProject: async () => undefined, getStudioProject: () => project,
       isTransientStudioProject: () => false,
       mutateStudioProject: async (_, __, change) => {
@@ -133,8 +135,12 @@ function harness(takes = [take('a'), take('b')], options = {}) {
     '@/features/studio/layerActions': layerActions,
     '@/features/studio/StudioLayerPanel': { StudioLayerPanel: 'layerPanel' },
     '@/features/studio/StudioTreatmentPanel': { StudioTreatmentPanel: 'treatmentPanel' },
-    '@/features/studio/captions': {},
-    '../../modules/classfy-studio-media': { isStudioCompositionAvailable: () => !!options.advanced },
+    '@/features/studio/captions': captions,
+    '../../modules/classfy-studio-media': { isStudioCompositionAvailable: () => !!options.advanced,
+      getStudioTranscriptionCapabilitiesAsync: options.capabilities,
+      installStudioTranscriptionModelAsync: options.installModel,
+      transcribeStudioAsync: options.transcribe,
+      cancelStudioTranscriptionAsync: options.cancelTranscription || (async () => undefined) },
     '@/features/studio/StudioPreview': { StudioPreview: 'preview' }, '@/features/studio/StudioTimeline': { StudioTimeline: 'timeline' },
     '@/features/studio/editingHistory': history, '@/features/studio/editorInteraction': interaction,
     '@/features/studio/timelineLayout': timelineLayout,
@@ -172,6 +178,7 @@ function harness(takes = [take('a'), take('b')], options = {}) {
   const previewProps = () => find(node => node.type === 'preview').props;
   return { preview, alerts, navigationEvents, pump, timelineProps, previewProps,
     focus: value => { focused = value; dirty = true; },
+    owner: value => { owner = value; dirty = true; },
     canvasProps: () => find(node => node.type === 'canvas-editor').props,
     keyboard: visible => { for (const callback of keyboardListeners.get(visible ? 'keyboardDidShow' : 'keyboardDidHide') || []) callback(); },
     keyboardProps: () => find(node => node.type === 'keyboard').props,
@@ -1038,5 +1045,292 @@ for (const choice of ['Gravar', 'Arquivo da galeria']) test(`mais: ${choice} sal
     assert.equal(imports, 0); assert.equal(view.navigationEvents.length, 0);
     assert.equal(view.project().editing.layers[0].items[0].text.content, 'Texto preservado antes de perder foco');
     assert.deepEqual(view.writes(), { attempted: 1, completed: 1 });
+  } finally { panel?.dispose(); view.dispose(); }
+});
+
+function deferred() {
+  let resolve;
+  const promise = new Promise(done => { resolve = done; });
+  return { promise, resolve };
+}
+async function externalAction(view, label) {
+  if (['Gravar', 'Arquivo da galeria'].includes(label)) view.timelineProps().onAppend();
+  else if (['Imagem', 'Vídeo sobreposto'].includes(label)) view.tool('Sobrepor').onPress();
+  else if (['Importar SRT/VTT', 'Gerar legendas', 'Legenda manual'].includes(label)) view.tool('Legendas').onPress();
+  await view.pump();
+  if (label === 'Gerar legendas') return view.button(label).onPress;
+  if (label === 'Revisar publicação' || label === 'Voltar aos projetos') return view.button(label).onPress;
+  return view.tool(label).onPress;
+}
+function editingWithImage() {
+  const value = editingWithCaptions();
+  value.assets.push({ id: 'image-source', kind: 'image', uri: 'file:///original.png', name: 'Imagem original', durationTicks: 0 });
+  return model.addStudioLayerItem(value, { id: 'image', kind: 'image', assetId: 'image-source', atTicks: 0, durationTicks: model.studioTicks(3), rect: { x: 0.2, y: 0.2, width: 0.3, height: 0.3 } });
+}
+
+for (const surface of ['canvas', 'preview']) for (const selected of ['main', 'other-text', 'image']) {
+  test(`vazio em ${surface} desmarca ${selected}, preservando conteúdo/tempo e sem Play/seek`, async () => {
+    const initial = editingWithImage(), view = harness(undefined, { initialEditing: initial, advanced: true });
+    try {
+      await view.pump(); view.publish({ position: 2, sourcePosition: 4, takeId: 'a', playing: false, loading: false }); await view.pump();
+      if (selected === 'main') view.canvasProps().onSelectMainClip('a'); else view.canvasProps().onSelectLayer(selected);
+      await view.pump(); const pauses = view.preview.pauses;
+      (surface === 'canvas' ? view.canvasProps() : view.previewProps()).onCanvasPress(); await view.pump();
+      assert.equal(view.canvasProps().selectedLayerId, undefined); assert.equal(view.canvasProps().selectedMainClipId, undefined);
+      assert.equal(view.timelineProps().position, 2); assert.equal(view.preview.toggles, 0); assert.equal(view.preview.seeks.length, 0); assert.equal(view.preview.pauses, pauses);
+      assert.deepEqual(view.project().editing, initial); assert.deepEqual(view.writes(), { attempted: 0, completed: 0 });
+      (surface === 'canvas' ? view.canvasProps() : view.previewProps()).onCanvasPress(); await view.pump();
+      assert.equal(view.preview.toggles, 1, 'only a subsequent empty press without selection controls playback');
+    } finally { view.dispose(); }
+  });
+}
+
+for (const surface of ['canvas', 'preview']) test(`vazio em ${surface} salva draft uma vez antes de desmarcar, sem seek, com undo`, async () => {
+  const initial = editingWithCaptions(), view = harness(undefined, { initialEditing: initial, advanced: true }); let panel;
+  try {
+    await view.pump(); view.publish({ position: 8, sourcePosition: 4, takeId: 'b', playing: false, loading: false }); await view.pump();
+    view.canvasProps().onSelectLayer('caption'); await view.pump(); panel = renderLayerPanel(view.layerProps()); panel.text('Confirmado pelo vazio'); await view.pump();
+    const press = (surface === 'canvas' ? view.canvasProps() : view.previewProps()).onCanvasPress;
+    press(); press(); await view.pump();
+    assert.deepEqual(view.writes(), { attempted: 1, completed: 0 }); assert.equal(view.canvasProps().selectedLayerId, 'caption');
+    view.finishSave(); await view.pump();
+    assert.equal(view.canvasProps().selectedLayerId, undefined); assert.equal(view.preview.toggles, 0); assert.equal(view.preview.seeks.length, 0);
+    assert.equal(view.timelineProps().position, 8); assert.equal(view.project().editing.layers[0].items[0].text.content, 'Confirmado pelo vazio');
+    view.button('Desfazer edição').onPress(); await view.pump(); view.finishSave(); await view.pump();
+    assert.deepEqual(view.project().editing.layers, initial.layers); assert.equal(view.timelineProps().position, 8);
+  } finally { panel?.dispose(); view.dispose(); }
+});
+
+test('vazio com erro conserva draft/seleção; retry salva sem trocar Play ou cursor', async () => {
+  const view = harness(undefined, { initialEditing: editingWithCaptions(), advanced: true }); let panel;
+  try {
+    await view.pump(); view.canvasProps().onSelectLayer('caption'); await view.pump(); panel = renderLayerPanel(view.layerProps()); panel.text('Texto recuperável'); await view.pump();
+    view.failNextMutation('Disco cheio'); view.canvasProps().onCanvasPress(); await view.pump();
+    assert.equal(view.canvasProps().selectedLayerId, 'caption'); assert.equal(view.layerProps().item.text.content, 'Texto recuperável');
+    assert.equal(view.preview.toggles, 0); assert.equal(view.preview.seeks.length, 0); assert.equal(view.timelineProps().busy, false);
+    view.previewProps().onCanvasPress(); await view.pump(); view.finishSave(); await view.pump();
+    assert.equal(view.canvasProps().selectedLayerId, undefined); assert.equal(view.project().editing.layers[0].items[0].text.content, 'Texto recuperável');
+    assert.equal(view.preview.seeks.length, 0); assert.equal(view.preview.toggles, 0);
+  } finally { panel?.dispose(); view.dispose(); }
+});
+
+test('vazio em tela inteira continua transporte mesmo com seleção preservada', async () => {
+  const view = harness(undefined, { initialEditing: editingWithCaptions(), advanced: true });
+  try {
+    await view.pump(); view.canvasProps().onSelectMainClip('a'); await view.pump();
+    view.button('Prévia em tela inteira').onPress(); await view.pump(); view.previewProps().onCanvasPress(); await view.pump();
+    assert.equal(view.preview.toggles, 1); assert.equal(view.preview.seeks.length, 0); assert.deepEqual(view.writes(), { attempted: 0, completed: 0 });
+    view.button('Voltar às ferramentas do editor').onPress(); await view.pump(); assert.equal(view.canvasProps().selectedMainClipId, 'a');
+  } finally { view.dispose(); }
+});
+
+for (const label of ['Imagem', 'Vídeo sobreposto', 'Áudio', 'Importar SRT/VTT', 'Gerar legendas', 'Gravar', 'Arquivo da galeria', 'Revisar publicação', 'Voltar aos projetos']) {
+  test(`${label}: reserva antes do flush e blur/refocus invalida a entrada antiga`, async () => {
+    const wait = deferred(); let calls = 0;
+    const view = harness(undefined, { initialEditing: editingWithCaptions(), advanced: true, flush: () => wait.promise,
+      importLayer: async () => { calls++; return null; }, importCaptions: async () => { calls++; return null; }, importMedia: async () => { calls++; return []; },
+      capabilities: async () => { calls++; return { available: true }; } });
+    try {
+      await view.pump(); const start = await externalAction(view, label); start(); start(); await view.pump();
+      assert.equal(view.timelineProps().busy, true); assert.equal(calls, 0); assert.equal(view.navigationEvents.length, 0);
+      view.focus(false); await view.pump(); view.focus(true); await view.pump();
+      wait.resolve(); await view.pump();
+      assert.equal(calls, 0); assert.equal(view.navigationEvents.length, 0); assert.equal(view.alerts.length, 0);
+      assert.deepEqual(view.writes(), { attempted: 0, completed: 0 }); assert.equal(view.timelineProps().busy, false);
+    } finally { view.dispose(); }
+  });
+}
+
+for (const label of ['Imagem', 'Importar SRT/VTT']) test(`${label}: owner ou alvo removido durante flush não abre seletor`, async () => {
+  for (const change of ['owner', 'owner-returned', 'target']) {
+    const wait = deferred(); let calls = 0;
+    const view = harness(undefined, { initialEditing: editingWithCaptions(), advanced: true, flush: () => wait.promise,
+      importLayer: async () => { calls++; return null; }, importCaptions: async () => { calls++; return null; } });
+    try {
+      await view.pump(); const start = await externalAction(view, label); start(); await view.pump();
+      if (change === 'owner' || change === 'owner-returned') { view.owner('another-owner'); await view.pump(); if (change === 'owner-returned') view.owner('owner'); }
+      else view.externalEditing(model.reconcileStudioTakes(view.project(), [view.project().takes[1]]));
+      await view.pump(); wait.resolve(); await view.pump();
+      assert.equal(calls, 0); assert.deepEqual(view.writes(), { attempted: 0, completed: 0 }); assert.equal(view.alerts.length, 0);
+    } finally { view.dispose(); }
+  }
+});
+
+test('SRT conserva take/URI alvo no picker, ignora seleção concorrente e mantém reserva durante save', async () => {
+  const wait = deferred(); let calls = 0, imported;
+  const view = harness(undefined, { initialEditing: editingWithCaptions(), advanced: true,
+    importCaptions: (project, duration) => { calls++; imported = { project, duration }; return wait.promise; } });
+  try {
+    await view.pump(); view.publish({ position: 8, sourcePosition: 4, takeId: 'b', playing: false, loading: false }); await view.pump();
+    const start = await externalAction(view, 'Importar SRT/VTT'); start(); start(); await view.pump();
+    assert.equal(calls, 1); assert.equal(imported.duration, 10); assert.equal(imported.project.id, 'project');
+    view.timelineProps().onSelect(view.project().takes[0]); await view.pump();
+    wait.resolve([{ start: 3, end: 4, text: 'Texto ancorado ao take B' }]); await view.pump();
+    const importedCue = view.project().editing.layers.flatMap(lane => lane.items).find(item => item.text?.content === 'Texto ancorado ao take B');
+    assert.equal(importedCue.anchor.clipId, 'b'); assert.equal(importedCue.anchor.sourceStartTicks, model.studioTicks(3));
+    assert.equal(view.timelineProps().busy, true); assert.equal(view.preview.seeks.length, 0);
+    view.finishSave(); await view.pump(); assert.equal(view.timelineProps().busy, false); assert.equal(view.timelineProps().position, 8);
+    assert.deepEqual(view.writes(), { attempted: 1, completed: 1 });
+  } finally { view.dispose(); }
+});
+
+for (const interrupted of ['blur-refocus', 'target-removed', 'uri-replaced']) test(`SRT após ${interrupted} não aplica legendas ao alvo antigo ou substituto`, async () => {
+  const wait = deferred(); const view = harness(undefined, { initialEditing: editingWithCaptions(), advanced: true, importCaptions: () => wait.promise });
+  try {
+    await view.pump(); (await externalAction(view, 'Importar SRT/VTT'))(); await view.pump();
+    if (interrupted === 'blur-refocus') { view.focus(false); await view.pump(); view.focus(true); }
+    else if (interrupted === 'target-removed') view.externalEditing(model.reconcileStudioTakes(view.project(), [view.project().takes[1]]));
+    else view.externalEditing({ ...view.project().editing, assets: view.project().editing.assets.map(asset => ({ ...asset, uri: `${asset.uri}.replacement` })) });
+    await view.pump(); wait.resolve([{ start: 3, end: 4, text: 'Não aplicar' }]); await view.pump();
+    assert.deepEqual(view.writes(), { attempted: 0, completed: 0 }); assert.equal(view.alerts.length, 0); assert.equal(view.timelineProps().busy, false);
+    assert.ok(!view.project().editing.layers.some(lane => lane.items.some(item => item.text?.content === 'Não aplicar')));
+  } finally { view.dispose(); }
+});
+
+test('transcrição local cancela no blur e resultado tardio não grava após refocus', async () => {
+  const wait = deferred(), cancelled = []; let jobs = 0;
+  const view = harness(undefined, { initialEditing: editingWithCaptions(), advanced: true,
+    capabilities: async () => ({ available: true, requiresModelDownload: false }), transcribe: () => { jobs++; return wait.promise; }, cancelTranscription: async id => { cancelled.push(id); } });
+  try {
+    await view.pump(); (await externalAction(view, 'Gerar legendas'))(); await view.pump(); assert.equal(jobs, 1);
+    view.focus(false); await view.pump(); view.focus(true); await view.pump(); assert.deepEqual(cancelled, ['new-1']);
+    wait.resolve({ segments: [{ text: 'Resultado antigo', startSeconds: 0, endSeconds: 1, words: [] }] }); await view.pump();
+    assert.deepEqual(view.writes(), { attempted: 0, completed: 0 }); assert.equal(view.alerts.length, 0); assert.equal(view.timelineProps().busy, false);
+  } finally { view.dispose(); }
+});
+
+for (const label of ['Imagem', 'Importar SRT/VTT', 'Gerar legendas']) test(`${label}: diálogo de perfil também pertence à reserva e não continua após blur/refocus`, async () => {
+  let calls = 0;
+  const view = harness(undefined, { advanced: true, importLayer: async () => { calls++; return null; }, importCaptions: async () => { calls++; return null; },
+    capabilities: async () => { calls++; return { available: false }; } });
+  try {
+    await view.pump(); const start = await externalAction(view, label); start(); start(); await view.pump();
+    const profiles = view.alerts.filter(alert => alert[0] === 'Perfil da edição'); assert.equal(profiles.length, 1);
+    assert.equal(view.timelineProps().busy, true); assert.equal(calls, 0);
+    view.focus(false); await view.pump(); view.focus(true); await view.pump();
+    profiles[0][2].find(option => option.text === 'Usar 1080p · 30 FPS').onPress(); await view.pump();
+    assert.deepEqual(view.writes(), { attempted: 0, completed: 0 }); assert.equal(calls, 0); assert.equal(view.timelineProps().busy, false);
+    assert.equal(model.studioEditing(view.project()).output.profile, 'legacy-source');
+  } finally { view.dispose(); }
+});
+
+test('texto novo usa posição congelada, seleção sem teclado implícito e uma etapa de undo', async () => {
+  const initial = editingWithCaptions(), view = harness(undefined, { initialEditing: initial, advanced: true });
+  try {
+    await view.pump(); view.publish({ position: 3, sourcePosition: 5, takeId: 'a', playing: false, loading: false }); await view.pump();
+    const start = await externalAction(view, 'Texto'); start(); start(); await view.pump();
+    assert.deepEqual(view.writes(), { attempted: 1, completed: 0 }); assert.equal(view.timelineProps().busy, true);
+    view.publish({ position: 0, sourcePosition: 2, takeId: 'a', playing: false, loading: true }); await view.pump();
+    view.finishSave(); await view.pump();
+    assert.equal(view.layerProps().item.text.content, 'Seu título'); assert.equal(view.layerProps().editTextRequest, undefined);
+    assert.deepEqual(view.layerProps().item.anchor, { clipId: 'a', offsetTicks: model.studioTicks(3) });
+    assert.equal(view.timelineProps().position, 3); assert.equal(view.preview.seeks.length, 0);
+    view.button('Desfazer edição').onPress(); await view.pump(); view.finishSave(); await view.pump();
+    assert.deepEqual(view.project().editing.layers, initial.layers); assert.equal(view.timelineProps().position, 3);
+  } finally { view.dispose(); }
+});
+
+test('cancelar galeria depois do draft salvo conserva sua seleção, cursor e undo', async () => {
+  const initial = editingWithCaptions(), wait = deferred(); let calls = 0, panel;
+  const view = harness(undefined, { initialEditing: initial, advanced: true, importMedia: () => { calls++; return wait.promise; } });
+  try {
+    await view.pump(); view.publish({ position: 8, sourcePosition: 4, takeId: 'b', playing: false, loading: false }); await view.pump();
+    view.canvasProps().onSelectLayer('caption'); await view.pump(); panel = renderLayerPanel(view.layerProps()); panel.text('Salvo mesmo cancelando o seletor'); await view.pump();
+    (await externalAction(view, 'Arquivo da galeria'))(); await view.pump(); assert.equal(calls, 0);
+    view.finishSave(); await view.pump(); assert.equal(calls, 1); assert.equal(view.timelineProps().busy, true);
+    wait.resolve([]); await view.pump();
+    assert.equal(view.canvasProps().selectedLayerId, 'caption'); assert.equal(view.layerProps().item.text.content, 'Salvo mesmo cancelando o seletor');
+    assert.equal(view.timelineProps().position, 8); assert.equal(view.preview.seeks.length, 0); assert.equal(view.preview.toggles, 0);
+    assert.equal(view.timelineProps().busy, false); assert.equal(view.navigationEvents.length, 0); assert.deepEqual(view.writes(), { attempted: 1, completed: 1 });
+    view.button('Desfazer edição').onPress(); await view.pump(); view.finishSave(); await view.pump();
+    assert.deepEqual(view.project().editing.layers, initial.layers); assert.equal(view.timelineProps().position, 8);
+  } finally { panel?.dispose(); view.dispose(); }
+});
+
+test('fechar seleção antes do flush invalida a entrada reservada sem gravar draft cancelado', async () => {
+  const wait = deferred(); let calls = 0, panel;
+  const view = harness(undefined, { initialEditing: editingWithCaptions(), advanced: true, flush: () => wait.promise, importMedia: async () => { calls++; return []; } });
+  try {
+    await view.pump(); view.canvasProps().onSelectLayer('caption'); await view.pump(); panel = renderLayerPanel(view.layerProps()); panel.text('Draft explicitamente cancelado'); await view.pump();
+    const cancelSelection = view.layerProps().onClose;
+    (await externalAction(view, 'Arquivo da galeria'))(); await view.pump(); assert.equal(view.timelineProps().busy, true);
+    // A native close callback accepted before the disabled render may arrive
+    // while metadata is awaiting disk. Its old operation cannot continue.
+    cancelSelection(); await view.pump(); wait.resolve(); await view.pump();
+    assert.equal(calls, 0); assert.equal(view.canvasProps().selectedLayerId, undefined); assert.equal(view.project().editing.layers[0].items[0].text.content, 'Legenda inicial');
+    assert.deepEqual(view.writes(), { attempted: 0, completed: 0 }); assert.equal(view.alerts.length, 0); assert.equal(view.timelineProps().busy, false);
+  } finally { panel?.dispose(); view.dispose(); }
+});
+
+test('importação de imagem já durável termina após blur, preserva fonte e não seleciona resultado tardio', async () => {
+  const wait = deferred(); let importedItem, calls = 0;
+  const view = harness(undefined, { initialEditing: editingWithCaptions(), advanced: true,
+    importLayer: async (project, kind, item) => {
+      calls++; importedItem = item; await wait.promise;
+      const editing = { ...project.editing, assets: [...project.editing.assets, { id: 'durable-image', kind, uri: 'file:///durable-original.png', name: 'Imagem importada', durationTicks: 0 }] };
+      view.externalEditing(model.addStudioLayerItem(editing, { ...item, assetId: 'durable-image' }, `layer:item:${item.id}`));
+      return view.project();
+    } });
+  try {
+    await view.pump(); view.publish({ position: 3, sourcePosition: 5, takeId: 'a', playing: false, loading: false }); await view.pump();
+    const start = await externalAction(view, 'Imagem'); start(); await view.pump(); assert.equal(calls, 1);
+    view.focus(false); await view.pump(); view.focus(true); await view.pump(); start(); await view.pump();
+    assert.equal(calls, 1, 'the old copy owns its reservation until it settles');
+    wait.resolve(); await view.pump();
+    assert.equal(view.project().editing.assets.find(asset => asset.id === 'durable-image').uri, 'file:///durable-original.png');
+    assert.ok(view.project().editing.layers.some(lane => lane.items.some(item => item.id === importedItem.id)));
+    assert.equal(view.canvasProps().selectedLayerId, undefined); assert.equal(view.timelineProps().position, 3);
+    assert.equal(view.preview.seeks.length, 0); assert.equal(view.timelineProps().busy, false); assert.equal(view.alerts.length, 0);
+  } finally { view.dispose(); }
+});
+
+test('vazio com save já iniciado conserva texto e seleção após blur/refocus sem comando tardio', async () => {
+  const view = harness(undefined, { initialEditing: editingWithCaptions(), advanced: true }); let panel;
+  try {
+    await view.pump(); view.canvasProps().onSelectLayer('caption'); await view.pump(); panel = renderLayerPanel(view.layerProps()); panel.text('Escrita aceita antes do blur'); await view.pump();
+    view.canvasProps().onCanvasPress(); await view.pump(); assert.deepEqual(view.writes(), { attempted: 1, completed: 0 });
+    view.focus(false); await view.pump(); view.focus(true); await view.pump(); view.finishSave(); await view.pump();
+    assert.equal(view.canvasProps().selectedLayerId, 'caption'); assert.equal(view.layerProps().item.text.content, 'Escrita aceita antes do blur');
+    assert.deepEqual(view.writes(), { attempted: 1, completed: 1 }); assert.equal(view.preview.seeks.length, 0); assert.equal(view.preview.toggles, 0);
+    view.previewProps().onCanvasPress(); await view.pump(); assert.equal(view.canvasProps().selectedLayerId, undefined);
+    assert.deepEqual(view.writes(), { attempted: 1, completed: 1 });
+  } finally { panel?.dispose(); view.dispose(); }
+});
+
+test('tratamento iniciado pelo perfil não abre painel após retorno do foco', async () => {
+  const view = harness(undefined, { advanced: true });
+  try {
+    await view.pump(); const start = view.tool('Filtros').onPress; start(); start(); await view.pump();
+    const profile = view.alerts.find(alert => alert[0] === 'Perfil da edição'); assert.ok(profile); assert.equal(view.timelineProps().busy, true);
+    view.focus(false); await view.pump(); view.focus(true); await view.pump(); profile[2].find(option => option.text === 'Usar 1080p · 30 FPS').onPress(); await view.pump();
+    assert.equal(view.hasTreatmentPanel(), false); assert.deepEqual(view.writes(), { attempted: 0, completed: 0 }); assert.equal(view.timelineProps().busy, false);
+  } finally { view.dispose(); }
+});
+
+test('erro ao confirmar draft antes da galeria mostra uma causa única e conserva seleção para retry', async () => {
+  let calls = 0, panel;
+  const view = harness(undefined, { initialEditing: editingWithCaptions(), advanced: true, importMedia: async () => { calls++; return []; } });
+  try {
+    await view.pump(); view.canvasProps().onSelectLayer('caption'); await view.pump(); panel = renderLayerPanel(view.layerProps()); panel.text('Texto para tentar novamente'); await view.pump();
+    view.failNextMutation('Não há espaço para salvar'); (await externalAction(view, 'Arquivo da galeria'))(); await view.pump();
+    assert.equal(view.alerts.filter(alert => alert[1] === 'Não há espaço para salvar').length, 1);
+    assert.equal(calls, 0); assert.equal(view.canvasProps().selectedLayerId, 'caption'); assert.equal(view.layerProps().item.text.content, 'Texto para tentar novamente');
+    assert.equal(view.timelineProps().busy, false); assert.equal(view.preview.seeks.length, 0);
+    (await externalAction(view, 'Arquivo da galeria'))(); await view.pump(); view.finishSave(); await view.pump();
+    assert.equal(calls, 1); assert.equal(view.project().editing.layers[0].items[0].text.content, 'Texto para tentar novamente');
+    assert.equal(view.canvasProps().selectedLayerId, 'caption');
+  } finally { panel?.dispose(); view.dispose(); }
+});
+
+test('tap/double tap aceitos antes do blur não deixam pedido de teclado ou seleção herdados no retorno', async () => {
+  const view = harness(undefined, { initialEditing: editingWithCaptions(), advanced: true }); let panel;
+  try {
+    await view.pump(); view.canvasProps().onSelectLayer('caption'); await view.pump();
+    const canvas = view.canvasProps(); view.focus(false); await view.pump();
+    canvas.onEditText('caption'); canvas.onSelectLayer('other-text'); canvas.onSelectMainClip('b'); await view.pump();
+    assert.equal(view.canvasProps().selectedLayerId, 'caption'); assert.equal(view.layerProps().editTextRequest, undefined);
+    view.focus(true); await view.pump(); panel = renderLayerPanel(view.layerProps()); panel.flushFrames();
+    assert.equal(panel.focusCount(), 0); assert.equal(view.canvasProps().selectedLayerId, 'caption');
+    assert.equal(view.preview.seeks.length, 0); assert.deepEqual(view.writes(), { attempted: 0, completed: 0 });
   } finally { panel?.dispose(); view.dispose(); }
 });

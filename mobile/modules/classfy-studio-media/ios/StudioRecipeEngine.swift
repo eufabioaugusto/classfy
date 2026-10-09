@@ -278,7 +278,7 @@ final class StudioRecipeCompositor: NSObject, AVVideoCompositing {
 }
 
 final class StudioRecipeEngine {
-  private struct Job { var cancelled = false; var session: AVAssetExportSession? }
+  private struct Job { var cancelled = false; var committed = false; var session: AVAssetExportSession? }
   private let lock = NSLock()
   private var jobs: [String: Job] = [:]
   private let renderer = StudioEffectRenderer()
@@ -737,7 +737,7 @@ final class StudioRecipeEngine {
 
   func cancel(_ requestId: String) {
     lock.lock()
-    guard var job = jobs[requestId] else { lock.unlock(); return }
+    guard var job = jobs[requestId], !job.committed else { lock.unlock(); return }
     job.cancelled = true; jobs[requestId] = job
     let session = job.session; lock.unlock(); session?.cancelExport()
   }
@@ -754,6 +754,16 @@ final class StudioRecipeEngine {
     guard var job = jobs[id], !job.cancelled else { throw StudioRecipeError.cancelled }
     if let session { job.session = session; jobs[id] = job }
   }
+  private func commitOutput(_ id: String, staging: URL, destination: URL) throws {
+    lock.lock(); defer { lock.unlock() }
+    try Task.checkCancellation()
+    guard var job = jobs[id], !job.cancelled else { throw StudioRecipeError.cancelled }
+    // A same-directory move has no suspension point. Cancel and commit share
+    // this reservation: a cancel before it wins; after a successful move the
+    // file is durable and cancellation must not undo a completed export.
+    try FileManager.default.moveItem(at: staging, to: destination)
+    job.committed = true; jobs[id] = job
+  }
 
   func export(requestId: String, recipeJSON: String, outputUri: String,
               progress: @escaping (Double) -> Void) async throws -> [String: Any] {
@@ -766,8 +776,12 @@ final class StudioRecipeEngine {
       throw StudioRecipeError.invalid("A edição não pode substituir um original.")
     }
     try FileManager.default.createDirectory(at: output.deletingLastPathComponent(), withIntermediateDirectories: true)
-    var complete = false
-    defer { if !complete { try? FileManager.default.removeItem(at: output) } }
+    // Only this request owns the temporary path. Another writer may create
+    // the requested destination while encoding; neither cleanup nor success
+    // may remove/overwrite that file. Publish once through a non-replacing move.
+    let staging = output.deletingLastPathComponent().appendingPathComponent(
+      ".classfy-export-\(UUID().uuidString).\(recipe.mediaType == "audio" ? "m4a" : "mp4")")
+    defer { try? FileManager.default.removeItem(at: staging) }
     let prepared = try await prepare(recipe: recipe, check: { try self.checkJob(requestId) })
     let audioOnly = recipe.mediaType == "audio"
     guard let session = AVAssetExportSession(asset: prepared.composition,
@@ -776,13 +790,19 @@ final class StudioRecipeEngine {
     }
     let fileType: AVFileType = audioOnly ? .m4a : .mp4
     guard session.supportedFileTypes.contains(fileType) else { throw StudioRecipeError.invalid("Este aparelho não suporta o formato de exportação.") }
-    session.outputURL = output; session.outputFileType = fileType; session.shouldOptimizeForNetworkUse = true
+    session.outputURL = staging; session.outputFileType = fileType; session.shouldOptimizeForNetworkUse = true
     session.videoComposition = prepared.videoComposition; session.audioMix = prepared.audioMix
     session.timeRange = CMTimeRange(start: .zero, duration: recipe.time(recipe.durationTicks))
     try checkJob(requestId, session: session)
-    let timer = DispatchSource.makeTimerSource(queue: DispatchQueue.global(qos: .utility))
+    let progressQueue = DispatchQueue(label: "Classfy.StudioExportProgress.\(UUID().uuidString)", qos: .utility)
+    let timer = DispatchSource.makeTimerSource(queue: progressQueue)
     timer.schedule(deadline: .now(), repeating: .milliseconds(200))
-    timer.setEventHandler { progress(Double(session.progress)) }; timer.resume()
+    timer.setEventHandler {
+      let value = Double(session.progress)
+      // AVFoundation reaching 1 still precedes profile validation and commit.
+      // Report completion only once the destination is a confirmed file.
+      if value >= 0 && value < 1 { progress(value) }
+    }; timer.resume()
     defer { timer.cancel() }
     await withTaskCancellationHandler(operation: {
       await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
@@ -794,7 +814,7 @@ final class StudioRecipeEngine {
       if session.status == .cancelled { throw StudioRecipeError.cancelled }
       throw StudioRecipeError.invalid(session.error?.localizedDescription ?? "Não foi possível preparar esta composição.")
     }
-    let asset = AVURLAsset(url: output)
+    let asset = AVURLAsset(url: staging)
     let duration = try await asset.load(.duration).seconds
     let video = try await asset.loadTracks(withMediaType: .video).first
     let audio = try await asset.loadTracks(withMediaType: .audio).first
@@ -808,8 +828,10 @@ final class StudioRecipeEngine {
       throw StudioRecipeError.invalid("A exportação não preservou o perfil da edição. Os originais foram mantidos.")
     }
     try checkJob(requestId)
-    let attributes = try FileManager.default.attributesOfItem(atPath: output.path)
-    complete = true; progress(1)
+    let attributes = try FileManager.default.attributesOfItem(atPath: staging.path)
+    try commitOutput(requestId, staging: staging, destination: output)
+    timer.cancel()
+    progressQueue.sync { progress(1) }
     return ["uri": output.absoluteString, "mimeType": audioOnly ? "audio/mp4" : "video/mp4", "duration": duration,
             "width": width, "height": height, "frameRate": rate, "hasVideo": video != nil, "hasAudio": audio != nil,
             "fileSize": (attributes[.size] as? NSNumber)?.doubleValue ?? 0, "profile": "standard", "colorSpace": "rec709"]

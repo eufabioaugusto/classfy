@@ -65,6 +65,84 @@ struct StudioVisualUpdateTests {
   static func raster(_ prepared: StudioPreparedRecipe, id: String) -> CIImage? {
     prepared.layers.first { $0.clip.id == id }?.raster
   }
+  static func mixedRMS(_ item: AVPlayerItem) throws -> Double {
+    let tracks = item.asset.tracks(withMediaType: .audio)
+    try require(!tracks.isEmpty, "fixture de volume contém pista de áudio real")
+    let reader = try AVAssetReader(asset: item.asset)
+    let output = AVAssetReaderAudioMixOutput(audioTracks: tracks, audioSettings: [
+      AVFormatIDKey: kAudioFormatLinearPCM, AVLinearPCMIsFloatKey: true,
+      AVLinearPCMBitDepthKey: 32, AVLinearPCMIsNonInterleaved: false
+    ])
+    output.audioMix = item.audioMix
+    reader.add(output)
+    try require(reader.startReading(), "mix do próprio item inicia decodificação PCM")
+    var square = 0.0, count = 0
+    while let sample = output.copyNextSampleBuffer(), let block = CMSampleBufferGetDataBuffer(sample) {
+      let byteCount = CMBlockBufferGetDataLength(block)
+      var bytes = Data(count: byteCount)
+      let status = bytes.withUnsafeMutableBytes {
+        CMBlockBufferCopyDataBytes(block, atOffset: 0, dataLength: byteCount, destination: $0.baseAddress!)
+      }
+      try require(status == noErr, "amostras do mix podem ser lidas")
+      bytes.withUnsafeBytes {
+        for value in $0.bindMemory(to: Float.self) {
+          square += Double(value) * Double(value); count += 1
+        }
+      }
+    }
+    try require(count > 0 && reader.status == .completed, "mix contém PCM completo, inclusive em silêncio")
+    return sqrt(square / Double(count))
+  }
+  static func audioFastPath(engine: StudioRecipeEngine) async throws {
+    let source = URL(fileURLWithPath: CommandLine.arguments[6])
+    let originalBytes = try Data(contentsOf: source)
+    var value = recipe()
+    var assets = value["assets"] as! [[String: Any]]
+    assets[0]["uri"] = source.absoluteString; value["assets"] = assets
+    value = change(value, id: "main") { clip in var next = clip; next["gain"] = 1; return next }
+    let original = try await engine.prepare(recipeJSON: json(value))
+    try require(original.audioTrackIDs["main"] != nil, "gain usa pista real do vídeo principal")
+    var prepared = original
+    let item = original.playerItem(), player = AVPlayer()
+    player.isMuted = true; player.replaceCurrentItem(with: item)
+    defer { player.pause(); player.replaceCurrentItem(with: nil) }
+    for _ in 0..<100 {
+      if item.status != .unknown { break }
+      try await Task.sleep(nanoseconds: 50_000_000)
+    }
+    try require(item.status == .readyToPlay, "item com áudio está pronto")
+    let anchor = CMTime(seconds: 0.5, preferredTimescale: 120_000)
+    let sought = await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
+      player.seek(to: anchor, toleranceBefore: .zero, toleranceAfter: .zero) {
+        continuation.resume(returning: $0)
+      }
+    }
+    try require(sought, "cursor inicial do item com áudio confirmado")
+    let picture = item.videoComposition, cursor = player.currentTime(), audible = try mixedRMS(item)
+    try require(audible > 0.03, "origem tem áudio audível mensurável \(audible)")
+    var levels: [Double] = []
+    for gain in [0.5, 0.0, 1.0] {
+      let changed = change(value, id: "main") { clip in var next = clip; next["gain"] = gain; return next }
+      guard let updated = try engine.updateVisuals(prepared, recipeJSON: json(changed)) else {
+        throw StudioRecipeError.invalid("Teste de gesto: gain \(gain) deixou o fast path")
+      }
+      try require(updated.composition === original.composition && updated.videoComposition === original.videoComposition
+        && updated.audioTrackIDs == original.audioTrackIDs, "gain mantém decoder, composição visual e pistas")
+      try require(updated.audioMix !== prepared.audioMix, "gain altera somente o mix das pistas existentes")
+      item.audioMix = updated.audioMix
+      let measured = try mixedRMS(item)
+      try require(abs(measured - audible * gain) < 0.00001,
+        "PCM do item respeita gain \(gain): \(measured), origem \(audible)")
+      try require(player.currentItem === item && item.videoComposition === picture
+        && player.currentTime() == cursor && player.rate == 0,
+        "volume/mute/unmute preservam item, quadro, cursor e pausa")
+      levels.append(measured); prepared = updated
+    }
+    try require(original.recipe.clips.first { $0.id == "main" }?.gain == 1,
+      "snapshot anterior de áudio permanece intacto")
+    try require(try Data(contentsOf: source) == originalBytes, "original com áudio permanece intacto")
+    print("Áudio fast path real: PCM origem \(audible), gain0.5/mute/unmute \(levels); mesmo AVPlayerItem, pistas, quadro e cursor.")
+  }
   static func blueBounds(_ buffer: CVPixelBuffer) throws -> (Double, Double) {
     try require(CVPixelBufferGetPixelFormatType(buffer) == kCVPixelFormatType_32BGRA, "frame BGRA")
     CVPixelBufferLockBaseAddress(buffer, .readOnly)
@@ -376,7 +454,7 @@ struct StudioVisualUpdateTests {
     print("Main transform: exportações 1080p30 ampliada/reduzida preservam a mesma posição do marcador e margens da prévia.")
   }
   static func main() async throws {
-    try require(CommandLine.arguments.count == 6, "informe red, blue, image, main-marker e saída")
+    try require(CommandLine.arguments.count == 7, "informe red, blue, image, main-marker, saída e vídeo com áudio")
     let engine = StudioRecipeEngine(), value = recipe(captions: 100)
     let original = try await engine.prepare(recipeJSON: json(value))
     original.videoComposition!.renderScale = 0.8
@@ -412,7 +490,16 @@ struct StudioVisualUpdateTests {
     let reordered = try engine.updateVisuals(original, recipeJSON: json(reorderedValue))!
     try require((reordered.videoComposition!.instructions as! [StudioRecipeInstruction]).allSatisfy { $0.layers.last?.clip.id == "pip" }, "ordem visual nova aplicada aos intervalos cacheados")
     let gainValue = change(value, id: "main") { clip in var copy = clip; copy["gain"] = 0.5; return copy }
-    try require(try engine.updateVisuals(original, recipeJSON: json(gainValue)) == nil, "mudança de áudio continua exigindo reconstrução")
+    guard let gainUpdated = try engine.updateVisuals(original, recipeJSON: json(gainValue)) else {
+      throw StudioRecipeError.invalid("Teste de gesto: gain deixou fast path")
+    }
+    try require(gainUpdated.composition === original.composition && gainUpdated.videoComposition === original.videoComposition
+      && gainUpdated.audioMix !== original.audioMix, "gain conserva imagem/decoder e atualiza somente mix")
+    let timingValue = change(value, id: "main") { clip in
+      var copy = clip; copy["durationTicks"] = 120_000; copy["sourceEndTicks"] = 120_000; return copy
+    }
+    try require(try engine.updateVisuals(original, recipeJSON: json(timingValue)) == nil,
+      "mudança de intervalo continua exigindo reconstrução das pistas")
     // Rendering a previous snapshot concurrently cannot observe the new pose.
     let concurrentJSON = try json(moved(value, x: 0.1))
     let render = Task.detached { try await engine.frame(original, at: 0.5) }
@@ -425,6 +512,7 @@ struct StudioVisualUpdateTests {
     do { _ = try await cancelled.value; throw StudioRecipeError.invalid("Cancelamento do frame ignorado") }
     catch is CancellationError {}
     print("Cache: 101 rasters intactos reutilizados; conteúdo/dimensões invalidam só item alterado; \(newIntervals.count) intervalos preservados, ordem/áudio/cancelamento corretos; update local \(elapsed) ms.")
+    try await audioFastPath(engine: engine)
     try await firstPausedFrame(engine: engine)
     try await pausedPlayer(engine: engine)
     try await playingPlayer(engine: engine)

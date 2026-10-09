@@ -293,6 +293,211 @@ import Foundation
       print("AVPlayer reprepare \(stage): frame0 real não preto, cursor0 e pausa preservados.")
     }
   }
+  @MainActor static func itemObserverChecks() async throws {
+    func wait(_ message: String, _ condition: @MainActor () -> Bool) async throws {
+      let deadline = Date().addingTimeInterval(8)
+      while !condition() {
+        try require(Date() < deadline, message)
+        try await Task.sleep(nanoseconds: 10_000_000)
+      }
+    }
+    func seek(_ player: AVPlayer, _ seconds: Double) async throws {
+      let finished = await withCheckedContinuation { (c: CheckedContinuation<Bool, Never>) in
+        player.seek(to: CMTime(seconds: seconds, preferredTimescale: 120_000), toleranceBefore: .zero, toleranceAfter: .zero) { c.resume(returning: $0) }
+      }
+      try require(finished, "seek da fixture de observers conclui")
+    }
+    let engine = StudioRecipeEngine(), originalJSON = recipe()
+    var prepared = try await engine.prepare(recipeJSON: json(originalJSON))
+    let player = AVPlayer(), item = prepared.playerItem(), observers = StudioCompositionItemObservers()
+    player.isMuted = true
+    defer { observers.invalidate(); player.pause(); player.replaceCurrentItem(with: nil) }
+    var ready = 0, failures = 0, ends = 0, replayPending = false
+    observers.observe(item: item, player: player, onStatus: { observed in
+      if observed.status == .readyToPlay { ready += 1 }
+      if observed.status == .failed { failures += 1; player.pause() }
+    }, onEnd: { _ in
+      if StudioCompositionItemObservers.isAtEnd(seconds: player.currentTime().seconds,
+        duration: prepared.recipe.durationSeconds, replayPending: replayPending) {
+        ends += 1; player.pause()
+      }
+    })
+    player.replaceCurrentItem(with: item)
+    try await wait("KVO ready real chega ao item observado") { ready > 0 }
+    for (stage, expectedEnds) in [("mute", 1), ("hide", 2), ("resize", 3)] {
+      var value = originalJSON, clips = value["clips"] as! [[String: Any]]
+      if stage == "mute" { clips[0]["gain"] = 0 }
+      if stage == "hide" { clips[2]["opacity"] = 0 }
+      if stage == "resize" { clips[0]["rect"] = ["x": 0.1, "y": 0.1, "width": 0.8, "height": 0.8] }
+      value["clips"] = clips
+      guard let updated = try engine.updateVisuals(prepared, recipeJSON: json(value)) else {
+        throw StudioRecipeError.invalid("Teste: \(stage) abandonou fast path")
+      }
+      item.videoComposition = updated.videoComposition; item.audioMix = updated.audioMix; prepared = updated
+      try require(player.currentItem === item, "\(stage) reutiliza item/registro dos observers")
+      try await seek(player, 0.8)
+      player.play()
+      try await wait("EOF real após \(stage) continua aceito pelo registro original") { ends == expectedEnds }
+    }
+    // The notification was already enqueued, but a replay intent wins before
+    // delivery. A stale EOF at the new non-EOF position must also be ignored.
+    NotificationCenter.default.post(name: .AVPlayerItemDidPlayToEndTime, object: item)
+    replayPending = true
+    try await Task.sleep(nanoseconds: 20_000_000)
+    try require(ends == 3, "EOF enfileirado não cancela replay pendente")
+    try await seek(player, 0.2); replayPending = false
+    NotificationCenter.default.post(name: .AVPlayerItemDidPlayToEndTime, object: item)
+    try await Task.sleep(nanoseconds: 20_000_000)
+    try require(ends == 3, "EOF antigo após replay não pausa posição fora do fim")
+
+    var priorStatuses = 0, priorEnds = 0, reboundStatuses = 0, reboundEnds = 0
+    observers.observe(item: item, player: player, onStatus: { _ in priorStatuses += 1 }, onEnd: { _ in priorEnds += 1 })
+    NotificationCenter.default.post(name: .AVPlayerItemDidPlayToEndTime, object: item)
+    observers.observe(item: item, player: player, onStatus: { _ in reboundStatuses += 1 }, onEnd: { _ in reboundEnds += 1 })
+    try await wait("rebind do mesmo item recebe seu status próprio") { reboundStatuses > 0 }
+    try require(priorStatuses == 0 && priorEnds == 0 && reboundEnds == 0,
+      "lease do registro invalida callbacks antigos mesmo quando a identidade do item não mudou")
+    NotificationCenter.default.post(name: .AVPlayerItemDidPlayToEndTime, object: item)
+    try await wait("rebind continua aceitando eventos novos") { reboundEnds == 1 }
+
+    // A genuine load failure exercises the same observer implementation. This
+    // does not claim that macOS reproduced a decode failure after a ready item.
+    let missing = URL(fileURLWithPath: CommandLine.arguments[1]).deletingLastPathComponent()
+      .appendingPathComponent("missing-\(UUID().uuidString).mp4")
+    let failedItem = AVPlayerItem(url: missing)
+    observers.observe(item: failedItem, player: player, onStatus: { observed in
+      if observed.status == .failed { failures += 1 }
+    }, onEnd: { _ in })
+    player.replaceCurrentItem(with: failedItem)
+    try await wait("falha real de leitura chega pelo KVO atual") { failures > 0 }
+    try require(failedItem.status == .failed && failedItem.error != nil, "fixture tem erro real do AVPlayerItem")
+
+    let replacement = prepared.playerItem()
+    var oldStatuses = 0, oldEnds = 0, newReady = 0, newEnds = 0
+    observers.observe(item: failedItem, player: player, onStatus: { _ in oldStatuses += 1 }, onEnd: { _ in oldEnds += 1 })
+    NotificationCenter.default.post(name: .AVPlayerItemDidPlayToEndTime, object: failedItem)
+    // Invalidate callbacks before allowing the queued main-actor tasks to run.
+    observers.observe(item: replacement, player: player, onStatus: { value in
+      if value.status == .readyToPlay { newReady += 1 }
+    }, onEnd: { _ in newEnds += 1 })
+    player.replaceCurrentItem(with: replacement)
+    try await wait("novo item recebe seu KVO próprio") { newReady > 0 }
+    try require(oldStatuses == 0 && oldEnds == 0, "KVO/EOF enfileirados do item substituído não chegam")
+    NotificationCenter.default.post(name: .AVPlayerItemDidPlayToEndTime, object: failedItem)
+    NotificationCenter.default.post(name: .AVPlayerItemDidPlayToEndTime, object: replacement)
+    try await wait("novo registro recebe apenas seu EOF") { newEnds == 1 }
+    try require(oldEnds == 0, "notificação tardia do item anterior é rejeitada")
+    var disposedStatuses = 0, disposedEnds = 0
+    observers.observe(item: replacement, player: player, onStatus: { _ in disposedStatuses += 1 }, onEnd: { _ in disposedEnds += 1 })
+    NotificationCenter.default.post(name: .AVPlayerItemDidPlayToEndTime, object: replacement)
+    observers.invalidate()
+    try await Task.sleep(nanoseconds: 20_000_000)
+    try require(disposedStatuses == 0 && disposedEnds == 0, "dispose rejeita KVO/EOF já enfileirados mesmo com item ainda vivo")
+    print("Observers reais: EOF no mesmo item após mute/hide/resize; KVO failed de leitura real; replace/dispose/replay rejeitam entregas antigas.")
+  }
+  @MainActor static func pausePropChecks() async throws {
+    func wait(_ message: String, _ condition: @MainActor () -> Bool) async throws {
+      let deadline = Date().addingTimeInterval(8)
+      while !condition() {
+        try require(Date() < deadline, message)
+        try await Task.sleep(nanoseconds: 10_000_000)
+      }
+    }
+    let engine = StudioRecipeEngine(), original = recipe()
+    let prepared = try await engine.prepare(recipeJSON: json(original))
+    var mutedValue = original, clips = mutedValue["clips"] as! [[String: Any]]
+    clips[0]["gain"] = 0; mutedValue["clips"] = clips
+    guard let muted = try engine.updateVisuals(prepared, recipeJSON: json(mutedValue)) else {
+      throw StudioRecipeError.invalid("Teste: mute abandonou fast path antes do EOF")
+    }
+    let player = AVPlayer(), item = prepared.playerItem(), observers = StudioCompositionItemObservers()
+    item.audioMix = muted.audioMix
+    player.isMuted = true; player.actionAtItemEnd = .pause
+    var gate = StudioCompositionPausePropGate(), paused = true, replayPending = false
+    var replayTask: Task<Void, Never>?, replayGeneration = 0
+    var commands = 0, replays = 0, completedReplays = 0, ready = 0, ends = 0
+    // Exercise the production prop gate with a real AVPlayer/EOF/exact seek.
+    // This fixture does not instantiate Expo/UIKit or claim Fabric UI coverage.
+    func setPaused(_ value: Bool) {
+      commands += 1; replayGeneration += 1
+      replayTask?.cancel(); replayTask = nil; replayPending = false
+      paused = value
+      if value { player.pause(); return }
+      guard item.status == .readyToPlay else { return }
+      if StudioCompositionItemObservers.isAtEnd(seconds: player.currentTime().seconds,
+        duration: muted.recipe.durationSeconds, replayPending: false) {
+        replays += 1; replayPending = true
+        let generation = replayGeneration
+        replayTask = Task { @MainActor in
+          let finished = await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
+            player.seek(to: .zero, toleranceBefore: .zero, toleranceAfter: .zero) {
+              continuation.resume(returning: $0)
+            }
+          }
+          guard !Task.isCancelled, !paused, generation == replayGeneration, finished,
+            player.currentItem === item else { return }
+          completedReplays += 1; replayPending = false; replayTask = nil
+          player.play()
+        }
+      } else { player.play() }
+    }
+    func setPausedProp(_ value: Bool) {
+      guard gate.accept(value) else { return }
+      setPaused(value)
+    }
+    defer { replayTask?.cancel(); observers.invalidate(); player.pause(); player.replaceCurrentItem(with: nil) }
+    setPausedProp(true)
+    setPausedProp(true)
+    try require(commands == 1, "prop inicial true aceita uma vez")
+    // A Play received before readiness must remain the intent when KVO fires;
+    // no repeated false is necessary to activate the ready player.
+    setPausedProp(false)
+    try require(!paused && commands == 2, "prop inicial Play define intenção antes do status ready")
+    observers.observe(item: item, player: player, onStatus: { observed in
+      if observed.status == .readyToPlay {
+        ready += 1
+        if !paused && !replayPending { player.play() }
+      }
+    }, onEnd: { _ in
+      if StudioCompositionItemObservers.isAtEnd(seconds: player.currentTime().seconds,
+        duration: muted.recipe.durationSeconds, replayPending: replayPending) {
+        ends += 1; setPaused(true)
+      }
+    })
+    player.replaceCurrentItem(with: item)
+    try await wait("KVO ready inicia a intenção Play inicial") { ready > 0 && player.rate > 0 }
+    try await wait("EOF real após mute pausa nativamente") { ends == 1 && paused }
+    let eof = player.currentTime(), commandsAtEnd = commands
+    for _ in 0..<30 { setPausedProp(false) }
+    try await Task.sleep(nanoseconds: 40_000_000)
+    try require(commands == commandsAtEnd && replays == 0 && player.rate == 0 && player.currentTime() == eof,
+      "false reaplicado após EOF não reinicia nem desloca o mesmo item")
+    setPausedProp(true) // JS acknowledges the already stopped EOF.
+    setPausedProp(false) // An explicit new Play owns one replay.
+    try require(replays == 1 && replayPending, "transição true→false inicia um replay explícito")
+    let replayCommands = commands, replayEpoch = replayGeneration
+    for _ in 0..<30 { setPausedProp(false) }
+    try require(commands == replayCommands && replayGeneration == replayEpoch && replayPending,
+      "false repetido durante replay não cancela o exact seek pendente")
+    try await wait("replay explícito conclui uma vez e volta a reproduzir") {
+      completedReplays == 1 && player.rate > 0 && player.currentTime().seconds < 0.5
+    }
+    try require(player.currentItem === item && replays == 1, "replay conserva item e não duplica a operação")
+    setPaused(true) // Imperative/background pause does not rewrite prop history.
+    let stopped = player.currentTime(), afterCommand = commands
+    setPausedProp(false)
+    try require(commands == afterCommand && paused && player.rate == 0,
+      "false antigo não desfaz comando de pausa")
+    setPausedProp(true) // Normal JS state catches up to the imperative pause.
+    setPausedProp(true)
+    try require(commands == afterCommand + 1 && player.currentTime() == stopped,
+      "ACK JS normal de pausa não busca nem cria replay")
+    setPausedProp(false)
+    try await wait("novo Play após ACK de pausa retoma normalmente") { player.rate > 0 }
+    try require(replays == 1 && player.currentItem === item, "retomar fora do EOF não reinicia a montagem")
+    setPaused(true)
+    print("Props/EOF reais: mute no mesmo item; false reaplicado não reinicia o fim nem cancela replay; true→false confirma um replay; ready e pausa imperativa preservados.")
+  }
   static func main() async throws {
     try protocolChecks()
     try handoffChecks()
@@ -306,6 +511,8 @@ import Foundation
     try await frameCadenceChecks()
     try await delayedHoldChecks()
     try await replacementChecks()
+    try await itemObserverChecks()
+    try await pausePropChecks()
     print("Edição interativa aprovada sem UI, seek por movimento ou troca de receita por frame.")
   }
 }

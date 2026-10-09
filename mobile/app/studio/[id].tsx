@@ -46,22 +46,30 @@ export default function StudioProjectScreen() {
 
 type Panel = 'preparation' | 'recovery' | 'append' | 'media' | 'captions' | 'output' | null;
 type TrimRange = { takeId: string; start: number; end: number; previewSourceSeconds?: number };
+type EditorEntry = { ownerId: string; projectId: string; focusEpoch: number; identityEpoch: number; selectionEpoch: number; targetId?: string; anchor: StudioPlaybackAnchor | null; draft?: StudioEditing; allowLocked: boolean; errorReported?: boolean };
+class EditorEntryCancelled extends Error {}
 function ProjectEditor({ project, update }: { project: StudioProject; update: (id: string, patch: Partial<StudioProject>) => Promise<StudioProject> }) {
   const router = useRouter();
   const navigation = useNavigation();
   const focused = useIsFocused();
-  const focusRef = useRef(focused); focusRef.current = focused;
+  const focusRef = useRef(focused);
+  const focusEpoch = useRef(0);
+  if (focusRef.current !== focused) { focusEpoch.current += 1; focusRef.current = focused; }
   const insets = useSafeAreaInsets();
   const { height, width } = useWindowDimensions();
   const landscape = width > height;
   const [fullscreen, setFullscreen] = useState(false);
   const { orientationReady, orientationError } = useStudioOrientation(project.kind, true, fullscreen ? 'preview' : 'editor');
   const { user } = useAuth();
-  const current = useRef({ project, owner: user?.id }); current.current = { project, owner: user?.id };
+  const current = useRef({ project, owner: user?.id });
+  const identityEpoch = useRef(0);
+  if (current.current.owner !== user?.id || current.current.project.id !== project.id) identityEpoch.current += 1;
+  current.current = { project, owner: user?.id };
   const { fields, setField, flush, saving, saveError } = useStudioFields(project, update, { preventNavigation: false });
   const [panel, setPanel] = useState<Panel>(null);
   const [selectedTakeId, setSelectedTakeId] = useState<string>();
   const [selectedLayerId, setSelectedLayerId] = useState<string>();
+  const selectionEpoch = useRef(0);
   const [treating, setTreating] = useState(false);
   const [treatmentTab, setTreatmentTab] = useState<'filters' | 'adjust'>('filters');
   const [editingPreview, setEditingPreview] = useState<StudioEditing>();
@@ -106,6 +114,7 @@ function ProjectEditor({ project, update }: { project: StudioProject; update: (i
   const [activeTakeId, setActiveTakeId] = useState(project.takes[0]?.id);
   const [busy, setBusy] = useState(false);
   const working = useRef(false);
+  const editorEntry = useRef<EditorEntry | null>(null);
   const allowRemoval = useRef(false);
   const leaving = useRef(false);
   const mounted = useRef(true);
@@ -146,25 +155,20 @@ function ProjectEditor({ project, update }: { project: StudioProject; update: (i
     const owner = current.current.owner || '';
     setHistoryState(history.sync(owner === project.ownerId ? getStudioProject(owner, project.id) || null : null, owner));
   }, [history, project, user?.id]);
-  useEffect(() => { if (focused) allowRemoval.current = false; else setEditTextRequest(undefined); }, [focused]);
+  useEffect(() => {
+    if (focused) allowRemoval.current = false;
+    else {
+      setEditTextRequest(undefined);
+      if (captionRequest.current) { captionRequest.current.cancelled = true; void cancelStudioTranscriptionAsync(captionRequest.current.id); }
+    }
+  }, [focused]);
   useEffect(() => { navigation.setOptions({ gestureEnabled: !busy && !trimDraft && !saving && !editingPreview && !canvasInteracting && !layerInteracting }); }, [navigation, busy, trimDraft, saving, editingPreview, canvasInteracting, layerInteracting]);
   usePreventRemove(busy || !!trimDraft || saving || !!saveError || !!editingPreview || canvasInteracting || layerInteracting, ({ data }) => {
     if (allowRemoval.current) { navigation.dispatch(data.action); return; }
     // A take write must settle before leaving; an unfinished drag is discarded.
     if (working.current || leaving.current || canvasDraft.current || canvasGesture.current || layerTrimDraft.current || layerGesture.current) return;
     if (trimDraft) { cancelTrim(); return; }
-    leaving.current = true;
-    void (async () => {
-      if (!await applyVisibleEditing() || !startWork()) return;
-      await flush();
-      assertOwner();
-      if (!mounted.current) return;
-      await discardTransientStudioProject(project.ownerId, project.id);
-      // Discarding an empty session can unmount this editor by design.
-      allowRemoval.current = true; navigation.dispatch(data.action);
-    })().catch(() => {
-      // Metadata retains its pending patch and exposes the existing retry.
-    }).finally(() => { leaving.current = false; finishWork(); });
+    void navigate('back', data.action);
   });
   useEffect(() => {
     const pending = pendingRestore.current;
@@ -187,6 +191,29 @@ function ProjectEditor({ project, update }: { project: StudioProject; update: (i
     working.current = true; setBusy(true); preview.current?.pause(); return true;
   };
   const finishWork = () => { working.current = false; if (mounted.current) setBusy(false); };
+  const entryCurrent = (entry: EditorEntry, requireMounted = true) => editorEntry.current === entry && working.current
+    && (!requireMounted || mounted.current) && focusRef.current && focusEpoch.current === entry.focusEpoch
+    && identityEpoch.current === entry.identityEpoch
+    && selectionEpoch.current === entry.selectionEpoch
+    && current.current.owner === entry.ownerId && current.current.project.id === entry.projectId;
+  const entryProject = (entry: EditorEntry) => getStudioProject(entry.ownerId, entry.projectId) || current.current.project;
+  const assertEntry = (entry: EditorEntry) => {
+    if (!entryCurrent(entry)) throw new EditorEntryCancelled();
+    const latest = entryProject(entry);
+    if (!entry.allowLocked && ['preparing', 'uploading', 'processing', 'submitted'].includes(latest.state)) throw new EditorEntryCancelled();
+    const value = studioEditing(latest);
+    if (entry.targetId && !value.main.some(item => item.id === entry.targetId) && !value.layers.some(layer => layer.items.some(item => item.id === entry.targetId))) throw new EditorEntryCancelled();
+    return latest;
+  };
+  const reserveEntry = (targetId?: string, allowLocked = false) => {
+    if (!mounted.current || !focusRef.current || current.current.owner !== project.ownerId || working.current || leaving.current || trimDraft || canvasDraft.current || canvasGesture.current || layerTrimDraft.current || layerGesture.current || (!allowLocked && locked)) return null;
+    const entry: EditorEntry = { ownerId: project.ownerId, projectId: project.id, focusEpoch: focusEpoch.current, identityEpoch: identityEpoch.current, selectionEpoch: selectionEpoch.current, targetId,
+      anchor: captureStudioPlaybackAnchor(current.current.project.takes, playbackRef.current), draft: editingPreviewRef.current, allowLocked };
+    if (!startWork()) return null;
+    editorEntry.current = entry;
+    return entry;
+  };
+  const releaseEntry = (entry: EditorEntry) => { if (editorEntry.current === entry) { editorEntry.current = null; finishWork(); } };
   const editTakes = async (change: ((takes: readonly StudioTake[]) => StudioTake[]) | 'undo' | 'redo') => {
     if (locked || canvasDraft.current || canvasGesture.current || layerTrimDraft.current || layerGesture.current || !startWork()) return;
     const anchor = trimAnchor.current || captureStudioPlaybackAnchor(current.current.project.takes, playbackRef.current);
@@ -211,15 +238,17 @@ function ProjectEditor({ project, update }: { project: StudioProject; update: (i
       Alert.alert('Editar montagem', error instanceof Error ? error.message : 'Não foi possível salvar. Tente novamente.');
     } finally { finishWork(); }
   };
-  const editEditing = async (change: (editing: StudioEditing) => StudioEditing, { restoreCursor = true } = {}) => {
-    if (locked || !startWork()) return;
+  const editEditing = async (change: (editing: StudioEditing) => StudioEditing, { restoreCursor = true, entry }: { restoreCursor?: boolean; entry?: EditorEntry } = {}) => {
+    if (locked || (entry ? !entryCurrent(entry) : !startWork())) return;
     const laneIntent = pendingLayerMove.current;
     const anchor = captureStudioPlaybackAnchor(current.current.project.takes, playbackRef.current);
     let operation: ReturnType<typeof history.beginEditing> = null;
     try {
       await flush(); assertOwner();
+      if (entry) assertEntry(entry);
       const saved = await mutateStudioProject(project.ownerId, project.id, latest => {
         assertOwner();
+        if (entry) assertEntry(entry);
         let next = change(studioEditing(latest));
         // A failed vertical move stays recoverable when the next action is
         // Confirm, trim or a canvas transform. Merge only its lane intent.
@@ -236,25 +265,29 @@ function ProjectEditor({ project, update }: { project: StudioProject; update: (i
         // Visibility and mute keep every interval/source in place. The native
         // preview already holds this cursor; seeking it again invalidates the
         // newly prepared frame. Structural edits still restore their anchor.
-        if (restoreCursor) { pendingRestore.current = { anchor, revision: saved.revision }; setRestoreSequence(value => value + 1); }
+        if (restoreCursor && (!entry || entryCurrent(entry))) { pendingRestore.current = { anchor, revision: saved.revision }; setRestoreSequence(value => value + 1); }
       }
       return saved;
     } catch (error) {
       if (operation) history.abort(operation);
-      Alert.alert('Editar camada', error instanceof Error ? error.message : 'Não foi possível salvar esta edição.');
+      if (!(error instanceof EditorEntryCancelled) && (!entry || entryCurrent(entry))) {
+        Alert.alert('Editar camada', error instanceof Error ? error.message : 'Não foi possível salvar esta edição.');
+        if (entry) entry.errorReported = true;
+      }
       throw error;
-    } finally { finishWork(); }
+    } finally { if (!entry) finishWork(); }
   };
-  const standardProfile = async () => {
-    if (editing.output.profile === 'standard') return true;
+  const standardProfile = async (entry?: EditorEntry) => {
+    if (studioEditing(entry ? assertEntry(entry) : current.current.project).output.profile === 'standard') return true;
     const chosen = await new Promise<boolean>(resolve => Alert.alert('Perfil da edição', 'Camadas e tratamentos usam 1080p, 30 FPS e SDR nesta versão. Seus originais continuam na qualidade da captura.', [{ text: 'Manter perfil original', style: 'cancel', onPress: () => resolve(false) }, { text: 'Usar 1080p · 30 FPS', onPress: () => resolve(true) }], { cancelable: false }));
+    if (entry) assertEntry(entry);
     if (chosen) {
-      try { return (await editEditing(withStudioStandardOutput))?.editing?.output.profile === 'standard'; }
+      try { return (await editEditing(withStudioStandardOutput, { entry, restoreCursor: !entry }))?.editing?.output.profile === 'standard'; }
       catch { return false; }
     }
     return chosen;
   };
-  const closeLayer = () => { setLayerPanelExpanded(false); pendingLayerMove.current = undefined; setEditTextRequest(undefined); setSelectedLayerId(undefined); setEditingPreview(undefined); editingPreviewRef.current = undefined; setBefore(false); setTreating(false); };
+  const closeLayer = () => { selectionEpoch.current += 1; setLayerPanelExpanded(false); pendingLayerMove.current = undefined; setEditTextRequest(undefined); setSelectedLayerId(undefined); setEditingPreview(undefined); editingPreviewRef.current = undefined; setBefore(false); setTreating(false); };
   const previewEditing = (value?: StudioEditing) => { editingPreviewRef.current = value; setEditingPreview(value); };
   const previewCanvas = (id: string, transform?: StudioCanvasTransform) => {
     if (working.current || locked) return;
@@ -300,19 +333,24 @@ function ProjectEditor({ project, update }: { project: StudioProject; update: (i
     const lane = action === 'main' ? undefined : visible.layers[zIndex - 1];
     if (action !== 'main' && !lane) return;
     const enabled = action === 'main' ? !visible.mainMuted : action === 'visibility' ? !lane!.hidden : !lane!.muted;
-    if (!await standardProfile()) return;
-    if (!mounted.current || !focusRef.current || working.current || canvasGesture.current || layerGesture.current || layerTrimDraft.current) return;
-    const draft = editingPreviewRef.current;
-    await editEditing(latest => {
-      const merged = draft ? mergeInlineDraft(latest, draft) : latest;
-      if (action === 'main') return setStudioMainMuted(merged, enabled);
-      return action === 'visibility' ? setStudioLayerHidden(merged, lane!.id, enabled) : setStudioLayerMuted(merged, lane!.id, enabled);
-    }, { restoreCursor: false });
+    const entry = reserveEntry(selectedLayerId || selectedTakeId);
+    if (!entry) return;
+    try {
+      if (!await standardProfile(entry)) return;
+      assertEntry(entry);
+      await editEditing(latest => {
+        const merged = entry.draft ? mergeInlineDraft(latest, entry.draft) : latest;
+        if (action === 'main') return setStudioMainMuted(merged, enabled);
+        return action === 'visibility' ? setStudioLayerHidden(merged, lane!.id, enabled) : setStudioLayerMuted(merged, lane!.id, enabled);
+      }, { entry, restoreCursor: false });
+    } catch (error) { if (!(error instanceof EditorEntryCancelled)) throw error; }
+    finally { releaseEntry(entry); }
   };
   const applyInlineDraft = async (draft: StudioEditing) => {
+    const focusAtStart = focusEpoch.current, identityAtStart = identityEpoch.current;
     const saved = await editEditing(latest => mergeInlineDraft(latest, draft));
     if (!saved) throw new Error('Aguarde a edição atual terminar.');
-    if (mounted.current) closeLayer();
+    if (mounted.current && focusRef.current && focusAtStart === focusEpoch.current && identityAtStart === identityEpoch.current) closeLayer();
   };
   const applyVisibleEditing = async () => {
     const draft = editingPreviewRef.current;
@@ -322,8 +360,32 @@ function ProjectEditor({ project, update }: { project: StudioProject; update: (i
       return true;
     } catch { return false; }
   };
+  const prepareEntry = async (entry: EditorEntry, needsStandard = false) => {
+    assertEntry(entry);
+    if (entry.draft) {
+      // A cancelled picker keeps the same selection. Only the accepted draft
+      // is saved; a later target/focus cannot inherit this operation.
+      const saved = await editEditing(latest => mergeInlineDraft(latest, entry.draft!), { entry, restoreCursor: false });
+      if (!saved) throw new EditorEntryCancelled();
+      assertEntry(entry);
+    }
+    if (needsStandard && !await standardProfile(entry)) return null;
+    assertEntry(entry);
+    await flush();
+    return assertEntry(entry);
+  };
+  const pressEmptyCanvas = () => {
+    if (!focusRef.current || working.current || trimDraft || canvasGesture.current || layerGesture.current || layerTrimDraft.current || panel) return;
+    if (fullscreen || (!selectedLayerId && !selectedTakeId)) { preview.current?.togglePlayback(); return; }
+    if (!editingPreviewRef.current) { Keyboard.dismiss(); closeLayer(); setSelectedTakeId(undefined); setOrganizing(false); return; }
+    const entry = reserveEntry(selectedLayerId || selectedTakeId);
+    if (!entry) return;
+    void prepareEntry(entry).then(saved => {
+      if (saved && entryCurrent(entry)) { Keyboard.dismiss(); closeLayer(); setSelectedTakeId(undefined); setOrganizing(false); }
+    }).catch(() => { /* Keep the draft/selection on a failed save or cancelled entry. */ }).finally(() => releaseEntry(entry));
+  };
   const selectLayer = (id: string, editText = false) => {
-    if (working.current || trimDraft || canvasInteracting || layerGesture.current) return;
+    if (!focusRef.current || current.current.owner !== project.ownerId || working.current || trimDraft || canvasInteracting || layerGesture.current) return;
     preview.current?.pause();
     // The single/double tap recognizers may deliver callbacks in either order.
     // A same-target selection cannot erase the explicit request before focus.
@@ -332,8 +394,12 @@ function ProjectEditor({ project, update }: { project: StudioProject; update: (i
       else setEditTextRequest(pending => pending?.id === id ? pending : undefined);
     };
     if (selectedLayerId === id && !treating) { requestTextEdit(); return; }
-    const select = () => { setSelectedTakeId(undefined); setTreating(false); previewEditing(undefined); setSelectedLayerId(id); requestTextEdit(); };
-    if (editingPreviewRef.current) { void applyVisibleEditing().then(saved => { if (saved && mounted.current) select(); }); }
+    const focusAtStart = focusEpoch.current, identityAtStart = identityEpoch.current;
+    const select = () => { selectionEpoch.current += 1; setSelectedTakeId(undefined); setTreating(false); previewEditing(undefined); setSelectedLayerId(id); requestTextEdit(); };
+    if (editingPreviewRef.current) { void applyVisibleEditing().then(saved => {
+      const latest = getStudioProject(project.ownerId, project.id) || current.current.project;
+      if (saved && mounted.current && focusRef.current && focusAtStart === focusEpoch.current && identityAtStart === identityEpoch.current && studioEditing(latest).layers.some(layer => layer.items.some(item => item.id === id))) select();
+    }); }
     else select();
   };
   const previewLayerTrim = (id: string, range?: StudioLayerTimelineRange) => {
@@ -372,76 +438,112 @@ function ProjectEditor({ project, update }: { project: StudioProject; update: (i
     catch { previewEditing(draft); throw new Error('A posição na timeline ainda não foi salva. Tente novamente.'); }
   };
   const addLayer = async (kind: 'text' | 'caption' | 'image' | 'video' | 'audio') => {
-    if (!advanced || working.current || busy || locked || canvasGesture.current || layerGesture.current || !project.takes.length || !await applyVisibleEditing() || !await standardProfile()) return;
-    const latest = current.current.project;
-    const location = locateStudioTime(latest.takes, playbackRef.current.position);
-    if (!location) return;
-    const ticks = studioTicks(playbackRef.current.position);
-    const durationTicks = studioTicks(Math.max(0.1, Math.min(3, location.take.end - location.sourceSeconds)));
-    const id = Crypto.randomUUID();
-    let ownsWork = false;
+    if (!advanced) return;
+    const locationAtEntry = locateStudioTime(current.current.project.takes, playbackRef.current.position);
+    if (!locationAtEntry) return;
+    const entry = reserveEntry(locationAtEntry.takeId);
+    if (!entry) return;
     try {
+      const latest = await prepareEntry(entry, true);
+      if (!latest) return;
+      assertEntry(entry);
+      const restored = restoreStudioPlaybackAnchor(latest.takes, entry.anchor);
+      if (!restored) return;
+      const location = locateStudioTime(latest.takes, restored.position);
+      if (!location || location.takeId !== entry.targetId) return;
+      const ticks = studioTicks(restored.position);
+      const durationTicks = studioTicks(Math.max(0.1, Math.min(3, location.take.end - location.sourceSeconds)));
+      const id = Crypto.randomUUID();
       if (kind === 'text' || kind === 'caption') {
         const item = createStudioTextItem({ id, kind, content: kind === 'caption' ? 'Sua legenda' : 'Seu título', atTicks: ticks, durationTicks });
         if (kind === 'text') item.rect = { x: 0.2, y: 0.44, width: 0.6, height: 0.16 };
         item.anchor = { clipId: location.takeId, offsetTicks: studioTicks(location.sourceSeconds - location.take.start) };
-        await editEditing(value => addStudioLayerItem(value, item, `layer:item:${id}`)); selectLayer(id); return;
+        const saved = await editEditing(value => addStudioLayerItem(value, item, `layer:item:${id}`), { entry, restoreCursor: false });
+        if (saved && entryCurrent(entry)) { closeLayer(); setSelectedTakeId(undefined); setSelectedLayerId(id); }
+        return;
       }
-      if (!startWork()) return;
-      ownsWork = true;
-      await flush(); assertOwner();
-      const anchor = captureStudioPlaybackAnchor(latest.takes, playbackRef.current);
-      const item = { id, kind, atTicks: ticks, durationTicks: kind === 'audio' ? studioTicks(Math.max(0.1, duration - playbackRef.current.position)) : durationTicks,
+      const item = { id, kind, atTicks: ticks, durationTicks: kind === 'audio' ? studioTicks(Math.max(0.1, timelineDuration(latest.takes) - restored.position)) : durationTicks,
         ...(kind === 'audio' ? { gain: 0.25, fadeInTicks: Math.min(studioTicks(0.5), Math.floor(durationTicks / 2)), fadeOutTicks: Math.min(studioTicks(0.5), Math.floor(durationTicks / 2)) } : { rect: { x: 0.64, y: 0.06, width: 0.3, height: 0.3 }, anchor: { clipId: location.takeId, offsetTicks: studioTicks(location.sourceSeconds - location.take.start) } }) };
-      const saved = await importStudioLayer(getStudioProject(project.ownerId, project.id) || latest, kind, item);
-      if (saved && mounted.current) {
+      assertEntry(entry);
+      const saved = await importStudioLayer(latest, kind, item);
+      if (saved && entryCurrent(entry)) {
+        assertEntry(entry);
         setSelectedLayerId(id); setSelectedTakeId(undefined); setEditTextRequest(undefined); setTreating(false);
-        pendingRestore.current = { anchor, revision: saved.revision }; setRestoreSequence(value => value + 1);
+        pendingRestore.current = { anchor: entry.anchor, revision: saved.revision }; setRestoreSequence(value => value + 1);
       }
-    } catch (error) { Alert.alert('Adicionar camada', error instanceof Error ? error.message : 'Não foi possível importar.'); }
-    finally { if (ownsWork) finishWork(); }
+    } catch (error) { if (!(error instanceof EditorEntryCancelled) && !entry.errorReported && entryCurrent(entry)) Alert.alert('Adicionar camada', error instanceof Error ? error.message : 'Não foi possível importar.'); }
+    finally { releaseEntry(entry); }
   };
   const captionFile = async () => {
-    if (!advanced || busy || locked || !activeTake || !await standardProfile()) return;
+    if (!advanced || !activeTake) return;
+    const entry = reserveEntry(activeTake.id);
+    if (!entry) return;
     try {
-      const cues = await importStudioCaptionFile(current.current.project, activeTake.duration);
-      if (cues) await editEditing(value => addStudioCaptionCues(value, activeTake.id, cues, Crypto.randomUUID));
-    } catch (error) { Alert.alert('Importar legendas', error instanceof Error ? error.message : 'Não foi possível importar.'); }
+      const latest = await prepareEntry(entry, true);
+      if (!latest) return;
+      assertEntry(entry);
+      const take = latest.takes.find(item => item.id === entry.targetId);
+      if (!take) return;
+      const cues = await importStudioCaptionFile(latest, take.duration);
+      const currentProject = assertEntry(entry);
+      if (cues && currentProject.takes.find(item => item.id === take.id)?.uri === take.uri) {
+        await editEditing(value => addStudioCaptionCues(value, take.id, cues, Crypto.randomUUID), { entry, restoreCursor: false });
+      }
+    } catch (error) { if (!(error instanceof EditorEntryCancelled) && !entry.errorReported && entryCurrent(entry)) Alert.alert('Importar legendas', error instanceof Error ? error.message : 'Não foi possível importar.'); }
+    finally { releaseEntry(entry); }
   };
   const generateCaptions = async () => {
-    if (!advanced || !activeTake || busy || locked || !await standardProfile() || !startWork()) return;
-    const take = activeTake; const request = { id: Crypto.randomUUID(), cancelled: false }; captionRequest.current = request;
+    if (!advanced || !activeTake) return;
+    const entry = reserveEntry(activeTake.id);
+    if (!entry) return;
+    const request = { id: Crypto.randomUUID(), cancelled: false }; captionRequest.current = request;
     try {
-      await flush(); assertOwner();
+      const latest = await prepareEntry(entry, true);
+      if (!latest) return;
+      assertEntry(entry);
+      const take = latest.takes.find(item => item.id === entry.targetId);
+      if (!take) return;
       const capabilities = await getStudioTranscriptionCapabilitiesAsync();
+      assertEntry(entry);
       if (!capabilities.available) throw new Error(capabilities.reason || 'A transcrição local não está disponível neste aparelho.');
       setCaptionProgress(capabilities.requiresModelDownload ? 'Preparando o modelo de português…' : 'Gerando legendas neste aparelho…');
       const reportProgress = (stage: string, progress: number) => {
-        if (mounted.current && !request.cancelled && captionRequest.current === request) setCaptionProgress(`${stage === 'model' ? 'Baixando modelo de português' : 'Gerando legendas'} · ${Math.round(progress * 100)}%`);
+        if (entryCurrent(entry) && !request.cancelled && captionRequest.current === request) setCaptionProgress(`${stage === 'model' ? 'Baixando modelo de português' : 'Gerando legendas'} · ${Math.round(progress * 100)}%`);
       };
       if (capabilities.requiresModelDownload) await installStudioTranscriptionModelAsync(request.id, reportProgress);
-      assertOwner(); if (request.cancelled || !mounted.current || captionRequest.current !== request) return;
+      assertEntry(entry); if (request.cancelled || captionRequest.current !== request) return;
       const result = await transcribeStudioAsync(request.id, take.uri, reportProgress);
-      assertOwner(); if (request.cancelled || !mounted.current || captionRequest.current !== request) return;
+      const currentProject = assertEntry(entry);
+      if (request.cancelled || captionRequest.current !== request || currentProject.takes.find(item => item.id === take.id)?.uri !== take.uri) return;
       const cues = studioTranscriptCues(result.segments, take.duration);
       if (!cues.length) throw new Error('Não encontramos fala neste take. Você pode adicionar uma legenda manual.');
-      finishWork();
-      await editEditing(value => addStudioCaptionCues(value, take.id, cues, Crypto.randomUUID));
-      Alert.alert('Legendas prontas', 'Revise o texto e os tempos nas camadas de legenda.');
-    } catch (error) { if (!request.cancelled && mounted.current) Alert.alert('Gerar legendas', error instanceof Error ? error.message : 'Não foi possível transcrever este take.'); }
-    finally { if (captionRequest.current === request) { captionRequest.current = undefined; if (mounted.current) setCaptionProgress(undefined); if (working.current) finishWork(); } }
+      await editEditing(value => addStudioCaptionCues(value, take.id, cues, Crypto.randomUUID), { entry, restoreCursor: false });
+      if (entryCurrent(entry)) Alert.alert('Legendas prontas', 'Revise o texto e os tempos nas camadas de legenda.');
+    } catch (error) { if (!(error instanceof EditorEntryCancelled) && !entry.errorReported && !request.cancelled && entryCurrent(entry)) Alert.alert('Gerar legendas', error instanceof Error ? error.message : 'Não foi possível transcrever este take.'); }
+    finally { if (captionRequest.current === request) { captionRequest.current = undefined; if (mounted.current) setCaptionProgress(undefined); } releaseEntry(entry); }
   };
   const openTreatment = async (tab: 'filters' | 'adjust' = 'filters') => {
-    if (!activeTake || !advanced || busy || locked || canvasDraft.current || canvasGesture.current || layerTrimDraft.current || layerGesture.current || !await applyVisibleEditing() || !await standardProfile()) return;
-    preview.current?.pause(); setSelectedTakeId(activeTake.id); closeLayer(); setTreatmentTab(tab); setTreating(true);
+    if (!activeTake || !advanced) return;
+    const entry = reserveEntry(activeTake.id);
+    if (!entry) return;
+    try {
+      if (!await prepareEntry(entry, true)) return;
+      assertEntry(entry);
+      closeLayer(); setSelectedTakeId(entry.targetId); setTreatmentTab(tab); setTreating(true);
+    } catch { /* A failed save leaves the existing draft available. */ }
+    finally { releaseEntry(entry); }
   };
   const openLayerTreatment = async () => {
     const id = selectedLayerId;
-    if (!id || working.current || busy || locked || canvasGesture.current || layerGesture.current) return;
-    if (!await applyVisibleEditing()) return;
-    if (!mounted.current) return;
-    preview.current?.pause();
-    setSelectedLayerId(id); setTreatmentTab('adjust'); setTreating(true);
+    if (!id) return;
+    const entry = reserveEntry(id);
+    if (!entry) return;
+    try {
+      if (!await prepareEntry(entry, true)) return;
+      assertEntry(entry);
+      closeLayer(); setSelectedLayerId(id); setTreatmentTab('adjust'); setTreating(true);
+    } catch { /* A failed save leaves the existing draft available. */ }
+    finally { releaseEntry(entry); }
   };
   const duplicateLayer = async () => {
     const id = selectedLayerId;
@@ -462,15 +564,16 @@ function ProjectEditor({ project, update }: { project: StudioProject; update: (i
     } catch { /* The editor retains its draft and reports the failed save. */ }
   };
   const addMedia = async () => {
-    if (!focusRef.current || locked || working.current || trimDraft || canvasDraft.current || canvasGesture.current || layerTrimDraft.current || layerGesture.current) return;
-    if (!await applyVisibleEditing() || !mounted.current || !focusRef.current || !startWork()) return;
+    const entry = reserveEntry(selectedLayerId || selectedTakeId);
+    if (!entry) return;
     try {
-      const latest = await flush(); assertOwner();
-      if (!mounted.current || !focusRef.current) return;
-      const takes = await importStudioMedia(latest); assertOwner();
-      if (mounted.current && takes.length) { setActiveTakeId(takes[0].id); setSelectedTakeId(takes[0].id); }
-    } catch (error) { Alert.alert('Importar conteúdo', error instanceof Error ? error.message : 'Não foi possível importar. Tente novamente.'); }
-    finally { finishWork(); }
+      const latest = await prepareEntry(entry);
+      if (!latest) return;
+      assertEntry(entry);
+      const takes = await importStudioMedia(latest);
+      if (entryCurrent(entry) && takes.length) { assertEntry(entry); closeLayer(); setActiveTakeId(takes[0].id); setSelectedTakeId(takes[0].id); }
+    } catch (error) { if (!(error instanceof EditorEntryCancelled) && !entry.errorReported && entryCurrent(entry)) Alert.alert('Importar conteúdo', error instanceof Error ? error.message : 'Não foi possível importar. Tente novamente.'); }
+    finally { releaseEntry(entry); }
   };
   const recoverTakes = async () => {
     if (locked || !startWork()) return;
@@ -490,34 +593,49 @@ function ProjectEditor({ project, update }: { project: StudioProject; update: (i
         .then(() => { if (mounted.current) setPanel(null); }).catch(() => Alert.alert('Arquivos preservados', 'Não foi possível atualizar o projeto. Tente novamente.')).finally(finishWork);
     } },
   ]);
-  const navigate = async (destination: 'record' | 'review' | 'back') => {
-    if (!focusRef.current || working.current || leaving.current || trimDraft || canvasDraft.current || canvasGesture.current || layerTrimDraft.current || layerGesture.current || (destination === 'record' && locked)) return;
-    if (!await applyVisibleEditing() || !mounted.current || !focusRef.current) return;
-    if (!startWork()) return;
+  const navigate = async (destination: 'record' | 'review' | 'back', backAction?: Parameters<typeof navigation.dispatch>[0]) => {
+    const entry = reserveEntry(selectedLayerId || selectedTakeId, destination !== 'record');
+    if (!entry) return;
+    if (destination === 'back') leaving.current = true;
     try {
-      await flush(); assertOwner();
-      if (!mounted.current || !focusRef.current) return;
-      if (destination === 'back') { await discardTransientStudioProject(project.ownerId, project.id); allowRemoval.current = true; if (router.canGoBack()) router.back(); else router.replace('/studio'); }
-      else router.push({ pathname: destination === 'record' ? '/studio/capture' : '/studio/review', params: { id: project.id } });
-    } catch (error) { Alert.alert('Seu projeto está aqui', error instanceof Error ? error.message : 'Não foi possível salvar. Tente novamente.'); }
-    finally { finishWork(); }
+      if (!await prepareEntry(entry)) return;
+      assertEntry(entry);
+      if (destination === 'back') {
+        await discardTransientStudioProject(entry.ownerId, entry.projectId);
+        // Discarding an empty session may unmount this editor by design.
+        if (!entryCurrent(entry, false)) return;
+        if (entry.draft && mounted.current) closeLayer();
+        allowRemoval.current = true;
+        if (backAction) navigation.dispatch(backAction);
+        else if (router.canGoBack()) router.back(); else router.replace('/studio');
+      }
+      else { if (entry.draft) closeLayer(); router.push({ pathname: destination === 'record' ? '/studio/capture' : '/studio/review', params: { id: project.id } }); }
+    } catch (error) { if (!(error instanceof EditorEntryCancelled) && !entry.errorReported && entryCurrent(entry)) Alert.alert('Seu projeto está aqui', error instanceof Error ? error.message : 'Não foi possível salvar. Tente novamente.'); }
+    finally { if (destination === 'back') leaving.current = false; releaseEntry(entry); }
   };
   const selectTake = (take: StudioTake) => {
-    if (working.current || trimDraft || canvasInteracting || layerTrimDraft.current || layerGesture.current) return;
+    if (!focusRef.current || current.current.owner !== project.ownerId || working.current || trimDraft || canvasInteracting || layerTrimDraft.current || layerGesture.current) return;
     preview.current?.pause();
     const select = () => { closeLayer(); setSelectedTakeId(take.id); };
-    if (editingPreviewRef.current) void applyVisibleEditing().then(saved => { if (saved && mounted.current) select(); });
+    const focusAtStart = focusEpoch.current, identityAtStart = identityEpoch.current;
+    if (editingPreviewRef.current) void applyVisibleEditing().then(saved => {
+      const latest = getStudioProject(project.ownerId, project.id) || current.current.project;
+      if (saved && mounted.current && focusRef.current && focusAtStart === focusEpoch.current && identityAtStart === identityEpoch.current && latest.takes.some(item => item.id === take.id)) select();
+    });
     else select();
   };
   const selectMainCanvas = (id: string) => {
-    if (working.current || canvasDraft.current || canvasGesture.current || layerTrimDraft.current || layerGesture.current) return;
+    if (!focusRef.current || current.current.owner !== project.ownerId || working.current || canvasDraft.current || canvasGesture.current || layerTrimDraft.current || layerGesture.current) return;
     const take = current.current.project.takes.find(item => item.id === id);
     if (!take) return;
     if (studioEditing(current.current.project).output.profile === 'standard') { selectTake(take); return; }
-    void (async () => { if (await applyVisibleEditing() && await standardProfile() && mounted.current) selectTake(take); })();
+    const entry = reserveEntry(id);
+    if (!entry) return;
+    void prepareEntry(entry, true).then(saved => { if (saved && entryCurrent(entry)) { closeLayer(); setSelectedTakeId(id); } })
+      .catch(() => { /* Keep the current selection on cancellation or failed save. */ }).finally(() => releaseEntry(entry));
   };
   const editCanvasElement = (id: string) => {
-    if (working.current || canvasDraft.current || canvasGesture.current || layerTrimDraft.current || layerGesture.current) return;
+    if (!focusRef.current || current.current.owner !== project.ownerId || working.current || canvasDraft.current || canvasGesture.current || layerTrimDraft.current || layerGesture.current) return;
     const item = (editingPreviewRef.current || studioEditing(current.current.project)).layers.flatMap(layer => layer.items).find(item => item.id === id);
     if (!item) { selectMainCanvas(id); return; }
     selectLayer(id, !!item.text);
@@ -614,14 +732,10 @@ function ProjectEditor({ project, update }: { project: StudioProject; update: (i
     <View style={fullscreen ? StyleSheet.absoluteFillObject : styles.previewStage} onLayout={event => { setStageSize(event.nativeEvent.layout); }}>
       <View style={fullscreen ? StyleSheet.absoluteFillObject : [styles.previewFrame, { width: previewWidth, height: previewHeight }]}>
         <StudioCompositionPreview ref={preview} project={previewProject} recipe={recipe} playbackChannel={playbackChannel} canvasTransformChannel={canvasTransformChannel} before={before} activeTakeId={activeTakeId} onActiveTakeChange={setActiveTakeId} onPlaybackState={receivePlayback}
-          paused={!focused || !!pendingRestore.current || !!panel || busy || !!trimDraft || canvasInteracting || layerInteracting || treating || (!fullscreen && (layerPanelExpanded || keyboardVisible))} onCanvasPress={() => {
-            if (!fullscreen && (selectedLayerId || selectedTakeId)) {
-              void applyVisibleEditing().then(saved => { if (saved && mounted.current) { closeLayer(); setSelectedTakeId(undefined); } });
-            } else preview.current?.togglePlayback();
-          }} canvasLabel={playback.playing ? 'Pausar prévia' : 'Reproduzir prévia'} />
+          paused={!focused || !!pendingRestore.current || !!panel || busy || !!trimDraft || canvasInteracting || layerInteracting || treating || (!fullscreen && (layerPanelExpanded || keyboardVisible))} onCanvasPress={pressEmptyCanvas} canvasLabel={playback.playing ? 'Pausar prévia' : 'Reproduzir prévia'} />
         {!fullscreen && advanced && <StudioCanvasEditor editing={visibleEditing} recipe={recipe} canvasTransformChannel={canvasTransformChannel} positionSeconds={playback.position} selectedLayerId={selectedLayerId} selectedMainClipId={selectedTakeId}
           disabled={!focused || busy || locked || !!panel || !!trimDraft || layerInteracting || treating}
-          onSelectLayer={selectLayer} onSelectMainClip={selectMainCanvas} onCanvasPress={() => preview.current?.togglePlayback()} onPreviewRect={previewCanvas} onCommitRect={commitCanvas} onEditText={editCanvasElement}
+          onSelectLayer={selectLayer} onSelectMainClip={selectMainCanvas} onCanvasPress={pressEmptyCanvas} onPreviewRect={previewCanvas} onCommitRect={commitCanvas} onEditText={editCanvasElement}
           onInteractionStart={() => { canvasGesture.current = true; preview.current?.pause(); setCanvasInteracting(true); }} onInteractionEnd={() => { canvasGesture.current = false; setCanvasInteracting(false); }} />}
       </View>
       {!fullscreen && <Pressable accessibilityRole="button" accessibilityLabel="Prévia em tela inteira" disabled={busy || canvasInteracting || layerInteracting || !!trimDraft} onPress={() => { preview.current?.pause(); setFullscreen(true); }} style={[styles.expandPreview, { top: Math.max(0, (stageSize.height + previewHeight) / 2 - 44) }]}><ChevronDown size={20} color={colors.text} strokeWidth={2.5} /></Pressable>}

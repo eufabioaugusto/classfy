@@ -70,6 +70,7 @@
     "test:studio:headless": "node scripts/verify-studio-headless.mjs",
     "test:studio:media": "bash modules/classfy-studio-media/tests/verify-engine.sh",
     "test:studio:recipe": "bash modules/classfy-studio-media/tests/verify-recipe.sh",
+    "test:studio:export-recovery": "bash modules/classfy-studio-media/tests/verify-export-recovery.sh",
     "test:studio:capture": "bash modules/classfy-studio-media/tests/verify-capture.sh",
     "test:studio:transcription": "bash modules/classfy-studio-media/tests/verify-transcription.sh",
     "test:studio:compositor": "bash modules/classfy-studio-media/tests/verify-compositor.sh",

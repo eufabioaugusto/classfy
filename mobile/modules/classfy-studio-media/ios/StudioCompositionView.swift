@@ -10,6 +10,67 @@ struct StudioCompositionReplacementGate {
   func owns(_ lease: Lease, generation: Int) -> Bool { lease.epoch == epoch && lease.generation == generation }
 }
 
+/// Fabric reapplies the entire prop dictionary when any prop changes. A bool
+/// already received from JS is not a new Play/Pause command: EOF, background
+/// and imperative commands can have changed the native state since then.
+struct StudioCompositionPausePropGate {
+  private var lastValue: Bool?
+  mutating func accept(_ value: Bool) -> Bool {
+    guard lastValue != value else { return false }
+    lastValue = value
+    return true
+  }
+}
+
+/// A recipe revision can reuse an item. Observer ownership changes only when
+/// its registration/item is replaced, so a queued old callback cannot leak
+/// into the next item while a visual/audio update keeps its observers alive.
+@MainActor
+final class StudioCompositionItemObservers {
+  private weak var item: AVPlayerItem?
+  private weak var player: AVPlayer?
+  private var epoch = 0
+  private var status: NSKeyValueObservation?
+  private var end: NSObjectProtocol?
+
+  func observe(item: AVPlayerItem, player: AVPlayer,
+               onStatus: @escaping @MainActor (AVPlayerItem) -> Void,
+               onEnd: @escaping @MainActor (AVPlayerItem) -> Void) {
+    invalidate()
+    self.item = item; self.player = player
+    let epoch = self.epoch
+    status = item.observe(\.status, options: [.initial, .new]) { [weak self, weak item] _, _ in
+      Task { @MainActor [weak self, weak item] in
+        guard let self, let item, self.owns(item, epoch: epoch) else { return }
+        onStatus(item)
+      }
+    }
+    end = NotificationCenter.default.addObserver(forName: .AVPlayerItemDidPlayToEndTime, object: item, queue: .main) { [weak self, weak item] _ in
+      Task { @MainActor [weak self, weak item] in
+        guard let self, let item, self.owns(item, epoch: epoch) else { return }
+        onEnd(item)
+      }
+    }
+  }
+
+  private func owns(_ item: AVPlayerItem, epoch: Int) -> Bool {
+    self.epoch == epoch && self.item === item && player?.currentItem === item
+  }
+  static func isAtEnd(seconds: Double, duration: Double, replayPending: Bool) -> Bool {
+    !replayPending && seconds.isFinite && duration.isFinite && duration > 0 && seconds >= duration - 1 / 30.0
+  }
+  func invalidate() {
+    epoch += 1; item = nil; player = nil
+    status?.invalidate(); status = nil
+    if let end { NotificationCenter.default.removeObserver(end) }
+    end = nil
+  }
+  deinit {
+    status?.invalidate()
+    if let end { NotificationCenter.default.removeObserver(end) }
+  }
+}
+
 /// Confirms the pixels produced by the current recipe, not merely a completed
 /// seek at a timestamp which AVPlayer may satisfy from its older cache.
 @MainActor
@@ -120,6 +181,7 @@ final class StudioCompositionView: ExpoView {
   private var recipeJSON = ""
   private var revision = ""
   private var paused = true
+  private var pausePropGate = StudioCompositionPausePropGate()
   private var loading = false
   private var buildGeneration = 0
   private var recipeBuildPending = false
@@ -139,8 +201,7 @@ final class StudioCompositionView: ExpoView {
   private var replayGeneration = 0
   private var replayPending = false
   private var periodicObserver: Any?
-  private var statusObserver: NSKeyValueObservation?
-  private var endObserver: NSObjectProtocol?
+  private let itemObservers = StudioCompositionItemObservers()
   private var backgroundObserver: NSObjectProtocol?
   private var interruptionObserver: NSObjectProtocol?
   private var captureObserver: NSObjectProtocol?
@@ -380,34 +441,26 @@ final class StudioCompositionView: ExpoView {
         let item = prepared.playerItem()
         frameOutput = StudioCompositionFrameOutput(item: item)
         initializingItem = item
-        statusObserver?.invalidate()
-        if let endObserver { NotificationCenter.default.removeObserver(endObserver) }
-        statusObserver = item.observe(\.status, options: [.initial, .new]) { [weak self, weak item] _, _ in
-          Task { @MainActor [weak self, weak item] in
-            guard let self, let item, self.player.currentItem === item, generation == self.buildGeneration else { return }
+        itemObservers.observe(item: item, player: player, onStatus: { [weak self] item in
+            guard let self, !self.disposed else { return }
             if item.status == .failed {
               self.loading = false; self.paused = true; self.player.pause()
               self.fail(item.error ?? StudioRecipeError.invalid("Não foi possível abrir esta edição."))
             } else if item.status == .readyToPlay {
               // The decoder becoming ready can precede the first composed
               // frame. Keep commands queued until the exact seek completes.
-              if self.initializingItem !== item {
+              if !self.recipeBuildPending && self.initializingItem !== item && !self.replayPending {
                 self.loading = false
                 if !self.paused && self.window != nil { self.startPlayback() }
               }
               self.publish()
             }
-          }
-        }
-        endObserver = NotificationCenter.default.addObserver(forName: .AVPlayerItemDidPlayToEndTime, object: item, queue: .main) { [weak self, weak item] _ in
-          Task { @MainActor [weak self, weak item] in
-            guard let self, let item, self.player.currentItem === item,
-                  generation == self.buildGeneration, !self.replayPending else { return }
-            let elapsed = self.player.currentTime().seconds
-            guard elapsed.isFinite, elapsed >= prepared.recipe.durationSeconds - 1 / 30.0 else { return }
+        }, onEnd: { [weak self] _ in
+            guard let self, !self.disposed, let prepared = self.prepared,
+              StudioCompositionItemObservers.isAtEnd(seconds: self.player.currentTime().seconds,
+                duration: prepared.recipe.durationSeconds, replayPending: self.replayPending) else { return }
             self.setPaused(true)
-          }
-        }
+        })
         player.replaceCurrentItem(with: item)
         let position = min(rebuildPosition, max(0, prepared.recipe.durationSeconds - 1 / 30.0))
         // Even a paused item at zero must request its first composed frame.
@@ -423,7 +476,8 @@ final class StudioCompositionView: ExpoView {
         publish()
       } catch {
         guard generation == buildGeneration, !Task.isCancelled else { return }
-        loading = false; prepared = nil; initializingItem = nil; player.replaceCurrentItem(with: nil)
+        loading = false; prepared = nil; initializingItem = nil
+        itemObservers.invalidate(); player.replaceCurrentItem(with: nil)
         cancelInteractive()
         clearReplacementFrame()
         pendingSeek?.continuation.resume(throwing: error); pendingSeek = nil
@@ -474,6 +528,11 @@ final class StudioCompositionView: ExpoView {
   private func clearReplacementFrame() {
     replacementGate.invalidate()
     replacementFrame.isHidden = true; replacementFrame.image = nil; replacementPosition = nil
+  }
+
+  func setPausedProp(_ value: Bool) {
+    guard !disposed, pausePropGate.accept(value) else { return }
+    setPaused(value)
   }
 
   func setPaused(_ value: Bool) {
@@ -679,21 +738,21 @@ final class StudioCompositionView: ExpoView {
     buildTask?.cancel(); frameTask?.cancel(); cancelReplay(); player.pause(); player.replaceCurrentItem(with: nil)
     pendingSeek?.continuation.resume(throwing: StudioRecipeError.cancelled); pendingSeek = nil
     prepared = nil; initializingItem = nil; frameOutput = nil; inspectedFrame.image = nil; sourceInspection = nil
-    statusObserver?.invalidate()
+    itemObservers.invalidate()
     if let periodicObserver { player.removeTimeObserver(periodicObserver); self.periodicObserver = nil }
-    for observer in [endObserver, backgroundObserver, interruptionObserver, captureObserver].compactMap({ $0 }) {
+    for observer in [backgroundObserver, interruptionObserver, captureObserver].compactMap({ $0 }) {
       NotificationCenter.default.removeObserver(observer)
     }
-    endObserver = nil; backgroundObserver = nil; interruptionObserver = nil; captureObserver = nil
+    backgroundObserver = nil; interruptionObserver = nil; captureObserver = nil
     captureSessions.removeAllObjects()
   }
 
   deinit {
     pendingSeek?.continuation.resume(throwing: StudioRecipeError.cancelled)
     frozenTask?.cancel()
-    buildTask?.cancel(); frameTask?.cancel(); replayTask?.cancel(); statusObserver?.invalidate()
+    buildTask?.cancel(); frameTask?.cancel(); replayTask?.cancel()
     if let periodicObserver { player.removeTimeObserver(periodicObserver) }
-    for observer in [endObserver, backgroundObserver, interruptionObserver, captureObserver].compactMap({ $0 }) {
+    for observer in [backgroundObserver, interruptionObserver, captureObserver].compactMap({ $0 }) {
       NotificationCenter.default.removeObserver(observer)
     }
   }

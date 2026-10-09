@@ -69,7 +69,8 @@ export function StudioCanvasEditor(props: StudioCanvasEditorProps) {
         selected={(clip.zIndex > 0 ? props.selectedLayerId : props.selectedMainClipId) === clip.id} pinchTarget={clip.id === pinchTargetId} registerPinch={registerPinch} owner={owner} guides={guides} />)}
       <CanvasCenterGuides guides={guides} />
     </View></GestureDetector>}
-    {outsideTime && <View pointerEvents="none" style={styles.notice}><Text accessibilityLiveRegion="polite" style={styles.noticeText}>{selected ? 'Esta camada' : 'Este vídeo principal'} está fora deste momento do vídeo.</Text></View>}
+    {outsideTime && <View pointerEvents="none" accessible accessibilityRole="text" accessibilityLiveRegion="polite"
+      accessibilityLabel={`${selected ? 'Camada selecionada' : 'Vídeo principal selecionado'} fora do tempo atual. A seleção continua disponível na timeline e nas ferramentas.`} style={styles.accessibilityStatus} />}
   </View>;
 }
 
@@ -517,8 +518,7 @@ const styles = StyleSheet.create({
   guides: { zIndex: 1001 },
   guideVertical: { position: 'absolute', left: '50%', top: 0, bottom: 0, width: 1, transform: [{ translateX: -0.5 }], backgroundColor: '#4AA3FF' },
   guideHorizontal: { position: 'absolute', top: '50%', left: 0, right: 0, height: 1, transform: [{ translateY: -0.5 }], backgroundColor: '#4AA3FF' },
-  notice: { position: 'absolute', left: 16, right: 16, bottom: 10, alignItems: 'center' },
-  noticeText: { color: '#E0E3E8', fontSize: 11, backgroundColor: '#111820DB', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 6 },
+  accessibilityStatus: { position: 'absolute', width: 1, height: 1, overflow: 'hidden' },
   error: { position: 'absolute', left: 0, right: 0, top: '100%', marginTop: 8, backgroundColor: '#111820E8', padding: 5, borderRadius: 4 },
   errorText: { color: '#FF899E', fontSize: 10, textAlign: 'center' },
 });

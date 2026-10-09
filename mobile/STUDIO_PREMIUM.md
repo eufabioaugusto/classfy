@@ -64,12 +64,17 @@ npm run test:navigation
 npm run test:studio:media
 npm run test:studio:capture
 npm run test:studio:recipe
+npm run test:studio:export-recovery
 npm run test:studio:interaction
 npm run test:studio:transcription
 npm run test:studio:headless
 ```
 
 Os testes Swift usam o Xcode em `/Applications/Xcode.app`; os testes de composição também usam ffmpeg. `verify-recipe.sh` gera fixtures locais para dois vídeos, imagem, texto, áudio, rotação e inspeção de quadros; verifica o arquivo exportado e pixels da prévia. `STUDIO_FACE_FIXTURE` e `STUDIO_ROTATION_FIXTURE` permitem acrescentar materiais reais locais sem copiá-los para o repositório. Os artefatos de composição ficam na pasta temporária informada pelo teste.
+
+`test:studio:export-recovery` executa encoding AVFoundation real com fontes sintéticas. Cancela durante progresso efetivo, provoca falha I/O e colisão de destino, tenta novamente com o mesmo request ID e verifica originais/temporários. O motor valida uma saída temporária exclusiva antes de confirmar o destino; 100% só é emitido após o arquivo confirmado. Os temporários desse teste são removidos ao terminar.
+
+`editorJourney.test.mjs`, incluído em `test:studio`, acopla media/model/history/store/Canvas/Timeline/CompositionPreview de produção em Aula e Short. Separa filas UI/JS, inclui 12 camadas e reabre armazenamento/runtime depois de editar, cortar e desfazer/refazer. Os adaptadores de sistema, decode e encoding são substituídos; a rota/painéis e a sensação física continuam com validação própria. Conferir a receita entregue ao exportador não equivale a codificar essas mesmas jornadas. O programa e as lacunas estão em [STUDIO_EDITOR_INTERACTIONS.md](STUDIO_EDITOR_INTERACTIONS.md).
 
 O runner headless não interage com a tela nem precisa do iPhone: reúne TypeScript, Studio, navegação, captura, composição, exportação e contratos de transcrição. Salva logs e `report.json` com resultados, tempos, revisão e hash dos fontes; invalida a evidência se os fontes mudarem durante a execução. `--build-ios` também compila para simulador e iPhone, sem conectar um aparelho. Para essa opção, use a variante `CLASSFY_IOS_PERSONAL_TEAM=1` no ambiente local.
 

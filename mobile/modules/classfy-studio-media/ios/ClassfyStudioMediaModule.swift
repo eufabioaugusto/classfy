@@ -124,7 +124,7 @@ public final class ClassfyStudioMediaModule: Module {
       Events("onPlaybackState", "onError")
       Prop("recipeJSON") { (view: StudioCompositionView, json: String) in Task { @MainActor in view.setRecipeJSON(json) } }
       Prop("revision") { (view: StudioCompositionView, revision: String) in Task { @MainActor in view.setRevision(revision) } }
-      Prop("paused") { (view: StudioCompositionView, paused: Bool) in Task { @MainActor in view.setPaused(paused) } }
+      Prop("paused") { (view: StudioCompositionView, paused: Bool) in Task { @MainActor in view.setPausedProp(paused) } }
       Prop("liveVisualJSON") { (view: StudioCompositionView, json: String) in Task { @MainActor in view.setLiveVisualJSON(json) } }
     }
     AsyncFunction("getStudioInteractiveCompositionVersionAsync") { () -> [String: Any] in
