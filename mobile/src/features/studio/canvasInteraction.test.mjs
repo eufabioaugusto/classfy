@@ -15,8 +15,16 @@ const near = (actual, expected) => assert.ok(Math.abs(actual - expected) < 1e-7,
 function harness(options = {}) {
   let editing = emptyStudioEditing('aula');
   editing.assets.push({ id: 'source', kind: 'video', uri: 'file:///original.mov', name: 'Original', durationTicks: studioTicks(4) });
-  editing.main.push({ id: 'main', assetId: 'source', sourceStartTicks: 0, sourceEndTicks: studioTicks(4) });
-  editing = addStudioLayerItem(editing, { ...createStudioTextItem({ id: 'title', content: 'Texto real', durationTicks: studioTicks(2) }), rect: { x: 0.3, y: 0.3, width: 0.4, height: 0.2 } });
+  editing.main.push({ id: 'main', assetId: 'source', sourceStartTicks: 0, sourceEndTicks: studioTicks(4), ...(options.mainRect ? { rect: options.mainRect } : {}) });
+  let item = { ...createStudioTextItem({ id: 'title', content: 'Texto real', durationTicks: studioTicks(2) }),
+    rect: options.rect ?? { x: 0.3, y: 0.3, width: 0.4, height: 0.2 }, rotationDegrees: options.rotation ?? 0 };
+  if (options.kind === 'image' || options.kind === 'video') {
+    editing.assets.push({ id: 'layer-source', kind: options.kind, uri: `file:///layer.${options.kind === 'image' ? 'jpg' : 'mov'}`, name: 'Original da camada',
+      durationTicks: options.kind === 'image' ? 0 : studioTicks(2) });
+    item = { ...item, kind: options.kind, assetId: 'layer-source', text: undefined,
+      ...(options.kind === 'video' ? { sourceStartTicks: 0, sourceEndTicks: studioTicks(2) } : {}) };
+  }
+  editing = addStudioLayerItem(editing, item);
   const contexts = new Map(), queue = [], uiQueue = [], selections = [], previews = [], commits = [], events = [], edits = [], playback = [], appStateListeners = new Set();
   let current, now = 1000, resolveCommit;
   let runtime = 'js';
@@ -92,8 +100,11 @@ function harness(options = {}) {
     const parent = render('root', module.exports.StudioCanvasEditor, props);
     const nodes = findAll(parent, node => typeof node.type === 'function' && node.type.name === 'CanvasLayer');
     const active = new Set(nodes.map(node => node.props.clip.id));
+    const guide = findAll(parent, node => typeof node.type === 'function' && node.type.name === 'CanvasCenterGuides')[0];
+    if (guide) active.add('guides');
     for (const [id, context] of contexts) if (id !== 'root' && !active.has(id)) { for (const slot of context.slots) slot?.cleanup?.(); contexts.delete(id); }
     for (const node of nodes) render(node.props.clip.id, node.type, node.props);
+    if (guide) render('guides', guide.type, guide.props);
     return parent;
   };
   const flatten = value => Array.isArray(value.items) ? value.items.flatMap(flatten) : [value];
@@ -112,6 +123,7 @@ function harness(options = {}) {
     setNow: value => { now = value; },
     handle: (index, id = 'title') => findAll(scope(id).tree, node => typeof node.type === 'function' && node.type.name === 'CanvasCornerHandle')[index].props.gesture,
     frame: id => bodyDetector(id).props.children.props.style.find(value => value?.getStyle)?.getStyle(),
+    guides: () => findAll(scope('guides').tree, node => node.type === 'animated-view').map(node => Object.assign({}, ...node.props.style.map(value => value.getStyle ? value.getStyle() : value))),
     tree: id => scope(id || 'title').tree,
     cornerView: (index, id = 'title') => {
       const node = findAll(scope(id).tree, item => typeof item.type === 'function' && item.type.name === 'CanvasCornerHandle')[index];
@@ -119,7 +131,7 @@ function harness(options = {}) {
       return render(`handle-${id}-${index}`, node.type, node.props);
     },
     changeAppState: state => { for (const callback of appStateListeners) callback(state); },
-    visibleIds: () => [...contexts.keys()].filter(id => id !== 'root'),
+    visibleIds: () => [...contexts.keys()].filter(id => id !== 'root' && id !== 'guides'),
     recipe: () => props.recipe,
     resolve: () => { assert.ok(resolveCommit); resolveCommit(); },
     dispose: () => { for (const context of contexts.values()) for (const slot of context.slots) slot?.cleanup?.(); },
@@ -411,6 +423,117 @@ test('compilação Babel instalada marca callbacks de todos recognizers como wor
     }
     const handle = view.handle(3); handle.handlers.onStart(); view.flush(); handle.handlers.onEnd({ translationX: 64, translationY: 18 }, true); await view.pump();
     assert.equal(view.commits.length, 1); near(view.commits[0].transform.rect.width, 0.6); assert.deepEqual(view.events, ['start', 'end']);
+  } finally { view.dispose(); }
+});
+
+test('helper de snap compila como worklet real e executa entrada, histerese e saída', () => {
+  const helperSource = readFileSync(new URL('./canvasGeometry.ts', import.meta.url), 'utf8');
+  const transformed = babel.transformSync(helperSource, { filename: fileURLToPath(new URL('./canvasGeometry.ts', import.meta.url)), configFile: false, babelrc: false,
+    plugins: ['@babel/plugin-transform-typescript', 'react-native-worklets/plugin'] }).code;
+  const compiled = ts.transpileModule(transformed, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
+  const module = { exports: {} }; new Function('module', 'exports', compiled)(module, module.exports);
+  const snapCenter = module.exports.studioCanvasSnapCenter;
+  assert.equal(typeof snapCenter.__workletHash, 'number');
+  const at = pixels => ({ x: 0.3 + pixels / 320, y: 0.4, width: 0.4, height: 0.2 });
+  const enter = snapCenter(at(7), 320, 180, { x: false, y: false });
+  const stay = snapCenter(at(12), 320, 180, enter.snap);
+  const leave = snapCenter(at(15), 320, 180, stay.snap);
+  assert.equal(enter.snap.x, true); assert.equal(stay.snap.x, true); assert.equal(leave.snap.x, false);
+  near(leave.rect.x, at(15).x);
+});
+
+for (const kind of ['text', 'image', 'video']) test(`snap real de ${kind} rotacionado pinta guias no UI e persiste centro uma vez sem mover cursor`, async () => {
+  const view = harness({ kind, rotation: 35, asyncShared: true, worklets: true });
+  try {
+    const pan = view.getGesture('pan');
+    pan.handlers.onStart(); view.flush();
+    pan.handlers.onUpdate({ translationX: 7, translationY: 12 });
+    assert.deepEqual(view.guides().map(guide => guide.opacity), [0.9, 0.9]);
+    near(view.frame().left + view.frame().width / 2, 160); near(view.frame().top + view.frame().height / 2, 90);
+    assert.deepEqual(view.previews, [], 'As guias e a geometria não aguardam uma renderização JS');
+    view.flush();
+    near(view.previews[0].transform.rect.x, 0.3); near(view.previews[0].transform.rect.y, 0.4);
+    view.echo(view.previews[0].transform); view.flushUI();
+    assert.equal(view.getGesture('pan'), pan, 'O eco não reconstrói o recognizer nem altera a âncora');
+    pan.handlers.onEnd({ translationX: 12, translationY: 7 }, true);
+    assert.deepEqual(view.guides().map(guide => guide.opacity), [0, 0], 'A guia some antes de a escrita começar');
+    await view.pump();
+    assert.equal(view.commits.length, 1); near(view.commits[0].transform.rect.x, 0.3); near(view.commits[0].transform.rect.y, 0.4);
+    assert.deepEqual(view.events, ['start', 'end']); assert.deepEqual(view.selections, []); assert.deepEqual(view.playback, []);
+    pan.handlers.onFinalize({}, true); await view.pump(); assert.equal(view.commits.length, 1);
+  } finally { view.dispose(); }
+});
+
+test('histerese do pan recebe posição bruta e permite sair e reentrar sem guia presa', async () => {
+  const view = harness({ asyncShared: true });
+  try {
+    const pan = view.getGesture('pan'); pan.handlers.onStart(); view.flush();
+    for (const [translationX, expectedX, guideX] of [[7, 0.3, 0.9], [12, 0.3, 0.9], [15, 0.3 + 15 / 320, 0], [10, 0.3 + 10 / 320, 0], [7, 0.3, 0.9]]) {
+      pan.handlers.onUpdate({ translationX, translationY: 18 });
+      near(view.frame().left / 320, expectedX); assert.deepEqual(view.guides().map(guide => guide.opacity), [guideX, 0.9]);
+    }
+    pan.handlers.onEnd({ translationX: 14, translationY: 18 }, true); await view.pump();
+    assert.equal(view.commits.length, 1); near(view.commits[0].transform.rect.x, 0.3); near(view.commits[0].transform.rect.y, 0.4);
+    assert.deepEqual(view.guides().map(guide => guide.opacity), [0, 0]);
+  } finally { view.dispose(); }
+});
+
+test('snap do principal ampliado centraliza sem alterar recorte, seleção ou reprodução', async () => {
+  const view = harness({ mainRect: { x: -0.3, y: -0.3, width: 1.5, height: 1.5 }, asyncShared: true,
+    props: { selectedLayerId: undefined, selectedMainClipId: 'main', onSelectMainClip: () => {} } });
+  try {
+    const pan = view.getGesture('pan', 'main'); pan.handlers.onStart(); view.flush();
+    pan.handlers.onUpdate({ translationX: 10, translationY: 6 });
+    assert.deepEqual(view.guides().map(guide => guide.opacity), [0.9, 0.9]);
+    pan.handlers.onEnd({ translationX: 10, translationY: 6 }, true); await view.pump();
+    assert.equal(view.commits.length, 1);
+    assert.deepEqual(view.commits[0], { id: 'main', transform: { rect: { x: -0.25, y: -0.25, width: 1.5, height: 1.5 } } });
+    assert.deepEqual(view.playback, []); assert.deepEqual(view.selections, []); assert.deepEqual(view.events, ['start', 'end']);
+  } finally { view.dispose(); }
+});
+
+for (const terminal of ['end-failed', 'touch-cancel', 'background', 'selection']) test(`guias não sobrevivem a ${terminal} nem a callback atrasado`, async () => {
+  const view = harness({ asyncShared: true, worklets: true });
+  try {
+    const pan = view.getGesture('pan'); pan.handlers.onStart(); view.flush();
+    pan.handlers.onUpdate({ translationX: 7, translationY: 18 }); view.flush();
+    assert.deepEqual(view.guides().map(guide => guide.opacity), [0.9, 0.9]);
+    if (terminal === 'end-failed') pan.handlers.onEnd({ translationX: 7, translationY: 18 }, false);
+    if (terminal === 'touch-cancel') pan.handlers.onTouchesCancelled({});
+    if (terminal === 'background') view.changeAppState('background');
+    if (terminal === 'selection') view.update({ selectedLayerId: undefined });
+    view.flushUI(); assert.deepEqual(view.guides().map(guide => guide.opacity), [0, 0]);
+    pan.handlers.onUpdate({ translationX: 7, translationY: 18 });
+    pan.handlers.onEnd({ translationX: 7, translationY: 18 }, true); pan.handlers.onFinalize({}, true); await view.pump();
+    assert.deepEqual(view.commits, []); assert.deepEqual(view.guides().map(guide => guide.opacity), [0, 0]);
+    assert.deepEqual(view.events, ['start', 'end']); assert.equal(view.previews.at(-1).transform, undefined);
+  } finally { view.dispose(); }
+});
+
+test('pinça e cantos preservam sua âncora e não aplicam magnetismo ou guias de movimento', async () => {
+  const view = harness({ rect: { x: 0.3, y: 0.37, width: 0.4, height: 0.2 }, asyncShared: true });
+  try {
+    const pinch = view.getGesture('pinch'); pinch.handlers.onStart({ focalX: 32, focalY: 9 }); view.flush();
+    pinch.handlers.onUpdate({ scale: 1.1 }); assert.deepEqual(view.guides().map(guide => guide.opacity), [0, 0]);
+    pinch.handlers.onEnd({ scale: 1.1 }, true); await view.pump();
+    const resized = view.commits[0].transform;
+    assert.ok(Math.abs(resized.rect.y + resized.rect.height / 2 - 0.5) > 1e-7, 'A pinça perto do centro continua na âncora focal');
+    const corner = view.handle(3); corner.handlers.onStart(); view.flush();
+    corner.handlers.onUpdate({ translationX: 10, translationY: 3 }); assert.deepEqual(view.guides().map(guide => guide.opacity), [0, 0]);
+    corner.handlers.onEnd({ translationX: 10, translationY: 3 }, true); await view.pump(); assert.equal(view.commits.length, 2);
+  } finally { view.dispose(); }
+});
+
+test('pinça que entra durante pan remove guias antes de escalar, sem duplicar a escrita', async () => {
+  const view = harness({ asyncShared: true });
+  try {
+    const pan = view.getGesture('pan'), pinch = view.getGesture('pinch');
+    pan.handlers.onStart(); view.flush(); pan.handlers.onUpdate({ translationX: 7, translationY: 18 });
+    assert.deepEqual(view.guides().map(guide => guide.opacity), [0.9, 0.9]);
+    pinch.handlers.onStart({ focalX: 32, focalY: 9 }); assert.deepEqual(view.guides().map(guide => guide.opacity), [0, 0]);
+    pinch.handlers.onUpdate({ scale: 1.2 }); pan.handlers.onEnd({ translationX: 7, translationY: 18 }, true);
+    assert.equal(view.commits.length, 0); pinch.handlers.onEnd({ scale: 1.2 }, true); await view.pump();
+    assert.equal(view.commits.length, 1); near(view.commits[0].transform.rect.width, 0.48); assert.deepEqual(view.events, ['start', 'end']);
   } finally { view.dispose(); }
 });
 

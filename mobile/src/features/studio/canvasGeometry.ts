@@ -4,6 +4,7 @@ export type StudioCanvasTransform = { rect: StudioRect; textFontSize?: number };
 export type StudioCanvasCorner = 'topLeft' | 'topRight' | 'bottomLeft' | 'bottomRight';
 export type StudioCanvasFrame = { x: number; y: number; width: number; height: number };
 export type StudioCanvasPoint = { x: number; y: number };
+export type StudioCanvasSnapState = { x: boolean; y: boolean };
 
 const bounded = (value: number, minimum: number, maximum: number) => {
   'worklet';
@@ -59,6 +60,21 @@ export function studioCanvasMove(rect: StudioRect, translationX: number, transla
   const visibleX = Math.min(rect.width, 0.04), visibleY = Math.min(rect.height, 0.04);
   return { ...rect, x: bounded(rect.x + translationX / canvasWidth, Math.max(-2, -rect.width + visibleX), Math.min(3, 1 - visibleX)),
     y: bounded(rect.y + translationY / canvasHeight, Math.max(-2, -rect.height + visibleY), Math.min(3, 1 - visibleY)) };
+}
+
+/** Supply the unsnapped drag position every frame so the finger can leave the magnet. */
+export function studioCanvasSnapCenter(rect: StudioRect, canvasWidth: number, canvasHeight: number, previous: StudioCanvasSnapState,
+  enterPixels = 8, leavePixels = 14): { rect: StudioRect; snap: StudioCanvasSnapState } {
+  'worklet';
+  if (![rect.x, rect.y, rect.width, rect.height, canvasWidth, canvasHeight, enterPixels, leavePixels].every(Number.isFinite)
+    || canvasWidth <= 0 || canvasHeight <= 0 || rect.width <= 0 || rect.height <= 0 || enterPixels < 0 || leavePixels < enterPixels) {
+    return { rect: { ...rect }, snap: { x: false, y: false } };
+  }
+  const distanceX = Math.abs(rect.x + rect.width / 2 - 0.5) * canvasWidth;
+  const distanceY = Math.abs(rect.y + rect.height / 2 - 0.5) * canvasHeight;
+  const x = distanceX <= (previous.x ? leavePixels : enterPixels) + 1e-7;
+  const y = distanceY <= (previous.y ? leavePixels : enterPixels) + 1e-7;
+  return { rect: { ...rect, x: x ? 0.5 - rect.width / 2 : rect.x, y: y ? 0.5 - rect.height / 2 : rect.y }, snap: { x, y } };
 }
 
 export function studioCanvasScale(transform: StudioCanvasTransform, requestedScale: number, canvasWidth: number, canvasHeight: number,

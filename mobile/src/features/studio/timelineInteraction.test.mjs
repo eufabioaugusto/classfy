@@ -1,16 +1,28 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
+import { dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { transformFileSync } from '@babel/core';
 import ts from 'typescript';
 import * as model from './model.ts';
 import * as layout from './timelineLayout.ts';
 import * as motionHelpers from './timelineMotion.ts';
+import * as snapHelpers from './timelineSnap.ts';
 const layerModule = { exports: {} };
 new Function('require', 'module', 'exports', ts.transpileModule(readFileSync(new URL('./layerTimelineInteraction.ts', import.meta.url), 'utf8'), {
   compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
 }).outputText)(name => { assert.equal(name, './model'); return model; }, layerModule, layerModule.exports);
 
 const source = readFileSync(new URL('./StudioTimeline.tsx', import.meta.url), 'utf8');
+const require = createRequire(import.meta.url);
+let nativeCompiled;
+const compileNative = () => nativeCompiled ||= transformFileSync(fileURLToPath(new URL('./StudioTimeline.tsx', import.meta.url)), {
+  presets: [require.resolve('babel-preset-expo', { paths: [dirname(require.resolve('expo/package.json'))] })],
+  plugins: [require.resolve('@babel/plugin-transform-modules-commonjs')],
+  caller: { name: 'metro', supportsStaticESM: true, isDev: true, platform: 'ios' },
+}).code;
 const take = id => ({ id, uri: `file:///${id}.mp4`, name: id, duration: 10, start: 2, end: 8, thumbnailUri: `file:///${id}.jpg` });
 const equalDependencies = (a, b) => !!a && !!b && a.length === b.length && a.every((value, index) => Object.is(value, b[index]));
 
@@ -106,17 +118,19 @@ function harness(options = {}) {
   const dependencies = {
     react: hooks,
     'react/jsx-runtime': { jsx: (type, props) => ({ type, props }), jsxs: (type, props) => ({ type, props }) },
+    'react/jsx-dev-runtime': { jsxDEV: (type, props) => ({ type, props }) },
     'react-native': { AppState: { addEventListener: (_event, callback) => { appStateListeners.add(callback); return { remove: () => appStateListeners.delete(callback) }; } }, Pressable: 'pressable', Text: 'text', View: 'view', StyleSheet: { create: styles => styles } },
     'expo-image': { Image: 'image' }, 'react-native-reanimated': reanimated,
     'react-native-gesture-handler': { GestureDetector: 'gesture-detector', Gesture: { Native: () => gesture('native'), Pinch: () => gesture('pinch'), Pan: () => gesture('pan'), Tap: () => gesture('tap'), Race: (...gestures) => ({ kind: 'race', gestures }) } },
     'lucide-react-native': { ChevronDown: 'chevron-down', ChevronUp: 'chevron-up', Film: 'film', Mic: 'mic', Minus: 'minus', Plus: 'plus' },
     '@/theme/colors': { colors: {} }, './model': model, './timelineLayout': layout, './timelineMotion': motionHelpers,
-    './useStudioFilmstrip': { useStudioFilmstrip: () => ({}) }, './layerTimelineInteraction': layerModule.exports,
+    './useStudioFilmstrip': { useStudioFilmstrip: () => ({}) }, './layerTimelineInteraction': layerModule.exports, './timelineSnap': snapHelpers,
   };
-  const compiled = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX } }).outputText;
+  const compiled = options.nativeWorklets ? compileNative() : ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX } }).outputText;
   const module = { exports: {} };
   new Function('require', 'module', 'exports', 'Date', '__DEV__', compiled)(name => {
     if (Object.hasOwn(dependencies, name)) return dependencies[name];
+    if (name.startsWith('@babel/runtime/helpers/')) return require(name);
     throw new Error(`Unexpected dependency: ${name}`);
   }, module, module.exports, { now: () => now }, false);
   props = { takes: [take('a'), take('b')], activeTakeId: 'a', position: 1, cancelEpoch: 0,
@@ -148,11 +162,11 @@ function harness(options = {}) {
   };
   const nodes = name => all(context('timeline').tree, node => typeof node.type === 'function' && node.type.name === name);
   const control = label => all(context('timeline').tree, node => node.props?.accessibilityLabel === label)[0]?.props;
-  const laneStatus = () => all(context('timeline').tree, node => node.props?.accessibilityLiveRegion === 'polite')[0]?.props.children;
+  const laneStatus = () => all(context('timeline').tree, node => node.props?.accessibilityLiveRegion === 'polite')[0]?.props.accessibilityValue?.text;
   const scroll = () => all(context('timeline').tree, node => node.type === 'animated-scroll')[0].props.onScroll;
   const scrollProps = () => all(context('timeline').tree, node => node.type === 'animated-scroll')[0].props.animatedProps.__props();
   const pinch = () => context('timeline').tree.props.gesture.handlers;
-  const m = () => nodes('TrimHandle')[0].props.motion;
+  const m = () => (nodes('TrimHandle')[0] || nodes('TimelineClip')[0]).props.motion;
   const pan = edge => {
     const node = nodes('TrimHandle').find(item => item.props.edge === edge);
     assert.ok(node, 'selected trim handle expected');
@@ -166,6 +180,10 @@ function harness(options = {}) {
     const node = nodes('TimelineLayer').find(item => item.props.item.id === id);
     assert.ok(node, 'selected layer remains mounted');
     return render(`layer-${id}`, node.type, node.props);
+  };
+  const snapGuide = () => {
+    const node = nodes('TimelineSnapGuide')[0];
+    return render('snap-guide', node.type, node.props).props.style.at(-1).__style();
   };
   const animate = () => {
     now += 64;
@@ -194,7 +212,7 @@ function harness(options = {}) {
   all(context('timeline').tree, node => node.type === 'animated-view' && node.props?.onLayout)[0].props.onLayout({ nativeEvent: { layout: { width: 300 } } });
   renderParent(); if (nativeSharedValues) flushUI();
   scroll().onScroll({ contentOffset: { x: 60 } }); flushJS(); animate(); flushJS(); scrolls.length = 0;
-  return { scroll, scrollProps, pinch, m, pan, childClip, childLayer, nodes, control, laneStatus, seeks, selections, previews, commits, cancellations, scrolls, jsQueue, uiQueue,
+  return { scroll, scrollProps, pinch, m, pan, childClip, childLayer, snapGuide, nodes, control, laneStatus, seeks, selections, previews, commits, cancellations, scrolls, jsQueue, uiQueue,
     animate, frame, flushJS, flushUI, stepJS, pump,
     playerPosition: () => context('timeline').reactions[0].prepare().position,
     update: next => { props = { ...props, ...next }; renderParent(); },
@@ -482,10 +500,10 @@ test('alça da camada desenha duração no UI, confirma uma vez e não desloca c
     onLayerTrimCommit: (id, range) => { commits.push({ id, range }); return new Promise(done => { resolve = done; }); } });
   try {
     const tree = view.childLayer('title'); const edge = tree.props.children[1][1]; const pan = edge.props.gesture.handlers;
-    assert.equal(edge.props.children.props.style.width, 28, 'touch surface is at least28pt');
+    assert.ok(edge.props.children.props.style.width >= 32, 'touch surface is at least32pt');
     pan.onStart({ absoluteX: 180 }); view.flushJS();
     pan.onUpdate({ absoluteX: 240, translationX: 60 });
-    assert.equal(tree.props.style.at(-1).__style().width - 48, 180, 'live width, no second ghost clip');
+    assert.equal(tree.props.style.at(-1).__style().width - 56, 180, 'live width, no second ghost clip');
     assert.equal(view.childClip('a').props.style.at(-1).__style().width, 360);
     view.animate(); view.flushJS();
     pan.onEnd(); view.flushJS(); pan.onEnd(); view.flushJS();
@@ -494,9 +512,9 @@ test('alça da camada desenha duração no UI, confirma uma vez e não desloca c
     const saved = layerModule.exports.applyStudioLayerTimelineRange(fixture.editing, 'title', commits[0].range);
     const layers = model.compileStudioRecipe({ kind: 'aula', takes: [], editing: saved }).clips.filter(clip => clip.zIndex > 0);
     view.update({ editing: saved, layers }); const updated = view.childLayer('title');
-    assert.equal(updated.props.style.at(-1).__style().width - 48, 180, 'saved props do not apply trim twice');
+    assert.equal(updated.props.style.at(-1).__style().width - 56, 180, 'saved props do not apply trim twice');
     resolve(); await view.pump();
-    assert.equal(view.m().phase.value, 0); assert.equal(updated.props.style.at(-1).__style().width - 48, 180);
+    assert.equal(view.m().phase.value, 0); assert.equal(updated.props.style.at(-1).__style().width - 56, 180);
     assert.equal(previews.at(-1).range, undefined);
   } finally { view.dispose(); }
 });
@@ -514,8 +532,8 @@ test('corpo tem hold220ms, doubletap edita; mover só confirma delta e nunca cha
     assert.deepEqual(lifecycle, [], 'selection and editing are not drag operations');
     pan.handlers.onStart({ absoluteX: 180 }); view.flushJS();
     pan.handlers.onUpdate({ absoluteX: 240, translationX: 60 });
-    assert.equal(tree.props.style.at(-1).__style().left + 24, 270);
-    assert.equal(tree.props.style.at(-1).__style().width - 48, 120);
+    assert.equal(tree.props.style.at(-1).__style().left + 28, 270);
+    assert.equal(tree.props.style.at(-1).__style().width - 56, 120);
     pan.handlers.onEnd(); view.flushJS(); await view.pump();
     assert.deepEqual(moves, [1]); assert.deepEqual(view.seeks, []); assert.equal(view.playerPosition(), 1);
     assert.deepEqual(lifecycle, ['start', 'end']);
@@ -588,9 +606,9 @@ test('hold diagonal muda tempo e faixa no UI e confirma uma única operação se
     const tree = view.childLayer('title'), pan = tree.props.children[0].props.gesture.gestures[0].handlers;
     const top = tree.props.style.at(-1).__style().top;
     pan.onStart({ absoluteX: 180, absoluteY: 105 }); view.flushJS();
-    pan.onUpdate({ absoluteX: 240, absoluteY: 133, translationX: 60, translationY: 28 });
-    assert.equal(tree.props.style.at(-1).__style().top, top + 28);
-    assert.equal(tree.props.style.at(-1).__style().left + 24, 270);
+    pan.onUpdate({ absoluteX: 240, absoluteY: 133, translationX: 60, translationY: 44 });
+    assert.equal(tree.props.style.at(-1).__style().top, top + 44);
+    assert.equal(tree.props.style.at(-1).__style().left + 28, 270);
     pan.onEnd(); pan.onEnd(); view.flushJS();
     assert.deepEqual(moves, [{ id: 'title', delta: 1, target: 2 }]);
     assert.deepEqual(lifecycle, ['start']);
@@ -598,8 +616,8 @@ test('hold diagonal muda tempo e faixa no UI e confirma uma única operação se
     const saved = layerModule.exports.applyStudioLayerTimelineRange(reordered, 'title', { startSeconds: 2, endSeconds: 4 }, 'move');
     view.update({ editing: saved, layers: model.compileStudioRecipe({ kind: 'aula', takes: [], editing: saved }).clips.filter(clip => clip.zIndex > 0) });
     const updated = view.childLayer('title'); resolve(); await view.pump();
-    assert.equal(updated.props.style.at(-1).__style().top, top + 28);
-    assert.equal(updated.props.style.at(-1).__style().left + 24, 270);
+    assert.equal(updated.props.style.at(-1).__style().top, top + 44);
+    assert.equal(updated.props.style.at(-1).__style().left + 28, 270);
     assert.deepEqual(lifecycle, ['start', 'end']); assert.deepEqual(view.seeks, []); assert.equal(view.playerPosition(), 1);
   } finally { view.dispose(); }
 });
@@ -610,7 +628,7 @@ test('hold vertical puro e ação acessível persistem a ordem mesmo com delta t
   try {
     const tree = view.childLayer('title'), pan = tree.props.children[0].props.gesture.gestures[0].handlers;
     pan.onStart({ absoluteX: 180, absoluteY: 105 }); view.flushJS();
-    pan.onUpdate({ absoluteX: 180, absoluteY: 133, translationX: 0, translationY: 28 }); pan.onEnd(); view.flushJS(); await view.pump();
+    pan.onUpdate({ absoluteX: 180, absoluteY: 133, translationX: 0, translationY: 44 }); pan.onEnd(); view.flushJS(); await view.pump();
     assert.deepEqual(moves, [{ id: 'title', delta: 0, target: 2 }]);
     const body = view.childLayer('title').props.children[0].props.children.props;
     assert.ok(body.accessibilityActions.some(action => action.name === 'moveDown'));
@@ -625,7 +643,7 @@ test('hold revela áudio4 por borda vertical sem desmontar o reconhecedor da cam
   try {
     const tree = view.childLayer('title'), gesture = tree.props.children[0].props.gesture, pan = gesture.gestures[0].handlers;
     pan.onStart({ absoluteX: 180, absoluteY: 100 }); view.flushJS();
-    pan.onUpdate({ absoluteX: 180, absoluteY: 176, translationX: 0, translationY: 56 });
+    pan.onUpdate({ absoluteX: 180, absoluteY: 157, translationX: 0, translationY: 88 });
     view.frame(300); view.flushJS();
     assert.equal(view.laneStatus(), 'Faixas 2–4 de 4');
     assert.ok(view.nodes('TimelineLayer').some(node => node.props.item.id === 'title'), 'selected source remains mounted outside its old page');
@@ -645,8 +663,8 @@ test('item agrupado pode sair para Nova faixa sem puxar irmãos nem trocar sua d
     assert.equal(view.nodes('TimelineLaneTarget').length, 1);
     const tree = view.childLayer('title'), pan = tree.props.children[0].props.gesture.gestures[0].handlers;
     pan.onStart({ absoluteX: 180, absoluteY: 100 }); view.flushJS();
-    pan.onUpdate({ absoluteX: 420, absoluteY: 128, translationX: 240, translationY: 28 });
-    assert.equal(tree.props.style.at(-1).__style().width - 48, 120);
+    pan.onUpdate({ absoluteX: 420, absoluteY: 128, translationX: 240, translationY: 44 });
+    assert.equal(tree.props.style.at(-1).__style().width - 56, 120);
     pan.onEnd(); view.flushJS(); await view.pump();
     assert.deepEqual(moves, [{ id: 'title', delta: 4, target: 2 }]);
     assert.equal(fixture.editing.layers[0].items[1].atTicks, model.studioTicks(5));
@@ -714,7 +732,7 @@ test('END(false) antes de FINALIZE(false) cancela corpo e alças da camada sem p
       const pan = mode === 'move' ? tree.props.children[0].props.gesture.gestures[0].handlers
         : tree.props.children[1][mode === 'start' ? 0 : 1].props.gesture.handlers;
       pan.onStart({ absoluteX: 180, absoluteY: 100 }); view.flushJS();
-      pan.onUpdate({ absoluteX: 240, absoluteY: 128, translationX: 60, translationY: 28 }); view.animate(); view.flushJS();
+      pan.onUpdate({ absoluteX: 240, absoluteY: 128, translationX: 60, translationY: 44 }); view.animate(); view.flushJS();
       assert.notDeepEqual(tree.props.style.at(-1).__style(), initial, `${mode} changes the provisional geometry`);
       // RNGH calls END(false) before FINALIZE(false) after an ACTIVE cancel.
       pan.onEnd({}, false); pan.onFinalize({}, false); await view.pump();
@@ -855,5 +873,174 @@ test('liberar movimento acessível revela destino fora da janela sem publicar ge
     assert.equal(view.m().laneStart.value, 1, 'the selected lane must remain in the native window');
     assert.equal(view.laneStatus(), 'Faixas 2–4 de 4', 'React receives the computed window, not its stale SharedValue getter');
     assert.deepEqual(view.seeks, []); assert.equal(view.playerPosition(), 1);
+  } finally { view.dispose(); }
+});
+
+test('visual ampliado conserva ordem das faixas acima do main, alças grandes e controles sem legendas', () => {
+  const fixture = manyLayerFixture();
+  const view = harness({ ...fixture, selectedLayerId: 'title', onLayerTrimCommit: async () => {} });
+  try {
+    const rows = view.nodes('TimelineLayer').filter(node => node.props.item.zIndex <= 3);
+    const main = view.nodes('TimelineClip')[0];
+    assert.ok(rows.every(node => node.props.top + 44 <= main.props.top));
+    assert.deepEqual(rows.map(node => node.props.item.zIndex), [1, 2, 3]);
+    const layer = view.childLayer('title');
+    assert.equal(layer.props.style[0].height, 44);
+    assert.ok(layer.props.children[1].every(node => node.props.children.props.style.width >= 32));
+    assert.equal(main.props.height, 72); assert.equal(view.childClip('a').props.children.length, 2, 'filmstrip and shade only; no permanent number/duration labels');
+    assert.ok(view.control('Próximas faixas')); assert.ok(view.control('Aumentar zoom da timeline'));
+  } finally { view.dispose(); }
+});
+
+test('snap da alça confirma borda de outra camada, mostra guia no UI e não muda cursor', async () => {
+  const fixture = manyLayerFixture(), commits = [];
+  const view = harness({ ...fixture, selectedLayerId: 'title', onLayerTrimCommit: async (_id, range) => commits.push(range) });
+  try {
+    const pan = view.childLayer('title').props.children[1][1].props.gesture.handlers;
+    pan.onStart({ absoluteX: 240, absoluteY: 45 }); view.flushJS();
+    pan.onUpdate({ absoluteX: 295, absoluteY: 45, translationX: 55, translationY: 0 });
+    assert.equal(view.m().snap.value.seconds, 4); assert.equal(view.snapGuide().opacity, 1);
+    assert.equal(view.snapGuide().left, 390);
+    // END contains the last finger displacement even without another UPDATE.
+    pan.onEnd({ absoluteX: 297, absoluteY: 45, translationX: 57, translationY: 0 }, true); view.flushJS(); await view.pump();
+    assert.deepEqual(commits, [{ startSeconds: 1, endSeconds: 4 }]);
+    assert.equal(view.snapGuide().opacity, 0); assert.equal(view.m().snap.value, null);
+    assert.deepEqual(view.seeks, []); assert.equal(view.playerPosition(), 1);
+  } finally { view.dispose(); }
+});
+
+test('snap de move preserva duração e END usa deslocamento final uma vez', async () => {
+  const fixture = layerFixture(), moves = [];
+  const view = harness({ ...fixture, selectedLayerId: 'title', onMoveLayer: async (_id, delta) => moves.push(delta) });
+  try {
+    const tree = view.childLayer('title'), pan = tree.props.children[0].props.gesture.gestures[0].handlers;
+    pan.onStart({ absoluteX: 180, absoluteY: 45 }); view.flushJS();
+    pan.onEnd({ absoluteX: 357, absoluteY: 45, translationX: 177, translationY: 0 }, true); await view.pump();
+    assert.deepEqual(moves, [3], 'end of the 2s layer aligns to the main boundary at6s');
+    assert.equal(tree.props.style.at(-1).__style().width - 56, 120, 'unchanged duration/source speed');
+    assert.equal(view.m().snap.value, null); assert.deepEqual(view.seeks, []);
+  } finally { view.dispose(); }
+});
+
+test('snap de início usa cursor absoluto e cancel limpa a guia sem salvar', async () => {
+  const fixture = layerFixture(), commits = [];
+  fixture.editing.layers[0].items[0].atTicks = model.studioTicks(2);
+  fixture.layers = model.compileStudioRecipe({ kind: 'aula', takes: [], editing: fixture.editing }).clips.filter(clip => clip.zIndex > 0);
+  const view = harness({ ...fixture, selectedLayerId: 'title', onLayerTrimCommit: async (_id, range) => commits.push(range) });
+  try {
+    const pan = view.childLayer('title').props.children[1][0].props.gesture.handlers;
+    pan.onStart({ absoluteX: 210, absoluteY: 45 }); view.flushJS();
+    pan.onUpdate({ absoluteX: 155, absoluteY: 45, translationX: -55, translationY: 0 });
+    assert.equal(view.m().snap.value.key, 'cursor'); assert.equal(view.snapGuide().opacity, 1);
+    pan.onEnd({}, false); pan.onFinalize({}, false); await view.pump();
+    assert.deepEqual(commits, []); assert.equal(view.snapGuide().opacity, 0); assert.deepEqual(view.seeks, []);
+  } finally { view.dispose(); }
+});
+
+test('novo gesto não herda histerese de um snap cancelado', async () => {
+  const fixture = manyLayerFixture(), commits = [];
+  const view = harness({ ...fixture, selectedLayerId: 'title', onLayerTrimCommit: async (_id, range) => commits.push(range) });
+  try {
+    const pan = view.childLayer('title').props.children[1][1].props.gesture.handlers;
+    pan.onStart({ absoluteX: 240, absoluteY: 45 }); view.flushJS();
+    pan.onUpdate({ absoluteX: 295, absoluteY: 45, translationX: 55, translationY: 0 });
+    assert.equal(view.m().snap.value.seconds, 4);
+    pan.onEnd({}, false); pan.onFinalize({}, false); await view.pump();
+    pan.onStart({ absoluteX: 240, absoluteY: 45 }); view.flushJS();
+    pan.onUpdate({ absoluteX: 309.6, absoluteY: 45, translationX: 69.6, translationY: 0 });
+    assert.equal(view.m().snap.value, null, '9.6px away is outside acquisition, despite being inside the former release radius');
+    pan.onEnd({}, true); await view.pump();
+    assert.equal(commits.length, 1); assert.equal(commits[0].endSeconds, 4.16);
+    assert.equal(view.snapGuide().opacity, 0); assert.deepEqual(view.seeks, []);
+  } finally { view.dispose(); }
+});
+
+test('alvo fora do áudio original não vence bounds do trim', async () => {
+  const fixture = manyLayerFixture(), commits = [];
+  fixture.editing.assets.find(asset => asset.id === 'voice-asset').durationTicks = model.studioTicks(3.9);
+  fixture.editing.layers.find(layer => layer.id === 'images').items[0].durationTicks = model.studioTicks(4);
+  fixture.layers = model.compileStudioRecipe({ kind: 'aula', takes: [], editing: fixture.editing }).clips.filter(clip => clip.zIndex > 0);
+  const view = harness({ ...fixture, selectedLayerId: 'voice', onLayerTrimCommit: async (_id, range) => commits.push(range) });
+  try {
+    const pan = view.childLayer('voice').props.children[1][1].props.gesture.handlers;
+    pan.onStart({ absoluteX: 240, absoluteY: 90 }); view.flushJS();
+    pan.onUpdate({ absoluteX: 300, absoluteY: 90, translationX: 60, translationY: 0 });
+    assert.equal(view.m().snap.value, null, 'nearby5s exceeds the original by0.1s');
+    pan.onEnd({}, true); await view.pump();
+    assert.deepEqual(commits, [{ startSeconds: 1, endSeconds: 4.9 }]);
+    const saved = layerModule.exports.applyStudioLayerTimelineRange(fixture.editing, 'voice', commits[0]);
+    assert.equal(saved.layers.find(layer => layer.id === 'audio').items[0].sourceEndTicks, model.studioTicks(3.9));
+  } finally { view.dispose(); }
+});
+
+test('snap principal converte tempo absoluto para origem e solta sem seek extra', async () => {
+  const fixture = manyLayerFixture(), view = harness(fixture);
+  try {
+    const pan = view.pan('end');
+    pan.onStart({ absoluteX: 250 }); view.flushJS();
+    pan.onUpdate({ absoluteX: 135, translationX: -115 });
+    assert.equal(view.m().snap.value.seconds, 4); assert.equal(view.m().end.value, 6);
+    assert.equal(view.snapGuide().opacity, 1);
+    pan.onEnd({ absoluteX: 133, translationX: -117 }, true); view.flushJS();
+    assert.equal(view.commits.length, 1); assert.equal(view.commits[0].end, 6);
+    assert.equal(view.snapGuide().opacity, 0); view.completeCommit(); await view.pump();
+    assert.deepEqual(view.seeks, []); assert.equal(view.playerPosition(), 1);
+  } finally { view.dispose(); }
+});
+
+test('previewOnly mantém scrub real numa faixa de60pt sem régua, camadas, alças ou controles', async () => {
+  const fixture = manyLayerFixture(), view = harness({ ...fixture, previewOnly: true, locked: true });
+  try {
+    assert.equal(view.nodes('TimelineLayer').length, 0); assert.equal(view.nodes('TrimHandle').length, 0);
+    assert.equal(view.nodes('TimelineTick').length, 0); assert.equal(view.nodes('TimelineClip')[0].props.height, 60);
+    assert.equal(view.nodes('TimelineClip')[0].props.top, 0); assert.equal(view.control('Aumentar zoom da timeline'), undefined);
+    view.scroll().onBeginDrag(); view.scroll().onEndDrag({ contentOffset: { x: 120 }, velocity: { x: 0 } });
+    await view.pump(); assert.deepEqual(view.seeks, [2]); assert.equal(view.m().phase.value, 0);
+    assert.equal(view.playerPosition(), 2);
+  } finally { view.dispose(); }
+});
+
+test('faixa de imagem usa pixels existentes limitados à janela, texto usa purple e append fica fixo', () => {
+  const fixture = manyLayerFixture(), view = harness({ ...fixture, onAppend: () => {} });
+  try {
+    const text = view.childLayer('title').props.children[0].props.children.props;
+    assert.equal(text.style[1].backgroundColor, '#803DFF');
+    const image = view.childLayer('poster').props.children[0].props.children.props;
+    const strip = image.children.props;
+    assert.ok(strip.children.length <= 9, 'one viewport plus overscan, independent of media duration');
+    assert.ok(strip.children.every(node => node.props.source.uri === 'file:///poster.jpg'));
+    assert.equal(image.accessibilityLabel, 'Selecionar camada Imagem');
+    const append = view.nodes('AppendButton')[0]; assert.ok(append);
+    assert.ok(view.nodes('TimelineClip')[0].props.top > view.nodes('TimelineLayer')[0].props.top);
+  } finally { view.dispose(); }
+});
+
+test('autoscroll com Babel real captura helper snap inicializado e libera guia no fim', async () => {
+  const fixture = manyLayerFixture(), moves = [];
+  const view = harness({ ...fixture, nativeWorklets: true, selectedLayerId: 'title', onMoveLayer: async (id, delta, target) => moves.push({ id, delta, target }) });
+  try {
+    const tree = view.childLayer('title'), pan = tree.props.children[0].props.gesture.gestures[0].handlers;
+    pan.onStart({ absoluteX: 180, absoluteY: 48 }); view.flushJS();
+    pan.onUpdate({ absoluteX: 180, absoluteY: 157, translationX: 0, translationY: 88 });
+    view.frame(300); view.flushJS();
+    assert.equal(view.laneStatus(), 'Faixas 2–4 de 4');
+    pan.onEnd({}, true); await view.pump();
+    assert.deepEqual(moves, [{ id: 'title', delta: 0, target: 4 }]);
+    assert.equal(view.m().snap.value, null); assert.deepEqual(view.seeks, []);
+  } finally { view.dispose(); }
+});
+
+test('snap do main seguinte usa posição atual depois de cortar o take anterior', () => {
+  const fixture = manyLayerFixture(), view = harness({ ...fixture, activeTakeId: 'b' });
+  try {
+    view.pan('end'); // register the recognizer before the preceding duration changes
+    view.update({ takes: [{ ...take('a'), end: 5 }, take('b')] });
+    const pan = view.pan('end'); pan.onStart({ absoluteX: 250 }); view.flushJS();
+    pan.onUpdate({ absoluteX: -50, translationX: -300 });
+    assert.equal(view.m().mainTimelineStart.value, 3);
+    assert.equal(view.m().snap.value.seconds, 4, 'the absolute boundary is current, not the former position of the main clip');
+    assert.equal(view.m().end.value, 3);
+    pan.onEnd({}, false); pan.onFinalize({}, false); view.flushJS();
+    assert.equal(view.snapGuide().opacity, 0); assert.deepEqual(view.commits, []); assert.deepEqual(view.seeks, []);
   } finally { view.dispose(); }
 });

@@ -21,6 +21,7 @@ function compile(source, dependencies, globals = {}) {
 const interaction = compile(readFileSync(new URL('./editorInteraction.ts', import.meta.url), 'utf8'), { './timeline': timeline });
 const canvasEditing = compile(readFileSync(new URL('./canvasEditing.ts', import.meta.url), 'utf8'), { './model': model });
 const layerTimeline = compile(readFileSync(new URL('./layerTimelineInteraction.ts', import.meta.url), 'utf8'), { './model': model });
+const layerActions = compile(readFileSync(new URL('./layerActions.ts', import.meta.url), 'utf8'), { './model': model, './layerTimelineInteraction': layerTimeline });
 const take = id => ({ id, uri: `file:///${id}.mp4`, name: id, duration: 10, start: 2, end: 8 });
 const source = readFileSync(new URL('../../../app/studio/[id].tsx', import.meta.url), 'utf8') + '\nexport { ProjectEditor };';
 
@@ -93,7 +94,7 @@ function harness(takes = [take('a'), take('b')], options = {}) {
       dismiss: () => { for (const callback of keyboardListeners.get('keyboardDidHide') || []) callback(); } },
     Platform: { OS: 'ios' }, Pressable: 'button', ScrollView: 'scroll', FlatList: 'flatlist', Text: 'text', View: 'view',
     StyleSheet: { create: styles => styles, absoluteFillObject: {} }, useWindowDimensions: () => ({ width: 390, height: 844 }) };
-  const toolIcons = Object.fromEntries('ArrowDown ArrowUp Check ChevronRight Copy FileText Film Maximize2 Mic Minimize2 Pause Pencil Play Scissors Redo2 Split Trash2 Undo2 Upload Video X ImagePlus Layers Music Captions SlidersHorizontal Type'.split(' ').map(name => [name, name]));
+  const toolIcons = Object.fromEntries('ArrowDown ArrowUp Check ChevronDown ChevronUp ChevronLeft ChevronRight Copy FileText Film Maximize2 Mic Minimize2 Pause Pencil Play Scissors Redo2 Split Trash2 Undo2 Upload Video X ImagePlus Layers Music Captions SlidersHorizontal Type'.split(' ').map(name => [name, name]));
   const navigate = (type, destination) => navigationEvents.push({ type, destination, completedWrites, revision: project.revision });
   const editor = compile(source, {
     react: hooks, 'react/jsx-runtime': { jsx, jsxs: jsx }, 'react-native': native,
@@ -126,6 +127,7 @@ function harness(takes = [take('a'), take('b')], options = {}) {
     '@/features/studio/StudioCanvasEditor': { StudioCanvasEditor: 'canvas-editor' },
     '@/features/studio/canvasEditing': canvasEditing,
     '@/features/studio/layerTimelineInteraction': layerTimeline,
+    '@/features/studio/layerActions': layerActions,
     '@/features/studio/StudioLayerPanel': { StudioLayerPanel: 'layerPanel' },
     '@/features/studio/StudioTreatmentPanel': { StudioTreatmentPanel: 'treatmentPanel' },
     '@/features/studio/captions': {},
@@ -288,8 +290,8 @@ function renderLayerPanel(initialProps) {
     useEffect: (callback, dependencies) => { const index = cursor++; if (!slots[index] || !equals(slots[index].dependencies, dependencies)) effects.push({ index, callback, dependencies }); },
   };
   const Panel = compile(readFileSync(new URL('./StudioLayerPanel.tsx', import.meta.url), 'utf8'), {
-    react, 'react/jsx-runtime': { jsx, jsxs: jsx }, 'react-native': { Pressable: 'button', ScrollView: 'scroll', Text: 'text', TextInput: 'input', View: 'view', StyleSheet: { create: value => value } },
-    'lucide-react-native': Object.fromEntries('Check ChevronDown Minus Plus Trash2'.split(' ').map(name => [name, name])), '@/theme/colors': { colors: {} }, './model': model,
+    react, 'react/jsx-runtime': { jsx, jsxs: jsx }, 'react-native': { ActivityIndicator: 'spinner', Pressable: 'button', ScrollView: 'scroll', Text: 'text', TextInput: 'input', View: 'view', StyleSheet: { create: value => value } },
+    'lucide-react-native': Object.fromEntries('AlignCenter AlignLeft AlignRight ArrowLeft Bold Check Copy Italic Pencil Scissors SlidersHorizontal Trash2 Type Volume2 Blend'.split(' ').map(name => [name, name])), '@/theme/colors': { colors: {} }, './model': model, './StudioControlSlider': { StudioControlSlider: 'slider' },
   }, { requestAnimationFrame: callback => { frames.set(++frameId, callback); return frameId; }, cancelAnimationFrame: id => frames.delete(id) }).StudioLayerPanel;
   const render = () => {
     for (let pass = 0; pass < 8; pass += 1) {
@@ -299,9 +301,10 @@ function renderLayerPanel(initialProps) {
     }
     throw new Error('Layer panel render did not settle');
   };
-  const input = () => { const visit = node => { if (Array.isArray(node)) { for (const child of node) { const found = visit(child); if (found) return found; } } else if (node && typeof node === 'object') { if (node.type === 'input') return node.props; return visit(node.props?.children); } }; const found = visit(tree); assert.ok(found, 'real layer text input expected'); return found; };
+  const findControl = label => { const visit = node => { if (Array.isArray(node)) { for (const child of node) { const result = visit(child); if (result) return result; } } else if (node && typeof node === 'object') { if (node.props?.accessibilityLabel === label) return node.props; return visit(node.props?.children); } }; return visit(tree); };
+  const input = () => { const visit = node => { if (Array.isArray(node)) { for (const child of node) { const found = visit(child); if (found) return found; } } else if (node && typeof node === 'object') { if (node.type === 'input') return node.props; return visit(node.props?.children); } }; let found = visit(tree); if (!found && findControl('Editar texto')) { findControl('Editar texto').onPress(); render(); found = visit(tree); } assert.ok(found, 'real layer text input expected'); return found; };
   render();
-  return { input, text: value => { input().onChangeText(value); render(); }, updateProps: next => { props = next; render(); },
+  return { input, control: label => { const control = findControl(label); assert.ok(control, `Control ${label} expected`); return { ...control, onPress: () => { control.onPress(); render(); } }; }, text: value => { input().onChangeText(value); render(); findControl('Voltar às ferramentas da camada')?.onPress(); render(); }, textValue: () => { const wasEditing = !!findControl('Voltar às ferramentas da camada'); const value = input().value; if (!wasEditing) { findControl('Voltar às ferramentas da camada')?.onPress(); render(); } return value; }, updateProps: next => { props = next; render(); },
     focusCount: () => focused, flushFrames: () => { for (const callback of frames.values()) callback(); frames.clear(); },
     dispose: () => { for (const slot of slots) slot?.cleanup?.(); } };
 }
@@ -389,7 +392,7 @@ test('texto provisório e arraste de legenda salvam juntos, preservam cursor e d
     assert.equal(saved.anchor.sourceStartTicks, model.studioTicks(3.5)); assert.equal(saved.anchor.sourceEndTicks, model.studioTicks(5.5));
     assert.equal(view.project().editing.layers.flatMap(layer => layer.items).find(item => item.id === 'other-text').text.content, 'Outro título atual');
     assert.equal(view.timelineProps().position, 9); assert.equal(view.hasLayerPanel(), true, 'direct manipulation keeps the selected element editable');
-    assert.equal(renderLayerPanel(view.layerProps()).input().value, 'Texto preenchido antes de arrastar');
+    assert.equal(renderLayerPanel(view.layerProps()).textValue(), 'Texto preenchido antes de arrastar');
     const undo = view.button('Desfazer edição'); assert.equal(undo.disabled, false); undo.onPress(); await view.pump(); view.finishSave(); await view.pump();
     const restored = view.project().editing.layers.flatMap(layer => layer.items).find(item => item.id === 'caption');
     assert.equal(restored.text.content, 'Legenda inicial'); assert.equal(restored.anchor.sourceStartTicks, model.studioTicks(3));
@@ -405,7 +408,7 @@ test('falha ao salvar arraste preserva texto provisório e informa o erro ao ges
     view.failNextMutation('Disco cheio');
     await assert.rejects(view.timelineProps().onMoveLayer('caption', 0.5), /ainda não foi salva/); await view.pump();
     assert.equal(view.hasLayerPanel(), true); assert.equal(view.timelineProps().position, 9);
-    assert.equal(view.project().editing.layers[0].items[0].text.content, 'Legenda inicial'); assert.equal(panel.input().value, 'Texto para tentar novamente');
+    assert.equal(view.project().editing.layers[0].items[0].text.content, 'Legenda inicial'); assert.equal(panel.textValue(), 'Texto para tentar novamente');
     assert.ok(view.alerts.some(alert => alert[1].includes('Disco cheio')));
     const retry = view.timelineProps().onMoveLayer('caption', 0.5); await view.pump(); view.finishSave(); await retry; await view.pump();
     assert.equal(view.project().editing.layers[0].items[0].text.content, 'Texto para tentar novamente');
@@ -440,7 +443,7 @@ test('erro de disco ao abrir Revisar mantém texto e prévia para tentar novamen
     view.failNextMutation('Disco cheio'); view.button('Revisar publicação').onPress(); await view.pump();
     assert.deepEqual(view.navigationEvents, []);
     assert.equal(view.project().revision, 1); assert.equal(view.project().editing.layers[0].items[0].text.content, 'Legenda inicial');
-    assert.equal(view.hasLayerPanel(), true); assert.equal(panel.input().value, 'Não perder este rascunho');
+    assert.equal(view.hasLayerPanel(), true); assert.equal(panel.textValue(), 'Não perder este rascunho');
     assert.equal(view.previewProps().project.editing.layers[0].items[0].text.content, 'Não perder este rascunho');
     assert.ok(view.alerts.some(alert => alert[1].includes('Disco cheio')));
     assert.equal(view.button('Revisar publicação').disabled, false);
@@ -502,7 +505,7 @@ function renderTreatmentPanel(initialProps) {
   };
   const Panel = compile(readFileSync(new URL('./StudioTreatmentPanel.tsx', import.meta.url), 'utf8'), {
     react, 'react/jsx-runtime': { jsx, jsxs: jsx }, 'react-native': { ActivityIndicator: 'spinner', Pressable: 'button', ScrollView: 'scroll', Text: 'text', View: 'view', StyleSheet: { create: value => value } },
-    'lucide-react-native': Object.fromEntries('Check ChevronDown Eye Minus Plus'.split(' ').map(name => [name, name])), '@/theme/colors': { colors: {} }, './model': model,
+    'lucide-react-native': Object.fromEntries('ArrowLeft Check Eye Sparkles Sun Contrast Droplets Thermometer Ban'.split(' ').map(name => [name, name])), '@/theme/colors': { colors: {} }, './model': model, './StudioControlSlider': { StudioControlSlider: 'slider' },
   }).StudioTreatmentPanel;
   const render = () => {
     for (let pass = 0; pass < 8; pass += 1) {
@@ -518,17 +521,42 @@ function renderTreatmentPanel(initialProps) {
   };
   render();
   return {
-    preset: label => { find(node => node.type === 'button' && node.props.children?.type === 'text' && node.props.children.props.children === label).onPress(); render(); },
+    preset: label => { find(node => node.props?.accessibilityLabel === `Filtro ${label}`).onPress(); render(); },
     control: label => find(node => node.props?.accessibilityLabel === label),
     updateProps: next => { props = next; render(); },
     dispose: () => { for (const slot of slots) slot?.cleanup?.(); },
   };
 }
 
+test('abrir ajustes da camada pausa a reprodução e mantém o alvo com a timeline recolhida', async () => {
+  const editing = model.addStudioLayerItem(editingWithCaptions(), {
+    id: 'overlay', kind: 'image', assetId: 'photo', atTicks: 0, durationTicks: model.studioTicks(6),
+    rect: { x: .1, y: .1, width: .3, height: .3 },
+  });
+  editing.assets.push({ id: 'photo', uri: 'file:///photo.jpg', kind: 'image', width: 100, height: 100 });
+  const view = harness(undefined, { initialEditing: editing, advanced: true }); let panel;
+  try {
+    await view.pump(); view.canvasProps().onSelectLayer('overlay'); await view.pump();
+    view.publish({ position: 3, sourcePosition: 5, takeId: 'a', playing: true, loading: false }); await view.pump();
+    const pauses = view.preview.pauses;
+    await view.layerProps().onTreatment(); await view.pump();
+    assert.equal(view.preview.pauses, pauses + 1);
+    assert.equal(view.hasTimeline(), false); assert.equal(view.previewProps().paused, true);
+    assert.equal(view.treatmentProps().targetId, 'overlay');
+    panel = renderTreatmentPanel(view.treatmentProps()); panel.control('Filtros').onPress(); panel.updateProps(view.treatmentProps());
+    panel.preset('Cinema'); await view.pump();
+    assert.equal(view.previewProps().project.editing.layers.flatMap(lane => lane.items).find(item => item.id === 'overlay').grade.preset, 'cinematic');
+    assert.equal(view.project().editing.layers.flatMap(lane => lane.items).find(item => item.id === 'overlay').grade, undefined);
+    view.treatmentProps().onClose(); await view.pump();
+    assert.equal(view.hasTimeline(), true); assert.equal(view.timelineProps().position, 3);
+    assert.deepEqual(view.writes(), { attempted: 0, completed: 0 });
+  } finally { panel?.dispose(); view.dispose(); }
+});
+
 test('Revisar também salva o preset de tratamento visível antes de navegar', async () => {
   const view = harness(undefined, { initialEditing: editingWithCaptions(), advanced: true }); let panel;
   try {
-    await view.pump(); view.tool('Imagem').onPress(); await view.pump();
+    await view.pump(); view.tool('Filtros').onPress(); await view.pump();
     panel = renderTreatmentPanel(view.treatmentProps()); panel.preset('Studio'); await view.pump();
     assert.equal(view.project().editing.main[0].grade?.preset || 'natural', 'natural');
     assert.equal(view.previewProps().project.editing.main[0].grade.preset, 'studio');
@@ -547,7 +575,7 @@ test('Revisar também salva o preset de tratamento visível antes de navegar', a
 test('Revisar mescla o tratamento do alvo sem substituir camadas e takes atuais', async () => {
   const view = harness(undefined, { initialEditing: editingWithCaptions(), advanced: true }); let panel;
   try {
-    await view.pump(); view.tool('Imagem').onPress(); await view.pump();
+    await view.pump(); view.tool('Filtros').onPress(); await view.pump();
     panel = renderTreatmentPanel(view.treatmentProps()); panel.preset('Studio'); await view.pump();
     view.externalEditing(appendMediaAndUpdateOtherTitle(view.project()));
     view.button('Revisar publicação').onPress(); await view.pump(); assert.deepEqual(view.navigationEvents, []);
@@ -564,7 +592,7 @@ test('Revisar mescla o tratamento do alvo sem substituir camadas e takes atuais'
 test('falha ao salvar o tratamento para Revisar preserva o preset provisório e impede a saída', async () => {
   const view = harness(undefined, { initialEditing: editingWithCaptions(), advanced: true }); let panel;
   try {
-    await view.pump(); view.tool('Imagem').onPress(); await view.pump();
+    await view.pump(); view.tool('Filtros').onPress(); await view.pump();
     panel = renderTreatmentPanel(view.treatmentProps()); panel.preset('Cinema'); await view.pump();
     view.failNextMutation('Não há espaço para salvar'); view.button('Revisar publicação').onPress(); await view.pump();
     assert.deepEqual(view.navigationEvents, []); assert.equal(view.hasTreatmentPanel(), true);
@@ -597,7 +625,7 @@ test('texto digitado e transform do canvas salvam juntos sem perder cursor e for
     view.finishSave(); await saving; canvas.onPreviewRect('caption', undefined); canvas.onInteractionEnd(); await view.pump();
     const saved = view.project().editing.layers[0].items[0];
     assert.equal(saved.text.content, 'Texto digitado, depois redimensionado'); assert.equal(saved.text.fontSize, 0.07); assert.deepEqual(saved.rect, transform.rect);
-    assert.equal(view.hasLayerPanel(), true); assert.equal(renderLayerPanel(view.layerProps()).input().value, saved.text.content);
+    assert.equal(view.hasLayerPanel(), true); assert.equal(renderLayerPanel(view.layerProps()).textValue(), saved.text.content);
     assert.equal(view.timelineProps().position, 8); assert.deepEqual(view.writes(), { attempted: 1, completed: 1 });
     view.button('Desfazer edição').onPress(); await view.pump(); view.finishSave(); await view.pump();
     assert.deepEqual(view.project().editing.layers[0].items[0], original, 'one undo restores text, font and frame together');
@@ -638,12 +666,12 @@ test('erro de disco em main mantém draft e alvo ao Concluir ou abrir tratamento
     canvas.onPreviewRect('a', undefined); canvas.onInteractionEnd(); await view.pump();
     assert.equal(view.canvasProps().selectedMainClipId, 'a'); assert.deepEqual(view.previewProps().project.editing.main[0].rect, transform.rect);
     assert.equal(view.project().editing.main[0].rect, undefined); assert.equal(view.button('Desfazer edição').disabled, true);
-    view.failNextMutation('Ainda sem espaço'); view.tool('Concluir').onPress(); await view.pump();
+    view.failNextMutation('Ainda sem espaço'); view.tool('Voltar').onPress(); await view.pump();
     assert.equal(view.canvasProps().selectedMainClipId, 'a'); assert.deepEqual(view.previewProps().project.editing.main[0].rect, transform.rect);
-    view.failNextMutation('Ainda sem espaço'); view.tool('Imagem').onPress(); await view.pump();
+    view.failNextMutation('Ainda sem espaço'); view.tool('Filtros').onPress(); await view.pump();
     assert.equal(view.hasTreatmentPanel(), false); assert.equal(view.canvasProps().selectedMainClipId, 'a');
     assert.deepEqual(view.previewProps().project.editing.main[0].rect, transform.rect); assert.deepEqual(view.writes(), { attempted: 3, completed: 0 });
-    view.tool('Concluir').onPress(); await view.pump(); assert.equal(view.tool('Concluir').disabled, true);
+    view.tool('Voltar').onPress(); await view.pump(); assert.equal(view.tool('Voltar').disabled, true);
     view.finishSave(); await view.pump();
     assert.deepEqual(view.project().editing.main[0].rect, transform.rect); assert.equal(view.canvasProps().selectedMainClipId, undefined);
     assert.deepEqual(view.writes(), { attempted: 4, completed: 1 }); assert.deepEqual(view.navigationEvents, []);
@@ -717,11 +745,11 @@ test('double tap solicita foco do TextInput real sem seek, salva ou limpa texto;
     view.canvasProps().onSelectLayer('caption'); await view.pump();
     panel = renderLayerPanel(view.layerProps()); panel.text('Conteúdo mantido no double tap'); await view.pump();
     view.canvasProps().onEditText('caption'); await view.pump(); panel.updateProps(view.layerProps()); panel.flushFrames();
-    assert.equal(panel.focusCount(), 1); assert.equal(panel.input().value, 'Conteúdo mantido no double tap');
+    assert.equal(panel.focusCount(), 1); assert.equal(panel.textValue(), 'Conteúdo mantido no double tap');
     assert.deepEqual(view.writes(), { attempted: 0, completed: 0 }); assert.equal(view.preview.seeks.length, 0);
     view.keyboard(true); await view.pump(); assert.equal(view.hasTimeline(), false); assert.equal(view.keyboardProps().enabled, true);
     assert.equal(view.layerProps().item.text.content, 'Conteúdo mantido no double tap'); assert.equal(view.canvasProps().selectedLayerId, 'caption');
-    view.keyboard(false); await view.pump(); assert.equal(view.hasTimeline(), true); assert.equal(view.timelineProps().position, 8);
+    view.keyboard(false); await view.pump(); assert.equal(view.hasTimeline(), false, 'text options still occupy the timeline area'); panel.control('Voltar às ferramentas da camada').onPress(); await view.pump(); assert.equal(view.hasTimeline(), true); assert.equal(view.timelineProps().position, 8);
   } finally { panel?.dispose(); view.dispose(); }
 });
 
@@ -785,7 +813,7 @@ test('sair do editor cancela foco pendente sem perder seleção ou texto visíve
     assert.equal(view.canvasProps().selectedLayerId, 'caption');
     view.focus(true); await view.pump(); panel.updateProps(view.layerProps()); panel.flushFrames();
     assert.equal(panel.focusCount(), 0); assert.equal(view.layerProps().disabled, false);
-    assert.equal(panel.input().value, 'Texto ainda em edição'); assert.deepEqual(view.writes(), { attempted: 0, completed: 0 });
+    assert.equal(panel.textValue(), 'Texto ainda em edição'); assert.deepEqual(view.writes(), { attempted: 0, completed: 0 });
   } finally { panel?.dispose(); view.dispose(); }
 });
 
@@ -795,12 +823,12 @@ for (const outcome of ['cancel', 'error']) test(`importação ${outcome}: segund
   const view = harness(undefined, { initialEditing: editingWithCaptions(), advanced: true,
     importLayer: () => { calls += 1; return pending; } });
   try {
-    await view.pump(); view.tool('Camada').onPress();
-    const insert = view.alerts.at(-1)[2].find(option => option.text === 'Imagem').onPress;
+    await view.pump(); view.tool('Sobrepor').onPress(); await view.pump();
+    const insert = view.tool('Imagem').onPress;
     // Both callbacks were queued before React rendered the disabled state.
     insert(); insert(); await view.pump();
     assert.equal(calls, 1);
-    assert.equal(view.tool('Camada').disabled, true);
+    assert.equal(view.tool('Sobrepor').disabled, true);
     assert.equal(view.canvasProps().disabled, true);
     assert.equal(view.timelineProps().busy, true);
     const selection = view.canvasProps().selectedLayerId;
@@ -809,10 +837,56 @@ for (const outcome of ['cancel', 'error']) test(`importação ${outcome}: segund
     view.back(); await view.pump();
     assert.equal(view.navigationEvents.length, 0);
     settle(); await view.pump();
-    assert.equal(view.tool('Camada').disabled, false);
+    assert.equal(view.tool('Sobrepor').disabled, false);
     assert.equal(view.canvasProps().disabled, false);
     assert.equal(view.timelineProps().busy, false);
     assert.deepEqual(view.writes(), { attempted: 0, completed: 0 });
     if (outcome === 'error') assert.equal(view.alerts.at(-1)[1], 'Imagem indisponível');
+  } finally { view.dispose(); }
+});
+
+test('duplicar camada salva o texto provisório e a nova faixa juntos, preserva cursor e permite undo', async () => {
+  const initial = editingWithCaptions(), view = harness(undefined, { initialEditing: initial, advanced: true }); let panel;
+  try {
+    await view.pump(); view.publish({ position: 8, sourcePosition: 4, takeId: 'b', playing: false, loading: false }); await view.pump();
+    view.timelineProps().onSelectLayer('caption'); await view.pump();
+    panel = renderLayerPanel(view.layerProps()); panel.text('Texto com estilo, salvo na cópia'); await view.pump();
+    const operation = view.layerProps().onDuplicate(); await view.pump();
+    assert.equal(view.timelineProps().position, 8); view.finishSave(); await operation; await view.pump();
+    const copy = view.project().editing.layers.flatMap(layer => layer.items).find(item => item.id === 'new-1');
+    assert.equal(copy.text.content, 'Texto com estilo, salvo na cópia');
+    assert.equal(view.timelineProps().selectedLayerId, 'new-1');
+    assert.deepEqual(copy.anchor, initial.layers[0].items[0].anchor); assert.equal(view.timelineProps().position, 8);
+    assert.deepEqual(view.writes(), { attempted: 1, completed: 1 });
+    view.button('Desfazer edição').onPress(); await view.pump(); view.finishSave(); await view.pump();
+    assert.deepEqual(view.project().editing.layers, initial.layers); assert.equal(view.timelineProps().position, 8);
+  } finally { panel?.dispose(); view.dispose(); }
+});
+
+test('dividir camada no cursor mantém os dois intervalos e texto com um save e uma etapa de undo', async () => {
+  const initial = editingWithCaptions(), view = harness(undefined, { initialEditing: initial, advanced: true }); let panel;
+  try {
+    await view.pump(); view.publish({ position: 8, sourcePosition: 4, takeId: 'b', playing: false, loading: false }); await view.pump();
+    view.canvasProps().onSelectLayer('caption'); await view.pump(); assert.equal(view.layerProps().canSplit, true);
+    panel = renderLayerPanel(view.layerProps()); panel.text('Texto preservado nos dois lados'); await view.pump();
+    const operation = view.layerProps().onSplit(); await view.pump(); view.finishSave(); await operation; await view.pump();
+    const clips = model.compileStudioRecipe(view.project()).clips.filter(clip => clip.id === 'caption' || clip.id === 'new-1');
+    assert.deepEqual(clips.map(clip => [clip.startTicks, clip.durationTicks, clip.text.content]), [[model.studioTicks(7), model.studioTicks(1), 'Texto preservado nos dois lados'], [model.studioTicks(8), model.studioTicks(1), 'Texto preservado nos dois lados']]);
+    assert.equal(view.timelineProps().position, 8); assert.equal(view.timelineProps().selectedLayerId, 'new-1'); assert.equal(view.layerProps().canSplit, false);
+    assert.deepEqual(view.writes(), { attempted: 1, completed: 1 });
+    view.button('Desfazer edição').onPress(); await view.pump(); view.finishSave(); await view.pump();
+    assert.deepEqual(view.project().editing.layers, initial.layers); assert.equal(view.timelineProps().position, 8);
+  } finally { panel?.dispose(); view.dispose(); }
+});
+
+test('ações de camada enfileiradas durante gesto não duplicam nem dividem', async () => {
+  const view = harness(undefined, { initialEditing: editingWithCaptions(), advanced: true });
+  try {
+    await view.pump(); view.publish({ position: 8, sourcePosition: 4, takeId: 'b', playing: false, loading: false }); await view.pump();
+    view.canvasProps().onSelectLayer('caption'); await view.pump();
+    const panel = view.layerProps(); view.timelineProps().onLayerInteractionStart();
+    await panel.onDuplicate(); await panel.onSplit(); await view.pump();
+    assert.deepEqual(view.writes(), { attempted: 0, completed: 0 }); assert.equal(view.timelineProps().position, 8);
+    view.timelineProps().onLayerInteractionEnd(); await view.pump(); assert.equal(view.layerProps().disabled, false);
   } finally { view.dispose(); }
 });

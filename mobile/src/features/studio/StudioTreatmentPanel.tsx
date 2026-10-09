@@ -1,41 +1,42 @@
 import { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { Check, ChevronDown, Eye, Minus, Plus } from 'lucide-react-native';
+import { ArrowLeft, Check, Contrast, Droplets, Eye, Sun, Thermometer } from 'lucide-react-native';
 import { colors } from '@/theme/colors';
 import { patchStudioClipGrade, studioGrade, type StudioEditing, type StudioGrade, type StudioEffect } from './model';
+import { StudioControlSlider } from './StudioControlSlider';
 
 type Props = {
-  editing: StudioEditing; targetId: string; disabled?: boolean;
+  editing: StudioEditing; targetId: string; disabled?: boolean; initialTab?: 'filters' | 'adjust';
   onPreview: (editing: StudioEditing | undefined) => void;
   onApply: (editing: StudioEditing) => Promise<void>;
   onClose: () => void; onBefore?: (original: boolean) => void;
 };
-type Parameter = Exclude<keyof StudioGrade, 'preset'>;
-const presets: { id: StudioEffect; title: string }[] = [{ id: 'natural', title: 'Natural' }, { id: 'studio', title: 'Studio' }, { id: 'cinematic', title: 'Cinema' }];
-const parameters: { id: Parameter; title: string; min: number; max: number; step: number }[] = [
-  { id: 'intensity', title: 'Intensidade', min: 0, max: 1, step: 0.05 },
-  { id: 'exposure', title: 'Exposição', min: -2, max: 2, step: 0.1 },
-  { id: 'contrast', title: 'Contraste', min: -1, max: 1, step: 0.05 },
-  { id: 'saturation', title: 'Saturação', min: -1, max: 1, step: 0.05 },
-  { id: 'temperature', title: 'Temperatura', min: -1, max: 1, step: 0.05 },
+type Parameter = Exclude<keyof StudioGrade, 'preset' | 'intensity'>;
+const presets: { id: StudioEffect; title: string; shades: [string, string, string] }[] = [
+  { id: 'natural', title: 'Natural', shades: ['#7D8271', '#C8B7A7', '#9E725B'] },
+  { id: 'studio', title: 'Studio', shades: ['#666B62', '#DAC0AA', '#A45E4E'] },
+  { id: 'cinematic', title: 'Cinema', shades: ['#354C55', '#BFA889', '#705E5A'] },
+];
+const parameters: { id: Parameter; title: string; min: number; max: number; step: number; Icon: typeof Sun }[] = [
+  { id: 'exposure', title: 'Exposição', min: -2, max: 2, step: 0.1, Icon: Sun },
+  { id: 'contrast', title: 'Contraste', min: -1, max: 1, step: 0.05, Icon: Contrast },
+  { id: 'saturation', title: 'Saturação', min: -1, max: 1, step: 0.05, Icon: Droplets },
+  { id: 'temperature', title: 'Temperatura', min: -1, max: 1, step: 0.05, Icon: Thermometer },
 ];
 function gradeFor(editing: StudioEditing, targetId: string): StudioGrade {
   const clip = editing.main.find(item => item.id === targetId) ?? editing.layers.flatMap(layer => layer.items).find(item => item.id === targetId);
   return { ...studioGrade(clip?.effect), ...clip?.grade };
 }
 
-/** Local color edits preview immediately; only Apply writes a history entry. */
-export function StudioTreatmentPanel({ editing, targetId, disabled = false, onPreview, onApply, onClose, onBefore }: Props) {
+/** Local edits preview immediately; only Apply writes a history entry. */
+export function StudioTreatmentPanel({ editing, targetId, disabled = false, initialTab = 'filters', onPreview, onApply, onClose, onBefore }: Props) {
   const [draft, setDraft] = useState(() => gradeFor(editing, targetId));
-  const [parameter, setParameter] = useState<Parameter>('intensity');
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string>();
-  const [trackWidth, setTrackWidth] = useState(1);
+  const [tab, setTab] = useState<'filters' | 'adjust'>(initialTab), [parameter, setParameter] = useState<Parameter>('exposure');
+  const [saving, setSaving] = useState(false), [error, setError] = useState<string>();
   const live = useRef({ editing, targetId, disabled, onPreview, onApply, onClose, onBefore });
   live.current = { editing, targetId, disabled, onPreview, onApply, onClose, onBefore };
   const draftRef = useRef(draft), mounted = useRef(true), writing = useRef(false), originalHeld = useRef(false);
-  const previewTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const lastPreview = useRef(0);
+  const previewTimer = useRef<ReturnType<typeof setTimeout> | null>(null), lastPreview = useRef(0);
   const clearTimer = () => { if (previewTimer.current) clearTimeout(previewTimer.current); previewTimer.current = null; };
   const publishPreview = () => {
     clearTimer(); lastPreview.current = Date.now();
@@ -54,13 +55,14 @@ export function StudioTreatmentPanel({ editing, targetId, disabled = false, onPr
     clearTimer(); originalHeld.current = false; live.current.onBefore?.(false); live.current.onPreview(undefined);
     const next = gradeFor(editing, targetId); draftRef.current = next; setDraft(next); setError(undefined);
   }, [editing, targetId]);
+  useEffect(() => { setTab(initialTab); }, [targetId, initialTab]);
   useEffect(() => {
     mounted.current = true;
     return () => { mounted.current = false; clearTimer(); live.current.onBefore?.(false); live.current.onPreview(undefined); };
   }, []);
   useEffect(() => { if (disabled && originalHeld.current) original(false); }, [disabled]);
   const update = (patch: Partial<StudioGrade>) => {
-    if (live.current.disabled || writing.current) return;
+    if (live.current.disabled || writing.current || live.current.targetId !== targetId) return;
     const next = { ...draftRef.current, ...patch }; draftRef.current = next; setDraft(next); setError(undefined);
     const delay = Math.max(0, 40 - (Date.now() - lastPreview.current));
     if (!delay) publishPreview(); else if (!previewTimer.current) previewTimer.current = setTimeout(publishPreview, delay);
@@ -74,45 +76,33 @@ export function StudioTreatmentPanel({ editing, targetId, disabled = false, onPr
     finally { writing.current = false; if (mounted.current) setSaving(false); }
   };
   const active = parameters.find(item => item.id === parameter)!;
-  const value = draft[parameter], progress = (value - active.min) / (active.max - active.min);
-  const change = (next: number) => update({ [parameter]: Math.round(Math.max(active.min, Math.min(active.max, next)) * 1000) / 1000 });
-  const touch = (x: number) => { if (Number.isFinite(x) && trackWidth > 1) change(active.min + Math.max(0, Math.min(1, x / trackWidth)) * (active.max - active.min)); };
   const blocked = disabled || saving;
   return <View style={s.panel}>
     <View style={s.header}>
-      <Pressable accessibilityRole="button" accessibilityLabel="Fechar tratamento" disabled={saving} onPress={onClose} style={s.icon}><ChevronDown size={20} color={colors.text} /></Pressable>
-      <Text style={s.title}>Tratamento</Text>
-      <Pressable accessibilityRole="button" accessibilityLabel="Segure para comparar com o original" disabled={blocked} onPressIn={() => original(true)} onPressOut={() => original(false)} style={({ pressed }) => [s.original, pressed && s.active]}><Eye size={15} color={colors.textSecondary} /><Text style={s.label}>Original</Text></Pressable>
-      <Pressable accessibilityRole="button" accessibilityLabel="Aplicar tratamento" accessibilityState={{ busy: saving, disabled: blocked }} disabled={blocked} onPress={() => { void apply(); }} style={s.icon}>{saving ? <ActivityIndicator size="small" color={colors.accent} /> : <Check size={22} color={colors.accent} />}</Pressable>
+      <Pressable accessibilityRole="button" accessibilityLabel="Fechar tratamento" disabled={blocked} onPress={onClose} style={s.icon}><ArrowLeft size={24} color={colors.text} strokeWidth={1.7} /></Pressable>
+      <View style={s.tabs}>{(['filters', 'adjust'] as const).map(value => <Pressable key={value} accessibilityRole="button" accessibilityLabel={value === 'filters' ? 'Filtros' : 'Ajustes'} accessibilityState={{ selected: tab === value, disabled: blocked }} disabled={blocked} onPress={() => setTab(value)} style={[s.tab, tab === value && s.selectedTab]}><Text style={[s.tabLabel, tab === value && s.selectedLabel]}>{value === 'filters' ? 'Filtros' : 'Ajustes'}</Text></Pressable>)}</View>
+      <Pressable accessibilityRole="button" accessibilityLabel="Segure para comparar com o original" disabled={blocked} onPressIn={() => original(true)} onPressOut={() => original(false)} style={({ pressed }) => [s.icon, pressed && s.pressed]}><Eye size={23} color={colors.textSecondary} strokeWidth={1.6} /></Pressable>
+      <Pressable accessibilityRole="button" accessibilityLabel="Aplicar tratamento" accessibilityState={{ busy: saving, disabled: blocked }} disabled={blocked} onPress={() => { void apply(); }} style={s.icon}>{saving ? <ActivityIndicator size="small" color={colors.accent} /> : <Check size={26} color={colors.accent} strokeWidth={1.8} />}</Pressable>
     </View>
-    <View style={s.presets}>{presets.map(preset => <Pressable key={preset.id} accessibilityRole="button" accessibilityState={{ selected: draft.preset === preset.id, disabled: blocked }} disabled={blocked} onPress={() => update({ preset: preset.id })} style={[s.preset, draft.preset === preset.id && s.active]}><Text style={[s.presetLabel, draft.preset === preset.id && { color: colors.text }]}>{preset.title}</Text></Pressable>)}</View>
-    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.tabs}>{parameters.map(item => <Pressable key={item.id} accessibilityRole="button" accessibilityState={{ selected: parameter === item.id }} onPress={() => setParameter(item.id)} style={[s.tab, parameter === item.id && s.selectedTab]}><Text style={[s.tabLabel, parameter === item.id && { color: colors.text }]}>{item.title}</Text></Pressable>)}</ScrollView>
-    <View style={[s.adjustment, blocked && { opacity: 0.45 }]}>
-      <Pressable accessibilityRole="button" accessibilityLabel={`Diminuir ${active.title}`} disabled={blocked} onPress={() => change(value - active.step)} style={s.icon}><Minus size={17} color={colors.text} /></Pressable>
-      <View accessibilityRole="adjustable" accessibilityLabel={active.title} accessibilityValue={{ min: active.min, max: active.max, now: value }} accessibilityActions={[{ name: 'increment' }, { name: 'decrement' }]}
-        onAccessibilityAction={event => { if (!blocked) change(value + (event.nativeEvent.actionName === 'increment' ? active.step : -active.step)); }}
-        onLayout={event => setTrackWidth(event.nativeEvent.layout.width)} onStartShouldSetResponder={() => !blocked} onMoveShouldSetResponder={() => !blocked}
-        onResponderGrant={event => touch(event.nativeEvent.locationX)} onResponderMove={event => touch(event.nativeEvent.locationX)} onResponderRelease={publishPreview} onResponderTerminate={publishPreview} style={s.slider}>
-        <View pointerEvents="none" style={s.track}><View style={[s.fill, { width: `${progress * 100}%` }]} /><View style={[s.knob, { left: Math.max(0, Math.min(trackWidth - 12, progress * trackWidth - 6)) }]} /></View>
-      </View>
-      <Text style={s.value}>{parameter === 'intensity' ? `${Math.round(value * 100)}%` : `${value > 0 ? '+' : ''}${value.toFixed(2)}`}</Text>
-      <Pressable accessibilityRole="button" accessibilityLabel={`Aumentar ${active.title}`} disabled={blocked} onPress={() => change(value + active.step)} style={s.icon}><Plus size={17} color={colors.text} /></Pressable>
-    </View>
+    {tab === 'filters' ? <>
+      <View style={s.presets}>{presets.map(preset => <Pressable key={preset.id} accessibilityRole="button" accessibilityLabel={`Filtro ${preset.title}`} accessibilityState={{ selected: draft.preset === preset.id, disabled: blocked }} disabled={blocked} onPress={() => update({ preset: preset.id })} style={[s.preset, draft.preset === preset.id && s.selectedPreset]}>
+        <View pointerEvents="none" style={s.presetArt}>{preset.shades.map((shade, index) => <View key={shade} style={[s.presetShade, { backgroundColor: shade, flex: index === 1 ? 1.3 : 1 }]} />)}</View>
+        <Text style={[s.presetLabel, draft.preset === preset.id && s.selectedLabel]}>{preset.title}</Text>
+      </Pressable>)}</View>
+      <StudioControlSlider label="Intensidade" value={draft.intensity} min={0} max={1} step={0.05} disabled={blocked} formatValue={value => `${Math.round(value * 100)}%`} onChange={intensity => update({ intensity })} onInteractionEnd={publishPreview} />
+    </> : <>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.adjustments}>{parameters.map(({ id, title, Icon }) => <Pressable key={id} accessibilityRole="button" accessibilityLabel={`Ajustar ${title}`} accessibilityState={{ selected: parameter === id, disabled: blocked }} disabled={blocked} onPress={() => setParameter(id)} style={[s.adjustment, parameter === id && s.selectedAdjustment]}><Icon size={25} color={parameter === id ? colors.text : colors.muted} strokeWidth={1.5} /><Text style={[s.adjustmentLabel, parameter === id && s.selectedLabel]}>{title}</Text></Pressable>)}</ScrollView>
+      <StudioControlSlider label={active.title} value={draft[parameter]} min={active.min} max={active.max} step={active.step} disabled={blocked} formatValue={value => `${value > 0 ? '+' : ''}${value.toFixed(2)}`} onChange={value => update({ [parameter]: value })} onInteractionEnd={publishPreview} />
+    </>}
     {error ? <Text accessibilityRole="alert" style={s.error}>{error}</Text> : null}
   </View>;
 }
 const s = StyleSheet.create({
-  panel: { backgroundColor: '#151A1F', borderTopWidth: 1, borderTopColor: '#252B32', paddingBottom: 4 },
-  header: { height: 40, flexDirection: 'row', alignItems: 'center' }, title: { flex: 1, color: colors.text, fontSize: 13, fontWeight: '600' },
-  icon: { width: 42, height: 40, alignItems: 'center', justifyContent: 'center' },
-  original: { minHeight: 30, paddingHorizontal: 9, gap: 5, borderRadius: 5, flexDirection: 'row', alignItems: 'center' },
-  label: { color: colors.textSecondary, fontSize: 10 },
-  presets: { paddingHorizontal: 14, flexDirection: 'row', gap: 6 }, preset: { flex: 1, minHeight: 32, borderRadius: 6, alignItems: 'center', justifyContent: 'center', backgroundColor: '#20272F' },
-  presetLabel: { color: colors.muted, fontSize: 12, fontWeight: '500' }, active: { backgroundColor: '#343E49' },
-  tabs: { paddingHorizontal: 12, paddingTop: 7, gap: 2 }, tab: { paddingVertical: 6, paddingHorizontal: 8, borderBottomWidth: 1, borderBottomColor: 'transparent' }, selectedTab: { borderBottomColor: colors.textSecondary },
-  tabLabel: { color: colors.muted, fontSize: 10 }, adjustment: { height: 46, flexDirection: 'row', alignItems: 'center' },
-  slider: { flex: 1, minHeight: 42, justifyContent: 'center' }, track: { height: 2, backgroundColor: '#3D4853', borderRadius: 1 },
-  fill: { height: 2, backgroundColor: '#D6DEE6', borderRadius: 1 }, knob: { position: 'absolute', width: 12, height: 12, top: -5, borderRadius: 6, backgroundColor: '#F5F7FA' },
-  value: { width: 49, marginLeft: 10, color: colors.textSecondary, fontSize: 11, textAlign: 'center', fontVariant: ['tabular-nums'] },
-  error: { paddingHorizontal: 14, paddingBottom: 5, color: colors.accent, fontSize: 11 },
+  panel: { backgroundColor: colors.surface, borderTopWidth: 1, borderTopColor: colors.borderSubtle, paddingBottom: 4 },
+  header: { height: 44, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 5 }, icon: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center', borderRadius: 10 }, pressed: { backgroundColor: colors.surfaceMuted },
+  tabs: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4 }, tab: { minHeight: 36, paddingHorizontal: 13, alignItems: 'center', justifyContent: 'center', borderRadius: 9 }, selectedTab: { backgroundColor: colors.surfaceMuted }, tabLabel: { color: colors.muted, fontSize: 13, fontWeight: '600' }, selectedLabel: { color: colors.text },
+  presets: { flexDirection: 'row', paddingHorizontal: 12, gap: 10, paddingTop: 6 }, preset: { flex: 1, padding: 4, borderRadius: 12, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: 'transparent' }, selectedPreset: { borderColor: colors.text },
+  presetArt: { height: 88, borderRadius: 7, overflow: 'hidden', flexDirection: 'row' }, presetShade: { flex: 1 }, presetLabel: { color: colors.muted, fontSize: 14, fontWeight: '500', textAlign: 'center', paddingTop: 8, paddingBottom: 6 },
+  adjustments: { paddingHorizontal: 10, paddingTop: 6, gap: 5 }, adjustment: { width: 83, height: 65, alignItems: 'center', justifyContent: 'center', gap: 7, borderRadius: 12 }, selectedAdjustment: { backgroundColor: colors.surfaceAlt }, adjustmentLabel: { color: colors.muted, fontSize: 11 },
+  error: { color: colors.accent, fontSize: 12, paddingHorizontal: 14, paddingBottom: 6 },
 });

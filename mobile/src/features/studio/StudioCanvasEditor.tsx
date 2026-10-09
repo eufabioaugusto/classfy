@@ -3,8 +3,8 @@ import { AppState, StyleSheet, Text, View, type AccessibilityActionEvent, type L
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, { runOnJS, runOnUI, useAnimatedStyle, useSharedValue, type SharedValue } from 'react-native-reanimated';
 import type { StudioEditing, StudioRecipeClip, StudioRenderRecipe } from './model';
-import { studioCanvasFocalPoint, studioCanvasFrame, studioCanvasHandleCanvasPosition, studioCanvasMove, studioCanvasPinch, studioCanvasResize, studioCanvasScale, studioCanvasTransformChanged,
-  studioVisibleCanvasLayers, type StudioCanvasCorner, type StudioCanvasFrame, type StudioCanvasTransform } from './canvasGeometry';
+import { studioCanvasFocalPoint, studioCanvasFrame, studioCanvasHandleCanvasPosition, studioCanvasMove, studioCanvasPinch, studioCanvasResize, studioCanvasScale, studioCanvasSnapCenter, studioCanvasTransformChanged,
+  studioVisibleCanvasLayers, type StudioCanvasCorner, type StudioCanvasFrame, type StudioCanvasSnapState, type StudioCanvasTransform } from './canvasGeometry';
 
 export type { StudioCanvasTransform } from './canvasGeometry';
 export type StudioCanvasEditorProps = {
@@ -17,11 +17,13 @@ export type StudioCanvasEditorProps = {
   onInteractionStart?: () => void; onInteractionEnd?: () => void;
 };
 const corners: StudioCanvasCorner[] = ['topLeft', 'topRight', 'bottomLeft', 'bottomRight'];
+type CanvasGuides = StudioCanvasSnapState & { owner: string };
 
 /** Only actual visual layers receive touches; the canvas background remains the player's. */
 export function StudioCanvasEditor(props: StudioCanvasEditorProps) {
   const [viewport, setViewport] = useState({ width: 0, height: 0 });
   const owner = useSharedValue('');
+  const guides = useSharedValue<CanvasGuides>({ owner: '', x: false, y: false });
   const frame = studioCanvasFrame(viewport.width, viewport.height, props.recipe.canvas.aspectRatio);
   const layers = useMemo(() => studioVisibleCanvasLayers(props.editing, props.recipe, props.positionSeconds, !!props.onSelectMainClip), [props.editing, props.recipe, props.positionSeconds, !!props.onSelectMainClip]);
   const selected = props.selectedLayerId && props.editing.layers.flatMap(layer => layer.items).find(item => item.id === props.selectedLayerId);
@@ -35,15 +37,16 @@ export function StudioCanvasEditor(props: StudioCanvasEditorProps) {
   return <View pointerEvents="box-none" onLayout={layout} style={StyleSheet.absoluteFill}>
     {frame.width > 0 && frame.height > 0 && <View pointerEvents="box-none" style={[styles.canvas, { left: frame.x, top: frame.y, width: frame.width, height: frame.height }]}>
       {[...layers].reverse().map((clip, paintIndex) => <CanvasLayer key={clip.id} {...props} clip={clip} frame={frame} paintIndex={paintIndex}
-        selected={(clip.zIndex > 0 ? props.selectedLayerId : props.selectedMainClipId) === clip.id} owner={owner} />)}
+        selected={(clip.zIndex > 0 ? props.selectedLayerId : props.selectedMainClipId) === clip.id} owner={owner} guides={guides} />)}
+      <CanvasCenterGuides guides={guides} />
     </View>}
     {outsideTime && <View pointerEvents="none" style={styles.notice}><Text accessibilityLiveRegion="polite" style={styles.noticeText}>{selected ? 'Esta camada' : 'Este vídeo principal'} está fora deste momento do vídeo.</Text></View>}
   </View>;
 }
 
-type LayerProps = StudioCanvasEditorProps & { clip: StudioRecipeClip; frame: StudioCanvasFrame; paintIndex: number; selected: boolean; owner: SharedValue<string> };
+type LayerProps = StudioCanvasEditorProps & { clip: StudioRecipeClip; frame: StudioCanvasFrame; paintIndex: number; selected: boolean; owner: SharedValue<string>; guides: SharedValue<CanvasGuides> };
 function CanvasLayer(props: LayerProps) {
-  const { clip, frame, selected, disabled, owner } = props;
+  const { clip, frame, selected, disabled, owner, guides } = props;
   const main = clip.zIndex === 0;
   const live = useRef(props); live.current = props;
   const mounted = useRef(true);
@@ -60,12 +63,26 @@ function CanvasLayer(props: LayerProps) {
   const mask = useSharedValue(0), epoch = useSharedValue(0), pending = useSharedValue(false), cancelled = useSharedValue(false);
   const panOriginX = useSharedValue(0), panOriginY = useSharedValue(0), panLastX = useSharedValue(0), panLastY = useSharedValue(0);
   const cornerOwner = useSharedValue(''), lastPreview = useSharedValue(0);
+  const snap = useSharedValue<StudioCanvasSnapState>({ x: false, y: false });
   const configuration = useSharedValue({ selected, disabled: !!disabled, width: frame.width, height: frame.height, rotation: clip.rotationDegrees, suspended: false });
   const panEpoch = useSharedValue(-1), pinchEpoch = useSharedValue(-1), handleEpoch = useSharedValue(-1);
   const alive = useSharedValue(true);
   const currentTransform = () => {
     'worklet';
     return { rect: { ...rect.value }, ...(font.value > 0 ? { textFontSize: font.value } : {}) };
+  };
+  const clearGuides = () => {
+    'worklet';
+    snap.value = { x: false, y: false };
+    if (guides.value.owner === clip.id) guides.value = { owner: '', x: false, y: false };
+  };
+  const movePan = (translationX: number, translationY: number) => {
+    'worklet';
+    const settings = configuration.value;
+    const candidate = studioCanvasMove(panBase.value, translationX - panOriginX.value, translationY - panOriginY.value, settings.width, settings.height);
+    const next = studioCanvasSnapCenter(candidate, settings.width, settings.height, snap.value);
+    rect.value = next.rect; snap.value = next.snap;
+    guides.value = { owner: clip.id, ...next.snap };
   };
   const synchronize = () => {
     rect.value = { ...live.current.clip.rect }; font.value = live.current.clip.text?.fontSize ?? 0;
@@ -116,6 +133,7 @@ function CanvasLayer(props: LayerProps) {
       'worklet';
       const through = epoch.value;
       epoch.value++; mask.value = 0; cancelled.value = true; cornerOwner.value = '';
+      clearGuides();
       // A durable write retains its reservation until its promise settles.
       if (!writing) {
         pending.value = false; if (owner.value === clip.id) owner.value = '';
@@ -152,8 +170,10 @@ function CanvasLayer(props: LayerProps) {
     if (bit === 4 ? mask.value !== 0 : !!(mask.value & 4)) return false;
     if (!mask.value) {
       owner.value = clip.id; epoch.value++; cancelled.value = false; lastPreview.value = 0;
+      clearGuides();
       baseline.value = currentTransform(); runOnJS(beginJS)(epoch.value);
     }
+    if (bit === 2) clearGuides();
     mask.value |= bit;
     return true;
   };
@@ -167,6 +187,7 @@ function CanvasLayer(props: LayerProps) {
     'worklet';
     if (operation !== epoch.value || !(mask.value & bit)) return;
     mask.value &= ~bit;
+    if (bit === 1 || !success) clearGuides();
     if (!success) cancelled.value = true;
     if (bit === 2 && mask.value & 1) {
       panBase.value = { ...rect.value }; panOriginX.value = panLastX.value; panOriginY.value = panLastY.value;
@@ -210,15 +231,13 @@ function CanvasLayer(props: LayerProps) {
         if (panEpoch.value !== epoch.value || !(mask.value & 1) || cancelled.value) return;
         panLastX.value = event.translationX; panLastY.value = event.translationY;
         if (mask.value & 2) return;
-        const settings = configuration.value;
-        rect.value = studioCanvasMove(panBase.value, event.translationX - panOriginX.value, event.translationY - panOriginY.value, settings.width, settings.height); publish();
+        movePan(event.translationX, event.translationY); publish();
       }).onEnd((event, success) => {
         'worklet';
         if (panEpoch.value !== epoch.value || !(mask.value & 1)) return;
         if (success !== false && !cancelled.value) {
           panLastX.value = event.translationX; panLastY.value = event.translationY;
-          const settings = configuration.value;
-          if (!(mask.value & 2)) rect.value = studioCanvasMove(panBase.value, event.translationX - panOriginX.value, event.translationY - panOriginY.value, settings.width, settings.height);
+          if (!(mask.value & 2)) movePan(event.translationX, event.translationY);
         }
         finish(1, success !== false, panEpoch.value);
       }).onFinalize((_, success) => {
@@ -361,6 +380,14 @@ function CanvasLayer(props: LayerProps) {
       selected={selected} disabled={!!disabled} rect={rect} frame={frame} rotationDegrees={clip.rotationDegrees} />)}
   </>;
 }
+function CanvasCenterGuides({ guides }: { guides: SharedValue<CanvasGuides> }) {
+  const vertical = useAnimatedStyle(() => ({ opacity: guides.value.x ? 0.9 : 0 }));
+  const horizontal = useAnimatedStyle(() => ({ opacity: guides.value.y ? 0.9 : 0 }));
+  return <View pointerEvents="none" accessible={false} style={[StyleSheet.absoluteFill, styles.guides]}>
+    <Animated.View style={[styles.guideVertical, vertical]} />
+    <Animated.View style={[styles.guideHorizontal, horizontal]} />
+  </View>;
+}
 function CanvasCornerHandle({ gesture, corner, rect, frame, rotationDegrees, selected, disabled }: {
   gesture: ReturnType<typeof Gesture.Pan>; corner: StudioCanvasCorner; rect: SharedValue<StudioCanvasTransform['rect']>;
   frame: StudioCanvasFrame; rotationDegrees: number; selected: boolean; disabled: boolean;
@@ -376,10 +403,13 @@ function CanvasCornerHandle({ gesture, corner, rect, frame, rotationDegrees, sel
 const styles = StyleSheet.create({
   canvas: { position: 'absolute', overflow: 'hidden' },
   layer: { position: 'absolute', backgroundColor: 'transparent' },
-  outline: { ...StyleSheet.absoluteFillObject, borderWidth: 1.5, borderColor: '#FFFFFF', borderRadius: 1,
+  outline: { ...StyleSheet.absoluteFillObject, borderWidth: 1.5, borderColor: '#FFD45C', borderRadius: 1,
     shadowColor: '#000', shadowRadius: 1, shadowOpacity: 0.8, shadowOffset: { width: 0, height: 0 } },
   handleTarget: { position: 'absolute', zIndex: 1000, width: 32, height: 32, alignItems: 'center', justifyContent: 'center' },
-  handle: { width: 10, height: 10, borderRadius: 2, backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: '#232A32' },
+  handle: { width: 12, height: 12, borderRadius: 3, backgroundColor: '#FFD45C', borderWidth: 1.5, borderColor: '#20242B' },
+  guides: { zIndex: 1001 },
+  guideVertical: { position: 'absolute', left: '50%', top: 0, bottom: 0, width: 1, transform: [{ translateX: -0.5 }], backgroundColor: '#4AA3FF' },
+  guideHorizontal: { position: 'absolute', top: '50%', left: 0, right: 0, height: 1, transform: [{ translateY: -0.5 }], backgroundColor: '#4AA3FF' },
   notice: { position: 'absolute', left: 16, right: 16, bottom: 10, alignItems: 'center' },
   noticeText: { color: '#E0E3E8', fontSize: 11, backgroundColor: '#111820DB', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 6 },
   error: { position: 'absolute', left: 0, right: 0, top: '100%', marginTop: 8, backgroundColor: '#111820E8', padding: 5, borderRadius: 4 },

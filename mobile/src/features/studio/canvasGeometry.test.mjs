@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { compileStudioRecipe, emptyStudioEditing, addStudioLayerItem, createStudioTextItem, studioTicks } from './model.ts';
 import { studioCanvasFrame, studioCanvasHitTest, studioCanvasContains, studioCanvasMove, studioCanvasScale, studioCanvasResize,
-  studioCanvasFocalPoint, studioCanvasPinch, studioCanvasHandlePosition, studioVisibleCanvasLayers, studioCanvasTransformChanged } from './canvasGeometry.ts';
+  studioCanvasFocalPoint, studioCanvasPinch, studioCanvasHandlePosition, studioCanvasSnapCenter, studioVisibleCanvasLayers, studioCanvasTransformChanged } from './canvasGeometry.ts';
 
 const near = (actual, expected) => assert.ok(Math.abs(actual - expected) < 1e-7, `${actual} != ${expected}`);
 function fixture() {
@@ -56,6 +56,55 @@ test('movimento usa dimensão do canvas e mantém o frame alcançável ao recort
   near(studioCanvasMove(rect, -10000, -10000, 320, 180).x, -0.46);
   near(studioCanvasMove(rect, 10000, 10000, 320, 180).x, 0.96);
   assert.deepEqual(studioCanvasMove(rect, NaN, 0, 320, 180), rect);
+});
+
+test('snap usa o centro geométrico e tolerância em pixels independente nos dois eixos', () => {
+  const rect = { x: 0.2, y: 0.3, width: 0.4, height: 0.2 };
+  const entered = studioCanvasSnapCenter(studioCanvasMove(rect, 39, 17, 320, 180), 320, 180, { x: false, y: false });
+  assert.deepEqual(entered.snap, { x: true, y: true });
+  near(entered.rect.x, 0.3); near(entered.rect.y, 0.4);
+  assert.equal(entered.rect.width, rect.width); assert.equal(entered.rect.height, rect.height);
+  const oneAxis = studioCanvasSnapCenter(studioCanvasMove(rect, 39, 0, 320, 180), 320, 180, { x: false, y: false });
+  assert.deepEqual(oneAxis.snap, { x: true, y: false }); near(oneAxis.rect.y, rect.y);
+  // A narrow portrait canvas uses the same physical tolerance, not a percentage.
+  const portrait = studioCanvasSnapCenter({ x: 0.3 + 7 / 101.25, y: 0.4 + 9 / 180, width: 0.4, height: 0.2 }, 101.25, 180, { x: false, y: false });
+  assert.deepEqual(portrait.snap, { x: true, y: false });
+});
+
+test('histerese entra em 8 px e mantém alinhamento até 14 px sem prender a posição bruta', () => {
+  const at = pixels => ({ x: 0.3 + pixels / 320, y: 0.4, width: 0.4, height: 0.2 });
+  const entered = studioCanvasSnapCenter(at(8), 320, 180, { x: false, y: false });
+  assert.equal(entered.snap.x, true); near(entered.rect.x, 0.3);
+  const within = studioCanvasSnapCenter(at(14), 320, 180, entered.snap);
+  assert.equal(within.snap.x, true); near(within.rect.x, 0.3);
+  const released = studioCanvasSnapCenter(at(14.01), 320, 180, within.snap);
+  assert.equal(released.snap.x, false); near(released.rect.x, at(14.01).x);
+  const staysFree = studioCanvasSnapCenter(at(10), 320, 180, released.snap);
+  assert.equal(staysFree.snap.x, false); near(staysFree.rect.x, at(10).x);
+  const reentered = studioCanvasSnapCenter(at(7.99), 320, 180, staysFree.snap);
+  assert.equal(reentered.snap.x, true); near(reentered.rect.x, 0.3);
+});
+
+test('snap preserva mídia ampliada e centro físico de elementos rotacionados', () => {
+  const rect = { x: -0.25 + 6 / 320, y: -0.25 - 7 / 180, width: 1.5, height: 1.5 };
+  const original = { ...rect };
+  const next = studioCanvasSnapCenter(rect, 320, 180, { x: false, y: false });
+  assert.deepEqual(next.snap, { x: true, y: true });
+  assert.deepEqual(next.rect, { x: -0.25, y: -0.25, width: 1.5, height: 1.5 });
+  for (const rotation of [0, 35, 90, -130]) {
+    const center = studioCanvasFocalPoint(next.rect, next.rect.width * 320 / 2, next.rect.height * 180 / 2, 320, 180, rotation);
+    near(center.x, 160); near(center.y, 90);
+  }
+  assert.deepEqual(rect, original);
+});
+
+test('entrada inválida limpa o magnetismo sem gerar coordenadas artificiais', () => {
+  const rect = { x: 0.3, y: 0.4, width: 0.4, height: 0.2 };
+  for (const dimensions of [[0, 180], [320, NaN], [Infinity, 180]]) {
+    const result = studioCanvasSnapCenter(rect, ...dimensions, { x: true, y: true });
+    assert.deepEqual(result, { rect, snap: { x: false, y: false } });
+  }
+  assert.deepEqual(studioCanvasSnapCenter(rect, 320, 180, { x: true, y: true }, 14, 8), { rect, snap: { x: false, y: false } });
 });
 
 test('pinch preserva centro, aspect ratio e escala letras junto do frame', () => {

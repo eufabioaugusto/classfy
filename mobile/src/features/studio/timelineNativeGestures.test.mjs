@@ -39,3 +39,27 @@ test('Babel Expo real transforma TODOS os callbacks da fábrica condicional de c
   assert.deepEqual([...callbacks.keys()].sort(), ['onEnd', 'onFinalize', 'onStart', 'onUpdate']);
   for (const [name, worklet] of callbacks) assert.equal(worklet, true, `${name} must execute on UI, not mix JS and UI handlers`);
 });
+
+test('helpers de snap e geometria de arraste são worklets no preset real do Metro', () => {
+  for (const [file, names] of [
+    ['./timelineSnap.ts', ['studioTimelineSnapTargets', 'snapStudioTimelineRange']],
+    ['./StudioTimeline.tsx', ['applyLayerRange', 'updateLayerDrag', 'applyMainSnap']],
+  ]) {
+    const { ast } = transformFileSync(fileURLToPath(new URL(file, import.meta.url)), {
+      presets: [expoPreset], ast: true,
+      caller: { name: 'metro', supportsStaticESM: true, isDev: true, platform: 'ios' },
+    });
+    for (const name of names) {
+      const callbacks = [];
+      visit(ast, node => {
+        if (node.type === 'VariableDeclarator' && node.id.name === name) callbacks.push(node.init);
+      });
+      assert.ok(callbacks.length, `${name} compiled through Expo`);
+      let worklet = false;
+      visit(callbacks, node => {
+        if (node.type === 'AssignmentExpression' && node.left.type === 'MemberExpression' && node.left.property.name === '__workletHash') worklet = true;
+      });
+      assert.equal(worklet, true, `${name} must remain callable from the native UI runtime`);
+    }
+  }
+});
