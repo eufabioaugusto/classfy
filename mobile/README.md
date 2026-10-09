@@ -51,6 +51,9 @@ A reconstrução da experiência e os gaps de paridade estão em [REBUILD.md](./
 O motor nativo do Studio, a edição em camadas, os perfis de saída e os comandos
 de validação estão em [STUDIO_PREMIUM.md](./STUDIO_PREMIUM.md).
 
+Os gestos obrigatórios, a matriz de recursos comparados com Edits/CapCut e os
+critérios de aceite estão em [STUDIO_EDITOR_INTERACTIONS.md](./STUDIO_EDITOR_INTERACTIONS.md).
+
 ## Escopo inicial
 
 - Tabs: Home, Explore, Rewards, Profile

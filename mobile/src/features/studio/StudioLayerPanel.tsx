@@ -1,13 +1,23 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { Check, ChevronDown, Minus, Plus, Trash2 } from 'lucide-react-native';
 import { colors } from '@/theme/colors';
 import { patchStudioLayerItem, studioSeconds, studioTicks, type StudioEditing, type StudioLayerItem } from './model';
 
-type Props = { editing: StudioEditing; item: StudioLayerItem; disabled?: boolean; onPreview: (editing?: StudioEditing) => void; onApply: (editing: StudioEditing) => Promise<void>; onRemove: () => void; onClose: () => void };
-export function StudioLayerPanel({ editing, item, disabled, onPreview, onApply, onRemove, onClose }: Props) {
+type Props = { editing: StudioEditing; item: StudioLayerItem; disabled?: boolean; canvasEditing?: boolean; editTextRequest?: number; onPreview: (editing?: StudioEditing) => void; onApply: (editing: StudioEditing) => Promise<void>; onRemove: () => void; onClose: () => void };
+export function StudioLayerPanel({ editing, item, disabled, canvasEditing, editTextRequest, onPreview, onApply, onRemove, onClose }: Props) {
   const [draft, setDraft] = useState(item);
   const [tab, setTab] = useState<'content' | 'position' | 'time'>(item.text ? 'content' : 'position');
+  const textInput = useRef<TextInput>(null);
+  // Direct canvas/timeline edits and typed content share one visible draft.
+  // A later tap on Apply must never restore an older rectangle or duration.
+  useEffect(() => { setDraft(item); }, [item]);
+  useEffect(() => {
+    if (!editTextRequest || !item.text) return;
+    setTab('content');
+    const frame = requestAnimationFrame(() => textInput.current?.focus());
+    return () => cancelAnimationFrame(frame);
+  }, [editTextRequest, item.id]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string>();
   const blocked = useRef(false); blocked.current = !!disabled || saving;
@@ -16,19 +26,19 @@ export function StudioLayerPanel({ editing, item, disabled, onPreview, onApply, 
   const rect = draft.rect || { x: 0, y: 0, width: 1, height: 1 };
   const title = item.kind === 'caption' ? 'Legenda' : item.kind === 'text' ? 'Texto' : item.kind === 'video' ? 'Vídeo sobreposto' : item.kind === 'image' ? 'Imagem' : 'Áudio';
   return <View style={s.panel}>
-    <View style={s.header}><Pressable onPress={onClose} accessibilityLabel="Cancelar edição da camada" style={s.icon}><ChevronDown size={20} color={colors.text} /></Pressable><Text style={s.title}>{title}</Text><Pressable onPress={onRemove} disabled={disabled || saving} accessibilityLabel="Excluir camada" style={s.icon}><Trash2 size={18} color={colors.textSecondary} /></Pressable><Pressable accessibilityLabel="Aplicar edição da camada" disabled={disabled || saving} onPress={() => { void apply(); }} style={s.icon}><Check size={22} color={colors.accent} /></Pressable></View>
+    <View style={s.header}><Pressable onPress={onClose} disabled={disabled || saving} accessibilityLabel="Cancelar edição da camada" style={s.icon}><ChevronDown size={20} color={colors.text} /></Pressable><Text style={s.title}>{title}</Text><Pressable onPress={onRemove} disabled={disabled || saving} accessibilityLabel="Excluir camada" style={s.icon}><Trash2 size={18} color={colors.textSecondary} /></Pressable><Pressable accessibilityLabel="Aplicar edição da camada" disabled={disabled || saving} onPress={() => { void apply(); }} style={s.icon}><Check size={22} color={colors.accent} /></Pressable></View>
     {error && <Text style={{ color: colors.accent, fontSize: 11, paddingHorizontal: 14 }}>{error}</Text>}
-    <View style={s.tabs}>{(['content','position','time'] as const).filter(t => t !== 'position' || item.kind !== 'audio').map(t => <Pressable key={t} onPress={() => setTab(t)} style={[s.tab, t === tab && s.active]}><Text style={s.label}>{t === 'content' ? draft.text ? 'Texto' : 'Volume' : t === 'position' ? 'Posição' : 'Duração'}</Text></Pressable>)}</View>
+    {!canvasEditing && <View style={s.tabs}>{(['content','position','time'] as const).filter(t => t !== 'position' || item.kind !== 'audio').map(t => <Pressable key={t} onPress={() => setTab(t)} style={[s.tab, t === tab && s.active]}><Text style={s.label}>{t === 'content' ? draft.text ? 'Texto' : 'Volume' : t === 'position' ? 'Posição' : 'Duração'}</Text></Pressable>)}</View>}
     <ScrollView pointerEvents={disabled || saving ? "none" : "auto"} horizontal keyboardShouldPersistTaps="handled" showsHorizontalScrollIndicator={false} contentContainerStyle={s.controls}>
-      {tab === 'content' && draft.text ? <>
-        <TextInput value={draft.text.content} editable={!disabled && !saving} onChangeText={content => update({ text: { ...draft.text!, content } })} multiline placeholder="Digite seu texto" placeholderTextColor={colors.muted} maxLength={1000} style={s.input} />
-        <Step label="Tamanho" value={Math.round(draft.text.fontSize * 100)} suffix="%" onChange={value => update({ text: { ...draft.text!, fontSize: Math.min(0.15, Math.max(0.015, value / 100)) } })} />
+      {(canvasEditing || tab === 'content') && draft.text ? <>
+        <TextInput ref={textInput} accessibilityLabel="Texto da camada" value={draft.text.content} editable={!disabled && !saving} onChangeText={content => update({ text: { ...draft.text!, content } })} multiline placeholder="Digite seu texto" placeholderTextColor={colors.muted} maxLength={1000} style={s.input} />
+        {!canvasEditing && <Step label="Tamanho" value={Math.round(draft.text.fontSize * 100)} suffix="%" onChange={value => update({ text: { ...draft.text!, fontSize: Math.min(0.15, Math.max(0.015, value / 100)) } })} />}
         <View style={s.swatches}>{['#FFFFFF','#F7D658','#EF154A'].map(color => <Pressable key={color} accessibilityLabel={`Cor ${color}`} onPress={() => update({ text: { ...draft.text!, color } })} style={{ width: 28, height: 28, borderRadius: 14, backgroundColor: color, borderWidth: 2, borderColor: draft.text?.color === color ? '#666' : color }} />)}<Pressable onPress={() => update({ text: { ...draft.text!, backgroundColor: draft.text?.backgroundColor === '#000000AA' ? '#00000000' : '#000000AA' } })}><Text style={s.label}>Fundo</Text></Pressable></View>
-      </> : tab === 'content' ? <>
+      </> : (canvasEditing ? item.kind === 'audio' || item.kind === 'video' : tab === 'content') ? <>
         <Step label="Volume" value={Math.round((draft.gain ?? 1) * 100)} suffix="%" step={10} onChange={value => update({ gain: Math.max(0, Math.min(2, value / 100)) })} />
         <Step label="Entrada suave" value={studioSeconds(draft.fadeInTicks || 0)} suffix="s" step={0.1} onChange={value => update({ fadeInTicks: Math.min(Math.floor(draft.durationTicks / 2), studioTicks(Math.max(0, value))) })} />
         <Step label="Saída suave" value={studioSeconds(draft.fadeOutTicks || 0)} suffix="s" step={0.1} onChange={value => update({ fadeOutTicks: Math.min(Math.floor(draft.durationTicks / 2), studioTicks(Math.max(0, value))) })} />
-      </> : tab === 'position' ? <>
+      </> : canvasEditing ? <Text style={[s.hint, { maxWidth: 300 }]}>Arraste no vídeo para posicionar. Use dois dedos ou puxe um canto para mudar o tamanho.</Text> : tab === 'position' ? <>
         <Step label="Horizontal" value={Math.round(rect.x * 100)} suffix="%" step={2} onChange={value => update({ rect: { ...rect, x: Math.max(0, Math.min(1 - rect.width, value / 100)) } })} />
         <Step label="Vertical" value={Math.round(rect.y * 100)} suffix="%" step={2} onChange={value => update({ rect: { ...rect, y: Math.max(0, Math.min(1 - rect.height, value / 100)) } })} />
         <Step label="Escala" value={Math.round(rect.width * 100)} suffix="%" step={2} onChange={value => { const width = Math.max(0.1, Math.min(1, value / 100)); const height = Math.min(1, rect.height * width / rect.width); update({ rect: { x: Math.min(rect.x, 1 - width), y: Math.min(rect.y, 1 - height), width, height } }); }} />
@@ -39,6 +49,7 @@ export function StudioLayerPanel({ editing, item, disabled, onPreview, onApply, 
         <Text style={s.hint}>{draft.anchor ? 'Acompanha este take nos cortes.' : 'Posição fixa na montagem.'}</Text>
       </>}
     </ScrollView>
+    {canvasEditing && <Text style={{ color: colors.muted, fontSize: 10, paddingHorizontal: 14, paddingBottom: 4 }}>{item.kind === 'audio' ? 'Arraste a faixa e suas bordas na timeline.' : 'Posicione no vídeo · arraste as bordas da faixa para definir a duração.'}</Text>}
   </View>;
 }
 function Step({ label, value, suffix, step = 1, onChange }: { label: string; value: number; suffix: string; step?: number; onChange: (value: number) => void }) {

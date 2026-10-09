@@ -7,18 +7,20 @@ import * as timeline from './timeline.ts';
 import * as timelineLayout from './timelineLayout.ts';
 import * as history from './editingHistory.ts';
 
-function compile(source, dependencies) {
+function compile(source, dependencies, globals = {}) {
   const code = ts.transpileModule(source, { compilerOptions: {
     module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX,
   } }).outputText;
   const module = { exports: {} };
-  new Function('require', 'module', 'exports', code)(name => {
+  new Function('require', 'module', 'exports', ...Object.keys(globals), code)(name => {
     if (Object.hasOwn(dependencies, name)) return dependencies[name];
     throw new Error(`Unexpected dependency: ${name}`);
-  }, module, module.exports);
+  }, module, module.exports, ...Object.values(globals));
   return module.exports;
 }
 const interaction = compile(readFileSync(new URL('./editorInteraction.ts', import.meta.url), 'utf8'), { './timeline': timeline });
+const canvasEditing = compile(readFileSync(new URL('./canvasEditing.ts', import.meta.url), 'utf8'), { './model': model });
+const layerTimeline = compile(readFileSync(new URL('./layerTimelineInteraction.ts', import.meta.url), 'utf8'), { './model': model });
 const take = id => ({ id, uri: `file:///${id}.mp4`, name: id, duration: 10, start: 2, end: 8 });
 const source = readFileSync(new URL('../../../app/studio/[id].tsx', import.meta.url), 'utf8') + '\nexport { ProjectEditor };';
 
@@ -30,6 +32,8 @@ function harness(takes = [take('a'), take('b')], options = {}) {
   const alerts = [];
   const navigationEvents = [];
   let completedWrites = 0;
+  let attemptedWrites = 0;
+  const keyboardListeners = new Map();
   let cursor = 0;
   let effects = [];
   let dirty = true;
@@ -69,6 +73,11 @@ function harness(takes = [take('a'), take('b')], options = {}) {
   };
   const preview = { seeks: [], pauses: 0, pause() { this.pauses += 1; }, previewSourceFrame() {}, togglePlayback() {},
     seek(position, frame) {
+      if (!frame) {
+        const location = timeline.locateStudioTime(project.takes, position);
+        if (!location) return;
+        frame = { takeId: location.takeId, uri: location.take.uri, seconds: location.sourceSeconds };
+      }
       this.seeks.push({ position, frame });
       if (frame.takeId !== nativeTakeId) nativeActive?.(frame.takeId);
       nativeTakeId = frame.takeId;
@@ -79,9 +88,11 @@ function harness(takes = [take('a'), take('b')], options = {}) {
     return { type, props };
   };
   const native = { ActivityIndicator: 'spinner', Alert: { alert: (...args) => alerts.push(args) }, KeyboardAvoidingView: 'keyboard',
+    Keyboard: { addListener: (name, callback) => { const values = keyboardListeners.get(name) || new Set(); values.add(callback); keyboardListeners.set(name, values); return { remove: () => values.delete(callback) }; },
+      dismiss: () => { for (const callback of keyboardListeners.get('keyboardDidHide') || []) callback(); } },
     Platform: { OS: 'ios' }, Pressable: 'button', ScrollView: 'scroll', FlatList: 'flatlist', Text: 'text', View: 'view',
     StyleSheet: { create: styles => styles, absoluteFillObject: {} }, useWindowDimensions: () => ({ width: 390, height: 844 }) };
-  const toolIcons = Object.fromEntries('ArrowDown ArrowUp Check ChevronRight Copy FileText Film Maximize2 Mic Minimize2 Pause Pencil Play Scissors Redo2 Split Trash2 Undo2 Upload Video X'.split(' ').map(name => [name, name]));
+  const toolIcons = Object.fromEntries('ArrowDown ArrowUp Check ChevronRight Copy FileText Film Maximize2 Mic Minimize2 Pause Pencil Play Scissors Redo2 Split Trash2 Undo2 Upload Video X ImagePlus Layers Music Captions SlidersHorizontal Type'.split(' ').map(name => [name, name]));
   const navigate = (type, destination) => navigationEvents.push({ type, destination, completedWrites, revision: project.revision });
   const editor = compile(source, {
     react: hooks, 'react/jsx-runtime': { jsx, jsxs: jsx }, 'react-native': native,
@@ -99,6 +110,7 @@ function harness(takes = [take('a'), take('b')], options = {}) {
     '@/features/studio/store': { discardTransientStudioProject: async () => undefined, getStudioProject: () => project,
       isTransientStudioProject: () => false,
       mutateStudioProject: async (_, __, change) => {
+        attemptedWrites += 1;
         const patch = change(project);
         if (mutationFailure) { const error = mutationFailure; mutationFailure = undefined; throw error; }
         const editing = patch.editing ?? (project.editing && patch.takes ? model.reconcileStudioTakes(project, patch.takes) : project.editing);
@@ -110,6 +122,9 @@ function harness(takes = [take('a'), take('b')], options = {}) {
       } },
     '@/features/studio/timeline': timeline, '@/features/studio/model': model,
     '@/features/studio/StudioCompositionPreview': { StudioCompositionPreview: 'preview' },
+    '@/features/studio/StudioCanvasEditor': { StudioCanvasEditor: 'canvas-editor' },
+    '@/features/studio/canvasEditing': canvasEditing,
+    '@/features/studio/layerTimelineInteraction': layerTimeline,
     '@/features/studio/StudioLayerPanel': { StudioLayerPanel: 'layerPanel' },
     '@/features/studio/StudioTreatmentPanel': { StudioTreatmentPanel: 'treatmentPanel' },
     '@/features/studio/captions': {},
@@ -150,6 +165,11 @@ function harness(takes = [take('a'), take('b')], options = {}) {
   const timelineProps = () => find(node => node.type === 'timeline').props;
   const previewProps = () => find(node => node.type === 'preview').props;
   return { preview, alerts, navigationEvents, pump, timelineProps, previewProps,
+    canvasProps: () => find(node => node.type === 'canvas-editor').props,
+    keyboard: visible => { for (const callback of keyboardListeners.get(visible ? 'keyboardDidShow' : 'keyboardDidHide') || []) callback(); },
+    keyboardProps: () => find(node => node.type === 'keyboard').props,
+    hasTimeline: () => { try { find(node => node.type === 'timeline'); return true; } catch { return false; } },
+    writes: () => ({ attempted: attemptedWrites, completed: completedWrites }),
     layerProps: () => find(node => node.type === 'layerPanel').props,
     treatmentProps: () => find(node => node.type === 'treatmentPanel').props,
     button: label => find(node => node.props?.accessibilityLabel === label).props,
@@ -253,20 +273,35 @@ test('voltar durante corte cancela a prévia e sinaliza o cancelamento ao gesto 
 // A separate hook context represents the actual child panel. The test drives
 // its real TextInput callback, rather than directly manufacturing a draft.
 function renderLayerPanel(initialProps) {
-  const slots = []; let cursor = 0, tree, props = initialProps;
-  const jsx = (type, props) => ({ type, props });
+  const slots = []; let cursor = 0, tree, props = initialProps, effects = [], dirty = true, focused = 0, frameId = 0;
+  const frames = new Map();
+  const equals = (a, b) => !!a && !!b && a.length === b.length && a.every((value, index) => Object.is(value, b[index]));
+  const jsx = (type, props) => {
+    if (type === 'input' && props.ref) props.ref.current = { focus: () => { focused += 1; } };
+    return { type, props };
+  };
   const react = {
     useRef: value => { const index = cursor++; return slots[index] ||= { current: value }; },
-    useState: initial => { const index = cursor++; if (!slots[index]) slots[index] = { value: typeof initial === 'function' ? initial() : initial }; return [slots[index].value, value => { slots[index].value = typeof value === 'function' ? value(slots[index].value) : value; }]; },
+    useState: initial => { const index = cursor++; if (!slots[index]) slots[index] = { value: typeof initial === 'function' ? initial() : initial }; return [slots[index].value, value => { const next = typeof value === 'function' ? value(slots[index].value) : value; if (!Object.is(next, slots[index].value)) { slots[index].value = next; dirty = true; } }]; },
+    useEffect: (callback, dependencies) => { const index = cursor++; if (!slots[index] || !equals(slots[index].dependencies, dependencies)) effects.push({ index, callback, dependencies }); },
   };
   const Panel = compile(readFileSync(new URL('./StudioLayerPanel.tsx', import.meta.url), 'utf8'), {
     react, 'react/jsx-runtime': { jsx, jsxs: jsx }, 'react-native': { Pressable: 'button', ScrollView: 'scroll', Text: 'text', TextInput: 'input', View: 'view', StyleSheet: { create: value => value } },
     'lucide-react-native': Object.fromEntries('Check ChevronDown Minus Plus Trash2'.split(' ').map(name => [name, name])), '@/theme/colors': { colors: {} }, './model': model,
-  }).StudioLayerPanel;
-  const render = () => { cursor = 0; tree = Panel(props); };
+  }, { requestAnimationFrame: callback => { frames.set(++frameId, callback); return frameId; }, cancelAnimationFrame: id => frames.delete(id) }).StudioLayerPanel;
+  const render = () => {
+    for (let pass = 0; pass < 8; pass += 1) {
+      dirty = false; cursor = 0; effects = []; tree = Panel(props);
+      for (const effect of effects) { slots[effect.index]?.cleanup?.(); slots[effect.index] = { dependencies: effect.dependencies, cleanup: effect.callback() }; }
+      if (!dirty) return;
+    }
+    throw new Error('Layer panel render did not settle');
+  };
   const input = () => { const visit = node => { if (Array.isArray(node)) { for (const child of node) { const found = visit(child); if (found) return found; } } else if (node && typeof node === 'object') { if (node.type === 'input') return node.props; return visit(node.props?.children); } }; const found = visit(tree); assert.ok(found, 'real layer text input expected'); return found; };
   render();
-  return { input, text: value => { input().onChangeText(value); render(); }, updateProps: next => { props = next; render(); } };
+  return { input, text: value => { input().onChangeText(value); render(); }, updateProps: next => { props = next; render(); },
+    focusCount: () => focused, flushFrames: () => { for (const callback of frames.values()) callback(); frames.clear(); },
+    dispose: () => { for (const slot of slots) slot?.cleanup?.(); } };
 }
 function editingWithCaptions() {
   const takes = [take('a'), take('b')];
@@ -299,8 +334,7 @@ test('texto provisório e arraste de legenda salvam juntos, preservam cursor e d
     assert.equal(saved.text.content, 'Texto preenchido antes de arrastar');
     assert.equal(saved.anchor.sourceStartTicks, model.studioTicks(3.5)); assert.equal(saved.anchor.sourceEndTicks, model.studioTicks(5.5));
     assert.equal(view.project().editing.layers.flatMap(layer => layer.items).find(item => item.id === 'other-text').text.content, 'Outro título atual');
-    assert.equal(view.timelineProps().position, 9); assert.equal(view.hasLayerPanel(), false);
-    view.timelineProps().onSelectLayer('caption'); await view.pump();
+    assert.equal(view.timelineProps().position, 9); assert.equal(view.hasLayerPanel(), true, 'direct manipulation keeps the selected element editable');
     assert.equal(renderLayerPanel(view.layerProps()).input().value, 'Texto preenchido antes de arrastar');
     const undo = view.button('Desfazer edição'); assert.equal(undo.disabled, false); undo.onPress(); await view.pump(); view.finishSave(); await view.pump();
     const restored = view.project().editing.layers.flatMap(layer => layer.items).find(item => item.id === 'caption');
@@ -308,14 +342,14 @@ test('texto provisório e arraste de legenda salvam juntos, preservam cursor e d
     assert.equal(view.timelineProps().position, 9); assert.equal(view.hasLayerPanel(), false);
   } finally { view.dispose(); }
 });
-test('falha ao salvar arraste não perde texto provisório nem rejeita promessa sem tratamento', async () => {
+test('falha ao salvar arraste preserva texto provisório e informa o erro ao gesto que pediu a escrita', async () => {
   const view = harness(undefined, { initialEditing: editingWithCaptions(), advanced: true });
   try {
     await view.pump(); view.publish({ position: 9, sourcePosition: 5, takeId: 'b', playing: false, loading: false }); await view.pump();
     view.timelineProps().onSelectLayer('caption'); await view.pump();
     const panel = renderLayerPanel(view.layerProps()); panel.text('Texto para tentar novamente'); await view.pump();
     view.failNextMutation('Disco cheio');
-    await assert.doesNotReject(view.timelineProps().onMoveLayer('caption', 0.5)); await view.pump();
+    await assert.rejects(view.timelineProps().onMoveLayer('caption', 0.5), /ainda não foi salva/); await view.pump();
     assert.equal(view.hasLayerPanel(), true); assert.equal(view.timelineProps().position, 9);
     assert.equal(view.project().editing.layers[0].items[0].text.content, 'Legenda inicial'); assert.equal(panel.input().value, 'Texto para tentar novamente');
     assert.ok(view.alerts.some(alert => alert[1].includes('Disco cheio')));
@@ -486,5 +520,153 @@ test('falha ao salvar o tratamento para Revisar preserva o preset provisório e 
     view.button('Revisar publicação').onPress(); await view.pump(); view.finishSave(); await view.pump();
     assert.equal(view.project().editing.main[0].grade.preset, 'cinematic');
     assert.equal(view.navigationEvents.length, 1); assert.equal(view.navigationEvents[0].completedWrites, 1);
+  } finally { panel?.dispose(); view.dispose(); }
+});
+
+test('texto digitado e transform do canvas salvam juntos sem perder cursor e formam uma única edição no histórico', async () => {
+  const view = harness(undefined, { initialEditing: editingWithCaptions(), advanced: true });
+  try {
+    await view.pump(); view.publish({ position: 8, sourcePosition: 4, takeId: 'b', playing: false, loading: false }); await view.pump();
+    view.canvasProps().onSelectLayer('caption'); await view.pump();
+    assert.equal(view.preview.seeks.length, 0, 'canvas selection cannot seek');
+    const original = structuredClone(view.project().editing.layers[0].items[0]);
+    const panel = renderLayerPanel(view.layerProps()); panel.text('Texto digitado, depois redimensionado'); await view.pump();
+    const canvas = view.canvasProps(), transform = { rect: { x: 0.2, y: 0.35, width: 0.5, height: 0.3 }, textFontSize: 0.07 };
+    canvas.onInteractionStart(); canvas.onPreviewRect('caption', transform); await view.pump();
+    view.publish({ position: 0, sourcePosition: 2, takeId: 'a', playing: false, loading: true }, false); await view.pump();
+    assert.equal(view.timelineProps().position, 8);
+    assert.deepEqual(view.writes(), { attempted: 0, completed: 0 });
+    assert.equal(view.layerProps().item.text.content, 'Texto digitado, depois redimensionado');
+    assert.deepEqual(view.layerProps().item.rect, transform.rect);
+    const saving = canvas.onCommitRect('caption', transform); await view.pump();
+    assert.deepEqual(view.writes(), { attempted: 1, completed: 0 });
+    view.finishSave(); await saving; canvas.onPreviewRect('caption', undefined); canvas.onInteractionEnd(); await view.pump();
+    const saved = view.project().editing.layers[0].items[0];
+    assert.equal(saved.text.content, 'Texto digitado, depois redimensionado'); assert.equal(saved.text.fontSize, 0.07); assert.deepEqual(saved.rect, transform.rect);
+    assert.equal(view.hasLayerPanel(), true); assert.equal(renderLayerPanel(view.layerProps()).input().value, saved.text.content);
+    assert.equal(view.timelineProps().position, 8); assert.deepEqual(view.writes(), { attempted: 1, completed: 1 });
+    view.button('Desfazer edição').onPress(); await view.pump(); view.finishSave(); await view.pump();
+    assert.deepEqual(view.project().editing.layers[0].items[0], original, 'one undo restores text, font and frame together');
+    assert.equal(view.button('Desfazer edição').disabled, true); assert.equal(view.button('Refazer edição').disabled, false);
+  } finally { view.dispose(); }
+});
+
+test('redimensionar vídeo principal preserva originais, cortes, perfil e fonte em reprodução', async () => {
+  const editing = editingWithCaptions();
+  editing.assets[0] = { ...editing.assets[0], width: 3840, height: 2160, frameRate: 60, sourceKind: 'standard', sourceStage: 'standard', colorSpace: 'rec709', thumbnailUri: 'file:///original-cover.jpg' };
+  const portable = value => JSON.parse(JSON.stringify(value));
+  const view = harness(undefined, { initialEditing: editing, advanced: true });
+  try {
+    await view.pump(); view.publish({ position: 3, sourcePosition: 5, takeId: 'a', playing: false, loading: false }); await view.pump();
+    const originals = portable(view.project().editing.assets), source = portable(view.project().takes[0]);
+    view.canvasProps().onSelectMainClip('a'); await view.pump();
+    assert.equal(view.canvasProps().selectedMainClipId, 'a'); assert.equal(view.preview.seeks.length, 0);
+    const canvas = view.canvasProps(), transform = { rect: { x: -0.25, y: 0.1, width: 1.4, height: 1.4 } };
+    canvas.onInteractionStart(); canvas.onPreviewRect('a', transform); await view.pump();
+    const saving = canvas.onCommitRect('a', transform); await view.pump(); view.finishSave(); await saving;
+    canvas.onPreviewRect('a', undefined); canvas.onInteractionEnd(); await view.pump();
+    assert.deepEqual(view.project().editing.main[0].rect, transform.rect); assert.equal(view.project().editing.main[1].rect, undefined);
+    assert.deepEqual(portable(view.project().editing.assets), originals); assert.deepEqual(portable(view.project().takes[0]), source);
+    assert.equal(view.project().editing.output.profile, 'standard'); assert.equal(view.timelineProps().position, 3);
+    assert.deepEqual(view.writes(), { attempted: 1, completed: 1 });
+    view.button('Desfazer edição').onPress(); await view.pump(); view.finishSave(); await view.pump();
+    assert.equal(view.project().editing.main[0].rect, undefined); assert.deepEqual(portable(view.project().editing.assets), originals);
+  } finally { view.dispose(); }
+});
+
+test('erro de disco em main mantém draft e alvo ao Concluir ou abrir tratamento, e o retry salva antes de sair da seleção', async () => {
+  const view = harness(undefined, { initialEditing: editingWithCaptions(), advanced: true });
+  try {
+    await view.pump(); view.canvasProps().onSelectMainClip('a'); await view.pump();
+    const canvas = view.canvasProps(), transform = { rect: { x: 0.2, y: 0.15, width: 0.65, height: 0.65 } };
+    canvas.onInteractionStart(); canvas.onPreviewRect('a', transform); await view.pump();
+    view.failNextMutation('Disco cheio'); await canvas.onCommitRect('a', transform);
+    canvas.onPreviewRect('a', undefined); canvas.onInteractionEnd(); await view.pump();
+    assert.equal(view.canvasProps().selectedMainClipId, 'a'); assert.deepEqual(view.previewProps().project.editing.main[0].rect, transform.rect);
+    assert.equal(view.project().editing.main[0].rect, undefined); assert.equal(view.button('Desfazer edição').disabled, true);
+    view.failNextMutation('Ainda sem espaço'); view.tool('Concluir').onPress(); await view.pump();
+    assert.equal(view.canvasProps().selectedMainClipId, 'a'); assert.deepEqual(view.previewProps().project.editing.main[0].rect, transform.rect);
+    view.failNextMutation('Ainda sem espaço'); view.tool('Imagem').onPress(); await view.pump();
+    assert.equal(view.hasTreatmentPanel(), false); assert.equal(view.canvasProps().selectedMainClipId, 'a');
+    assert.deepEqual(view.previewProps().project.editing.main[0].rect, transform.rect); assert.deepEqual(view.writes(), { attempted: 3, completed: 0 });
+    view.tool('Concluir').onPress(); await view.pump(); assert.equal(view.tool('Concluir').disabled, true);
+    view.finishSave(); await view.pump();
+    assert.deepEqual(view.project().editing.main[0].rect, transform.rect); assert.equal(view.canvasProps().selectedMainClipId, undefined);
+    assert.deepEqual(view.writes(), { attempted: 4, completed: 1 }); assert.deepEqual(view.navigationEvents, []);
+  } finally { view.dispose(); }
+});
+
+for (const gesture of ['canvas', 'layer']) test(`gesto ${gesture} bloqueia Divide, duplicate e navegação mesmo antes de renderizar o estado de ocupado`, async () => {
+  const view = harness(undefined, { initialEditing: editingWithCaptions(), advanced: true });
+  try {
+    await view.pump(); view.publish({ position: 3, sourcePosition: 5, takeId: 'a', playing: false, loading: false }); await view.pump();
+    view.canvasProps().onSelectMainClip('a'); await view.pump();
+    // These closures model an already queued touch. The ref guard must work
+    // even when React has not rendered disabled=true yet.
+    const divide = view.tool('Dividir'), duplicate = view.tool('Duplicar'), review = view.button('Revisar publicação');
+    const callbacks = gesture === 'canvas' ? view.canvasProps() : view.timelineProps();
+    if (gesture === 'canvas') callbacks.onInteractionStart(); else callbacks.onLayerInteractionStart();
+    divide.onPress(); duplicate.onPress(); review.onPress(); view.back(); await view.pump();
+    assert.deepEqual(view.writes(), { attempted: 0, completed: 0 }); assert.deepEqual(view.navigationEvents, []);
+    assert.equal(view.project().takes.length, 2); assert.equal(view.tool('Dividir').disabled, true); assert.equal(view.tool('Duplicar').disabled, true);
+    assert.equal(view.button('Revisar publicação').disabled, true);
+    if (gesture === 'canvas') callbacks.onInteractionEnd(); else callbacks.onLayerInteractionEnd();
+    await view.pump(); assert.equal(view.button('Revisar publicação').disabled, false);
+    view.button('Revisar publicação').onPress(); await view.pump(); assert.equal(view.navigationEvents.length, 1);
+  } finally { view.dispose(); }
+});
+
+test('borda temporal salva texto visível e source anchor juntos sem mover cursor nem gerar múltiplas escritas', async () => {
+  const view = harness(undefined, { initialEditing: editingWithCaptions(), advanced: true });
+  try {
+    await view.pump(); view.publish({ position: 8, sourcePosition: 4, takeId: 'b', playing: false, loading: false }); await view.pump();
+    view.canvasProps().onSelectLayer('caption'); await view.pump();
+    const original = structuredClone(view.project().editing.layers[0].items[0]);
+    const panel = renderLayerPanel(view.layerProps()); panel.text('Legenda digitada antes de definir a duração'); await view.pump();
+    const timeline = view.timelineProps(); timeline.onLayerInteractionStart();
+    timeline.onLayerTrimPreview('caption', { startSeconds: 7, endSeconds: 9.2 });
+    timeline.onLayerTrimPreview('caption', { startSeconds: 7, endSeconds: 9.5 }); await view.pump();
+    view.publish({ position: 0, sourcePosition: 2, takeId: 'a', playing: false, loading: true }, false); await view.pump();
+    assert.equal(view.timelineProps().position, 8); assert.deepEqual(view.writes(), { attempted: 0, completed: 0 });
+    const saving = timeline.onLayerTrimCommit('caption', { startSeconds: 7, endSeconds: 9.5 }); await view.pump();
+    view.finishSave(); await saving; timeline.onLayerInteractionEnd(); await view.pump();
+    const saved = view.project().editing.layers[0].items[0];
+    assert.equal(saved.text.content, 'Legenda digitada antes de definir a duração');
+    assert.equal(saved.anchor.sourceStartTicks, model.studioTicks(3)); assert.equal(saved.anchor.sourceEndTicks, model.studioTicks(5.5));
+    assert.equal(saved.durationTicks, model.studioTicks(2.5)); assert.equal(view.timelineProps().position, 8);
+    assert.deepEqual(view.writes(), { attempted: 1, completed: 1 }); assert.equal(view.hasLayerPanel(), true);
+    view.button('Desfazer edição').onPress(); await view.pump(); view.finishSave(); await view.pump();
+    assert.deepEqual(view.project().editing.layers[0].items[0], original);
+    assert.equal(view.button('Desfazer edição').disabled, true);
+  } finally { view.dispose(); }
+});
+
+test('cancelar canvas restaura apenas o transform e preserva texto que já estava sendo digitado', async () => {
+  const view = harness(undefined, { initialEditing: editingWithCaptions(), advanced: true });
+  try {
+    await view.pump(); view.canvasProps().onSelectLayer('caption'); await view.pump();
+    const panel = renderLayerPanel(view.layerProps()); panel.text('Texto anterior ao gesto cancelado'); await view.pump();
+    const originalRect = structuredClone(view.layerProps().item.rect);
+    const canvas = view.canvasProps(); canvas.onInteractionStart();
+    canvas.onPreviewRect('caption', { rect: { x: 0.4, y: 0.4, width: 0.3, height: 0.3 }, textFontSize: 0.08 }); await view.pump();
+    canvas.onPreviewRect('caption', undefined); canvas.onInteractionEnd(); await view.pump();
+    assert.deepEqual(view.layerProps().item.rect, originalRect); assert.equal(view.layerProps().item.text.content, 'Texto anterior ao gesto cancelado');
+    assert.deepEqual(view.writes(), { attempted: 0, completed: 0 }); assert.equal(view.canvasProps().disabled, false);
+    assert.equal(view.project().editing.layers[0].items[0].text.content, 'Legenda inicial');
+  } finally { view.dispose(); }
+});
+
+test('double tap solicita foco do TextInput real sem seek, salva ou limpa texto; teclado mantém edição disponível', async () => {
+  const view = harness(undefined, { initialEditing: editingWithCaptions(), advanced: true }); let panel;
+  try {
+    await view.pump(); view.publish({ position: 8, sourcePosition: 4, takeId: 'b', playing: false, loading: false }); await view.pump();
+    view.canvasProps().onSelectLayer('caption'); await view.pump();
+    panel = renderLayerPanel(view.layerProps()); panel.text('Conteúdo mantido no double tap'); await view.pump();
+    view.canvasProps().onEditText('caption'); await view.pump(); panel.updateProps(view.layerProps()); panel.flushFrames();
+    assert.equal(panel.focusCount(), 1); assert.equal(panel.input().value, 'Conteúdo mantido no double tap');
+    assert.deepEqual(view.writes(), { attempted: 0, completed: 0 }); assert.equal(view.preview.seeks.length, 0);
+    view.keyboard(true); await view.pump(); assert.equal(view.hasTimeline(), false); assert.equal(view.keyboardProps().enabled, true);
+    assert.equal(view.layerProps().item.text.content, 'Conteúdo mantido no double tap'); assert.equal(view.canvasProps().selectedLayerId, 'caption');
+    view.keyboard(false); await view.pump(); assert.equal(view.hasTimeline(), true); assert.equal(view.timelineProps().position, 8);
   } finally { panel?.dispose(); view.dispose(); }
 });

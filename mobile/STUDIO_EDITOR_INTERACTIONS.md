@@ -1,0 +1,135 @@
+# Studio: contrato de interação do editor
+
+Revisado em 08/10/2026. Este é o comportamento obrigatório para implementação e aceite. Não é uma declaração de que todos os gestos já foram entregues ou validados. A arquitetura e os limites atuais estão em [STUDIO_PREMIUM.md](STUDIO_PREMIUM.md).
+
+## Origem dos requisitos
+
+Os prints, gravações e orientações do Fabio são a referência de produto: edição direta na prévia, timeline sempre integrada e seleção que não salta o cursor. CapCut e Edits ajudam a modelar a experiência; a identidade continua Classfy.
+
+- O [guia oficial de overlays do CapCut](https://www.capcut.com/resource/how-to-add-capcut-overlays) descreve arrastar e usar pinça na prévia mobile; os controles de canto também aparecem na seção desktop. Não generalizar automaticamente um gesto entre plataformas.
+- O [guia de imagem sobreposta do CapCut](https://www.capcut.com/resource/overlay-picture-on-video) descreve arrastar/pinçar a imagem e ajustar as extremidades da faixa para definir sua aparição.
+- A [ajuda oficial sobre texto invisível](https://www.capcut.com/help/text-not-appearing) distingue ordem das camadas, opacidade e cursor fora do intervalo do texto.
+- O [anúncio oficial do Edits](https://about.fb.com/news/2025/04/introducing-edits-streamlined-video-creation-app/) informa timeline precisa por quadro e edição por clip; publicado em 22/04/2025, com atualização indicada em 17/12/2025. Não documenta ali a mecânica de duplo toque.
+
+Fontes consultadas em 08/10/2026. Os gestos específicos abaixo são **decisões do Studio solicitadas pelo usuário**, inclusive duplo toque, segurar para mover e preservação do cursor; não devem ser atribuídos à Meta sem evidência.
+
+## Como obter precisão e reproduzir a experiência
+
+Documentação oficial confirma capacidades e alguns passos; **o app real da mesma plataforma/build** confirma áreas de toque, prioridade dos gestos, snapping, cancelamento e continuidade. Gravações fornecidas pelo usuário permitem comparar a sequência e o resultado visível; sem indicador de toque, pressão longa e pinça não podem ser deduzidas apenas do deslocamento na imagem. Mouse no simulador não substitui esses testes. Não inferir linguagem ou arquitetura interna dos concorrentes pela aparência.
+
+Para cada recurso da matriz: abrir o mesmo material nos dois editores; registrar versão/plataforma e estado inicial; executar o fluxo indicado; repetir com cancelamento, undo/redo e retorno ao projeto; exportar localmente e comparar o mesmo instante. Marcar separadamente **fonte consultada**, **modelo/motor testado**, **toque real testado** e **exportação comparada**. Uma dessas evidências não substitui as outras.
+
+Referências adicionais verificadas: [CapCut split/organização de clips][capcut-split] (desktop); [gravação de voiceover][capcut-voice] (mobile); [volume e fades][capcut-audio] (editor descrito no guia); [velocidade/curvas][capcut-speed] (seções mobile/web/desktop); [keyframes][capcut-keyframes] (web/desktop); [crop/rotação][capcut-crop] (desktop). A [retrospectiva oficial do Edits, 22/04/2026][edits-year] confirma teleprompter com tamanho/ritmo ajustáveis, mas apresenta outros avanços como futuros naquela data. Nenhuma página isolada comprova paridade integral entre plataformas ou planos.
+
+A revisão ampliada usa também os guias oficiais de máscaras, remoção de fundo, estabilização, áudio e stickers do CapCut, nas plataformas indicadas em cada linha. A atualização de dezembro de 2025 do [anúncio do Edits][edits-launch] apresenta title cards, storyboards, estilos animados de texto e templates no app mobile. Descrições comerciais comprovam que o fornecedor documenta a capacidade; não comprovam qualidade, gratuidade, disponibilidade regional ou desempenho no aparelho do Fabio. Recursos anunciados como futuros continuam sem confirmação de entrega por essas fontes.
+
+## Matriz de paridade e implementação
+
+Snapshot de leitura do código em 08/10/2026, durante desenvolvimento. “Código presente” indica integração/modelo existente, **não aprovação da usabilidade**. A implementação direta da UI continua em paralelo; esta matriz deve acompanhar cada entrega.
+
+| Recurso | Referência / fluxo de reprodução | Estado observado no Studio | Critério específico de aceite |
+| --- | --- | --- | --- |
+| Principal: trim e restauração | [CapCut split][capcut-split] + contrato: selecionar → puxar início/fim → restaurar. | Cortes/inspeção de origem presentes; toque contínuo pendente. | Sem mover cursor na seleção; limites da origem; preview visível; um undo; cancel restaura. |
+| Dividir, reordenar, duplicar | [CapCut organização][capcut-split] cobre corte/reordenação; duplicar é contrato: dividir no cursor → mover → duplicar. | Operações e comandos presentes; reordenação por gesto não aprovada. | Ordem, duração, IDs e âncoras de camadas/legendas coerentes; originais intactos. |
+| Layers de vídeo/imagem | [CapCut overlays][capcut-overlays]: adicionar → tap → hold/drag → pinch → alças temporais. | Motor/exportação e interação direta integrados; alças/hold/pinça têm regressões de estado, mas a fluidez por toque real continua pendente. | Item superior correto; pinça e alças sem roubar scroll; ordem/posição iguais na exportação. |
+| Texto: conteúdo/estilo/fonte/contorno | [CapCut texto][capcut-overlays], [visibilidade][capcut-text] e Edits: adicionar → duplo toque → editar/estilizar. | Conteúdo, tamanho, cor, fundo e CoreText presentes; seletor de fontes/contorno ainda não implementado. | Teclado no item certo; quebra/acentos iguais no preview/export; estilo legível e persistido. |
+| Legendas e tempos por palavra | [CapCut captions][capcut-overlays]: gerar/importar → revisar texto/tempo → cortar origem. | Manual/SRT/VTT e SpeechAnalyzer local presentes; palavras temporizadas viram grupos. Destaque palavra a palavra não implementado. | Português revisável; cortes/reordenação mantêm sincronismo; cancel/modelo explícitos; sem prometer precisão humana a partir de TTS. |
+| Áudio/música importados | [CapCut áudio][capcut-audio]: importar faixa → mover/cortar → misturar com voz. | Importação de áudio e camada independente presentes; biblioteca musical não implementada. | Escuta e exportação no mesmo tempo, sem perder voz ou deixar áudio no modo câmera. |
+| Voiceover | [CapCut gravação][capcut-voice] / [Edits teleprompter][edits-year]: abrir áudio → gravar sobre a montagem → revisar. | Captura de podcast existe; gravação de voiceover sincronizada ao editor não implementada. | Início/fim alinhados; cancelar preserva projeto; retorno da sessão de áudio seguro. |
+| Gain e fades | [CapCut volume/fades][capcut-audio]: selecionar áudio → volume → entrada/saída → exportar. | audioMix real e controles presentes; testes de amostras passaram. EQ/dinâmica/normalização ainda ausentes. | Resultado audível/exportado; fade limitado à faixa; undo restaura volume/intervalo. |
+| Velocidade e curvas | [CapCut speed][capcut-speed]: clip → velocidade constante/curva → revisar duração. | Não implementado no schema/motor v2. | Duração/âncoras/voz corretas, sem reordenar clips; preview/export iguais e restauração possível. |
+| Keyframes | [CapCut keyframes][capcut-keyframes]: selecionar propriedade → dois instantes → reproduzir. | Não implementado. | Interpolação real; edição/cancel/undo por ação; mesmos valores em exportação. |
+| Filtros / grade | [CapCut filtros][capcut-overlays]: selecionar clip → preset/intensidade → comparar origem. | Natural/Studio/Cinematic e motor compartilhado presentes; rosto/fluidez física ainda exigem QA. | Intensidade real, pele preservada, sem efeito aplicado duas vezes ou profundidade fictícia. |
+| Ajustes de imagem | [CapCut ajustes][capcut-images]: exposição/contraste/saturação/temperatura → antes/depois. | Grade e controles presentes. | Valores persistidos, undo e cancel coerentes; exportação corresponde ao último ajuste confirmado. |
+| Transições | [CapCut transições][capcut-overlays] / Edits: juntar clips → escolher transição → ajustar duração. | Não implementado no motor v2. | Intervalo/decoders/áudio corretos; resultado real, sem botão que simula efeito. |
+| Crop, rotação e formato | [CapCut crop][capcut-crop]: selecionar → enquadrar/girar → confirmar. | Rect, contain/cover e rotação existem no contrato/motor; superfície de crop/rotação ainda incompleta. | Transformação não altera origem; aspect-fit/toque corretos; formato e pixels preservados no export. |
+| Snapping | Contrato Studio; mecânica exata a observar no app real: mover/alça perto de borda/cursor/guia. | Snapping editorial não implementado; clamps de limites não contam como snapping. | Alinhamento indicado discretamente; soltar/desligar permite ajuste fino; sem saltar o cursor ou aderir ao alvo errado. |
+| Undo e autosave | Contrato: concluir gesto → undo/redo → sair/reabrir → interromper salvamento. | Histórico, persistência, backups e guards presentes; gestos novos integrados com uma operação por gesto, ainda exigindo aceite por toque. | Uma entrada por gesto, nenhum histórico para no-op; falha conserva edição recuperável; estado reaberto verdadeiro. |
+| Organização de projetos | Edits gerencia projetos; contrato: criar/importar → buscar/ordenar → abrir/excluir/cancelar. | Grid regular, busca, ordem, filtros e sessão transitória presentes. | Abrir câmera/cancelar importação não cria rascunho vazio; dono, arquivos e backup preservados. |
+| Câmera: qualidade/FPS/EV/foco/zoom | Edits documenta captura; controles detalhados são contrato Studio: consultar aparelho → ajustar → REC/STOP → editor. | Bridge AVFoundation e controles presentes. QA automatizado no iPhone14 confirmou originais1080p/4K30FPS, frontal/traseira, vídeo/áudio e confirmação de preset. Uso dos controles por toque e aula longa permanecem pendentes. | Exibir somente suporte real; gravação reflete confirmação; interrupção/STOP seguro; edição restaura orientação/áudio. |
+| Teleprompter | [Edits][edits-year]: preparar roteiro → ajustar leitura → REC → revisar. | Roteiro e ritmo de leitura presentes na captura; experiência por toque ainda a validar. | Texto/velocidade acessíveis, sem capturar o roteiro no vídeo final nem esconder enquadramento/STOP. |
+| Máscaras, blur localizado e chroma key | [CapCut máscaras/blur][capcut-mask] descreve desktop e iPhone; [chroma key][capcut-background] tem passos mobile/desktop: sobrepor → delimitar área ou escolher cor → ajustar bordas → exportar. | Máscara, feather, blur localizado, rastreamento e chroma key não implementados no schema/motor. Rect/crop não removem uma cor nem isolam uma região. | PiP circular e ocultação de dados legíveis; bordas estáveis durante movimento; original recuperável; preview/export iguais. Rastreamento exige teste próprio. |
+| Recorte de pessoa e substituição de fundo | [CapCut Remove BG][capcut-background], seções mobile/desktop/web: auto/custom removal → corrigir bordas → inserir fundo. | Segmentação automática e pincel de correção ausentes. Cor do canvas e imagem sobreposta existem, mas não recortam o professor. | Cabelo, mãos, óculos e objetos preservados em movimento; correção/cancelamento disponíveis; custo, processamento local/remoto e suporte explicitados antes da entrega. |
+| Retoque facial / beleza discreta | [CapCut retoque][capcut-retouch] descreve o editor **web**: selecionar vídeo → Retouch → ajustar → comparar/exportar. Não comprova o mesmo fluxo no iPhone. | Detecção/retouch de rosto não implementados. Presets de cor não equivalem a suavização de pele ou remodelação facial. | Opcional e reversível; preservar identidade e textura, sem deformar rosto/óculos. Avaliar em diferentes tons de pele e movimentos; prioridade abaixo de voz e legibilidade da aula. |
+| Estabilização de vídeo | [CapCut estabilização][capcut-stabilize], passos desktop/web/mobile: selecionar clip → Stabilize → intensidade → revisar/exportar. | Captura pede estabilização AVFoundation `.standard` quando suportada; análise e estabilização **pós-gravação**, inclusive de importados, não implementadas. | Mostrar crop resultante e área perdida; sem saltos no professor/slides; preview/export consistentes; possibilidade de desativar e recuperar enquadramento. |
+| Limpeza de voz e redução de ruído | [CapCut Reduce noise][capcut-denoise] descreve desktop; [limpeza de áudio][capcut-clean-audio] descreve web: faixa → redução → ouvir antes/depois → exportar. | Supressão de ruído, isolamento de voz e redução de reverberação não implementados. Gain/fades existentes não removem ruído. | Fala portuguesa inteligível, sem cortar consoantes ou criar som metálico; teste com ventilador/eco/música; ajuste reversível e mesmo áudio na prévia/exportação. |
+| Animação de texto, títulos e templates de aula | [Edits mobile][edits-launch], atualização de 17/12/2025, documenta estilos animados, title cards e templates; [CapCut mobile][capcut-overlays] descreve Text template. Fluxo Studio: título/identificação → modelo → editar conteúdo → ajustar entrada/saída. | Texto estático presente; animações, biblioteca de títulos/identificações e templates reutilizáveis não implementados. | Conteúdo/estilo continuam editáveis; timings e fontes persistidos; reutilização não altera originais; animação legível em aula horizontal, sem confundir modelo visual com vídeo pronto. |
+| Stickers, formas e anotações didáticas | [CapCut stickers][capcut-stickers] inclui mobile/desktop/web: inserir → posicionar/redimensionar → definir intervalo. Setas e marcações para aula são requisito Studio. | Imagens importadas podem compor anotações estáticas; biblioteca de stickers, formas vetoriais, desenho livre e stickers animados não implementados. | Setas/círculos acompanham o intervalo escolhido, sem esconder informação; cores/espessura legíveis; ativos com origem/licença registrada; sem atribuir animação a PNG estático. |
+| Waveform real e referência de áudio | [CapCut ajuda][capcut-waveform] confirma waveform da faixa na seção **desktop**; [visualizador][capcut-audiogram] trata stickers/audiogramas desktop, um recurso diferente. Fluxo Studio: expandir áudio → localizar fala/pausa → cortar → conferir por escuta. | Faixa de áudio mostra ícone de microfone, sem análise PCM/waveform. Detecção de silêncio/beat e audiogramas também ausentes. | Desenho deriva do áudio real e respeita source cuts/zoom; arquivo silencioso não recebe picos inventados; carregamento/cache não bloqueiam scroll. Não prometer precisão de corte por waveform decorativo. |
+| Exportação, perfis e salvar/compartilhar | [CapCut mobile][capcut-overlays] documenta resolução/FPS e exportação; [Edits mobile][edits-launch] documenta exportar/compartilhar sem marca adicionada. Fluxo Studio: revisar perfil → gerar arquivo → validar → salvar/compartilhar. | Motor local e upload presentes. Composição usa 1080p/30 FPS/SDR; caminho legado preserva fontes até 4K/60 FPS conforme metadados. Conversão é explícita. UI de salvar na galeria/share e seletor completo de codec/bitrate não implementados; captura 4K não garante composição 4K. | Perfil efetivo visível; nunca reduzir qualidade silenciosamente; conferir pixels/FPS/cor/áudio/duração e espaço livre. Salvar local deve funcionar sem publicar; cancelamento conserva projeto e não anuncia sucesso antes da escrita. |
+| Planejamento, storyboard e reutilização pedagógica | [Edits mobile][edits-launch] documenta storyboard com roteiro, cues, clips e notas. Fluxo Studio: organizar introdução/tópicos/exemplos → relacionar roteiro aos clips → gravar → revisar. | Roteiro/teleprompter e projetos presentes; storyboard por cena, cartões pedagógicos e templates de aula com blocos reutilizáveis não implementados. | Planejamento editável e vinculado ao projeto sem alterar o vídeo; reordenar cena mantém referências; nenhum limite de vídeo curto imposto à aula; importação de template cria IDs próprios. |
+
+Não adicionar controles de recursos ausentes como se funcionassem. A sequência de execução prioriza os gestos diretos e sua persistência/exportação; depois amplia texto/legendas/voz e recursos de tempo. Cada ampliação deve cumprir esta matriz e os cenários abaixo, inclusive em aula longa.
+
+O estado dos grupos novos foi conferido no [schema e receita](src/features/studio/model.ts), [faixas da timeline](src/features/studio/StudioTimeline.tsx), [seleção do exportador](src/features/studio/media.ts), [revisão/publicação](app/studio/review.tsx), [captura nativa](modules/classfy-studio-media/ios/StudioCaptureSession.swift) e [motor de composição](modules/classfy-studio-media/ios/StudioRecipeEngine.swift). A matriz amplia o inventário; não autoriza exibir ferramentas inoperantes nem transforma ausência em compromisso de entrega imediata. Para aulas, voz, texto legível, referências visuais e exportação confiável precedem efeitos decorativos.
+
+## Prévia: manipular o que se vê
+
+Vale para **vídeo principal, vídeo sobreposto, imagem, texto e legenda**. Áudio usa a timeline e ferramentas próprias.
+
+| Ação | Resultado obrigatório |
+| --- | --- |
+| Toque em um elemento visível | Seleciona seu ID e mostra contorno/alças e ferramentas contextuais. Mantém o cursor. Em sobreposição, prioriza o elemento visível superior. |
+| Segurar e arrastar | Move o elemento selecionado dentro do canvas, com resposta contínua. Vídeo principal também é manipulável. |
+| Pinça | Redimensiona o elemento selecionado, preservando sua proporção e o ponto de apoio do gesto. Não altera o formato do projeto. |
+| Arrastar alça de canto | Redimensiona diretamente na prévia; a alça deve ser fácil de alcançar sem mudar a posição por um toque acidental. |
+| Duplo toque em texto/legenda | Abre a edição do conteúdo com teclado e foco no campo correto. |
+| Duplo toque em vídeo/imagem | Abre as ferramentas do clip selecionado. Não dispara edição de outro item nem desloca a reprodução. |
+| Toque em área vazia | Remove a seleção, sem mudar tempo, conteúdo ou escala. |
+
+A geometria do toque usa o canvas realmente exibido, incluindo margens de aspect-fit. Pinça no elemento e zoom da timeline têm áreas de atuação distintas. Contorno e alças são UI de edição: não entram na exportação. Durante reprodução, a composição continua respeitando o tempo real de cada camada.
+
+## Timeline: selecionar, navegar e editar
+
+- Toque em clip ou camada **apenas seleciona**; mantém o cursor e não força rolagem para o centro do item. Arrastar a faixa/régua navega no tempo sob o cursor fixo. Pinça amplia/reduz a escala temporal preservando o instante de referência.
+- Segurar e arrastar o corpo de uma camada desloca seu intervalo no projeto. As alças de início/fim ajustam sua duração; o corpo não pode roubar o gesto de uma alça. Rolar e mover uma camada precisam de reconhecimento distinto.
+- Snapping, quando implementado, deve indicar o alvo e preservar ajuste fino; encostar no limite do arquivo não é evidência de snapping. Seu estado e cancelamento precisam ser testados por toque.
+- No vídeo/áudio, as alças editam o intervalo da origem, limitado ao arquivo real. Texto/imagem editam entrada e saída no projeto. Deslocar não deve cortar nem alterar a duração silenciosamente.
+- Corte fica integrado à faixa selecionada: prévia e timeline permanecem disponíveis. Não abrir uma superfície de corte flutuando por cima da própria timeline.
+- Seleção fora do intervalo temporal continua disponível na timeline e nas ferramentas, com indicação “Fora deste trecho”. A prévia não inventa um quadro nem exibe uma camada ausente para justificar a seleção. Ver o item exige navegar explicitamente ao seu intervalo.
+- Inspeção de uma borda de corte pode mostrar o quadro real da origem com contexto de edição explícito; não altera o cursor salvo da montagem. Encerrar/cancelar devolve a composição ao instante anterior.
+
+## Continuidade e segurança da edição
+
+- Cortes, posição e tamanho são receita não destrutiva; o original permanece intacto. Prévia e arquivo exportado devem concordar em enquadramento, ordem, intervalos e tratamentos.
+- Zoom, régua, cursor e geometria do gesto atualizam na UI thread; não dependem de salvar o projeto ou compilar vídeo a cada movimento do dedo. Atualizações nativas antigas não podem sobrescrever a edição recente.
+- Cada gesto concluído gera **uma operação de undo**; movimentos intermediários não criam dezenas de entradas. Um gesto sem alteração não cria histórico. Cancelamento/interrupção restaura o estado inicial, inclusive seleção, faixa e cursor de edição.
+- O ID e a geometria inicial do item ficam fixos durante o gesto. Troca de projeto, remoção do item, nova receita incompatível, navegação ou background encerram o gesto com segurança. Falha ao salvar mantém a edição recuperável e informa o erro.
+- Overlays transparentes e controles decorativos não capturam toques indevidos (`pointerEvents`). Safe area/notch, header, teclado e sheets devem preservar acesso aos controles; evitar padding duplicado e alturas negativas.
+- Editor e revisão usam retrato; a prévia respeita o formato do projeto. A orientação de captura pode mudar conforme o formato, mas deve ser restaurada ao retornar. Câmera, teclado ou modal não podem deixar gestos/áudio/reprodução presos ao modo anterior.
+
+## Aceite por cenário
+
+Registrar aparelho, build, formato, passos e evidência. Não marcar como aprovado por compilação, screenshot estático ou clique de mouse.
+
+- [ ] Vídeo principal e cada tipo de camada: toque, arraste, pinça e alças atingem o item certo; preview/export concordam.
+- [ ] Texto e legenda: duplo toque abre teclado; editar, cancelar e confirmar preservam seleção e intervalo.
+- [ ] Timeline: seleção não muda o cursor nem a rolagem; navegar, ampliar, mover camada e cortar são gestos distintos.
+- [ ] Camada fora do tempo ou coberta: nenhuma prévia falsa; navegar ao intervalo correto mostra a composição real.
+- [ ] Corte nas duas bordas, restauração e deslocamento respeitam origem e duração; undo/redo desfaz/refaz cada gesto inteiro.
+- [ ] Interrupção no meio do gesto, troca de projeto e background não deixam transformações parciais ou callbacks tardios.
+- [ ] iPhone com notch, teclado aberto, retorno da câmera e sheets: controles acessíveis, orientação correta e áreas de toque sem bloqueio.
+- [ ] Aula horizontal e Short vertical, clips curtos e aula longa: gestos contínuos por toque real, sem salto de quadro, faixa ou seleção.
+
+**Estado deste contrato:** os cenários acima exigem validação por toque real e comparação de exportação. Testes headless de composição/estado comprovam seus próprios contratos; não comprovam pinça, pressão longa, alças ou fluidez física. Pendências devem permanecer explícitas até o teste correspondente passar.
+
+[capcut-overlays]: https://www.capcut.com/resource/how-to-add-capcut-overlays
+[capcut-images]: https://www.capcut.com/resource/overlay-picture-on-video
+[capcut-text]: https://www.capcut.com/help/text-not-appearing
+[capcut-split]: https://www.capcut.com/tools/split-scene
+[capcut-voice]: https://www.capcut.com/resource/how-to-add-voice-in-a-video
+[capcut-audio]: https://www.capcut.com/resource/edit-voice-recording
+[capcut-speed]: https://www.capcut.com/resource/how-to-do-velocity-on-capcut
+[capcut-keyframes]: https://www.capcut.com/tools/keyframe-animation
+[capcut-crop]: https://www.capcut.com/tools/crop-video
+[edits-year]: https://about.fb.com/news/2026/04/one-year-of-edits-built-for-and-with-creators/
+[edits-launch]: https://about.fb.com/news/2025/04/introducing-edits-streamlined-video-creation-app/
+[capcut-mask]: https://www.capcut.com/resource/how-to-blur-face-on-capcut
+[capcut-background]: https://www.capcut.com/resource/how-to-remove-background-in-capcut
+[capcut-retouch]: https://www.capcut.com/tools/face-retouching
+[capcut-stabilize]: https://www.capcut.com/resource/capcut-stabilizer
+[capcut-denoise]: https://www.capcut.com/resource/eliminate-background-noise
+[capcut-clean-audio]: https://www.capcut.com/resource/clean-up-audio
+[capcut-stickers]: https://www.capcut.com/resource/video-editing-with-stickers
+[capcut-waveform]: https://www.capcut.com/help/fix-audio-recognition-error
+[capcut-audiogram]: https://www.capcut.com/resource/best-sound-waves-generators

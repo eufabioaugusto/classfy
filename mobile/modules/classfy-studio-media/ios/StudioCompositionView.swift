@@ -91,9 +91,18 @@ final class StudioCompositionView: ExpoView {
     recipeJSON = value; buildGeneration += 1
     let generation = buildGeneration
     let oldPosition = pendingSeek?.seconds ?? max(0, player.currentTime().seconds.isFinite ? player.currentTime().seconds : 0)
-    player.pause(); buildTask?.cancel(); frameTask?.cancel(); cancelReplay()
+    buildTask?.cancel(); frameTask?.cancel(); cancelReplay()
     sourceInspection = nil; inspectedFrame.isHidden = true
-    loading = true; publish()
+    // A pose/style update keeps a ready decoder and the displayed frame. Do
+    // not flash a loading state for every gesture draft; full rebuilds below
+    // publish loading only after the visual fast path has been ruled out.
+    // If this supersedes a full rebuild, its ready *old* item was deliberately
+    // paused. Keep that loading state until the latest worker can resume it.
+    loading = loading || prepared == nil || player.currentItem?.status != .readyToPlay
+    // A ready visual update must keep its actual rate: publishing a temporary
+    // pause with loading=false would turn a running preview into a user pause
+    // in the JS state adapter before the worker can finish.
+    if loading { player.pause(); publish() }
     // Prop updates are batched before this task resumes on main; revision has
     // therefore been set when a result is emitted, regardless of prop order.
     buildTask = Task { [weak self] in
@@ -101,13 +110,30 @@ final class StudioCompositionView: ExpoView {
       do {
         await Task.yield()
         try Task.checkCancellation()
-        if let previous = self.prepared, let updated = try engine.updateVisuals(previous, recipeJSON: value),
-           generation == buildGeneration, let item = player.currentItem {
-          self.prepared = updated; item.videoComposition = updated.videoComposition
-          loading = item.status != .readyToPlay
-          if !paused && !loading && window != nil { startPlayback() }
-          drainPendingSeek(); publish(); return
+        if let previous = self.prepared {
+          // Immutable prepared snapshots can be read off-main. The worker
+          // builds new visual objects; only assigning the player stays on main.
+          let worker = Task.detached(priority: .userInitiated) { [engine = self.engine] in
+            try engine.updateVisuals(previous, recipeJSON: value)
+          }
+          let updated = try await withTaskCancellationHandler(operation: {
+            try await worker.value
+          }, onCancel: { worker.cancel() })
+          try Task.checkCancellation()
+          guard generation == buildGeneration, !disposed else { return }
+          if let updated, let item = player.currentItem, item.status == .readyToPlay {
+            self.prepared = updated; item.videoComposition = updated.videoComposition
+            loading = false
+            if !paused && window != nil { startPlayback() }
+            drainPendingSeek(); publish(); return
+          }
         }
+        // Full rebuilds retain the pause/loading behavior. Capture the cursor
+        // now, since playback may have advanced while testing the fast path.
+        let rawPosition = player.currentTime().seconds
+        let rebuildPosition = pendingSeek?.seconds ?? (rawPosition.isFinite ? max(0, rawPosition) : oldPosition)
+        player.pause()
+        if !loading { loading = true; publish() }
         let prepared = try await engine.prepare(recipeJSON: value)
         try Task.checkCancellation()
         guard generation == buildGeneration else { return }
@@ -138,7 +164,7 @@ final class StudioCompositionView: ExpoView {
           }
         }
         player.replaceCurrentItem(with: item)
-        let position = min(oldPosition, max(0, prepared.recipe.durationSeconds - 1 / 30.0))
+        let position = min(rebuildPosition, max(0, prepared.recipe.durationSeconds - 1 / 30.0))
         if position > 0 {
           await seekPlayer(position)
           guard generation == buildGeneration, !Task.isCancelled else { return }

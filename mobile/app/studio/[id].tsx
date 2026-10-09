@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { ActivityIndicator, Alert, FlatList, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
+import { ActivityIndicator, Alert, Keyboard, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useIsFocused, useNavigation, usePreventRemove } from '@react-navigation/native';
 import { StatusBar } from 'expo-status-bar';
@@ -19,6 +19,9 @@ import { duplicateStudioTake, locateStudioTime, moveStudioTake, removeStudioTake
 import { addStudioLayerItem, compileStudioRecipe, createStudioTextItem, deriveStudioTakes, patchStudioClipGrade, patchStudioLayerItem, removeStudioLayerItem, studioEditing, studioSeconds, studioTicks, withStudioStandardOutput, formatStudioEditorTime, timelineDuration, type StudioEditing, type StudioProject, type StudioTake } from '@/features/studio/model';
 import { StudioPreview, type StudioPlaybackState, type StudioPreviewHandle } from '@/features/studio/StudioPreview';
 import { StudioCompositionPreview } from '@/features/studio/StudioCompositionPreview';
+import { StudioCanvasEditor, type StudioCanvasTransform } from '@/features/studio/StudioCanvasEditor';
+import { mergeStudioCanvasDraft, patchStudioCanvasTransform } from '@/features/studio/canvasEditing';
+import { applyStudioLayerTimelineRange, freezeStudioLayerTimeline, type StudioLayerTimelineRange } from '@/features/studio/layerTimelineInteraction';
 import { StudioLayerPanel } from '@/features/studio/StudioLayerPanel';
 import { StudioTreatmentPanel } from '@/features/studio/StudioTreatmentPanel';
 import { addStudioCaptionCues, studioTranscriptCues } from '@/features/studio/captions';
@@ -56,15 +59,30 @@ function ProjectEditor({ project, update }: { project: StudioProject; update: (i
   const [selectedLayerId, setSelectedLayerId] = useState<string>();
   const [treating, setTreating] = useState(false);
   const [editingPreview, setEditingPreview] = useState<StudioEditing>();
+  const editingPreviewRef = useRef(editingPreview); editingPreviewRef.current = editingPreview;
+  const [canvasInteracting, setCanvasInteracting] = useState(false);
+  const canvasGesture = useRef(false);
+  const [layerInteracting, setLayerInteracting] = useState(false);
+  const layerGesture = useRef(false);
+  const [editTextRequest, setEditTextRequest] = useState(0);
+  const [keyboardVisible, setKeyboardVisible] = useState(false);
+  useEffect(() => {
+    const show = Keyboard.addListener('keyboardDidShow', () => setKeyboardVisible(true));
+    const hide = Keyboard.addListener('keyboardDidHide', () => setKeyboardVisible(false));
+    return () => { show.remove(); hide.remove(); };
+  }, []);
+  const canvasDraft = useRef<{ id: string; base: StudioEditing; previous?: StudioEditing } | undefined>(undefined);
+  const layerTrimDraft = useRef<{ id: string; base: StudioEditing; previous?: StudioEditing } | undefined>(undefined);
   const [before, setBefore] = useState(false);
   const [captionProgress, setCaptionProgress] = useState<string>();
   const captionRequest = useRef<{ id: string; cancelled: boolean } | undefined>(undefined);
   useEffect(() => () => { if (captionRequest.current) { captionRequest.current.cancelled = true; void cancelStudioTranscriptionAsync(captionRequest.current.id); } }, []);
   const editing = studioEditing(project);
+  const visibleEditing = editingPreview || editing;
   const previewProject = editingPreview ? { ...project, editing: editingPreview, takes: deriveStudioTakes(editingPreview) } : project;
   const recipe = useMemo(() => compileStudioRecipe(previewProject), [project.editing, project.kind, project.takes, editingPreview]);
-  const layerItems = useMemo(() => editing.layers.flatMap(layer => layer.items), [editing]);
-  const layerItem = editing.layers.flatMap(layer => layer.items).find(item => item.id === selectedLayerId);
+  const timelineRecipe = useMemo(() => compileStudioRecipe(project), [project.editing, project.kind, project.takes]);
+  const layerItem = visibleEditing.layers.flatMap(layer => layer.items).find(item => item.id === selectedLayerId);
   const advanced = isStudioCompositionAvailable() && project.kind !== 'podcast';
   const [organizing, setOrganizing] = useState(false);
   const [trimDraft, setTrimDraft] = useState<TrimRange | null>(null);
@@ -89,7 +107,7 @@ function ProjectEditor({ project, update }: { project: StudioProject; update: (i
     // Removing/splitting the playing ID makes the native preview temporarily
     // fall back to the first clip; retain the cursor until its anchor is restored.
     const anchor = playbackRef.current;
-    const next = working.current || pendingRestore.current
+    const next = working.current || pendingRestore.current || canvasDraft.current || canvasGesture.current || layerTrimDraft.current
       ? { ...state, position: anchor.position, sourcePosition: anchor.sourcePosition, takeId: anchor.takeId } : state;
     playbackRef.current = next;
     setPlayback(previous => previous.position === next.position && previous.sourcePosition === next.sourcePosition && previous.playing === next.playing && previous.loading === next.loading && previous.takeId === next.takeId ? previous : next);
@@ -97,7 +115,7 @@ function ProjectEditor({ project, update }: { project: StudioProject; update: (i
   const activeTake = project.takes.find(take => take.id === (selectedTakeId || activeTakeId)) || project.takes[0];
   const activeIndex = project.takes.findIndex(take => take.id === activeTake?.id);
   const duration = studioSeconds(recipe.durationTicks);
-  const previewAspect = project.kind === 'short' ? 9 / 16 : project.kind === 'aula' ? 16 / 9 : 1;
+  const previewAspect = project.kind === 'podcast' ? 1 : recipe.output.width / recipe.output.height;
   const previewWidth = Math.max(1, Math.min(stageSize.width - 24, (stageSize.height - 42) * previewAspect));
   const previewHeight = previewWidth / previewAspect;
   const locked = ['preparing', 'uploading', 'processing', 'submitted'].includes(project.state);
@@ -117,11 +135,11 @@ function ProjectEditor({ project, update }: { project: StudioProject; update: (i
     setHistoryState(history.sync(owner === project.ownerId ? getStudioProject(owner, project.id) || null : null, owner));
   }, [history, project, user?.id]);
   useEffect(() => { if (focused) allowRemoval.current = false; }, [focused]);
-  useEffect(() => { navigation.setOptions({ gestureEnabled: !busy && !trimDraft && !saving && !editingPreview }); }, [navigation, busy, trimDraft, saving, editingPreview]);
-  usePreventRemove(busy || !!trimDraft || saving || !!saveError || !!editingPreview, ({ data }) => {
+  useEffect(() => { navigation.setOptions({ gestureEnabled: !busy && !trimDraft && !saving && !editingPreview && !canvasInteracting && !layerInteracting }); }, [navigation, busy, trimDraft, saving, editingPreview, canvasInteracting, layerInteracting]);
+  usePreventRemove(busy || !!trimDraft || saving || !!saveError || !!editingPreview || canvasInteracting || layerInteracting, ({ data }) => {
     if (allowRemoval.current) { navigation.dispatch(data.action); return; }
     // A take write must settle before leaving; an unfinished drag is discarded.
-    if (working.current || leaving.current) return;
+    if (working.current || leaving.current || canvasDraft.current || canvasGesture.current || layerTrimDraft.current || layerGesture.current) return;
     if (trimDraft) { cancelTrim(); return; }
     leaving.current = true;
     void (async () => {
@@ -158,7 +176,7 @@ function ProjectEditor({ project, update }: { project: StudioProject; update: (i
   };
   const finishWork = () => { working.current = false; if (mounted.current) setBusy(false); };
   const editTakes = async (change: ((takes: readonly StudioTake[]) => StudioTake[]) | 'undo' | 'redo') => {
-    if (locked || !startWork()) return;
+    if (locked || canvasDraft.current || canvasGesture.current || layerTrimDraft.current || layerGesture.current || !startWork()) return;
     const anchor = trimAnchor.current || captureStudioPlaybackAnchor(current.current.project.takes, playbackRef.current);
     let operation: ReturnType<typeof history.beginEdit> = null;
     try {
@@ -194,7 +212,7 @@ function ProjectEditor({ project, update }: { project: StudioProject; update: (i
       });
       if (operation) history.commit(operation, saved);
       if (mounted.current) {
-        setEditingPreview(undefined); setBefore(false); setHistoryState(history.state());
+        setEditingPreview(undefined); editingPreviewRef.current = undefined; setBefore(false); setHistoryState(history.state());
         pendingRestore.current = { anchor, revision: saved.revision }; setRestoreSequence(value => value + 1);
       }
       return saved;
@@ -213,7 +231,28 @@ function ProjectEditor({ project, update }: { project: StudioProject; update: (i
     }
     return chosen;
   };
-  const closeLayer = () => { setSelectedLayerId(undefined); setEditingPreview(undefined); setBefore(false); setTreating(false); };
+  const closeLayer = () => { setSelectedLayerId(undefined); setEditingPreview(undefined); editingPreviewRef.current = undefined; setBefore(false); setTreating(false); };
+  const previewEditing = (value?: StudioEditing) => { editingPreviewRef.current = value; setEditingPreview(value); };
+  const previewCanvas = (id: string, transform?: StudioCanvasTransform) => {
+    if (working.current || locked) return;
+    if (!transform) {
+      const session = canvasDraft.current;
+      if (session?.id === id) previewEditing(session.previous);
+      canvasDraft.current = undefined; canvasGesture.current = false; setCanvasInteracting(false); return;
+    }
+    const session = canvasDraft.current?.id === id ? canvasDraft.current : {
+      id, base: editingPreviewRef.current || studioEditing(current.current.project), previous: editingPreviewRef.current,
+    };
+    canvasDraft.current = session;
+    previewEditing(patchStudioCanvasTransform(session.base, id, transform));
+  };
+  const commitCanvas = async (id: string, transform: StudioCanvasTransform) => {
+    const session = canvasDraft.current?.id === id ? canvasDraft.current : { id, base: editingPreviewRef.current || studioEditing(current.current.project) };
+    const draft = patchStudioCanvasTransform(session.base, id, transform);
+    previewEditing(draft); canvasDraft.current = undefined; canvasGesture.current = false; setCanvasInteracting(false);
+    try { await editEditing(latest => mergeStudioCanvasDraft(latest, draft, id)); }
+    catch { previewEditing(draft); }
+  };
   const mergeInlineDraft = (latest: StudioEditing, draft: StudioEditing) => {
     if (selectedLayerId) {
       const item = draft.layers.flatMap(layer => layer.items).find(item => item.id === selectedLayerId);
@@ -225,6 +264,7 @@ function ProjectEditor({ project, update }: { project: StudioProject; update: (i
       if (!clip?.grade || !latest.main.some(item => item.id === activeTake.id)) throw new Error('Este take não está mais na montagem.');
       return patchStudioClipGrade(latest, activeTake.id, clip.grade);
     }
+    if (selectedTakeId) return mergeStudioCanvasDraft(latest, draft, selectedTakeId);
     throw new Error('Selecione novamente o item que deseja editar.');
   };
   const applyInlineDraft = async (draft: StudioEditing) => {
@@ -233,32 +273,50 @@ function ProjectEditor({ project, update }: { project: StudioProject; update: (i
     if (mounted.current) closeLayer();
   };
   const applyVisibleEditing = async () => {
-    if (!editingPreview) return true;
+    const draft = editingPreviewRef.current;
+    if (!draft) return true;
     try {
-      await applyInlineDraft(editingPreview);
+      await applyInlineDraft(draft);
       return true;
     } catch { return false; }
   };
   const selectLayer = (id: string) => {
-    if (busy || trimDraft) return;
-    preview.current?.pause(); setSelectedTakeId(undefined); setTreating(false); setEditingPreview(undefined); setSelectedLayerId(id);
+    if (working.current || trimDraft || canvasInteracting || layerGesture.current) return;
+    preview.current?.pause();
+    if (selectedLayerId === id && !treating) return;
+    const select = () => { setSelectedTakeId(undefined); setTreating(false); previewEditing(undefined); setSelectedLayerId(id); };
+    if (editingPreviewRef.current) { void applyVisibleEditing().then(saved => { if (saved && mounted.current) select(); }); }
+    else select();
+  };
+  const previewLayerTrim = (id: string, range?: StudioLayerTimelineRange) => {
+    if (working.current || locked) return;
+    if (!range) {
+      const session = layerTrimDraft.current;
+      if (session?.id === id) previewEditing(session.previous);
+      layerTrimDraft.current = undefined; return;
+    }
+    const session = layerTrimDraft.current?.id === id ? layerTrimDraft.current : {
+      id, base: editingPreviewRef.current || studioEditing(current.current.project), previous: editingPreviewRef.current,
+    };
+    layerTrimDraft.current = session;
+    previewEditing(applyStudioLayerTimelineRange(session.base, id, range));
+  };
+  const commitLayerTrim = async (id: string, range: StudioLayerTimelineRange) => {
+    const session = layerTrimDraft.current?.id === id ? layerTrimDraft.current : { id, base: editingPreviewRef.current || studioEditing(current.current.project) };
+    const draft = applyStudioLayerTimelineRange(session.base, id, range);
+    previewEditing(draft); layerTrimDraft.current = undefined;
+    try { await editEditing(latest => mergeStudioCanvasDraft(latest, draft, id)); }
+    catch { previewEditing(draft); throw new Error('A duração ainda não foi salva. Tente novamente.'); }
   };
   const moveLayer = async (id: string, delta: number) => {
-    // Moving the selected layer commits its visible draft in the same history
-    // operation. Merge only that item into the latest document so another
-    // asset or layer cannot be overwritten by a stale preview snapshot.
-    const draft = editingPreview?.layers.flatMap(layer => layer.items).find(item => item.id === id);
-    try {
-      const saved = await editEditing(latest => {
-        const item = latest.layers.flatMap(layer => layer.items).find(item => item.id === id);
-        if (!item) throw new Error('Esta camada não está mais na montagem.');
-        const base = draft ? patchStudioLayerItem(latest, id, draft) : latest;
-        const visible = draft || item;
-        const ticks = studioTicks(delta);
-        return patchStudioLayerItem(base, id, visible.anchor ? { anchor: { ...visible.anchor, ...(visible.anchor.sourceStartTicks !== undefined ? { sourceStartTicks: Math.max(0, visible.anchor.sourceStartTicks + ticks), sourceEndTicks: Math.max(0, visible.anchor.sourceStartTicks + ticks) + visible.durationTicks } : { offsetTicks: Math.max(0, (visible.anchor.offsetTicks || 0) + ticks) }) } } : { atTicks: Math.max(0, visible.atTicks + ticks) });
-      });
-      if (saved && mounted.current) closeLayer();
-    } catch { /* editEditing already reports the failure; retain the draft. */ }
+    const base = editingPreviewRef.current || studioEditing(current.current.project);
+    const frozen = freezeStudioLayerTimeline(base, id);
+    const draft = applyStudioLayerTimelineRange(base, id, {
+      startSeconds: frozen.startSeconds + delta, endSeconds: frozen.endSeconds + delta,
+    }, 'move');
+    previewEditing(draft);
+    try { await editEditing(latest => mergeStudioCanvasDraft(latest, draft, id)); }
+    catch { previewEditing(draft); throw new Error('A posição na timeline ainda não foi salva. Tente novamente.'); }
   };
   const addLayer = async (kind: 'text' | 'caption' | 'image' | 'video' | 'audio') => {
     if (!advanced || busy || locked || !project.takes.length || !await standardProfile()) return;
@@ -314,8 +372,8 @@ function ProjectEditor({ project, update }: { project: StudioProject; update: (i
     finally { if (captionRequest.current === request) { captionRequest.current = undefined; if (mounted.current) setCaptionProgress(undefined); if (working.current) finishWork(); } }
   };
   const openTreatment = async () => {
-    if (!activeTake || !advanced || busy || locked || !await standardProfile()) return;
-    preview.current?.pause(); setSelectedTakeId(activeTake.id); setSelectedLayerId(undefined); setEditingPreview(undefined); setTreating(true);
+    if (!activeTake || !advanced || busy || locked || canvasDraft.current || canvasGesture.current || layerTrimDraft.current || layerGesture.current || !await applyVisibleEditing() || !await standardProfile()) return;
+    preview.current?.pause(); setSelectedTakeId(activeTake.id); closeLayer(); setTreating(true);
   };
   const addMedia = async () => {
     if (locked || !startWork()) return;
@@ -345,7 +403,7 @@ function ProjectEditor({ project, update }: { project: StudioProject; update: (i
     } },
   ]);
   const navigate = async (destination: 'record' | 'review' | 'back') => {
-    if (working.current || leaving.current || trimDraft || (destination === 'record' && locked)) return;
+    if (working.current || leaving.current || trimDraft || canvasDraft.current || canvasGesture.current || layerTrimDraft.current || layerGesture.current || (destination === 'record' && locked)) return;
     if (!await applyVisibleEditing()) return;
     if (!startWork()) return;
     try {
@@ -357,11 +415,32 @@ function ProjectEditor({ project, update }: { project: StudioProject; update: (i
     finally { finishWork(); }
   };
   const selectTake = (take: StudioTake) => {
-    if (working.current || trimDraft) return;
-    preview.current?.pause(); setSelectedTakeId(take.id);
+    if (working.current || trimDraft || canvasInteracting || layerTrimDraft.current || layerGesture.current) return;
+    preview.current?.pause();
+    const select = () => { closeLayer(); setSelectedTakeId(take.id); };
+    if (editingPreviewRef.current) void applyVisibleEditing().then(saved => { if (saved && mounted.current) select(); });
+    else select();
+  };
+  const selectMainCanvas = (id: string) => {
+    if (working.current || canvasDraft.current || canvasGesture.current || layerTrimDraft.current || layerGesture.current) return;
+    const take = current.current.project.takes.find(item => item.id === id);
+    if (!take) return;
+    if (studioEditing(current.current.project).output.profile === 'standard') { selectTake(take); return; }
+    void (async () => { if (await applyVisibleEditing() && await standardProfile() && mounted.current) selectTake(take); })();
+  };
+  const editCanvasElement = (id: string) => {
+    if (working.current || canvasDraft.current || canvasGesture.current || layerTrimDraft.current || layerGesture.current) return;
+    const item = (editingPreviewRef.current || studioEditing(current.current.project)).layers.flatMap(layer => layer.items).find(item => item.id === id);
+    if (!item) { selectMainCanvas(id); return; }
+    const edit = () => {
+      selectLayer(id);
+      if (item.text) setEditTextRequest(value => value + 1);
+    };
+    if (selectedLayerId !== id && editingPreviewRef.current) void applyVisibleEditing().then(saved => { if (saved && mounted.current) edit(); });
+    else edit();
   };
   const openPanel = (next: Panel) => {
-    if (working.current || trimDraft) return;
+    if (working.current || trimDraft || canvasDraft.current || canvasGesture.current || layerTrimDraft.current || layerGesture.current) return;
     preview.current?.pause(); setPanel(next);
   };
   const previewTrim = (range: TrimRange) => {
@@ -439,60 +518,67 @@ function ProjectEditor({ project, update }: { project: StudioProject; update: (i
   };
   const canSplit = !locked && !!activeTake && playback.takeId === activeTake.id && playback.sourcePosition > activeTake.start + 0.1 - 1e-6 && playback.sourcePosition < activeTake.end - 0.1 + 1e-6;
   const closePanel = () => { if (!busy) setPanel(null); };
-  return <View style={[styles.screen, !fullscreen && { paddingTop: insets.top, paddingBottom: Math.max(insets.bottom, 8) }]}>
+  return <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} enabled={!fullscreen} style={[styles.screen, !fullscreen && { paddingTop: insets.top, paddingBottom: Math.max(insets.bottom, 8) }]}>
     <StatusBar hidden={focused && fullscreen} style="light" />
     {!fullscreen && <View style={styles.header}>
-      <Pressable accessibilityRole="button" accessibilityLabel="Voltar aos projetos" disabled={busy || !!trimDraft} onPress={() => { void navigate('back'); }} style={styles.iconButton}><X size={24} color={colors.text} strokeWidth={1.7} /></Pressable>
+      <Pressable accessibilityRole="button" accessibilityLabel="Voltar aos projetos" disabled={busy || canvasInteracting || layerInteracting || !!trimDraft} onPress={() => { void navigate('back'); }} style={styles.iconButton}><X size={24} color={colors.text} strokeWidth={1.7} /></Pressable>
       <View style={{ flex: 1, gap: 2 }}><Pressable accessibilityRole="button" accessibilityLabel="Editar título e roteiro do projeto" onPress={() => openPanel('preparation')} style={styles.projectTitle}><Text numberOfLines={1} style={styles.title}>{fields.title || (project.kind === 'aula' ? 'Nova aula' : project.kind === 'short' ? 'Novo short' : 'Novo podcast')}</Text><Pencil size={12} color={colors.muted} strokeWidth={1.5} /></Pressable>
         <StudioSaveStatus saving={saving || busy} error={saveError} transient={transient} onRetry={() => { void flush().catch(() => {}); }} />
       </View>
       {!!project.pendingTakes?.length && <Pressable accessibilityRole="button" accessibilityLabel="Recuperar arquivos pendentes" onPress={() => openPanel('recovery')} style={styles.iconButton}><Text style={{ color: colors.accent }}>{project.pendingTakes.length}</Text></Pressable>}
-      <Pressable accessibilityRole="button" accessibilityLabel={locked ? 'Acompanhar publicação' : 'Revisar publicação'} disabled={busy || transient || !!trimDraft} onPress={() => { void navigate('review'); }} style={[styles.review, (busy || transient || !!trimDraft) && { opacity: 0.5 }]}><Text style={styles.reviewText}>{locked ? 'Publicação' : 'Revisar'}</Text><ChevronRight size={16} color={colors.text} /></Pressable>
+      <Pressable accessibilityRole="button" accessibilityLabel={locked ? 'Acompanhar publicação' : 'Revisar publicação'} disabled={busy || canvasInteracting || layerInteracting || transient || !!trimDraft} onPress={() => { void navigate('review'); }} style={[styles.review, (busy || canvasInteracting || layerInteracting || transient || !!trimDraft) && { opacity: 0.5 }]}><Text style={styles.reviewText}>{locked ? 'Publicação' : 'Revisar'}</Text><ChevronRight size={16} color={colors.text} /></Pressable>
     </View>}
     <View style={fullscreen ? StyleSheet.absoluteFillObject : styles.previewStage} onLayout={event => { setStageSize(event.nativeEvent.layout); }}>
       <View style={fullscreen ? StyleSheet.absoluteFillObject : [styles.previewFrame, { width: previewWidth, height: previewHeight }, selectedTakeId && styles.selectedFrame]}>
-        <StudioCompositionPreview ref={preview} project={previewProject} before={before} activeTakeId={activeTakeId} onActiveTakeChange={setActiveTakeId} onPlaybackState={receivePlayback}
-          paused={!!panel || busy || !!trimDraft} onCanvasPress={() => preview.current?.togglePlayback()} canvasLabel={playback.playing ? 'Pausar prévia' : 'Reproduzir prévia'} />
+        <StudioCompositionPreview ref={preview} project={previewProject} recipe={recipe} before={before} activeTakeId={activeTakeId} onActiveTakeChange={setActiveTakeId} onPlaybackState={receivePlayback}
+          paused={!!panel || busy || !!trimDraft || canvasInteracting || layerInteracting} onCanvasPress={() => {
+            if (!fullscreen && (selectedLayerId || selectedTakeId)) {
+              void applyVisibleEditing().then(saved => { if (saved && mounted.current) { closeLayer(); setSelectedTakeId(undefined); } });
+            } else preview.current?.togglePlayback();
+          }} canvasLabel={playback.playing ? 'Pausar prévia' : 'Reproduzir prévia'} />
+        {!fullscreen && advanced && <StudioCanvasEditor editing={visibleEditing} recipe={recipe} positionSeconds={playback.position} selectedLayerId={selectedLayerId} selectedMainClipId={selectedTakeId}
+          disabled={!focused || busy || locked || !!panel || !!trimDraft || layerInteracting || treating}
+          onSelectLayer={selectLayer} onSelectMainClip={selectMainCanvas} onCanvasPress={() => preview.current?.togglePlayback()} onPreviewRect={previewCanvas} onCommitRect={commitCanvas} onEditText={editCanvasElement}
+          onInteractionStart={() => { canvasGesture.current = true; preview.current?.pause(); setCanvasInteracting(true); }} onInteractionEnd={() => { canvasGesture.current = false; setCanvasInteracting(false); }} />}
       </View>
       {!fullscreen && <View style={styles.previewCaption}><Text style={styles.formatLabel}>{project.kind === 'aula' ? 'AULA · 16:9' : project.kind === 'short' ? 'SHORT · 9:16' : 'PODCAST'}{editing.output.profile === 'standard' ? ' · 1080p · 30 FPS · SDR' : activeTake?.width && activeTake.height && Math.min(activeTake.width, activeTake.height) >= 2160 ? ' · ORIGINAL 4K' : ' · ORIGINAL'}</Text>
-        <Pressable accessibilityRole="button" accessibilityLabel="Prévia em tela inteira" disabled={busy || !!trimDraft} onPress={() => { preview.current?.pause(); setFullscreen(true); }} style={styles.smallIconButton}><Maximize2 size={17} color={colors.muted} strokeWidth={1.5} /></Pressable>
+        <Pressable accessibilityRole="button" accessibilityLabel="Prévia em tela inteira" disabled={busy || canvasInteracting || layerInteracting || !!trimDraft} onPress={() => { preview.current?.pause(); setFullscreen(true); }} style={styles.smallIconButton}><Maximize2 size={17} color={colors.muted} strokeWidth={1.5} /></Pressable>
       </View>}
     </View>
     {!fullscreen ? <View style={styles.workspace}>
-      <View style={styles.transport}>
-        <Pressable accessibilityRole="button" accessibilityLabel={playback.playing ? 'Pausar montagem' : 'Reproduzir montagem'} disabled={!project.takes.length || !!panel || busy || playback.loading || !!trimDraft} onPress={() => preview.current?.togglePlayback()} style={styles.playButton}>
+      {!keyboardVisible && <View style={styles.transport}>
+        <Pressable accessibilityRole="button" accessibilityLabel={playback.playing ? 'Pausar montagem' : 'Reproduzir montagem'} disabled={!project.takes.length || !!panel || busy || playback.loading || canvasInteracting || layerInteracting || !!trimDraft} onPress={() => preview.current?.togglePlayback()} style={styles.playButton}>
           {playback.loading ? <ActivityIndicator size="small" color={colors.muted} /> : playback.playing ? <Pause size={22} color={colors.text} fill={colors.text} strokeWidth={1.2} /> : <Play size={22} color={colors.text} fill={colors.text} strokeWidth={1.2} />}
         </Pressable>
         <View pointerEvents="none" style={styles.timeBlock}><Text style={styles.time}>{formatStudioEditorTime(playback.position)}</Text><Text style={styles.totalTime}>{formatStudioEditorTime(duration)}</Text></View>
         <View style={styles.historyButtons}>
-          <Pressable accessibilityRole="button" accessibilityLabel="Desfazer edição" disabled={!historyState.canUndo || busy || locked || !!trimDraft} onPress={() => { closeLayer(); void editTakes('undo'); }} style={[styles.iconButton, (!historyState.canUndo || busy || locked || !!trimDraft) && styles.disabled]}><Undo2 size={23} color={colors.textSecondary} strokeWidth={1.6} /></Pressable>
-          <Pressable accessibilityRole="button" accessibilityLabel="Refazer edição" disabled={!historyState.canRedo || busy || locked || !!trimDraft} onPress={() => { closeLayer(); void editTakes('redo'); }} style={[styles.iconButton, (!historyState.canRedo || busy || locked || !!trimDraft) && styles.disabled]}><Redo2 size={23} color={colors.textSecondary} strokeWidth={1.6} /></Pressable>
+          <Pressable accessibilityRole="button" accessibilityLabel="Desfazer edição" disabled={!historyState.canUndo || busy || canvasInteracting || layerInteracting || locked || !!trimDraft} onPress={() => { closeLayer(); void editTakes('undo'); }} style={[styles.iconButton, (!historyState.canUndo || busy || canvasInteracting || layerInteracting || locked || !!trimDraft) && styles.disabled]}><Undo2 size={23} color={colors.textSecondary} strokeWidth={1.6} /></Pressable>
+          <Pressable accessibilityRole="button" accessibilityLabel="Refazer edição" disabled={!historyState.canRedo || busy || canvasInteracting || layerInteracting || locked || !!trimDraft} onPress={() => { closeLayer(); void editTakes('redo'); }} style={[styles.iconButton, (!historyState.canRedo || busy || canvasInteracting || layerInteracting || locked || !!trimDraft) && styles.disabled]}><Redo2 size={23} color={colors.textSecondary} strokeWidth={1.6} /></Pressable>
         </View>
-      </View>
-      <StudioTimeline layers={recipe.clips.filter(clip => clip.zIndex > 0)} selectedLayerId={selectedLayerId} onSelectLayer={selectLayer} onMoveLayer={moveLayer} takes={project.takes} position={playback.position} activeTakeId={selectedTakeId} audio={project.kind === 'podcast'}
+      </View>}
+      {!keyboardVisible && <StudioTimeline editing={editing} layers={timelineRecipe.clips.filter(clip => clip.zIndex > 0)} selectedLayerId={selectedLayerId} onSelectLayer={selectLayer} onMoveLayer={moveLayer} onEditLayer={editCanvasElement} onLayerTrimPreview={previewLayerTrim} onLayerTrimCommit={commitLayerTrim} onLayerInteractionStart={() => { layerGesture.current = true; preview.current?.pause(); setLayerInteracting(true); }} onLayerInteractionEnd={() => { layerGesture.current = false; setLayerInteracting(false); }} takes={project.takes} position={playback.position} activeTakeId={selectedTakeId} audio={project.kind === 'podcast'}
         cancelEpoch={trimCancelEpoch}
-        locked={locked} busy={busy} onSelect={take => { closeLayer(); selectTake(take); }} onScrubStart={() => preview.current?.pause()} onSeek={seconds => preview.current?.seek(seconds)} onAppend={() => { void addMedia(); }}
-        onTrimChange={previewTrim} onTrimCommit={commitTrim} onTrimCancel={cancelTrim} />
+        locked={locked} busy={busy || canvasInteracting} onSelect={selectTake} onScrubStart={() => preview.current?.pause()} onSeek={seconds => preview.current?.seek(seconds)} onAppend={() => { void addMedia(); }}
+        onTrimChange={previewTrim} onTrimCommit={commitTrim} onTrimCancel={cancelTrim} />}
       {captionProgress && <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 6 }}><Text style={{ flex: 1, color: colors.muted, fontSize: 11 }}>{captionProgress}</Text><Pressable accessibilityLabel="Cancelar transcrição" onPress={() => { const request = captionRequest.current; if (request) { request.cancelled = true; setCaptionProgress('Cancelando…'); void cancelStudioTranscriptionAsync(request.id); } }} style={styles.iconButton}><X size={18} color={colors.text} /></Pressable></View>}
-      {!!layerItems.length && <FlatList horizontal data={layerItems} keyExtractor={item => item.id} initialNumToRender={8} maxToRenderPerBatch={8} windowSize={3} style={{ flexGrow: 0, maxHeight: 32 }} showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 16, paddingVertical: 4 }} renderItem={({ item }) => <Pressable accessibilityLabel={`Selecionar camada ${item.text?.content || item.kind}`} onPress={() => selectLayer(item.id)} style={{ width: 130, marginRight: 6, paddingHorizontal: 9, paddingVertical: 6, backgroundColor: selectedLayerId === item.id ? '#343E49' : '#181E25', borderRadius: 5 }}><Text numberOfLines={1} style={{ color: colors.textSecondary, fontSize: 10 }}>{item.text?.content || (item.kind === 'audio' ? 'Áudio' : item.kind === 'image' ? 'Imagem' : 'Vídeo')}</Text></Pressable>} />}
-      {layerItem ? <StudioLayerPanel key={layerItem.id} editing={editing} item={layerItem} disabled={busy || locked} onPreview={setEditingPreview} onApply={applyInlineDraft} onRemove={() => { void editEditing(value => removeStudioLayerItem(value, layerItem.id)).then(saved => { if (saved) closeLayer(); }).catch(() => {}); }} onClose={closeLayer} /> : treating && activeTake ? <StudioTreatmentPanel key={activeTake.id} editing={editing} targetId={activeTake.id} disabled={busy || locked} onPreview={setEditingPreview} onBefore={setBefore} onApply={applyInlineDraft} onClose={closeLayer} /> : null}
-      <View style={styles.selectionRow}><Text numberOfLines={1} style={styles.selectionLabel}>{selectedTakeId && activeTake ? `${activeTake.name || `Take ${activeIndex + 1}`} · ${formatStudioEditorTime(activeTake.end - activeTake.start)}` : `${project.takes.length} ${project.takes.length === 1 ? 'take' : 'takes'} · arraste para navegar`}</Text>
-        <Text style={styles.editHint}>{selectedTakeId ? 'Arraste as bordas para cortar' : 'Toque em um take para editar'}</Text>
+      {layerItem ? <StudioLayerPanel key={layerItem.id} editing={visibleEditing} item={layerItem} canvasEditing editTextRequest={editTextRequest} disabled={busy || locked || canvasInteracting || layerInteracting} onPreview={previewEditing} onApply={applyInlineDraft} onRemove={() => { void editEditing(value => removeStudioLayerItem(value, layerItem.id)).then(saved => { if (saved) closeLayer(); }).catch(() => {}); }} onClose={closeLayer} /> : treating && activeTake ? <StudioTreatmentPanel key={activeTake.id} editing={editing} targetId={activeTake.id} disabled={busy || locked} onPreview={previewEditing} onBefore={setBefore} onApply={applyInlineDraft} onClose={closeLayer} /> : null}
+      <View style={styles.selectionRow}><Text numberOfLines={1} style={styles.selectionLabel}>{layerItem ? layerItem.text?.content || (layerItem.kind === 'audio' ? 'Áudio' : layerItem.kind === 'image' ? 'Imagem' : 'Vídeo sobreposto') : selectedTakeId && activeTake ? `${activeTake.name || `Take ${activeIndex + 1}`} · ${formatStudioEditorTime(activeTake.end - activeTake.start)}` : `${project.takes.length} ${project.takes.length === 1 ? 'take' : 'takes'} · arraste para navegar`}</Text>
+        <Text style={styles.editHint}>{layerItem ? 'Arraste no vídeo · puxe as bordas da camada para definir a duração' : selectedTakeId ? 'Arraste as bordas para cortar · segure o vídeo para mover · pinça para redimensionar' : 'Toque em um take ou em um elemento do vídeo para editar'}</Text>
       </View>
       {orientationError ? <Text style={styles.warning}>{orientationError}</Text> : project.kind === 'short' && duration > 180 ? <Text style={styles.warning}>Ajuste a montagem para até 3 minutos.</Text> : locked ? <Text style={styles.locked}>{project.state === 'submitted' ? 'Enviado para curadoria' : 'Montagem em preparação · acompanhe na publicação'}</Text> : null}
       {!layerItem && !treating && <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.toolbar}>
         {selectedTakeId && activeTake ? <>
-          <EditorTool label="Concluir" icon={<Check size={22} color={colors.text} strokeWidth={1.5} />} disabled={busy || !!trimDraft} onPress={() => { setSelectedTakeId(undefined); setOrganizing(false); }} />
+          <EditorTool label="Concluir" icon={<Check size={22} color={colors.text} strokeWidth={1.5} />} disabled={busy || canvasInteracting || layerInteracting || !!trimDraft} onPress={() => { void applyVisibleEditing().then(saved => { if (saved && mounted.current) { setSelectedTakeId(undefined); setOrganizing(false); } }); }} />
           {organizing ? <>
-            <EditorTool label="Para antes" icon={<ArrowUp size={22} color={colors.text} strokeWidth={1.5} style={{ transform: [{ rotate: '-90deg' }] }} />} disabled={busy || locked || !!trimDraft || activeIndex === 0} onPress={() => { void move(activeTake.id, -1); }} />
-            <EditorTool label="Para depois" icon={<ArrowDown size={22} color={colors.text} strokeWidth={1.5} style={{ transform: [{ rotate: '-90deg' }] }} />} disabled={busy || locked || !!trimDraft || activeIndex === project.takes.length - 1} onPress={() => { void move(activeTake.id, 1); }} />
+            <EditorTool label="Para antes" icon={<ArrowUp size={22} color={colors.text} strokeWidth={1.5} style={{ transform: [{ rotate: '-90deg' }] }} />} disabled={busy || canvasInteracting || layerInteracting || locked || !!trimDraft || activeIndex === 0} onPress={() => { void move(activeTake.id, -1); }} />
+            <EditorTool label="Para depois" icon={<ArrowDown size={22} color={colors.text} strokeWidth={1.5} style={{ transform: [{ rotate: '-90deg' }] }} />} disabled={busy || canvasInteracting || layerInteracting || locked || !!trimDraft || activeIndex === project.takes.length - 1} onPress={() => { void move(activeTake.id, 1); }} />
           </> : <>
-            <EditorTool label="Dividir" icon={<Split size={22} color={colors.text} strokeWidth={1.5} />} disabled={!canSplit || busy || !!trimDraft} onPress={() => { void split(); }} />
-            <EditorTool label="Duplicar" icon={<Copy size={22} color={colors.text} strokeWidth={1.5} />} disabled={busy || locked || !!trimDraft} onPress={() => { void duplicate(); }} />
+            <EditorTool label="Dividir" icon={<Split size={22} color={colors.text} strokeWidth={1.5} />} disabled={!canSplit || busy || canvasInteracting || layerInteracting || !!trimDraft} onPress={() => { void split(); }} />
+            <EditorTool label="Duplicar" icon={<Copy size={22} color={colors.text} strokeWidth={1.5} />} disabled={busy || locked || canvasInteracting || layerInteracting || !!trimDraft} onPress={() => { void duplicate(); }} />
           </>}
-          <EditorTool label="Imagem" icon={<SlidersHorizontal size={22} color={colors.text} />} disabled={!advanced || busy || locked || !!trimDraft} onPress={() => { void openTreatment(); }} />
-          <EditorTool label="Excluir" icon={<Trash2 size={22} color={colors.text} strokeWidth={1.5} />} disabled={busy || locked || !!trimDraft} onPress={deleteTake} />
-          <EditorTool label={organizing ? 'Ferramentas' : 'Organizar'} icon={<Film size={22} color={colors.text} strokeWidth={1.5} />} disabled={busy || !!trimDraft} onPress={() => setOrganizing(value => !value)} />
+          <EditorTool label="Imagem" icon={<SlidersHorizontal size={22} color={colors.text} />} disabled={!advanced || busy || canvasInteracting || layerInteracting || locked || !!trimDraft} onPress={() => { void openTreatment(); }} />
+          <EditorTool label="Excluir" icon={<Trash2 size={22} color={colors.text} strokeWidth={1.5} />} disabled={busy || locked || canvasInteracting || layerInteracting || !!trimDraft} onPress={deleteTake} />
+          <EditorTool label={organizing ? 'Ferramentas' : 'Organizar'} icon={<Film size={22} color={colors.text} strokeWidth={1.5} />} disabled={busy || canvasInteracting || layerInteracting || !!trimDraft} onPress={() => setOrganizing(value => !value)} />
         </> : <>
           <EditorTool label="Gravar" icon={project.kind === 'podcast' ? <Mic size={22} color={colors.text} strokeWidth={1.5} /> : <Video size={22} color={colors.text} strokeWidth={1.5} />} disabled={locked || busy || !orientationReady} onPress={() => { void navigate('record'); }} />
           <EditorTool label="Importar" icon={<Upload size={22} color={colors.text} strokeWidth={1.5} />} disabled={locked || busy} onPress={() => { void addMedia(); }} />
@@ -527,7 +613,7 @@ function ProjectEditor({ project, update }: { project: StudioProject; update: (i
         </View>
       </KeyboardAvoidingView>
     </SheetModal>
-  </View>;
+  </KeyboardAvoidingView>;
 }
 function EditorTool({ label, icon, onPress, disabled }: { label: string; icon: ReactNode; onPress: () => void; disabled?: boolean }) {
   return <Pressable accessibilityRole="button" accessibilityLabel={label} accessibilityState={{ disabled }} disabled={disabled} onPress={onPress} style={({ pressed }) => [styles.tool, disabled && { opacity: 0.3 }, pressed && { opacity: 0.65 }]}>{icon}<Text style={styles.toolLabel}>{label}</Text></Pressable>;

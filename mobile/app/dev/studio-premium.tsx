@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { Redirect } from 'expo-router';
+import { ActivityIndicator, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Redirect, useLocalSearchParams } from 'expo-router';
 import { Asset } from 'expo-asset';
+import Constants from 'expo-constants';
+import * as Device from 'expo-device';
 import * as FileSystem from 'expo-file-system/legacy';
 import { randomUUID } from 'expo-crypto';
 import { AppScreen } from '@/components/AppScreen';
@@ -17,10 +19,37 @@ import { addStudioLayerItem, compileStudioRecipe, createStudioTextItem, emptyStu
 import { cancelExportAsync, exportRecipeAsync, generateThumbnailAsync, getMediaInfoAsync, isStudioCompositionAvailable } from '../../modules/classfy-studio-media';
 
 const reportURI = () => `${FileSystem.cacheDirectory}classfy-studio-premium-qa-result.json`;
+type DiagnosticRun = { id: string; mode: 'manual' | 'automatic'; startedAt: string; startedMs: number; buildLabel: string | null };
+let latestDiagnosticRun: string | undefined;
+let diagnosticReportQueue: Promise<void> = Promise.resolve();
+function writeDiagnosticReport(run: DiagnosticRun, payload: Record<string, unknown>) {
+  const report = {
+    reportSchema: 'classfy-studio-premium-qa', reportVersion: 1,
+    runId: run.id, mode: run.mode, startedAt: run.startedAt, reportedAt: new Date().toISOString(), elapsedMs: Date.now() - run.startedMs,
+    environment: { platform: Platform.OS, osVersion: Device.osVersion ?? String(Platform.Version), physicalDevice: Device.isDevice,
+      model: Device.modelName ?? null, executionEnvironment: Constants.executionEnvironment, development: __DEV__ },
+    build: { nativeBuildNumber: Constants.platform?.ios?.buildNumber ?? null, configuredVersion: Constants.expoConfig?.version ?? null,
+      configuredBundleId: Constants.expoConfig?.ios?.bundleIdentifier ?? null, requestedLabel: run.buildLabel },
+    ...payload,
+  };
+  // Serialize report writes and keep a canceled older route from overwriting
+  // the result of a newer diagnostic launched by another deep link.
+  diagnosticReportQueue = diagnosticReportQueue.catch(() => undefined).then(async () => {
+    if (latestDiagnosticRun !== run.id || !FileSystem.cacheDirectory) return;
+    await FileSystem.writeAsStringAsync(reportURI(), JSON.stringify(report));
+  });
+  return diagnosticReportQueue;
+}
 
 // Development-only local fixture viewer. It deliberately bypasses auth, project
 // storage and publication: only cache files and the native compositor are used.
 export default function StudioPremiumQA() {
+  const params = useLocalSearchParams<{ run?: string; build?: string }>();
+  const [diagnostic] = useState<DiagnosticRun>(() => {
+    const run = Array.isArray(params.run) ? params.run[0] : params.run;
+    const label = Array.isArray(params.build) ? params.build[0] : params.build;
+    return { id: randomUUID(), mode: run === 'export' ? 'automatic' : 'manual', startedAt: new Date().toISOString(), startedMs: Date.now(), buildLabel: label?.slice(0, 80) || null };
+  });
   const [project, setProject] = useState<StudioProject>();
   const [draft, setDraft] = useState<StudioEditing>();
   const [selectedTakeId, setSelectedTakeId] = useState('main-landscape');
@@ -33,12 +62,17 @@ export default function StudioPremiumQA() {
   const [playback, setPlayback] = useState<StudioPlaybackState>({ position: 0, sourcePosition: 0, playing: false, loading: true });
   const preview = useRef<StudioPreviewHandle>(null);
   const mounted = useRef(true), job = useRef<string | undefined>(undefined), working = useRef(false);
+  const fixturePromise = useRef<Promise<StudioProject> | undefined>(undefined), automaticStarted = useRef(false);
+  const fixturesReadyMs = useRef<number | undefined>(undefined);
   const current = useRef(project); current.current = project;
   useEffect(() => {
     if (!__DEV__) return;
     mounted.current = true;
+    latestDiagnosticRun = diagnostic.id;
+    let active = true;
     const run = async () => {
       if (!FileSystem.cacheDirectory || !isStudioCompositionAvailable()) throw new Error('Instale o binário atual do Classfy Dev com o motor de composição.');
+      await writeDiagnosticReport(diagnostic, { passed: false, status: 'opening', stage: 'fixtures' });
       const directory = `${FileSystem.cacheDirectory}classfy-premium-qa-${randomUUID()}/`;
       await FileSystem.makeDirectoryAsync(directory, { intermediates: true });
       const load = async (module: number, name: string) => {
@@ -71,10 +105,26 @@ export default function StudioPremiumQA() {
       const now = new Date().toISOString();
       const fixtureProject = withStudioTakes({ version: 2, id: 'premium-qa', ownerId: 'local-qa', kind: 'aula', title: 'Studio Premium QA', description: '', objective: '', audience: '', script: '', tags: [], visibility: 'free', price: '', editing, createdAt: now, updatedAt: now, revision: 1, state: 'draft', progress: 0 });
       const issues = validateStudioRecipe(compileStudioRecipe(fixtureProject)); if (issues.length) throw new Error(issues.join(' '));
-      if (mounted.current) { setProject(fixtureProject); setMessage('Pronto · 2 vídeos + texto + áudio. Edição local em cache.'); }
+      return fixtureProject;
     };
-    void run().catch(cause => { if (mounted.current) setMessage(cause instanceof Error ? cause.message : 'Falha ao abrir as fixtures.'); });
-    return () => { mounted.current = false; if (job.current) void cancelExportAsync(job.current); };
+    // React StrictMode runs setup/cleanup/setup. Reuse the same preparation
+    // promise, and let only the live effect launch the optional native export.
+    fixturePromise.current ??= run();
+    void fixturePromise.current.then(fixtureProject => {
+      if (!active || !mounted.current) return;
+      fixturesReadyMs.current ??= Date.now(); current.current = fixtureProject;
+      setProject(fixtureProject); setMessage('Pronto · 2 vídeos + texto + áudio. Edição local em cache.');
+      if (diagnostic.mode === 'automatic' && !automaticStarted.current) {
+        automaticStarted.current = true;
+        void exporting(fixtureProject);
+      }
+    }).catch(async cause => {
+      if (!active || !mounted.current) return;
+      const error = cause instanceof Error ? cause.message : 'Falha ao abrir as fixtures.';
+      try { await writeDiagnosticReport(diagnostic, { passed: false, status: 'failed', stage: 'fixtures', error }); } catch { /* The visible error remains available if cache writes fail. */ }
+      if (active && mounted.current) setMessage(error);
+    });
+    return () => { active = false; mounted.current = false; if (job.current) void cancelExportAsync(job.current); };
   }, []);
   if (!__DEV__) return <Redirect href="/" />;
   const closePanel = () => { setDraft(undefined); setSelectedLayerId(undefined); setTreatment(false); setBefore(false); };
@@ -88,20 +138,26 @@ export default function StudioPremiumQA() {
       if (mounted.current) { current.current = next; setProject(next); closePanel(); setMessage('Edição salva em cache · nenhum conteúdo publicado.'); }
     } finally { working.current = false; if (mounted.current) setBusy(false); }
   };
-  const exporting = async () => {
-    const snapshot = current.current; if (!snapshot || working.current || !FileSystem.cacheDirectory) return;
+  const exporting = async (snapshot: StudioProject | undefined = current.current) => {
+    if (!snapshot || working.current || !FileSystem.cacheDirectory) return;
     working.current = true; setBusy(true); setProgress(0); preview.current?.pause(); closePanel();
     const requestId = randomUUID(); job.current = requestId;
+    const exportStartedMs = Date.now(), exportStartedAt = new Date(exportStartedMs).toISOString();
     const recipe = compileStudioRecipe(snapshot), outputUri = `${FileSystem.cacheDirectory}classfy-premium-export-${requestId}.mp4`;
     try {
+      await writeDiagnosticReport(diagnostic, { passed: false, status: 'exporting', stage: 'export', requestId, recipeSchema: recipe.version,
+        timebase: recipe.timebase, exportStartedAt, fixturesMs: (fixturesReadyMs.current ?? exportStartedMs) - diagnostic.startedMs });
       const result = await exportRecipeAsync({ requestId, recipeJSON: JSON.stringify(recipe), outputUri }, value => { if (mounted.current) setProgress(value); });
       const checks = { duration: Math.abs(result.duration - studioSeconds(recipe.durationTicks)) <= 1 / 30 + 0.01, size: result.width === 1920 && result.height === 1080, frameRate: Math.abs((result.frameRate ?? 0) - 30) < 0.02, audio: result.hasAudio, file: result.fileSize > 0 };
       const passed = Object.values(checks).every(Boolean);
-      await FileSystem.writeAsStringAsync(reportURI(), JSON.stringify({ passed, checks, result, recipe, projectRevision: snapshot.revision, reportedAt: new Date().toISOString() }));
+      await writeDiagnosticReport(diagnostic, { passed, status: passed ? 'passed' : 'failed', stage: 'export', checks, result, recipe,
+        recipeSchema: recipe.version, timebase: recipe.timebase, projectRevision: snapshot.revision, requestId, exportStartedAt,
+        exportFinishedAt: new Date().toISOString(), exportMs: Date.now() - exportStartedMs, fixturesMs: (fixturesReadyMs.current ?? exportStartedMs) - diagnostic.startedMs });
       if (mounted.current) setMessage(passed ? 'Export OK · 1080p30 SDR, duração e áudio verificados. JSON salvo no cache.' : `Export divergente · ${JSON.stringify(checks)}`);
     } catch (cause) {
       const error = cause instanceof Error ? cause.message : 'Falha de exportação';
-      await FileSystem.writeAsStringAsync(reportURI(), JSON.stringify({ passed: false, error, recipe }));
+      try { await writeDiagnosticReport(diagnostic, { passed: false, status: 'failed', stage: 'export', error, recipe,
+        recipeSchema: recipe.version, timebase: recipe.timebase, requestId, exportStartedAt, exportMs: Date.now() - exportStartedMs }); } catch { /* Preserve the visible export failure if diagnostics cannot be written. */ }
       if (mounted.current) setMessage(error);
     } finally { if (job.current === requestId) job.current = undefined; working.current = false; if (mounted.current) setBusy(false); }
   };

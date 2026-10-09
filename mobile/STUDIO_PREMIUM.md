@@ -20,6 +20,15 @@ Texto, legendas, imagens e vídeo sobreposto podem acompanhar um take. Cortes, d
 
 ## Recursos desta entrega
 
+O contrato completo dos gestos e a matriz de paridade com referências oficiais
+estão em [STUDIO_EDITOR_INTERACTIONS.md](STUDIO_EDITOR_INTERACTIONS.md).
+
+Vídeo principal, vídeo sobreposto, imagem, texto e legenda usam seleção, arraste,
+pinça e alças na prévia; duplo toque abre a edição contextual. As bordas de cada
+camada controlam início/fim na timeline, e segurar o corpo permite mover o intervalo.
+Esses gestos têm regressões de estado e persistência; o aceite de fluidez por toque
+no iPhone permanece separado.
+
 - Câmera AVFoundation integrada aos controles existentes, com formatos e FPS consultados no dispositivo; captura de Aula em paisagem, editor em retrato.
 - Natural, Studio e Cinematic também podem ser escolhidos na câmera, com intensidade. A confirmação espera um quadro concluído na GPU com a receita e o formato atuais. O REC congela o tratamento no journal: o original continua bruto e a receita é aplicada uma vez no editor e na exportação. Uma build anterior sem essa confirmação não oferece tratamento ao vivo. Projetos legados exigem escolha explícita do perfil de composição antes da captura tratada.
 - Camadas de texto, legenda, imagem, vídeo sobreposto e áudio; posição, escala, opacidade, tempo, volume e fades no painel abaixo da prévia.

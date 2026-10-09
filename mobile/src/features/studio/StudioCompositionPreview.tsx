@@ -2,11 +2,11 @@ import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState }
 import { findNodeHandle, StyleSheet, Text, View } from 'react-native';
 import { requireNativeViewManager } from 'expo-modules-core';
 import { isStudioCompositionAvailable, previewStudioCompositionSourceAsync, seekStudioCompositionAsync, type StudioNativePlayback } from '../../../modules/classfy-studio-media';
-import { compileStudioRecipe, timelineSignature, type StudioProject } from './model';
+import { compileStudioRecipe, type StudioProject, type StudioRenderRecipe } from './model';
 import { StudioPreview, type StudioPlaybackState, type StudioPreviewHandle } from './StudioPreview';
 
 type Props = {
-  project: StudioProject; activeTakeId?: string; paused?: boolean; before?: boolean;
+  project: StudioProject; recipe?: StudioRenderRecipe; activeTakeId?: string; paused?: boolean; before?: boolean;
   onActiveTakeChange?: (id: string) => void; onPlaybackState?: (state: StudioPlaybackState) => void;
   onCanvasPress?: () => void; canvasLabel?: string;
 };
@@ -18,7 +18,7 @@ const NativeCanvas = isStudioCompositionAvailable() ? requireNativeViewManager<N
 
 export const StudioCompositionPreview = forwardRef<StudioPreviewHandle, Props>(function StudioCompositionPreview(props, ref) {
   const editing = props.project.editing;
-  const enhanced = !!editing && (editing.layers.some(layer => layer.items.length) || editing.main.some(clip => clip.grade || clip.effect && clip.effect !== 'natural' || clip.gain !== undefined && clip.gain !== 1) || editing.canvas.backgroundColor !== '#000000' || editing.canvas.aspectRatio !== (props.project.kind === 'short' ? 'portrait' : 'landscape'));
+  const enhanced = !!editing && (editing.layers.some(layer => layer.items.length) || editing.main.some(clip => clip.rect || clip.rotationDegrees || clip.fit === 'cover' || clip.grade || clip.effect && clip.effect !== 'natural' || clip.gain !== undefined && clip.gain !== 1) || editing.canvas.backgroundColor !== '#000000' || editing.canvas.aspectRatio !== (props.project.kind === 'short' ? 'portrait' : 'landscape'));
   if (enhanced && (!NativeCanvas || editing?.output.profile !== 'standard' || props.project.kind === 'podcast')) return <UnavailablePreview ref={ref} />;
   if (!NativeCanvas || editing?.output.profile !== 'standard' || props.project.kind === 'podcast') return <StudioPreview ref={ref} takes={props.project.takes} kind={props.project.kind} activeTakeId={props.activeTakeId} paused={props.paused} onActiveTakeChange={props.onActiveTakeChange} onPlaybackState={props.onPlaybackState} onCanvasPress={props.onCanvasPress} canvasLabel={props.canvasLabel} />;
   return <NativePreview {...props} ref={ref} />;
@@ -36,12 +36,15 @@ const NativePreview = forwardRef<StudioPreviewHandle, Props>(function NativePrev
   const token = useRef(0);
   const transient = useRef(false);
   const position = useRef(0);
-  const signature = useMemo(() => timelineSignature(props.project), [props.project.editing, props.project.kind, props.project.takes]);
-  const recipe = useMemo(() => {
-    const compiled = compileStudioRecipe(props.project);
-    return JSON.stringify(props.before ? { ...compiled, clips: compiled.clips.map(clip => ({ ...clip, effect: 'natural', grade: { preset: 'natural', intensity: 0, exposure: 0, contrast: 0, saturation: 0, temperature: 0 } })) } : compiled);
-  }, [signature, props.before]);
-  const revision = `${signature}:${props.before ? 'original' : 'graded'}`;
+  // The editor already compiled the visible document. Reuse it and send the
+  // JSON once; an opaque revision must not echo a whole lesson in every event.
+  const compiled = useMemo(() => props.recipe || compileStudioRecipe(props.project), [props.recipe, props.project.editing, props.project.kind, props.project.takes]);
+  const recipe = useMemo(() => JSON.stringify(props.before ? { ...compiled, clips: compiled.clips.map(clip => ({ ...clip, effect: 'natural', grade: { preset: 'natural', intensity: 0, exposure: 0, contrast: 0, saturation: 0, temperature: 0 } })) } : compiled), [compiled, props.before]);
+  const revisionSequence = useRef({ recipe: '', projectId: '', value: 0 });
+  if (revisionSequence.current.recipe !== recipe || revisionSequence.current.projectId !== props.project.id) {
+    revisionSequence.current = { recipe, projectId: props.project.id, value: revisionSequence.current.value + 1 };
+  }
+  const revision = `${props.project.id}:${revisionSequence.current.value}`;
   const currentRevision = useRef(revision); currentRevision.current = revision;
   useEffect(() => { errorCode.current = undefined; setError(null); }, [revision]);
   const accept = (value: StudioNativePlayback) => {

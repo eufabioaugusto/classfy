@@ -154,6 +154,8 @@ export type StudioMainClip = {
   id: string; assetId: string; name?: string; sourceStartTicks: number; sourceEndTicks: number;
   /** Still image hold; temporal originals derive duration from their source range. */
   durationTicks?: number; effect?: StudioEffect; grade?: StudioGrade; gain?: number;
+  /** Reversible framing of the original within the lesson canvas. */
+  rect?: StudioRect; fit?: 'contain' | 'cover'; rotationDegrees?: number;
 };
 export type StudioLayerKind = StudioAssetKind | 'text' | 'caption';
 export type StudioLayerAnchor = { clipId: string; offsetTicks?: number; sourceStartTicks?: number; sourceEndTicks?: number };
@@ -346,7 +348,8 @@ export function compileStudioRecipe(project: Pick<StudioProject, 'kind' | 'takes
     const duration = mainDuration(clip, asset);
     mainStarts.set(clip.id, { clip, start: cursor, duration });
     clips.push({ ...baseRecipeClip(clip.id, asset.kind, cursor, duration), assetId: clip.assetId,
-      sourceStartTicks: clip.sourceStartTicks, sourceEndTicks: clip.sourceEndTicks, effect: clip.effect ?? 'natural', grade: clip.grade, gain: clip.gain ?? 1 });
+      sourceStartTicks: clip.sourceStartTicks, sourceEndTicks: clip.sourceEndTicks, effect: clip.effect ?? 'natural', grade: clip.grade, gain: clip.gain ?? 1,
+      rect: clip.rect ?? { x: 0, y: 0, width: 1, height: 1 }, fit: clip.fit ?? 'contain', rotationDegrees: clip.rotationDegrees ?? 0 });
     cursor += duration;
   }
   for (let layerIndex = 0; layerIndex < editing.layers.length; layerIndex++) {

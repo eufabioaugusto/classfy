@@ -27,7 +27,7 @@ struct StudioRecipe: Codable {
     let colorSpace: String?
   }
   struct Rect: Codable { let x: Double; let y: Double; let width: Double; let height: Double }
-  struct Text: Codable {
+  struct Text: Codable, Equatable {
     let content: String; let fontFamily: String; let fontSize: Double
     let color: String; let backgroundColor: String; let alignment: String
   }
@@ -153,7 +153,10 @@ final class StudioRecipeCompositor: NSObject, AVVideoCompositing {
         }
         let image = Self.compose(layers: instruction.layers, frames: frames, recipe: instruction.recipe,
                                  seconds: request.compositionTime.seconds, renderer: self.renderer)
-        self.renderer.render(image, to: buffer, bounds: CGRect(origin: .zero, size: instruction.recipe.size))
+        do {
+          try StudioVideoRenderGeometry.render(image, canvasSize: instruction.recipe.size,
+            context: request.renderContext, buffer: buffer, renderer: self.renderer)
+        } catch { request.finish(with: error); return }
         // CI writes Rec.709 RGB values. Tag the actual buffer as well as the
         // composition, otherwise an encoder may assume sRGB and convert twice.
         CVBufferSetAttachment(buffer, kCVImageBufferCGColorSpaceKey, StudioEffectRenderer.outputColorSpace, .shouldPropagate)
@@ -341,6 +344,7 @@ final class StudioRecipeEngine {
   // Slider/text/transform changes can update instructions on the same player
   // item. Only timing, media bindings or audio changes rebuild decoder tracks.
   func updateVisuals(_ previous: StudioPreparedRecipe, recipeJSON: String) throws -> StudioPreparedRecipe? {
+    try Task.checkCancellation()
     let next = try Self.decode(recipeJSON)
     func structure(_ value: StudioRecipe) throws -> Data {
       var object = try JSONSerialization.jsonObject(with: JSONEncoder().encode(value)) as! [String: Any]
@@ -355,19 +359,32 @@ final class StudioRecipeEngine {
     let original = Dictionary(uniqueKeysWithValues: previous.layers.map { ($0.clip.id, $0) })
     var layers: [StudioRecipeLayer] = []
     for clip in next.clips where clip.kind != "audio" {
+      try Task.checkCancellation()
       guard let old = original[clip.id] else { return nil }
-      let raster = ["text", "caption"].contains(clip.kind) ? try Self.textImage(clip, canvas: next.size) : old.raster
+      let raster: CIImage?
+      if ["text", "caption"].contains(clip.kind) {
+        // Translation, rotation, opacity and grade act on the existing raster.
+        // Re-layout only when glyphs/style or raster dimensions really change.
+        let sameRaster = clip.text == old.clip.text && next.size == previous.recipe.size
+          && Int((clip.rect.width * next.size.width).rounded()) == Int((old.clip.rect.width * next.size.width).rounded())
+          && Int((clip.rect.height * next.size.height).rounded()) == Int((old.clip.rect.height * next.size.height).rounded())
+        raster = sameRaster && old.raster != nil ? old.raster : try Self.textImage(clip, canvas: next.size)
+      } else { raster = old.raster }
       layers.append(StudioRecipeLayer(clip: clip, trackId: old.trackId, raster: raster,
         sourceTransform: old.sourceTransform, sourceStage: old.sourceStage))
     }
     let order = Dictionary(uniqueKeysWithValues: next.clips.enumerated().map { ($0.element.id, $0.offset) })
     layers.sort { $0.clip.zIndex == $1.clip.zIndex ? order[$0.clip.id]! < order[$1.clip.id]! : $0.clip.zIndex < $1.clip.zIndex }
-    let video = next.mediaType == "video" ? Self.videoComposition(next, layers: layers) : nil
+    try Task.checkCancellation()
+    let video = next.mediaType == "video" ? Self.videoComposition(next, layers: layers,
+      reusingIntervals: previous.videoComposition) : nil
+    try Task.checkCancellation()
     return StudioPreparedRecipe(recipe: next, composition: previous.composition, videoComposition: video,
       audioMix: previous.audioMix, layers: layers, sources: previous.sources, renderer: renderer)
   }
 
-  private static func videoComposition(_ recipe: StudioRecipe, layers: [StudioRecipeLayer]) -> AVMutableVideoComposition {
+  private static func videoComposition(_ recipe: StudioRecipe, layers: [StudioRecipeLayer],
+                                       reusingIntervals previous: AVMutableVideoComposition? = nil) -> AVMutableVideoComposition {
     let video = AVMutableVideoComposition()
     video.customVideoCompositorClass = StudioRecipeCompositor.self
     video.renderSize = recipe.size; video.frameDuration = CMTime(value: 1, timescale: 30)
@@ -375,6 +392,20 @@ final class StudioRecipeEngine {
     video.colorPrimaries = AVVideoColorPrimaries_ITU_R_709_2
     video.colorTransferFunction = AVVideoTransferFunction_ITU_R_709_2
     video.colorYCbCrMatrix = AVVideoYCbCrMatrix_ITU_R_709_2
+    if let previous, let intervals = previous.instructions as? [StudioRecipeInstruction], !intervals.isEmpty {
+      // updateVisuals already proved media/timing structure unchanged. The old
+      // active-ID sets and time ranges remain valid; avoid scanning every layer
+      // for every boundary in a long captioned lesson during a transform.
+      let replacements = Dictionary(uniqueKeysWithValues: layers.map { ($0.clip.id, $0) })
+      let order = Dictionary(uniqueKeysWithValues: layers.enumerated().map { ($0.element.clip.id, $0.offset) })
+      video.renderScale = previous.renderScale
+      video.instructions = intervals.map { interval in
+        let active = interval.layers.compactMap { replacements[$0.clip.id] }
+          .sorted { order[$0.clip.id]! < order[$1.clip.id]! }
+        return StudioRecipeInstruction(range: interval.timeRange, layers: active, recipe: recipe)
+      }
+      return video
+    }
     let ticks = Set([Int64(0), recipe.durationTicks] + layers.flatMap { [$0.clip.startTicks, $0.clip.endTicks] }).sorted()
     var instructions: [StudioRecipeInstruction] = []
     for pair in zip(ticks, ticks.dropFirst()) where pair.1 > pair.0 {

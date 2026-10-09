@@ -5,6 +5,10 @@ import ts from 'typescript';
 import * as model from './model.ts';
 import * as layout from './timelineLayout.ts';
 import * as motionHelpers from './timelineMotion.ts';
+const layerModule = { exports: {} };
+new Function('require', 'module', 'exports', ts.transpileModule(readFileSync(new URL('./layerTimelineInteraction.ts', import.meta.url), 'utf8'), {
+  compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+}).outputText)(name => { assert.equal(name, './model'); return model; }, layerModule, layerModule.exports);
 
 const source = readFileSync(new URL('./StudioTimeline.tsx', import.meta.url), 'utf8');
 const take = id => ({ id, uri: `file:///${id}.mp4`, name: id, duration: 10, start: 2, end: 8, thumbnailUri: `file:///${id}.jpg` });
@@ -85,10 +89,10 @@ function harness(options = {}) {
     'react/jsx-runtime': { jsx: (type, props) => ({ type, props }), jsxs: (type, props) => ({ type, props }) },
     'react-native': { Pressable: 'pressable', Text: 'text', View: 'view', StyleSheet: { create: styles => styles } },
     'expo-image': { Image: 'image' }, 'react-native-reanimated': reanimated,
-    'react-native-gesture-handler': { GestureDetector: 'gesture-detector', Gesture: { Native: () => gesture('native'), Pinch: () => gesture('pinch'), Pan: () => gesture('pan') } },
+    'react-native-gesture-handler': { GestureDetector: 'gesture-detector', Gesture: { Native: () => gesture('native'), Pinch: () => gesture('pinch'), Pan: () => gesture('pan'), Tap: () => gesture('tap'), Race: (...gestures) => ({ kind: 'race', gestures }) } },
     'lucide-react-native': { Film: 'film', Mic: 'mic', Minus: 'minus', Plus: 'plus' },
     '@/theme/colors': { colors: {} }, './model': model, './timelineLayout': layout, './timelineMotion': motionHelpers,
-    './useStudioFilmstrip': { useStudioFilmstrip: () => ({}) },
+    './useStudioFilmstrip': { useStudioFilmstrip: () => ({}) }, './layerTimelineInteraction': layerModule.exports,
   };
   const compiled = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX } }).outputText;
   const module = { exports: {} };
@@ -135,6 +139,11 @@ function harness(options = {}) {
     const node = nodes('TimelineClip').find(item => item.props.segment.take.id === id);
     return render(`clip-${id}`, node.type, node.props);
   };
+  const childLayer = id => {
+    const node = nodes('TimelineLayer').find(item => item.props.item.id === id);
+    assert.ok(node, 'selected layer remains mounted');
+    return render(`layer-${id}`, node.type, node.props);
+  };
   const animate = () => {
     now += 64;
     for (const scope of contexts.values()) for (const reaction of scope.reactions) {
@@ -157,7 +166,7 @@ function harness(options = {}) {
   all(context('timeline').tree, node => node.type === 'animated-view' && node.props?.onLayout)[0].props.onLayout({ nativeEvent: { layout: { width: 300 } } });
   renderParent();
   scroll().onScroll({ contentOffset: { x: 60 } }); flushJS(); animate(); flushJS(); scrolls.length = 0;
-  return { scroll, m, pan, childClip, nodes, seeks, selections, previews, commits, cancellations, scrolls, jsQueue, uiQueue,
+  return { scroll, m, pan, childClip, childLayer, nodes, seeks, selections, previews, commits, cancellations, scrolls, jsQueue, uiQueue,
     animate, flushJS, flushUI, stepJS, pump,
     playerPosition: () => context('timeline').reactions[0].prepare().position,
     update: next => { props = { ...props, ...next }; renderParent(); },
@@ -292,5 +301,101 @@ test('corte move uma camada por clipe no UI e update salvo não aplica o delta d
     view.completeCommit(); await view.pump();
     assert.equal(view.m().phase.value, 0);
     assert.equal(view.playerPosition(), 1);
+  } finally { view.dispose(); }
+});
+
+function layerFixture() {
+  const editing = { ...model.emptyStudioEditing('aula'),
+    assets: [{ id: 'main', kind: 'video', uri: 'file:///main.mov', name: 'Main', durationTicks: model.studioTicks(20) }],
+    main: [{ id: 'a', assetId: 'main', sourceStartTicks: model.studioTicks(2), sourceEndTicks: model.studioTicks(8) },
+      { id: 'b', assetId: 'main', sourceStartTicks: model.studioTicks(10), sourceEndTicks: model.studioTicks(16) }],
+    layers: [{ id: 'text', kind: 'text', items: [model.createStudioTextItem({ id: 'title', atTicks: model.studioTicks(1), durationTicks: model.studioTicks(2) })] }] };
+  const layers = model.compileStudioRecipe({ kind: 'aula', takes: [], editing }).clips.filter(clip => clip.zIndex > 0);
+  return { editing, layers };
+}
+test('alça da camada desenha duração no UI, confirma uma vez e não desloca cursor nem faixa principal', async () => {
+  const fixture = layerFixture(), previews = [], commits = []; let resolve;
+  const view = harness({ ...fixture, selectedLayerId: 'title', onLayerTrimPreview: (id, range) => previews.push({ id, range }),
+    onLayerTrimCommit: (id, range) => { commits.push({ id, range }); return new Promise(done => { resolve = done; }); } });
+  try {
+    const tree = view.childLayer('title'); const edge = tree.props.children[1][1]; const pan = edge.props.gesture.handlers;
+    assert.equal(edge.props.children.props.style.width, 28, 'touch surface is at least28pt');
+    pan.onStart({ absoluteX: 180 }); view.flushJS();
+    pan.onUpdate({ absoluteX: 240, translationX: 60 });
+    assert.equal(tree.props.style.at(-1).__style().width - 48, 180, 'live width, no second ghost clip');
+    assert.equal(view.childClip('a').props.style.at(-1).__style().width, 360);
+    view.animate(); view.flushJS();
+    pan.onEnd(); view.flushJS(); pan.onEnd(); view.flushJS();
+    assert.deepEqual(commits, [{ id: 'title', range: { startSeconds: 1, endSeconds: 4 } }]);
+    assert.deepEqual(view.seeks, []); assert.equal(view.playerPosition(), 1);
+    const saved = layerModule.exports.applyStudioLayerTimelineRange(fixture.editing, 'title', commits[0].range);
+    const layers = model.compileStudioRecipe({ kind: 'aula', takes: [], editing: saved }).clips.filter(clip => clip.zIndex > 0);
+    view.update({ editing: saved, layers }); const updated = view.childLayer('title');
+    assert.equal(updated.props.style.at(-1).__style().width - 48, 180, 'saved props do not apply trim twice');
+    resolve(); await view.pump();
+    assert.equal(view.m().phase.value, 0); assert.equal(updated.props.style.at(-1).__style().width - 48, 180);
+    assert.equal(previews.at(-1).range, undefined);
+  } finally { view.dispose(); }
+});
+
+test('corpo tem hold220ms, doubletap edita; mover só confirma delta e nunca chama seek', async () => {
+  const fixture = layerFixture(), moves = [], edits = [], selections = [], lifecycle = [];
+  const view = harness({ ...fixture, selectedLayerId: 'title', onSelectLayer: id => selections.push(id), onEditLayer: id => edits.push(id), onMoveLayer: async (_id, delta) => moves.push(delta),
+    onLayerInteractionStart: () => lifecycle.push('start'), onLayerInteractionEnd: () => lifecycle.push('end'), onScrubStart: () => assert.fail('layer gestures do not begin a main scrub') });
+  try {
+    const tree = view.childLayer('title'), body = tree.props.children[0];
+    const [pan, double] = body.props.gesture.gestures;
+    assert.equal(pan.activateAfterLongPress, 220);
+    body.props.children.props.onPress(); double.handlers.onEnd({}, true); view.flushJS();
+    assert.deepEqual(selections, ['title']); assert.deepEqual(edits, ['title']);
+    assert.deepEqual(lifecycle, [], 'selection and editing are not drag operations');
+    pan.handlers.onStart({ absoluteX: 180 }); view.flushJS();
+    pan.handlers.onUpdate({ absoluteX: 240, translationX: 60 });
+    assert.equal(tree.props.style.at(-1).__style().left + 24, 270);
+    assert.equal(tree.props.style.at(-1).__style().width - 48, 120);
+    pan.handlers.onEnd(); view.flushJS(); await view.pump();
+    assert.deepEqual(moves, [1]); assert.deepEqual(view.seeks, []); assert.equal(view.playerPosition(), 1);
+    assert.deepEqual(lifecycle, ['start', 'end']);
+  } finally { view.dispose(); }
+});
+
+test('trocar seleção ou cancelar epoch invalida alça antiga sem commit e limpa preview', () => {
+  const fixture = layerFixture(), previews = [], commits = [], lifecycle = [];
+  const view = harness({ ...fixture, selectedLayerId: 'title', onLayerTrimPreview: (_id, range) => previews.push(range), onLayerTrimCommit: (_id, range) => commits.push(range),
+    onLayerInteractionStart: () => lifecycle.push('start'), onLayerInteractionEnd: () => lifecycle.push('end') });
+  try {
+    const tree = view.childLayer('title'), pan = tree.props.children[1][0].props.gesture.handlers;
+    pan.onStart({ absoluteX: 180 }); view.flushJS();
+    view.update({ selectedLayerId: undefined, cancelEpoch: 1 }); view.childLayer('title');
+    assert.equal(view.m().phase.value, 0); assert.equal(previews.at(-1), undefined);
+    pan.onUpdate({ absoluteX: 210, translationX: 30 }); pan.onEnd(); view.animate(); view.flushJS();
+    assert.equal(commits.length, 0); assert.equal(previews.at(-1), undefined);
+    assert.deepEqual(lifecycle, ['start', 'end']);
+  } finally { view.dispose(); }
+});
+
+test('lifecycle da camada mantém bloqueio até salvar, sobrevive ao rerender e encerra uma vez no unmount', async () => {
+  const fixture = layerFixture(), lifecycle = []; let resolve;
+  const view = harness({ ...fixture, selectedLayerId: 'title', onMoveLayer: () => new Promise(done => { resolve = done; }),
+    onLayerInteractionStart: () => lifecycle.push('start'), onLayerInteractionEnd: () => lifecycle.push('end') });
+  const tree = view.childLayer('title'), pan = tree.props.children[0].props.gesture.gestures[0].handlers;
+  pan.onStart({ absoluteX: 180 }); view.flushJS(); pan.onUpdate({ absoluteX: 240, translationX: 60 }); pan.onEnd(); view.flushJS();
+  assert.deepEqual(lifecycle, ['start'], 'saving retains the operation lock');
+  view.update({ ...fixture, onMoveLayer: () => assert.fail('do not replay commit with replacement props') }); view.childLayer('title');
+  assert.deepEqual(lifecycle, ['start']);
+  view.dispose(); assert.deepEqual(lifecycle, ['start', 'end']);
+  resolve(); await view.pump(); assert.deepEqual(lifecycle, ['start', 'end'], 'late save never ends a second operation');
+});
+
+test('begin atrasado de uma camada já bloqueada não anuncia lifecycle nem salva', () => {
+  const fixture = layerFixture(), lifecycle = [], moves = [];
+  const view = harness({ ...fixture, selectedLayerId: 'title', onMoveLayer: async (_id, delta) => moves.push(delta),
+    onLayerInteractionStart: () => lifecycle.push('start'), onLayerInteractionEnd: () => lifecycle.push('end') });
+  try {
+    const tree = view.childLayer('title'), pan = tree.props.children[0].props.gesture.gestures[0].handlers;
+    pan.onStart({ absoluteX: 180 });
+    view.update({ busy: true }); view.childLayer('title'); view.flushJS();
+    pan.onUpdate({ absoluteX: 240, translationX: 60 }); pan.onEnd(); view.flushJS();
+    assert.deepEqual(lifecycle, []); assert.deepEqual(moves, []); assert.equal(view.m().phase.value, 0);
   } finally { view.dispose(); }
 });
