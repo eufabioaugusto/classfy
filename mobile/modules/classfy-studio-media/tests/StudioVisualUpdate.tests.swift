@@ -88,6 +88,36 @@ struct StudioVisualUpdateTests {
     }
     throw StudioRecipeError.invalid("O AVPlayer pausado não apresentou o último transform x=\(expectedX).")
   }
+  static func firstPausedFrame(engine: StudioRecipeEngine) async throws {
+    for scale: Float in [1, 0.8, 0.5] {
+      let prepared = try await engine.prepare(recipeJSON: json(recipe()))
+      prepared.videoComposition!.renderScale = scale
+      let item = prepared.playerItem()
+      let output = AVPlayerItemVideoOutput(pixelBufferAttributes: [kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA])
+      output.suppressesPlayerRendering = true; item.add(output)
+      let player = AVPlayer(playerItem: item); player.isMuted = true
+      defer { player.pause(); player.replaceCurrentItem(with: nil) }
+      for _ in 0..<100 {
+        if item.status != .unknown { break }
+        try await Task.sleep(nanoseconds: 50_000_000)
+      }
+      try require(item.status == .readyToPlay, "item inicial pronto sem reproduzir")
+      // Readiness alone is not evidence that the first composed frame exists.
+      // Record this cold observation; the initialization below explicitly seeks
+      // zero, and no play or positive-time seek occurs anywhere in this test.
+      let cold = output.copyPixelBuffer(forItemTime: .zero, itemTimeForDisplay: nil)
+      let hadColdFrame = cold.flatMap { try? blueBounds($0) } != nil
+      let completed = await withCheckedContinuation { (c: CheckedContinuation<Bool, Never>) in
+        player.seek(to: .zero, toleranceBefore: .zero, toleranceAfter: .zero) { c.resume(returning: $0) }
+      }
+      try require(completed, "pedido do primeiro quadro em zero concluiu")
+      let buffer = try await waitFrame(output, time: .zero, expectedX: 0.65)
+      try require(CVPixelBufferGetWidth(buffer) == Int((1920 * scale).rounded()), "primeiro quadro mantém escala")
+      try require(player.currentItem === item && player.rate == 0 && abs(player.currentTime().seconds) < 0.00001,
+        "primeiro quadro aparece sem play e sem deslocar cursor zero")
+      print("Primeiro quadro pausado scale=\(scale): pixels em 0:00 antes de qualquer play; readiness sozinha tinha frame=\(hadColdFrame).")
+    }
+  }
   static func pausedPlayer(engine: StudioRecipeEngine) async throws {
     let original = recipe()
     for scale: Float in [1, 0.8, 0.5] {
@@ -395,6 +425,7 @@ struct StudioVisualUpdateTests {
     do { _ = try await cancelled.value; throw StudioRecipeError.invalid("Cancelamento do frame ignorado") }
     catch is CancellationError {}
     print("Cache: 101 rasters intactos reutilizados; conteúdo/dimensões invalidam só item alterado; \(newIntervals.count) intervalos preservados, ordem/áudio/cancelamento corretos; update local \(elapsed) ms.")
+    try await firstPausedFrame(engine: engine)
     try await pausedPlayer(engine: engine)
     try await playingPlayer(engine: engine)
     try await mainTransform(engine: engine)

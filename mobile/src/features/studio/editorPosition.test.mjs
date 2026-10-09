@@ -31,6 +31,7 @@ function harness(takes = [take('a'), take('b')], options = {}) {
   const slots = [];
   const alerts = [];
   const navigationEvents = [];
+  let focused = true;
   let completedWrites = 0;
   let attemptedWrites = 0;
   const keyboardListeners = new Map();
@@ -97,7 +98,7 @@ function harness(takes = [take('a'), take('b')], options = {}) {
   const editor = compile(source, {
     react: hooks, 'react/jsx-runtime': { jsx, jsxs: jsx }, 'react-native': native,
     'expo-router': { useLocalSearchParams: () => ({}), useRouter: () => ({ canGoBack: () => true, back: () => navigate('back'), push: destination => navigate('push', destination), replace: destination => navigate('replace', destination) }) },
-    '@react-navigation/native': { useIsFocused: () => true, useNavigation: () => ({ setOptions() {}, dispatch: action => navigate('dispatch', action) }), usePreventRemove: (_, callback) => { navigationHandler = callback; } },
+    '@react-navigation/native': { useIsFocused: () => focused, useNavigation: () => ({ setOptions() {}, dispatch: action => navigate('dispatch', action) }), usePreventRemove: (_, callback) => { navigationHandler = callback; } },
     'expo-status-bar': { StatusBar: 'status' }, 'expo-crypto': { randomUUID: () => `new-${++ids}` },
     'react-native-safe-area-context': { useSafeAreaInsets: () => ({ top: 54, bottom: 34, left: 0, right: 0 }) },
     'lucide-react-native': toolIcons,
@@ -165,6 +166,7 @@ function harness(takes = [take('a'), take('b')], options = {}) {
   const timelineProps = () => find(node => node.type === 'timeline').props;
   const previewProps = () => find(node => node.type === 'preview').props;
   return { preview, alerts, navigationEvents, pump, timelineProps, previewProps,
+    focus: value => { focused = value; dirty = true; },
     canvasProps: () => find(node => node.type === 'canvas-editor').props,
     keyboard: visible => { for (const callback of keyboardListeners.get(visible ? 'keyboardDidShow' : 'keyboardDidHide') || []) callback(); },
     keyboardProps: () => find(node => node.type === 'keyboard').props,
@@ -668,5 +670,69 @@ test('double tap solicita foco do TextInput real sem seek, salva ou limpa texto;
     view.keyboard(true); await view.pump(); assert.equal(view.hasTimeline(), false); assert.equal(view.keyboardProps().enabled, true);
     assert.equal(view.layerProps().item.text.content, 'Conteúdo mantido no double tap'); assert.equal(view.canvasProps().selectedLayerId, 'caption');
     view.keyboard(false); await view.pump(); assert.equal(view.hasTimeline(), true); assert.equal(view.timelineProps().position, 8);
+  } finally { panel?.dispose(); view.dispose(); }
+});
+
+test('double tap foca somente seu texto uma vez; seleção e reabertura não herdam o teclado', async () => {
+  const view = harness(undefined, { initialEditing: editingWithCaptions(), advanced: true }); let panel;
+  try {
+    await view.pump(); view.canvasProps().onEditText('caption'); await view.pump();
+    const requested = view.layerProps();
+    assert.equal(requested.editTextRequest.id, 'caption');
+    panel = renderLayerPanel(requested); panel.flushFrames(); await view.pump();
+    assert.equal(panel.focusCount(), 1); assert.equal(view.layerProps().editTextRequest, undefined);
+    // A render while editing must not focus twice, and a late completion from
+    // the first request cannot consume a newer double tap.
+    panel.updateProps(requested); panel.flushFrames(); assert.equal(panel.focusCount(), 1);
+    view.canvasProps().onEditText('caption'); await view.pump();
+    const next = view.layerProps(); assert.ok(next.editTextRequest.sequence > requested.editTextRequest.sequence);
+    requested.onTextEditConsumed(requested.editTextRequest); await view.pump();
+    assert.deepEqual(view.layerProps().editTextRequest, next.editTextRequest);
+    panel.updateProps(view.layerProps()); panel.flushFrames(); await view.pump(); assert.equal(panel.focusCount(), 2);
+    panel.dispose(); panel = undefined;
+    view.canvasProps().onSelectLayer('other-text'); await view.pump();
+    assert.equal(view.layerProps().editTextRequest, undefined);
+    panel = renderLayerPanel(view.layerProps()); panel.flushFrames(); assert.equal(panel.focusCount(), 0);
+    panel.dispose(); panel = undefined;
+    view.layerProps().onClose(); await view.pump(); view.canvasProps().onSelectLayer('caption'); await view.pump();
+    panel = renderLayerPanel(view.layerProps()); panel.flushFrames(); assert.equal(panel.focusCount(), 0);
+    assert.equal(view.preview.seeks.length, 0); assert.deepEqual(view.writes(), { attempted: 0, completed: 0 });
+  } finally { panel?.dispose(); view.dispose(); }
+});
+
+test('pedido de edição de outro texto não pode abrir o teclado', () => {
+  const editing = editingWithCaptions(), item = editing.layers.flatMap(layer => layer.items).find(item => item.id === 'other-text');
+  const panel = renderLayerPanel({ editing, item, editTextRequest: { id: 'caption', sequence: 1 } });
+  try { panel.flushFrames(); assert.equal(panel.focusCount(), 0); } finally { panel.dispose(); }
+});
+
+for (const selected of [false, true]) test(`tap entregue depois do double tap mantém o pedido de teclado, seleção inicial=${selected}`, async () => {
+  const view = harness(undefined, { initialEditing: editingWithCaptions(), advanced: true }); let panel;
+  try {
+    await view.pump();
+    if (selected) { view.canvasProps().onSelectLayer('caption'); await view.pump(); }
+    const canvas = view.canvasProps();
+    canvas.onEditText('caption'); canvas.onSelectLayer('caption'); await view.pump();
+    assert.equal(view.layerProps().editTextRequest.id, 'caption');
+    panel = renderLayerPanel(view.layerProps()); panel.flushFrames(); await view.pump();
+    assert.equal(panel.focusCount(), 1); assert.equal(view.layerProps().editTextRequest, undefined);
+    assert.equal(view.preview.seeks.length, 0); assert.deepEqual(view.writes(), { attempted: 0, completed: 0 });
+  } finally { panel?.dispose(); view.dispose(); }
+});
+
+
+test('sair do editor cancela foco pendente sem perder seleção ou texto visível; voltar não abre teclado', async () => {
+  const view = harness(undefined, { initialEditing: editingWithCaptions(), advanced: true }); let panel;
+  try {
+    await view.pump(); view.canvasProps().onSelectLayer('caption'); await view.pump();
+    panel = renderLayerPanel(view.layerProps()); panel.text('Texto ainda em edição'); await view.pump();
+    view.canvasProps().onEditText('caption'); await view.pump(); panel.updateProps(view.layerProps());
+    view.focus(false); await view.pump(); panel.updateProps(view.layerProps()); panel.flushFrames();
+    assert.equal(panel.focusCount(), 0); assert.equal(view.layerProps().disabled, true);
+    assert.equal(view.layerProps().editTextRequest, undefined); assert.equal(view.layerProps().item.text.content, 'Texto ainda em edição');
+    assert.equal(view.canvasProps().selectedLayerId, 'caption');
+    view.focus(true); await view.pump(); panel.updateProps(view.layerProps()); panel.flushFrames();
+    assert.equal(panel.focusCount(), 0); assert.equal(view.layerProps().disabled, false);
+    assert.equal(panel.input().value, 'Texto ainda em edição'); assert.deepEqual(view.writes(), { attempted: 0, completed: 0 });
   } finally { panel?.dispose(); view.dispose(); }
 });

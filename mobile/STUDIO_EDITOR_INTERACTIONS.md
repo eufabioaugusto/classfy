@@ -1,6 +1,14 @@
 # Studio: contrato de interação do editor
 
-Revisado em 08/10/2026. Este é o comportamento obrigatório para implementação e aceite. Não é uma declaração de que todos os gestos já foram entregues ou validados. A arquitetura e os limites atuais estão em [STUDIO_PREMIUM.md](STUDIO_PREMIUM.md).
+Revisado em 09/10/2026. Este é o comportamento obrigatório para implementação e aceite. Não é uma declaração de que todos os gestos já foram entregues ou validados. A arquitetura e os limites atuais estão em [STUDIO_PREMIUM.md](STUDIO_PREMIUM.md).
+
+## Verificação de 09/10/2026
+
+A pinça usa o ponto focal inicial, inclusive em vídeo principal, texto e itens rotacionados. Alças de cantos fora do canvas são projetadas para dentro da área visível sem mudar o enquadramento real. Tap no principal somente seleciona. O duplo toque de texto é vinculado ao ID e consumido uma vez; seleção, remount e saída de tela não herdam um pedido antigo de teclado.
+
+Seeks enfileirados pertencem ao gesto que os originou e são descartados ao iniciar outro gesto de camada. A timeline mostra três faixas por janela; controles de navegação revelam as demais, inclusive áudio, preservando cursor e seleção. A primeira prévia pausada pede o quadro zero ao AVPlayer, evitando tela preta até o primeiro play.
+
+Regressões cobrem os componentes reais com eventos enfileirados, geometria focal, alças, foco e persistência. A exportação de fixtures locais no iPhone14 passou com 3s, 1920×1080, 30FPS e áudio. A inspeção visual confirmou seleção e painel compacto; o mouse via CUA entregou deslocamento zero nos drags, portanto não comprova arraste contínuo. A inspeção após a nova instalação foi interrompida pelo bloqueio do Mac. Pinça, hold e sensação de fluidez por toque físico continuam pendentes de aceite. Nenhum recurso ausente na matriz abaixo foi marcado como implementado por essas correções.
 
 ## Origem dos requisitos
 

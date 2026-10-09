@@ -90,7 +90,7 @@ function harness(options = {}) {
     'react-native': { Pressable: 'pressable', Text: 'text', View: 'view', StyleSheet: { create: styles => styles } },
     'expo-image': { Image: 'image' }, 'react-native-reanimated': reanimated,
     'react-native-gesture-handler': { GestureDetector: 'gesture-detector', Gesture: { Native: () => gesture('native'), Pinch: () => gesture('pinch'), Pan: () => gesture('pan'), Tap: () => gesture('tap'), Race: (...gestures) => ({ kind: 'race', gestures }) } },
-    'lucide-react-native': { Film: 'film', Mic: 'mic', Minus: 'minus', Plus: 'plus' },
+    'lucide-react-native': { ChevronDown: 'chevron-down', ChevronUp: 'chevron-up', Film: 'film', Mic: 'mic', Minus: 'minus', Plus: 'plus' },
     '@/theme/colors': { colors: {} }, './model': model, './timelineLayout': layout, './timelineMotion': motionHelpers,
     './useStudioFilmstrip': { useStudioFilmstrip: () => ({}) }, './layerTimelineInteraction': layerModule.exports,
   };
@@ -128,6 +128,8 @@ function harness(options = {}) {
     visit(tree); return result;
   };
   const nodes = name => all(context('timeline').tree, node => typeof node.type === 'function' && node.type.name === name);
+  const control = label => all(context('timeline').tree, node => node.props?.accessibilityLabel === label)[0]?.props;
+  const laneStatus = () => all(context('timeline').tree, node => node.props?.accessibilityLiveRegion === 'polite')[0]?.props.children;
   const scroll = () => all(context('timeline').tree, node => node.type === 'animated-scroll')[0].props.onScroll;
   const m = () => nodes('TrimHandle')[0].props.motion;
   const pan = edge => {
@@ -166,7 +168,7 @@ function harness(options = {}) {
   all(context('timeline').tree, node => node.type === 'animated-view' && node.props?.onLayout)[0].props.onLayout({ nativeEvent: { layout: { width: 300 } } });
   renderParent();
   scroll().onScroll({ contentOffset: { x: 60 } }); flushJS(); animate(); flushJS(); scrolls.length = 0;
-  return { scroll, m, pan, childClip, childLayer, nodes, seeks, selections, previews, commits, cancellations, scrolls, jsQueue, uiQueue,
+  return { scroll, m, pan, childClip, childLayer, nodes, control, laneStatus, seeks, selections, previews, commits, cancellations, scrolls, jsQueue, uiQueue,
     animate, flushJS, flushUI, stepJS, pump,
     playerPosition: () => context('timeline').reactions[0].prepare().position,
     update: next => { props = { ...props, ...next }; renderParent(); },
@@ -313,6 +315,140 @@ function layerFixture() {
   const layers = model.compileStudioRecipe({ kind: 'aula', takes: [], editing }).clips.filter(clip => clip.zIndex > 0);
   return { editing, layers };
 }
+function manyLayerFixture() {
+  const { editing: base } = layerFixture();
+  const editing = { ...base, assets: [...base.assets,
+    { id: 'poster-asset', kind: 'image', uri: 'file:///poster.jpg', name: 'Poster', durationTicks: 0, width: 640, height: 480 },
+    { id: 'voice-asset', kind: 'audio', uri: 'file:///voice.m4a', name: 'Voice', durationTicks: model.studioTicks(10) }],
+  layers: [...base.layers,
+    { id: 'images', kind: 'image', items: [{ id: 'poster', kind: 'image', assetId: 'poster-asset', atTicks: model.studioTicks(1), durationTicks: model.studioTicks(3) }] },
+    { id: 'captions', kind: 'caption', items: [model.createStudioTextItem({ id: 'caption', content: 'Legenda', kind: 'caption', atTicks: model.studioTicks(1), durationTicks: model.studioTicks(3) })] },
+    { id: 'audio', kind: 'audio', items: [{ id: 'voice', kind: 'audio', assetId: 'voice-asset', atTicks: model.studioTicks(1), durationTicks: model.studioTicks(3), sourceStartTicks: 0, sourceEndTicks: model.studioTicks(3) }] }] };
+  const layers = model.compileStudioRecipe({ kind: 'aula', takes: [], editing }).clips.filter(clip => clip.zIndex > 0);
+  return { editing, layers };
+}
+
+for (const mode of ['move', 'end']) test(`seek periódico antigo não move cursor quando ${mode === 'move' ? 'hold de camada' : 'alça da camada'} começa no UI`, () => {
+  const fixture = layerFixture();
+  const view = harness({ ...fixture, selectedLayerId: 'title', onMoveLayer: async () => {}, onLayerTrimCommit: async () => {} });
+  try {
+    view.scroll().onBeginDrag(); view.scroll().onScroll({ contentOffset: { x: 180 } });
+    const tree = view.childLayer('title');
+    const pan = mode === 'move' ? tree.props.children[0].props.gesture.gestures[0].handlers : tree.props.children[1][1].props.gesture.handlers;
+    pan.onStart({ absoluteX: 150 });
+    assert.equal(view.m().phase.value, mode === 'move' ? 7 : 8);
+    view.flushJS(); view.flushUI();
+    assert.deepEqual(view.seeks, []); assert.equal(view.playerPosition(), 1);
+  } finally { view.dispose(); }
+});
+
+test('seek periódico de outro epoch não chega nem após cancelar a camada e voltar ao idle', () => {
+  const fixture = layerFixture();
+  const view = harness({ ...fixture, selectedLayerId: 'title', onMoveLayer: async () => {} });
+  try {
+    view.scroll().onBeginDrag(); view.scroll().onScroll({ contentOffset: { x: 180 } });
+    const delayed = view.jsQueue.splice(0);
+    const pan = view.childLayer('title').props.children[0].props.gesture.gestures[0].handlers;
+    pan.onStart({ absoluteX: 150 }); view.flushJS();
+    pan.onFinalize({}, false); view.flushJS();
+    assert.equal(view.m().phase.value, 0);
+    for (const job of delayed) job.callback(...job.args);
+    assert.deepEqual(view.seeks, []); assert.equal(view.playerPosition(), 1);
+  } finally { view.dispose(); }
+});
+
+test('seek periódico obsoleto é descartado sem bloquear a rolagem mais recente', () => {
+  const view = harness();
+  try {
+    view.scroll().onBeginDrag(); view.scroll().onScroll({ contentOffset: { x: 180 } });
+    view.animate();
+    view.scroll().onBeginDrag(); view.scroll().onScroll({ contentOffset: { x: 240 } });
+    view.flushJS();
+    assert.deepEqual(view.seeks, [4]);
+  } finally { view.dispose(); }
+});
+
+test('paginar faixas alcança áudio4 sem seek e conserva janela ao selecionar e fechar', async () => {
+  const fixture = manyLayerFixture(), selections = [];
+  const view = harness({ ...fixture, activeTakeId: undefined, onSelectLayer: id => selections.push(id), onLayerTrimCommit: async () => {} });
+  try {
+    assert.equal(view.laneStatus(), 'Faixas 1–3 de 4');
+    assert.equal(view.control('Faixas anteriores').disabled, true);
+    assert.equal(view.control('Próximas faixas').disabled, false);
+    view.control('Próximas faixas').onPress(); await view.pump();
+    assert.equal(view.laneStatus(), 'Faixas 2–4 de 4');
+    assert.equal(view.control('Próximas faixas').disabled, true);
+    const audio = view.childLayer('voice');
+    audio.props.children[0].props.children.props.onPress();
+    assert.deepEqual(selections, ['voice']);
+    view.update({ selectedLayerId: 'voice' }); await view.pump();
+    assert.equal(view.childLayer('voice').props.children[1].length, 2, 'audio is selectable and its trim handles are reachable');
+    assert.equal(view.laneStatus(), 'Faixas 2–4 de 4');
+    view.update({ selectedLayerId: undefined }); await view.pump();
+    assert.equal(view.laneStatus(), 'Faixas 2–4 de 4', 'closing the selection does not hide the audio lane');
+    assert.ok(view.childLayer('voice'));
+    view.control('Faixas anteriores').onPress(); await view.pump();
+    assert.equal(view.laneStatus(), 'Faixas 1–3 de 4');
+    assert.deepEqual(view.seeks, []); assert.equal(view.playerPosition(), 1);
+  } finally { view.dispose(); }
+});
+
+test('seleção visível não pula de linha; seleção externa revela faixa e ordem temporal não reordena rows', async () => {
+  const fixture = manyLayerFixture();
+  const view = harness({ ...fixture, selectedLayerId: 'caption' });
+  try {
+    assert.equal(view.laneStatus(), 'Faixas 1–3 de 4', 'selecting the third visible lane must not move all rows');
+    const top = view.nodes('TimelineLayer').find(node => node.props.item.id === 'caption').props.top;
+    view.update({ layers: [...fixture.layers].reverse() }); await view.pump();
+    assert.equal(view.nodes('TimelineLayer').find(node => node.props.item.id === 'caption').props.top, top);
+    view.update({ selectedLayerId: 'voice' }); await view.pump();
+    assert.equal(view.laneStatus(), 'Faixas 2–4 de 4'); assert.ok(view.childLayer('voice'));
+    view.update({ selectedLayerId: 'title' }); await view.pump();
+    assert.equal(view.laneStatus(), 'Faixas 1–3 de 4'); assert.ok(view.childLayer('title'));
+    assert.deepEqual(view.seeks, []); assert.equal(view.playerPosition(), 1);
+  } finally { view.dispose(); }
+});
+
+for (const mode of ['move', 'end']) test(`paginação não troca a camada sob ${mode === 'move' ? 'hold' : 'alça'} ativo e respeita busy`, async () => {
+  const fixture = manyLayerFixture();
+  const view = harness({ ...fixture, selectedLayerId: 'title', onMoveLayer: async () => {}, onLayerTrimCommit: async () => {} });
+  try {
+    const tree = view.childLayer('title');
+    const pan = mode === 'move' ? tree.props.children[0].props.gesture.gestures[0].handlers : tree.props.children[1][1].props.gesture.handlers;
+    pan.onStart({ absoluteX: 180 }); view.flushJS();
+    view.control('Próximas faixas').onPress(); await view.pump();
+    assert.equal(view.laneStatus(), 'Faixas 1–3 de 4'); assert.ok(view.childLayer('title'));
+    pan.onFinalize({}, false); view.flushJS();
+    view.update({ busy: true }); assert.equal(view.control('Próximas faixas').disabled, true);
+    view.control('Próximas faixas').onPress(); await view.pump();
+    assert.equal(view.laneStatus(), 'Faixas 1–3 de 4');
+    assert.deepEqual(view.seeks, []);
+  } finally { view.dispose(); }
+});
+
+test('todas as sete faixas são alcançáveis; janela final permanece estável durante playback', async () => {
+  const { editing: initial } = manyLayerFixture();
+  const editing = { ...initial, layers: [...initial.layers, ...[5, 6, 7].map(index => ({
+    id: `text-${index}`, kind: 'text', items: [model.createStudioTextItem({ id: `title-${index}`, atTicks: model.studioTicks(1), durationTicks: model.studioTicks(3) })],
+  }))] };
+  const layers = model.compileStudioRecipe({ kind: 'aula', takes: [], editing }).clips.filter(clip => clip.zIndex > 0);
+  const view = harness({ editing, layers });
+  try {
+    const reached = new Set(view.nodes('TimelineLayer').map(node => node.props.item.zIndex));
+    view.control('Próximas faixas').onPress(); await view.pump();
+    assert.equal(view.laneStatus(), 'Faixas 4–6 de 7');
+    for (const node of view.nodes('TimelineLayer')) reached.add(node.props.item.zIndex);
+    view.control('Próximas faixas').onPress(); await view.pump();
+    assert.equal(view.laneStatus(), 'Faixas 5–7 de 7');
+    for (const node of view.nodes('TimelineLayer')) reached.add(node.props.item.zIndex);
+    assert.deepEqual([...reached].sort(), [1, 2, 3, 4, 5, 6, 7]);
+    view.update({ position: 2 }); await view.pump();
+    assert.equal(view.laneStatus(), 'Faixas 5–7 de 7');
+    assert.equal(view.control('Próximas faixas').disabled, true);
+    assert.deepEqual(view.seeks, []);
+  } finally { view.dispose(); }
+});
+
 test('alça da camada desenha duração no UI, confirma uma vez e não desloca cursor nem faixa principal', async () => {
   const fixture = layerFixture(), previews = [], commits = []; let resolve;
   const view = harness({ ...fixture, selectedLayerId: 'title', onLayerTrimPreview: (id, range) => previews.push({ id, range }),

@@ -3,6 +3,7 @@ import type { StudioEditing, StudioRecipeClip, StudioRect, StudioRenderRecipe } 
 export type StudioCanvasTransform = { rect: StudioRect; textFontSize?: number };
 export type StudioCanvasCorner = 'topLeft' | 'topRight' | 'bottomLeft' | 'bottomRight';
 export type StudioCanvasFrame = { x: number; y: number; width: number; height: number };
+export type StudioCanvasPoint = { x: number; y: number };
 
 const bounded = (value: number, minimum: number, maximum: number) => {
   'worklet';
@@ -85,6 +86,52 @@ export function studioCanvasScale(transform: StudioCanvasTransform, requestedSca
   const next = { x: centerX / canvasWidth - width / 2, y: centerY / canvasHeight - height / 2, width, height };
   return { rect: studioCanvasMove(next, 0, 0, canvasWidth, canvasHeight),
     ...(textFontSize !== undefined ? { textFontSize: bounded(textFontSize * scale, Number.EPSILON, 1) } : {}) };
+}
+
+/** RNGH's focal point is local to the touched, possibly rotated, layer view. */
+export function studioCanvasFocalPoint(rect: StudioRect, focalX: number, focalY: number,
+  canvasWidth: number, canvasHeight: number, rotationDegrees = 0): StudioCanvasPoint {
+  'worklet';
+  const width = rect.width * canvasWidth, height = rect.height * canvasHeight;
+  const centerX = (rect.x + rect.width / 2) * canvasWidth, centerY = (rect.y + rect.height / 2) * canvasHeight;
+  if (![focalX, focalY, rotationDegrees].every(Number.isFinite)) return { x: centerX, y: centerY };
+  const radians = rotationDegrees * Math.PI / 180;
+  const dx = focalX - width / 2, dy = focalY - height / 2;
+  return { x: centerX + dx * Math.cos(radians) - dy * Math.sin(radians),
+    y: centerY + dx * Math.sin(radians) + dy * Math.cos(radians) };
+}
+
+/** Freeze the initial canvas focal point; local event coordinates change as the view scales. */
+export function studioCanvasPinch(transform: StudioCanvasTransform, requestedScale: number, canvasWidth: number, canvasHeight: number,
+  focalPoint: StudioCanvasPoint, minimumSize = 0.025): StudioCanvasTransform {
+  'worklet';
+  const next = studioCanvasScale(transform, requestedScale, canvasWidth, canvasHeight, undefined, 0, minimumSize);
+  if (![focalPoint.x, focalPoint.y, canvasWidth, canvasHeight].every(Number.isFinite)
+    || canvasWidth <= 0 || canvasHeight <= 0 || transform.rect.width <= 0) return next;
+  // Use the effective bounded scale, including the font size and native render limits.
+  const scale = next.rect.width / transform.rect.width;
+  const centerX = (transform.rect.x + transform.rect.width / 2) * canvasWidth;
+  const centerY = (transform.rect.y + transform.rect.height / 2) * canvasHeight;
+  const rect = { ...next.rect, x: (focalPoint.x + (centerX - focalPoint.x) * scale) / canvasWidth - next.rect.width / 2,
+    y: (focalPoint.y + (centerY - focalPoint.y) * scale) / canvasHeight - next.rect.height / 2 };
+  return { ...next, rect: studioCanvasMove(rect, 0, 0, canvasWidth, canvasHeight) };
+}
+
+/** Project an off-canvas corner back into reach without changing the true media frame. */
+export function studioCanvasHandlePosition(rect: StudioRect, corner: StudioCanvasCorner, canvasWidth: number, canvasHeight: number,
+  rotationDegrees = 0, inset = 16): StudioCanvasPoint {
+  'worklet';
+  const width = rect.width * canvasWidth, height = rect.height * canvasHeight;
+  const centerX = (rect.x + rect.width / 2) * canvasWidth, centerY = (rect.y + rect.height / 2) * canvasHeight;
+  const radians = rotationDegrees * Math.PI / 180, cos = Math.cos(radians), sin = Math.sin(radians);
+  const dx = (corner.endsWith('Left') ? -1 : 1) * width / 2;
+  const dy = (corner.startsWith('top') ? -1 : 1) * height / 2;
+  const marginX = Math.min(inset, canvasWidth / 2), marginY = Math.min(inset, canvasHeight / 2);
+  const worldX = bounded(centerX + dx * cos - dy * sin, marginX, canvasWidth - marginX);
+  const worldY = bounded(centerY + dx * sin + dy * cos, marginY, canvasHeight - marginY);
+  // The handle is a child of the rotated layer, so return unrotated local coordinates.
+  return { x: width / 2 + (worldX - centerX) * cos + (worldY - centerY) * sin,
+    y: height / 2 - (worldX - centerX) * sin + (worldY - centerY) * cos };
 }
 
 /** Project a corner drag onto the diagonal instead of independently stretching axes. */

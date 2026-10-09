@@ -3,7 +3,7 @@ import { StyleSheet, Text, View, type AccessibilityActionEvent, type LayoutChang
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, { runOnJS, useAnimatedStyle, useSharedValue, type SharedValue } from 'react-native-reanimated';
 import type { StudioEditing, StudioRecipeClip, StudioRenderRecipe } from './model';
-import { studioCanvasFrame, studioCanvasMove, studioCanvasResize, studioCanvasScale, studioCanvasTransformChanged,
+import { studioCanvasFocalPoint, studioCanvasFrame, studioCanvasHandlePosition, studioCanvasMove, studioCanvasPinch, studioCanvasResize, studioCanvasScale, studioCanvasTransformChanged,
   studioVisibleCanvasLayers, type StudioCanvasCorner, type StudioCanvasFrame, type StudioCanvasTransform } from './canvasGeometry';
 
 export type { StudioCanvasTransform } from './canvasGeometry';
@@ -53,7 +53,8 @@ function CanvasLayer(props: LayerProps) {
   const font = useSharedValue(clip.text?.fontSize ?? 0);
   const baseline = useSharedValue<StudioCanvasTransform>({ rect: { ...clip.rect }, ...(clip.text ? { textFontSize: clip.text.fontSize } : {}) });
   const panBase = useSharedValue({ ...clip.rect });
-  const pinchBase = useSharedValue<StudioCanvasTransform>(baseline.value);
+  const pinchBase = useSharedValue<StudioCanvasTransform>({ rect: { ...clip.rect }, ...(clip.text ? { textFontSize: clip.text.fontSize } : {}) });
+  const pinchFocal = useSharedValue({ x: 0, y: 0 });
   const mask = useSharedValue(0), epoch = useSharedValue(0), pending = useSharedValue(false), cancelled = useSharedValue(false);
   const panOriginX = useSharedValue(0), panOriginY = useSharedValue(0), panLastX = useSharedValue(0), panLastY = useSharedValue(0);
   const cornerOwner = useSharedValue(''), lastPreview = useSharedValue(0);
@@ -147,8 +148,7 @@ function CanvasLayer(props: LayerProps) {
     if (main) live.current.onSelectMainClip?.(clip.id); else live.current.onSelectLayer(clip.id);
   };
   const tapJS = () => {
-    if (main && live.current.selected && live.current.onCanvasPress && !owner.value && !live.current.disabled) live.current.onCanvasPress();
-    else selectJS();
+    selectJS();
   };
   const editTextJS = () => {
     if (!mounted.current || live.current.disabled || owner.value) return;
@@ -169,15 +169,18 @@ function CanvasLayer(props: LayerProps) {
         panLastX.value = event.translationX; panLastY.value = event.translationY;
         if (!(mask.value & 2)) rect.value = studioCanvasMove(panBase.value, event.translationX - panOriginX.value, event.translationY - panOriginY.value, frame.width, frame.height);
       }).onFinalize((_, success) => finish(1, success));
-    const pinch = Gesture.Pinch().enabled(selected && !disabled).onStart(() => {
-      if (begin(2)) pinchBase.value = currentTransform();
+    const pinch = Gesture.Pinch().enabled(selected && !disabled).onStart(event => {
+      if (begin(2)) {
+        pinchBase.value = currentTransform();
+        pinchFocal.value = studioCanvasFocalPoint(pinchBase.value.rect, event?.focalX, event?.focalY, frame.width, frame.height, clip.rotationDegrees);
+      }
     }).onUpdate(event => {
       if (!(mask.value & 2) || cancelled.value) return;
-      const next = studioCanvasScale(pinchBase.value, event.scale, frame.width, frame.height, undefined, 0, main ? 0.1 : 0.025);
+      const next = studioCanvasPinch(pinchBase.value, event.scale, frame.width, frame.height, pinchFocal.value, main ? 0.1 : 0.025);
       rect.value = next.rect; font.value = next.textFontSize ?? 0; publish();
     }).onEnd(event => {
       if (!(mask.value & 2) || cancelled.value) return;
-      const next = studioCanvasScale(pinchBase.value, event.scale, frame.width, frame.height, undefined, 0, main ? 0.1 : 0.025);
+      const next = studioCanvasPinch(pinchBase.value, event.scale, frame.width, frame.height, pinchFocal.value, main ? 0.1 : 0.025);
       rect.value = next.rect; font.value = next.textFontSize ?? 0;
     }).onFinalize((_, success) => finish(2, success));
     const tap = Gesture.Tap().enabled(!disabled).maxDuration(250).onEnd((_, success) => { if (success) runOnJS(tapJS)(); });
@@ -225,12 +228,21 @@ function CanvasLayer(props: LayerProps) {
     onAccessibilityAction={event => { void accessibility(event); }}
     style={[styles.layer, { zIndex: props.paintIndex + 1 }, geometry]}>
     {selected && <View pointerEvents="none" style={styles.outline} />}
-    {selected && corners.map((corner, index) => <GestureDetector key={corner} gesture={gestures.handles[index]}><View accessible={false}
-      style={[styles.handleTarget, { left: corner === 'topLeft' || corner === 'bottomLeft' ? -16 : undefined,
-        right: corner === 'topRight' || corner === 'bottomRight' ? -16 : undefined,
-        top: corner === 'topLeft' || corner === 'topRight' ? -16 : undefined,
-        bottom: corner === 'bottomLeft' || corner === 'bottomRight' ? -16 : undefined }]}><View pointerEvents="none" style={styles.handle} /></View></GestureDetector>)}
+    {selected && corners.map((corner, index) => <CanvasCornerHandle key={corner} gesture={gestures.handles[index]} corner={corner}
+      rect={rect} frame={frame} rotationDegrees={clip.rotationDegrees} />)}
     {selected && error && <View pointerEvents="none" style={styles.error}><Text style={styles.errorText}>{error}</Text></View>}
+  </Animated.View></GestureDetector>;
+}
+function CanvasCornerHandle({ gesture, corner, rect, frame, rotationDegrees }: {
+  gesture: ReturnType<typeof Gesture.Pan>; corner: StudioCanvasCorner; rect: SharedValue<StudioCanvasTransform['rect']>;
+  frame: StudioCanvasFrame; rotationDegrees: number;
+}) {
+  const position = useAnimatedStyle(() => {
+    const point = studioCanvasHandlePosition(rect.value, corner, frame.width, frame.height, rotationDegrees);
+    return { left: point.x - 16, top: point.y - 16, transform: [{ rotate: `${-rotationDegrees}deg` }] };
+  });
+  return <GestureDetector gesture={gesture}><Animated.View accessible={false} style={[styles.handleTarget, position]}>
+    <View pointerEvents="none" style={styles.handle} />
   </Animated.View></GestureDetector>;
 }
 const styles = StyleSheet.create({

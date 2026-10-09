@@ -165,10 +165,11 @@ final class StudioCompositionView: ExpoView {
         }
         player.replaceCurrentItem(with: item)
         let position = min(rebuildPosition, max(0, prepared.recipe.durationSeconds - 1 / 30.0))
-        if position > 0 {
-          await seekPlayer(position)
-          guard generation == buildGeneration, !Task.isCancelled else { return }
-        }
+        // Even a paused item at zero must request its first composed frame.
+        // Merely becoming ready does not prime AVPlayerLayer on every device.
+        await seekPlayer(position)
+        guard generation == buildGeneration, !Task.isCancelled, !disposed,
+              player.currentItem === item else { return }
         loading = item.status != .readyToPlay
         if !paused && !loading && window != nil { startPlayback() }
         drainPendingSeek()

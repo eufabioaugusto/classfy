@@ -92,11 +92,13 @@ function harness(options = {}) {
   draw(); scope('root').tree.props.onLayout({ nativeEvent: { layout: { width: 320, height: 300 } } }); draw();
   return { selections, previews, commits, events, edits, playback, queue, getGesture, body, flush, pump,
     update: next => { props = { ...props, ...next }; draw(); },
+    layout: (width, height) => { scope('root').tree.props.onLayout({ nativeEvent: { layout: { width, height } } }); draw(); },
     echo: transform => { const next = patchStudioLayerItem(props.editing, 'title', { rect: transform.rect, ...(transform.textFontSize ? { text: { fontSize: transform.textFontSize } } : {}) }); props = { ...props, editing: next, recipe: compileStudioRecipe({ kind: 'aula', takes: [], editing: next }) }; draw(); },
     setNow: value => { now = value; },
-    handle: index => findAll(scope('title').tree, node => node.type === 'detector')[index + 1].props.gesture,
+    handle: (index, id = 'title') => findAll(scope(id).tree, node => typeof node.type === 'function' && node.type.name === 'CanvasCornerHandle')[index].props.gesture,
     frame: id => scope(id || 'title').tree.props.children.props.style.find(value => value?.getStyle)?.getStyle(),
     visibleIds: () => [...contexts.keys()].filter(id => id !== 'root'),
+    recipe: () => props.recipe,
     resolve: () => { assert.ok(resolveCommit); resolveCommit(); },
     dispose: () => { for (const context of contexts.values()) for (const slot of context.slots) slot?.cleanup?.(); },
   };
@@ -191,14 +193,51 @@ test('alça salva escala uniforme e fontSize final, mesmo sem último evento upd
   } finally { view.dispose(); }
 });
 
-test('camada fora do tempo não cria área falsa; vídeo principal é opt-in e tap selecionado mantém playback', () => {
+test('camada fora do tempo não cria área falsa; tap no principal selecionado não muda playback', () => {
   const view = harness();
   try {
     view.update({ positionSeconds: 3 }); assert.deepEqual(view.visibleIds(), []);
     view.update({ selectedMainClipId: 'main', onSelectMainClip: id => view.selections.push(id) });
     assert.deepEqual(view.visibleIds(), ['main']);
-    view.getGesture('tap', 'main').handlers.onEnd({}, true); view.flush(); assert.equal(view.playback.length, 1);
+    view.getGesture('tap', 'main').handlers.onEnd({}, true); view.flush(); assert.equal(view.playback.length, 0); assert.deepEqual(view.selections, ['main']);
     assert.equal(view.getGesture('pan', 'main').configuration.activateAfterLongPress, 150);
+  } finally { view.dispose(); }
+});
+
+test('pinça usa focal inicial fora do centro e ignora coordenadas locais que mudam ao escalar', async () => {
+  const view = harness();
+  try {
+    const pinch = view.getGesture('pinch'); pinch.handlers.onStart({ focalX: 32, focalY: 9 }); view.flush();
+    pinch.handlers.onUpdate({ scale: 1.2, focalX: 26.6667, focalY: 7.5 }); view.flush();
+    pinch.handlers.onEnd({ scale: 1.5, focalX: 21.3333, focalY: 6 }); pinch.handlers.onFinalize({}, true); await view.pump();
+    assert.equal(view.commits.length, 1); const { rect } = view.commits[0].transform;
+    near(rect.x * 320 + 32 * 1.5, 0.3 * 320 + 32);
+    near(rect.y * 180 + 9 * 1.5, 0.3 * 180 + 9);
+    near(rect.width, 0.6); near(rect.height, 0.3); assert.deepEqual(view.events, ['start', 'end']);
+  } finally { view.dispose(); }
+});
+
+test('pinça do principal mantém ponto tocado, sem seleção artificial ou playback', async () => {
+  const view = harness({ props: { selectedLayerId: undefined, selectedMainClipId: 'main', onSelectMainClip: () => {} } });
+  try {
+    const pinch = view.getGesture('pinch', 'main'); pinch.handlers.onStart({ focalX: 64, focalY: 45 }); view.flush();
+    pinch.handlers.onEnd({ scale: 1.5, focalX: 42.6667, focalY: 30 }); pinch.handlers.onFinalize({}, true); await view.pump();
+    assert.equal(view.commits.length, 1); const { rect } = view.commits[0].transform;
+    near(rect.x * 320 + 64 * 1.5, 64); near(rect.y * 180 + 45 * 1.5, 45);
+    assert.deepEqual(view.playback, []); assert.deepEqual(view.selections, []); assert.deepEqual(view.events, ['start', 'end']);
+  } finally { view.dispose(); }
+});
+
+test('rotação ou resize externo cancela operação e libera próxima interação', async () => {
+  const view = harness();
+  try {
+    const pan = view.getGesture('pan'); pan.handlers.onStart(); view.flush(); pan.handlers.onUpdate({ translationX: 24, translationY: 0 }); view.flush();
+    const recipe = structuredClone(view.recipe());
+    recipe.clips.find(clip => clip.id === 'title').rotationDegrees = 15;
+    view.update({ recipe }); pan.handlers.onFinalize({}, true); await view.pump();
+    assert.deepEqual(view.commits, []); assert.deepEqual(view.events, ['start', 'end']);
+    const next = view.getGesture('pan'); next.handlers.onStart(); view.flush(); next.handlers.onEnd({ translationX: 12, translationY: 0 }); next.handlers.onFinalize({}, true); await view.pump();
+    assert.equal(view.commits.length, 1); assert.deepEqual(view.events, ['start', 'end', 'start', 'end']);
   } finally { view.dispose(); }
 });
 
@@ -208,5 +247,51 @@ test('falha de escrita limpa preview temporário, encerra interação e permite 
     const pan = view.getGesture('pan'); pan.handlers.onStart(); view.flush(); pan.handlers.onEnd({ translationX: 40, translationY: 0 }); pan.handlers.onFinalize({}, true); await view.pump();
     assert.equal(view.commits.length, 1); assert.deepEqual(view.events, ['start', 'end']); assert.equal(view.previews.at(-1).transform, undefined);
     pan.handlers.onStart(); view.flush(); assert.deepEqual(view.events, ['start', 'end', 'start']);
+  } finally { view.dispose(); }
+});
+
+test('resize do canvas cancela arraste ativo, solta ownership e ignora terminal atrasado', async () => {
+  const view = harness();
+  try {
+    const pan = view.getGesture('pan'); pan.handlers.onStart(); view.flush(); pan.handlers.onUpdate({ translationX: 24, translationY: 0 }); view.flush();
+    view.layout(400, 300); assert.deepEqual(view.events, ['start', 'end']);
+    pan.handlers.onEnd({ translationX: 100, translationY: 0 }); pan.handlers.onFinalize({}, true); await view.pump();
+    assert.deepEqual(view.commits, []);
+    const next = view.getGesture('pan'); next.handlers.onStart(); view.flush(); next.handlers.onEnd({ translationX: 20, translationY: 0 }); next.handlers.onFinalize({}, true); await view.pump();
+    assert.equal(view.commits.length, 1); assert.deepEqual(view.events, ['start', 'end', 'start', 'end']);
+  } finally { view.dispose(); }
+});
+
+test('desaparecer do intervalo cancela sem escrita nem callback tardio reabrir a interação', async () => {
+  const view = harness();
+  try {
+    const pan = view.getGesture('pan'); pan.handlers.onStart(); view.flush(); pan.handlers.onUpdate({ translationX: 24, translationY: 0 });
+    view.update({ positionSeconds: 3 }); view.flush();
+    pan.handlers.onEnd({ translationX: 24, translationY: 0 }); pan.handlers.onFinalize({}, true); await view.pump();
+    assert.deepEqual(view.events, ['start', 'end']); assert.deepEqual(view.commits, []);
+    view.update({ positionSeconds: 1 }); const next = view.getGesture('pan'); next.handlers.onStart(); view.flush(); next.handlers.onFinalize({}, false); await view.pump();
+    assert.deepEqual(view.events, ['start', 'end', 'start', 'end']);
+  } finally { view.dispose(); }
+});
+
+test('cancel externo durante escrita não libera ownership antes da persistência resolver', async () => {
+  const view = harness({ deferred: true });
+  try {
+    const pan = view.getGesture('pan'); pan.handlers.onStart(); view.flush(); pan.handlers.onEnd({ translationX: 40, translationY: 0 }); pan.handlers.onFinalize({}, true); view.flush();
+    assert.equal(view.commits.length, 1); view.update({ disabled: true }); view.update({ disabled: false });
+    const next = view.getGesture('pan'); next.handlers.onStart(); next.handlers.onEnd({ translationX: 80, translationY: 0 }); next.handlers.onFinalize({}, true); view.flush();
+    assert.equal(view.commits.length, 1); assert.deepEqual(view.events, ['start']);
+    view.resolve(); await view.pump(); assert.deepEqual(view.events, ['start', 'end']);
+  } finally { view.dispose(); }
+});
+
+test('sequência real do simulador com tradução zero termina sem escrita e libera um próximo gesto', async () => {
+  const view = harness();
+  try {
+    const pan = view.getGesture('pan'); pan.handlers.onStart(); view.flush(); pan.handlers.onUpdate({ translationX: 0, translationY: 0 }); view.flush();
+    pan.handlers.onEnd({ translationX: 0, translationY: 0 }); pan.handlers.onFinalize({}, true); await view.pump();
+    assert.deepEqual(view.events, ['start', 'end']); assert.deepEqual(view.commits, []);
+    pan.handlers.onStart(); view.flush(); pan.handlers.onEnd({ translationX: 20, translationY: 0 }); pan.handlers.onFinalize({}, true); await view.pump();
+    assert.deepEqual(view.events, ['start', 'end', 'start', 'end']); assert.equal(view.commits.length, 1);
   } finally { view.dispose(); }
 });

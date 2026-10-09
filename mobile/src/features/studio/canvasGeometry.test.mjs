@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { compileStudioRecipe, emptyStudioEditing, addStudioLayerItem, createStudioTextItem, studioTicks } from './model.ts';
 import { studioCanvasFrame, studioCanvasHitTest, studioCanvasContains, studioCanvasMove, studioCanvasScale, studioCanvasResize,
-  studioVisibleCanvasLayers, studioCanvasTransformChanged } from './canvasGeometry.ts';
+  studioCanvasFocalPoint, studioCanvasPinch, studioCanvasHandlePosition, studioVisibleCanvasLayers, studioCanvasTransformChanged } from './canvasGeometry.ts';
 
 const near = (actual, expected) => assert.ok(Math.abs(actual - expected) < 1e-7, `${actual} != ${expected}`);
 function fixture() {
@@ -104,4 +104,55 @@ test('limites do motor e do texto permanecem válidos para pinches extremos', ()
   assert.equal(text.textFontSize, 1); near(text.rect.width, 1 / 7);
   assert.deepEqual(studioCanvasScale(main, Infinity, 320, 180), main);
   assert.deepEqual(studioCanvasResize(main, 'bottomRight', NaN, 10, 320, 180), main);
+});
+
+test('pinça fora do centro mantém o pixel tocado e escala uniforme do texto', () => {
+  const original = { rect: { x: 0.2, y: 0.3, width: 0.4, height: 0.2 }, textFontSize: 0.04 };
+  const focal = studioCanvasFocalPoint(original.rect, 32, 9, 320, 180);
+  const next = studioCanvasPinch(original, 1.5, 320, 180, focal);
+  near(next.rect.x * 320 + 32 * 1.5, focal.x);
+  near(next.rect.y * 180 + 9 * 1.5, focal.y);
+  near(next.rect.width / original.rect.width, 1.5);
+  near(next.rect.height / original.rect.height, 1.5);
+  near(next.textFontSize, 0.06);
+});
+
+test('pinça mantém a âncora física do principal rotacionado e usa escala limitada real', () => {
+  const original = { rect: { x: 0.15, y: 0.1, width: 0.6, height: 0.7 } };
+  const focal = studioCanvasFocalPoint(original.rect, 32, 21, 320, 180, 35);
+  const next = studioCanvasPinch(original, 1.3, 320, 180, focal, 0.1);
+  const after = studioCanvasFocalPoint(next.rect, 32 * 1.3, 21 * 1.3, 320, 180, 35);
+  near(after.x, focal.x); near(after.y, focal.y);
+  const text = { rect: { x: 0.2, y: 0.2, width: 0.2, height: 0.2 }, textFontSize: 0.8 };
+  const textFocal = studioCanvasFocalPoint(text.rect, 20, 10, 320, 180);
+  const bounded = studioCanvasPinch(text, 20, 320, 180, textFocal);
+  near(bounded.textFontSize, 1);
+  near(bounded.rect.x * 320 + 20 * 1.25, textFocal.x);
+  near(bounded.rect.y * 180 + 10 * 1.25, textFocal.y);
+  assert.equal(studioCanvasTransformChanged(text, studioCanvasPinch(text, 1, 320, 180, { x: NaN, y: Infinity })), false);
+});
+
+test('alças de um principal ampliado ficam acessíveis sem reduzir nem mover o frame', () => {
+  const rect = { x: -0.25, y: -0.25, width: 1.5, height: 1.5 };
+  const original = { ...rect };
+  for (const corner of ['topLeft', 'topRight', 'bottomLeft', 'bottomRight']) {
+    const point = studioCanvasHandlePosition(rect, corner, 320, 180);
+    const x = rect.x * 320 + point.x, y = rect.y * 180 + point.y;
+    near(x, corner.endsWith('Left') ? 16 : 304);
+    near(y, corner.startsWith('top') ? 16 : 164);
+  }
+  assert.deepEqual(rect, original);
+});
+
+test('alças projetadas respeitam rotação e viewport estreito sem valores negativos', () => {
+  const rect = { x: -0.4, y: -0.3, width: 2, height: 1.4 }, angle = 37 * Math.PI / 180;
+  for (const [width, height] of [[320, 180], [20, 12]]) {
+    for (const corner of ['topLeft', 'topRight', 'bottomLeft', 'bottomRight']) {
+      const point = studioCanvasHandlePosition(rect, corner, width, height, 37);
+      const dx = point.x - rect.width * width / 2, dy = point.y - rect.height * height / 2;
+      const x = (rect.x + rect.width / 2) * width + dx * Math.cos(angle) - dy * Math.sin(angle);
+      const y = (rect.y + rect.height / 2) * height + dx * Math.sin(angle) + dy * Math.cos(angle);
+      assert.ok(x >= -1e-7 && x <= width + 1e-7); assert.ok(y >= -1e-7 && y <= height + 1e-7);
+    }
+  }
 });

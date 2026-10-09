@@ -4,20 +4,27 @@ import { Check, ChevronDown, Minus, Plus, Trash2 } from 'lucide-react-native';
 import { colors } from '@/theme/colors';
 import { patchStudioLayerItem, studioSeconds, studioTicks, type StudioEditing, type StudioLayerItem } from './model';
 
-type Props = { editing: StudioEditing; item: StudioLayerItem; disabled?: boolean; canvasEditing?: boolean; editTextRequest?: number; onPreview: (editing?: StudioEditing) => void; onApply: (editing: StudioEditing) => Promise<void>; onRemove: () => void; onClose: () => void };
-export function StudioLayerPanel({ editing, item, disabled, canvasEditing, editTextRequest, onPreview, onApply, onRemove, onClose }: Props) {
+export type StudioTextEditRequest = { id: string; sequence: number };
+type Props = { editing: StudioEditing; item: StudioLayerItem; disabled?: boolean; canvasEditing?: boolean; editTextRequest?: StudioTextEditRequest; onTextEditConsumed?: (request: StudioTextEditRequest) => void; onPreview: (editing?: StudioEditing) => void; onApply: (editing: StudioEditing) => Promise<void>; onRemove: () => void; onClose: () => void };
+export function StudioLayerPanel({ editing, item, disabled, canvasEditing, editTextRequest, onTextEditConsumed, onPreview, onApply, onRemove, onClose }: Props) {
   const [draft, setDraft] = useState(item);
   const [tab, setTab] = useState<'content' | 'position' | 'time'>(item.text ? 'content' : 'position');
   const textInput = useRef<TextInput>(null);
+  const consumedTextEdit = useRef<number | undefined>(undefined);
   // Direct canvas/timeline edits and typed content share one visible draft.
   // A later tap on Apply must never restore an older rectangle or duration.
   useEffect(() => { setDraft(item); }, [item]);
   useEffect(() => {
-    if (!editTextRequest || !item.text) return;
+    if (!editTextRequest || editTextRequest.id !== item.id || !item.text || disabled || consumedTextEdit.current === editTextRequest.sequence) return;
     setTab('content');
-    const frame = requestAnimationFrame(() => textInput.current?.focus());
+    const frame = requestAnimationFrame(() => {
+      if (!textInput.current) return;
+      consumedTextEdit.current = editTextRequest.sequence;
+      textInput.current.focus();
+      onTextEditConsumed?.(editTextRequest);
+    });
     return () => cancelAnimationFrame(frame);
-  }, [editTextRequest, item.id]);
+  }, [editTextRequest, item.id, disabled]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string>();
   const blocked = useRef(false); blocked.current = !!disabled || saving;
