@@ -879,3 +879,20 @@ test('podcast silenciado mantém fallback de áudio com mute real; binário anti
     assert.ok(h.tree().type === 'legacy-preview'); assert.equal(h.tree().props.muted, true);
   } finally { h.dispose(); }
 });
+
+test('binário sem compositor aplica mainMuted ao vídeo simples por Expo sem fabricar mix de camadas ou tratamento', async () => {
+  const simple = model.withStudioTakes({ ...project(), editing: { ...project().editing, mainMuted: true } });
+  const fallback = harness({ available: false, initialProject: simple }); await fallback.pump();
+  try {
+    assert.equal(fallback.tree().type, 'legacy-preview'); assert.equal(fallback.tree().props.muted, true);
+    assert.equal(fallback.calls.length, 0);
+  } finally { fallback.dispose(); }
+  const treated = harness({ available: false, initialProject: graded(simple) }); await treated.pump();
+  try { assert.notEqual(treated.tree().type, 'legacy-preview', 'real mute cannot erase unsupported grade'); }
+  finally { treated.dispose(); }
+  const layered = model.withStudioTakes({ ...simple, editing: { ...simple.editing, layers: [{ id: 'lane', kind: 'text', muted: true, hidden: true,
+    items: [{ id: 'title', kind: 'text', startTicks: 0, durationTicks: 120_000, text: { content: 'Aula', fontSize: 0.05 } }] }] } });
+  const unsupported = harness({ available: false, initialProject: layered }); await unsupported.pump();
+  try { assert.notEqual(unsupported.tree().type, 'legacy-preview', 'layer flags and per-lane mix remain native requirements'); }
+  finally { unsupported.dispose(); }
+});

@@ -150,6 +150,123 @@ import Foundation
     try require(original > 0.03, "unmute volta áudio original \(original)")
     print("Áudio real: mute1s tem stream PCM/RMS \(muted); unmute RMS \(original), original preservado.")
   }
+  static func mixedRMS(_ prepared: StudioPreparedRecipe) throws -> Double {
+    let tracks = prepared.composition.tracks(withMediaType: .audio)
+    let reader = try AVAssetReader(asset: prepared.composition)
+    let output = AVAssetReaderAudioMixOutput(audioTracks: tracks, audioSettings: [AVFormatIDKey: kAudioFormatLinearPCM,
+      AVLinearPCMIsFloatKey: true, AVLinearPCMBitDepthKey: 32, AVLinearPCMIsNonInterleaved: false])
+    output.audioMix = prepared.audioMix; reader.add(output)
+    try require(reader.startReading(), "mix atualizado inicia leitor real")
+    var square = 0.0, count = 0
+    while let sample = output.copyNextSampleBuffer(), let block = CMSampleBufferGetDataBuffer(sample) {
+      let byteCount = CMBlockBufferGetDataLength(block)
+      var data = Data(count: byteCount)
+      data.withUnsafeMutableBytes { _ = CMBlockBufferCopyDataBytes(block, atOffset: 0, dataLength: byteCount, destination: $0.baseAddress!) }
+      data.withUnsafeBytes { for value in $0.bindMemory(to: Float.self) { square += Double(value) * Double(value); count += 1 } }
+    }
+    try require(count > 0 && reader.status == .completed, "mix atualizado contém PCM completo")
+    return sqrt(square / Double(count))
+  }
+  @MainActor static func fastControlChecks() async throws {
+    let engine = StudioRecipeEngine(), originalJSON = recipe()
+    let original = try await engine.prepare(recipeJSON: json(originalJSON))
+    let item = original.playerItem()
+    let frameOutput = StudioCompositionFrameOutput(item: item)
+    let player = AVPlayer(playerItem: item)
+    player.isMuted = true
+    defer { player.pause(); player.replaceCurrentItem(with: nil) }
+    try await StudioCompositionInitialFrame.prime(player: player, item: item, seconds: 0.5,
+      visualRevision: original.visualRevision, frameOutput: frameOutput, isCurrent: { player.currentItem === item })
+    let nativeTime = player.currentTime()
+    let displayedComposition = item.videoComposition
+    let nativeBeforeBuffer = frameOutput.frame(at: 0.5, revision: original.visualRevision!)!
+    let nativeBefore = try pixels(CIImage(cvPixelBuffer: nativeBeforeBuffer, options: [.colorSpace: StudioEffectRenderer.outputColorSpace]), original)
+    var value = originalJSON, clips = value["clips"] as! [[String: Any]]
+    clips[0]["gain"] = 0; value["clips"] = clips
+    guard let muted = try engine.updateVisuals(original, recipeJSON: json(value)) else { throw StudioRecipeError.invalid("Teste: mute provocou rebuild") }
+    try require(muted.composition === original.composition && muted.videoComposition === original.videoComposition,
+      "mute mantém exatamente decoder/tracks/composição visual")
+    try require(muted.audioTrackIDs == original.audioTrackIDs && muted.audioMix !== original.audioMix, "mute troca só o mix das mesmas tracks")
+    item.audioMix = muted.audioMix
+    try require(player.currentItem === item && item.videoComposition === displayedComposition && player.currentTime() == nativeTime && player.rate == 0,
+      "mute não troca item, quadro, cursor ou pausa do AVPlayer")
+    let silence = try mixedRMS(muted), audible = try mixedRMS(original)
+    try require(silence < 0.00001 && audible > 0.03, "mix verdadeiro mute/unmute: \(silence)/\(audible)")
+    guard let unmuted = try engine.updateVisuals(muted, recipeJSON: json(originalJSON)) else { throw StudioRecipeError.invalid("Teste: unmute provocou rebuild") }
+    item.audioMix = unmuted.audioMix
+    let unmuteRMS = try mixedRMS(unmuted)
+    try require(unmuted.videoComposition === original.videoComposition && unmuteRMS > 0.03,
+      "unmute retorna áudio sem invalidar quadro")
+    var hiddenJSON = originalJSON, hiddenClips = hiddenJSON["clips"] as! [[String: Any]]
+    hiddenClips[2]["opacity"] = 0; hiddenJSON["clips"] = hiddenClips
+    guard let hidden = try engine.updateVisuals(unmuted, recipeJSON: json(hiddenJSON)) else { throw StudioRecipeError.invalid("Teste: ocultar imagem provocou rebuild") }
+    try require(hidden.composition === original.composition && hidden.audioMix === unmuted.audioMix && hidden.videoComposition !== original.videoComposition,
+      "hide mantém decoder/áudio e atualiza só instruções de pintura")
+    let beforeFrame = try await engine.frozenFrame(original, at: 0.5), afterFrame = try await engine.frozenFrame(hidden, at: 0.5)
+    let before = try pixels(beforeFrame.image(), original), after = try pixels(afterFrame.image(), hidden)
+    let stable = (500 * 1920 + 900) * 4
+    try require(Array(before[stable..<stable+4]) == Array(after[stable..<stable+4]), "hide preserva vídeo principal e demais camadas")
+    try require(zip(before, after).filter { $0 != $1 }.count > 100, "hide altera realmente pixels da imagem alvo")
+    frameOutput.prepareForChange(at: 0.5)
+    item.videoComposition = hidden.videoComposition
+    try await StudioCompositionInitialFrame.prime(player: player, item: item, seconds: 0.5,
+      visualRevision: hidden.visualRevision, frameOutput: frameOutput, isCurrent: { player.currentItem === item })
+    try require(player.currentItem === item && player.currentTime() == nativeTime && player.rate == 0, "hide confirma novo quadro no mesmo item/tempo")
+    var frame: CVPixelBuffer?
+    for _ in 0..<100 {
+      frame = frameOutput.frame(at: 0.5, revision: hidden.visualRevision!)
+      if frame != nil { break }; try await Task.sleep(nanoseconds: 20_000_000)
+    }
+    guard let frame else { throw StudioRecipeError.invalid("Teste: prime de hide não produziu pixels reais") }
+    let rendered = try pixels(CIImage(cvPixelBuffer: frame, options: [.colorSpace: StudioEffectRenderer.outputColorSpace]), hidden)
+    var changedPixels = 0, outsideDifference = 0
+    for pixel in 0..<(1920 * 1080) {
+      let x = pixel % 1920, y = pixel / 1920, offset = pixel * 4
+      let difference = zip(rendered[offset..<offset+4], nativeBefore[offset..<offset+4]).map { abs(Int($0) - Int($1)) }.max()!
+      if x >= 133 && x <= 520 && y >= 63 && y <= 282 { if difference > 3 { changedPixels += 1 } }
+      else { outsideDifference = max(outsideDifference, difference) }
+    }
+    try require(changedPixels > 100 && outsideDifference <= 3,
+      "receipt hide muda ROI da imagem e preserva demais pixels: \(changedPixels) / \(outsideDifference)")
+    print("Controles fast path: mute/unmute PCM real, mesmo AVPlayerItem/videoComposition; hide atualiza só alvo, cursor0.5 intacto.")
+  }
+  @MainActor static func delayedHoldChecks() async throws {
+    let engine = StudioRecipeEngine(), prepared = try await engine.prepare(recipeJSON: json(recipe()))
+    for reason in ["same", "seek", "background", "recipe", "dispose"] {
+      var gate = StudioCompositionReplacementGate(), generation = 7
+      let lease = gate.lease(generation: generation)
+      let worker = Task.detached { try await engine.frame(prepared, at: 0.5) }
+      if reason == "recipe" { generation += 1 }
+      else if reason != "same" { gate.invalidate() }
+      let image = try await worker.value
+      try require(image.width == 1920 && gate.owns(lease, generation: generation) == (reason == "same"),
+        "snapshot real atrasado após \(reason) não pode reinstalar pose antiga")
+    }
+    print("Hold atrasado: worker real descartado após seek/background/nova receita/dispose; mesma operação mantém o quadro.")
+  }
+  @MainActor static func frameCadenceChecks() async throws {
+    let engine = StudioRecipeEngine()
+    var value = recipe(), assets = value["assets"] as! [[String: Any]]
+    assets[0]["uri"] = URL(fileURLWithPath: CommandLine.arguments[4]).absoluteString
+    value["assets"] = assets
+    let prepared = try await engine.prepare(recipeJSON: json(value))
+    // Production standard output is 30fps. Exercise the frame receipt helper
+    // against a genuine 24fps source/composition, including a non-frame time.
+    prepared.videoComposition?.frameDuration = CMTime(value: 1, timescale: 24)
+    let item = prepared.playerItem(), output = StudioCompositionFrameOutput(item: item)
+    let player = AVPlayer(playerItem: item)
+    player.isMuted = true
+    defer { player.pause(); player.replaceCurrentItem(with: nil) }
+    try require(item.videoComposition?.frameDuration == CMTime(value: 1, timescale: 24), "fixture usa cadência real24fps")
+    let seconds = 0.04
+    try await StudioCompositionInitialFrame.prime(player: player, item: item, seconds: seconds,
+      visualRevision: prepared.visualRevision, frameOutput: output, isCurrent: { player.currentItem === item })
+    try require(output.frame(at: seconds, revision: prepared.visualRevision!) != nil,
+      "receipt24fps aceita quadro precedente em seek não alinhado0.04")
+    try require(abs(player.currentTime().seconds - seconds) < 1 / 120_000 && player.rate == 0,
+      "confirmação24fps preserva cursor arbitrário e pausa")
+    print("Receipt24fps: fonte24fps/composição24fps confirmam seek0.04 sem alinhar ou mudar cursor.")
+  }
   @MainActor static func replacementChecks() async throws {
     let engine = StudioRecipeEngine(), player = AVPlayer()
     player.isMuted = true
@@ -185,6 +302,9 @@ import Foundation
     try await parity(base, "image", [0.42, 0.15, 0.32, 0.32])
     try await parity(base, "title", [0.05, 0.1, 0.72, 0.375], 0.0675)
     try await audioChecks()
+    try await fastControlChecks()
+    try await frameCadenceChecks()
+    try await delayedHoldChecks()
     try await replacementChecks()
     print("Edição interativa aprovada sem UI, seek por movimento ou troca de receita por frame.")
   }

@@ -95,7 +95,7 @@ function harness(takes = [take('a'), take('b')], options = {}) {
       dismiss: () => { for (const callback of keyboardListeners.get('keyboardDidHide') || []) callback(); } },
     Platform: { OS: 'ios' }, Pressable: 'button', ScrollView: 'scroll', FlatList: 'flatlist', Text: 'text', View: 'view',
     StyleSheet: { create: styles => styles, absoluteFillObject: {} }, useWindowDimensions: () => ({ width: 390, height: 844 }) };
-  const toolIcons = Object.fromEntries('ArrowDown ArrowUp Check ChevronDown ChevronUp ChevronLeft ChevronRight Copy FileText Film Maximize2 Mic Minimize2 Pause Pencil Play Scissors Redo2 Split Trash2 Undo2 Upload Video X ImagePlus Layers Music Captions SlidersHorizontal Type'.split(' ').map(name => [name, name]));
+  const toolIcons = Object.fromEntries('ArrowDown ArrowUp Blend Check ChevronDown ChevronUp ChevronLeft ChevronRight Copy FileText Film Maximize2 Mic Minimize2 Pause Pencil Play Scissors Redo2 Split Trash2 Undo2 Upload Video X ImagePlus Layers Music Captions SlidersHorizontal Type'.split(' ').map(name => [name, name]));
   const navigate = (type, destination) => navigationEvents.push({ type, destination, completedWrites, revision: project.revision });
   const editor = compile(source, {
     react: hooks, 'react/jsx-runtime': { jsx, jsxs: jsx }, 'react-native': native,
@@ -110,7 +110,7 @@ function harness(takes = [take('a'), take('b')], options = {}) {
     '@/features/auth/authContext': { useAuth: () => ({ user: { id: 'owner' } }) }, '@/theme/colors': { colors: {} },
     '@/features/studio/useStudioProjects': { useStudioProject: () => ({ project }) },
     '@/features/studio/useStudioOrientation': { useStudioOrientation: () => ({ orientationReady: true }) },
-    '@/features/studio/media': { importStudioLayer: options.importLayer },
+    '@/features/studio/media': { importStudioLayer: options.importLayer, importStudioMedia: options.importMedia || (async () => []) },
     '@/features/studio/store': { discardTransientStudioProject: async () => undefined, getStudioProject: () => project,
       isTransientStudioProject: () => false,
       mutateStudioProject: async (_, __, change) => {
@@ -139,7 +139,7 @@ function harness(takes = [take('a'), take('b')], options = {}) {
     '@/features/studio/editingHistory': history, '@/features/studio/editorInteraction': interaction,
     '@/features/studio/timelineLayout': timelineLayout,
     '@/features/studio/StudioUI': { StudioAccess: 'access', StudioButton: 'studio-button', StudioField: 'field', StudioLoading: 'loading', StudioSaveStatus: 'save-status', studioStyles: {},
-      useStudioFields: () => ({ fields: project, setField() {}, flush: async () => project, saving: false, saveError: null }) },
+      useStudioFields: () => ({ fields: project, setField() {}, flush: async () => { await options.flush?.(); return project; }, saving: false, saveError: null }) },
   }).ProjectEditor;
   const render = () => {
     dirty = false; cursor = 0; effects = [];
@@ -909,6 +909,7 @@ test('ocultar faixa salva texto provisório e visibilidade juntos sem deslocar c
     assert.equal(view.project().editing.layers[0].items[0].text.content, 'Texto preservado ao ocultar');
     assert.equal(view.canvasProps().selectedLayerId, 'caption');
     assert.deepEqual(view.writes(), { attempted: 1, completed: 1 });
+    assert.equal(view.preview.seeks.length, 0, 'hide does not invalidate the native frame with a redundant seek');
     view.button('Desfazer edição').onPress(); await view.pump(); view.finishSave(); await view.pump();
     assert.deepEqual(JSON.parse(JSON.stringify(view.project().editing)), JSON.parse(JSON.stringify(initial))); assert.equal(view.timelineProps().position, 8);
     view.button('Refazer edição').onPress(); await view.pump(); view.finishSave(); await view.pump();
@@ -929,6 +930,7 @@ test('silenciar principal não destrói volumes e ignora novo toque enquanto a e
     const restore = view.timelineProps().onToggleMainMute(); await view.pump(); view.finishSave(); await restore; await view.pump();
     assert.equal(view.project().editing.mainMuted, undefined); assert.equal(view.project().editing.main[0].gain, 0.35);
     assert.equal(view.timelineProps().position, 3);
+    assert.equal(view.preview.seeks.length, 0, 'mute/unmute must retain the native frame and cursor');
   } finally { view.dispose(); }
 });
 
@@ -957,4 +959,84 @@ for (const gesture of ['canvas', 'layer']) test(`controle de faixa não disputa 
     await view.pump();
     assert.equal(view.previewProps().canvasTransformChannel, view.canvasProps().canvasTransformChannel, 'native preview and gesture share one transient channel');
   } finally { view.dispose(); }
+});
+
+test('mais abre escolhas sem iniciar gravação, importar ou deslocar cursor; fechar preserva a montagem', async () => {
+  let imports = 0;
+  const view = harness(undefined, { advanced: true, importMedia: async () => { imports++; return []; } });
+  try {
+    await view.pump(); view.publish({ position: 3, sourcePosition: 5, takeId: 'a', playing: false, loading: false }); await view.pump();
+    view.timelineProps().onAppend(); await view.pump();
+    assert.equal(view.tool('Gravar').disabled, false); assert.equal(view.tool('Arquivo da galeria').disabled, false);
+    assert.equal(imports, 0); assert.equal(view.navigationEvents.length, 0); assert.equal(view.preview.seeks.length, 0);
+    view.button('Fechar painel do editor').onPress(); await view.pump();
+    assert.equal(view.timelineProps().position, 3); assert.deepEqual(view.writes(), { attempted: 0, completed: 0 });
+  } finally { view.dispose(); }
+});
+
+for (const choice of ['Gravar', 'Arquivo da galeria']) test(`mais: ${choice} confirma o texto pendente antes de sair para outra tela`, async () => {
+  const initial = editingWithCaptions(); let importedProject;
+  const view = harness(undefined, { initialEditing: initial, advanced: true, importMedia: async project => { importedProject = project; return []; } });
+  let panel;
+  try {
+    await view.pump(); view.canvasProps().onSelectLayer('caption'); await view.pump();
+    panel = renderLayerPanel(view.layerProps()); panel.text('Texto salvo antes de adicionar'); await view.pump();
+    view.timelineProps().onAppend(); await view.pump(); view.tool(choice).onPress(); await view.pump();
+    assert.deepEqual(view.writes(), { attempted: 1, completed: 0 });
+    assert.equal(importedProject, undefined); assert.equal(view.navigationEvents.length, 0);
+    view.finishSave(); await view.pump();
+    assert.deepEqual(view.writes(), { attempted: 1, completed: 1 });
+    assert.equal(view.project().editing.layers[0].items[0].text.content, 'Texto salvo antes de adicionar');
+    if (choice === 'Gravar') {
+      assert.equal(view.navigationEvents.length, 1); assert.equal(view.navigationEvents[0].destination.pathname, '/studio/capture');
+      assert.equal(view.navigationEvents[0].completedWrites, 1);
+    } else {
+      assert.equal(importedProject.editing.layers[0].items[0].text.content, 'Texto salvo antes de adicionar');
+      assert.equal(view.navigationEvents.length, 0); assert.equal(view.timelineProps().busy, false);
+    }
+  } finally { panel?.dispose(); view.dispose(); }
+});
+
+test('mais: toques enfileirados abrem somente um seletor da galeria; cancelamento libera os controles', async () => {
+  let finishPicker, imports = 0;
+  const pending = new Promise(resolve => { finishPicker = () => resolve([]); });
+  const view = harness(undefined, { advanced: true, importMedia: () => { imports++; return pending; } });
+  try {
+    await view.pump(); view.timelineProps().onAppend(); await view.pump();
+    const select = view.tool('Arquivo da galeria').onPress; select(); select(); await view.pump();
+    assert.equal(imports, 1); assert.equal(view.timelineProps().busy, true);
+    finishPicker(); await view.pump();
+    assert.equal(view.timelineProps().busy, false); assert.deepEqual(view.writes(), { attempted: 0, completed: 0 });
+    assert.equal(view.navigationEvents.length, 0); assert.equal(view.alerts.length, 0);
+  } finally { view.dispose(); }
+});
+
+for (const choice of ['Gravar', 'Arquivo da galeria']) test(`mais: ${choice} não abre outra tela se o editor perde foco durante o flush`, async () => {
+  let finishFlush, imports = 0;
+  const pending = new Promise(resolve => { finishFlush = resolve; });
+  const view = harness(undefined, { advanced: true, flush: () => pending, importMedia: async () => { imports++; return []; } });
+  try {
+    await view.pump(); view.timelineProps().onAppend(); await view.pump(); view.tool(choice).onPress(); await view.pump();
+    assert.equal(view.timelineProps().busy, true);
+    view.focus(false); await view.pump(); finishFlush(); await view.pump();
+    assert.equal(imports, 0); assert.equal(view.navigationEvents.length, 0); assert.equal(view.alerts.length, 0);
+    assert.deepEqual(view.writes(), { attempted: 0, completed: 0 });
+    view.focus(true); await view.pump(); assert.equal(view.timelineProps().busy, false);
+  } finally { view.dispose(); }
+});
+
+for (const choice of ['Gravar', 'Arquivo da galeria']) test(`mais: ${choice} salva o draft mas não abre outra tela após perder foco`, async () => {
+  let imports = 0;
+  const view = harness(undefined, { initialEditing: editingWithCaptions(), advanced: true, importMedia: async () => { imports++; return []; } });
+  let panel;
+  try {
+    await view.pump(); view.canvasProps().onSelectLayer('caption'); await view.pump();
+    panel = renderLayerPanel(view.layerProps()); panel.text('Texto preservado antes de perder foco'); await view.pump();
+    view.timelineProps().onAppend(); await view.pump(); view.tool(choice).onPress(); await view.pump();
+    assert.deepEqual(view.writes(), { attempted: 1, completed: 0 });
+    view.focus(false); await view.pump(); view.finishSave(); await view.pump();
+    assert.equal(imports, 0); assert.equal(view.navigationEvents.length, 0);
+    assert.equal(view.project().editing.layers[0].items[0].text.content, 'Texto preservado antes de perder foco');
+    assert.deepEqual(view.writes(), { attempted: 1, completed: 1 });
+  } finally { panel?.dispose(); view.dispose(); }
 });

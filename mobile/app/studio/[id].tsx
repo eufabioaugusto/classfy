@@ -6,7 +6,7 @@ import { StatusBar } from 'expo-status-bar';
 import { useSharedValue } from 'react-native-reanimated';
 import * as Crypto from 'expo-crypto';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { ArrowDown, ArrowUp, Check, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Copy, ImagePlus, Layers, Music, Captions, SlidersHorizontal, Type, FileText, Film, Maximize2, Mic, Minimize2, Pause, Pencil, Play, Scissors, Redo2, Split, Trash2, Undo2, Upload, Video, X } from 'lucide-react-native';
+import { ArrowDown, ArrowUp, Blend, Check, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Copy, ImagePlus, Layers, Music, Captions, SlidersHorizontal, Type, FileText, Film, Maximize2, Mic, Minimize2, Pause, Pencil, Play, Scissors, Redo2, Split, Trash2, Undo2, Upload, Video, X } from 'lucide-react-native';
 import { AppScreen } from '@/components/AppScreen';
 import { NavigationHeader } from '@/components/NavigationHeader';
 import { SheetCloseButton, SheetModal, sheetStyles } from '@/components/SheetModal';
@@ -44,7 +44,7 @@ export default function StudioProjectScreen() {
   </StudioAccess>;
 }
 
-type Panel = 'preparation' | 'recovery' | 'media' | 'captions' | 'output' | null;
+type Panel = 'preparation' | 'recovery' | 'append' | 'media' | 'captions' | 'output' | null;
 type TrimRange = { takeId: string; start: number; end: number; previewSourceSeconds?: number };
 function ProjectEditor({ project, update }: { project: StudioProject; update: (id: string, patch: Partial<StudioProject>) => Promise<StudioProject> }) {
   const router = useRouter();
@@ -211,7 +211,7 @@ function ProjectEditor({ project, update }: { project: StudioProject; update: (i
       Alert.alert('Editar montagem', error instanceof Error ? error.message : 'Não foi possível salvar. Tente novamente.');
     } finally { finishWork(); }
   };
-  const editEditing = async (change: (editing: StudioEditing) => StudioEditing) => {
+  const editEditing = async (change: (editing: StudioEditing) => StudioEditing, { restoreCursor = true } = {}) => {
     if (locked || !startWork()) return;
     const laneIntent = pendingLayerMove.current;
     const anchor = captureStudioPlaybackAnchor(current.current.project.takes, playbackRef.current);
@@ -233,7 +233,10 @@ function ProjectEditor({ project, update }: { project: StudioProject; update: (i
       if (pendingLayerMove.current === laneIntent) pendingLayerMove.current = undefined;
       if (mounted.current) {
         setEditingPreview(undefined); editingPreviewRef.current = undefined; setBefore(false); setHistoryState(history.state());
-        pendingRestore.current = { anchor, revision: saved.revision }; setRestoreSequence(value => value + 1);
+        // Visibility and mute keep every interval/source in place. The native
+        // preview already holds this cursor; seeking it again invalidates the
+        // newly prepared frame. Structural edits still restore their anchor.
+        if (restoreCursor) { pendingRestore.current = { anchor, revision: saved.revision }; setRestoreSequence(value => value + 1); }
       }
       return saved;
     } catch (error) {
@@ -304,7 +307,7 @@ function ProjectEditor({ project, update }: { project: StudioProject; update: (i
       const merged = draft ? mergeInlineDraft(latest, draft) : latest;
       if (action === 'main') return setStudioMainMuted(merged, enabled);
       return action === 'visibility' ? setStudioLayerHidden(merged, lane!.id, enabled) : setStudioLayerMuted(merged, lane!.id, enabled);
-    });
+    }, { restoreCursor: false });
   };
   const applyInlineDraft = async (draft: StudioEditing) => {
     const saved = await editEditing(latest => mergeInlineDraft(latest, draft));
@@ -459,9 +462,11 @@ function ProjectEditor({ project, update }: { project: StudioProject; update: (i
     } catch { /* The editor retains its draft and reports the failed save. */ }
   };
   const addMedia = async () => {
-    if (locked || !startWork()) return;
+    if (!focusRef.current || locked || working.current || trimDraft || canvasDraft.current || canvasGesture.current || layerTrimDraft.current || layerGesture.current) return;
+    if (!await applyVisibleEditing() || !mounted.current || !focusRef.current || !startWork()) return;
     try {
       const latest = await flush(); assertOwner();
+      if (!mounted.current || !focusRef.current) return;
       const takes = await importStudioMedia(latest); assertOwner();
       if (mounted.current && takes.length) { setActiveTakeId(takes[0].id); setSelectedTakeId(takes[0].id); }
     } catch (error) { Alert.alert('Importar conteúdo', error instanceof Error ? error.message : 'Não foi possível importar. Tente novamente.'); }
@@ -486,12 +491,12 @@ function ProjectEditor({ project, update }: { project: StudioProject; update: (i
     } },
   ]);
   const navigate = async (destination: 'record' | 'review' | 'back') => {
-    if (working.current || leaving.current || trimDraft || canvasDraft.current || canvasGesture.current || layerTrimDraft.current || layerGesture.current || (destination === 'record' && locked)) return;
-    if (!await applyVisibleEditing()) return;
+    if (!focusRef.current || working.current || leaving.current || trimDraft || canvasDraft.current || canvasGesture.current || layerTrimDraft.current || layerGesture.current || (destination === 'record' && locked)) return;
+    if (!await applyVisibleEditing() || !mounted.current || !focusRef.current) return;
     if (!startWork()) return;
     try {
       await flush(); assertOwner();
-      if (!mounted.current) return;
+      if (!mounted.current || !focusRef.current) return;
       if (destination === 'back') { await discardTransientStudioProject(project.ownerId, project.id); allowRemoval.current = true; if (router.canGoBack()) router.back(); else router.replace('/studio'); }
       else router.push({ pathname: destination === 'record' ? '/studio/capture' : '/studio/review', params: { id: project.id } });
     } catch (error) { Alert.alert('Seu projeto está aqui', error instanceof Error ? error.message : 'Não foi possível salvar. Tente novamente.'); }
@@ -619,7 +624,7 @@ function ProjectEditor({ project, update }: { project: StudioProject; update: (i
           onSelectLayer={selectLayer} onSelectMainClip={selectMainCanvas} onCanvasPress={() => preview.current?.togglePlayback()} onPreviewRect={previewCanvas} onCommitRect={commitCanvas} onEditText={editCanvasElement}
           onInteractionStart={() => { canvasGesture.current = true; preview.current?.pause(); setCanvasInteracting(true); }} onInteractionEnd={() => { canvasGesture.current = false; setCanvasInteracting(false); }} />}
       </View>
-      {!fullscreen && <Pressable accessibilityRole="button" accessibilityLabel="Prévia em tela inteira" disabled={busy || canvasInteracting || layerInteracting || !!trimDraft} onPress={() => { preview.current?.pause(); setFullscreen(true); }} style={[styles.expandPreview, { top: Math.max(0, (stageSize.height + previewHeight) / 2 - 34) }]}><ChevronDown size={22} color={colors.text} strokeWidth={3} /></Pressable>}
+      {!fullscreen && <Pressable accessibilityRole="button" accessibilityLabel="Prévia em tela inteira" disabled={busy || canvasInteracting || layerInteracting || !!trimDraft} onPress={() => { preview.current?.pause(); setFullscreen(true); }} style={[styles.expandPreview, { top: Math.max(0, (stageSize.height + previewHeight) / 2 - 44) }]}><ChevronDown size={20} color={colors.text} strokeWidth={2.5} /></Pressable>}
 
     </View>
     {/* KeyboardAvoidingView owns its bottom padding. Keep the gesture clearance
@@ -627,7 +632,7 @@ function ProjectEditor({ project, update }: { project: StudioProject; update: (i
     {!fullscreen ? <View style={[styles.workspace, { paddingBottom: keyboardVisible ? 8 : Math.max(insets.bottom, 8) + 20 }]}>
       {!keyboardVisible && !layerPanelExpanded && !treating && <View style={styles.transport}>
         <Pressable accessibilityRole="button" accessibilityLabel={playback.playing ? 'Pausar montagem' : 'Reproduzir montagem'} disabled={!project.takes.length || !!panel || busy || playback.loading || canvasInteracting || layerInteracting || !!trimDraft} onPress={() => preview.current?.togglePlayback()} style={styles.playButton}>
-          {playback.loading ? <ActivityIndicator size="small" color={colors.muted} /> : playback.playing ? <Pause size={22} color={colors.text} fill={colors.text} strokeWidth={1.2} /> : <Play size={22} color={colors.text} fill={colors.text} strokeWidth={1.2} />}
+          {playback.loading ? <ActivityIndicator size="small" color={colors.muted} /> : playback.playing ? <Pause size={20} color={colors.text} fill={colors.text} strokeWidth={1.2} /> : <Play size={20} color={colors.text} fill={colors.text} strokeWidth={1.2} />}
         </Pressable>
         <View pointerEvents="none" style={styles.timeBlock}><Text style={styles.time}>{formatStudioEditorTime(playback.position)}</Text><Text style={styles.totalTime}>{formatStudioEditorTime(duration)}</Text></View>
         <View style={styles.historyButtons}>
@@ -638,7 +643,7 @@ function ProjectEditor({ project, update }: { project: StudioProject; update: (i
       {!keyboardVisible && !layerPanelExpanded && !treating && <StudioTimeline editing={editing} layers={timelineLayers} selectedLayerId={selectedLayerId} onSelectLayer={selectLayer} onMoveLayer={moveLayer} onEditLayer={editCanvasElement} onLayerTrimPreview={previewLayerTrim} onLayerTrimCommit={commitLayerTrim} onLayerInteractionStart={() => { layerGesture.current = true; preview.current?.pause(); setLayerInteracting(true); }} onLayerInteractionEnd={() => { layerGesture.current = false; setLayerInteracting(false); }} takes={project.takes} position={playback.position} playing={playback.playing && !panel && !trimDraft && !editingPreview && !canvasInteracting && !layerInteracting && !pendingRestore.current} loading={playback.loading} activeTakeId={selectedTakeId} audio={project.kind === 'podcast'}
         playbackChannel={playbackChannel} cancelEpoch={trimCancelEpoch}
         onToggleLaneVisibility={zIndex => toggleTrackControl('visibility', zIndex)} onToggleLaneMute={zIndex => toggleTrackControl('mute', zIndex)} onToggleMainMute={() => toggleTrackControl('main')}
-        locked={locked} busy={!focused || busy || canvasInteracting} onSelect={selectTake} onScrubStart={() => preview.current?.pause()} onSeek={seconds => preview.current?.seek(seconds)} onAppend={() => { void addMedia(); }}
+        locked={locked} busy={!focused || busy || canvasInteracting} onSelect={selectTake} onScrubStart={() => preview.current?.pause()} onSeek={seconds => preview.current?.seek(seconds)} onAppend={() => openPanel('append')}
         onTrimChange={previewTrim} onTrimCommit={commitTrim} onTrimCancel={cancelTrim} />}
       {captionProgress && <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 6 }}><Text style={{ flex: 1, color: colors.muted, fontSize: 11 }}>{captionProgress}</Text><Pressable accessibilityLabel="Cancelar transcrição" onPress={() => { const request = captionRequest.current; if (request) { request.cancelled = true; setCaptionProgress('Cancelando…'); void cancelStudioTranscriptionAsync(request.id); } }} style={styles.iconButton}><X size={16} color={colors.text} /></Pressable></View>}
       {treating && (selectedLayerId || activeTake) ? <StudioTreatmentPanel key={selectedLayerId || activeTake!.id} editing={editing} targetId={selectedLayerId || activeTake!.id} initialTab={treatmentTab} disabled={busy || locked} onPreview={previewEditing} onBefore={setBefore} onApply={applyInlineDraft} onClose={closeLayer} /> : layerItem ? <StudioLayerPanel key={layerItem.id} editing={visibleEditing} item={layerItem} canvasEditing onEditingChange={setLayerPanelExpanded} editTextRequest={editTextRequest} onTextEditConsumed={request => setEditTextRequest(pending => pending?.id === request.id && pending.sequence === request.sequence ? undefined : pending)} disabled={busy || locked || canvasInteracting || layerInteracting || !focused} onPreview={previewEditing} onApply={applyInlineDraft} onDuplicate={duplicateLayer} onSplit={splitLayer} canSplit={canSplitStudioLayer(visibleEditing, layerItem.id, playback.position)} onTreatment={layerItem.kind === 'image' || layerItem.kind === 'video' ? () => { void openLayerTreatment(); } : undefined} onRemove={() => { void editEditing(value => removeStudioLayerItem(value, layerItem.id)).then(saved => { if (saved) closeLayer(); }).catch(() => {}); }} onClose={closeLayer} /> : null}
@@ -653,7 +658,7 @@ function ProjectEditor({ project, update }: { project: StudioProject; update: (i
             <EditorTool label="Dividir" icon={<Split size={20} color={colors.text} strokeWidth={1.5} />} disabled={!canSplit || busy || canvasInteracting || layerInteracting || !!trimDraft} onPress={() => { void split(); }} />
             <EditorTool label="Duplicar" icon={<Copy size={20} color={colors.text} strokeWidth={1.5} />} disabled={busy || locked || canvasInteracting || layerInteracting || !!trimDraft} onPress={() => { void duplicate(); }} />
           </>}
-          <EditorTool label="Filtros" icon={<SlidersHorizontal size={20} color={colors.text} strokeWidth={1.5} />} disabled={!advanced || busy || canvasInteracting || layerInteracting || locked || !!trimDraft} onPress={() => { void openTreatment(); }} />
+          <EditorTool label="Filtros" icon={<Blend size={20} color={colors.text} strokeWidth={1.5} />} disabled={!advanced || busy || canvasInteracting || layerInteracting || locked || !!trimDraft} onPress={() => { void openTreatment(); }} />
           <EditorTool label="Excluir" icon={<Trash2 size={20} color={colors.text} strokeWidth={1.5} />} disabled={busy || locked || canvasInteracting || layerInteracting || !!trimDraft} onPress={deleteTake} />
           <EditorTool label={organizing ? 'Ferramentas' : 'Organizar'} icon={<Film size={20} color={colors.text} strokeWidth={1.5} />} disabled={busy || canvasInteracting || layerInteracting || !!trimDraft} onPress={() => setOrganizing(value => !value)} />
         </> : <>
@@ -661,19 +666,18 @@ function ProjectEditor({ project, update }: { project: StudioProject; update: (i
           <EditorTool label="Texto" icon={<Type size={20} color={colors.text} strokeWidth={1.5} />} disabled={!advanced || busy || locked || !project.takes.length} onPress={() => { void addLayer('text'); }} />
           <EditorTool label="Sobrepor" icon={<Layers size={20} color={colors.text} strokeWidth={1.5} />} disabled={!advanced || busy || locked || !project.takes.length} onPress={() => openPanel('media')} />
           <EditorTool label="Legendas" icon={<Captions size={20} color={colors.text} strokeWidth={1.5} />} disabled={!advanced || busy || locked || !project.takes.length} onPress={() => openPanel('captions')} />
-          <EditorTool label="Filtros" icon={<SlidersHorizontal size={20} color={colors.text} strokeWidth={1.5} />} disabled={!advanced || busy || locked || !activeTake} onPress={() => { void openTreatment(); }} />
+          <EditorTool label="Filtros" icon={<Blend size={20} color={colors.text} strokeWidth={1.5} />} disabled={!advanced || busy || locked || !activeTake} onPress={() => { void openTreatment(); }} />
           <EditorTool label="Ajustar" icon={<SlidersHorizontal size={20} color={colors.text} strokeWidth={1.5} />} disabled={!advanced || busy || locked || !activeTake} onPress={() => { void openTreatment('adjust'); }} />
-          <EditorTool label="Gravar" icon={project.kind === 'podcast' ? <Mic size={20} color={colors.text} strokeWidth={1.5} /> : <Video size={20} color={colors.text} strokeWidth={1.5} />} disabled={locked || busy || !orientationReady} onPress={() => { void navigate('record'); }} />
-          <EditorTool label="Importar" icon={<Upload size={20} color={colors.text} strokeWidth={1.5} />} disabled={locked || busy} onPress={() => { void addMedia(); }} />
-
         </>}
       </ScrollView>}
     </View> : <View pointerEvents="box-none" style={[styles.fullscreenTools, { paddingBottom: Math.max(insets.bottom, 8) + 20, paddingHorizontal: Math.max(insets.left, insets.right, 12) }]}>
       <View style={styles.fullscreenTransport}>
-        <Pressable accessibilityRole="button" accessibilityLabel={playback.playing ? 'Pausar montagem' : 'Reproduzir montagem'} onPress={() => preview.current?.togglePlayback()} style={styles.overlayButton}>{playback.playing ? <Pause size={24} color={colors.text} /> : <Play size={24} color={colors.text} fill={colors.text} />}</Pressable>
-        <Pressable accessibilityRole="button" accessibilityLabel="Voltar às ferramentas do editor" onPress={() => { preview.current?.pause(); setFullscreen(false); }} style={styles.returnEditor}><ChevronUp size={24} color={colors.text} strokeWidth={3} /><Text style={styles.returnLabel}>Editar</Text></Pressable>
-        <Pressable accessibilityRole="button" accessibilityLabel="Desfazer edição" disabled={!historyState.canUndo || busy || locked} onPress={() => { closeLayer(); void editTakes('undo'); }} style={[styles.overlayButton, !historyState.canUndo && styles.disabled]}><Undo2 size={24} color={colors.text} /></Pressable>
-        <Pressable accessibilityRole="button" accessibilityLabel="Refazer edição" disabled={!historyState.canRedo || busy || locked} onPress={() => { closeLayer(); void editTakes('redo'); }} style={[styles.overlayButton, !historyState.canRedo && styles.disabled]}><Redo2 size={24} color={colors.text} /></Pressable>
+        <Pressable accessibilityRole="button" accessibilityLabel={playback.playing ? 'Pausar montagem' : 'Reproduzir montagem'} onPress={() => preview.current?.togglePlayback()} style={styles.overlayButton}>{playback.playing ? <Pause size={20} color={colors.text} /> : <Play size={20} color={colors.text} fill={colors.text} strokeWidth={1.2} />}</Pressable>
+        <View style={styles.fullscreenHistory}>
+          <Pressable accessibilityRole="button" accessibilityLabel="Desfazer edição" disabled={!historyState.canUndo || busy || locked} onPress={() => { closeLayer(); void editTakes('undo'); }} style={[styles.overlayButton, !historyState.canUndo && styles.disabled]}><Undo2 size={20} color={colors.text} strokeWidth={1.6} /></Pressable>
+          <Pressable accessibilityRole="button" accessibilityLabel="Refazer edição" disabled={!historyState.canRedo || busy || locked} onPress={() => { closeLayer(); void editTakes('redo'); }} style={[styles.overlayButton, !historyState.canRedo && styles.disabled]}><Redo2 size={20} color={colors.text} strokeWidth={1.6} /></Pressable>
+        </View>
+        <Pressable accessibilityRole="button" accessibilityLabel="Voltar às ferramentas do editor" onPress={() => { preview.current?.pause(); setFullscreen(false); }} style={styles.returnEditor}><ChevronUp size={20} color={colors.text} strokeWidth={2.5} /><Text style={styles.returnLabel}>Editar</Text></Pressable>
       </View>
       <StudioTimeline playbackChannel={playbackChannel} previewOnly compact takes={project.takes} position={playback.position} playing={playback.playing && !pendingRestore.current} loading={playback.loading} locked busy={!focused || busy} audio={project.kind === 'podcast'} onSelect={() => {}} onScrubStart={() => preview.current?.pause()} onSeek={seconds => preview.current?.seek(seconds)} />
     </View>}
@@ -681,7 +685,7 @@ function ProjectEditor({ project, update }: { project: StudioProject; update: (i
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={[sheetStyles.backdrop, { paddingTop: insets.top + 12 }]}>
         <Pressable accessibilityLabel="Fechar painel do editor" style={{ flex: 1 }} onPress={closePanel} />
         <View style={[sheetStyles.surface, { paddingBottom: Math.max(insets.bottom, 12) + 12, maxHeight: maxSheetHeight }]}><View style={sheetStyles.handle} />
-          <View onStartShouldSetResponder={() => true} style={[sheetStyles.header, sheetContentStyle, { flexShrink: 0 }]}><Text style={[studioStyles.sectionTitle, { flex: 1 }]}>{panel === 'preparation' ? 'Projeto' : panel === 'recovery' ? 'Recuperar arquivos' : panel === 'media' ? 'Sobrepor' : panel === 'captions' ? 'Legendas' : 'Qualidade de saída'}</Text><SheetCloseButton onPress={closePanel} /></View>
+          <View onStartShouldSetResponder={() => true} style={[sheetStyles.header, sheetContentStyle, { flexShrink: 0 }]}><Text style={[studioStyles.sectionTitle, { flex: 1 }]}>{panel === 'preparation' ? 'Projeto' : panel === 'recovery' ? 'Recuperar arquivos' : panel === 'append' ? 'Adicionar' : panel === 'media' ? 'Sobrepor' : panel === 'captions' ? 'Legendas' : 'Qualidade de saída'}</Text><SheetCloseButton onPress={closePanel} /></View>
           <ScrollView keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag" style={[sheetContentStyle, { flexShrink: 1, flexGrow: 0 }]} contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 12, gap: 18 }}>
             {panel === 'preparation' ? <>
               <StudioField label="Título do projeto" value={fields.title} onChangeText={value => setField('title', value)} placeholder="Dê um nome à sua ideia" maxLength={180} editable={!locked} />
@@ -689,6 +693,9 @@ function ProjectEditor({ project, update }: { project: StudioProject; update: (i
               <StudioField label="Para quem você está ensinando?" value={fields.audience} onChangeText={value => setField('audience', value)} placeholder="Descreva seu público" maxLength={500} editable={!locked} />
               <StudioField label="Guia de gravação" value={fields.script} onChangeText={value => setField('script', value)} placeholder={'Abertura\n\nExplicação e demonstração\n\nAplicação prática'} multiline style={{ minHeight: 180 }} hint="Seu guia pode acompanhar você no teleprompter." editable={!locked} />
               <StudioSaveStatus saving={saving} error={saveError} transient={transient} onRetry={() => { void flush().catch(() => {}); }} />
+            </> : panel === 'append' ? <>
+              <EditorSheetAction label="Gravar" icon={project.kind === 'podcast' ? <Mic size={20} color={colors.text} strokeWidth={1.5} /> : <Video size={20} color={colors.text} strokeWidth={1.5} />} disabled={locked || busy || !orientationReady} onPress={() => { setPanel(null); void navigate('record'); }} />
+              <EditorSheetAction label={project.kind === 'podcast' ? 'Arquivo de áudio' : 'Arquivo da galeria'} icon={<Upload size={20} color={colors.text} strokeWidth={1.5} />} disabled={locked || busy} onPress={() => { setPanel(null); void addMedia(); }} />
             </> : panel === 'media' ? <>
               <EditorSheetAction label="Imagem" icon={<ImagePlus size={26} color={colors.text} />} onPress={() => { setPanel(null); void addLayer('image'); }} />
               <EditorSheetAction label="Vídeo sobreposto" icon={<Video size={26} color={colors.text} />} onPress={() => { setPanel(null); void addLayer('video'); }} />
@@ -712,22 +719,22 @@ function ProjectEditor({ project, update }: { project: StudioProject; update: (i
 function EditorTool({ label, icon, onPress, disabled }: { label: string; icon: ReactNode; onPress: () => void; disabled?: boolean }) {
   return <Pressable accessibilityRole="button" accessibilityLabel={label} accessibilityState={{ disabled }} disabled={disabled} onPress={onPress} style={({ pressed }) => [styles.tool, disabled && { opacity: 0.3 }, pressed && { opacity: 0.65 }]}>{icon}<Text style={styles.toolLabel}>{label}</Text></Pressable>;
 }
-function EditorSheetAction({ label, icon, onPress }: { label: string; icon: ReactNode; onPress: () => void }) {
-  return <Pressable accessibilityRole="button" accessibilityLabel={label} onPress={onPress} style={styles.optionRow}>{icon}<Text style={styles.optionLabel}>{label}</Text><ChevronRight size={20} color={colors.text} /></Pressable>;
+function EditorSheetAction({ label, icon, onPress, disabled = false }: { label: string; icon: ReactNode; onPress: () => void; disabled?: boolean }) {
+  return <Pressable accessibilityRole="button" accessibilityLabel={label} accessibilityState={{ disabled }} disabled={disabled} onPress={onPress} style={[styles.optionRow, disabled && styles.disabled]}>{icon}<Text style={styles.optionLabel}>{label}</Text><ChevronRight size={20} color={colors.text} /></Pressable>;
 }
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: '#0B0E11' },
   header: { height: 52, flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 12 },
   iconButton: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
   smallIconButton: { width: 36, height: 30, alignItems: 'center', justifyContent: 'center' },
-  overlayButton: { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(0,0,0,0.5)' },
+  overlayButton: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
   projectTitle: { flexDirection: 'row', gap: 6, alignItems: 'center', minHeight: 44 },
   title: { fontSize: 12, fontWeight: '600', color: colors.text, flexShrink: 1 },
   review: { height: 32, borderRadius: 9, paddingHorizontal: 10, backgroundColor: '#FFFFFF', flexDirection: 'row', alignItems: 'center', gap: 4 },
   reviewText: { fontSize: 12, fontWeight: '600', color: '#0B0E11' },
   previewStage: { flex: 1, minHeight: 160, alignItems: 'center', justifyContent: 'center' },
   previewFrame: { overflow: 'hidden', borderRadius: 5, backgroundColor: '#000000', borderWidth: 1, borderColor: '#000000' },
-  expandPreview: { position: 'absolute', left: '50%', marginLeft: -26, width: 52, height: 34, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(0,0,0,0.18)', borderRadius: 17 },
+  expandPreview: { position: 'absolute', left: '50%', marginLeft: -22, width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
   outputButton: { minWidth: 44, height: 44, justifyContent: 'center', alignItems: 'center' },
   outputText: { color: colors.text, fontWeight: '600', fontSize: 11 },
   saveNotice: { position: 'absolute', top: 50, left: 58, zIndex: 20, backgroundColor: '#0B0E11', paddingHorizontal: 8, borderRadius: 8 },
@@ -744,10 +751,11 @@ const styles = StyleSheet.create({
   disabled: { opacity: 0.25 },
   warning: { color: colors.accent, fontSize: 11, lineHeight: 16, paddingHorizontal: 18, paddingBottom: 4 },
   locked: { color: colors.muted, fontSize: 11, paddingHorizontal: 18, paddingBottom: 4 },
-  fullscreenTools: { position: 'absolute', bottom: 0, left: 0, right: 0, backgroundColor: 'rgba(0,0,0,0.35)' },
-  fullscreenTransport: { height: 62, flexDirection: 'row', alignItems: 'center', gap: 12 },
-  returnEditor: { flex: 1, alignItems: 'center', justifyContent: 'center', height: 62 },
-  returnLabel: { color: colors.text, fontSize: 14, fontWeight: '600' },
+  fullscreenTools: { position: 'absolute', bottom: 0, left: 0, right: 0 },
+  fullscreenTransport: { height: 56, flexDirection: 'row', alignItems: 'center' },
+  fullscreenHistory: { marginLeft: 'auto', flexDirection: 'row' },
+  returnEditor: { position: 'absolute', left: '50%', marginLeft: -44, width: 88, alignItems: 'center', justifyContent: 'center', height: 56 },
+  returnLabel: { color: colors.text, fontSize: 12, fontWeight: '600' },
   optionRow: { minHeight: 54, flexDirection: 'row', alignItems: 'center', gap: 14 },
   optionLabel: { color: colors.text, fontSize: 15, flex: 1 },
   optionValue: { color: colors.muted, fontSize: 14 },

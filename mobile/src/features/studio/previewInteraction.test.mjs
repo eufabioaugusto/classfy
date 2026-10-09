@@ -251,3 +251,18 @@ test('mute do áudio principal atua no player real sem seek ou reload e acompanh
     assert.equal(view.player.muted, false); assert.equal(view.player.writes.length, after);
   } finally { await view.dispose(); }
 });
+
+test('mute/unmute durante Play e rerender dos mesmos takes preservam player, fonte, quadro e cursor', async () => {
+  const takes = [take('a'), take('b')], view = harness(takes);
+  try {
+    await view.load(); view.player.tick(2); view.ref.current.togglePlayback(); await view.pump(); view.player.tick(5);
+    const writes = view.player.writes.length, pauses = view.player.pauses, plays = view.player.plays, uri = view.player.uri;
+    for (const muted of [true, false, true, false]) {
+      view.update({ muted, takes: takes.map(value => ({ ...value })) }); await view.pump();
+      assert.equal(view.player.muted, muted); assert.equal(view.player.uri, uri); assert.equal(view.player.currentTime, 5);
+      assert.equal(view.player.playing, true); assert.equal(view.player.requests.length, 0);
+      assert.equal(view.player.writes.length, writes); assert.equal(view.player.pauses, pauses); assert.equal(view.player.plays, plays);
+      assert.equal(view.published.at(-1).position, 3); assert.equal(view.published.at(-1).loading, false);
+    }
+  } finally { await view.dispose(); }
+});

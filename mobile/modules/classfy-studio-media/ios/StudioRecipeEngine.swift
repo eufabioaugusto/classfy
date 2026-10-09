@@ -134,14 +134,16 @@ final class StudioPreparedRecipe {
   let composition: AVMutableComposition
   let videoComposition: AVMutableVideoComposition?
   let audioMix: AVMutableAudioMix
+  let audioTrackIDs: [String: CMPersistentTrackID]
   let layers: [StudioRecipeLayer]
   let sources: [String: StudioRecipeSource]
   let renderer: StudioEffectRenderer
+  var visualRevision: String? { (videoComposition?.instructions.first as? StudioRecipeInstruction)?.visualRevision }
   init(recipe: StudioRecipe, composition: AVMutableComposition, videoComposition: AVMutableVideoComposition?,
-       audioMix: AVMutableAudioMix, layers: [StudioRecipeLayer], sources: [String: StudioRecipeSource],
+       audioMix: AVMutableAudioMix, audioTrackIDs: [String: CMPersistentTrackID], layers: [StudioRecipeLayer], sources: [String: StudioRecipeSource],
        renderer: StudioEffectRenderer) {
     self.recipe = recipe; self.composition = composition; self.videoComposition = videoComposition
-    self.audioMix = audioMix; self.layers = layers; self.sources = sources; self.renderer = renderer
+    self.audioMix = audioMix; self.audioTrackIDs = audioTrackIDs; self.layers = layers; self.sources = sources; self.renderer = renderer
   }
   func playerItem() -> AVPlayerItem {
     let item = AVPlayerItem(asset: composition)
@@ -159,8 +161,10 @@ final class StudioRecipeInstruction: NSObject, AVVideoCompositionInstructionProt
   let requiredSourceTrackIDs: [NSValue]?
   let layers: [StudioRecipeLayer]
   let recipe: StudioRecipe
-  init(range: CMTimeRange, layers: [StudioRecipeLayer], recipe: StudioRecipe) {
+  let visualRevision: String
+  init(range: CMTimeRange, layers: [StudioRecipeLayer], recipe: StudioRecipe, visualRevision: String = UUID().uuidString) {
     timeRange = range; self.layers = layers; self.recipe = recipe
+    self.visualRevision = visualRevision
     requiredSourceTrackIDs = Array(Set(layers.compactMap(\.trackId))).map { NSNumber(value: $0) }
     super.init()
   }
@@ -169,6 +173,7 @@ final class StudioRecipeInstruction: NSObject, AVVideoCompositionInstructionProt
 // Both AVPlayerItem and AVAssetExportSession instantiate this exact compositor.
 // No UIKit/CoreAnimation overlay can diverge from the file that is exported.
 final class StudioRecipeCompositor: NSObject, AVVideoCompositing {
+  static let visualRevisionKey = "classfy.studio.visual-revision" as CFString
   private let queue = DispatchQueue(label: "classfy.studio.recipe.compositor", qos: .userInteractive)
   private let renderer = StudioEffectRenderer()
   private let lock = NSLock()
@@ -219,6 +224,9 @@ final class StudioRecipeCompositor: NSObject, AVVideoCompositing {
         CVBufferSetAttachment(buffer, kCVImageBufferColorPrimariesKey, kCVImageBufferColorPrimaries_ITU_R_709_2, .shouldPropagate)
         CVBufferSetAttachment(buffer, kCVImageBufferTransferFunctionKey, kCVImageBufferTransferFunction_ITU_R_709_2, .shouldPropagate)
         CVBufferSetAttachment(buffer, kCVImageBufferYCbCrMatrixKey, kCVImageBufferYCbCrMatrix_ITU_R_709_2, .shouldPropagate)
+        // An exact seek at an unchanged timestamp may still return an older
+        // cached picture. The preview confirms this actual render receipt.
+        CVBufferSetAttachment(buffer, Self.visualRevisionKey, instruction.visualRevision as CFString, .shouldPropagate)
         guard token == self.currentGeneration() else { request.finishCancelledRequest(); return }
         request.finish(withComposedVideoFrame: buffer)
       }
@@ -399,7 +407,8 @@ final class StudioRecipeEngine {
   }
 
   // Slider/text/transform changes can update instructions on the same player
-  // item. Only timing, media bindings or audio changes rebuild decoder tracks.
+  // item. Gain/fade changes reuse the original tracks and update their mix.
+  // Only timing or media bindings rebuild decoder tracks.
   func updateVisuals(_ previous: StudioPreparedRecipe, recipeJSON: String) throws -> StudioPreparedRecipe? {
     try Task.checkCancellation()
     let next = try Self.decode(recipeJSON)
@@ -407,7 +416,7 @@ final class StudioRecipeEngine {
       var object = try JSONSerialization.jsonObject(with: JSONEncoder().encode(value)) as! [String: Any]
       object["clips"] = (object["clips"] as! [[String: Any]]).map { clip -> [String: Any] in
         var media = clip
-        for key in ["grade", "effect", "opacity", "rect", "rotationDegrees", "fit", "zIndex", "text"] { media.removeValue(forKey: key) }
+        for key in ["grade", "effect", "opacity", "rect", "rotationDegrees", "fit", "zIndex", "text", "gain", "fadeInTicks", "fadeOutTicks"] { media.removeValue(forKey: key) }
         return media
       }
       return try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
@@ -433,11 +442,43 @@ final class StudioRecipeEngine {
     let order = Dictionary(uniqueKeysWithValues: next.clips.enumerated().map { ($0.element.id, $0.offset) })
     layers.sort { $0.clip.zIndex == $1.clip.zIndex ? order[$0.clip.id]! < order[$1.clip.id]! : $0.clip.zIndex < $1.clip.zIndex }
     try Task.checkCancellation()
-    let video = next.mediaType == "video" ? Self.videoComposition(next, layers: layers,
+    // Audio-only changes must not invalidate the visible composition at all.
+    // Fades remain visual: their opacity envelope changes alongside the mix.
+    let samePicture = try zip(previous.recipe.clips.filter { $0.kind != "audio" }, next.clips.filter { $0.kind != "audio" }).allSatisfy { a, b in
+      var left = try JSONSerialization.jsonObject(with: JSONEncoder().encode(a)) as! [String: Any]
+      var right = try JSONSerialization.jsonObject(with: JSONEncoder().encode(b)) as! [String: Any]
+      left.removeValue(forKey: "gain"); right.removeValue(forKey: "gain")
+      return NSDictionary(dictionary: left).isEqual(to: right)
+    }
+    let video = samePicture ? previous.videoComposition : next.mediaType == "video" ? Self.videoComposition(next, layers: layers,
       reusingIntervals: previous.videoComposition) : nil
+    let sameMix = zip(previous.recipe.clips, next.clips).allSatisfy { a, b in
+      a.gain == b.gain && a.fadeInTicks == b.fadeInTicks && a.fadeOutTicks == b.fadeOutTicks
+    }
+    let mix = sameMix ? previous.audioMix : Self.audioMix(next, trackIDs: previous.audioTrackIDs)
     try Task.checkCancellation()
     return StudioPreparedRecipe(recipe: next, composition: previous.composition, videoComposition: video,
-      audioMix: previous.audioMix, layers: layers, sources: previous.sources, renderer: renderer)
+      audioMix: mix, audioTrackIDs: previous.audioTrackIDs, layers: layers, sources: previous.sources, renderer: renderer)
+  }
+
+  private static func audioMix(_ recipe: StudioRecipe, trackIDs: [String: CMPersistentTrackID]) -> AVMutableAudioMix {
+    let mix = AVMutableAudioMix()
+    mix.inputParameters = recipe.clips.compactMap { clip in
+      guard let trackID = trackIDs[clip.id] else { return nil }
+      let parameters = AVMutableAudioMixInputParameters()
+      parameters.trackID = trackID
+      parameters.setVolume(Float(clip.gain), at: recipe.time(clip.startTicks))
+      if clip.fadeInTicks > 0 {
+        parameters.setVolumeRamp(fromStartVolume: 0, toEndVolume: Float(clip.gain),
+          timeRange: CMTimeRange(start: recipe.time(clip.startTicks), duration: recipe.time(clip.fadeInTicks)))
+      }
+      if clip.fadeOutTicks > 0 {
+        parameters.setVolumeRamp(fromStartVolume: Float(clip.gain), toEndVolume: 0,
+          timeRange: CMTimeRange(start: recipe.time(clip.endTicks - clip.fadeOutTicks), duration: recipe.time(clip.fadeOutTicks)))
+      }
+      return parameters
+    }
+    return mix
   }
 
   private static func videoComposition(_ recipe: StudioRecipe, layers: [StudioRecipeLayer],
@@ -449,6 +490,7 @@ final class StudioRecipeEngine {
     video.colorPrimaries = AVVideoColorPrimaries_ITU_R_709_2
     video.colorTransferFunction = AVVideoTransferFunction_ITU_R_709_2
     video.colorYCbCrMatrix = AVVideoYCbCrMatrix_ITU_R_709_2
+    let visualRevision = UUID().uuidString
     if let previous, let intervals = previous.instructions as? [StudioRecipeInstruction], !intervals.isEmpty {
       // updateVisuals already proved media/timing structure unchanged. The old
       // active-ID sets and time ranges remain valid; avoid scanning every layer
@@ -459,7 +501,7 @@ final class StudioRecipeEngine {
       video.instructions = intervals.map { interval in
         let active = interval.layers.compactMap { replacements[$0.clip.id] }
           .sorted { order[$0.clip.id]! < order[$1.clip.id]! }
-        return StudioRecipeInstruction(range: interval.timeRange, layers: active, recipe: recipe)
+        return StudioRecipeInstruction(range: interval.timeRange, layers: active, recipe: recipe, visualRevision: visualRevision)
       }
       return video
     }
@@ -467,7 +509,7 @@ final class StudioRecipeEngine {
     var instructions: [StudioRecipeInstruction] = []
     for pair in zip(ticks, ticks.dropFirst()) where pair.1 > pair.0 {
       let active = layers.filter { $0.clip.startTicks <= pair.0 && $0.clip.endTicks > pair.0 }
-      instructions.append(StudioRecipeInstruction(range: CMTimeRange(start: recipe.time(pair.0), duration: recipe.time(pair.1 - pair.0)), layers: active, recipe: recipe))
+      instructions.append(StudioRecipeInstruction(range: CMTimeRange(start: recipe.time(pair.0), duration: recipe.time(pair.1 - pair.0)), layers: active, recipe: recipe, visualRevision: visualRevision))
     }
     video.instructions = instructions
     return video
@@ -511,7 +553,7 @@ final class StudioRecipeEngine {
     // Keep at most two decoder lanes even for a lesson with hundreds of cuts.
     var lanes: [(AVMutableCompositionTrack, Int64)] = []
     var layers: [StudioRecipeLayer] = []
-    var audioParameters: [AVAudioMixInputParameters] = []
+    var audioTrackIDs: [String: CMPersistentTrackID] = [:]
     let assetByID = Dictionary(uniqueKeysWithValues: recipe.assets.map { ($0.id, $0) })
     let ordered = recipe.clips.enumerated().sorted { $0.element.startTicks == $1.element.startTicks ? $0.offset < $1.offset : $0.element.startTicks < $1.element.startTicks }
     for (_, clip) in ordered {
@@ -548,17 +590,7 @@ final class StudioRecipeEngine {
             let offset = CMTimeSubtract(intersection.start, range.start)
             try track.insertTimeRange(intersection, of: audio, at: CMTimeAdd(recipe.time(clip.startTicks), offset))
           }
-          let parameters = AVMutableAudioMixInputParameters(track: track)
-          parameters.setVolume(Float(clip.gain), at: recipe.time(clip.startTicks))
-          if clip.fadeInTicks > 0 {
-            parameters.setVolumeRamp(fromStartVolume: 0, toEndVolume: Float(clip.gain),
-              timeRange: CMTimeRange(start: recipe.time(clip.startTicks), duration: recipe.time(clip.fadeInTicks)))
-          }
-          if clip.fadeOutTicks > 0 {
-            parameters.setVolumeRamp(fromStartVolume: Float(clip.gain), toEndVolume: 0,
-              timeRange: CMTimeRange(start: recipe.time(clip.endTicks - clip.fadeOutTicks), duration: recipe.time(clip.fadeOutTicks)))
-          }
-          audioParameters.append(parameters)
+          audioTrackIDs[clip.id] = track.trackID
         }
       } else if clip.kind == "image" {
         raster = clip.assetId.flatMap { rasters[$0] }
@@ -577,14 +609,14 @@ final class StudioRecipeEngine {
     }
     let stableOrder = Dictionary(uniqueKeysWithValues: recipe.clips.enumerated().map { ($0.element.id, $0.offset) })
     layers.sort { $0.clip.zIndex == $1.clip.zIndex ? stableOrder[$0.clip.id]! < stableOrder[$1.clip.id]! : $0.clip.zIndex < $1.clip.zIndex }
-    let audioMix = AVMutableAudioMix(); audioMix.inputParameters = audioParameters
+    let audioMix = Self.audioMix(recipe, trackIDs: audioTrackIDs)
     var videoComposition: AVMutableVideoComposition?
     if recipe.mediaType == "video" {
       videoComposition = Self.videoComposition(recipe, layers: layers)
     }
     try check()
     return StudioPreparedRecipe(recipe: recipe, composition: composition, videoComposition: videoComposition,
-      audioMix: audioMix, layers: layers, sources: sources, renderer: renderer)
+      audioMix: audioMix, audioTrackIDs: audioTrackIDs, layers: layers, sources: sources, renderer: renderer)
   }
 
   // CoreText is rasterized once per element, shared unchanged between player and export.

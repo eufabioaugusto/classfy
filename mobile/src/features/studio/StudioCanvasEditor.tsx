@@ -3,7 +3,7 @@ import { AppState, StyleSheet, Text, View, type AccessibilityActionEvent, type L
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, { runOnJS, runOnUI, useAnimatedStyle, useSharedValue, type SharedValue } from 'react-native-reanimated';
 import type { StudioEditing, StudioRecipeClip, StudioRenderRecipe } from './model';
-import { studioCanvasFocalPoint, studioCanvasFrame, studioCanvasHandleCanvasPosition, studioCanvasMove, studioCanvasPinch, studioCanvasResize, studioCanvasScale, studioCanvasSnapCenter, studioCanvasTransformChanged,
+import { studioCanvasFrame, studioCanvasHandleCanvasPosition, studioCanvasMove, studioCanvasPinch, studioCanvasResize, studioCanvasScale, studioCanvasSnapCenter, studioCanvasTransformChanged,
   studioVisibleCanvasLayers, type StudioCanvasCorner, type StudioCanvasFrame, type StudioCanvasSnapState, type StudioCanvasTransform } from './canvasGeometry';
 import { performStudioSnapFeedback } from './snapFeedback';
 import { isStudioInteractiveCompositionAvailable } from '../../../modules/classfy-studio-media';
@@ -22,14 +22,36 @@ export type StudioCanvasEditorProps = {
 };
 const corners: StudioCanvasCorner[] = ['topLeft', 'topRight', 'bottomLeft', 'bottomRight'];
 type CanvasGuides = StudioCanvasSnapState & { owner: string };
+type CanvasPinch = { id: string; gesture: ReturnType<typeof Gesture.Pinch> };
 
-/** Only actual visual layers receive touches; the canvas background remains the player's. */
+/** A fixed canvas receives two-finger gestures; visual layers keep direct taps and handles. */
 export function StudioCanvasEditor(props: StudioCanvasEditorProps) {
   const [viewport, setViewport] = useState({ width: 0, height: 0 });
   const owner = useSharedValue('');
   const guides = useSharedValue<CanvasGuides>({ owner: '', x: false, y: false });
+  const [canvasPinch, setCanvasPinch] = useState<CanvasPinch>();
+  const live = useRef(props); live.current = props;
+  const registerPinch = useMemo(() => (id: string, gesture?: CanvasPinch['gesture']) => {
+    setCanvasPinch(previous => gesture ? previous?.id === id && previous.gesture === gesture ? previous : { id, gesture }
+      : previous?.id === id ? undefined : previous);
+  }, []);
+  const unavailablePinch = useMemo(() => Gesture.Pinch().enabled(false), []);
+  const pressBackground = useMemo(() => () => { if (!live.current.disabled) live.current.onCanvasPress?.(); }, []);
+  const backgroundTap = useMemo(() => Gesture.Tap().maxDuration(250).maxDistance(8).onTouchesDown((event, manager) => {
+    'worklet';
+    if (event.numberOfTouches > 1 || owner.value) manager.fail();
+  }).onEnd((_, success) => {
+    'worklet';
+    if (success && !owner.value) runOnJS(pressBackground)();
+  }), []);
   const frame = studioCanvasFrame(viewport.width, viewport.height, props.recipe.canvas.aspectRatio);
   const layers = useMemo(() => studioVisibleCanvasLayers(props.editing, props.recipe, props.positionSeconds, !!props.onSelectMainClip), [props.editing, props.recipe, props.positionSeconds, !!props.onSelectMainClip]);
+  // Two fingers may start outside a small text/PiP or over different children.
+  // One ancestor owns the pinch; an explicitly selected off-time item never
+  // redirects that intent to another clip.
+  const requestedPinchId = props.selectedLayerId || props.selectedMainClipId;
+  const pinchTargetId = requestedPinchId ? layers.find(clip => clip.id === requestedPinchId)?.id
+    : layers.find(clip => clip.zIndex === 0)?.id;
   const selected = props.selectedLayerId && props.editing.layers.flatMap(layer => layer.items).find(item => item.id === props.selectedLayerId);
   const selectedMain = props.selectedMainClipId && props.editing.main.find(item => item.id === props.selectedMainClipId);
   const atTime = (id: string) => props.recipe.clips.some(clip => clip.id === id && Math.min(Math.round(props.positionSeconds * props.recipe.timebase), props.recipe.durationTicks - 1) >= clip.startTicks
@@ -41,16 +63,17 @@ export function StudioCanvasEditor(props: StudioCanvasEditorProps) {
     setViewport(previous => previous.width === width && previous.height === height ? previous : { width, height });
   };
   return <View pointerEvents="box-none" onLayout={layout} style={StyleSheet.absoluteFill}>
-    {frame.width > 0 && frame.height > 0 && <View pointerEvents="box-none" style={[styles.canvas, { left: frame.x, top: frame.y, width: frame.width, height: frame.height }]}>
+    {frame.width > 0 && frame.height > 0 && <GestureDetector gesture={canvasPinch && canvasPinch.id === pinchTargetId ? canvasPinch.gesture : unavailablePinch}><View collapsable={false} style={[styles.canvas, { left: frame.x, top: frame.y, width: frame.width, height: frame.height }]}>
+      <GestureDetector gesture={backgroundTap}><View accessible={false} pointerEvents={props.disabled ? 'none' : 'auto'} style={StyleSheet.absoluteFill} /></GestureDetector>
       {[...layers].reverse().map((clip, paintIndex) => <CanvasLayer key={clip.id} {...props} clip={clip} frame={frame} paintIndex={paintIndex}
-        selected={(clip.zIndex > 0 ? props.selectedLayerId : props.selectedMainClipId) === clip.id} owner={owner} guides={guides} />)}
+        selected={(clip.zIndex > 0 ? props.selectedLayerId : props.selectedMainClipId) === clip.id} pinchTarget={clip.id === pinchTargetId} registerPinch={registerPinch} owner={owner} guides={guides} />)}
       <CanvasCenterGuides guides={guides} />
-    </View>}
+    </View></GestureDetector>}
     {outsideTime && <View pointerEvents="none" style={styles.notice}><Text accessibilityLiveRegion="polite" style={styles.noticeText}>{selected ? 'Esta camada' : 'Este vídeo principal'} está fora deste momento do vídeo.</Text></View>}
   </View>;
 }
 
-type LayerProps = StudioCanvasEditorProps & { clip: StudioRecipeClip; frame: StudioCanvasFrame; paintIndex: number; selected: boolean; owner: SharedValue<string>; guides: SharedValue<CanvasGuides> };
+type LayerProps = StudioCanvasEditorProps & { clip: StudioRecipeClip; frame: StudioCanvasFrame; paintIndex: number; selected: boolean; pinchTarget: boolean; registerPinch: (id: string, gesture?: CanvasPinch['gesture']) => void; owner: SharedValue<string>; guides: SharedValue<CanvasGuides> };
 function CanvasLayer(props: LayerProps) {
   const { clip, frame, selected, disabled, owner, guides } = props;
   const main = clip.zIndex === 0;
@@ -68,11 +91,12 @@ function CanvasLayer(props: LayerProps) {
   const panBase = useSharedValue({ ...clip.rect });
   const pinchBase = useSharedValue<StudioCanvasTransform>({ rect: { ...clip.rect }, ...(clip.text ? { textFontSize: clip.text.fontSize } : {}) });
   const pinchFocal = useSharedValue({ x: 0, y: 0 });
+  const pinchLastFocal = useSharedValue({ x: 0, y: 0 });
   const mask = useSharedValue(0), epoch = useSharedValue(0), pending = useSharedValue(false), cancelled = useSharedValue(false);
   const panOriginX = useSharedValue(0), panOriginY = useSharedValue(0), panLastX = useSharedValue(0), panLastY = useSharedValue(0);
   const cornerOwner = useSharedValue(''), lastPreview = useSharedValue(0), snapRevision = useSharedValue(0);
   const snap = useSharedValue<StudioCanvasSnapState>({ x: false, y: false });
-  const configuration = useSharedValue({ selected, disabled: !!disabled, width: frame.width, height: frame.height, rotation: clip.rotationDegrees, suspended: false });
+  const configuration = useSharedValue({ selected, pinchTarget: props.pinchTarget, standard: props.editing.output.profile === 'standard', disabled: !!disabled, width: frame.width, height: frame.height, rotation: clip.rotationDegrees, suspended: false });
   const panEpoch = useSharedValue(-1), pinchEpoch = useSharedValue(-1), handleEpoch = useSharedValue(-1);
   const alive = useSharedValue(true);
   const interactiveSession = useSharedValue(false);
@@ -124,8 +148,9 @@ function CanvasLayer(props: LayerProps) {
     rect.value = { ...live.current.clip.rect }; font.value = live.current.clip.text?.fontSize ?? 0;
   };
   const beginJS = (value: number) => {
-    if (!mounted.current || live.current.disabled || !live.current.selected || value <= cancelledThrough.current || value !== epoch.value || transaction.current) return;
+    if (!mounted.current || live.current.disabled || !live.current.selected && !live.current.pinchTarget || value <= cancelledThrough.current || value !== epoch.value || transaction.current) return;
     transaction.current = { epoch: value, finishing: false }; setError(undefined);
+    if (!live.current.selected && main) live.current.onSelectMainClip?.(clip.id);
     live.current.onInteractionStart?.();
   };
   const previewJS = (value: number, transform: StudioCanvasTransform) => {
@@ -173,7 +198,13 @@ function CanvasLayer(props: LayerProps) {
       const through = epoch.value;
       if (!writing && interactiveChannel?.value.clipId === clip.id) publishInteractive('idle', 'cancel');
       if (!writing) interactiveSession.value = false;
-      epoch.value++; mask.value = 0; cancelled.value = true; cornerOwner.value = '';
+      // Once persistence has started, cancellation stops recognizers but does
+      // not rename the reserved operation. Its eventual durable commit/cancel
+      // receipt must still match the native surface's handoff. Focus loss and
+      // unmount cannot retract an already started disk write; they retain this
+      // reservation until the actual promise settles, with no new interaction.
+      if (!writing) epoch.value++;
+      mask.value = 0; cancelled.value = true; cornerOwner.value = '';
       clearGuides();
       // A durable write retains its reservation until its promise settles.
       if (!writing) {
@@ -194,10 +225,10 @@ function CanvasLayer(props: LayerProps) {
     return () => { mounted.current = false; alive.value = false; listener.remove(); cancelJS(); };
   }, []);
   useEffect(() => {
-    runOnUI(() => { 'worklet'; configuration.value = { ...configuration.value, selected, disabled: !!disabled, width: frame.width, height: frame.height, rotation: clip.rotationDegrees }; })();
-    if (!selected || disabled) cancelJS();
+    runOnUI(() => { 'worklet'; configuration.value = { ...configuration.value, selected, pinchTarget: props.pinchTarget, standard: props.editing.output.profile === 'standard', disabled: !!disabled, width: frame.width, height: frame.height, rotation: clip.rotationDegrees }; })();
+    if (!selected && !props.pinchTarget || disabled) cancelJS();
     else if (!mask.value && !pending.value) synchronize();
-  }, [selected, disabled, frame.width, frame.height, clip.rotationDegrees, clip.rect.x, clip.rect.y, clip.rect.width, clip.rect.height, clip.text?.fontSize]);
+  }, [selected, props.pinchTarget, props.editing.output.profile, disabled, frame.width, frame.height, clip.rotationDegrees, clip.rect.x, clip.rect.y, clip.rect.width, clip.rect.height, clip.text?.fontSize]);
   const previousFrame = useRef({ width: frame.width, height: frame.height, rotation: clip.rotationDegrees });
   useEffect(() => {
     const previous = previousFrame.current;
@@ -208,7 +239,7 @@ function CanvasLayer(props: LayerProps) {
   const begin = (bit: number) => {
     'worklet';
     const settings = configuration.value;
-    if (!alive.value || !settings.selected || settings.disabled || settings.suspended || pending.value || owner.value && owner.value !== clip.id) return false;
+    if (!alive.value || !(settings.selected || bit === 2 && settings.pinchTarget) || settings.disabled || settings.suspended || pending.value || owner.value && owner.value !== clip.id) return false;
     // The body cannot join a corner transaction, and no corner can join pan/pinch.
     if (bit === 4 ? mask.value !== 0 : !!(mask.value & 4)) return false;
     if (!mask.value) {
@@ -296,31 +327,50 @@ function CanvasLayer(props: LayerProps) {
         'worklet';
         finish(1, false, panEpoch.value);
       });
-    const pinch = Gesture.Pinch().onTouchesDown((_, manager) => {
+    const applyPinch = (event: { scale: number; focalX?: number; focalY?: number; numberOfPointers?: number }) => {
       'worklet';
       const settings = configuration.value;
-      if (!alive.value || !settings.selected || settings.disabled || settings.suspended || pending.value || mask.value & 4 || owner.value && owner.value !== clip.id) manager.fail();
+      // The ancestor is fixed in canvas coordinates. Its moving centroid is
+      // not affected by the element's animated position/rotation/size. At END
+      // iOS may already report the one remaining finger; keep the last valid
+      // two-finger centroid instead of jumping towards that finger.
+      if ((event.numberOfPointers === undefined || event.numberOfPointers >= 2)
+        && Number.isFinite(event.focalX) && Number.isFinite(event.focalY)) {
+        pinchLastFocal.value = { x: event.focalX!, y: event.focalY! };
+      }
+      const next = studioCanvasPinch(pinchBase.value, event.scale, settings.width, settings.height, pinchFocal.value, main ? 0.1 : 0.025);
+      rect.value = studioCanvasMove(next.rect, pinchLastFocal.value.x - pinchFocal.value.x,
+        pinchLastFocal.value.y - pinchFocal.value.y, settings.width, settings.height);
+      font.value = next.textFontSize ?? 0;
+    };
+    const pinch = Gesture.Pinch().shouldCancelWhenOutside(false).onTouchesDown((_, manager) => {
+      'worklet';
+      const settings = configuration.value;
+      if (!alive.value || !settings.pinchTarget || settings.disabled || settings.suspended || pending.value || mask.value & 4 || owner.value && owner.value !== clip.id) manager.fail();
     }).onStart(event => {
       'worklet';
+      // An original-quality project must explicitly opt into the composition
+      // profile through its existing selection flow before changing geometry.
+      if (!configuration.value.standard) { runOnJS(tapJS)(); return; }
       if (begin(2)) {
         pinchEpoch.value = epoch.value;
         pinchBase.value = currentTransform();
         const settings = configuration.value;
-        pinchFocal.value = studioCanvasFocalPoint(pinchBase.value.rect, event?.focalX, event?.focalY, settings.width, settings.height, settings.rotation);
+        pinchFocal.value = Number.isFinite(event?.focalX) && Number.isFinite(event?.focalY)
+          ? { x: event.focalX, y: event.focalY }
+          : { x: (pinchBase.value.rect.x + pinchBase.value.rect.width / 2) * settings.width,
+            y: (pinchBase.value.rect.y + pinchBase.value.rect.height / 2) * settings.height };
+        pinchLastFocal.value = { ...pinchFocal.value };
       }
     }).onUpdate(event => {
       'worklet';
       if (pinchEpoch.value !== epoch.value || !(mask.value & 2) || cancelled.value) return;
-      const settings = configuration.value;
-      const next = studioCanvasPinch(pinchBase.value, event.scale, settings.width, settings.height, pinchFocal.value, main ? 0.1 : 0.025);
-      rect.value = next.rect; font.value = next.textFontSize ?? 0; publish();
+      applyPinch(event); publish();
     }).onEnd((event, success) => {
       'worklet';
       if (pinchEpoch.value !== epoch.value || !(mask.value & 2)) return;
       if (success !== false && !cancelled.value) {
-        const settings = configuration.value;
-        const next = studioCanvasPinch(pinchBase.value, event.scale, settings.width, settings.height, pinchFocal.value, main ? 0.1 : 0.025);
-        rect.value = next.rect; font.value = next.textFontSize ?? 0;
+        applyPinch(event);
       }
       finish(2, success !== false, pinchEpoch.value);
     }).onFinalize((_, success) => {
@@ -330,6 +380,10 @@ function CanvasLayer(props: LayerProps) {
       'worklet';
       finish(2, false, pinchEpoch.value);
     });
+    // These recognizers are attached to different native views: explicit
+    // external relationships let the body pan join the ancestor pinch.
+    pan.simultaneousWithExternalGesture(pinch);
+    pinch.simultaneousWithExternalGesture(pan);
     const tap = Gesture.Tap().maxDuration(250).onEnd((_, success) => {
       'worklet';
       if (success && alive.value && !configuration.value.suspended) runOnJS(tapJS)();
@@ -338,7 +392,7 @@ function CanvasLayer(props: LayerProps) {
       'worklet';
       if (success && alive.value && !configuration.value.suspended) runOnJS(editTextJS)();
     });
-    const handles = corners.map(corner => Gesture.Pan().minDistance(1).maxPointers(1).shouldCancelWhenOutside(false)
+    const handles = corners.map(corner => Gesture.Pan().minDistance(1).maxPointers(1).shouldCancelWhenOutside(false).blocksExternalGesture(pinch)
       .onTouchesDown((_, manager) => {
         'worklet';
         const settings = configuration.value;
@@ -369,8 +423,13 @@ function CanvasLayer(props: LayerProps) {
         'worklet';
         if (cornerOwner.value === corner) { cornerOwner.value = ''; finish(4, false, handleEpoch.value); }
       }));
-    return { body: Gesture.Race(Gesture.Simultaneous(pan, pinch), Gesture.Exclusive(doubleTap, tap)), handles };
+    return { body: Gesture.Race(pan, Gesture.Exclusive(doubleTap, tap)), pinch, handles };
   }, [clip.id, main, interactiveChannel]);
+  useEffect(() => {
+    if (!props.pinchTarget) return;
+    props.registerPinch(clip.id, gestures.pinch);
+    return () => props.registerPinch(clip.id);
+  }, [props.pinchTarget, props.registerPinch, clip.id, gestures.pinch]);
   const geometry = useAnimatedStyle(() => ({ left: rect.value.x * frame.width, top: rect.value.y * frame.height,
     width: rect.value.width * frame.width, height: rect.value.height * frame.height, transform: [{ rotate: `${clip.rotationDegrees}deg` }] }));
   const title = clip.kind === 'text' || clip.kind === 'caption' ? clip.text?.content || 'Texto' : clip.kind === 'image' ? 'Imagem' : 'Vídeo';

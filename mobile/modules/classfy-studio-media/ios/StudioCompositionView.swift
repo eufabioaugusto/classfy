@@ -1,10 +1,57 @@
 import AVFoundation
+import CoreImage
 import Foundation
+
+struct StudioCompositionReplacementGate {
+  struct Lease { let epoch: Int; let generation: Int }
+  private var epoch = 0
+  func lease(generation: Int) -> Lease { Lease(epoch: epoch, generation: generation) }
+  mutating func invalidate() { epoch += 1 }
+  func owns(_ lease: Lease, generation: Int) -> Bool { lease.epoch == epoch && lease.generation == generation }
+}
+
+/// Confirms the pixels produced by the current recipe, not merely a completed
+/// seek at a timestamp which AVPlayer may satisfy from its older cache.
+@MainActor
+final class StudioCompositionFrameOutput {
+  let output: AVPlayerItemVideoOutput
+  private weak var item: AVPlayerItem?
+  private var confirmed: (revision: String, seconds: Double, buffer: CVPixelBuffer)?
+
+  init(item: AVPlayerItem) {
+    self.item = item
+    output = AVPlayerItemVideoOutput(pixelBufferAttributes: [kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA])
+    item.add(output)
+  }
+  func prepareForChange(at seconds: Double) {
+    _ = output.copyPixelBuffer(forItemTime: CMTime(seconds: seconds, preferredTimescale: 120_000), itemTimeForDisplay: nil)
+    confirmed = nil
+    output.requestNotificationOfMediaDataChange(withAdvanceInterval: 0)
+  }
+  func clear() { confirmed = nil }
+  func frame(at seconds: Double, revision: String) -> CVPixelBuffer? {
+    let target = CMTime(seconds: seconds, preferredTimescale: 120_000)
+    // An exact seek may display the preceding frame at the composition's
+    // cadence. A fixed 30fps window incorrectly rejects valid 24fps frames.
+    let duration = item?.videoComposition?.frameDuration.seconds ?? .nan
+    let tolerance = (duration.isFinite && duration > 0 ? duration : 1 / 30.0) + 0.001
+    var displayed = CMTime.invalid
+    if let buffer = output.copyPixelBuffer(forItemTime: target, itemTimeForDisplay: &displayed),
+      let receipt = CVBufferGetAttachment(buffer, StudioRecipeCompositor.visualRevisionKey, nil)?.takeUnretainedValue() as? String,
+      receipt == revision, displayed.seconds.isFinite, abs(displayed.seconds - seconds) <= tolerance {
+      confirmed = (revision, seconds, buffer)
+      return buffer
+    }
+    if let confirmed, confirmed.revision == revision, abs(confirmed.seconds - seconds) < 1 / 120_000 { return confirmed.buffer }
+    return nil
+  }
+}
 
 /** Readiness precedes the first exact seek; a cancelled seek is never a frame. */
 @MainActor
 enum StudioCompositionInitialFrame {
   static func prime(player: AVPlayer, item: AVPlayerItem, seconds: Double,
+                    visualRevision: String? = nil, frameOutput: StudioCompositionFrameOutput? = nil,
                     isCurrent: () -> Bool) async throws {
     let deadline = Date().addingTimeInterval(15)
     while item.status == .unknown {
@@ -26,6 +73,16 @@ enum StudioCompositionInitialFrame {
     try Task.checkCancellation()
     guard isCurrent(), player.currentItem === item else { throw StudioRecipeError.cancelled }
     guard finished else { throw StudioRecipeError.invalid("O primeiro quadro da prévia foi interrompido. Tente abrir o projeto novamente.") }
+    if let visualRevision, let frameOutput {
+      while frameOutput.frame(at: seconds, revision: visualRevision) == nil {
+        try Task.checkCancellation()
+        guard isCurrent(), player.currentItem === item else { throw StudioRecipeError.cancelled }
+        guard Date() < deadline else {
+          throw StudioRecipeError.invalid("A prévia não confirmou o quadro atualizado. Tente abrir o projeto novamente.")
+        }
+        try await Task.sleep(nanoseconds: 10_000_000)
+      }
+    }
   }
 }
 
@@ -43,6 +100,10 @@ final class StudioCompositionView: ExpoView {
   private let engine = StudioRecipeEngine()
   private let player = AVPlayer()
   private let playerLayer = AVPlayerLayer()
+  private let replacementFrame = UIImageView()
+  private var replacementPosition: Double?
+  private var replacementGate = StudioCompositionReplacementGate()
+  private var frameOutput: StudioCompositionFrameOutput?
   private let inspectedFrame = UIImageView()
   private let interactiveSurface = StudioCompositionInteractiveSurface()
   private var interactivePatch: StudioCompositionInteractionPatch?
@@ -91,6 +152,9 @@ final class StudioCompositionView: ExpoView {
     player.actionAtItemEnd = .pause
     playerLayer.player = player; playerLayer.videoGravity = .resizeAspect
     layer.addSublayer(playerLayer)
+    replacementFrame.contentMode = .scaleAspectFit; replacementFrame.backgroundColor = .black
+    replacementFrame.isHidden = true; replacementFrame.isUserInteractionEnabled = false
+    addSubview(replacementFrame)
     inspectedFrame.contentMode = .scaleAspectFit; inspectedFrame.backgroundColor = .black
     inspectedFrame.isHidden = true; inspectedFrame.isUserInteractionEnabled = false
     addSubview(inspectedFrame)
@@ -104,7 +168,7 @@ final class StudioCompositionView: ExpoView {
       Task { @MainActor [weak self] in self?.publish() }
     }
     backgroundObserver = NotificationCenter.default.addObserver(forName: UIApplication.willResignActiveNotification, object: nil, queue: .main) { [weak self] _ in
-      Task { @MainActor [weak self] in self?.cancelInteractive(); self?.setPaused(true) }
+      Task { @MainActor [weak self] in self?.cancelInteractive(); self?.clearReplacementFrame(); self?.setPaused(true) }
     }
     interruptionObserver = NotificationCenter.default.addObserver(forName: AVAudioSession.interruptionNotification, object: nil, queue: .main) { [weak self] _ in
       Task { @MainActor [weak self] in self?.setPaused(true) }
@@ -121,7 +185,7 @@ final class StudioCompositionView: ExpoView {
   override func layoutSubviews() {
     super.layoutSubviews()
     CATransaction.begin(); CATransaction.setDisableActions(true)
-    playerLayer.frame = bounds; inspectedFrame.frame = bounds; interactiveSurface?.view.frame = bounds
+    playerLayer.frame = bounds; replacementFrame.frame = bounds; inspectedFrame.frame = bounds; interactiveSurface?.view.frame = bounds
     CATransaction.commit()
   }
 
@@ -129,6 +193,7 @@ final class StudioCompositionView: ExpoView {
     super.didMoveToWindow()
     if window == nil {
       cancelInteractive()
+      clearReplacementFrame()
       player.pause(); frameTask?.cancel(); cancelReplay()
       sourceInspection = nil; inspectedFrame.isHidden = true
     }
@@ -215,6 +280,7 @@ final class StudioCompositionView: ExpoView {
 
   func setRecipeJSON(_ value: String) {
     guard !disposed, value != recipeJSON else { return }
+    let cachedFrame = frozenGeneration == buildGeneration ? frozen : nil
     recipeJSON = value; buildGeneration += 1
     recipeBuildPending = true
     // A successful write replaces the canonical recipe once. Keep its live
@@ -273,8 +339,18 @@ final class StudioCompositionView: ExpoView {
           try Task.checkCancellation()
           guard generation == buildGeneration, !disposed else { return }
           if let updated, let item = player.currentItem, item.status == .readyToPlay {
-            self.prepared = updated; item.videoComposition = updated.videoComposition
-            if initializingItem === item || handingOff {
+            let pictureChanged = updated.videoComposition !== previous.videoComposition
+            if pictureChanged && paused && !handingOff {
+              try await holdReplacementFrame(previous, cached: cachedFrame, generation: generation)
+            }
+            guard generation == buildGeneration, !disposed, !Task.isCancelled else { return }
+            self.prepared = updated
+            if pictureChanged {
+              frameOutput?.prepareForChange(at: max(0, player.currentTime().seconds))
+              item.videoComposition = updated.videoComposition
+            }
+            if updated.audioMix !== previous.audioMix { item.audioMix = updated.audioMix }
+            if initializingItem === item || handingOff || pictureChanged && paused {
               initializingItem = item
               let raw = player.currentTime().seconds
               let position = min(pendingSeek?.seconds ?? (raw.isFinite ? max(0, raw) : oldPosition),
@@ -282,6 +358,7 @@ final class StudioCompositionView: ExpoView {
               try await primeInitialFrame(item: item, seconds: position, generation: generation)
             }
             loading = false
+            clearReplacementFrame()
             if handingOff { completeInteractiveHandoff() }
             if !paused && window != nil { startPlayback() }
             drainPendingSeek(); publish(); return
@@ -293,11 +370,15 @@ final class StudioCompositionView: ExpoView {
         let rebuildPosition = pendingSeek?.seconds ?? (rawPosition.isFinite ? max(0, rawPosition) : oldPosition)
         player.pause()
         if !loading { loading = true; publish() }
+        if paused, let previous = self.prepared, !handingOff {
+          try await holdReplacementFrame(previous, cached: cachedFrame, generation: generation)
+        }
         let prepared = try await engine.prepare(recipeJSON: value)
         try Task.checkCancellation()
         guard generation == buildGeneration else { return }
         self.prepared = prepared
         let item = prepared.playerItem()
+        frameOutput = StudioCompositionFrameOutput(item: item)
         initializingItem = item
         statusObserver?.invalidate()
         if let endObserver { NotificationCenter.default.removeObserver(endObserver) }
@@ -335,6 +416,7 @@ final class StudioCompositionView: ExpoView {
         guard generation == buildGeneration, !Task.isCancelled, !disposed,
               player.currentItem === item else { return }
         loading = item.status != .readyToPlay
+        clearReplacementFrame()
         if handingOff { completeInteractiveHandoff() }
         if !paused && !loading && window != nil { startPlayback() }
         drainPendingSeek()
@@ -343,10 +425,55 @@ final class StudioCompositionView: ExpoView {
         guard generation == buildGeneration, !Task.isCancelled else { return }
         loading = false; prepared = nil; initializingItem = nil; player.replaceCurrentItem(with: nil)
         cancelInteractive()
+        clearReplacementFrame()
         pendingSeek?.continuation.resume(throwing: error); pendingSeek = nil
         fail(error)
       }
     }
+  }
+
+  // A paused composition swap invalidates AVPlayerLayer's current drawable.
+  // Hold the exact old composed frame until the new exact seek confirms its
+  // compositor frame, rather than hiding all layers or waiting a fixed delay.
+  private func holdReplacementFrame(_ previous: StudioPreparedRecipe, cached: StudioRecipeFrozenFrame?, generation: Int) async throws {
+    guard window != nil, UIApplication.shared.applicationState == .active, paused,
+      player.currentItem?.status == .readyToPlay else { return }
+    let raw = player.currentTime().seconds
+    let seconds = max(0, min(raw.isFinite ? raw : 0, previous.recipe.durationSeconds - 1 / 120_000))
+    let lease = replacementGate.lease(generation: generation)
+    let actualBuffer = previous.visualRevision.flatMap { frameOutput?.frame(at: seconds, revision: $0) }
+    let currentCache = cached.flatMap { abs($0.seconds - seconds) < 1 / 120_000 ? $0 : nil }
+    let engine = self.engine
+    let worker = Task.detached(priority: .userInitiated) { () async throws -> CGImage in
+      if let actualBuffer {
+        let image = CIImage(cvPixelBuffer: actualBuffer, options: [.colorSpace: StudioEffectRenderer.outputColorSpace])
+        guard let result = previous.renderer.context.createCGImage(image, from: image.extent,
+          format: .RGBA8, colorSpace: StudioEffectRenderer.outputColorSpace) else {
+          throw StudioRecipeError.invalid("Não foi possível preservar o quadro desta edição.")
+        }
+        return result
+      }
+      if let currentCache {
+        let image = try currentCache.image()
+        guard let result = previous.renderer.context.createCGImage(image, from: CGRect(origin: .zero, size: previous.recipe.size),
+          format: .RGBA8, colorSpace: StudioEffectRenderer.outputColorSpace) else {
+          throw StudioRecipeError.invalid("Não foi possível preservar o quadro desta edição.")
+        }
+        return result
+      }
+      return try await engine.frame(previous, at: seconds)
+    }
+    let image = try await withTaskCancellationHandler(operation: { try await worker.value }, onCancel: { worker.cancel() })
+    try Task.checkCancellation()
+    guard replacementGate.owns(lease, generation: buildGeneration), !disposed, window != nil, paused,
+      UIApplication.shared.applicationState == .active else { return }
+    replacementFrame.image = UIImage(cgImage: image); replacementFrame.isHidden = false
+    replacementPosition = seconds
+  }
+
+  private func clearReplacementFrame() {
+    replacementGate.invalidate()
+    replacementFrame.isHidden = true; replacementFrame.image = nil; replacementPosition = nil
   }
 
   func setPaused(_ value: Bool) {
@@ -412,10 +539,11 @@ final class StudioCompositionView: ExpoView {
     }
   }
 
-  private func claim(_ token: Int, preserveInteractive: Bool = false) throws {
+  private func claim(_ token: Int, preserveInteractive: Bool = false, preserveReplacement: Bool = false) throws {
     guard !disposed, token >= commandToken else { throw StudioRecipeError.cancelled }
     commandToken = token; frameTask?.cancel(); cancelReplay()
     if !preserveInteractive { cancelInteractive() }
+    if !preserveReplacement { clearReplacementFrame() }
     // A restore/seek arriving during replacement must not cancel the only
     // request for the paused first frame. seekAsync queues the latest intent.
     if initializingItem == nil || player.currentItem !== initializingItem { player.currentItem?.cancelPendingSeeks() }
@@ -433,7 +561,8 @@ final class StudioCompositionView: ExpoView {
   }
 
   private func primeInitialFrame(item: AVPlayerItem, seconds: Double, generation: Int) async throws {
-    try await StudioCompositionInitialFrame.prime(player: player, item: item, seconds: seconds) { [weak self, weak item] in
+    try await StudioCompositionInitialFrame.prime(player: player, item: item, seconds: seconds,
+      visualRevision: prepared?.visualRevision, frameOutput: frameOutput) { [weak self, weak item] in
       guard let self, let item else { return false }
       return !self.disposed && self.buildGeneration == generation && self.initializingItem === item
     }
@@ -454,7 +583,8 @@ final class StudioCompositionView: ExpoView {
     // The editor restores its stationary anchor after a durable pose change.
     // It must not tear down the live frame or race the canonical first seek.
     let sameAnchor = interactivePatch != nil && abs(seconds - frozenPosition) <= 1 / 30.0 + 0.001
-    try claim(token, preserveInteractive: sameAnchor)
+    let sameReplacementAnchor = replacementPosition.map { abs(seconds - $0) <= 1 / 30.0 + 0.001 } ?? false
+    try claim(token, preserveInteractive: sameAnchor, preserveReplacement: sameReplacementAnchor)
     if loading || prepared == nil || recipeBuildPending || initializingItem != nil {
       return try await withCheckedThrowingContinuation { continuation in
         pendingSeek = PendingSeek(seconds: seconds, token: token, continuation: continuation)
@@ -545,9 +675,10 @@ final class StudioCompositionView: ExpoView {
   func dispose() {
     disposed = true; buildGeneration += 1
     cancelInteractive()
+    clearReplacementFrame()
     buildTask?.cancel(); frameTask?.cancel(); cancelReplay(); player.pause(); player.replaceCurrentItem(with: nil)
     pendingSeek?.continuation.resume(throwing: StudioRecipeError.cancelled); pendingSeek = nil
-    prepared = nil; initializingItem = nil; inspectedFrame.image = nil; sourceInspection = nil
+    prepared = nil; initializingItem = nil; frameOutput = nil; inspectedFrame.image = nil; sourceInspection = nil
     statusObserver?.invalidate()
     if let periodicObserver { player.removeTimeObserver(periodicObserver); self.periodicObserver = nil }
     for observer in [endObserver, backgroundObserver, interruptionObserver, captureObserver].compactMap({ $0 }) {

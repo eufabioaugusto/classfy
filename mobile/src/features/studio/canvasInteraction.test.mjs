@@ -113,15 +113,17 @@ function harness(options = {}) {
   };
   const flatten = value => Array.isArray(value.items) ? value.items.flatMap(flatten) : [value];
   const bodyDetector = (id = 'title') => findAll(scope(id).tree, node => node.type === 'detector')[0];
-  const body = (id = 'title') => flatten(bodyDetector(id).props.gesture);
+  const canvasDetector = () => findAll(scope('root').tree, node => node.type === 'detector')[0];
+  const body = (id = 'title') => [...flatten(bodyDetector(id).props.gesture), ...flatten(canvasDetector().props.gesture).filter(gesture => gesture.configuration?.enabled !== false)];
   const getGesture = (kind, id = 'title', double = false) => body(id).find(value => value.kind === kind && (kind !== 'tap' || (value.configuration.numberOfTaps === 2) === double));
   const flush = () => { while (queue.length) queue.shift()(); };
   const flushUI = () => { while (uiQueue.length) uiQueue.shift()(); };
-  const pump = async () => { flushUI(); flush(); await new Promise(resolve => setImmediate(resolve)); flushUI(); flush(); draw(); flushUI(); flush(); };
-  draw(); scope('root').tree.props.onLayout({ nativeEvent: { layout: { width: 320, height: 300 } } }); draw(); flushUI(); flush();
+  const pump = async () => { flushUI(); flush(); await new Promise(resolve => setImmediate(resolve)); flushUI(); flush(); draw(); flushUI(); flush(); draw(); flushUI(); flush(); };
+  draw(); scope('root').tree.props.onLayout({ nativeEvent: { layout: { width: 320, height: 300 } } }); draw(); flushUI(); flush(); draw(); flushUI(); flush();
   return { selections, previews, commits, events, edits, playback, feedback, queue, uiQueue, getGesture, body, flush, flushUI, pump, transformChannel,
     accessibility: (action, id = 'title') => bodyDetector(id).props.children.props.onAccessibilityAction({ nativeEvent: { actionName: action } }),
-    update: next => { props = { ...props, ...next }; draw(); },
+    canvasDetector, backgroundTap: () => findAll(scope('root').tree, node => node.type === 'detector')[1].props.gesture,
+    update: next => { props = { ...props, ...next }; draw(); draw(); },
     layout: (width, height) => { scope('root').tree.props.onLayout({ nativeEvent: { layout: { width, height } } }); draw(); },
     echo: transform => { const next = patchStudioLayerItem(props.editing, 'title', { rect: transform.rect, ...(transform.textFontSize ? { text: { fontSize: transform.textFontSize } } : {}) }); props = { ...props, editing: next, recipe: compileStudioRecipe({ kind: 'aula', takes: [], editing: next }) }; draw(); },
     setNow: value => { now = value; },
@@ -272,12 +274,12 @@ test('camada fora do tempo não cria área falsa; tap no principal selecionado n
   } finally { view.dispose(); }
 });
 
-test('pinça usa focal inicial fora do centro e ignora coordenadas locais que mudam ao escalar', async () => {
+test('pinça no ancestral fixo mantém o ponto do canvas enquanto o item escala', async () => {
   const view = harness();
   try {
-    const pinch = view.getGesture('pinch'); pinch.handlers.onStart({ focalX: 32, focalY: 9 }); view.flush();
-    pinch.handlers.onUpdate({ scale: 1.2, focalX: 26.6667, focalY: 7.5 }); view.flush();
-    pinch.handlers.onEnd({ scale: 1.5, focalX: 21.3333, focalY: 6 }); pinch.handlers.onFinalize({}, true); await view.pump();
+    const pinch = view.getGesture('pinch'); pinch.handlers.onStart({ focalX: 128, focalY: 63, numberOfPointers: 2 }); view.flush();
+    pinch.handlers.onUpdate({ scale: 1.2, focalX: 128, focalY: 63, numberOfPointers: 2 }); view.flush();
+    pinch.handlers.onEnd({ scale: 1.5, focalX: 128, focalY: 63, numberOfPointers: 2 }); pinch.handlers.onFinalize({}, true); await view.pump();
     assert.equal(view.commits.length, 1); const { rect } = view.commits[0].transform;
     near(rect.x * 320 + 32 * 1.5, 0.3 * 320 + 32);
     near(rect.y * 180 + 9 * 1.5, 0.3 * 180 + 9);
@@ -288,8 +290,8 @@ test('pinça usa focal inicial fora do centro e ignora coordenadas locais que mu
 test('pinça do principal mantém ponto tocado, sem seleção artificial ou playback', async () => {
   const view = harness({ props: { selectedLayerId: undefined, selectedMainClipId: 'main', onSelectMainClip: () => {} } });
   try {
-    const pinch = view.getGesture('pinch', 'main'); pinch.handlers.onStart({ focalX: 64, focalY: 45 }); view.flush();
-    pinch.handlers.onEnd({ scale: 1.5, focalX: 42.6667, focalY: 30 }); pinch.handlers.onFinalize({}, true); await view.pump();
+    const pinch = view.getGesture('pinch', 'main'); pinch.handlers.onStart({ focalX: 64, focalY: 45, numberOfPointers: 2 }); view.flush();
+    pinch.handlers.onEnd({ scale: 1.5, focalX: 64, focalY: 45, numberOfPointers: 2 }); pinch.handlers.onFinalize({}, true); await view.pump();
     assert.equal(view.commits.length, 1); const { rect } = view.commits[0].transform;
     near(rect.x * 320 + 64 * 1.5, 64); near(rect.y * 180 + 45 * 1.5, 45);
     assert.deepEqual(view.playback, []); assert.deepEqual(view.selections, []); assert.deepEqual(view.events, ['start', 'end']);
@@ -367,7 +369,8 @@ test('sequência real do simulador com tradução zero termina sem escrita e lib
 test('recognizers preservam identidade em seleção, preview, bloqueio e resize; pan de texto não ativa por timer', () => {
   const view = harness({ props: { selectedLayerId: undefined } });
   try {
-    const pan = view.getGesture('pan'), pinch = view.getGesture('pinch'), tap = view.getGesture('tap'), handle = view.handle(3);
+    const pan = view.getGesture('pan'), pinch = pan.configuration.simultaneousWithExternalGesture, tap = view.getGesture('tap'), handle = view.handle(3);
+    assert.equal(view.canvasDetector().props.gesture.configuration.enabled, false);
     assert.equal(pan.configuration.activateAfterLongPress, undefined);
     let failed = 0;
     pan.handlers.onTouchesDown({}, { fail: () => failed++ });
@@ -377,7 +380,7 @@ test('recognizers preservam identidade em seleção, preview, bloqueio e resize;
     view.update({ disabled: true }); view.layout(400, 300); view.update({ disabled: false });
     assert.equal(view.getGesture('pan'), pan); assert.equal(view.getGesture('pinch'), pinch);
     assert.equal(view.getGesture('tap'), tap); assert.equal(view.handle(3), handle);
-    assert.equal(handle.configuration.blocksExternalGesture, undefined);
+    assert.equal(handle.configuration.blocksExternalGesture, pinch);
     assert.deepEqual(view.events, []); assert.deepEqual(view.commits, []);
     pan.handlers.onTouchesDown({}, { fail: () => failed++ }); assert.equal(failed, 1);
   } finally { view.dispose(); }
@@ -451,7 +454,7 @@ test('background e bloqueio invalidam callbacks tardios sem timer de recuperaç�
 test('compilação Babel instalada marca callbacks de todos recognizers como worklets executáveis', async () => {
   const view = harness({ worklets: true });
   try {
-    const gestures = [...view.body(), ...[0, 1, 2, 3].map(index => view.handle(index))];
+    const gestures = [...view.body(), view.backgroundTap(), ...[0, 1, 2, 3].map(index => view.handle(index))];
     for (const gesture of gestures) for (const [name, callback] of Object.entries(gesture.handlers)) {
       assert.equal(typeof callback.__workletHash, 'number', `${gesture.kind}.${name} precisa executar no runtime UI`);
     }
@@ -852,5 +855,262 @@ test('camada ocultada no instante atual não gera aviso falso de fora do tempo',
     assert.ok(!view.visibleIds().includes('title'));
     const tree = JSON.stringify(view.tree('root'));
     assert.ok(!tree.includes('fora deste momento'));
+  } finally { view.dispose(); }
+});
+
+test('pinça selecionada usa o canvas fixo inteiro, com pan simultâneo entre views e cantos exclusivos', async () => {
+  const view = harness({ rect: { x: 0.45, y: 0.45, width: 0.1, height: 0.05 }, asyncShared: true, worklets: true });
+  try {
+    const pinch = view.getGesture('pinch'), pan = view.getGesture('pan');
+    assert.equal(view.canvasDetector().props.gesture, pinch);
+    const nativeFrame = view.canvasDetector().props.children;
+    assert.equal(nativeFrame.props.collapsable, false);
+    assert.equal(nativeFrame.props.style.at(-1).width, 320); assert.equal(nativeFrame.props.style.at(-1).height, 180);
+    assert.equal(pan.configuration.simultaneousWithExternalGesture, pinch);
+    assert.equal(pinch.configuration.simultaneousWithExternalGesture, pan);
+    for (let index = 0; index < 4; index++) assert.equal(view.handle(index).configuration.blocksExternalGesture, pinch);
+    // The second contact is outside the tiny rect but inside the canvas view
+    // to which the actual native pinch recognizer is attached.
+    const clip = view.recipe().clips.find(clip => clip.id === 'title');
+    assert.equal(geometry.studioCanvasContains(clip, 220, 120, { x: 0, y: 0, width: 320, height: 180 }), false);
+    let failed = false; pinch.handlers.onTouchesDown({ numberOfTouches: 2 }, { fail: () => { failed = true; } });
+    assert.equal(failed, false);
+    pinch.handlers.onStart({ focalX: 160, focalY: 85.5, numberOfPointers: 2 }); view.flush();
+    pinch.handlers.onEnd({ scale: 2, focalX: 176, focalY: 94.5, numberOfPointers: 2 }, true); await view.pump();
+    assert.equal(view.commits.length, 1); const transform = view.commits[0].transform;
+    near(transform.rect.width, 0.2); near(transform.rect.height, 0.1);
+    near(transform.rect.x, 0.45); near(transform.rect.y, 0.475);
+    assert.ok(transform.textFontSize > clip.text.fontSize);
+    assert.deepEqual(view.events, ['start', 'end']); assert.deepEqual(view.playback, []);
+  } finally { view.dispose(); }
+});
+
+for (const target of ['text', 'image', 'video', 'main']) test(`pinça e deslocamento dos dois dedos seguem centro global no ${target} rotacionado`, async () => {
+  const original = { x: 0.3, y: 0.3, width: 0.4, height: 0.2 };
+  const view = harness({ rect: original, mainRect: original, kind: target, rotation: 35, asyncShared: true, worklets: true,
+    props: target === 'main' ? { selectedLayerId: undefined, selectedMainClipId: 'main', onSelectMainClip() {} } : {} });
+  try {
+    const id = target === 'main' ? 'main' : 'title', pinch = view.getGesture('pinch', id);
+    pinch.handlers.onStart({ focalX: 160, focalY: 72, numberOfPointers: 2 }); view.flush();
+    pinch.handlers.onUpdate({ scale: 1.5, focalX: 192, focalY: 90, numberOfPointers: 2 }); view.flush();
+    const frame = view.frame(id); near(frame.left, 0.3 * 320); near(frame.top, 0.35 * 180);
+    pinch.handlers.onEnd({ scale: 1.5, focalX: 192, focalY: 90, numberOfPointers: 2 }, true);
+    pinch.handlers.onFinalize({}, true); await view.pump();
+    assert.equal(view.commits.length, 1); const transform = view.commits[0].transform;
+    near(transform.rect.width, 0.6); near(transform.rect.height, 0.3); near(transform.rect.x, 0.3); near(transform.rect.y, 0.35);
+    if (target === 'text') near(transform.textFontSize, view.recipe().clips.find(clip => clip.id === id).text.fontSize * 1.5);
+    else assert.equal(transform.textFontSize, undefined);
+    assert.deepEqual(view.events, ['start', 'end']); assert.deepEqual(view.playback, []); assert.deepEqual(view.selections, []);
+  } finally { view.dispose(); }
+});
+
+test('pan→pinça→um dedo preserva o último centro real, rebasa arraste e salva uma vez', async () => {
+  const view = harness({ asyncShared: true, worklets: true });
+  try {
+    const pan = view.getGesture('pan'), pinch = view.getGesture('pinch');
+    pan.handlers.onStart(); view.flush();
+    pan.handlers.onUpdate({ translationX: 16, translationY: 0 }); view.flush();
+    pinch.handlers.onStart({ focalX: 160, focalY: 72, numberOfPointers: 2 });
+    pan.handlers.onUpdate({ translationX: 48, translationY: 18 });
+    pinch.handlers.onUpdate({ scale: 1.5, focalX: 192, focalY: 90, numberOfPointers: 2 }); view.flush();
+    near(view.frame('title').left, 120); near(view.frame('title').top, 63);
+    // iOS's END can already contain only the remaining finger's position.
+    pinch.handlers.onEnd({ scale: 1.5, focalX: 280, focalY: 160, numberOfPointers: 1 }, true);
+    pinch.handlers.onFinalize({}, true); view.flush();
+    near(view.frame('title').left, 120); near(view.frame('title').top, 63); assert.equal(view.commits.length, 0);
+    pan.handlers.onUpdate({ translationX: 64, translationY: 27 });
+    pan.handlers.onEnd({ translationX: 64, translationY: 27 }, true); pan.handlers.onFinalize({}, true); await view.pump();
+    assert.equal(view.commits.length, 1); const transform = view.commits[0].transform;
+    near(transform.rect.x, 136 / 320); near(transform.rect.y, 72 / 180); near(transform.rect.width, 0.6);
+    assert.deepEqual(view.events, ['start', 'end']);
+  } finally { view.dispose(); }
+});
+
+test('pinça→pan ignora tradução duplicada do pan e aguarda o último recognizer antes de salvar', async () => {
+  const view = harness({ asyncShared: true, worklets: true });
+  try {
+    const pan = view.getGesture('pan'), pinch = view.getGesture('pinch');
+    pinch.handlers.onStart({ focalX: 160, focalY: 72, numberOfPointers: 2 }); view.flush();
+    pan.handlers.onStart();
+    pan.handlers.onUpdate({ translationX: 64, translationY: 36 });
+    pinch.handlers.onUpdate({ scale: 1.2, focalX: 192, focalY: 90, numberOfPointers: 2 }); view.flush();
+    const frame = view.frame('title'); near(frame.left, 115.2); near(frame.top, 68.4);
+    pan.handlers.onEnd({ translationX: 64, translationY: 36 }, true); pan.handlers.onFinalize({}, true); view.flush();
+    assert.equal(view.commits.length, 0); assert.deepEqual(view.events, ['start']);
+    pinch.handlers.onEnd({ scale: 1.2, focalX: 192, focalY: 90, numberOfPointers: 0 }, true);
+    pinch.handlers.onFinalize({}, true); await view.pump();
+    assert.equal(view.commits.length, 1); near(view.commits[0].transform.rect.x * 320, frame.left);
+    near(view.commits[0].transform.rect.y * 180, frame.top); assert.deepEqual(view.events, ['start', 'end']);
+  } finally { view.dispose(); }
+});
+
+test('principal sem seleção admite somente a intenção de dois dedos e mantém alvo/recognizer no eco', async () => {
+  const view = harness({ asyncShared: true, worklets: true, props: { selectedLayerId: undefined, onSelectMainClip: id => view.selections.push(id) } });
+  try {
+    const pan = view.getGesture('pan', 'main'), pinch = view.getGesture('pinch', 'main');
+    let panFailed = 0; pan.handlers.onTouchesDown({ numberOfTouches: 1 }, { fail: () => panFailed++ });
+    assert.equal(panFailed, 1); assert.deepEqual(view.events, []);
+    view.backgroundTap().handlers.onEnd({}, true); view.flush(); assert.deepEqual(view.playback, [true]);
+    let tapFailed = 0; view.backgroundTap().handlers.onTouchesDown({ numberOfTouches: 2 }, { fail: () => tapFailed++ });
+    assert.equal(tapFailed, 1);
+    pinch.handlers.onStart({ focalX: 160, focalY: 90, numberOfPointers: 2 }); view.flush();
+    assert.deepEqual(view.selections, ['main']); assert.deepEqual(view.events, ['start']);
+    view.update({ selectedMainClipId: 'main' }); view.flushUI();
+    assert.equal(view.getGesture('pinch', 'main'), pinch);
+    pinch.handlers.onEnd({ scale: 0.8, focalX: 160, focalY: 90, numberOfPointers: 2 }, true); await view.pump();
+    assert.equal(view.commits.length, 1); near(view.commits[0].transform.rect.width, 0.8);
+    assert.deepEqual(view.events, ['start', 'end']); assert.deepEqual(view.playback, [true]);
+  } finally { view.dispose(); }
+});
+
+for (const invisible of ['off-time', 'hidden']) test(`seleção ${invisible} mantém a pinça inativa e não transfere gesto ao principal`, async () => {
+  const view = harness({ asyncShared: true, worklets: true, props: { onSelectMainClip: id => view.selections.push(id) } });
+  try {
+    const oldPinch = view.getGesture('pinch');
+    if (invisible === 'off-time') view.update({ positionSeconds: 3 });
+    else {
+      const editing = { ...view.editing(), layers: view.editing().layers.map(layer => ({ ...layer, hidden: true })) };
+      view.update({ editing, recipe: compileStudioRecipe({ kind: 'aula', takes: [], editing }) });
+    }
+    view.flushUI(); view.flush();
+    assert.equal(view.canvasDetector().props.gesture.configuration.enabled, false);
+    assert.equal(view.getGesture('pinch', 'main'), undefined);
+    oldPinch.handlers.onStart({ focalX: 160, focalY: 90, numberOfPointers: 2 }); oldPinch.handlers.onEnd({ scale: 1.5 }, true);
+    await view.pump(); assert.deepEqual(view.commits, []); assert.deepEqual(view.selections, []); assert.deepEqual(view.events, []);
+  } finally { view.dispose(); }
+});
+
+for (const terminal of ['pinch-cancel', 'pan-cancel', 'background', 'deselect', 'disable']) test(`pan+pinça cancelados por ${terminal} não salvam, liberam controles e rejeitam eventos antigos`, async () => {
+  const view = harness({ interactive: true, asyncShared: true, worklets: true });
+  try {
+    const pan = view.getGesture('pan'), pinch = view.getGesture('pinch');
+    pan.handlers.onStart(); view.flush(); pinch.handlers.onStart({ focalX: 160, focalY: 72, numberOfPointers: 2 });
+    pinch.handlers.onUpdate({ scale: 1.4, focalX: 180, focalY: 85, numberOfPointers: 2 });
+    if (terminal === 'pinch-cancel') pinch.handlers.onTouchesCancelled({});
+    if (terminal === 'pan-cancel') pan.handlers.onFinalize({}, false);
+    if (terminal === 'background') view.changeAppState('background');
+    if (terminal === 'deselect') view.update({ selectedLayerId: undefined });
+    if (terminal === 'disable') view.update({ disabled: true });
+    pan.handlers.onEnd({ translationX: 50, translationY: 20 }, true); pan.handlers.onFinalize({}, true);
+    pinch.handlers.onEnd({ scale: 2, focalX: 250, focalY: 120, numberOfPointers: 2 }, true); pinch.handlers.onFinalize({}, true);
+    await view.pump();
+    assert.deepEqual(view.commits, []); assert.deepEqual(view.events, ['start', 'end']);
+    assert.equal(view.transformChannel.value.active, false); assert.equal(view.transformChannel.value.finish, 'cancel');
+    if (terminal === 'background') view.changeAppState('active');
+    if (terminal === 'deselect') view.update({ selectedLayerId: 'title' });
+    if (terminal === 'disable') view.update({ disabled: false });
+    view.flushUI(); const next = view.getGesture('pinch');
+    next.handlers.onStart({ focalX: 160, focalY: 72, numberOfPointers: 2 }); view.flush();
+    next.handlers.onEnd({ scale: 1.1, focalX: 160, focalY: 72, numberOfPointers: 2 }, true); await view.pump();
+    assert.equal(view.commits.length, 1); assert.deepEqual(view.events, ['start', 'end', 'start', 'end']);
+  } finally { view.dispose(); }
+});
+
+test('pinça inteira usa o canal UI, conserva bounds e só publica receipt após persistência', async () => {
+  const view = harness({ interactive: true, asyncShared: true, worklets: true, deferred: true });
+  try {
+    const pinch = view.getGesture('pinch'), original = view.editing();
+    pinch.handlers.onStart({ focalX: 160, focalY: 72, numberOfPointers: 2 });
+    for (let i = 1; i <= 120; i++) pinch.handlers.onUpdate({ scale: 1 + i / 240, focalX: 160 + i / 4, focalY: 72 + i / 8, numberOfPointers: 2 });
+    const latest = view.transformChannel.value;
+    assert.equal(latest.phase, 'gesture'); assert.equal(latest.sequence, 121); assert.equal(view.editing(), original);
+    assert.deepEqual(view.previews, []); near(latest.transform.rect.width, 0.6); near(latest.transform.rect.x, 0.29375);
+    pinch.handlers.onEnd({ scale: 1.5, focalX: 190, focalY: 87, numberOfPointers: 1 }, true);
+    assert.equal(view.transformChannel.value.phase, 'committing'); assert.equal(view.transformChannel.value.finish, null);
+    view.flush(); assert.equal(view.commits.length, 1); assert.deepEqual(view.events, ['start']);
+    view.resolve(); await view.pump(); assert.equal(view.transformChannel.value.finish, 'commit'); assert.equal(view.transformChannel.value.active, false);
+    assert.deepEqual(view.events, ['start', 'end']);
+    const next = view.getGesture('pinch'); next.handlers.onStart({ focalX: 160, focalY: 72, numberOfPointers: 2 }); view.flush();
+    next.handlers.onUpdate({ scale: 1000, focalX: 9000, focalY: -9000, numberOfPointers: 2 });
+    const bounded = view.transformChannel.value.transform;
+    assert.ok(bounded.rect.width <= 3 && bounded.rect.height <= 3 && bounded.rect.x <= 3 && bounded.rect.x >= -2 && bounded.rect.y >= -2);
+    assert.ok(bounded.textFontSize <= 1);
+    next.handlers.onTouchesCancelled({}); await view.pump();
+  } finally { view.dispose(); }
+});
+
+test('pinça em projeto legado solicita seleção/conversão explícita sem alterar mídia ou persistir geometria', async () => {
+  const view = harness({ asyncShared: true, worklets: true, props: { selectedLayerId: undefined, onSelectMainClip: id => view.selections.push(id) } });
+  try {
+    const editing = { ...view.editing(), output: { ...view.editing().output, profile: 'legacy-source' } };
+    view.update({ editing, recipe: compileStudioRecipe({ kind: 'aula', takes: [], editing }) }); view.flushUI();
+    const pinch = view.getGesture('pinch', 'main');
+    pinch.handlers.onStart({ focalX: 160, focalY: 90, numberOfPointers: 2 }); view.flush();
+    pinch.handlers.onUpdate({ scale: 2, focalX: 190, focalY: 110, numberOfPointers: 2 });
+    pinch.handlers.onEnd({ scale: 2, focalX: 190, focalY: 110, numberOfPointers: 2 }, true); await view.pump();
+    assert.deepEqual(view.selections, ['main']); assert.deepEqual(view.events, []); assert.deepEqual(view.commits, []); assert.deepEqual(view.playback, []);
+    near(view.frame('main').width, 320); assert.equal(view.editing().output.profile, 'legacy-source');
+  } finally { view.dispose(); }
+});
+
+for (const target of ['main', 'title']) test(`bloqueio temporário da escrita mantém operationId e epoch do receipt de pinça em ${target}`, async () => {
+  const view = harness({ interactive: true, asyncShared: true, worklets: true, deferred: true,
+    props: target === 'main' ? { selectedLayerId: undefined, selectedMainClipId: 'main', onSelectMainClip() {} } : {} });
+  try {
+    const pinch = view.getGesture('pinch', target);
+    pinch.handlers.onStart({ focalX: 160, focalY: 72, numberOfPointers: 2 }); view.flush();
+    pinch.handlers.onEnd({ scale: 1.5, focalX: 180, focalY: 80, numberOfPointers: 2 }, true); view.flush();
+    const reserved = { ...view.transformChannel.value };
+    assert.equal(reserved.phase, 'committing'); assert.equal(reserved.finish, null); assert.equal(view.commits.length, 1);
+    // Route startWork disables the canvas while it awaits the disk write.
+    view.update({ disabled: true }); view.flushUI(); view.flush();
+    view.update({ disabled: false }); view.flushUI(); view.flush();
+    pinch.handlers.onStart({ focalX: 160, focalY: 72, numberOfPointers: 2 });
+    pinch.handlers.onEnd({ scale: 2, focalX: 180, focalY: 80, numberOfPointers: 2 }, true); view.flush();
+    assert.equal(view.commits.length, 1); assert.deepEqual(view.events, ['start']);
+    assert.equal(view.transformChannel.value.operationId, reserved.operationId);
+    view.resolve(); await view.pump();
+    const receipt = view.transformChannel.value;
+    assert.equal(receipt.operationId, reserved.operationId); assert.equal(receipt.epoch, reserved.epoch);
+    assert.equal(receipt.finish, 'commit'); assert.equal(receipt.active, false); assert.deepEqual(view.events, ['start', 'end']);
+    const next = view.getGesture('pinch', target); next.handlers.onStart({ focalX: 160, focalY: 72, numberOfPointers: 2 }); view.flush();
+    assert.notEqual(view.transformChannel.value.operationId, reserved.operationId);
+    assert.ok(view.transformChannel.value.epoch > reserved.epoch);
+    next.handlers.onTouchesCancelled({}); await view.pump(); assert.equal(view.commits.length, 1);
+  } finally { view.dispose(); }
+});
+
+for (const terminal of ['background', 'unmount', 'deselect']) test(`cancel real por ${terminal} durante escrita não inventa cancel de disco nem receipt de outra operação`, async () => {
+  const view = harness({ interactive: true, asyncShared: true, worklets: true, deferred: true });
+  try {
+    const pinch = view.getGesture('pinch');
+    pinch.handlers.onStart({ focalX: 160, focalY: 72, numberOfPointers: 2 }); view.flush();
+    pinch.handlers.onEnd({ scale: 1.5, focalX: 180, focalY: 80, numberOfPointers: 2 }, true); view.flush();
+    const reserved = { ...view.transformChannel.value };
+    if (terminal === 'background') view.changeAppState('background');
+    if (terminal === 'unmount') view.dispose();
+    if (terminal === 'deselect') view.update({ selectedLayerId: undefined });
+    view.flushUI(); view.flush();
+    pinch.handlers.onUpdate({ scale: 3, focalX: 240, focalY: 140, numberOfPointers: 2 });
+    pinch.handlers.onFinalize({}, false); view.flush();
+    assert.equal(view.transformChannel.value.operationId, reserved.operationId);
+    assert.equal(view.transformChannel.value.finish, null); assert.equal(view.transformChannel.value.phase, 'committing');
+    assert.equal(view.commits.length, 1); assert.deepEqual(view.events, ['start']);
+    view.resolve(); await view.pump();
+    const receipt = view.transformChannel.value;
+    assert.equal(receipt.operationId, reserved.operationId); assert.equal(receipt.epoch, reserved.epoch);
+    assert.equal(receipt.finish, 'commit', 'the started write really succeeded; UI cancellation cannot falsely report otherwise');
+    assert.equal(receipt.active, false); assert.deepEqual(view.events, ['start', 'end']);
+    assert.deepEqual(receipt.transform, reserved.transform, 'late cancelled gesture events cannot alter the committed pose');
+  } finally { view.dispose(); }
+});
+
+test('falha da escrita bloqueada emite cancel do mesmo operationId e não confirmação obsoleta', async () => {
+  const view = harness({ interactive: true, asyncShared: true, worklets: true });
+  let rejectWrite;
+  try {
+    view.update({ onCommitRect: (id, transform) => {
+      view.commits.push({ id, transform }); return new Promise((_, reject) => { rejectWrite = reject; });
+    } }); view.flushUI();
+    const pinch = view.getGesture('pinch');
+    pinch.handlers.onStart({ focalX: 160, focalY: 72, numberOfPointers: 2 }); view.flush();
+    pinch.handlers.onEnd({ scale: 1.5, focalX: 180, focalY: 80, numberOfPointers: 2 }, true); view.flush();
+    const reserved = { ...view.transformChannel.value };
+    view.update({ disabled: true }); view.flushUI(); view.flush();
+    rejectWrite(new Error('Disco indisponível')); await view.pump();
+    const receipt = view.transformChannel.value;
+    assert.equal(receipt.operationId, reserved.operationId); assert.equal(receipt.epoch, reserved.epoch);
+    assert.equal(receipt.finish, 'cancel'); assert.equal(receipt.active, false); assert.equal(view.commits.length, 1);
+    assert.deepEqual(view.events, ['start', 'end']);
   } finally { view.dispose(); }
 });

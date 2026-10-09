@@ -247,12 +247,69 @@ function harness(options = {}) {
   scroll().onScroll({ contentOffset: { x: 60 } }); flushJS(); animate(); flushJS(); scrolls.length = 0;
   return { scroll, scrollProps, pinch, m, pan, childHandle, childClip, clipImages, childLayer, snapGuide, nodes, control, railNode, railGeometry, laneScroll, laneScrollProps, laneAxis, laneWindow, seeks, selections, previews, commits, cancellations, scrolls, feedbacks, jsQueue, uiQueue,
     animate, reactions, frame, flushJS, flushUI, stepJS, pump,
+    timelineHeight: () => resolveStyle(context('timeline').tree.props.children.props.style).height,
     playerPosition: () => context('timeline').reactions.find(reaction => reaction.prepare()?.viewport !== undefined).prepare().position,
     update: next => { props = { ...props, ...next }; renderParent(); },
     appState: state => { for (const callback of appStateListeners) callback(state); if (context('timeline').dirty) renderParent(); },
     completeCommit: () => { assert.ok(commitResolver); commitResolver(); },
     dispose: () => { for (const scope of contexts.values()) for (const slot of scope.slots) slot?.cleanup?.(); } };
 }
+
+test('timeline termina no trilho principal sem linha ou altura adicional de zoom', () => {
+  const view = harness(layerFixture());
+  try {
+    const track = view.nodes('TimelineClip')[0].props;
+    assert.equal(view.timelineHeight(), track.top + track.height);
+    assert.equal(view.control('Diminuir zoom da timeline'), undefined);
+    assert.equal(view.control('Aumentar zoom da timeline'), undefined);
+    assert.deepEqual(view.control('Posição da montagem').accessibilityActions.map(action => action.name), ['increment', 'decrement', 'zoomIn', 'zoomOut']);
+  } finally { view.dispose(); }
+});
+
+for (const withLayers of [false, true]) test(`zoom acessível respeita limites e conserva cursor${withLayers ? ' com camadas' : ''}`, async () => {
+  const view = harness({ ...(withLayers ? twelveLayerFixture() : {}), nativeSharedValues: true, nativeWorklets: true });
+  const zoom = async actionName => {
+    view.control('Posição da montagem').onAccessibilityAction({ nativeEvent: { actionName } });
+    await view.pump(); view.animate(); await view.pump();
+  };
+  try {
+    const cursor = view.playerPosition(), verticalOffset = view.m().laneStart.value;
+    await zoom('zoomIn');
+    assert.equal(view.m().scale.value, layout.defaultStudioTimelineScale * 1.5);
+    assert.equal(view.m().offset.value, cursor * view.m().scale.value);
+    assert.match(view.control('Posição da montagem').accessibilityValue.text, /Zoom 150%/);
+    for (let i = 0; i < 20; i++) await zoom('zoomOut');
+    assert.equal(view.m().scale.value, layout.minimumStudioTimelineScale);
+    assert.equal(view.m().offset.value, cursor * layout.minimumStudioTimelineScale);
+    for (let i = 0; i < 20; i++) await zoom('zoomIn');
+    assert.equal(view.m().scale.value, layout.maximumStudioTimelineScale);
+    assert.equal(view.m().offset.value, cursor * layout.maximumStudioTimelineScale);
+    assert.equal(view.playerPosition(), cursor); assert.equal(view.m().laneStart.value, verticalOffset);
+    assert.deepEqual(view.seeks, []); assert.deepEqual(view.selections, []); assert.deepEqual(view.commits, []);
+    await zoom('unknown'); assert.deepEqual(view.seeks, [], 'an unrecognized accessibility action must not seek backward');
+    await zoom('increment'); assert.deepEqual(view.seeks, [cursor + 1], 'the adjustable cursor retains its standard seek action');
+  } finally { view.dispose(); }
+});
+
+test('zoom acessível atrasado não altera escala durante pinça, busy ou background', async () => {
+  const view = harness({ ...twelveLayerFixture(), nativeSharedValues: true, nativeWorklets: true });
+  try {
+    const pending = view.control('Posição da montagem').onAccessibilityAction;
+    const initial = view.m().scale.value;
+    view.update({ busy: true }); pending({ nativeEvent: { actionName: 'zoomIn' } }); await view.pump();
+    assert.equal(view.m().scale.value, initial);
+    view.update({ busy: false }); await view.pump();
+    view.pinch().onStart(); pending({ nativeEvent: { actionName: 'zoomIn' } }); await view.pump();
+    assert.equal(view.m().scale.value, initial);
+    view.pinch().onUpdate({ scale: 2 }); view.pinch().onFinalize({}, true); await view.pump();
+    assert.equal(view.m().scale.value, initial * 2); assert.equal(view.playerPosition(), 1);
+    view.appState('inactive'); await view.pump(); pending({ nativeEvent: { actionName: 'zoomOut' } }); await view.pump();
+    assert.equal(view.m().scale.value, initial * 2);
+    view.appState('active'); await view.pump(); view.dispose();
+    pending({ nativeEvent: { actionName: 'zoomOut' } }); view.flushUI();
+    assert.equal(view.m().scale.value, initial * 2);
+  } finally { view.dispose(); }
+});
 
 test('rolagem termina mesmo com velocidade residual quando o destino nativo é a posição atual', () => {
   const view = harness();
@@ -971,7 +1028,7 @@ test('cancelamento nativo do corte principal restaura geometria sem salvar nem m
     assert.deepEqual(view.commits, []); assert.equal(view.cancellations.length, 1);
     assert.deepEqual(clip.props.style.at(-1).__style(), initial);
     assert.equal(view.m().phase.value, 0); assert.equal(view.m().trimIndex.value, -1);
-    assert.equal(view.control('Aumentar zoom da timeline').disabled, false);
+    assert.equal(view.control('Posição da montagem').accessibilityState.disabled, false);
     assert.equal(view.nodes('TrimHandle')[0].props.disabled, false);
     assert.equal(view.playerPosition(), 1); assert.deepEqual(view.seeks, []);
   } finally { view.dispose(); }
@@ -999,14 +1056,14 @@ test('background durante pinça libera controles mesmo com begin JS atrasado e f
       pinch.onUpdate({ scale: 1.5 });
       view.appState('inactive'); view.flushJS(); pinch.onFinalize({}, false); view.flushJS();
       assert.equal(view.m().phase.value, 0);
-      assert.equal(view.control('Aumentar zoom da timeline').disabled, false);
+      assert.equal(view.control('Posição da montagem').accessibilityState.disabled, false);
       assert.equal(view.nodes('TrimHandle')[0].props.disabled, false);
       assert.equal(view.scrollProps().scrollEnabled, true); assert.deepEqual(view.seeks, []);
       // A new pinch is usable after returning to the foreground.
       view.appState('active'); const next = view.pinch(); next.onStart(); view.flushJS();
-      assert.equal(view.m().phase.value, 4); assert.equal(view.control('Aumentar zoom da timeline').disabled, true);
+      assert.equal(view.m().phase.value, 4); assert.equal(view.control('Posição da montagem').accessibilityState.disabled, true);
       next.onFinalize({}, true); view.flushJS();
-      assert.equal(view.control('Aumentar zoom da timeline').disabled, false);
+      assert.equal(view.control('Posição da montagem').accessibilityState.disabled, false);
     } finally { view.dispose(); }
   }
 });
@@ -1020,7 +1077,7 @@ test('begin principal entregue depois do background não reabre draft nem trava 
     pan.onEnd({}, false); pan.onFinalize({}, false); view.animate(); view.flushJS();
     assert.deepEqual(view.previews, []); assert.deepEqual(view.commits, []); assert.deepEqual(view.cancellations, []);
     assert.equal(view.m().phase.value, 0); assert.equal(view.nodes('TrimHandle')[0].props.disabled, false);
-    assert.equal(view.control('Aumentar zoom da timeline').disabled, false); assert.deepEqual(view.seeks, []);
+    assert.equal(view.control('Posição da montagem').accessibilityState.disabled, false); assert.deepEqual(view.seeks, []);
   } finally { view.dispose(); }
 });
 
@@ -1088,7 +1145,7 @@ test('visual ampliado conserva ordem das faixas acima do main, alças grandes e 
     assert.equal(layer.props.style[0].height, 44);
     assert.ok(layer.props.children[1].every(node => resolveStyle(node.props.children.props.style).width >= 44));
     assert.equal(main.props.height, 72); assert.equal(view.childClip('a').props.children.length, 2, 'filmstrip and shade only; no permanent number/duration labels');
-    assert.equal(view.control('Próximas faixas'), undefined); assert.ok(view.laneScroll()); assert.ok(view.control('Aumentar zoom da timeline'));
+    assert.equal(view.control('Próximas faixas'), undefined); assert.ok(view.laneScroll()); assert.ok(view.control('Posição da montagem').accessibilityActions.some(action => action.name === 'zoomIn'));
   } finally { view.dispose(); }
 });
 
@@ -1810,7 +1867,7 @@ test('controles de faixa mostram apenas visibilidade e áudio aplicáveis ao tip
     const button = view.control('Ocultar faixa 5');
     assert.equal(resolveStyle(button.style({ pressed: false })).width, 44);
     assert.equal(resolveStyle(button.style({ pressed: false })).height, 44);
-    assert.equal(button.children.props.size, 20);
+    assert.equal(button.children.props.size, 18);
     assert.equal(view.railNode('studio-lane-controls').props.pointerEvents, 'box-none');
     assert.equal(view.railNode('studio-lane-controls').props.children[0].props.pointerEvents, 'none');
   } finally { view.dispose(); }

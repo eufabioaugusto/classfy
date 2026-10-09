@@ -3,7 +3,7 @@ import { AppState, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Image } from 'expo-image';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, { measure, runOnJS, runOnUI, scrollTo, useAnimatedProps, useAnimatedReaction, useAnimatedRef, useAnimatedScrollHandler, useAnimatedStyle, useDerivedValue, useFrameCallback, useSharedValue, type SharedValue } from 'react-native-reanimated';
-import { ChevronLeft, ChevronRight, Eye, EyeOff, Film, Mic, Minus, Plus, Volume2, VolumeX } from 'lucide-react-native';
+import { ChevronLeft, ChevronRight, Eye, EyeOff, Film, Mic, Plus, Volume2, VolumeX } from 'lucide-react-native';
 import { colors } from '@/theme/colors';
 import { formatStudioDuration, formatStudioEditorTime, type StudioTake, type StudioRecipeClip, type StudioEditing } from './model';
 import { canContinueStudioTrim, clampStudioTimelineScale, defaultStudioTimelineScale, freezeStudioTrim, maximumStudioTimelineScale, minimumStudioTimelineScale, studioTimelineLayout, studioTimelineSeconds, studioTimelineTicks, studioTrimRange, type StudioTimelineTrim, type StudioTrimGesture } from './timelineLayout';
@@ -461,8 +461,8 @@ export function StudioTimeline({ playbackChannel, layers: providedLayers = [], e
       runOnJS(receiveScale)(m.scale.value); runOnJS(receivePinching)(false, m.epoch.value); runOnJS(seekOffset)(pinchAnchor.value * m.scale.value, m.scale.value, m.epoch.value);
     }), [busy, committing, dragging, nativeGesture, laneNativeGesture, laneAxisGesture, rowCount]);
   const changeZoom = (factor: number) => {
-    if (busy || dragging || committing || pinching || m.phase.value >= 3 && m.phase.value !== 6) return;
-    const next = clampStudioTimelineScale(scale * factor);
+    if (!mounted.current || !foreground.value || live.current.busy || blocked.value || dragging || committing || pinching || m.phase.value >= 3 && m.phase.value !== 6) return;
+    const next = clampStudioTimelineScale(m.scale.value * factor);
     m.scale.value = next; setScale(next);
   };
   // Child pans already block this Native gesture. Disabling UIScrollView at
@@ -485,7 +485,7 @@ export function StudioTimeline({ playbackChannel, layers: providedLayers = [], e
     <Text style={styles.emptyText}>{layout.error ? 'Revise os limites dos takes' : 'Grave ou importe seu primeiro take'}</Text>
     {onAppend ? <AppendButton disabled={locked || busy} onPress={onAppend} /> : null}
   </View>;
-  return <GestureDetector gesture={pinch}><Animated.View ref={host} onLayout={event => { const width = Math.max(1, event.nativeEvent.layout.width); m.viewport.value = width; setViewport(width); }} style={[styles.timeline, { height: mainTop + trackHeight + (previewOnly ? 0 : 48) }]}>
+  return <GestureDetector gesture={pinch}><Animated.View ref={host} onLayout={event => { const width = Math.max(1, event.nativeEvent.layout.width); m.viewport.value = width; setViewport(width); }} style={[styles.timeline, { height: mainTop + trackHeight }]}>
     <View pointerEvents="none" style={[styles.laneBackground, { top: mainTop, height: trackHeight }]} />
     <GestureDetector gesture={nativeGesture}><Animated.ScrollView ref={strip} horizontal directionalLockEnabled showsHorizontalScrollIndicator={false} bounces={false} scrollEventThrottle={16} decelerationRate="normal" animatedProps={scrollProps} onScroll={scrollHandler} keyboardShouldPersistTaps="handled">
       <Animated.View style={[{ height: mainTop + trackHeight + (previewOnly ? 0 : 4) }, canvasStyle]}>
@@ -527,19 +527,18 @@ export function StudioTimeline({ playbackChannel, layers: providedLayers = [], e
     {laneIndices.length > rowCount ? <View pointerEvents="none" style={{ position: 'absolute', top: rulerHeight, right: 2, height: layerHeight, width: 3, zIndex: 5 }}><Animated.View style={[{ width: 3, borderRadius: 2, backgroundColor: 'rgba(255,255,255,0.24)' }, laneIndicatorStyle]} /></View> : null}
     {onAppend && !previewOnly ? <View style={{ position: 'absolute', top: mainTop + (trackHeight - 44) / 2, right: 8, zIndex: 6 }}><AppendButton disabled={locked || busy || committing || dragging || pinching} onPress={onAppend} /></View> : null}
     <View pointerEvents="none" accessible accessibilityRole="adjustable" accessibilityLabel="Posição da montagem" accessibilityState={{ disabled: busy || dragging || committing || pinching }}
-      accessibilityValue={{ min: 0, max: layout.duration, now: Math.max(0, Math.min(layout.duration, position)), text: formatStudioEditorTime(position) }}
-      accessibilityActions={[{ name: 'increment', label: 'Avançar um segundo' }, { name: 'decrement', label: 'Voltar um segundo' }]}
-      onAccessibilityAction={event => { if (!busy && !dragging && !committing && !pinching) { onScrubStart?.(); onSeek(Math.max(0, Math.min(layout.duration, position + (event.nativeEvent.actionName === 'increment' ? 1 : -1)))); } }}
+      accessibilityValue={{ min: 0, max: layout.duration, now: Math.max(0, Math.min(layout.duration, position)), text: `${formatStudioEditorTime(position)}${previewOnly ? '' : `. Zoom ${Math.round(scale / defaultStudioTimelineScale * 100)}%`}` }}
+      accessibilityActions={[{ name: 'increment', label: 'Avançar um segundo' }, { name: 'decrement', label: 'Voltar um segundo' }, ...(previewOnly ? [] : [{ name: 'zoomIn', label: 'Ampliar timeline' }, { name: 'zoomOut', label: 'Reduzir timeline' }])]}
+      onAccessibilityAction={event => {
+        const action = event.nativeEvent.actionName;
+        if (action === 'zoomIn' || action === 'zoomOut') { if (!previewOnly) changeZoom(action === 'zoomIn' ? 1.5 : 1 / 1.5); return; }
+        if ((action === 'increment' || action === 'decrement') && !busy && !dragging && !committing && !pinching) {
+          onScrubStart?.(); onSeek(Math.max(0, Math.min(layout.duration, position + (action === 'increment' ? 1 : -1))));
+        }
+      }}
       style={{ position: 'absolute', width: 44, left: viewport / 2 - 22, top: previewOnly ? 0 : 18, height: mainTop + trackHeight - (previewOnly ? 0 : 18), zIndex: 4 }}>
       <View style={[styles.playhead, { left: 21, height: mainTop + trackHeight - (previewOnly ? 0 : 18) }]}><View style={styles.playheadCap} /></View>
     </View>
-    {!previewOnly ? <View style={styles.caption}>
-      <View style={{ flex: 1 }} />
-      <View style={styles.scaleControls}>
-        <Pressable accessibilityRole="button" accessibilityLabel="Diminuir zoom da timeline" disabled={busy || dragging || committing || pinching || scale <= minimumStudioTimelineScale} onPress={() => changeZoom(1 / 1.5)} style={styles.scaleButton}><Minus size={15} color={colors.textSecondary} strokeWidth={1.6} /></Pressable>
-        <Pressable accessibilityRole="button" accessibilityLabel="Aumentar zoom da timeline" disabled={busy || dragging || committing || pinching || scale >= maximumStudioTimelineScale} onPress={() => changeZoom(1.5)} style={styles.scaleButton}><Plus size={15} color={colors.textSecondary} strokeWidth={1.6} /></Pressable>
-      </View>
-    </View> : null}
   </Animated.View></GestureDetector>;
 }
 
@@ -943,9 +942,6 @@ const styles = StyleSheet.create({
   handleTouch: { position: 'absolute', width: handleTouchWidth, alignItems: 'center', justifyContent: 'center', zIndex: 5 },
   handle: { width: handleWidth, height: '100%', maxHeight: 72, borderRadius: 5, backgroundColor: snapColor, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
   append: { width: 44, height: 44, borderRadius: 11, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, alignItems: 'center', justifyContent: 'center' },
-  caption: { flexDirection: 'row', alignItems: 'center', gap: 8, height: 44, paddingHorizontal: 8 },
-  scaleControls: { flexDirection: 'row', alignItems: 'center', flexShrink: 0 },
-  scaleButton: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
   empty: { width: '100%', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10 },
   emptyText: { color: colors.mutedDim, fontSize: 12, flexShrink: 1 },
 });
