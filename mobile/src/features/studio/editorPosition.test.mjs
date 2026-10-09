@@ -98,6 +98,7 @@ function harness(takes = [take('a'), take('b')], options = {}) {
   const navigate = (type, destination) => navigationEvents.push({ type, destination, completedWrites, revision: project.revision });
   const editor = compile(source, {
     react: hooks, 'react/jsx-runtime': { jsx, jsxs: jsx }, 'react-native': native,
+    'react-native-reanimated': { useSharedValue: initial => hooks.useRef({ value: initial }).current },
     'expo-router': { useLocalSearchParams: () => ({}), useRouter: () => ({ canGoBack: () => true, back: () => navigate('back'), push: destination => navigate('push', destination), replace: destination => navigate('replace', destination) }) },
     '@react-navigation/native': { useIsFocused: () => focused, useNavigation: () => ({ setOptions() {}, dispatch: action => navigate('dispatch', action) }), usePreventRemove: (_, callback) => { navigationHandler = callback; } },
     'expo-status-bar': { StatusBar: 'status' }, 'expo-crypto': { randomUUID: () => `new-${++ids}` },

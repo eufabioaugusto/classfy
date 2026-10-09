@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
-import { dirname } from 'node:path';
+import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { transformFileSync } from '@babel/core';
 import ts from 'typescript';
@@ -221,7 +221,7 @@ function harness(options = {}) {
   scroll().onScroll({ contentOffset: { x: 60 } }); flushJS(); animate(); flushJS(); scrolls.length = 0;
   return { scroll, scrollProps, pinch, m, pan, childClip, childLayer, snapGuide, nodes, control, laneStatus, seeks, selections, previews, commits, cancellations, scrolls, jsQueue, uiQueue,
     animate, reactions, frame, flushJS, flushUI, stepJS, pump,
-    playerPosition: () => context('timeline').reactions[0].prepare().position,
+    playerPosition: () => context('timeline').reactions.find(reaction => reaction.prepare()?.viewport !== undefined).prepare().position,
     update: next => { props = { ...props, ...next }; renderParent(); },
     appState: state => { for (const callback of appStateListeners) callback(state); if (context('timeline').dirty) renderParent(); },
     completeCommit: () => { assert.ok(commitResolver); commitResolver(); },
@@ -1149,7 +1149,9 @@ test('zoom mínimo ainda move pixels em cada frame e o relógio respeita o fim d
       if (index && index % 4 === 0) view.update({ position: 1 + index / 60 });
       const moves = playbackFrame(view); assert.equal(moves.length, 1, `subpixel movement survives frame${index}`); assert.ok(moves[0].x > lastX); lastX = moves[0].x;
     }
-    view.update({ position: 11.99 }); settlePlaybackSample(view); playbackFrame(view, 100);
+    // A deliberate seek establishes an exact paused anchor before Play.
+    view.update({ position: 11.99, playing: false }); settlePlaybackSample(view);
+    view.update({ playing: true }); view.flushUI(); playbackFrame(view, 100);
     assert.equal(view.playerPosition(), 12); assert.equal(view.scrolls.at(-1).x, 144);
     assert.equal(view.m().offset.value, 144, 'the native scroll reaches the exact final endpoint even at low zoom');
     view.scrolls.length = 0; playbackFrame(view, 100); assert.equal(view.playerPosition(), 12); assert.deepEqual(view.scrolls, []); assert.deepEqual(view.seeks, []);
@@ -1176,7 +1178,114 @@ test('samples ausentes e um frame suspenso param o avanço em vez de inventar m�
     view.update({ position: 1.5 }); view.flushUI(); settlePlaybackSample(view); const beforeGap = view.playerPosition(); playbackFrame(view, 200);
     assert.equal(view.playerPosition(), beforeGap, 'long dropped frame must not advance by its whole gap');
     view.update({ position: 1.6 }); view.flushUI(); settlePlaybackSample(view); playbackFrame(view);
-    assert.ok(view.playerPosition() > 1.6 && view.playerPosition() < 1.64); assert.deepEqual(view.seeks, []);
+    assert.ok(view.playerPosition() > beforeGap && view.playerPosition() <= beforeGap + 1.15 / 60 + .001, 'a fresh sample resumes smoothly without teleporting to its timestamp');
+    assert.deepEqual(view.seeks, []);
+  } finally { view.dispose(); }
+});
+test('eventos nativos15Hz com mídia congelada não renovam o watchdog; o retorno retoma sem salto', () => {
+  const channel = { value: { active: true, sequence: 1, position: 1, playing: true, loading: false } };
+  const view = harness({ nativeSharedValues: true, nativeWorklets: true, playbackChannel: channel });
+  try {
+    view.reactions();
+    let previous = view.playerPosition();
+    for (let frame = 0; frame < 60; frame++) {
+      if (frame % 4 === 0) channel.value = { ...channel.value, sequence: channel.value.sequence + 1 };
+      view.reactions(); view.frame(1000 / 60); view.reactions();
+      assert.ok(view.playerPosition() >= previous, 'duplicate samples cannot rewind the strip');
+      assert.ok(view.playerPosition() <= 1.251, 'buffering cannot keep the visual clock alive forever');
+      previous = view.playerPosition();
+    }
+    assert.ok(Math.abs(previous - 1.25) < .001);
+    channel.value = { ...channel.value, sequence: channel.value.sequence + 1, position: 1.3 };
+    view.reactions();
+    assert.equal(view.playerPosition(), previous, 'recovery changes speed, not the displayed position');
+    view.frame(1000 / 60); view.reactions();
+    assert.ok(view.playerPosition() > previous && view.playerPosition() <= previous + 1.15 / 60 + .001);
+    assert.deepEqual(view.seeks, []);
+  } finally { view.dispose(); }
+});
+test('sample atrasado após watchdog retoma a mesma reprodução sem voltar o cursor', () => {
+  const view = harness({ nativeSharedValues: true, nativeWorklets: true });
+  try {
+    beginPlayback(view, 0);
+    for (let frame = 0; frame < 20; frame++) playbackFrame(view);
+    const stalled = view.playerPosition();
+    assert.ok(Math.abs(stalled - .25) < .001);
+    view.update({ position: 1 / 15 }); view.flushUI(); settlePlaybackSample(view);
+    assert.equal(view.playerPosition(), stalled, 'a still-progressive native sample cannot become a backward seek');
+    const moves = playbackFrame(view);
+    assert.equal(moves.length, 1);
+    assert.ok(view.playerPosition() > stalled && view.playerPosition() < stalled + 1.15 / 60 + .001);
+    const resumed = view.playerPosition();
+    view.update({ position: .01 }); view.flushUI(); settlePlaybackSample(view);
+    assert.equal(view.playerPosition(), resumed, 'out-of-order samples from the same playback run are ignored');
+    assert.deepEqual(view.seeks, []);
+  } finally { view.dispose(); }
+});
+test('drift de mais de250ms durante Play nunca causa os recuos periódicos da gravação', () => {
+  const view = harness({ nativeSharedValues: true, nativeWorklets: true });
+  try {
+    beginPlayback(view, 0);
+    let previous = 0;
+    for (let frame = 0; frame < 180; frame++) {
+      if (frame && frame % 4 === 0) {
+        view.update({ position: Math.max(0, frame / 60 - .35) });
+        view.flushUI(); view.reactions();
+        assert.ok(view.playerPosition() >= previous, 'delivery of a late progressing sample cannot rewind');
+      }
+      playbackFrame(view);
+      const position = view.playerPosition();
+      assert.ok(position >= previous, `display frame${frame} cannot rewind`);
+      assert.ok(position - previous <= 1.15 / 60 + .001, `display frame${frame} cannot jump to a new sample`);
+      previous = position;
+    }
+    assert.ok(previous > 2.6 && previous < 3.01);
+    assert.deepEqual(view.seeks, []);
+  } finally { view.dispose(); }
+});
+test('canal nativo mantém a timeline fluida mesmo com React e fila JS sem atualizar por2s', () => {
+  const channel = { value: { active: true, sequence: 1, position: 1, playing: true, loading: false } };
+  const view = harness({ nativeSharedValues: true, nativeWorklets: true, playbackChannel: channel });
+  try {
+    view.reactions();
+    let previous = view.playerPosition();
+    for (let frame = 0; frame < 120; frame++) {
+      if (frame && frame % 4 === 0) {
+        channel.value = { ...channel.value, sequence: channel.value.sequence + 1, position: 1 + frame / 60 };
+        view.reactions();
+      }
+      view.frame(1000 / 60); // No JS pump: native samples and motion stay on UI.
+      const position = view.playerPosition();
+      assert.ok(position > previous && position - previous <= 1.15 / 60 + .001);
+      previous = position;
+    }
+    assert.ok(Math.abs(previous - 3) < .02);
+    view.update({ position: 1.1, playing: false, loading: true }); view.flushUI(); view.reactions();
+    assert.equal(view.playerPosition(), previous, 'an obsolete React copy cannot reset or pause the native display channel');
+    view.frame(1000 / 60);
+    assert.ok(view.playerPosition() > previous);
+    assert.deepEqual(view.seeks, []);
+  } finally { view.dispose(); }
+});
+test('canal nativo respeita pausa, loading e o destino protegido de um scrub', async () => {
+  const channel = { value: { active: true, sequence: 1, position: 1, playing: true, loading: false } };
+  const view = harness({ nativeSharedValues: true, nativeWorklets: true, playbackChannel: channel });
+  const emit = patch => { channel.value = { ...channel.value, ...patch, sequence: channel.value.sequence + 1 }; view.reactions(); };
+  try {
+    view.reactions(); view.frame(1000 / 60);
+    emit({ position: 1.1, playing: false }); const paused = view.playerPosition();
+    view.frame(1000 / 60); assert.equal(view.playerPosition(), paused);
+    emit({ playing: true, loading: true }); view.frame(1000 / 60); assert.equal(view.playerPosition(), paused);
+    emit({ loading: false }); view.frame(1000 / 60); assert.ok(view.playerPosition() > paused);
+    view.scroll().onBeginDrag(); view.flushJS(); view.flushUI();
+    view.scroll().onEndDrag({ contentOffset: { x: 180 }, velocity: { x: 0 } }); await view.pump();
+    assert.equal(view.playerPosition(), 3);
+    emit({ position: 1.2, playing: true }); view.frame(1000 / 60); assert.equal(view.playerPosition(), 3);
+    emit({ position: 3, playing: false }); emit({ position: 3.1, playing: true }); view.frame(1000 / 60);
+    assert.ok(view.playerPosition() > 3.1 && view.playerPosition() < 3.14);
+    assert.deepEqual(view.seeks, [3]);
+    emit({ active: false }); const detached = view.playerPosition(); view.frame(1000 / 60);
+    assert.equal(view.playerPosition(), detached, 'detaching the native view cannot leave its clock running');
   } finally { view.dispose(); }
 });
 test('pinça preserva sua âncora no fim e ignora playback antigo até confirmar o seek', async () => {
@@ -1250,5 +1359,64 @@ for (const release of ['drag', 'momentum']) {
       assert.ok(view.playerPosition() > 3.1 && view.playerPosition() < 3.14);
       assert.deepEqual(view.seeks, expectedSeeks);
     } finally { view.dispose(); }
+  });
+}
+
+// Exercise both production components with one channel. Loading the existing
+// controlled adapter harness in memory preserves real useEvent/Fabric handling
+// without modifying that harness or substituting the adapter's decisions.
+let compositionHarness;
+function studioCompositionHarness() {
+  if (compositionHarness) return compositionHarness;
+  const location = new URL('./compositionPreview.test.mjs', import.meta.url);
+  const prefix = readFileSync(location, 'utf8').split("test('")[0]
+    .replace(/^import[\s\S]*?;\n/gm, '')
+    .replaceAll('import.meta.url', JSON.stringify(location.href));
+  compositionHarness = new Function('assert', 'readFileSync', 'createRequire', 'dirname', 'join', 'fileURLToPath', 'transformFileSync', 'ts', 'model', `${prefix}\nreturn harness;`)(
+    assert, readFileSync, createRequire, dirname, join, fileURLToPath, transformFileSync, ts, model);
+  return compositionHarness;
+}
+
+for (const release of ['drag', 'momentum']) {
+  test(`adapter real e Timeline preservam o seek de ${release} quando o token atual ainda publica a posição anterior`, async () => {
+    const preview = studioCompositionHarness()({ playbackChannel: true, nativeRuntime: true });
+    await preview.pump();
+    preview.emit({ positionSeconds: 1, playing: false }); await preview.pump();
+    let view;
+    view = harness({ nativeSharedValues: true, nativeWorklets: true, playbackChannel: preview.channel,
+      onScrubStart: () => { preview.ref.current.pause(); preview.flushUI(); view.reactions(); },
+      onSeek: seconds => {
+        preview.ref.current.seek(seconds);
+        // The adapter's optimistic channel update precedes finishScrub's UI
+        // release, exactly as independent native/JS queues permit on device.
+        preview.flushUI(); view.reactions();
+      },
+    });
+    try {
+      view.reactions(); view.scroll().onBeginDrag(); view.flushJS(); view.flushUI();
+      if (release === 'momentum') {
+        view.scroll().onEndDrag({ contentOffset: { x: 120 }, targetContentOffset: { x: 180 }, velocity: { x: .3 } });
+        view.scroll().onMomentumBegin(); view.scroll().onMomentumEnd({ contentOffset: { x: 180 } });
+      } else view.scroll().onEndDrag({ contentOffset: { x: 180 }, targetContentOffset: { x: 180 }, velocity: { x: 0 } });
+      await view.pump(); view.reactions();
+      const command = preview.calls.at(-1);
+      assert.equal(command.kind, 'seek'); assert.equal(command.args[1], 3);
+      assert.equal(view.m().phase.value, 0); assert.equal(view.playerPosition(), 3);
+      const token = command.args.at(-1);
+      // StudioCompositionView.claim assigns commandToken before await seekPlayer.
+      // A periodic callback can therefore have the new token and old currentTime.
+      preview.emit({ positionSeconds: 1.2, playing: false, token }); view.reactions();
+      assert.equal(view.playerPosition(), 3, 'an optimistic target is not permission for a pending native seek to rewind');
+      assert.equal(preview.channel.value.position, 3, 'the adapter cannot publish an old getter under the new seek token');
+      view.frame(1000 / 60); assert.equal(view.playerPosition(), 3);
+      command.resolve(preview.state({ positionSeconds: 3, playing: false, token }));
+      await preview.pump(); view.reactions();
+      assert.equal(view.playerPosition(), 3);
+      preview.ref.current.togglePlayback(); await preview.pump();
+      preview.emit({ positionSeconds: 3.1, playing: true, token }); view.reactions();
+      view.frame(1000 / 60);
+      assert.ok(view.playerPosition() > 3.1 && view.playerPosition() < 3.14, 'the confirmed seek can resume normal display frames');
+      assert.equal(preview.calls.length, release === 'momentum' ? 2 : 1, 'visual frames never issue extra native seeks');
+    } finally { view.dispose(); preview.dispose(); preview.flushUI(); }
   });
 }

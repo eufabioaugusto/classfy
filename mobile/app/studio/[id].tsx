@@ -3,6 +3,7 @@ import { ActivityIndicator, Alert, Keyboard, KeyboardAvoidingView, Platform, Pre
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useIsFocused, useNavigation, usePreventRemove } from '@react-navigation/native';
 import { StatusBar } from 'expo-status-bar';
+import { useSharedValue } from 'react-native-reanimated';
 import * as Crypto from 'expo-crypto';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ArrowDown, ArrowUp, Check, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Copy, ImagePlus, Layers, Music, Captions, SlidersHorizontal, Type, FileText, Film, Maximize2, Mic, Minimize2, Pause, Pencil, Play, Scissors, Redo2, Split, Trash2, Undo2, Upload, Video, X } from 'lucide-react-native';
@@ -28,6 +29,7 @@ import { addStudioCaptionCues, studioTranscriptCues } from '@/features/studio/ca
 import { isStudioCompositionAvailable, getStudioTranscriptionCapabilitiesAsync, installStudioTranscriptionModelAsync, transcribeStudioAsync, cancelStudioTranscriptionAsync } from '../../modules/classfy-studio-media';
 import { canSplitStudioLayer, duplicateStudioLayer, splitStudioLayer } from '@/features/studio/layerActions';
 import { StudioTimeline } from '@/features/studio/StudioTimeline';
+import type { StudioTimelinePlaybackChannel } from '@/features/studio/timelinePlaybackChannel';
 import { createStudioEditingHistory } from '@/features/studio/editingHistory';
 import { captureStudioPlaybackAnchor, restoreStudioPlaybackAnchor, type StudioPlaybackAnchor } from '@/features/studio/editorInteraction';
 import { canContinueStudioTrim, freezeStudioTrim } from '@/features/studio/timelineLayout';
@@ -106,6 +108,7 @@ function ProjectEditor({ project, update }: { project: StudioProject; update: (i
   const leaving = useRef(false);
   const mounted = useRef(true);
   const preview = useRef<StudioPreviewHandle>(null);
+  const playbackChannel = useSharedValue<StudioTimelinePlaybackChannel>({ active: false, sequence: 0, position: 0, playing: false, loading: false });
   const [playback, setPlayback] = useState<StudioPlaybackState>({ position: 0, sourcePosition: 0, playing: false, loading: false });
   const playbackRef = useRef(playback); playbackRef.current = playback;
   const receivePlayback = useCallback((state: StudioPlaybackState) => {
@@ -583,8 +586,8 @@ function ProjectEditor({ project, update }: { project: StudioProject; update: (i
     </View>}
     <View style={fullscreen ? StyleSheet.absoluteFillObject : styles.previewStage} onLayout={event => { setStageSize(event.nativeEvent.layout); }}>
       <View style={fullscreen ? StyleSheet.absoluteFillObject : [styles.previewFrame, { width: previewWidth, height: previewHeight }, selectedTakeId && styles.selectedFrame]}>
-        <StudioCompositionPreview ref={preview} project={previewProject} recipe={recipe} before={before} activeTakeId={activeTakeId} onActiveTakeChange={setActiveTakeId} onPlaybackState={receivePlayback}
-          paused={!!panel || busy || !!trimDraft || canvasInteracting || layerInteracting || treating || (!fullscreen && (layerPanelExpanded || keyboardVisible))} onCanvasPress={() => {
+        <StudioCompositionPreview ref={preview} project={previewProject} recipe={recipe} playbackChannel={playbackChannel} before={before} activeTakeId={activeTakeId} onActiveTakeChange={setActiveTakeId} onPlaybackState={receivePlayback}
+          paused={!focused || !!pendingRestore.current || !!panel || busy || !!trimDraft || canvasInteracting || layerInteracting || treating || (!fullscreen && (layerPanelExpanded || keyboardVisible))} onCanvasPress={() => {
             if (!fullscreen && (selectedLayerId || selectedTakeId)) {
               void applyVisibleEditing().then(saved => { if (saved && mounted.current) { closeLayer(); setSelectedTakeId(undefined); } });
             } else preview.current?.togglePlayback();
@@ -609,7 +612,7 @@ function ProjectEditor({ project, update }: { project: StudioProject; update: (i
         </View>
       </View>}
       {!keyboardVisible && !layerPanelExpanded && !treating && <StudioTimeline editing={editing} layers={timelineLayers} selectedLayerId={selectedLayerId} onSelectLayer={selectLayer} onMoveLayer={moveLayer} onEditLayer={editCanvasElement} onLayerTrimPreview={previewLayerTrim} onLayerTrimCommit={commitLayerTrim} onLayerInteractionStart={() => { layerGesture.current = true; preview.current?.pause(); setLayerInteracting(true); }} onLayerInteractionEnd={() => { layerGesture.current = false; setLayerInteracting(false); }} takes={project.takes} position={playback.position} playing={playback.playing && !panel && !trimDraft && !editingPreview && !canvasInteracting && !layerInteracting && !pendingRestore.current} loading={playback.loading} activeTakeId={selectedTakeId} audio={project.kind === 'podcast'}
-        cancelEpoch={trimCancelEpoch}
+        playbackChannel={playbackChannel} cancelEpoch={trimCancelEpoch}
         locked={locked} busy={!focused || busy || canvasInteracting} onSelect={selectTake} onScrubStart={() => preview.current?.pause()} onSeek={seconds => preview.current?.seek(seconds)} onAppend={() => { void addMedia(); }}
         onTrimChange={previewTrim} onTrimCommit={commitTrim} onTrimCancel={cancelTrim} />}
       {captionProgress && <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 6 }}><Text style={{ flex: 1, color: colors.muted, fontSize: 11 }}>{captionProgress}</Text><Pressable accessibilityLabel="Cancelar transcrição" onPress={() => { const request = captionRequest.current; if (request) { request.cancelled = true; setCaptionProgress('Cancelando…'); void cancelStudioTranscriptionAsync(request.id); } }} style={styles.iconButton}><X size={18} color={colors.text} /></Pressable></View>}
@@ -647,7 +650,7 @@ function ProjectEditor({ project, update }: { project: StudioProject; update: (i
         <Pressable accessibilityRole="button" accessibilityLabel="Desfazer edição" disabled={!historyState.canUndo || busy || locked} onPress={() => { closeLayer(); void editTakes('undo'); }} style={[styles.overlayButton, !historyState.canUndo && styles.disabled]}><Undo2 size={26} color={colors.text} /></Pressable>
         <Pressable accessibilityRole="button" accessibilityLabel="Refazer edição" disabled={!historyState.canRedo || busy || locked} onPress={() => { closeLayer(); void editTakes('redo'); }} style={[styles.overlayButton, !historyState.canRedo && styles.disabled]}><Redo2 size={26} color={colors.text} /></Pressable>
       </View>
-      <StudioTimeline previewOnly compact takes={project.takes} position={playback.position} playing={playback.playing && !pendingRestore.current} loading={playback.loading} locked busy={!focused || busy} audio={project.kind === 'podcast'} onSelect={() => {}} onScrubStart={() => preview.current?.pause()} onSeek={seconds => preview.current?.seek(seconds)} />
+      <StudioTimeline playbackChannel={playbackChannel} previewOnly compact takes={project.takes} position={playback.position} playing={playback.playing && !pendingRestore.current} loading={playback.loading} locked busy={!focused || busy} audio={project.kind === 'podcast'} onSelect={() => {}} onScrubStart={() => preview.current?.pause()} onSeek={seconds => preview.current?.seek(seconds)} />
     </View>}
     <SheetModal visible={!!panel} onRequestClose={closePanel}>
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={[sheetStyles.backdrop, { paddingTop: insets.top + 12 }]}>

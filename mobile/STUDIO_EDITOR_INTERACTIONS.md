@@ -38,6 +38,22 @@ Gestos, operações pendentes e background interrompem a extrapolação. A confi
 
 Referência da API usada: [Reanimated4 — useFrameCallback](https://docs.swmansion.com/react-native-reanimated/docs/advanced/useFrameCallback/).
 
+## Cadência real e eventos nativos na UI — quarta rodada de 09/10/2026
+
+A gravação enviada após a terceira rodada mostrou que o movimento ainda falhava. A régua tinha escala de 180 pixels/s; o recuo visível foi de 28 a 51 pixels, aproximadamente 0,15 a 0,28 segundo, enquanto o vídeo e o contador continuavam. Portanto, o aceite anterior não comprovava fluidez física.
+
+O hook `useFrameCallback` da versão instalada usa a identidade do callback para registrar/remover o loop. O callback inline e o objeto `Motion` recriados pelos renders reiniciavam a cadência; o harness anterior apenas substituía uma referência e não reproduzia esse ciclo. Os callbacks agora usam `useCallback`, worklet explícito e handles estáveis. O novo teste executa o hook e ambos os registries instalados, com React/filas controlados, além do componente transformado pelo Babel/Metro. Com amostras a 15Hz, renders e feedback de scroll, a timeline mantém um único registro em 60/120Hz. O teste de controle reproduz os reinícios da versão inline.
+
+No compositor nativo, `useEvent` recebe `onPlaybackState` no runtime UI do Reanimated, diretamente do evento Fabric, antes da fila JS/React. `timelinePlaybackChannel.ts` define o canal compartilhado entre a prévia e ambas as apresentações da timeline. A UI consome essa amostra e anima cada quadro; React conserva contador, seleção e edição persistente. A cópia JS atrasada nunca substitui a amostra nativa mais recente. Podcast/perfis legados conservam o caminho de amostras JS e o mesmo relógio visual estável.
+
+Um watchdog expirado não equivale a seek: a recuperação mantém a posição visual e corrige a velocidade gradualmente, sem recuos periódicos ou saltos para um timestamp atrasado. Eventos repetidos com mídia congelada não renovam a extrapolação. Pausa, carregamento, erro, seek, inspeção de origem, background e desmontagem continuam interrompendo o avanço. Revisão, token e sequência da intenção protegem o canal e a cópia JS contra confirmações antigas de Play, EOF e comandos assíncronos; o alvo otimista do seek não autoriza amostras antigas enquanto o player ainda navega.
+
+O Simulator CREATOR recebeu os eventos pelo host animado e confirmou Play, pausa em 1,5s, retomada a partir desse instante e término/replay, com régua acompanhando o contador e sem erro de renderização. Isso confirma a integração nativa, mas não mede FPS físico do iPhone nem comprova equivalência absoluta com o Edits. A alteração é JS/TypeScript, usa o binário já instalado e chega pelo Metro/túnel remoto existente; não requer push, publicação de produção, dependências novas ou build nativo.
+
+475/475 testes Studio, TypeScript e `git diff --check` passaram. Regressões de duas corridas foram reproduzidas antes de corrigir: Promise de seek antiga pausando um Play novo e token nativo atual publicando a posição anterior ao seek. Os testes integrados executam adapter e Timeline reais sobre o mesmo canal; a fila JS bloqueada também cobre ACK do seek na UI, novo Play, EOF e Promise atrasada. O bundle iOS atualizado respondeu HTTP 200 pelo túnel remoto, com o canal e as guardas finais presentes.
+
+Fontes técnicas: [Reanimated — memoizar frame callbacks](https://docs.swmansion.com/react-native-reanimated/docs/guides/performance/#-memoize-frame-callbacks), [useEvent](https://docs.swmansion.com/react-native-reanimated/docs/advanced/useEvent/) e [Expo — eventos de views nativas](https://docs.expo.dev/modules/native-view-tutorial/). A [documentação pública da Meta sobre o Edits](https://about.fb.com/news/2025/04/introducing-edits-streamlined-video-creation-app/) descreve precisão de timeline por quadro, mas não identifica seu motor interno. A arquitetura desta rodada foi baseada nas APIs instaladas e no comportamento medido, sem atribuir uma implementação privada à Meta.
+
 ## Origem dos requisitos
 
 Os prints, gravações e orientações do Fabio são a referência de produto: edição direta na prévia, corte integrado à timeline, ferramentas contextuais e seleção que não salta o cursor. CapCut e Edits ajudam a modelar a experiência; a identidade continua Classfy.

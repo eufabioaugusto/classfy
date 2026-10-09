@@ -1,8 +1,32 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { transformFileSync } from '@babel/core';
 import ts from 'typescript';
 import * as model from './model.ts';
+const require = createRequire(import.meta.url);
+const reanimatedSource = join(dirname(require.resolve('react-native-reanimated/package.json')), 'src');
+const moduleSources = new Map();
+function installedModule(path, dependencies) {
+  if (!moduleSources.has(path)) moduleSources.set(path, ts.transpileModule(readFileSync(join(reanimatedSource, path), 'utf8'), {
+    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+  }).outputText);
+  const module = { exports: {} };
+  new Function('require', 'module', 'exports', moduleSources.get(path))(name => {
+    assert.ok(Object.hasOwn(dependencies, name), `Unexpected installed dependency: ${name}`);
+    return dependencies[name];
+  }, module, module.exports);
+  return module.exports;
+}
+let nativeCompiled;
+const compileNative = () => nativeCompiled ||= transformFileSync(fileURLToPath(new URL('./StudioCompositionPreview.tsx', import.meta.url)), {
+  presets: [require.resolve('babel-preset-expo', { paths: [dirname(require.resolve('expo/package.json'))] })],
+  plugins: [require.resolve('@babel/plugin-transform-modules-commonjs')],
+  caller: { name: 'metro', supportsStaticESM: true, isDev: true, platform: 'ios' },
+}).code;
 
 const take = id => ({ id, uri: `file:///${id}.mp4`, name: id, duration: 10, start: 2, end: 8, width: 1920, height: 1080 });
 function project() {
@@ -18,9 +42,28 @@ function graded(value) {
 // Execute the production wrapper and NativePreview hooks, imperative handle,
 // native event handlers and promise continuations. AVPlayer's async command
 // completion is stubbed independently from periodic events and React renders.
-function harness({ available = true, initialProject = project() } = {}) {
+function harness({ available = true, initialProject = project(), playbackChannel, nativeRuntime = false } = {}) {
   const slots = []; let cursor = 0, dirty = true, effects = [], tree, nativeProps;
   const published = [], selected = [], calls = [];
+  const uiQueue = [], jsQueue = [], registrations = new Map();
+  let registrationId = 0, uiRuntime = false, nativeManager, rawNativeProps;
+  const nativeStats = { wrappers: 0, registrations: [], uiWrites: 0, events: [] };
+  const onUI = callback => (...args) => {
+    const previous = uiRuntime; uiRuntime = true;
+    try { return callback(...args); } finally { uiRuntime = previous; }
+  };
+  const shared = initial => {
+    let value = initial;
+    return { get value() { return value; }, set value(next) {
+      if (nativeRuntime && !uiRuntime) uiQueue.push(() => { value = next; });
+      else { value = next; nativeStats.uiWrites++; }
+    } };
+  };
+  const channel = playbackChannel ? shared({ active: false, sequence: 0, position: 0, playing: false, loading: false }) : undefined;
+  let timerSequence = 0, now = 0;
+  const timers = new Map();
+  const setTimer = (callback, delay) => { const id = ++timerSequence; timers.set(id, { callback, at: now + delay }); return id; };
+  const clearTimer = id => { timers.delete(id); };
   const ref = { current: null };
   const equals = (a, b) => !!a && !!b && a.length === b.length && a.every((item, index) => Object.is(item, b[index]));
   const hooks = {
@@ -50,14 +93,54 @@ function harness({ available = true, initialProject = project() } = {}) {
       }
     },
   };
+  hooks.useLayoutEffect = hooks.useEffect;
+  const utils = installedModule('createAnimatedComponent/utils.ts', {});
+  const workletHandlers = installedModule('WorkletEventHandler.ts', {
+    './common': { SHOULD_BE_USE_WEB: false }, './core': {
+      registerEventHandler: (callback, eventName, tag) => {
+        if (nativeRuntime) assert.equal(typeof callback.__workletHash, 'number', `${eventName} must be a Metro worklet`);
+        const id = ++registrationId; registrations.set(id, { callback, eventName, tag });
+        nativeStats.registrations.push({ eventName, tag }); return id;
+      }, unregisterEventHandler: id => registrations.delete(id),
+    },
+  });
+  const useEvent = installedModule('hook/useEvent.ts', { react: hooks, '../WorkletEventHandler': workletHandlers }).useEvent;
+  const EventsManager = installedModule('createAnimatedComponent/NativeEventsManager.ts', {
+    '../platformFunctions/findNodeHandle': { findNodeHandle: value => typeof value === 'number' ? value : value?.tag },
+    '../WorkletEventHandler': workletHandlers, './utils': utils,
+  }).NativeEventsManager;
+  const PropsFilter = installedModule('createAnimatedComponent/PropsFilter.tsx', {
+    '../animation': { initialUpdaterRun: callback => callback() },
+    '../isSharedValue': { isSharedValue: value => !!value && typeof value === 'object' && 'value' in value },
+    '../WorkletEventHandler': workletHandlers,
+    './InlinePropManager': { hasInlineStyles: () => false, getInlineStyle: value => value }, './utils': utils,
+  }).PropsFilter;
+  const reanimated = { __esModule: true,
+    default: { createAnimatedComponent: () => { nativeStats.wrappers++; return 'animated-native-canvas'; } },
+    useSharedValue: initial => { const ref = hooks.useRef(null); return ref.current ||= shared(initial); },
+    useEvent,
+    runOnJS: callback => (...args) => jsQueue.push(() => callback(...args)),
+    runOnUI: callback => (...args) => {
+      if (nativeRuntime) assert.equal(typeof callback.__workletHash, 'number', 'runOnUI must receive a Metro worklet');
+      uiQueue.push(() => onUI(callback)(...args));
+    },
+  };
   const jsx = (type, props) => {
     if (typeof type === 'function') return type(props, props.ref);
-    if (type === 'native-canvas') { nativeProps = props; props.ref.current = { tag: 73 }; }
+    if (type === 'native-canvas') { nativeProps = props; rawNativeProps = props; props.ref.current = { tag: 73 }; }
+    if (type === 'animated-native-canvas') {
+      rawNativeProps = props;
+      const component = { props, _componentRef: { tag: 73 }, _isFirstRender: true, getComponentViewTag: () => 73 };
+      nativeProps = new PropsFilter().filterNonAnimatedProps(component); props.ref.current = { tag: 73 };
+      if (nativeManager) { const previous = nativeManager.component.props; nativeManager.component.props = props; nativeManager.manager.updateEvents(previous); }
+      else { nativeManager = { component, manager: new EventsManager(component) }; nativeManager.manager.attachEvents(); }
+    }
     return { type, props };
   };
   const command = (kind, args) => new Promise((resolve, reject) => { calls.push({ kind, args, resolve, reject }); });
   const dependencies = {
-    react: hooks, 'react/jsx-runtime': { jsx, jsxs: jsx },
+    react: hooks, 'react/jsx-runtime': { jsx, jsxs: jsx }, 'react/jsx-dev-runtime': { jsxDEV: jsx },
+    'react-native-reanimated': reanimated,
     'react-native': { View: 'view', Text: 'text', findNodeHandle: value => value?.tag,
       StyleSheet: { create: styles => styles, absoluteFill: {}, absoluteFillObject: {} } },
     'expo-modules-core': { requireNativeViewManager: () => 'native-canvas' },
@@ -66,16 +149,17 @@ function harness({ available = true, initialProject = project() } = {}) {
       previewStudioCompositionSourceAsync: (...args) => command('source', args) },
     './model': model, './StudioPreview': { StudioPreview: 'legacy-preview' },
   };
-  const code = ts.transpileModule(readFileSync(new URL('./StudioCompositionPreview.tsx', import.meta.url), 'utf8'), {
+  const code = nativeRuntime ? compileNative() : ts.transpileModule(readFileSync(new URL('./StudioCompositionPreview.tsx', import.meta.url), 'utf8'), {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX },
   }).outputText;
   const module = { exports: {} };
-  new Function('require', 'module', 'exports', code)(name => {
+  new Function('require', 'module', 'exports', 'setTimeout', 'clearTimeout', code)(name => {
     if (Object.hasOwn(dependencies, name)) return dependencies[name];
+    if (name.startsWith('@babel/runtime/')) return require(name);
     throw new Error(`Unexpected dependency: ${name}`);
-  }, module, module.exports);
+  }, module, module.exports, setTimer, clearTimer);
   const component = module.exports.StudioCompositionPreview;
-  let props = { project: initialProject, activeTakeId: 'a', onPlaybackState: value => published.push(value), onActiveTakeChange: id => selected.push(id) };
+  let props = { project: initialProject, activeTakeId: 'a', playbackChannel: channel, onPlaybackState: value => published.push(value), onActiveTakeChange: id => selected.push(id) };
   function render() {
     dirty = false; cursor = 0; effects = []; nativeProps = undefined;
     tree = component(props, ref);
@@ -87,8 +171,10 @@ function harness({ available = true, initialProject = project() } = {}) {
   async function pump() {
     for (let pass = 0; pass < 20; pass++) {
       if (dirty) render();
+      for (const job of uiQueue.splice(0)) job();
+      for (const job of jsQueue.splice(0)) job();
       await new Promise(resolve => setImmediate(resolve));
-      if (!dirty) return;
+      if (!dirty && !uiQueue.length && !jsQueue.length) return;
     }
     throw new Error('Composition preview did not settle');
   }
@@ -96,11 +182,28 @@ function harness({ available = true, initialProject = project() } = {}) {
     loading: false, revision: nativeProps.revision, token: calls.at(-1)?.args.at(-1) || 0, ...overrides });
   const nodes = value => !value ? [] : Array.isArray(value) ? value.flatMap(nodes)
     : typeof value === 'object' ? [value, ...nodes(value.props?.children)] : [value];
-  return { ref, calls, published, selected, pump,
+  const dispatch = (eventName, payload) => {
+    const registered = [...registrations.values()].filter(value => value.eventName === eventName && value.tag === 73);
+    if (registered.length) {
+      nativeStats.events.push(eventName);
+      for (const entry of registered) onUI(entry.callback)({ ...payload, eventName });
+    } else nativeProps[eventName]({ nativeEvent: payload });
+  };
+  return { ref, calls, published, selected, pump, channel, nativeStats,
+    rawCanvas: () => rawNativeProps,
+    flushUI: () => { for (const job of uiQueue.splice(0)) job(); },
+    flushJS: () => { for (const job of jsQueue.splice(0)) job(); },
+    flushRender: () => { if (dirty) render(); },
+    advance: milliseconds => {
+      now += milliseconds;
+      for (const [id, timer] of [...timers]) if (timer.at <= now) { timers.delete(id); timer.callback(); }
+    },
+    pendingTimers: () => timers.size,
+    dispose: () => { for (const slot of slots) slot?.cleanup?.(); nativeManager?.manager.detachEvents(); },
     update: patch => { props = { ...props, ...patch }; dirty = true; },
     project: () => props.project, canvas: () => nativeProps,
-    state, emit: overrides => nativeProps.onPlaybackState({ nativeEvent: state(overrides) }),
-    error: (message, overrides = {}) => nativeProps.onError({ nativeEvent: { revision: nativeProps.revision, token: calls.at(-1)?.args.at(-1) || 0, message, ...overrides } }),
+    state, emit: overrides => dispatch('onPlaybackState', state(overrides)),
+    error: (message, overrides = {}) => dispatch('onError', { revision: nativeProps.revision, token: calls.at(-1)?.args.at(-1) || 0, message, ...overrides }),
     text: () => nodes(tree).filter(value => typeof value === 'string').join(' '),
     has: type => nodes(tree).some(value => value?.type === type),
   };
@@ -227,6 +330,90 @@ test('toggle para pausa e EOF impedem que um evento enfileirado reative a reprod
   assert.equal(h.calls.length, 0);
 });
 
+test('Play vence paused antigo pré-confirmação; playing confirmado cancela a recusa pendente', async () => {
+  const h = harness(); await h.pump();
+  h.emit({ positionSeconds: 0, sourcePositionSeconds: 2 }); await h.pump();
+  const count = h.published.length;
+  h.ref.current.togglePlayback(); await h.pump();
+  h.emit({ positionSeconds: 0, sourcePositionSeconds: 2, playing: false, loading: false }); await h.pump();
+  assert.equal(h.canvas().paused, false, 'the old paused snapshot must not replace the new Play intention');
+  assert.equal(h.published.length, count, 'a pre-Play snapshot is not a new playback position');
+  assert.equal(h.pendingTimers(), 1, 'a native refusal without an error cannot remain pending indefinitely');
+  h.emit({ positionSeconds: 0.1, sourcePositionSeconds: 2.1, playing: true }); await h.pump();
+  assert.equal(h.published.at(-1).playing, true);
+  assert.equal(h.canvas().paused, false);
+  assert.equal(h.pendingTimers(), 0);
+  h.advance(3000); await h.pump();
+  assert.equal(h.canvas().paused, false, 'a cancelled refusal deadline cannot stop confirmed playback');
+  assert.equal(h.calls.length, 0);
+});
+
+test('preparação conhecida mantém Play pendente sem limite de recusa e EOF confirmado pausa normalmente', async () => {
+  const h = harness(); await h.pump();
+  h.ref.current.togglePlayback(); await h.pump();
+  h.emit({ playing: false, loading: false }); await h.pump();
+  assert.equal(h.pendingTimers(), 1);
+  h.emit({ playing: false, loading: true }); await h.pump();
+  assert.equal(h.pendingTimers(), 0);
+  h.advance(10000); await h.pump();
+  assert.equal(h.canvas().paused, false, 'an acknowledged build/replay is not a failed start');
+  assert.equal(h.published.at(-1).loading, true);
+  h.emit({ positionSeconds: 0, playing: true, loading: false }); await h.pump();
+  h.emit({ positionSeconds: 12, clipId: 'b', playing: false, loading: false }); await h.pump();
+  assert.equal(h.canvas().paused, true, 'EOF after the first playing acknowledgement is an authoritative pause');
+  assert.equal(h.published.at(-1).position, 12);
+  assert.equal(h.pendingTimers(), 0);
+});
+
+test('pausa explícita e onError atual vencem Play pendente; erros anteriores não cancelam a nova tentativa', async () => {
+  const h = harness(); await h.pump();
+  h.ref.current.togglePlayback(); await h.pump();
+  h.emit({ playing: false }); await h.pump();
+  h.ref.current.pause(); await h.pump();
+  assert.equal(h.canvas().paused, true);
+  assert.equal(h.pendingTimers(), 0);
+  h.emit({ playing: true }); await h.pump();
+  assert.ok(h.published.every(value => !value.playing));
+  h.ref.current.togglePlayback(); await h.pump();
+  h.error('Erro de uma revisão anterior.', { revision: 'outro-projeto:0' }); await h.pump();
+  assert.equal(h.canvas().paused, false);
+  h.error('Não foi possível ativar o som.', { code: 'E_STUDIO_AUDIO_SESSION' }); await h.pump();
+  assert.equal(h.canvas().paused, true);
+  assert.equal(h.pendingTimers(), 0);
+  assert.match(h.text(), /Não foi possível ativar o som/);
+  h.emit({ playing: true }); await h.pump();
+  assert.match(h.text(), /Não foi possível ativar o som/, 'a late playing snapshot is not permission to erase a failed start');
+  h.ref.current.togglePlayback(); await h.pump();
+  h.emit({ playing: true }); await h.pump();
+  assert.equal(h.canvas().paused, false);
+  assert.doesNotMatch(h.text(), /Não foi possível ativar o som/);
+});
+
+test('recusa nativa sem onError libera a tentativa; retry e desmontagem invalidam o limite antigo', async () => {
+  const h = harness(); await h.pump();
+  h.ref.current.togglePlayback(); await h.pump();
+  h.emit({ playing: false, loading: false }); await h.pump();
+  h.advance(1999); await h.pump();
+  assert.equal(h.canvas().paused, false);
+  h.advance(1); await h.pump();
+  assert.equal(h.canvas().paused, true);
+  assert.match(h.text(), /A prévia não iniciou/);
+  assert.equal(h.pendingTimers(), 0);
+  h.ref.current.togglePlayback(); await h.pump();
+  h.emit({ playing: true }); await h.pump();
+  assert.equal(h.published.at(-1).playing, true);
+  assert.doesNotMatch(h.text(), /A prévia não iniciou/);
+  h.ref.current.pause(); h.ref.current.togglePlayback(); await h.pump();
+  h.emit({ playing: false }); await h.pump();
+  assert.equal(h.pendingTimers(), 1);
+  h.dispose();
+  assert.equal(h.pendingTimers(), 0, 'unmount releases the pending deadline');
+  const count = h.published.length;
+  h.advance(3000);
+  assert.equal(h.published.length, count);
+  assert.equal(h.calls.length, 0);
+});
+
 test('seek e inspeção congelam o relógio antes da operação nativa sem publicar frames temporários', async () => {
   const h = harness(); await h.pump();
   h.ref.current.togglePlayback(); await h.pump();
@@ -338,4 +525,298 @@ test('binário antigo bloqueia montagem com grade e só permite fallback simples
   assert.match(enhanced.text(), /Atualize o Classfy Dev/);
   enhanced.ref.current.seek(3); enhanced.ref.current.togglePlayback();
   assert.equal(enhanced.calls.length, 0);
+});
+
+test('evento Fabric alimenta canal no UI antes do JS, com nomes e tag registrados pelo Reanimated instalado', async () => {
+  const h = harness({ playbackChannel: true, nativeRuntime: true }); await h.pump();
+  assert.equal(h.channel.value.active, true);
+  assert.deepEqual(h.nativeStats.registrations, [{ eventName: 'onPlaybackState', tag: 73 }, { eventName: 'onError', tag: 73 }]);
+  assert.ok(h.rawCanvas().onPlaybackState.workletEventHandler, 'useEvent holder must reach Animated directly');
+  assert.ok(h.rawCanvas().onError.workletEventHandler);
+  h.ref.current.togglePlayback(); await h.pump();
+  const count = h.published.length, sequence = h.channel.value.sequence;
+  h.emit({ positionSeconds: 1, playing: true });
+  assert.deepEqual(h.channel.value, { active: true, sequence: sequence + 1, position: 1, playing: true, loading: false });
+  assert.equal(h.published.length, count, 'React/JS is still blocked while the UI sample is already available');
+  h.emit({ positionSeconds: 1.066, playing: true });
+  assert.equal(h.channel.value.position, 1.066);
+  assert.equal(h.channel.value.sequence, sequence + 2);
+  h.flushJS();
+  assert.equal(h.published.at(-1).position, 1.066);
+  await h.pump();
+  h.update({ activeTakeId: 'b' }); await h.pump();
+  assert.equal(h.nativeStats.wrappers, 1, 'render/sample updates cannot replace the animated host');
+  assert.equal(h.nativeStats.registrations.length, 2, 'unchanged native events remain registered on the original tag');
+  assert.equal(h.calls.length, 0);
+});
+
+test('canal ignora pause pré-Play sem perder deadline, e pausa local vence evento UI e callback JS atrasados', async () => {
+  const h = harness({ playbackChannel: true, nativeRuntime: true }); await h.pump();
+  h.ref.current.togglePlayback(); await h.pump();
+  const waiting = { ...h.channel.value };
+  h.emit({ positionSeconds: 0, playing: false, loading: false });
+  assert.deepEqual(h.channel.value, waiting, 'old pause cannot become a visual playback sample');
+  h.flushJS(); assert.equal(h.pendingTimers(), 1);
+  h.emit({ positionSeconds: 1, playing: true });
+  assert.equal(h.channel.value.playing, true, 'UI confirms Play before the JS acknowledgement is delivered');
+  h.ref.current.pause(); h.flushUI();
+  assert.equal(h.channel.value.playing, false);
+  assert.equal(h.channel.value.position, 1);
+  const stopped = { ...h.channel.value };
+  h.emit({ positionSeconds: 1.1, playing: true });
+  assert.deepEqual(h.channel.value, stopped);
+  h.flushJS(); await h.pump();
+  assert.equal(h.published.some(value => value.playing), false, 'the earlier accepted UI sample cannot defeat the newer JS pause intention');
+  assert.equal(h.pendingTimers(), 0);
+  h.ref.current.togglePlayback(); await h.pump();
+  h.emit({ positionSeconds: 1, playing: false }); h.flushJS();
+  h.advance(2000); h.flushUI(); await h.pump();
+  assert.equal(h.channel.value.playing, false);
+  assert.match(h.text(), /A prévia não iniciou/);
+});
+
+test('seek e inspeção invalidam tokens UI sem frames temporários, e revisão nova rejeita amostras anteriores', async () => {
+  const h = harness({ playbackChannel: true, nativeRuntime: true }); await h.pump();
+  h.ref.current.togglePlayback(); await h.pump();
+  h.emit({ positionSeconds: 4, playing: true }); await h.pump();
+  h.ref.current.seek(7); const seek = h.calls.at(-1); h.flushUI();
+  assert.equal(h.channel.value.position, 7); assert.equal(h.channel.value.playing, false);
+  const pending = { ...h.channel.value };
+  h.emit({ positionSeconds: 4, playing: false, token: 0 });
+  h.emit({ positionSeconds: 4.1, playing: true, token: seek.args.at(-1) });
+  assert.deepEqual(h.channel.value, pending);
+  seek.resolve(h.state({ positionSeconds: 7, clipId: 'b' })); await h.pump();
+  assert.equal(h.channel.value.position, 7);
+  h.ref.current.previewSourceFrame({ takeId: 'a', uri: 'file:///a.mp4', seconds: 1 }); h.flushUI();
+  const inspection = { ...h.channel.value }, oldRevision = h.canvas().revision;
+  h.emit({ positionSeconds: 8, clipId: 'a', sourcePositionSeconds: 1, playing: false });
+  assert.deepEqual(h.channel.value, inspection, 'source inspection is not a playback sample');
+  h.ref.current.seek(7); h.calls.at(-1).resolve(h.state({ positionSeconds: 7 })); await h.pump();
+  h.update({ project: graded(h.project()) }); await h.pump();
+  const revised = { ...h.channel.value };
+  h.emit({ positionSeconds: 2, revision: oldRevision });
+  assert.deepEqual(h.channel.value, revised);
+  h.emit({ positionSeconds: 7 }); await h.pump();
+  assert.equal(h.channel.value.position, 7);
+  assert.equal(h.channel.value.loading, false);
+});
+
+test('erro, pausa externa e EOF congelam canal antes do JS; replay com loading preserva intenção renovada', async () => {
+  const h = harness({ playbackChannel: true, nativeRuntime: true }); await h.pump();
+  h.ref.current.togglePlayback(); await h.pump();
+  h.emit({ positionSeconds: 3, playing: true }); await h.pump();
+  h.error('Falha da composição.', { revision: 'outro:0' });
+  assert.equal(h.channel.value.playing, true);
+  h.error('Falha da composição.');
+  assert.equal(h.channel.value.playing, false, 'onError freezes the native channel before React can display the error');
+  const failed = { ...h.channel.value };
+  h.emit({ positionSeconds: 3.1, playing: true });
+  assert.deepEqual(h.channel.value, failed);
+  await h.pump(); assert.match(h.text(), /Falha da composição/);
+  h.ref.current.togglePlayback(); await h.pump();
+  h.emit({ positionSeconds: 3.2, playing: true }); await h.pump();
+  h.update({ paused: true }); await h.pump();
+  const external = { ...h.channel.value };
+  h.emit({ positionSeconds: 3.3, playing: true });
+  assert.deepEqual(h.channel.value, external);
+  h.update({ paused: false }); await h.pump();
+  h.ref.current.togglePlayback(); await h.pump();
+  h.emit({ positionSeconds: 11.9, playing: true }); await h.pump();
+  h.emit({ positionSeconds: 12, playing: false });
+  assert.equal(h.channel.value.playing, false); assert.equal(h.channel.value.position, 12);
+  h.emit({ positionSeconds: 11.95, playing: true });
+  assert.equal(h.channel.value.position, 12, 'queued rate cannot restart EOF');
+  await h.pump(); h.ref.current.togglePlayback(); await h.pump();
+  h.emit({ positionSeconds: 12, playing: false, loading: true });
+  assert.equal(h.channel.value.loading, true);
+  await h.pump(); assert.equal(h.canvas().paused, false);
+  h.emit({ positionSeconds: 0, playing: true, loading: false });
+  assert.equal(h.channel.value.position, 0); assert.equal(h.channel.value.playing, true);
+  await h.pump(); assert.equal(h.published.at(-1).playing, true);
+});
+
+test('canal só fica ativo no compositor montado; legado e desmontagem devolvem relógio ao fallback', async () => {
+  const h = harness({ playbackChannel: true, nativeRuntime: true }); await h.pump();
+  h.ref.current.togglePlayback(); await h.pump(); h.emit({ playing: true }); await h.pump();
+  assert.equal(h.channel.value.active, true);
+  const delivered = h.published.length;
+  h.emit({ positionSeconds: 4, playing: true });
+  h.dispose(); h.flushUI();
+  assert.equal(h.channel.value.active, false); assert.equal(h.channel.value.playing, false);
+  const frozen = { ...h.channel.value }; h.emit({ positionSeconds: 9, playing: true }); h.flushJS();
+  assert.deepEqual(h.channel.value, frozen);
+  assert.equal(h.published.length, delivered, 'an accepted native event queued for JS cannot publish after unmount');
+  const plain = harness({ available: false, playbackChannel: true, nativeRuntime: true }); await plain.pump();
+  assert.equal(plain.channel.value.active, false);
+  assert.ok(plain.has('legacy-preview')); assert.equal(plain.nativeStats.registrations.length, 0);
+  const old = harness({ available: false, initialProject: graded(project()), playbackChannel: true, nativeRuntime: true }); await old.pump();
+  assert.equal(old.channel.value.active, false); assert.equal(old.nativeStats.registrations.length, 0);
+  const callback = harness({ nativeRuntime: true }); await callback.pump();
+  callback.emit({ positionSeconds: 2 });
+  assert.equal(callback.published.at(-1).position, 2, 'without a channel the existing nativeEvent callback remains synchronous');
+  assert.equal(callback.nativeStats.registrations.length, 0);
+});
+
+test('troca de receita não restaura Play pendente que o UI já confirmou antes da entrega JS', async () => {
+  const h = harness({ playbackChannel: true, nativeRuntime: true }); await h.pump();
+  h.ref.current.togglePlayback(); await h.pump();
+  h.emit({ positionSeconds: 11.9, playing: true });
+  assert.equal(h.channel.value.playing, true);
+  // Render the recipe change before delivering the old JS acknowledgement.
+  // Its JS pendingPlay ref is still true, but the native UI has confirmed Play.
+  h.update({ project: graded(h.project()) }); await h.pump();
+  h.emit({ positionSeconds: 12, playing: false, loading: false });
+  assert.equal(h.channel.value.position, 12, 'EOF must remain authoritative after the UI acknowledgement');
+  assert.equal(h.channel.value.playing, false);
+  await h.pump(); assert.equal(h.canvas().paused, true);
+  assert.equal(h.pendingTimers(), 0);
+});
+
+test('callbacks JS de EOF e erro anteriores não vencem uma nova intenção de reproduzir', async () => {
+  const h = harness({ playbackChannel: true, nativeRuntime: true }); await h.pump();
+  h.ref.current.togglePlayback(); await h.pump();
+  h.emit({ positionSeconds: 11.9, playing: true }); await h.pump();
+  h.emit({ positionSeconds: 12, playing: false });
+  h.error('Erro da intenção anterior.');
+  // The UI has already stopped, but neither EOF nor error reached JS yet.
+  // An explicit pause followed by Play owns the newest intent on both threads.
+  h.ref.current.pause(); h.ref.current.togglePlayback(); h.flushUI();
+  h.flushJS(); await h.pump();
+  assert.equal(h.canvas().paused, false);
+  assert.doesNotMatch(h.text(), /intenção anterior/);
+  h.emit({ positionSeconds: 0, playing: false, loading: true }); await h.pump();
+  h.emit({ positionSeconds: 0.1, playing: true, loading: false }); await h.pump();
+  assert.equal(h.channel.value.playing, true);
+  assert.equal(h.published.at(-1).playing, true);
+  assert.equal(h.pendingTimers(), 0);
+});
+
+test('Promise de seek atrasada após ACK Fabric e novo Play não recua canal nem pausa a reprodução', async () => {
+  for (const outcome of ['resolve', 'reject']) {
+    const h = harness({ playbackChannel: true, nativeRuntime: true }); await h.pump();
+    h.ref.current.seek(7); const seek = h.calls.at(-1); h.flushUI();
+    h.emit({ positionSeconds: 7, sourcePositionSeconds: 3, clipId: 'b', playing: false }); await h.pump();
+    h.ref.current.togglePlayback(); await h.pump();
+    h.emit({ positionSeconds: 7.1, sourcePositionSeconds: 3.1, clipId: 'b', playing: true }); await h.pump();
+    const sample = { ...h.channel.value }, count = h.published.length;
+    // Native performSeek publishes its ACK separately before settling the
+    // bridge Promise. Token/revision still match after the new Play prop.
+    if (outcome === 'resolve') seek.resolve(h.state({ positionSeconds: 7, sourcePositionSeconds: 3, clipId: 'b', playing: false }));
+    else seek.reject(new Error('Falha de um seek já substituído pelo Play.'));
+    await h.pump();
+    assert.deepEqual(h.channel.value, sample, `${outcome} cannot replace the current UI sample`);
+    assert.equal(h.published.length, count);
+    assert.equal(h.canvas().paused, false);
+    assert.doesNotMatch(h.text(), /seek já substituído/);
+    assert.equal(h.calls.length, 1, 'ignoring stale completion cannot send another native command');
+  }
+});
+
+test('Promises antigas de navegação e frame não apagam nem substituem erro da intenção atual', async () => {
+  for (const command of ['seek', 'source']) for (const outcome of ['resolve', 'reject']) {
+    const h = harness({ playbackChannel: true, nativeRuntime: true }); await h.pump();
+    if (command === 'seek') h.ref.current.seek(7);
+    else h.ref.current.previewSourceFrame({ takeId: 'a', uri: 'file:///a.mp4', seconds: 1 });
+    const old = h.calls.at(-1); h.flushUI();
+    if (command === 'seek') { h.emit({ positionSeconds: 7, playing: false }); await h.pump(); }
+    h.ref.current.togglePlayback(); await h.pump();
+    h.emit({ positionSeconds: 7.1, playing: true }); await h.pump();
+    h.error('Falha atual da composição.'); await h.pump();
+    const sample = { ...h.channel.value };
+    if (outcome === 'resolve') old.resolve(h.state({ positionSeconds: 7, playing: false }));
+    else old.reject(new Error('Erro antigo da operação de navegação.'));
+    await h.pump();
+    assert.match(h.text(), /Falha atual da composição/);
+    assert.doesNotMatch(h.text(), /Erro antigo/);
+    assert.deepEqual(h.channel.value, sample);
+    assert.equal(h.canvas().paused, true);
+  }
+});
+
+test('seek pendente rejeita posição anterior mesmo com token novo; alvo confirmado libera Play no UI e fallback', async () => {
+  for (const playbackChannel of [true, false]) {
+    const h = harness({ playbackChannel, nativeRuntime: true }); await h.pump();
+    h.emit({ positionSeconds: 1.2, playing: false }); await h.pump();
+    h.ref.current.seek(7); const seek = h.calls.at(-1); h.flushUI();
+    const count = h.published.length, optimistic = h.channel && { ...h.channel.value };
+    // claim() already assigned this token, but seekPlayer() is still awaiting
+    // its exact seek. A periodic event must not masquerade as its ACK.
+    h.emit({ positionSeconds: 1.2, playing: false, token: seek.args.at(-1) }); await h.pump();
+    assert.equal(h.published.length, count);
+    if (h.channel) assert.deepEqual(h.channel.value, optimistic);
+    h.ref.current.togglePlayback(); await h.pump();
+    const waiting = h.channel && { ...h.channel.value };
+    h.emit({ positionSeconds: 1.3, playing: true }); await h.pump();
+    assert.equal(h.published.length, count, 'Play cannot acknowledge the old position while the seek is pending');
+    if (h.channel) assert.deepEqual(h.channel.value, waiting);
+    h.emit({ positionSeconds: 7.02, playing: true }); await h.pump();
+    assert.equal(h.published.at(-1).position, 7.02);
+    if (h.channel) { assert.equal(h.channel.value.position, 7.02); assert.equal(h.channel.value.playing, true); }
+    seek.resolve(h.state({ positionSeconds: 7, playing: false })); await h.pump();
+    assert.equal(h.published.at(-1).position, 7.02, 'the earlier Promise cannot replace Play after the near-target ACK');
+    assert.equal(h.canvas().paused, false);
+  }
+});
+
+test('seek mais novo substitui alvo pendente; erro e revisão cancelam guarda sem bloquear o próximo comando', async () => {
+  const h = harness({ playbackChannel: true, nativeRuntime: true }); await h.pump();
+  h.ref.current.seek(3); const old = h.calls.at(-1);
+  h.ref.current.seek(7); const current = h.calls.at(-1); h.flushUI();
+  const target = { ...h.channel.value };
+  h.emit({ positionSeconds: 3, token: current.args.at(-1) });
+  h.emit({ positionSeconds: 7, token: old.args.at(-1) });
+  assert.deepEqual(h.channel.value, target);
+  h.error('Seek interrompido.'); await h.pump();
+  h.emit({ positionSeconds: 1.2 }); await h.pump();
+  assert.equal(h.channel.value.position, 1.2, 'a failed seek releases its guard to the actual paused native position');
+  h.ref.current.seek(5); h.flushUI();
+  h.update({ project: graded(h.project()) }); await h.pump();
+  h.emit({ positionSeconds: 2 }); await h.pump();
+  assert.equal(h.channel.value.position, 2, 'a superseding recipe cannot keep a seek guard from its earlier revision');
+  h.ref.current.seek(4); const latest = h.calls.at(-1); h.flushUI();
+  latest.resolve(h.state({ positionSeconds: 4 })); await h.pump();
+  assert.equal(h.channel.value.position, 4);
+});
+
+test('alvo de seek acompanha duração atual e limite nativo do último quadro, ignorando tempos não finitos', async () => {
+  const h = harness({ playbackChannel: true, nativeRuntime: true }); await h.pump();
+  h.ref.current.seek(100); const first = h.calls.at(-1); h.flushUI();
+  assert.equal(first.args[1], 12 - 1 / 30);
+  h.emit({ positionSeconds: 0 });
+  assert.equal(h.channel.value.position, 12 - 1 / 30);
+  first.resolve(h.state({ positionSeconds: 12 - 1 / 30 })); await h.pump();
+  const shortened = model.withStudioTakes({ ...h.project(), editing: { ...h.project().editing,
+    main: [{ ...h.project().editing.main[0], sourceEndTicks: model.studioTicks(4) }] } });
+  h.update({ project: shortened }); await h.pump();
+  h.ref.current.seek(100); const last = h.calls.at(-1); h.flushUI();
+  assert.equal(last.args[1], 2 - 1 / 30, 'the imperative handle must read the latest recipe duration');
+  last.resolve(h.state({ positionSeconds: 2 - 1 / 30 })); await h.pump();
+  const count = h.calls.length, sample = { ...h.channel.value };
+  h.ref.current.seek(NaN); h.ref.current.seek(Infinity); h.flushUI();
+  assert.equal(h.calls.length, count); assert.deepEqual(h.channel.value, sample);
+});
+
+test('ACK de seek confirmado no UI antes de novo Play libera guarda JS antiga mesmo com callbacks bloqueados', async () => {
+  const h = harness({ playbackChannel: true, nativeRuntime: true }); await h.pump();
+  h.ref.current.seek(3); const seek = h.calls.at(-1); h.flushUI();
+  h.emit({ positionSeconds: 3, playing: false });
+  const count = h.published.length;
+  // UI cleared pendingSeek, but its JS ACK is intentionally left queued.
+  h.ref.current.togglePlayback(); h.flushRender(); h.flushUI();
+  assert.equal(h.canvas().paused, false);
+  h.emit({ positionSeconds: 3.1, playing: true });
+  assert.equal(h.channel.value.position, 3.1);
+  assert.equal(h.channel.value.playing, true);
+  assert.equal(h.published.length, count);
+  h.flushJS(); await h.pump();
+  assert.ok(h.published.at(-1), 'accepted UI playback must publish even when the seek ACK belongs to an earlier intention');
+  assert.equal(h.published.at(-1).position, 3.1, 'accepted UI playback must clear the older JS seek target');
+  assert.equal(h.published.at(-1).playing, true);
+  assert.equal(h.pendingTimers(), 0);
+  h.emit({ positionSeconds: 12, clipId: 'b', playing: false }); await h.pump();
+  assert.equal(h.published.at(-1).position, 12);
+  assert.equal(h.published.at(-1).playing, false);
+  assert.equal(h.canvas().paused, true, 'the stale JS seek target cannot keep EOF permanently pending');
+  seek.resolve(h.state({ positionSeconds: 3, playing: false })); await h.pump();
+  assert.equal(h.published.at(-1).position, 12);
 });
