@@ -75,6 +75,28 @@ instalação e pareamento, mas não substitui automaticamente essa conectividade
 Para uma inspeção de layout no browser, usar `npm run web`. Isso não substitui
 validação de player, permissões, teclado, gestos e ciclo de vida no iOS.
 
+## Acesso remoto ao Classfy Dev
+
+O launcher descobre servidores da mesma rede; os recentes `192.168...:8081` não ficam acessíveis em 5G/outra rede. Para testar remotamente, disponibilizar Metro por túnel HTTPS e configurar o endereço público **também no manifest, bundle e assets**. Isso não publica em produção e não instala mudanças nativas.
+
+Com o binário oficial `ngrok` já instalado/configurado no Mac:
+
+```sh
+ngrok http http://127.0.0.1:8081 --inspect=false
+```
+
+Usar a URL HTTPS retornada para iniciar o Metro no worktree correto. Encerrar o Metro anterior desse worktree antes de ocupar a mesma porta; não encerrar outros servidores indiscriminadamente.
+
+```sh
+CLASSFY_IOS_PERSONAL_TEAM=1 EXPO_PACKAGER_PROXY_URL='https://DOMINIO-DO-TUNEL' npx expo start --dev-client --localhost --port 8081
+```
+
+Esse proxy foi confirmado no Expo54 instalado. Sem `--tunnel`, não precisa instalar o pacote JS `@expo/ngrok`. A alternativa oficial `expo start --tunnel` usa esse pacote. A URL é uma origem sem caminho. O endereço público não substitui a configuração do runtime nativo.
+
+No iPhone: Classfy Dev → **Enter URL manually** → colar a URL HTTPS → conectar. Um link `exp+classfy-mobile://expo-development-client/?url=URL_HTTPS_CODIFICADA` também abre a mesma build. Mac, Metro e túnel precisam continuar ativos; a descoberta automática pode continuar vazia no 5G. Mudanças JS/estilos compatíveis chegam por esse servidor; módulos nativos continuam exigindo nova instalação. EAS Update não está configurado nesta build.
+
+Validar sem imprimir manifest completo/variáveis de ambiente: `/status` responde `packager-status:running`; `/` com `Expo-Platform: ios` e `Accept: application/expo+json,application/json` retorna manifest; `launchAsset.url` deve usar o domínio público e responder com o bundle iOS. Abrir esse endereço no Dev Client confirma a cadeia. Não anunciar acesso no telefone do usuário apenas por teste no simulador.
+
 ## Recompilar
 
 Depois de mudar dependências nativas ou `app.json`, executar `npm run ios` ou
