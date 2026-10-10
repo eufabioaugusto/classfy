@@ -5,8 +5,8 @@ import { ImageManipulator, SaveFormat } from 'expo-image-manipulator';
 import { randomUUID } from 'expo-crypto';
 import { Alert } from 'react-native';
 import { supabase } from '@/lib/supabase';
-import { cancelExportAsync, exportRecipeAsync, isStudioCompositionAvailable, exportTimelineAsync, generateThumbnailAsync, getMediaInfoAsync, isStudioMediaAvailable } from '../../../modules/classfy-studio-media';
-import { addStudioLayerItem, compileStudioRecipe, normalizeStudioCaptureGrade, studioEditing, studioTicks, timelineSignature, validateStudioRecipe, type StudioProject, type StudioTake, type StudioAsset, type StudioLayerItem, type StudioPendingTake } from './model';
+import { cancelExportAsync, exportRecipeAsync, getStudioExportCapabilitiesAsync, isStudioCompositionAvailable, exportTimelineAsync, generateThumbnailAsync, getMediaInfoAsync, isStudioMediaAvailable } from '../../../modules/classfy-studio-media';
+import { addStudioLayerItem, compileStudioRecipe, normalizeStudioCaptureGrade, studioEditing, studioOutputSupported, studioTicks, timelineSignature, validateStudioRecipe, type StudioProject, type StudioTake, type StudioAsset, type StudioLayerItem, type StudioPendingTake } from './model';
 import { getStudioProject, mutateStudioProject, retainStudioProjectMedia, updateStudioProject } from './store';
 
 export async function assertStudioOwner(project: StudioProject) {
@@ -56,7 +56,7 @@ async function readStudioTake(project: StudioProject, pending: StudioPendingTake
   }
   await assertStudioOwner(project);
   return { id, uri, name, duration: info.duration,
-    sourceKind: pending.sourceKind, sourceStage: pending.sourceStage, frameRate: pending.frameRate ?? info.frameRate, colorSpace: pending.colorSpace,
+    sourceKind: pending.sourceKind, sourceStage: pending.sourceStage, frameRate: Number.isFinite(info.frameRate) && info.frameRate! > 0 ? info.frameRate : pending.frameRate, colorSpace: info.colorSpace ?? pending.colorSpace,
     start: 0, end: info.duration, width: info.width, height: info.height, thumbnailUri,
     ...(pending.grade ? { grade: normalizeStudioCaptureGrade(pending.grade) } : {}) };
 }
@@ -134,28 +134,44 @@ export async function exportStudioProject(project: StudioProject, onProgress?: (
   await assertStudioOwner(project);
   check();
   const signature = timelineSignature(project);
+  const editing = studioEditing(project);
+  const recipe = compileStudioRecipe(project);
+  const errors = validateStudioRecipe(recipe);
+  if (errors.length) throw new Error(errors[0]);
+  const requiresAudio = project.kind === 'podcast' || recipe.clips.some(clip => clip.kind === 'audio' && clip.gain > 0);
+  const matchesOutput = (info: Awaited<ReturnType<typeof getMediaInfoAsync>>) => Number.isFinite(info.fileSize) && info.fileSize > 0
+    && (!requiresAudio || info.hasAudio)
+    && Number.isFinite(info.duration) && info.duration > 0
+    && Math.abs(info.duration - recipe.durationTicks / recipe.timebase) <= Math.max(0.1, 2 * recipe.output.frameRateDenominator / recipe.output.frameRateNumerator)
+    && (project.kind === 'podcast' ? info.hasAudio : info.hasVideo && (editing.output.profile !== 'standard'
+      || info.width === recipe.output.width && info.height === recipe.output.height && Number.isFinite(info.frameRate)
+        && Math.abs(info.frameRate! - recipe.output.frameRateNumerator / recipe.output.frameRateDenominator) < 0.02));
   if (project.exportedSignature === signature && project.exportedUri) {
     const file = await FileSystem.getInfoAsync(project.exportedUri);
     check();
-    if (file.exists && !file.isDirectory) {
-      const info = await getMediaInfoAsync(project.exportedUri);
+    if (file.exists && !file.isDirectory && file.size > 0) {
+      // A matching signature alone cannot certify a downgraded or replaced
+      // file. An unreadable/stale artifact is regenerated from the originals.
+      let info: Awaited<ReturnType<typeof getMediaInfoAsync>> | undefined;
+      try { info = await getMediaInfoAsync(project.exportedUri); } catch { /* Re-export below. */ }
       check();
-      return { uri: project.exportedUri, duration: info.duration, mimeType: project.kind === 'podcast' ? 'audio/mp4' : 'video/mp4', fileSize: file.size };
+      if (info && matchesOutput(info)) return { uri: project.exportedUri, duration: info.duration, mimeType: project.kind === 'podcast' ? 'audio/mp4' : 'video/mp4', fileSize: file.size };
     }
   }
   if (!project.takes.length) throw new Error('Grave ou importe um take antes de continuar.');
   const outputUri = `${await studioProjectDirectory(project)}export-${randomUUID()}.${project.kind === 'podcast' ? 'm4a' : 'mp4'}`;
   check();
-  const editing = studioEditing(project);
-  const recipe = compileStudioRecipe(project);
-  const errors = validateStudioRecipe(recipe);
-  if (errors.length) throw new Error(errors[0]);
   const progressHandler = (progress: number) => {
     if (shouldContinue?.() === false) { void cancelExportAsync(project.id); return; }
     onProgress?.(progress);
   };
-  if (editing.output.profile === 'legacy-source' && (editing.mainMuted || editing.layers.some(layer => layer.items.length) || editing.main.some(clip => clip.grade || clip.effect && clip.effect !== 'natural' || clip.gain !== undefined && clip.gain !== 1) || editing.canvas.backgroundColor !== '#000000' || editing.canvas.aspectRatio !== (project.kind === 'short' ? 'portrait' : 'landscape'))) throw new Error('Escolha o perfil 1080p · 30 FPS · SDR para exportar esta edição com camadas.');
-  if (editing.output.profile === 'standard' && !isStudioCompositionAvailable()) throw new Error('Atualize o Classfy Dev para editar e exportar camadas e tratamentos de imagem.');
+  if (editing.output.profile === 'legacy-source' && (editing.mainMuted || editing.layers.some(layer => layer.items.length) || editing.main.some(clip => clip.grade || clip.effect && clip.effect !== 'natural' || clip.gain !== undefined && clip.gain !== 1) || editing.canvas.backgroundColor !== '#000000' || editing.canvas.aspectRatio !== (project.kind === 'short' ? 'portrait' : 'landscape'))) throw new Error('Escolha o perfil de composição e a qualidade de saída para exportar esta edição com camadas.');
+  if (editing.output.profile === 'standard') {
+    if (!isStudioCompositionAvailable()) throw new Error('Atualize o Classfy Dev para editar e exportar camadas e tratamentos de imagem.');
+    const capabilities = await getStudioExportCapabilitiesAsync();
+    check(); await assertStudioOwner(project); check();
+    if (project.kind !== 'podcast' && !studioOutputSupported(recipe.output, capabilities)) throw new Error('Esta versão do Classfy Dev não suporta a saída escolhida. Atualize o aplicativo ou escolha uma saída compatível; seus originais continuam intactos.');
+  }
   const result = editing.output.profile === 'standard'
     ? await exportRecipeAsync({ requestId: project.id, recipeJSON: JSON.stringify(recipe), outputUri }, progressHandler)
     : await exportTimelineAsync({ requestId: project.id, clips: project.takes.map(t => ({ uri: t.uri, startSeconds: t.start, endSeconds: t.end })),
@@ -163,8 +179,12 @@ export async function exportStudioProject(project: StudioProject, onProgress?: (
   check();
   await assertStudioOwner(project);
   check();
+  const actual = await getMediaInfoAsync(result.uri);
+  check();
+  if (!matchesOutput(actual)) throw new Error('O arquivo gerado não corresponde à resolução ou ao FPS escolhidos. Seus originais e a edição continuam salvos.');
+  await assertStudioOwner(project); check();
   await updateStudioProject(project.ownerId, project.id, { exportedUri: result.uri, exportedSignature: signature });
-  return result;
+  return { ...result, duration: actual.duration, fileSize: actual.fileSize };
 }
 export async function cancelStudioExport(project: StudioProject) { await cancelExportAsync(project.id); }
 
@@ -178,7 +198,7 @@ async function finishStudioLayerImport(project: StudioProject, pending: NonNulla
   } else {
     const info = await getMediaInfoAsync(pending.uri);
     if (!Number.isFinite(info.duration) || info.duration < 0.1 || pending.kind === 'video' && !info.hasVideo || pending.kind === 'audio' && !info.hasAudio) throw new Error('Este arquivo não contém a mídia selecionada.');
-    asset = { id: pending.id, kind: pending.kind, uri: pending.uri, name: pending.name, durationTicks: studioTicks(info.duration), width: info.width, height: info.height, frameRate: info.frameRate, sourceStage: pending.sourceStage, sourceKind: pending.sourceKind };
+    asset = { id: pending.id, kind: pending.kind, uri: pending.uri, name: pending.name, durationTicks: studioTicks(info.duration), width: info.width, height: info.height, frameRate: info.frameRate, colorSpace: info.colorSpace, sourceStage: pending.sourceStage, sourceKind: pending.sourceKind };
   }
   const item = { ...pending.layerItem };
   if (asset.kind !== 'image') {
@@ -215,7 +235,7 @@ async function readStudioImageSize(uri: string) {
 export async function importStudioLayer(project: StudioProject, kind: 'image' | 'video' | 'audio', item: Omit<StudioLayerItem, 'assetId'>): Promise<StudioProject | null> {
   await assertStudioOwner(project);
   if (!isStudioCompositionAvailable()) throw new Error('Atualize o Classfy Dev para usar camadas.');
-  if (studioEditing(project).output.profile !== 'standard') throw new Error('Selecione o perfil 1080p · 30 FPS · SDR antes de adicionar camadas.');
+  if (studioEditing(project).output.profile !== 'standard') throw new Error('Selecione o perfil de composição e a qualidade de saída antes de adicionar camadas.');
   let source: { uri: string; name: string; imageSize?: { width: number; height: number } };
   if (kind === 'audio') {
     const picked = await DocumentPicker.getDocumentAsync({ type: 'audio/*', copyToCacheDirectory: true });

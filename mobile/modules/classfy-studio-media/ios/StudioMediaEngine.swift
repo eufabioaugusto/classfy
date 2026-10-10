@@ -148,6 +148,7 @@ final class StudioMediaEngine {
     var width = 0.0
     var height = 0.0
     var frameRate = 0.0
+    var colorMetadata: [String: Any] = [:]
     if let track = video.first {
       let size = try await track.load(.naturalSize)
       let transform = try await track.load(.preferredTransform)
@@ -156,11 +157,27 @@ final class StudioMediaEngine {
       height = abs(rect.height).rounded()
       let rate = Double(try await track.load(.nominalFrameRate))
       frameRate = rate.isFinite && rate > 0 ? rate : 0
+      if let format = try await track.load(.formatDescriptions).first {
+        let extensions = CMFormatDescriptionGetExtensions(format) as? [String: Any]
+        let primaries = extensions?[kCMFormatDescriptionExtension_ColorPrimaries as String] as? String
+        let transfer = extensions?[kCMFormatDescriptionExtension_TransferFunction as String] as? String
+        let matrix = extensions?[kCMFormatDescriptionExtension_YCbCrMatrix as String] as? String
+        colorMetadata["colorPrimaries"] = primaries
+        colorMetadata["transferFunction"] = transfer
+        colorMetadata["yCbCrMatrix"] = matrix
+        if transfer == kCMFormatDescriptionTransferFunction_ITU_R_2100_HLG as String { colorMetadata["colorSpace"] = "rec2020-hlg" }
+        else if transfer == kCMFormatDescriptionTransferFunction_SMPTE_ST_2084_PQ as String { colorMetadata["colorSpace"] = "rec2020-pq" }
+        else if primaries == kCMFormatDescriptionColorPrimaries_ITU_R_709_2 as String,
+          transfer == kCMFormatDescriptionTransferFunction_ITU_R_709_2 as String,
+          matrix == kCMFormatDescriptionYCbCrMatrix_ITU_R_709_2 as String { colorMetadata["colorSpace"] = "rec709" }
+      }
     }
     let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
-    return ["duration": duration, "width": width, "height": height, "frameRate": frameRate,
+    var info: [String: Any] = ["duration": duration, "width": width, "height": height, "frameRate": frameRate,
             "hasVideo": !video.isEmpty, "hasAudio": !audio.isEmpty,
             "fileSize": (attributes[.size] as? NSNumber)?.doubleValue ?? 0]
+    info.merge(colorMetadata) { _, actual in actual }
+    return info
   }
 
   func thumbnail(_ uri: String, outputUri: String, timeSeconds: Double) async throws -> [String: Any] {

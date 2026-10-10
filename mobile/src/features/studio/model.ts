@@ -172,9 +172,19 @@ export type StudioLayer = {
   /** Reversible track switches; source opacity and gain stay on each item. */
   hidden?: boolean; muted?: boolean;
 };
+export type StudioOutputSelection = { resolution: 'original' | 'hd' | '2k' | '4k'; frameRate: 'original' | 24 | 30 | 60 };
+export type StudioOutputWarning = { code: 'upscale' | 'downscale' | 'fps-conversion' | 'sdr-conversion' | 'unknown-source'; message: string; assetIds: string[] };
+/** Structural bridge contract; old binaries expose only their proven 1080p30 profile. */
+export type StudioOutputCapabilities = {
+  version: number; available: boolean; colorSpace: 'rec709'; minimumDimension: number; maximumDimension: number; maximumShortDimension: number; maximumPixels: number; arbitraryEvenDimensions: boolean;
+  resolutions: readonly { id: 'hd' | '2k' | '4k'; width: number; height: number; codec: 'h264' | 'hevc' }[];
+  frameRates: readonly { numerator: number; denominator: number }[]; supportsHEVC: boolean;
+};
 export type StudioOutputProfile = {
   profile: 'standard' | 'legacy-source'; width: number; height: number;
   frameRateNumerator: number; frameRateDenominator: number; colorSpace: 'rec709' | 'source';
+  /** Absent on existing documents: their effective output remains unchanged. */
+  selection?: StudioOutputSelection;
 };
 export type StudioEditing = {
   version: 2; timebase: typeof STUDIO_TIMEBASE; assets: StudioAsset[]; main: StudioMainClip[]; layers: StudioLayer[];
@@ -222,7 +232,8 @@ export function emptyStudioEditing(kind: StudioKind, legacy = false): StudioEdit
   return { version: 2, timebase: STUDIO_TIMEBASE, assets: [], main: [], layers: [],
     canvas: { aspectRatio: portrait ? 'portrait' : 'landscape', backgroundColor: '#000000' },
     output: { profile: legacy ? 'legacy-source' : 'standard', width: portrait ? 1080 : 1920, height: portrait ? 1920 : 1080,
-      frameRateNumerator: 30, frameRateDenominator: 1, colorSpace: legacy ? 'source' : 'rec709' } };
+      frameRateNumerator: 30, frameRateDenominator: 1, colorSpace: legacy ? 'source' : 'rec709',
+      ...(!legacy ? { selection: { resolution: 'original' as const, frameRate: 'original' as const } } : {}) } };
 }
 /** The path of an immutable original identifies it locally, independently of the iOS container. */
 function stableStudioPath(uri: string) {
@@ -388,7 +399,7 @@ export function compileStudioRecipe(project: Pick<StudioProject, 'kind' | 'takes
   const referenced = new Set(clips.map(clip => clip.assetId).filter(Boolean));
   return { version: 2, timebase: STUDIO_TIMEBASE, mediaType: project.kind === 'podcast' ? 'audio' : 'video',
     durationTicks: Math.max(cursor, ...clips.map(clip => clip.startTicks + clip.durationTicks), 0),
-    canvas: { ...editing.canvas }, output: { ...editing.output },
+    canvas: { ...editing.canvas }, output: resolveStudioOutput(editing, editing.assets.filter(asset => referenced.has(asset.id))),
     assets: editing.assets.filter(asset => referenced.has(asset.id)).map(asset => ({ ...asset })).sort((a, b) => a.id.localeCompare(b.id)),
     clips: clips.sort((a, b) => a.startTicks - b.startTicks || a.zIndex - b.zIndex || a.id.localeCompare(b.id)) };
 }
@@ -439,8 +450,9 @@ export function validateStudioRecipe(recipe: StudioRenderRecipe): string[] {
   if (!output || !['standard', 'legacy-source'].includes(output.profile) || !Number.isFinite(output.width) || !Number.isFinite(output.height)
     || output.width <= 0 || output.height <= 0 || !Number.isSafeInteger(output.frameRateNumerator) || output.frameRateNumerator <= 0
     || !Number.isSafeInteger(output.frameRateDenominator) || output.frameRateDenominator <= 0) push('O perfil de exportação não é válido.');
-  if (output?.profile === 'standard' && (!(output.width === 1920 && output.height === 1080 || output.width === 1080 && output.height === 1920 || output.width === 1080 && output.height === 1080)
-    || output.frameRateNumerator !== 30 || output.frameRateDenominator !== 1 || output.colorSpace !== 'rec709')) push('Esta versão prepara a montagem em 1080p, 30 fps e SDR.');
+  if (output?.profile === 'standard' && (!validStudioOutputDimensions(output, recipe.canvas.aspectRatio)
+    || !studioOutputRates.some(rate => rate.numerator === output.frameRateNumerator && rate.denominator === output.frameRateDenominator)
+    || output.colorSpace !== 'rec709' || output.selection !== undefined && !validStudioOutputSelection(output.selection))) push('Escolha uma saída válida até 4K, 60 FPS e SDR.');
   return issues;
 }
 export function validateStudioEditing(editing: StudioEditing, kind: StudioKind): string[] {
@@ -490,9 +502,102 @@ export function validateStudioEditing(editing: StudioEditing, kind: StudioKind):
   return [...new Set(issues)];
 }
 export function withStudioStandardOutput(editing: StudioEditing): StudioEditing {
+  // Existing standard documents keep their explicit effective profile. Crossing
+  // from source rendering to composition must never silently lower 4K/60.
+  return editing.output.profile === 'standard' ? editing : withStudioOutputSelection(editing, { resolution: 'original', frameRate: 'original' });
+}
+const studioOutputRates = [
+  { numerator: 24, denominator: 1 }, { numerator: 25, denominator: 1 }, { numerator: 30, denominator: 1 },
+  { numerator: 50, denominator: 1 }, { numerator: 60, denominator: 1 },
+  { numerator: 24000, denominator: 1001 }, { numerator: 30000, denominator: 1001 }, { numerator: 60000, denominator: 1001 },
+] as const;
+function validStudioOutputSelection(value: StudioOutputSelection) {
+  return !!value && ['original', 'hd', '2k', '4k'].includes(value.resolution)
+    && (value.frameRate === 'original' || [24, 30, 60].includes(value.frameRate));
+}
+function validStudioOutputDimensions(output: StudioOutputProfile, aspect: StudioEditing['canvas']['aspectRatio']) {
+  const { width, height } = output;
+  if (![width, height].every(value => Number.isSafeInteger(value) && value >= 64 && value % 2 === 0)
+    || Math.max(width, height) > 3840 || Math.min(width, height) > 2160 || width * height > 3840 * 2160) return false;
+  return aspect === 'square' ? width === height : aspect === 'portrait' ? Math.abs(height - width * 16 / 9) <= 2 : Math.abs(width - height * 16 / 9) <= 2;
+}
+function studioRate(rate: number) {
+  const fraction = studioOutputRates.find(value => value.denominator === 1001 && Math.abs(rate - value.numerator / value.denominator) < 0.02);
+  if (fraction) return fraction;
+  const integer = studioOutputRates.find(value => value.denominator === 1 && Math.abs(rate - value.numerator) < 0.005);
+  return integer ?? (rate > 30 ? studioOutputRates[4] : studioOutputRates[2]);
+}
+function resolveStudioOutput(editing: StudioEditing, activeAssets: readonly StudioAsset[]): StudioOutputProfile {
+  const stored = editing.output;
+  if (stored.profile !== 'standard' || !stored.selection) return { ...stored };
+  if (!validStudioOutputSelection(stored.selection)) throw new Error('A escolha de resolução ou FPS precisa de recuperação.');
+  const { resolution, frameRate } = stored.selection;
+  const visual = activeAssets.filter(asset => asset.kind !== 'audio');
+  const edges = visual.filter(asset => asset.width && asset.height).map(asset => editing.canvas.aspectRatio === 'portrait'
+    ? Math.max(asset.width!, asset.height! * 9 / 16) : editing.canvas.aspectRatio === 'square'
+      ? Math.max(asset.width!, asset.height!) : Math.max(asset.height!, asset.width! * 9 / 16)).filter(value => Number.isFinite(value) && value > 0);
+  const shortEdge = resolution === 'original' ? Math.max(64, Math.min(2160, Math.ceil((edges.length ? Math.max(...edges) : 1080) / 2) * 2))
+    : resolution === '4k' ? 2160 : resolution === '2k' ? 1440 : 1080;
+  const longEdge = Math.min(3840, Math.round(shortEdge * 16 / 9 / 2) * 2);
   const portrait = editing.canvas.aspectRatio === 'portrait', square = editing.canvas.aspectRatio === 'square';
-  return { ...editing, output: { profile: 'standard', width: portrait || square ? 1080 : 1920, height: portrait ? 1920 : 1080,
-    frameRateNumerator: 30, frameRateDenominator: 1, colorSpace: 'rec709' } };
+  const sources = activeAssets.filter(asset => asset.kind === 'video').map(asset => asset.frameRate ?? 0).filter(value => Number.isFinite(value) && value > 0);
+  const rate = studioRate(frameRate === 'original' ? Math.min(60, sources.length ? Math.max(...sources) : 30) : frameRate);
+  return { profile: 'standard', width: portrait || square ? shortEdge : longEdge, height: portrait ? longEdge : shortEdge,
+    frameRateNumerator: rate.numerator, frameRateDenominator: rate.denominator, colorSpace: 'rec709', selection: { ...stored.selection } };
+}
+export function withStudioOutputSelection(editing: StudioEditing, selection: StudioOutputSelection): StudioEditing {
+  if (!validStudioOutputSelection(selection)) throw new Error('Escolha uma resolução e um FPS válidos.');
+  const next: StudioEditing = { ...editing, output: { ...editing.output, profile: 'standard', colorSpace: 'rec709', selection: { ...selection } } };
+  return { ...next, output: studioEffectiveOutput(next) };
+}
+export function studioEffectiveOutput(editing: StudioEditing): StudioOutputProfile {
+  return compileStudioRecipe({ kind: 'aula', takes: [], editing }).output;
+}
+export function studioSourceSummary(editing: StudioEditing) {
+  const assets = compileStudioRecipe({ kind: 'aula', takes: [], editing }).assets;
+  const visual = assets.filter(asset => asset.kind !== 'audio'), video = assets.filter(asset => asset.kind === 'video');
+  const largest = visual.filter(asset => asset.width && asset.height).sort((a, b) => b.width! * b.height! - a.width! * a.height!)[0];
+  return { width: largest?.width ?? 0, height: largest?.height ?? 0,
+    frameRates: [...new Set(video.map(asset => asset.frameRate).filter((value): value is number => !!value && Number.isFinite(value)))].sort((a, b) => a - b),
+    unknownDimensions: visual.some(asset => !asset.width || !asset.height), unknownFrameRates: video.some(asset => !asset.frameRate) };
+}
+export function studioOutputLabel(editing: StudioEditing): string {
+  if (editing.output.profile === 'legacy-source') return 'Original da captura';
+  const output = studioEffectiveOutput(editing), fps = output.frameRateNumerator / output.frameRateDenominator;
+  const short = Math.min(output.width, output.height);
+  const label = short === 2160 ? '4K' : short === 1440 ? '2K' : short === 1080 ? 'HD' : `${short}p`;
+  return `${label} · ${Number.isInteger(fps) ? fps : fps.toFixed(3).replace(/0+$/, '')} FPS · SDR`;
+}
+export function studioOutputSupported(output: StudioOutputProfile, capabilities: StudioOutputCapabilities): boolean {
+  if (!capabilities?.available || output.profile !== 'standard' || output.colorSpace !== capabilities.colorSpace
+    || ![output.width, output.height].every(value => Number.isSafeInteger(value) && value % 2 === 0 && value >= capabilities.minimumDimension)
+    || Math.max(output.width, output.height) > capabilities.maximumDimension
+    || Math.min(output.width, output.height) > capabilities.maximumShortDimension || output.width * output.height > capabilities.maximumPixels
+    || !capabilities.frameRates.some(rate => rate.numerator === output.frameRateNumerator && rate.denominator === output.frameRateDenominator)) return false;
+  return capabilities.arbitraryEvenDimensions || capabilities.resolutions.some(value =>
+    output.width === value.width && output.height === value.height || output.width === value.height && output.height === value.width || output.width === output.height && output.width === Math.min(value.width, value.height));
+}
+export function studioOutputWarnings(editing: StudioEditing): StudioOutputWarning[] {
+  const recipe = compileStudioRecipe({ kind: 'aula', takes: [], editing }), output = recipe.output;
+  if (output.profile !== 'standard') return [];
+  const warnings: StudioOutputWarning[] = [];
+  const add = (code: StudioOutputWarning['code'], message: string, assetId: string) => {
+    const found = warnings.find(value => value.code === code);
+    if (found) found.assetIds.push(assetId); else warnings.push({ code, message, assetIds: [assetId] });
+  };
+  const fps = output.frameRateNumerator / output.frameRateDenominator;
+  for (const asset of recipe.assets) {
+    if (asset.kind === 'audio') continue;
+    if (!asset.width || !asset.height || asset.kind === 'video' && !asset.frameRate) add('unknown-source', 'Parte dos metadados dos originais está indisponível. Confira a resolução e o FPS efetivos antes de exportar.', asset.id);
+    if (asset.width && asset.height) {
+      const scale = Math.min(output.width / asset.width, output.height / asset.height);
+      if (scale > 1.01) add('upscale', 'Esta saída amplia originais menores; isso não cria novos detalhes na imagem.', asset.id);
+      if (scale < 0.99) add('downscale', 'Esta saída reduz a resolução de parte dos originais para caber no canvas escolhido.', asset.id);
+    }
+    if (asset.kind === 'video' && asset.frameRate && Math.abs(asset.frameRate - fps) > 0.005) add('fps-conversion', 'Originais com FPS diferente serão convertidos para o FPS da saída; quadros podem ser repetidos ou descartados.', asset.id);
+    if (asset.colorSpace && /2020|2100|hlg|pq|hdr/i.test(asset.colorSpace)) add('sdr-conversion', 'Originais HDR serão convertidos para SDR (Rec.709); cores e luminosidade podem mudar.', asset.id);
+  }
+  return warnings;
 }
 export function createStudioTextItem(options: { id: string; content?: string; atTicks?: number; durationTicks?: number; clipId?: string; kind?: 'text' | 'caption' }): StudioLayerItem {
   return { id: options.id, kind: options.kind ?? 'text', atTicks: options.atTicks ?? 0, durationTicks: options.durationTicks ?? studioTicks(3),

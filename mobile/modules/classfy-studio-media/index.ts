@@ -9,6 +9,10 @@ export type StudioMediaInfo = {
   hasAudio: boolean;
   fileSize: number;
   frameRate?: number;
+  colorSpace?: string;
+  colorPrimaries?: string;
+  transferFunction?: string;
+  yCbCrMatrix?: string;
 };
 
 export type StudioCameraQuality = '720p' | '1080p' | '2160p';
@@ -48,8 +52,16 @@ export type StudioExportOptions = {
   aspectRatio: 'landscape' | 'portrait' | 'square';
 };
 export type StudioExportResult = StudioMediaInfo & { uri: string; mimeType: string };
+export type StudioExportCapabilities = {
+  version: number; available: boolean; colorSpace: 'rec709'; minimumDimension: number;
+  maximumDimension: number; maximumShortDimension: number; maximumPixels: number;
+  arbitraryEvenDimensions: boolean; supportsHEVC: boolean;
+  resolutions: readonly { id: 'hd' | '2k' | '4k'; width: number; height: number; codec: 'h264' | 'hevc' }[];
+  frameRates: readonly { numerator: number; denominator: number }[];
+};
 type StudioMediaEvents = { onExportProgress: (event: { requestId: string; progress: number }) => void; onTranscriptionProgress: (event: { requestId: string; stage: string; progress: number }) => void };
 declare class StudioMediaModule extends NativeModule<StudioMediaEvents> {
+  getStudioExportCapabilitiesAsync?(): Promise<StudioExportCapabilities>;
   getStudioInteractiveCompositionVersionAsync?(): Promise<{ version: number; available: boolean }>;
   performStudioSelectionFeedbackAsync?(): Promise<boolean>;
   getStudioTranscriptionCapabilitiesAsync(locale: string): Promise<StudioTranscriptionCapabilities>;
@@ -125,6 +137,33 @@ export async function cancelExportAsync(requestId: string) { await native?.cance
 // A stale development binary may run new JavaScript. Gate the entire native
 // composition rather than silently exporting a sequential file without layers.
 export function isStudioCompositionAvailable() { return !!native && typeof native.exportRecipeAsync === 'function' && typeof native.seekStudioCompositionAsync === 'function'; }
+export async function getStudioExportCapabilitiesAsync(): Promise<StudioExportCapabilities> {
+  const fallback: StudioExportCapabilities = { version: 1, available: isStudioCompositionAvailable(), colorSpace: 'rec709',
+    minimumDimension: 1080, maximumDimension: 1920, maximumShortDimension: 1080, maximumPixels: 1920 * 1080,
+    arbitraryEvenDimensions: false, supportsHEVC: false,
+    resolutions: [{ id: 'hd', width: 1920, height: 1080, codec: 'h264' }], frameRates: [{ numerator: 30, denominator: 1 }] };
+  if (!isStudioCompositionAvailable() || typeof native?.getStudioExportCapabilitiesAsync !== 'function') return fallback;
+  try {
+    const value = await native.getStudioExportCapabilitiesAsync();
+    if (value.version !== 2 || value.colorSpace !== 'rec709' || typeof value.available !== 'boolean'
+      || !Number.isSafeInteger(value.minimumDimension) || value.minimumDimension < 64
+      || !Number.isSafeInteger(value.maximumDimension) || value.maximumDimension > 3840
+      || !Number.isSafeInteger(value.maximumShortDimension) || value.maximumShortDimension > 2160
+      || !Number.isSafeInteger(value.maximumPixels) || value.maximumPixels > 3840 * 2160
+      || typeof value.arbitraryEvenDimensions !== 'boolean' || typeof value.supportsHEVC !== 'boolean'
+      || !Array.isArray(value.resolutions) || !Array.isArray(value.frameRates)) return fallback;
+    const rates = new Set(['24/1', '25/1', '30/1', '50/1', '60/1', '24000/1001', '30000/1001', '60000/1001']);
+    if (value.resolutions.some(item => !['hd', '2k', '4k'].includes(item.id)
+      || !Number.isSafeInteger(item.width) || !Number.isSafeInteger(item.height)
+      || item.width < 64 || item.height < 64 || item.width > value.maximumDimension || item.height > value.maximumShortDimension
+      || !['h264', 'hevc'].includes(item.codec))
+      || value.frameRates.some(item => !rates.has(`${item.numerator}/${item.denominator}`)
+        || item.numerator / item.denominator > 30.1 && !value.supportsHEVC)
+      || value.available && (value.maximumDimension < value.minimumDimension || value.maximumShortDimension < value.minimumDimension
+        || value.maximumPixels < value.minimumDimension ** 2 || !value.resolutions.length || !value.frameRates.length)) return fallback;
+    return { ...value, resolutions: value.resolutions.map(item => ({ ...item })), frameRates: value.frameRates.map(item => ({ ...item })) };
+  } catch { return fallback; }
+}
 // Presence gates old development clients. The view validates every v1 patch.
 export function isStudioInteractiveCompositionAvailable() { return isStudioCompositionAvailable() && typeof native?.getStudioInteractiveCompositionVersionAsync === 'function'; }
 export async function getStudioInteractiveCompositionVersionAsync() {

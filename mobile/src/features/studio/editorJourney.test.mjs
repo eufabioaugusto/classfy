@@ -232,7 +232,12 @@ for (const kind of ['aula', 'short']) test(`jornada integrada ${kind}: importar 
     assert.equal(reopened.history.state().undoCount, 0, 'Undo is session state; reopening only promises durable editing');
     const reopenedEditor = await createJourneyEditor(reopened, restored.id);
     try {
-      assert.deepEqual(JSON.parse(reopenedEditor.preview.canvas().recipeJSON), expectedRecipe, 'A new production preview receives the durable effects/geometry/mix rather than a flat takes fallback');
+      const previewRecipe = JSON.parse(reopenedEditor.preview.canvas().recipeJSON);
+      const { output: presentationOutput, ...presentationContent } = previewRecipe;
+      const { output: exportOutput, ...exportContent } = expectedRecipe;
+      assert.deepEqual(presentationContent, exportContent, 'Presentation preserves every durable clip, source, effect, geometry and mix; only its rendering profile differs');
+      assert.deepEqual(presentationOutput, { profile:'standard',width:kind === 'short' ? 1080 : 1920,height:kind === 'short' ? 1920 : 1080,frameRateNumerator:30,frameRateDenominator:1,colorSpace:'rec709' }, 'The bounded preview profile is explicit and never certifies the export profile');
+      assert.deepEqual(exportOutput, model.compileStudioRecipe(restored).output, 'The export retains the durable user selection and effective output');
       await reopenedEditor.setPosition(2);
       assert.equal(reopenedEditor.canvas.visibleIds().includes('title'), true);
       assert.equal(reopenedEditor.canvas.visibleIds().includes('slide'), false, 'The reopened canvas respects the durable hidden track');

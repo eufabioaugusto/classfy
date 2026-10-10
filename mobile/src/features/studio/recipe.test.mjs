@@ -186,8 +186,8 @@ test('dados de cor/tempo não finitos e perfil não aprovado são rejeitados; fo
   }
   const unsafe = { ...p.editing, assets: p.editing.assets.map(asset => ({ ...asset, sourceStage: 'cinematicRaw' })) };
   assert.ok(validateStudioEditing(unsafe, 'aula').some(issue => issue.includes('renderizado')));
-  const output = { ...p.editing.output, width: 3840, height: 2160 };
-  assert.ok(validateStudioEditing({ ...p.editing, output }, 'aula').some(issue => issue.includes('1080p')));
+  const output = { ...p.editing.output, selection: undefined, width: 7680, height: 4320 };
+  assert.ok(validateStudioEditing({ ...p.editing, output }, 'aula').some(issue => issue.includes('saída')));
 });
 test('dados inválidos de camada oculta e original sem uso continuam bloqueando o save', () => {
   const p = standard();

@@ -42,6 +42,8 @@ const steps = [
   { name: 'legacy-media', args: ['run', 'test:studio:media'], limitMs: 300_000 },
   { name: 'composition', args: ['run', 'test:studio:recipe'], limitMs: 180_000 },
   { name: 'export-recovery', args: ['run', 'test:studio:export-recovery'], limitMs: 180_000 },
+  { name: 'output-profiles', args: ['run', 'test:studio:output'],
+    env: { STUDIO_OUTPUT_REPORT: join(studioReportRoot, 'output-profiles.json') }, limitMs: 180_000 },
   { name: 'composition-initial-frame', args: ['run', 'test:studio:initial-frame'], limitMs: 120_000 },
   { name: 'composition-interaction', args: ['run', 'test:studio:interaction'], limitMs: 180_000 },
   { name: 'transcription-contracts', args: ['run', 'test:studio:transcription'], limitMs: 180_000 },
@@ -86,8 +88,11 @@ for (const step of steps) {
   const passed = result.status === 0 && !result.error;
   const counts = [...output.matchAll(/[ℹ#]\s+(tests|pass|fail|skipped)\s+(\d+)/g)];
   const testCounts = Object.fromEntries(counts.map(([, key, count]) => [key, Number(count)]));
+  const outputEvidencePath = step.name === 'output-profiles' ? join(studioReportRoot, 'output-profiles.json') : undefined;
+  const outputEvidence = outputEvidencePath && existsSync(outputEvidencePath) ? JSON.parse(readFileSync(outputEvidencePath, 'utf8')) : undefined;
   results.push({ name: step.name, passed, exitCode: result.status, signal: result.signal,
-    durationMs: Math.round(performance.now() - start), logPath, ...(counts.length ? { testCounts } : {}) });
+    durationMs: Math.round(performance.now() - start), logPath, ...(counts.length ? { testCounts } : {}),
+    ...(outputEvidence ? { outputEvidencePath, outputEvidence } : {}) });
   report();
   console.log(`${passed ? 'OK' : 'FALHOU'} ${step.name} (${results.at(-1).durationMs} ms). ${logPath}`);
   if (!passed) {

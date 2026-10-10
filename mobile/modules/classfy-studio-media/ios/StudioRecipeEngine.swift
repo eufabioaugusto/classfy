@@ -4,6 +4,7 @@ import CoreText
 import CoreVideo
 import Foundation
 import ImageIO
+import VideoToolbox
 
 struct StudioRecipe: Codable {
   let version: Int
@@ -18,6 +19,8 @@ struct StudioRecipe: Codable {
   struct Output: Codable {
     let profile: String; let width: Int; let height: Int
     let frameRateNumerator: Int; let frameRateDenominator: Int; let colorSpace: String
+    var frameRate: Double { Double(frameRateNumerator) / Double(frameRateDenominator) }
+    var frameDuration: CMTime { CMTime(value: Int64(frameRateDenominator), timescale: Int32(frameRateNumerator)) }
   }
   struct Asset: Codable {
     let id: String; let kind: String; let uri: String; let durationTicks: Int64
@@ -54,6 +57,87 @@ enum StudioRecipeError: LocalizedError {
     case .invalid(let message): return message
     case .cancelled: return "Preparação cancelada. Os originais continuam preservados."
     }
+  }
+}
+
+/// Versioned output negotiation is independent from camera formats. A camera
+/// take remains its original size/cadence; this describes the SDR compositor.
+enum StudioRecipeOutputSupport {
+  static let rates: [(Int, Int)] = [(24, 1), (25, 1), (30, 1), (50, 1), (60, 1),
+    (24_000, 1001), (30_000, 1001), (60_000, 1001)]
+  private static let probeLock = NSLock()
+  private static var positiveProbes = Set<String>()
+
+  static func valid(_ output: StudioRecipe.Output, aspect: String) -> Bool {
+    let width = output.width, height = output.height
+    guard output.profile == "standard", output.colorSpace == "rec709",
+      width >= 64, height >= 64, width <= 3840, height <= 3840,
+      width % 2 == 0, height % 2 == 0, min(width, height) <= 2160,
+      width * height <= 3840 * 2160,
+      rates.contains(where: { $0.0 == output.frameRateNumerator && $0.1 == output.frameRateDenominator }) else { return false }
+    switch aspect {
+    case "landscape": return width >= height && abs(Double(width) - Double(height) * 16 / 9) <= 2
+    case "portrait": return height >= width && abs(Double(height) - Double(width) * 16 / 9) <= 2
+    case "square": return width == height
+    default: return false
+    }
+  }
+
+  static func preset(_ output: StudioRecipe.Output) -> String {
+    output.frameRate > 30.1 ? AVAssetExportPresetHEVCHighestQuality : AVAssetExportPresetHighestQuality
+  }
+
+  // canApply(settings) only validates container compatibility. Prepare a real
+  // encoder at the requested dimensions instead, then validate the completed
+  // export itself. ExpectedFrameRate is a hint, not a throughput guarantee.
+  static func encoderSupported(width: Int, height: Int, rate: Double, hevc: Bool) -> Bool {
+    let key = "\(width)x\(height):\(rate):\(hevc)"
+    probeLock.lock(); defer { probeLock.unlock() }
+    if positiveProbes.contains(key) { return true }
+    var session: VTCompressionSession?
+    var specification: CFDictionary?
+    if #available(iOS 17.4, tvOS 17.4, *) {
+      specification = [kVTVideoEncoderSpecification_EnableHardwareAcceleratedVideoEncoder: true] as CFDictionary
+    }
+    // Older iOS chooses its available encoder without this newer hint. The
+    // codec/size session and PrepareToEncodeFrames still have to succeed;
+    // neither this negotiation nor ExpectedFrameRate promises throughput.
+    let result = VTCompressionSessionCreate(allocator: nil, width: Int32(width), height: Int32(height),
+      codecType: hevc ? kCMVideoCodecType_HEVC : kCMVideoCodecType_H264,
+      encoderSpecification: specification,
+      imageBufferAttributes: nil, compressedDataAllocator: nil, outputCallback: nil, refcon: nil,
+      compressionSessionOut: &session)
+    guard result == noErr, let session else { return false }
+    defer { VTCompressionSessionInvalidate(session) }
+    let properties: [CFString: Any] = [kVTCompressionPropertyKey_RealTime: false,
+      kVTCompressionPropertyKey_ExpectedFrameRate: rate,
+      kVTCompressionPropertyKey_ProfileLevel: hevc ? kVTProfileLevel_HEVC_Main_AutoLevel : kVTProfileLevel_H264_High_AutoLevel]
+    guard VTSessionSetProperties(session, propertyDictionary: properties as CFDictionary) == noErr,
+      VTCompressionSessionPrepareToEncodeFrames(session) == noErr else { return false }
+    positiveProbes.insert(key)
+    return true
+  }
+
+  static func capabilities() -> [String: Any] {
+    let tiers: [(String, Int, Int)] = [("hd", 1920, 1080), ("2k", 2560, 1440), ("4k", 3840, 2160)]
+    let available = tiers.filter { _, width, height in
+      [(width, height), (height, width), (height, height)].allSatisfy {
+        encoderSupported(width: $0.0, height: $0.1, rate: 30, hevc: false)
+      }
+    }
+    let largest = available.last
+    let hevc = largest.map { _, width, height in
+      [(width, height), (height, width), (height, height)].allSatisfy {
+        encoderSupported(width: $0.0, height: $0.1, rate: 60, hevc: true)
+      }
+    } ?? false
+    return ["version": 2, "available": !available.isEmpty, "colorSpace": "rec709",
+      "minimumDimension": 64, "maximumDimension": largest?.1 ?? 0,
+      "maximumShortDimension": largest?.2 ?? 0, "maximumPixels": (largest?.1 ?? 0) * (largest?.2 ?? 0),
+      "arbitraryEvenDimensions": true, "supportsHEVC": hevc,
+      "resolutions": available.map { ["id": $0.0, "width": $0.1, "height": $0.2, "codec": "h264"] as [String: Any] },
+      "frameRates": rates.filter { hevc || Double($0.0) / Double($0.1) <= 30.1 }
+        .map { ["numerator": $0.0, "denominator": $0.1] }]
   }
 }
 
@@ -298,20 +382,9 @@ final class StudioRecipeEngine {
           recipe.durationTicks > 0, recipe.durationTicks <= 120_000 * 43_200,
           ["video", "audio"].contains(recipe.mediaType), !recipe.clips.isEmpty, recipe.clips.count <= 1000,
           recipe.assets.count <= 1000 else { throw StudioRecipeError.invalid("Revise a duração e os elementos desta edição.") }
-    guard recipe.output.profile == "standard" else {
-      throw StudioRecipeError.invalid("Esta composição precisa do perfil 1080p, 30 fps SDR. Confirme a troca de perfil para usar camadas.")
-    }
-    let expected: CGSize
-    switch recipe.canvas.aspectRatio {
-    case "landscape": expected = CGSize(width: 1920, height: 1080)
-    case "portrait": expected = CGSize(width: 1080, height: 1920)
-    case "square": expected = CGSize(width: 1080, height: 1080)
-    default: throw StudioRecipeError.invalid("O formato desta edição não é compatível.")
-    }
-    guard recipe.size == expected, recipe.output.frameRateNumerator == 30,
-          recipe.output.frameRateDenominator == 1, recipe.output.colorSpace == "rec709",
+    guard StudioRecipeOutputSupport.valid(recipe.output, aspect: recipe.canvas.aspectRatio),
           color(recipe.canvas.backgroundColor) != nil else {
-      throw StudioRecipeError.invalid("Use o perfil 1080p, 30 fps SDR para esta composição.")
+      throw StudioRecipeError.invalid("Escolha um perfil SDR compatível com o formato da montagem, até 4K e 60 FPS.")
     }
     guard Set(recipe.assets.map(\.id)).count == recipe.assets.count,
           Set(recipe.clips.map(\.id)).count == recipe.clips.count else {
@@ -485,7 +558,7 @@ final class StudioRecipeEngine {
                                        reusingIntervals previous: AVMutableVideoComposition? = nil) -> AVMutableVideoComposition {
     let video = AVMutableVideoComposition()
     video.customVideoCompositorClass = StudioRecipeCompositor.self
-    video.renderSize = recipe.size; video.frameDuration = CMTime(value: 1, timescale: 30)
+    video.renderSize = recipe.size; video.frameDuration = recipe.output.frameDuration
     video.sourceTrackIDForFrameTiming = kCMPersistentTrackID_Invalid
     video.colorPrimaries = AVVideoColorPrimaries_ITU_R_709_2
     video.colorTransferFunction = AVVideoTransferFunction_ITU_R_709_2
@@ -622,8 +695,12 @@ final class StudioRecipeEngine {
   // CoreText is rasterized once per element, shared unchanged between player and export.
   static func textImage(_ clip: StudioRecipe.Clip, canvas: CGSize) throws -> CIImage {
     guard let text = clip.text else { throw StudioRecipeError.invalid("O texto deste elemento está vazio.") }
-    let width = max(1, Int((clip.rect.width * canvas.width).rounded()))
-    let height = max(1, Int((clip.rect.height * canvas.height).rounded()))
+    let rawWidth = max(1, clip.rect.width * canvas.width), rawHeight = max(1, clip.rect.height * canvas.height)
+    // Oversized text boxes are valid editing geometry, but must not allocate
+    // a 300MB raster at 4K. Uniformly scale font/margins with the bounded raster.
+    let rasterScale = min(1, 6000 / max(rawWidth, rawHeight), sqrt(16_777_216 / (rawWidth * rawHeight)))
+    let width = max(1, Int((rawWidth * rasterScale).rounded(.down)))
+    let height = max(1, Int((rawHeight * rasterScale).rounded(.down)))
     guard width <= 6000, height <= 6000,
           let context = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width * 4,
             space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else {
@@ -631,7 +708,7 @@ final class StudioRecipeEngine {
     }
     context.setFillColor(cgColor(text.backgroundColor)); context.fill(CGRect(x: 0, y: 0, width: width, height: height))
     let font = CTFontCreateWithName((text.fontFamily.lowercased() == "system" ? "Helvetica" : text.fontFamily) as CFString,
-                                  text.fontSize * canvas.height, nil)
+                                  text.fontSize * canvas.height * rasterScale, nil)
     var alignment: CTTextAlignment = text.alignment == "left" ? .left : text.alignment == "right" ? .right : .center
     let paragraph = withUnsafePointer(to: &alignment) { pointer -> CTParagraphStyle in
       var setting = CTParagraphStyleSetting(spec: .alignment, valueSize: MemoryLayout<CTTextAlignment>.size, value: pointer)
@@ -643,7 +720,7 @@ final class StudioRecipeEngine {
       NSAttributedString.Key(kCTParagraphStyleAttributeName as String): paragraph
     ])
     let framesetter = CTFramesetterCreateWithAttributedString(attributed)
-    let inset = min(8, CGFloat(width) / 8, CGFloat(height) / 8)
+    let inset = min(8 * min(canvas.width, canvas.height) / 1080 * rasterScale, CGFloat(width) / 8, CGFloat(height) / 8)
     let box = CGRect(x: inset, y: inset, width: CGFloat(width) - inset * 2, height: CGFloat(height) - inset * 2)
     let frame = CTFramesetterCreateFrame(framesetter, CFRange(location: 0, length: 0), CGPath(rect: box, transform: nil), nil)
     context.textMatrix = .identity; CTFrameDraw(frame, context)
@@ -772,6 +849,12 @@ final class StudioRecipeEngine {
     progress(0); try checkJob(requestId)
     let output = try localURL(outputUri, mustExist: false)
     let recipe = try Self.decode(recipeJSON)
+    if recipe.mediaType == "video" {
+      guard StudioRecipeOutputSupport.encoderSupported(width: recipe.output.width, height: recipe.output.height,
+        rate: recipe.output.frameRate, hevc: recipe.output.frameRate > 30.1) else {
+        throw StudioRecipeError.invalid("O aparelho não conseguiu preparar este perfil. Escolha outra resolução ou FPS; seus originais foram mantidos.")
+      }
+    }
     guard !recipe.assets.contains(where: { URL(string: $0.uri)?.standardizedFileURL == output }) else {
       throw StudioRecipeError.invalid("A edição não pode substituir um original.")
     }
@@ -785,7 +868,7 @@ final class StudioRecipeEngine {
     let prepared = try await prepare(recipe: recipe, check: { try self.checkJob(requestId) })
     let audioOnly = recipe.mediaType == "audio"
     guard let session = AVAssetExportSession(asset: prepared.composition,
-      presetName: audioOnly ? AVAssetExportPresetAppleM4A : AVAssetExportPresetHighestQuality) else {
+      presetName: audioOnly ? AVAssetExportPresetAppleM4A : StudioRecipeOutputSupport.preset(recipe.output)) else {
       throw StudioRecipeError.invalid("Este aparelho não conseguiu iniciar a preparação.")
     }
     let fileType: AVFileType = audioOnly ? .m4a : .mp4
@@ -822,9 +905,18 @@ final class StudioRecipeEngine {
     if let video {
       let size = try await video.load(.naturalSize)
       width = size.width; height = size.height; rate = Double(try await video.load(.nominalFrameRate))
+      if let format = try await video.load(.formatDescriptions).first {
+        let colors = CMFormatDescriptionGetExtensions(format) as? NSDictionary
+        guard colors?[kCMFormatDescriptionExtension_ColorPrimaries] as? String == kCMFormatDescriptionColorPrimaries_ITU_R_709_2 as String,
+          colors?[kCMFormatDescriptionExtension_TransferFunction] as? String == kCMFormatDescriptionTransferFunction_ITU_R_709_2 as String,
+          colors?[kCMFormatDescriptionExtension_YCbCrMatrix] as? String == kCMFormatDescriptionYCbCrMatrix_ITU_R_709_2 as String,
+          CMFormatDescriptionGetMediaSubType(format) == (recipe.output.frameRate > 30.1 ? kCMVideoCodecType_HEVC : kCMVideoCodecType_H264) else {
+          throw StudioRecipeError.invalid("A exportação não preservou o codec ou as cores SDR da edição. Os originais foram mantidos.")
+        }
+      } else { throw StudioRecipeError.invalid("Não foi possível confirmar o perfil do arquivo final. Os originais foram mantidos.") }
     }
-    guard abs(duration - recipe.durationSeconds) <= 1 / 30.0 + 0.01,
-          audioOnly || (width == Double(recipe.output.width) && height == Double(recipe.output.height) && abs(rate - 30) < 0.02) else {
+    guard abs(duration - recipe.durationSeconds) <= recipe.output.frameDuration.seconds + 0.01,
+          audioOnly || (width == Double(recipe.output.width) && height == Double(recipe.output.height) && abs(rate - recipe.output.frameRate) < 0.02) else {
       throw StudioRecipeError.invalid("A exportação não preservou o perfil da edição. Os originais foram mantidos.")
     }
     try checkJob(requestId)

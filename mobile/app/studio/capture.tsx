@@ -15,6 +15,8 @@ import { usePrimaryAction } from '@/contexts/PrimaryActionContext';
 import { useAuth } from '@/features/auth/authContext';
 import { importStudioMedia, persistStudioTake } from '@/features/studio/media';
 import { formatStudioDuration, normalizeStudioCaptureGrade, studioEditing, studioGrade, withStudioStandardOutput, type StudioEffect, type StudioGrade, type StudioProject } from '@/features/studio/model';
+import { studioEffectiveOutput, studioOutputSupported, studioOutputWarnings, withStudioOutputSelection } from '@/features/studio/model';
+import { getStudioExportCapabilitiesAsync } from '../../modules/classfy-studio-media';
 import { discardTransientStudioProject, getStudioProject, mutateStudioProject } from '@/features/studio/store';
 import { useStudioProject } from '@/features/studio/useStudioProjects';
 import { useStudioOrientation } from '@/features/studio/useStudioOrientation';
@@ -197,17 +199,28 @@ export default function StudioCaptureScreen() {
       if (normalizeStudioCaptureGrade(next) && studioEditing(latest).output.profile === 'legacy-source') {
         if (effectBusyRef.current) return;
         effectBusyRef.current = true; setEffectBusy(true);
-        const accepted = await new Promise<boolean>(resolve => Alert.alert('Usar tratamento nesta montagem?',
-          'A montagem com tratamento será exportada em 1080p, 30 FPS e SDR. Seu vídeo original continua preservado.',
-          [{ text: 'Cancelar', style: 'cancel', onPress: () => resolve(false) }, { text: 'Usar 1080p', onPress: () => resolve(true) }],
+        const nextEditing = withStudioStandardOutput(studioEditing(latest));
+        const capabilities = await getStudioExportCapabilitiesAsync();
+        assertSession(target);
+        const needsUpdate = !studioOutputSupported(studioEffectiveOutput(nextEditing), capabilities);
+        const warnings = studioOutputWarnings(nextEditing).filter(warning => warning.code === 'sdr-conversion');
+        const accepted = !needsUpdate && !warnings.length || await new Promise<boolean>(resolve => Alert.alert('Usar tratamento nesta montagem?',
+          needsUpdate ? 'Para manter a qualidade original com tratamento, instale o motor atualizado do Classfy Dev. Você também pode escolher HD e 30 FPS para esta montagem. Seu vídeo original será preservado.' : warnings.map(warning => warning.message).join('\n\n'),
+          [{ text: 'Cancelar', style: 'cancel', onPress: () => resolve(false) }, { text: needsUpdate ? 'Escolher HD · 30 FPS' : 'Usar tratamento', onPress: () => resolve(true) }],
           { cancelable: true, onDismiss: () => resolve(false) }));
         assertSession(target);
         if (!accepted || !mounted.current || !captureContext.current.focused || captureContext.current.id !== target.id || phaseRef.current !== 'idle') {
           effectBusyRef.current = false; if (mounted.current) setEffectBusy(false); return;
         }
+        const confirmed = needsUpdate ? withStudioOutputSelection(studioEditing(latest), { resolution: 'hd', frameRate: 30 }) : nextEditing;
+        const confirmedWarnings = studioOutputWarnings(confirmed);
         await mutateStudioProject(target.ownerId, target.id, current => {
           assertSession(target);
-          return { editing: withStudioStandardOutput(studioEditing(current)) };
+          if (!mounted.current || !captureContext.current.focused || captureContext.current.id !== target.id || phaseRef.current !== 'idle') throw new Error('Volte à câmera para confirmar o tratamento.');
+          const resolved = needsUpdate ? withStudioOutputSelection(studioEditing(current), { resolution: 'hd', frameRate: 30 }) : withStudioStandardOutput(studioEditing(current));
+          if (!studioOutputSupported(studioEffectiveOutput(resolved), capabilities) || JSON.stringify(resolved.output) !== JSON.stringify(confirmed.output)
+            || JSON.stringify(studioOutputWarnings(resolved)) !== JSON.stringify(confirmedWarnings)) throw new Error('A qualidade dos originais mudou. Confirme novamente o tratamento.');
+          return { editing: resolved };
         });
         assertSession(target);
         effectBusyRef.current = false; if (mounted.current) setEffectBusy(false);
@@ -834,7 +847,7 @@ export default function StudioCaptureScreen() {
               <View style={styles.settingRow}>{effectBusy ? <ActivityIndicator size={13} color={colors.textSecondary} /> : null}
                 <Text accessibilityLiveRegion="polite" style={[styles.cameraHint, effectError && styles.failure]}>{effectError || (effectBusy ? 'Confirmando a prévia…' : nativeEffects && effectSupported ? 'Tratamento confirmado na prévia.' : 'Gravação com a imagem original.')}</Text>
               </View>
-              <Text style={styles.cameraHint}>Montagem com tratamento: 1080p · 30 FPS · SDR. O arquivo capturado mantém a qualidade escolhida na câmera.</Text>
+              <Text style={styles.cameraHint}>O original mantém a qualidade confirmada na câmera. A qualidade da montagem é escolhida no editor; tratamentos são aplicados em SDR.</Text>
             </>}
             {panel === 'quality' && <>
               <Text style={styles.panelDetail}>{cameraState ? 'Resolução e movimento do seu vídeo. Toque em HD ou FPS na câmera para alternar rapidamente.' : 'Mais qualidade ou um arquivo mais leve. A resolução pode variar conforme a câmera do seu aparelho.'}</Text>

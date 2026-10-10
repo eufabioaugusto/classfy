@@ -16,6 +16,15 @@ type Props = {
   canvasTransformChannel?: StudioCanvasTransformChannelRef;
 };
 type NativeError = { message: string; code?: string; revision: string; token: number };
+// Preview and export share geometry/timing, not their pixel budget. Keep this
+// wire recipe valid in installed 1080p30 binaries and avoid rebuilding the
+// player merely because the final output profile changed.
+export function studioCompositionPreviewRecipe(recipe: StudioRenderRecipe): StudioRenderRecipe {
+  const portrait = recipe.canvas.aspectRatio === 'portrait';
+  const square = recipe.canvas.aspectRatio === 'square';
+  return { ...recipe, output: { profile: 'standard', width: portrait || square ? 1080 : 1920,
+    height: portrait ? 1920 : 1080, frameRateNumerator: 30, frameRateDenominator: 1, colorSpace: 'rec709' } };
+}
 type NativeProps = { ref?: React.Ref<unknown>; recipeJSON: string; revision: string; paused: boolean; style: object; liveVisualJSON?: string;
   onPlaybackState: (event: { nativeEvent: StudioNativePlayback }) => void;
   onError: (event: { nativeEvent: NativeError }) => void;
@@ -117,7 +126,10 @@ const NativePreview = forwardRef<StudioPreviewHandle, Props>(function NativePrev
   // JSON once; an opaque revision must not echo a whole lesson in every event.
   const compiled = useMemo(() => props.recipe || compileStudioRecipe(props.project), [props.recipe, props.project.editing, props.project.kind, props.project.takes]);
   const duration = useRef(0); duration.current = Math.max(0, compiled.durationTicks / compiled.timebase);
-  const recipe = useMemo(() => JSON.stringify(props.before ? { ...compiled, clips: compiled.clips.map(clip => ({ ...clip, effect: 'natural', grade: { preset: 'natural', intensity: 0, exposure: 0, contrast: 0, saturation: 0, temperature: 0 } })) } : compiled), [compiled, props.before]);
+  const recipe = useMemo(() => {
+    const preview = studioCompositionPreviewRecipe(compiled);
+    return JSON.stringify(props.before ? { ...preview, clips: preview.clips.map(clip => ({ ...clip, effect: 'natural', grade: { preset: 'natural', intensity: 0, exposure: 0, contrast: 0, saturation: 0, temperature: 0 } })) } : preview);
+  }, [compiled, props.before]);
   const revisionSequence = useRef({ recipe: '', projectId: '', value: 0 });
   if (revisionSequence.current.recipe !== recipe || revisionSequence.current.projectId !== props.project.id) {
     revisionSequence.current = { recipe, projectId: props.project.id, value: revisionSequence.current.value + 1 };

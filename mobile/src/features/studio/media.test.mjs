@@ -32,14 +32,17 @@ function harness(options = {}) {
   fileSystem.copyAsync = async options => { copies.push(options); await copy(options); };
   const native = {
     isStudioMediaAvailable: () => options.mediaAvailable !== false, isStudioCompositionAvailable: () => options.compositionAvailable !== false,
-    exportRecipeAsync: async options => { nativeExports++; nativeCalls.push({ kind: 'recipe', ...options }); return { uri: options.outputUri, duration: 2, mimeType: 'video/mp4', fileSize: 100 }; },
+    getStudioExportCapabilitiesAsync: async () => typeof options.capabilities === 'function' ? options.capabilities() : options.capabilities || { version: 2, available: true, colorSpace: 'rec709', minimumDimension: 64, maximumDimension: 3840, maximumShortDimension: 2160, maximumPixels: 8294400, arbitraryEvenDimensions: true, resolutions: [{ id: 'hd', width: 1920, height: 1080, codec: 'h264' }, { id: '2k', width: 2560, height: 1440, codec: 'hevc' }, { id: '4k', width: 3840, height: 2160, codec: 'hevc' }], frameRates: [24,25,30,50,60].map(numerator => ({ numerator, denominator: 1 })).concat([24000,30000,60000].map(numerator => ({ numerator, denominator: 1001 }))), supportsHEVC: true },
+    exportRecipeAsync: async config => { nativeExports++; nativeCalls.push({ kind: 'recipe', ...config }); const recipe = JSON.parse(config.recipeJSON);
+      disk.set(config.outputUri, { info: { duration: recipe.durationTicks / recipe.timebase, width: recipe.output.width, height: recipe.output.height, frameRate: recipe.output.frameRateNumerator / recipe.output.frameRateDenominator, hasVideo: recipe.mediaType === 'video', hasAudio: true, fileSize: 100, ...options.exportedInfo } });
+      return { uri: config.outputUri, duration: recipe.durationTicks / recipe.timebase, mimeType: 'video/mp4', fileSize: 100 }; },
     getMediaInfoAsync: async uri => {
       if (!repair && disk.get(uri)?.bad) throw new Error('Arquivo temporariamente ilegível');
-      return options.mediaInfo?.(uri) || { duration: 2, width: 320, height: 180, hasVideo: true, hasAudio: true, fileSize: 100 };
+      return disk.get(uri)?.info || options.mediaInfo?.(uri) || { duration: 2, width: 320, height: 180, hasVideo: true, hasAudio: true, fileSize: 100 };
     },
     generateThumbnailAsync: async (_uri, output) => { disk.set(output, {}); return { uri: output }; },
-    cancelExportAsync: async () => {}, exportTimelineAsync: async options => {
-      nativeExports++; nativeCalls.push({ kind: 'legacy', ...options }); return { uri: options.outputUri, duration: 2, mimeType: 'video/mp4', fileSize: 100 };
+    cancelExportAsync: async () => {}, exportTimelineAsync: async config => {
+      nativeExports++; nativeCalls.push({ kind: 'legacy', ...config }); disk.set(config.outputUri, { info: { duration: config.clips.reduce((sum,clip)=>sum+clip.endSeconds-clip.startSeconds,0), width: 320, height: 180, frameRate: 30, hasVideo: config.mediaType === 'video', hasAudio: true, fileSize: 100 } }); return { uri: config.outputUri, duration: 2, mimeType: 'video/mp4', fileSize: 100 };
     },
   };
   const media = compile('./media.ts', { 'expo-file-system/legacy': fileSystem, 'expo-crypto': crypto,
@@ -201,7 +204,7 @@ test('imagem importada preserva original e export envia mesma receita com texto,
   assert.equal(call.kind, 'recipe'); assert.deepEqual(JSON.parse(call.recipeJSON), JSON.parse(JSON.stringify(expected)));
   assert.equal(h.store.getStudioProject('owner', p.id).exportedUri, result.uri);
   const asset = expected.assets.find(asset => asset.kind === 'image'); assert.ok(h.disk.has(asset.uri)); assert.ok(asset.uri.endsWith('.png'));
-  assert.equal(expected.durationTicks, h.model.studioTicks(4)); assert.equal(expected.output.width, 1080); assert.equal(expected.output.height, 1920);
+  assert.equal(expected.durationTicks, h.model.studioTicks(4)); assert.equal(expected.output.width, 1200); assert.equal(expected.output.height, 2134);
 });
 test('imagem usa dimensões visuais do picker sem criar outra rasterização nem alterar o original', async () => {
   const h = harness({ pickerAssets: [{ uri: 'file:///photo.heic', fileName: 'Foto.heic', width: 8064, height: 6048 }] });
@@ -307,7 +310,7 @@ test('legado simples usa export original; efeito ou camada não podem cair no ex
   const legacy = await h.store.updateStudioProject('owner', p.id, { editing: { ...created.editing, output: { ...created.editing.output, profile: 'legacy-source', colorSpace: 'source' } } });
   await h.media.exportStudioProject(legacy); assert.equal(h.nativeCalls.at(-1).kind, 'legacy');
   const graded = await h.store.updateStudioProject('owner', p.id, { editing: h.model.patchStudioClipGrade(legacy.editing, 'base', { preset: 'cinematic' }) });
-  const before = h.nativeExports(); await assert.rejects(h.media.exportStudioProject(graded), /perfil 1080p/);
+  const before = h.nativeExports(); await assert.rejects(h.media.exportStudioProject(graded), /perfil de composição/);
   assert.equal(h.nativeExports(), before);
 });
 test('mute principal exporta receita silenciosa sem perder o ganho original e nunca cai no export legado', async () => {
@@ -321,7 +324,7 @@ test('mute principal exporta receita silenciosa sem perder o ganho original e nu
   assert.equal(JSON.parse(call.recipeJSON).clips[0].gain, 0);
   assert.equal(h.store.getStudioProject('owner', p.id).editing.main[0].gain, 0.4);
   const legacy = await h.store.updateStudioProject('owner', p.id, { editing: { ...muted.editing, output: { ...muted.editing.output, profile: 'legacy-source', colorSpace: 'source' } } });
-  const before = h.nativeExports(); await assert.rejects(h.media.exportStudioProject(legacy), /perfil 1080p/);
+  const before = h.nativeExports(); await assert.rejects(h.media.exportStudioProject(legacy), /perfil de composição/);
   assert.equal(h.nativeExports(), before);
 });
 test('áudio curto ajusta fades à duração conhecida depois do picker sem perder journal', async () => {
@@ -408,4 +411,117 @@ test('captura Natural identidade mantém export original de projeto legado em bi
   const saved = await h.store.updateStudioProject('owner', p.id, { takes: [take] });
   assert.equal(saved.editing.main[0].grade, undefined);
   await h.media.exportStudioProject(saved); assert.equal(h.nativeCalls[0].kind, 'legacy');
+});
+
+test('qualidade escolhida chega à receita nativa e metadados efetivos são certificados antes do cache', async () => {
+  const h = harness(); let p = await h.store.createStudioProject('owner','aula');
+  p = await h.store.updateStudioProject('owner',p.id,{ takes:[{ id:'4k',uri:'file:///4k.mp4',name:'4K 60',duration:4,start:0,end:4,width:3840,height:2160,frameRate:60 }] });
+  p = await h.store.updateStudioProject('owner',p.id,{ editing:h.model.withStudioOutputSelection(p.editing,{ resolution:'2k',frameRate:24 }) });
+  const result = await h.media.exportStudioProject(p);
+  const recipe = JSON.parse(h.nativeCalls.at(-1).recipeJSON);
+  assert.deepEqual([recipe.output.width,recipe.output.height,recipe.output.frameRateNumerator],[2560,1440,24]);
+  assert.equal(result.duration,4);
+  const saved = h.store.getStudioProject('owner',p.id);
+  assert.equal(saved.exportedSignature,h.model.timelineSignature(saved));
+  await h.media.exportStudioProject(saved);
+  assert.equal(h.nativeExports(),1,'arquivo confirmado reutiliza cache sem novo encode');
+});
+test('cache truncado ou de outra resolução/FPS é regenerado apesar da assinatura idêntica', async () => {
+  for (const patch of [{ width:1920,height:1080 },{ frameRate:30 },{ duration:1 },{ fileSize:0 }]) {
+    const h = harness(); let p = await h.store.createStudioProject('owner','aula');
+    p = await h.store.updateStudioProject('owner',p.id,{ takes:[{ id:'4k',uri:'file:///4k.mp4',name:'4K',duration:4,start:0,end:4,width:3840,height:2160,frameRate:60 }] });
+    const stale = 'file:///stale.mp4';
+    h.disk.set(stale,{ info:{ duration:4,width:3840,height:2160,frameRate:60,hasVideo:true,hasAudio:true,fileSize:100,...patch } });
+    p = await h.store.updateStudioProject('owner',p.id,{ exportedUri:stale,exportedSignature:h.model.timelineSignature(p) });
+    const result = await h.media.exportStudioProject(p);
+    assert.notEqual(result.uri,stale); assert.equal(h.nativeExports(),1);
+  }
+});
+test('arquivo novo degradado ou truncado não anuncia exportação nem recebe assinatura', async () => {
+  for (const exportedInfo of [{ width:1920,height:1080 },{ frameRate:30 },{ duration:1 },{ fileSize:0 }]) {
+    const h = harness({ exportedInfo }); let p = await h.store.createStudioProject('owner','aula');
+    p = await h.store.updateStudioProject('owner',p.id,{ takes:[{ id:'4k',uri:'file:///4k.mp4',name:'4K',duration:4,start:0,end:4,width:3840,height:2160,frameRate:60 }] });
+    await assert.rejects(h.media.exportStudioProject(p),/arquivo gerado não corresponde/);
+    const saved = h.store.getStudioProject('owner',p.id);
+    assert.equal(saved.exportedSignature,undefined); assert.equal(saved.exportedUri,undefined);
+    assert.equal(saved.takes[0].uri,'file:///4k.mp4');
+  }
+});
+test('binário antigo recusa saída4K60 antes do encode e não converte silenciosamente paraHD30', async () => {
+  const old = { version:1,available:true,colorSpace:'rec709',minimumDimension:64,maximumDimension:1920,maximumShortDimension:1080,maximumPixels:2073600,arbitraryEvenDimensions:false,resolutions:[{ id:'hd',width:1920,height:1080,codec:'h264' }],frameRates:[{ numerator:30,denominator:1 }],supportsHEVC:false };
+  const h = harness({ capabilities:old }); let p = await h.store.createStudioProject('owner','aula');
+  p = await h.store.updateStudioProject('owner',p.id,{ takes:[{ id:'4k',uri:'file:///4k.mp4',name:'4K',duration:4,start:0,end:4,width:3840,height:2160,frameRate:60 }] });
+  await assert.rejects(h.media.exportStudioProject(p),/não suporta a saída escolhida/);
+  assert.equal(h.nativeExports(),0);
+  assert.deepEqual(plain(h.store.getStudioProject('owner',p.id).editing.output.selection),{ resolution:'original',frameRate:'original' });
+  p = await h.store.updateStudioProject('owner',p.id,{ editing:h.model.withStudioOutputSelection(p.editing,{ resolution:'hd',frameRate:30 }) });
+  await h.media.exportStudioProject(p); assert.equal(h.nativeExports(),1,'conversão explícita compatível continua possível');
+});
+test('cancelamento na consulta de capacidades impede encode e publicação de artefato', async () => {
+  let release; const gate = new Promise(resolve=>{release=resolve;});
+  const h = harness({ capabilities:()=>gate }); let p = await h.store.createStudioProject('owner','aula');
+  p = await h.store.updateStudioProject('owner',p.id,{ takes:[{ id:'a',uri:'file:///a.mp4',name:'A',duration:2,start:0,end:2,width:1280,height:720,frameRate:24 }] });
+  let active = true;
+  const run = h.media.exportStudioProject(p,undefined,()=>active);
+  await new Promise(resolve=>setImmediate(resolve)); active=false; release({ available:false });
+  await assert.rejects(run,/interrompida/); assert.equal(h.nativeExports(),0);
+  assert.equal(h.store.getStudioProject('owner',p.id).exportedSignature,undefined);
+});
+test('journal recuperado prefere FPS medido no arquivo à configuração solicitada da câmera', async () => {
+  const h = harness({ mediaInfo:()=>({ duration:2,width:3840,height:2160,frameRate:60000/1001,hasVideo:true,hasAudio:true,fileSize:100 }) });
+  const p = await h.store.createStudioProject('owner','aula');
+  const recorded = await h.media.persistStudioTake(p,{ uri:'file:///take.mp4',frameRate:60 });
+  assert.equal(recorded.frameRate,60000/1001);
+  const pending = h.store.getStudioProject('owner',p.id).pendingTakes[0]; assert.equal(pending.frameRate,60,'journal conserva snapshot original da captura');
+  const reopened = harness({ data:[...h.data],disk:[...h.disk],mediaInfo:()=>({duration:2,width:3840,height:2160,frameRate:60000/1001,hasVideo:true,hasAudio:true,fileSize:100}) });
+  await reopened.store.loadStudioProjects('owner');
+  await reopened.media.recoverPendingStudioTakes(reopened.store.getStudioProject('owner',p.id));
+  const saved = reopened.store.getStudioProject('owner',p.id);
+  assert.equal(saved.takes[0].frameRate,60000/1001);
+  assert.equal(reopened.model.compileStudioRecipe(saved).output.frameRateNumerator,60000);
+  assert.equal(reopened.model.compileStudioRecipe(saved).output.frameRateDenominator,1001);
+});
+
+test('HDR importado e recuperado usa metadados reais do arquivo, sem inferir pela resolução', async () => {
+  const info = { duration:2,width:3840,height:2160,frameRate:30,hasVideo:true,hasAudio:true,fileSize:100,colorSpace:'BT.2020 HLG' };
+  const h = harness({ mediaInfo:()=>info }); const p = await h.store.createStudioProject('owner','aula');
+  const recorded = await h.media.persistStudioTake(p,{ uri:'file:///hdr.mp4',colorSpace:'rec709' });
+  assert.equal(recorded.colorSpace,'BT.2020 HLG');
+  await h.media.recoverPendingStudioTakes(h.store.getStudioProject('owner',p.id));
+  const saved = h.store.getStudioProject('owner',p.id);
+  assert.equal(saved.editing.assets[0].colorSpace,'BT.2020 HLG');
+  assert.ok(h.model.studioOutputWarnings(saved.editing).some(warning=>warning.code==='sdr-conversion'));
+});
+
+async function projectWithIndependentAudio(h, muted = false) {
+  let p = await h.store.createStudioProject('owner','aula');
+  p = await h.store.updateStudioProject('owner',p.id,{ takes:[{ id:'video',uri:'file:///video.mp4',name:'Vídeo',duration:4,start:0,end:4,width:3840,height:2160,frameRate:60 }] });
+  const audio = { id:'voice',kind:'audio',uri:'file:///voice.m4a',name:'Voz',durationTicks:h.model.studioTicks(4) };
+  const editing = { ...p.editing, assets:[...p.editing.assets,audio],layers:[{ id:'audio-track',kind:'audio',muted,items:[{ id:'voice-clip',kind:'audio',assetId:audio.id,atTicks:0,durationTicks:h.model.studioTicks(4),sourceStartTicks:0,sourceEndTicks:h.model.studioTicks(4),gain:0.7 }] }] };
+  return h.store.updateStudioProject('owner',p.id,{ editing });
+}
+test('cache sem faixa de áudio independente audível é regenerado mesmo com resolução, FPS e duração corretos', async () => {
+  const h = harness(); let p = await projectWithIndependentAudio(h);
+  const stale = 'file:///silent-cache.mp4';
+  h.disk.set(stale,{ info:{ duration:4,width:3840,height:2160,frameRate:60,hasVideo:true,hasAudio:false,fileSize:100 } });
+  p = await h.store.updateStudioProject('owner',p.id,{ exportedUri:stale,exportedSignature:h.model.timelineSignature(p) });
+  const result = await h.media.exportStudioProject(p);
+  assert.notEqual(result.uri,stale); assert.equal(h.nativeExports(),1);
+  assert.equal(h.disk.get(result.uri).info.hasAudio,true);
+});
+test('arquivo novo sem áudio independente esperado não recebe assinatura de exportação', async () => {
+  const h = harness({ exportedInfo:{hasAudio:false} }); const p = await projectWithIndependentAudio(h);
+  await assert.rejects(h.media.exportStudioProject(p),/arquivo gerado não corresponde/);
+  const saved = h.store.getStudioProject('owner',p.id);
+  assert.equal(saved.exportedSignature,undefined); assert.equal(saved.exportedUri,undefined);
+  assert.equal(saved.editing.layers[0].items[0].gain,0.7);
+});
+test('faixa independente silenciada intencionalmente aceita saída sem áudio e preserva ganho original', async () => {
+  const h = harness({ exportedInfo:{hasAudio:false} }); const p = await projectWithIndependentAudio(h,true);
+  const result = await h.media.exportStudioProject(p);
+  assert.equal(h.nativeExports(),1);
+  const saved = h.store.getStudioProject('owner',p.id);
+  assert.equal(saved.exportedUri,result.uri); assert.equal(saved.exportedSignature,h.model.timelineSignature(saved));
+  assert.equal(saved.editing.layers[0].items[0].gain,0.7);
+  await h.media.exportStudioProject(saved); assert.equal(h.nativeExports(),1,'cache intencionalmente silencioso permanece válido');
 });

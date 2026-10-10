@@ -138,6 +138,10 @@ export function createJourneyRuntime(options = {}) {
   });
   const native = {
     isStudioMediaAvailable: () => true, isStudioCompositionAvailable: () => true,
+    getStudioExportCapabilitiesAsync: async () => ({ version: 2, available: true, colorSpace: 'rec709', minimumDimension: 64, maximumDimension: 3840, maximumShortDimension: 2160,
+      maximumPixels: 8294400, arbitraryEvenDimensions: true, supportsHEVC: true, resolutions: [
+        { id: 'hd', width: 1920, height: 1080, codec: 'h264' }, { id: '2k', width: 2560, height: 1440, codec: 'hevc' }, { id: '4k', width: 3840, height: 2160, codec: 'hevc' },
+      ], frameRates: [24,25,30,50,60].map(numerator => ({ numerator, denominator: 1 })).concat([24000,30000,60000].map(numerator => ({ numerator, denominator: 1001 }))) }),
     getMediaInfoAsync: async uri => {
       const failure = nextMetadata; nextMetadata = undefined;
       if (failure) throw failure;
@@ -149,7 +153,7 @@ export function createJourneyRuntime(options = {}) {
       const recipe = JSON.parse(request.recipeJSON); exports.push({ ...request, recipe });
       progress?.(0); progress?.(0.5); progress?.(1);
       const duration = model.studioSeconds(recipe.durationTicks), fileSize = 8192;
-      disk.set(request.outputUri, { duration, fileSize, width: recipe.output.width, height: recipe.output.height, hasVideo: true, hasAudio: true });
+      disk.set(request.outputUri, { duration, fileSize, width: recipe.output.width, height: recipe.output.height, frameRate: recipe.output.frameRateNumerator / recipe.output.frameRateDenominator, colorSpace: recipe.output.colorSpace, hasVideo: recipe.mediaType === 'video', hasAudio: true });
       return { uri: request.outputUri, duration, fileSize, mimeType: 'video/mp4' };
     },
     exportTimelineAsync: async () => { throw new Error('The multilayer journey must not fall back to legacy export'); },

@@ -230,6 +230,55 @@ test('erro nativo permanece visível durante periodic publish; somente comando c
   assert.doesNotMatch(h.text(), /Não foi possível renderizar/);
 });
 
+test('prévia de projeto 4K60 usa receita HD30 compatível sem mudar saída, fontes, tempo ou tratamento', async () => {
+  const base = graded(project());
+  const value = { ...base, editing: { ...base.editing, output: { profile: 'standard', width: 3840, height: 2160, frameRateNumerator: 60,
+    frameRateDenominator: 1, colorSpace: 'rec709', selection: { resolution: '4k', frameRate: 60 } } } };
+  const canonical = model.compileStudioRecipe(value);
+  const original = structuredClone(canonical);
+  const h = harness({ initialProject: value, playbackChannel: true, nativeRuntime: true });
+  h.update({ recipe: canonical }); await h.pump();
+  const preview = JSON.parse(h.canvas().recipeJSON);
+  assert.deepEqual(preview.output, { profile: 'standard', width: 1920, height: 1080,
+    frameRateNumerator: 30, frameRateDenominator: 1, colorSpace: 'rec709' });
+  assert.deepEqual(preview.clips, JSON.parse(JSON.stringify(canonical.clips)));
+  assert.deepEqual(preview.assets, JSON.parse(JSON.stringify(canonical.assets)));
+  assert.equal(preview.durationTicks, canonical.durationTicks);
+  assert.deepEqual(canonical, original, 'preview never mutates the recipe used by export');
+  assert.equal(value.editing.output.width, 3840);
+  assert.equal(value.editing.output.frameRateNumerator, 60);
+});
+
+test('trocar somente perfil final não reinicia a prévia nem descarta um Play confirmado', async () => {
+  const h = harness({ playbackChannel: true, nativeRuntime: true }); await h.pump();
+  h.ref.current.togglePlayback(); await h.pump();
+  h.emit({ playing: true, positionSeconds: 2.4 }); await h.pump();
+  const previous = { recipe: h.canvas().recipeJSON, revision: h.canvas().revision, calls: h.calls.length };
+  const value = h.project();
+  h.update({ project: { ...value, editing: { ...value.editing,
+    output: { ...value.editing.output, width: 2560, height: 1440, frameRateNumerator: 24,
+      selection: { resolution: '2k', frameRate: 24 } } } } }); await h.pump();
+  assert.equal(h.canvas().recipeJSON, previous.recipe);
+  assert.equal(h.canvas().revision, previous.revision);
+  assert.equal(h.canvas().paused, false);
+  assert.equal(h.channel.value.playing, true);
+  assert.equal(h.channel.value.position, 2.4);
+  assert.equal(h.calls.length, previous.calls, 'no extra seek or source command');
+});
+
+test('prévia mantém o canvas retrato/quadrado com teto HD30 inclusive de Original fracional', async () => {
+  for (const [aspectRatio, width, height] of [['portrait', 1080, 1920], ['square', 1080, 1080]]) {
+    const base = project();
+    const value = { ...base, editing: { ...base.editing, canvas: { ...base.editing.canvas, aspectRatio },
+      output: { profile: 'standard', width: aspectRatio === 'portrait' ? 2160 : 1440,
+      height: aspectRatio === 'portrait' ? 3840 : 1440, frameRateNumerator: 60000,
+      frameRateDenominator: 1001, colorSpace: 'rec709' } } };
+    const h = harness({ initialProject: value }); await h.pump();
+    assert.deepEqual(JSON.parse(h.canvas().recipeJSON).output,
+      { profile: 'standard', width, height, frameRateNumerator: 30, frameRateDenominator: 1, colorSpace: 'rec709' });
+  }
+});
+
 test('retry confirmado de frame limpa erro do corte sem alterar a âncora de reprodução', async () => {
   const h = harness(); await h.pump();
   h.emit({ positionSeconds: 4, sourcePositionSeconds: 6 }); await h.pump();

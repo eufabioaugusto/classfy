@@ -41,7 +41,9 @@ no iPhone permanece separado.
 - Legendas manuais, importação SRT/VTT e transcrição local em português via SpeechAnalyzer em iOS 26 quando o sistema suporta o idioma. Instalar o modelo é uma operação explícita e cancelável; transcrever não inicia um download implicitamente.
 - Exportação de camadas, CoreText, grade de cor, gain e fades pelo mesmo compositor da prévia.
 
-O compositor v2 usa **1080p, 30 FPS e SDR Rec.709** nesta entrega. O perfil anterior conserva sua exportação na qualidade da fonte. Adicionar tratamentos ou camadas a um projeto antigo pede a conversão explícita do perfil; o arquivo original permanece na qualidade da captura. Builds antigas não exibem nem exportam uma edição avançada pela metade: orientam atualizar o binário.
+O compositor oferece **Original, HD (1920×1080), 2K (2560×1440) e 4K (3840×2160), em SDR Rec.709**, invertendo as dimensões no canvas retrato. O seletor permite 24/30/60 FPS; Original preserva também 25/50 FPS e cadências usuais fracionárias. Novas montagens usam Original conforme os metadados reais, até 4K/60; projetos anteriores conservam a escolha já salva. Ampliação, redução, conversão de FPS e HDR→SDR geram avisos. Ampliação não recupera detalhe e FPS maior pode repetir quadros.
+
+O motor anuncia capacidade versionada e consulta os encoders do aparelho. O binário antigo continua restrito a composição HD/30, com opção explícita de conversão e orientação para instalar a versão nova. A prévia usa uma receita de apresentação HD/30 para manter fluidez e compatibilidade; a exportação usa o perfil efetivo escolhido, validando dimensões, FPS, duração, cor e áudio antes de confirmar o arquivo. A seleção não modifica os originais. Exportar arquivo é uma ação local separada de Preparar envio e da curadoria; salvar/compartilhar abre a folha nativa somente por toque.
 
 Há um limite de dois decoders de vídeo simultâneos (principal + um vídeo sobreposto). Texto e imagens são rasterizados em camadas. As faixas e a lista de legendas são virtualizadas para não renderizar todos os itens em cada atualização do cursor.
 

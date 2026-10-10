@@ -35,6 +35,8 @@ import { createStudioEditingHistory } from '@/features/studio/editingHistory';
 import { captureStudioPlaybackAnchor, restoreStudioPlaybackAnchor, type StudioPlaybackAnchor } from '@/features/studio/editorInteraction';
 import { canContinueStudioTrim, freezeStudioTrim } from '@/features/studio/timelineLayout';
 import { StudioAccess, StudioButton, StudioField, StudioLoading, StudioSaveStatus, studioStyles, useStudioFields } from '@/features/studio/StudioUI';
+import { studioEffectiveOutput, studioOutputLabel, studioOutputSupported, studioOutputWarnings, withStudioOutputSelection, type StudioOutputSelection } from '@/features/studio/model';
+import { getStudioExportCapabilitiesAsync, type StudioExportCapabilities } from '../../modules/classfy-studio-media';
 
 export default function StudioProjectScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -67,6 +69,12 @@ function ProjectEditor({ project, update }: { project: StudioProject; update: (i
   current.current = { project, owner: user?.id };
   const { fields, setField, flush, saving, saveError } = useStudioFields(project, update, { preventNavigation: false });
   const [panel, setPanel] = useState<Panel>(null);
+  const [outputCapabilities, setOutputCapabilities] = useState<StudioExportCapabilities>();
+  useEffect(() => {
+    let active = true;
+    void getStudioExportCapabilitiesAsync().then(value => { if (active) setOutputCapabilities(value); });
+    return () => { active = false; };
+  }, []);
   const [selectedTakeId, setSelectedTakeId] = useState<string>();
   const [selectedLayerId, setSelectedLayerId] = useState<string>();
   const selectionEpoch = useRef(0);
@@ -95,6 +103,13 @@ function ProjectEditor({ project, update }: { project: StudioProject; update: (i
   const captionRequest = useRef<{ id: string; cancelled: boolean } | undefined>(undefined);
   useEffect(() => () => { if (captionRequest.current) { captionRequest.current.cancelled = true; void cancelStudioTranscriptionAsync(captionRequest.current.id); } }, []);
   const editing = studioEditing(project);
+  const effectiveOutput = studioEffectiveOutput(editing);
+  const outputLabel = editing.output.profile === 'legacy-source' ? 'Original' : studioOutputLabel(editing).split(' · ')[0];
+  // An older project has a fixed profile, not an implicit new Original choice.
+  const outputSelection: StudioOutputSelection = editing.output.selection || {
+    resolution: editing.output.profile === 'legacy-source' ? 'original' : Math.min(effectiveOutput.width, effectiveOutput.height) === 2160 ? '4k' : Math.min(effectiveOutput.width, effectiveOutput.height) === 1440 ? '2k' : 'hd',
+    frameRate: editing.output.profile === 'legacy-source' ? 'original' : effectiveOutput.frameRateNumerator / effectiveOutput.frameRateDenominator === 24 ? 24 : effectiveOutput.frameRateNumerator / effectiveOutput.frameRateDenominator === 60 ? 60 : 30,
+  };
   const visibleEditing = editingPreview || editing;
   const previewProject = editingPreview ? { ...project, editing: editingPreview, takes: deriveStudioTakes(editingPreview) } : project;
   const recipe = useMemo(() => compileStudioRecipe(previewProject), [project.editing, project.kind, project.takes, editingPreview]);
@@ -278,14 +293,62 @@ function ProjectEditor({ project, update }: { project: StudioProject; update: (i
     } finally { if (!entry) finishWork(); }
   };
   const standardProfile = async (entry?: EditorEntry) => {
-    if (studioEditing(entry ? assertEntry(entry) : current.current.project).output.profile === 'standard') return true;
-    const chosen = await new Promise<boolean>(resolve => Alert.alert('Perfil da edição', 'Camadas e tratamentos usam 1080p, 30 FPS e SDR nesta versão. Seus originais continuam na qualidade da captura.', [{ text: 'Manter perfil original', style: 'cancel', onPress: () => resolve(false) }, { text: 'Usar 1080p · 30 FPS', onPress: () => resolve(true) }], { cancelable: false }));
+    const existing = studioEditing(entry ? assertEntry(entry) : current.current.project);
+    if (existing.output.profile === 'standard') return true;
+    let next = withStudioStandardOutput(existing);
+    let fallback = false;
+    const capabilities = await getStudioExportCapabilitiesAsync();
     if (entry) assertEntry(entry);
-    if (chosen) {
-      try { return (await editEditing(withStudioStandardOutput, { entry, restoreCursor: !entry }))?.editing?.output.profile === 'standard'; }
-      catch { return false; }
+    if (!studioOutputSupported(studioEffectiveOutput(next), capabilities)) {
+      const accepted = await new Promise<boolean>(resolve => Alert.alert('Atualização do editor necessária',
+        'O Classfy Dev instalado exporta esta montagem em HD e 30 FPS. Para manter a qualidade original com camadas, será preciso instalar o motor atualizado. Você também pode escolher HD e 30 FPS; os originais serão preservados.',
+        [{ text: 'Manter original', style: 'cancel', onPress: () => resolve(false) }, { text: 'Escolher HD · 30 FPS', onPress: () => resolve(true) }], { cancelable: false }));
+      if (entry) assertEntry(entry);
+      if (!accepted) return false;
+      fallback = true;
+      next = withStudioOutputSelection(existing, { resolution: 'hd', frameRate: 30 });
+    } else {
+      const warnings = studioOutputWarnings(next).filter(warning => warning.code === 'sdr-conversion');
+      if (warnings.length && !await new Promise<boolean>(resolve => Alert.alert('Tratamento em SDR', warnings.map(warning => warning.message).join('\n\n'),
+        [{ text: 'Cancelar', style: 'cancel', onPress: () => resolve(false) }, { text: 'Continuar', onPress: () => resolve(true) }], { cancelable: false }))) return false;
+      if (entry) assertEntry(entry);
     }
-    return chosen;
+    const confirmedWarnings = studioOutputWarnings(next);
+    try { return (await editEditing(latest => {
+      const resolved = fallback ? withStudioOutputSelection(latest, { resolution: 'hd', frameRate: 30 }) : withStudioStandardOutput(latest);
+      if (!studioOutputSupported(studioEffectiveOutput(resolved), capabilities) || JSON.stringify(resolved.output) !== JSON.stringify(next.output)
+        || JSON.stringify(studioOutputWarnings(resolved)) !== JSON.stringify(confirmedWarnings)) throw new Error('A qualidade dos originais mudou. Abra novamente esta ferramenta para confirmar a saída.');
+      return resolved;
+    }, { entry, restoreCursor: !entry }))?.editing?.output.profile === 'standard'; }
+    catch { return false; }
+  };
+  const chooseOutput = async (selection: StudioOutputSelection) => {
+    const entry = reserveEntry();
+    if (!entry) return;
+    try {
+      const next = withStudioOutputSelection(studioEditing(assertEntry(entry)), selection);
+      const capabilities = await getStudioExportCapabilitiesAsync();
+      assertEntry(entry);
+      if (!studioOutputSupported(studioEffectiveOutput(next), capabilities)) {
+        Alert.alert('Atualização do editor necessária', 'Esta qualidade requer o novo motor de exportação do Classfy Dev. Instale a versão atualizada para usá-la; o projeto e os originais continuam preservados.');
+        return;
+      }
+      const warnings = studioOutputWarnings(next);
+      if (warnings.length) {
+        const accepted = await new Promise<boolean>(resolve => Alert.alert('Converter a qualidade?', warnings.map(warning => warning.message).join('\n\n'),
+          [{ text: 'Cancelar', style: 'cancel', onPress: () => resolve(false) }, { text: 'Usar esta qualidade', onPress: () => resolve(true) }], { cancelable: false }));
+        assertEntry(entry);
+        if (!accepted) return;
+      }
+      await editEditing(latest => {
+        const resolved = withStudioOutputSelection(latest, selection);
+        if (!studioOutputSupported(studioEffectiveOutput(resolved), capabilities) || JSON.stringify(resolved.output) !== JSON.stringify(next.output)
+          || JSON.stringify(studioOutputWarnings(resolved)) !== JSON.stringify(warnings)) throw new Error('A qualidade dos originais mudou. Escolha a saída novamente para confirmar a conversão.');
+        return resolved;
+      }, { entry });
+    } catch (cause) {
+      if (!(cause instanceof EditorEntryCancelled) && !entry.errorReported && entryCurrent(entry)) Alert.alert('Qualidade de saída', cause instanceof Error ? cause.message : 'Não foi possível salvar a qualidade.');
+    } finally { releaseEntry(entry); }
   };
   const closeLayer = () => { selectionEpoch.current += 1; setLayerPanelExpanded(false); pendingLayerMove.current = undefined; setEditTextRequest(undefined); setSelectedLayerId(undefined); setEditingPreview(undefined); editingPreviewRef.current = undefined; setBefore(false); setTreating(false); };
   const previewEditing = (value?: StudioEditing) => { editingPreviewRef.current = value; setEditingPreview(value); };
@@ -726,7 +789,7 @@ function ProjectEditor({ project, update }: { project: StudioProject; update: (i
       <View style={{ flex: 1, minWidth: 0 }}><Pressable accessibilityRole="button" accessibilityLabel="Editar título e roteiro do projeto" onPress={() => openPanel('preparation')} style={styles.projectTitle}><Text numberOfLines={1} style={styles.title}>{fields.title || (project.kind === 'aula' ? 'Nova aula' : project.kind === 'short' ? 'Novo short' : 'Novo podcast')}</Text><ChevronDown size={12} color={colors.text} strokeWidth={2.2} /></Pressable></View>
       {(saving || !!saveError) && <View style={styles.saveNotice}><StudioSaveStatus saving={saving} error={saveError} transient={transient} onRetry={() => { void flush().catch(() => {}); }} /></View>}
       {!!project.pendingTakes?.length && <Pressable accessibilityRole="button" accessibilityLabel="Recuperar arquivos pendentes" onPress={() => openPanel('recovery')} style={styles.iconButton}><Text style={{ color: colors.accent }}>{project.pendingTakes.length}</Text></Pressable>}
-      <Pressable accessibilityRole="button" accessibilityLabel="Qualidade de saída" onPress={() => openPanel('output')} style={styles.outputButton}><Text style={styles.outputText}>{editing.output.profile === 'standard' ? 'HD' : 'Original'}</Text></Pressable>
+      <Pressable accessibilityRole="button" accessibilityLabel={`Qualidade de saída: ${studioOutputLabel(editing)}`} onPress={() => openPanel('output')} style={styles.outputButton}><Text style={styles.outputText}>{outputLabel}</Text></Pressable>
       <Pressable accessibilityRole="button" accessibilityLabel={locked ? 'Acompanhar publicação' : 'Revisar publicação'} disabled={busy || canvasInteracting || layerInteracting || transient || !!trimDraft} hitSlop={{ top: 6, bottom: 6 }} onPress={() => { void navigate('review'); }} style={[styles.review, (busy || canvasInteracting || layerInteracting || transient || !!trimDraft) && { opacity: 0.5 }]}><Text style={styles.reviewText}>{locked ? 'Publicação' : 'Avançar'}</Text><ChevronRight size={15} color="#0B0E11" /></Pressable>
     </View>}
     <View style={fullscreen ? StyleSheet.absoluteFillObject : styles.previewStage} onLayout={event => { setStageSize(event.nativeEvent.layout); }}>
@@ -820,9 +883,32 @@ function ProjectEditor({ project, update }: { project: StudioProject; update: (i
               <EditorSheetAction label="Importar SRT/VTT" icon={<FileText size={26} color={colors.text} />} onPress={() => { setPanel(null); void captionFile(); }} />
               <Pressable accessibilityRole="button" accessibilityLabel="Gerar legendas" onPress={() => { setPanel(null); void generateCaptions(); }} style={styles.sheetPrimary}><Text style={styles.sheetPrimaryText}>Gerar legendas</Text></Pressable>
             </> : panel === 'output' ? <>
-              <View style={styles.optionRow}><Text style={styles.optionLabel}>Resolução</Text><Text style={styles.optionValue}>{editing.output.profile === 'standard' ? '1080p' : 'Original da captura'}</Text></View>
-              <View style={styles.optionRow}><Text style={styles.optionLabel}>Taxa de quadros</Text><Text style={styles.optionValue}>{editing.output.profile === 'standard' ? '30 FPS' : 'Original da captura'}</Text></View>
-              <View style={styles.optionRow}><Text style={styles.optionLabel}>Cor</Text><Text style={styles.optionValue}>{editing.output.profile === 'standard' ? 'SDR' : 'Original da captura'}</Text></View>
+              <View style={styles.outputGroup}><Text style={styles.optionLabel}>Resolução</Text><View style={styles.outputChoices}>
+                {(['original', 'hd', '2k', '4k'] as const).map(resolution => {
+                  const selection = { ...outputSelection, resolution };
+                  const supported = !!outputCapabilities && studioOutputSupported(studioEffectiveOutput(withStudioOutputSelection(editing, selection)), outputCapabilities);
+                  const selected = resolution === outputSelection.resolution;
+                  const label = resolution === 'original' ? 'Original' : resolution === 'hd' ? 'HD' : resolution === '2k' ? '2K' : '4K';
+                  return <Pressable key={resolution} accessibilityRole="button" accessibilityLabel={`Exportar em ${label}`} accessibilityState={{ selected, disabled: !supported || busy || locked }}
+                    disabled={!supported || busy || locked} onPress={() => { void chooseOutput(selection); }} style={[styles.outputChoice, selected && styles.outputChoiceSelected, !supported && styles.disabled]}><Text style={[styles.outputChoiceText, selected && styles.outputChoiceTextSelected]}>{label}</Text></Pressable>;
+                })}
+              </View></View>
+              <View style={styles.outputGroup}><Text style={styles.optionLabel}>Taxa de quadros</Text><View style={styles.outputChoices}>
+                {(['original', 24, 30, 60] as const).map(frameRate => {
+                  const selection = { ...outputSelection, frameRate };
+                  const supported = !!outputCapabilities && studioOutputSupported(studioEffectiveOutput(withStudioOutputSelection(editing, selection)), outputCapabilities);
+                  const selected = frameRate === outputSelection.frameRate;
+                  const label = frameRate === 'original' ? 'Original' : String(frameRate);
+                  return <Pressable key={frameRate} accessibilityRole="button" accessibilityLabel={`Exportar com ${label}${frameRate === 'original' ? '' : ' FPS'}`} accessibilityState={{ selected, disabled: !supported || busy || locked }}
+                    disabled={!supported || busy || locked} onPress={() => { void chooseOutput(selection); }} style={[styles.outputChoice, selected && styles.outputChoiceSelected, !supported && styles.disabled]}><Text style={[styles.outputChoiceText, selected && styles.outputChoiceTextSelected]}>{label}</Text></Pressable>;
+                })}
+              </View></View>
+              <View style={styles.optionRow}><Text style={styles.optionLabel}>Cor</Text><Text style={styles.optionValue}>{effectiveOutput.colorSpace === 'source' ? 'Original' : 'SDR'}</Text></View>
+              <Text style={styles.outputSummary}>{effectiveOutput.profile === 'legacy-source' ? 'Qualidade original da captura' : `${effectiveOutput.width} × ${effectiveOutput.height} · ${Number((effectiveOutput.frameRateNumerator / effectiveOutput.frameRateDenominator).toFixed(3))} FPS`}</Text>
+              {outputCapabilities && outputCapabilities.version < 2 ? <>
+                <Text style={styles.outputSummary}>O motor instalado compõe em HD e 30 FPS. As outras opções serão liberadas ao instalar o Classfy Dev atualizado.</Text>
+                {!studioOutputSupported(effectiveOutput, outputCapabilities) ? <EditorSheetAction label="Usar HD · 30 FPS" icon={<Film size={20} color={colors.text} />} disabled={busy || locked} onPress={() => { void chooseOutput({ resolution: 'hd', frameRate: 30 }); }} /> : null}
+              </> : null}
             </> : panel === 'recovery' ? <><Text style={studioStyles.body}>{project.pendingTakes?.length || 0} arquivo(s) aguardando recuperação.</Text><StudioButton label="Tentar recuperar" loading={busy} disabled={locked} onPress={() => { void recoverTakes(); }} /><StudioButton label="Retirar pendentes" secondary disabled={locked || busy} onPress={discardPending} /></> : null}
           </ScrollView>
         </View>
@@ -851,6 +937,13 @@ const styles = StyleSheet.create({
   expandPreview: { position: 'absolute', left: '50%', marginLeft: -22, width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
   outputButton: { minWidth: 44, height: 44, justifyContent: 'center', alignItems: 'center' },
   outputText: { color: colors.text, fontWeight: '600', fontSize: 11 },
+  outputGroup: { gap: 10 },
+  outputChoices: { flexDirection: 'row', gap: 4, padding: 4, borderRadius: 12, backgroundColor: '#252A30' },
+  outputChoice: { flex: 1, minHeight: 44, justifyContent: 'center', alignItems: 'center', borderRadius: 9 },
+  outputChoiceSelected: { backgroundColor: '#FFFFFF' },
+  outputChoiceText: { color: colors.text, fontSize: 13, fontWeight: '600' },
+  outputChoiceTextSelected: { color: '#0B0E11' },
+  outputSummary: { color: colors.mutedDim, fontSize: 12, lineHeight: 18 },
   saveNotice: { position: 'absolute', top: 50, left: 58, zIndex: 20, backgroundColor: '#0B0E11', paddingHorizontal: 8, borderRadius: 8 },
   workspace: { paddingTop: 4 },
   transport: { height: 52, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16 },

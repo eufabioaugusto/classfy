@@ -67,7 +67,7 @@ public final class ClassfyStudioMediaModule: Module {
       try await self.engine.thumbnail(uri, outputUri: outputUri, timeSeconds: timeSeconds)
     }
     AsyncFunction("exportTimelineAsync") { (options: StudioExportRecord) async throws -> [String: Any] in
-      try await self.engine.export(
+      try await self.withExportAwake { try await self.engine.export(
         requestId: options.requestId,
         clips: options.clips.map { StudioClip(uri: $0.uri, startSeconds: $0.startSeconds, endSeconds: $0.endSeconds) },
         outputUri: options.outputUri,
@@ -75,7 +75,7 @@ public final class ClassfyStudioMediaModule: Module {
         aspectRatio: options.aspectRatio,
         progress: { [weak self] value in
           self?.sendEvent("onExportProgress", ["requestId": options.requestId, "progress": value])
-        })
+        }) }
     }
     AsyncFunction("cancelExportAsync") { (requestId: String) in
       self.engine.cancel(requestId)
@@ -111,9 +111,12 @@ public final class ClassfyStudioMediaModule: Module {
         }
       } catch { promise.reject("E_STUDIO_CAMERA", error.localizedDescription) }
     }.runOnQueue(.main)
+    AsyncFunction("getStudioExportCapabilitiesAsync") { () async -> [String: Any] in
+      await Task.detached(priority: .userInitiated) { StudioRecipeOutputSupport.capabilities() }.value
+    }
     AsyncFunction("exportRecipeAsync") { (options: StudioRecipeExportRecord) async throws -> [String: Any] in
-      try await self.recipeEngine.export(requestId: options.requestId, recipeJSON: options.recipeJSON, outputUri: options.outputUri,
-        progress: { [weak self] value in self?.sendEvent("onExportProgress", ["requestId": options.requestId, "progress": value]) })
+      try await self.withExportAwake { try await self.recipeEngine.export(requestId: options.requestId, recipeJSON: options.recipeJSON, outputUri: options.outputUri,
+        progress: { [weak self] value in self?.sendEvent("onExportProgress", ["requestId": options.requestId, "progress": value]) }) }
     }
     View(StudioCaptureView.self) {
       Events("onReady", "onState", "onRecordingState", "onInterruption", "onError")
@@ -192,6 +195,18 @@ public final class ClassfyStudioMediaModule: Module {
     }
     AsyncFunction("cancelStudioTranscriptionAsync") { (requestId: String) in self.transcription.cancel(requestId) }
     OnDestroy { self.engine.cancelAll(); self.recipeEngine.cancelAll(); self.transcription.cancelAll() }
+  }
+
+  private func withExportAwake<T>(_ operation: () async throws -> T) async rethrows -> T {
+    let lease = await MainActor.run { StudioExportIdleLease.shared.begin() }
+    do {
+      let result = try await operation()
+      await MainActor.run { StudioExportIdleLease.shared.end(lease) }
+      return result
+    } catch {
+      await MainActor.run { StudioExportIdleLease.shared.end(lease) }
+      throw error
+    }
   }
 
   private func withNativeCamera(_ tag: Int, _ promise: Promise, _ operation: (StudioCaptureView) -> Void) {

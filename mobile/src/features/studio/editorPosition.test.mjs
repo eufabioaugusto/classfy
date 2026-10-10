@@ -26,6 +26,14 @@ const layerTimeline = compile(readFileSync(new URL('./layerTimelineInteraction.t
 const layerActions = compile(readFileSync(new URL('./layerActions.ts', import.meta.url), 'utf8'), { './model': model, './layerTimelineInteraction': layerTimeline });
 const take = id => ({ id, uri: `file:///${id}.mp4`, name: id, duration: 10, start: 2, end: 8 });
 const source = readFileSync(new URL('../../../app/studio/[id].tsx', import.meta.url), 'utf8') + '\nexport { ProjectEditor };';
+const outputCapabilities = { version: 2, available: true, colorSpace: 'rec709', minimumDimension: 64,
+  maximumDimension: 3840, maximumShortDimension: 2160, maximumPixels: 3840 * 2160, arbitraryEvenDimensions: true, supportsHEVC: true,
+  resolutions: [{ id: 'hd', width: 1920, height: 1080, codec: 'h264' }, { id: '2k', width: 2560, height: 1440, codec: 'h264' }, { id: '4k', width: 3840, height: 2160, codec: 'h264' }],
+  frameRates: [{ numerator: 24, denominator: 1 }, { numerator: 25, denominator: 1 }, { numerator: 30, denominator: 1 }, { numerator: 50, denominator: 1 }, { numerator: 60, denominator: 1 }, { numerator: 24000, denominator: 1001 }, { numerator: 30000, denominator: 1001 }, { numerator: 60000, denominator: 1001 }] };
+const oldOutputCapabilities = { ...outputCapabilities, version: 1, minimumDimension: 1080, maximumDimension: 1920,
+  maximumShortDimension: 1080, maximumPixels: 1920 * 1080, arbitraryEvenDimensions: false,
+  supportsHEVC: false, resolutions: [outputCapabilities.resolutions[0]], frameRates: [{ numerator: 30, denominator: 1 }] };
+const take4k = id => ({ ...take(id), width: 3840, height: 2160, frameRate: 60 });
 
 function harness(takes = [take('a'), take('b')], options = {}) {
   let project = { id: 'project', ownerId: 'owner', kind: 'aula', version: 1, revision: 1, state: 'draft', takes,
@@ -137,6 +145,7 @@ function harness(takes = [take('a'), take('b')], options = {}) {
     '@/features/studio/StudioTreatmentPanel': { StudioTreatmentPanel: 'treatmentPanel' },
     '@/features/studio/captions': captions,
     '../../modules/classfy-studio-media': { isStudioCompositionAvailable: () => !!options.advanced,
+      getStudioExportCapabilitiesAsync: options.outputCapabilities || (async () => outputCapabilities),
       getStudioTranscriptionCapabilitiesAsync: options.capabilities,
       installStudioTranscriptionModelAsync: options.installModel,
       transcribeStudioAsync: options.transcribe,
@@ -1201,14 +1210,14 @@ test('transcrição local cancela no blur e resultado tardio não grava após re
 
 for (const label of ['Imagem', 'Importar SRT/VTT', 'Gerar legendas']) test(`${label}: diálogo de perfil também pertence à reserva e não continua após blur/refocus`, async () => {
   let calls = 0;
-  const view = harness(undefined, { advanced: true, importLayer: async () => { calls++; return null; }, importCaptions: async () => { calls++; return null; },
+  const view = harness([take4k('a')], { advanced: true, outputCapabilities: async () => oldOutputCapabilities, importLayer: async () => { calls++; return null; }, importCaptions: async () => { calls++; return null; },
     capabilities: async () => { calls++; return { available: false }; } });
   try {
     await view.pump(); const start = await externalAction(view, label); start(); start(); await view.pump();
-    const profiles = view.alerts.filter(alert => alert[0] === 'Perfil da edição'); assert.equal(profiles.length, 1);
+    const profiles = view.alerts.filter(alert => alert[0] === 'Atualização do editor necessária'); assert.equal(profiles.length, 1);
     assert.equal(view.timelineProps().busy, true); assert.equal(calls, 0);
     view.focus(false); await view.pump(); view.focus(true); await view.pump();
-    profiles[0][2].find(option => option.text === 'Usar 1080p · 30 FPS').onPress(); await view.pump();
+    profiles[0][2].find(option => option.text === 'Escolher HD · 30 FPS').onPress(); await view.pump();
     assert.deepEqual(view.writes(), { attempted: 0, completed: 0 }); assert.equal(calls, 0); assert.equal(view.timelineProps().busy, false);
     assert.equal(model.studioEditing(view.project()).output.profile, 'legacy-source');
   } finally { view.dispose(); }
@@ -1298,12 +1307,75 @@ test('vazio com save já iniciado conserva texto e seleção após blur/refocus 
 });
 
 test('tratamento iniciado pelo perfil não abre painel após retorno do foco', async () => {
-  const view = harness(undefined, { advanced: true });
+  const view = harness([take4k('a')], { advanced: true, outputCapabilities: async () => oldOutputCapabilities });
   try {
     await view.pump(); const start = view.tool('Filtros').onPress; start(); start(); await view.pump();
-    const profile = view.alerts.find(alert => alert[0] === 'Perfil da edição'); assert.ok(profile); assert.equal(view.timelineProps().busy, true);
-    view.focus(false); await view.pump(); view.focus(true); await view.pump(); profile[2].find(option => option.text === 'Usar 1080p · 30 FPS').onPress(); await view.pump();
+    const profile = view.alerts.find(alert => alert[0] === 'Atualização do editor necessária'); assert.ok(profile); assert.equal(view.timelineProps().busy, true);
+    view.focus(false); await view.pump(); view.focus(true); await view.pump(); profile[2].find(option => option.text === 'Escolher HD · 30 FPS').onPress(); await view.pump();
     assert.equal(view.hasTreatmentPanel(), false); assert.deepEqual(view.writes(), { attempted: 0, completed: 0 }); assert.equal(view.timelineProps().busy, false);
+  } finally { view.dispose(); }
+});
+
+function outputMontage(fourK = false) {
+  return model.withStudioStandardOutput(model.reconcileStudioTakes({ kind: 'aula' },
+    [{ ...take('a'), width: fourK ? 3840 : 1920, height: fourK ? 2160 : 1080, frameRate: fourK ? 60 : 30, colorSpace: 'rec709' }]));
+}
+const portable = value => JSON.parse(JSON.stringify(value));
+async function openOutput(view) {
+  view.button(`Qualidade de saída: ${model.studioOutputLabel(view.project().editing)}`).onPress(); await view.pump();
+}
+function conversion(view) { return view.alerts.filter(alert => alert[0] === 'Converter a qualidade?').at(-1); }
+
+test('qualidade: ampliar HD para 4K exige confirmação, salva uma vez e undo preserva fonte e cursor', async () => {
+  const initial = outputMontage(), originals = portable(initial.assets);
+  const view = harness(undefined, { initialEditing: initial, advanced: true });
+  try {
+    await view.pump(); view.publish({ position: 3, sourcePosition: 5, takeId: 'a', playing: false, loading: false }); await view.pump(); await openOutput(view);
+    view.button('Exportar em 4K').onPress(); await view.pump();
+    assert.match(conversion(view)[1], /não cria novos detalhes/); assert.deepEqual(view.writes(), { attempted: 0, completed: 0 });
+    conversion(view)[2].find(option => option.text === 'Cancelar').onPress(); await view.pump();
+    assert.deepEqual(portable(view.project().editing), portable(initial));
+    view.button('Exportar em 4K').onPress(); await view.pump(); conversion(view)[2].find(option => option.text === 'Usar esta qualidade').onPress(); await view.pump();
+    assert.deepEqual(view.writes(), { attempted: 1, completed: 0 }); view.finishSave(); await view.pump();
+    assert.equal(model.studioEffectiveOutput(view.project().editing).width, 3840); assert.equal(view.timelineProps().position, 3);
+    assert.deepEqual(portable(view.project().editing.assets), originals);
+    view.button('Desfazer edição').onPress(); await view.pump(); view.finishSave(); await view.pump();
+    assert.deepEqual(portable(view.project().editing), portable(initial)); assert.equal(view.timelineProps().position, 3);
+  } finally { view.dispose(); }
+});
+
+test('qualidade: binário antigo não oferece 4K, mas permite conversão HD30 explícita sem alterar original', async () => {
+  const initial = outputMontage(true), originals = portable(initial.assets);
+  const view = harness(undefined, { initialEditing: initial, advanced: true, outputCapabilities: async () => oldOutputCapabilities });
+  try {
+    await view.pump(); await openOutput(view); assert.equal(view.button('Exportar em 4K').disabled, true);
+    view.tool('Usar HD · 30 FPS').onPress(); await view.pump();
+    assert.match(conversion(view)[1], /reduz a resolução/); assert.match(conversion(view)[1], /quadros podem ser repetidos ou descartados/);
+    conversion(view)[2].find(option => option.text === 'Usar esta qualidade').onPress(); await view.pump(); view.finishSave(); await view.pump();
+    const output = model.studioEffectiveOutput(view.project().editing);
+    assert.equal(output.width, 1920); assert.equal(output.frameRateNumerator, 30); assert.deepEqual(portable(view.project().editing.assets), originals);
+  } finally { view.dispose(); }
+});
+
+test('qualidade: confirmação pendente não apaga camada salva enquanto o alerta está aberto', async () => {
+  const initial = outputMontage(), view = harness(undefined, { initialEditing: initial, advanced: true });
+  try {
+    await view.pump(); await openOutput(view); view.button('Exportar em 4K').onPress(); await view.pump();
+    view.externalEditing(model.addStudioLayerItem(initial, model.createStudioTextItem({ id: 'new-durable-text', content: 'Preservar esta escrita' }))); await view.pump();
+    conversion(view)[2].find(option => option.text === 'Usar esta qualidade').onPress(); await view.pump(); view.finishSave(); await view.pump();
+    assert.equal(view.project().editing.layers[0].items[0].text.content, 'Preservar esta escrita');
+    assert.equal(model.studioEffectiveOutput(view.project().editing).width, 3840);
+  } finally { view.dispose(); }
+});
+
+test('qualidade: blur/refocus invalida confirmação antiga e não grava nem muda a seleção', async () => {
+  const initial = outputMontage(), view = harness(undefined, { initialEditing: initial, advanced: true });
+  try {
+    await view.pump(); await openOutput(view); view.button('Exportar em 4K').onPress(); await view.pump();
+    view.focus(false); await view.pump(); view.focus(true); await view.pump();
+    conversion(view)[2].find(option => option.text === 'Usar esta qualidade').onPress(); await view.pump();
+    assert.deepEqual(view.writes(), { attempted: 0, completed: 0 }); assert.deepEqual(portable(view.project().editing), portable(initial));
+    assert.equal(view.timelineProps().busy, false);
   } finally { view.dispose(); }
 });
 
