@@ -8,7 +8,7 @@ fi
 xcrun swiftc -swift-version 5 -suppress-warnings -parse-as-library \
   "$studio_speech_root/ios/StudioEffectRenderer.swift" \
   "$studio_speech_root/ios/StudioVideoCompositor.swift" \
-  "$studio_speech_root/ios/StudioRecipeEngine.swift" \
+  "$studio_speech_root/ios/StudioRecipeVisualEffects.swift" "$studio_speech_root/ios/StudioRecipeEngine.swift" \
   "$studio_speech_root/ios/StudioTranscription.swift" \
   "$studio_speech_root/tests/StudioTranscription.tests.swift" \
   -o "$studio_speech_directory/verify-transcription"

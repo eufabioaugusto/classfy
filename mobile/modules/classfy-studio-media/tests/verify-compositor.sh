@@ -11,7 +11,7 @@ ffmpeg -hide_banner -loglevel error -f lavfi -i color=c=green:s=120x90 -frames:v
 xcrun swiftc -swift-version 5 -suppress-warnings -parse-as-library \
   "$studio_compositor_root/ios/StudioEffectRenderer.swift" \
   "$studio_compositor_root/ios/StudioVideoCompositor.swift" \
-  "$studio_compositor_root/ios/StudioRecipeEngine.swift" \
+  "$studio_compositor_root/ios/StudioRecipeVisualEffects.swift" "$studio_compositor_root/ios/StudioRecipeEngine.swift" \
   "$studio_compositor_root/tests/StudioVideoCompositor.tests.swift" \
   -o "$studio_compositor_directory/verify-compositor"
 "$studio_compositor_directory/verify-compositor" "$studio_compositor_directory/red.mp4" "$studio_compositor_directory/blue.mp4" "$studio_compositor_directory/green.png"

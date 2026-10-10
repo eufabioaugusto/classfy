@@ -5,7 +5,7 @@ import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, { measure, runOnJS, runOnUI, scrollTo, useAnimatedProps, useAnimatedReaction, useAnimatedRef, useAnimatedScrollHandler, useAnimatedStyle, useDerivedValue, useFrameCallback, useSharedValue, type SharedValue } from 'react-native-reanimated';
 import { ChevronLeft, ChevronRight, Eye, EyeOff, Film, Mic, Plus, Volume2, VolumeX } from 'lucide-react-native';
 import { colors } from '@/theme/colors';
-import { formatStudioDuration, formatStudioEditorTime, type StudioTake, type StudioRecipeClip, type StudioEditing } from './model';
+import { formatStudioDuration, formatStudioEditorTime, studioTakeDuration, type StudioTake, type StudioRecipeClip, type StudioEditing } from './model';
 import { canContinueStudioTrim, clampStudioTimelineScale, defaultStudioTimelineScale, freezeStudioTrim, maximumStudioTimelineScale, minimumStudioTimelineScale, studioTimelineLayout, studioTimelineSeconds, studioTimelineTicks, studioTrimRange, type StudioTimelineTrim, type StudioTrimGesture } from './timelineLayout';
 import { studioLiveSegment, studioTimelineAutoScrollVelocity, studioTrimAutoscrollStep, studioTrimDragValues } from './timelineMotion';
 import { useStudioFilmstrip } from './useStudioFilmstrip';
@@ -26,7 +26,7 @@ type Trim = { frozen: StudioTrimGesture; edge: Edge; scale: number; range: Studi
 type Motion = {
   scale: SharedValue<number>; offset: SharedValue<number>; viewport: SharedValue<number>;
   phase: SharedValue<number>; trimIndex: SharedValue<number>; start: SharedValue<number>; end: SharedValue<number>;
-  originalStart: SharedValue<number>; originalEnd: SharedValue<number>; sourceDuration: SharedValue<number>;
+  originalStart: SharedValue<number>; originalEnd: SharedValue<number>; sourceDuration: SharedValue<number>; playbackRate: SharedValue<number>;
   leading: SharedValue<number>; translation: SharedValue<number>; initialOffset: SharedValue<number>; finger: SharedValue<number>;
   edge: SharedValue<number>; virtual: SharedValue<number>; epoch: SharedValue<number>;
   laneStart: SharedValue<number>; lanePublished: SharedValue<number>; laneScrolling: SharedValue<boolean>;
@@ -127,7 +127,7 @@ export function StudioTimeline({ playbackChannel, layers: providedLayers = [], e
   // mounted timeline. React sample/thumbnail renders must not restart UI mappers.
   const m = useRef<Motion>({
     scale: useSharedValue(scale), offset: useSharedValue(0), viewport: useSharedValue(1), phase: useSharedValue(0),
-    trimIndex: useSharedValue(-1), start: useSharedValue(0), end: useSharedValue(0), originalStart: useSharedValue(0), originalEnd: useSharedValue(0), sourceDuration: useSharedValue(0),
+    trimIndex: useSharedValue(-1), start: useSharedValue(0), end: useSharedValue(0), originalStart: useSharedValue(0), originalEnd: useSharedValue(0), sourceDuration: useSharedValue(0), playbackRate: useSharedValue(1),
     leading: useSharedValue(0), translation: useSharedValue(0), initialOffset: useSharedValue(0), finger: useSharedValue(0),
     edge: useSharedValue(0), virtual: useSharedValue(0), epoch: useSharedValue(0),
     laneStart: useSharedValue(laneStart), lanePublished: useSharedValue(Math.floor(laneStart)), laneScrolling: useSharedValue(false),
@@ -169,7 +169,7 @@ export function StudioTimeline({ playbackChannel, layers: providedLayers = [], e
   const lastPreview = useSharedValue(0);
   const pinchScale = useSharedValue(scale);
   const pinchAnchor = useSharedValue(0);
-  const total = useDerivedValue(() => Math.max(layerDuration.value, baseDuration.value + (m.trimIndex.value < 0 ? 0 : m.end.value - m.start.value - (m.originalEnd.value - m.originalStart.value))));
+  const total = useDerivedValue(() => Math.max(layerDuration.value, baseDuration.value + (m.trimIndex.value < 0 ? 0 : (m.end.value - m.start.value - (m.originalEnd.value - m.originalStart.value)) / m.playbackRate.value)));
   const toggleRail = useCallback((action: 'visibility' | 'mute' | 'main', zIndex = 0, laneId?: string) => {
     const current = railLive.current;
     // A control belongs to its original lane. A queued press after reordering,
@@ -307,7 +307,7 @@ export function StudioTimeline({ playbackChannel, layers: providedLayers = [], e
       const frozen = freezeStudioTrim(current.takes, current.activeTakeId);
       const range = studioTrimRange(frozen, edge, 0);
       if (accessible) {
-        m.trimIndex.value = frozen.preceding.length; m.originalStart.value = frozen.start; m.originalEnd.value = frozen.end; m.sourceDuration.value = frozen.duration;
+        m.trimIndex.value = frozen.preceding.length; m.originalStart.value = frozen.start; m.originalEnd.value = frozen.end; m.sourceDuration.value = frozen.duration; m.playbackRate.value = frozen.playbackRate ?? 1;
         m.start.value = frozen.start; m.end.value = frozen.end; m.leading.value = 0; m.virtual.value = 0; m.epoch.value += 1; m.phase.value = 3;
       }
       gesture.current = { frozen, edge, scale: current.scale, range, epoch: m.epoch.value };
@@ -319,7 +319,7 @@ export function StudioTimeline({ playbackChannel, layers: providedLayers = [], e
     const current = live.current;
     if (!drag || drag.epoch !== expected || m.epoch.value !== expected) return;
     if (current.locked || current.busy || !canContinueStudioTrim(drag.frozen, current.takes, current.activeTakeId)) { cancelTrim(); return; }
-    const range = studioTrimRange(drag.frozen, drag.edge, (drag.edge === 'start' ? start - drag.frozen.start : end - drag.frozen.end));
+    const range = studioTrimRange(drag.frozen, drag.edge, (drag.edge === 'start' ? start - drag.frozen.start : end - drag.frozen.end) / (drag.frozen.playbackRate ?? 1));
     drag.range = range;
     setDraft(range); current.onTrimChange?.(range);
   }, [cancelTrim]);
@@ -328,7 +328,7 @@ export function StudioTimeline({ playbackChannel, layers: providedLayers = [], e
     const drag = gesture.current;
     if (!drag || drag.epoch !== expected || m.epoch.value !== expected) return;
     if (current.locked || current.busy || !canContinueStudioTrim(drag.frozen, current.takes, current.activeTakeId) || !current.onTrimCommit) { cancelTrim(expected); return; }
-    const range = studioTrimRange(drag.frozen, drag.edge, drag.edge === 'start' ? start - drag.frozen.start : end - drag.frozen.end);
+    const range = studioTrimRange(drag.frozen, drag.edge, (drag.edge === 'start' ? start - drag.frozen.start : end - drag.frozen.end) / (drag.frozen.playbackRate ?? 1));
     if (Math.abs(range.start - drag.frozen.start) < 0.0005 && Math.abs(range.end - drag.frozen.end) < 0.0005) { cancelTrim(); return; }
     gesture.current = null; commitPending.current = true; m.phase.value = 5;
     setDragging(false); setCommitting(true); setDraft(range); current.onTrimChange?.(range);
@@ -344,7 +344,7 @@ export function StudioTimeline({ playbackChannel, layers: providedLayers = [], e
     const drag = gesture.current;
     if (!drag) return;
     const range = studioTrimRange(drag.frozen, edge, delta);
-    m.start.value = range.start; m.end.value = range.end; m.leading.value = edge === 'start' ? range.start - drag.frozen.start : 0;
+    m.start.value = range.start; m.end.value = range.end; m.leading.value = edge === 'start' ? (range.start - drag.frozen.start) / (drag.frozen.playbackRate ?? 1) : 0;
     previewTrim(range.start, range.end, drag.epoch); void commitTrim(range.start, range.end, drag.epoch);
   };
 
@@ -408,7 +408,7 @@ export function StudioTimeline({ playbackChannel, layers: providedLayers = [], e
     if (m.phase.value !== 3) return;
     const speed = studioTimelineAutoScrollVelocity(m.finger.value, m.viewport.value);
     if (speed === 0) return;
-    const range = studioTrimAutoscrollStep(m.edge.value === 0 ? 'start' : 'end', m.originalStart.value, m.originalEnd.value, m.sourceDuration.value, m.translation.value, m.initialOffset.value, m.offset.value, m.virtual.value, m.scale.value, speed * Math.min(32, frame.timeSincePreviousFrame ?? 16) / 1000, total.value * m.scale.value + Math.max(0, m.leading.value * m.scale.value));
+    const range = studioTrimAutoscrollStep(m.edge.value === 0 ? 'start' : 'end', m.originalStart.value, m.originalEnd.value, m.sourceDuration.value, m.translation.value, m.initialOffset.value, m.offset.value, m.virtual.value, m.scale.value, speed * Math.min(32, frame.timeSincePreviousFrame ?? 16) / 1000, total.value * m.scale.value + Math.max(0, m.leading.value * m.scale.value), m.playbackRate.value);
     m.offset.value = range.offset; m.virtual.value = range.virtualOffset;
     applyMainSnap(m, range);
     scrollTo(strip, range.offset, 0, false);
@@ -475,7 +475,7 @@ export function StudioTimeline({ playbackChannel, layers: providedLayers = [], e
   }));
   const laneRailStyle = useAnimatedStyle(() => ({ transform: [{ translateY: -m.laneStart.value * laneHeight }] }));
   const canvasStyle = useAnimatedStyle(() => ({ width: Math.max(m.viewport.value, m.viewport.value + total.value * m.scale.value + Math.max(0, m.leading.value * m.scale.value) + Math.max(0, -m.virtual.value) + (onAppend ? 68 : 0)), transform: [{ translateX: -m.virtual.value }] }));
-  const previewDuration = layout.duration + (draft && selected ? draft.end - draft.start - (selected.take.end - selected.take.start) : 0);
+  const previewDuration = layout.duration + (draft && selected ? (draft.end - draft.start - (selected.take.end - selected.take.start)) / (selected.take.playbackRate ?? 1) : 0);
   const ticks = previewOnly ? [] : studioTimelineTicks(scale, Math.max(0, visibleStart / scale), Math.max(0, visibleEnd / scale), previewDuration);
   const trimDisabled = !!(locked || busy || committing || pinching || !onTrimCommit || layout.error);
   const railDisabled = !!(locked || busy || committing || dragging || pinching || railPending);
@@ -831,15 +831,16 @@ function TimelineSnapGuide({ motion: m, height }: { motion: Motion; height: numb
 function applyMainSnap(m: Motion, raw: { start: number; end: number }) {
   'worklet';
   const mode = m.edge.value === 0 ? 'start' : 'end';
-  const absolute = { startSeconds: m.mainTimelineStart.value + raw.start - m.originalStart.value,
-    endSeconds: m.mainTimelineEnd.value + raw.end - m.originalEnd.value };
-  const bounds = { minimumStart: m.mainTimelineStart.value - m.originalStart.value,
-    maximumEnd: m.mainTimelineEnd.value + m.sourceDuration.value - m.originalEnd.value,
-    minimumDuration: Math.min(0.1, m.sourceDuration.value), moveMinimum: 0, moveMaximum: 0 };
+  const rate = m.playbackRate.value;
+  const absolute = { startSeconds: m.mainTimelineStart.value + (raw.start - m.originalStart.value) / rate,
+    endSeconds: m.mainTimelineEnd.value + (raw.end - m.originalEnd.value) / rate };
+  const bounds = { minimumStart: m.mainTimelineStart.value - m.originalStart.value / rate,
+    maximumEnd: m.mainTimelineEnd.value + (m.sourceDuration.value - m.originalEnd.value) / rate,
+    minimumDuration: Math.min(0.1, m.sourceDuration.value / rate), moveMinimum: 0, moveMaximum: 0 };
   const snapped = snapStudioTimelineRange(absolute, mode, bounds, m.mainSnapPoints.value, m.scale.value, m.snap.value);
-  m.start.value = m.originalStart.value + snapped.range.startSeconds - m.mainTimelineStart.value;
-  m.end.value = m.originalEnd.value + snapped.range.endSeconds - m.mainTimelineEnd.value;
-  m.leading.value = mode === 'start' ? m.start.value - m.originalStart.value : 0; m.snap.value = snapped.match;
+  m.start.value = m.originalStart.value + (snapped.range.startSeconds - m.mainTimelineStart.value) * rate;
+  m.end.value = m.originalEnd.value + (snapped.range.endSeconds - m.mainTimelineEnd.value) * rate;
+  m.leading.value = mode === 'start' ? (m.start.value - m.originalStart.value) / rate : 0; m.snap.value = snapped.match;
 }
 
 function TimelineTick({ tick, motion: m }: { tick: { seconds: number; major: boolean }; motion: Motion }) {
@@ -850,26 +851,26 @@ function TimelineClip({ segment, motion: m, selected, audio, top, height, draft,
   segment: ReturnType<typeof studioTimelineLayout>['segments'][number]; motion: Motion; selected: boolean; audio: boolean; top: number; height: number; draft: StudioTimelineTrim | null; draftIndex: number; draftOriginal?: StudioTake; visibleStart: number; visibleEnd: number; scale: number; disabled: boolean; onSelect: () => void;
 }) {
   const style = useAnimatedStyle(() => {
-    const current = studioLiveSegment(segment.start, segment.end, segment.index, m.trimIndex.value, m.originalStart.value, m.originalEnd.value, m.start.value, m.end.value, m.scale.value, m.leading.value);
+    const current = studioLiveSegment(segment.start, segment.end, segment.index, m.trimIndex.value, m.originalStart.value, m.originalEnd.value, m.start.value, m.end.value, m.scale.value, m.leading.value, m.playbackRate.value);
     return { left: m.viewport.value / 2 + current.x, width: current.width };
   });
   const displayTake = draft?.takeId === segment.take.id ? { ...segment.take, start: draft.start, end: draft.end } : segment.take;
-  const displayGeometry = studioLiveSegment(segment.start, segment.end, segment.index, draftIndex, draftOriginal?.start ?? 0, draftOriginal?.end ?? 0, draft?.start ?? 0, draft?.end ?? 0, scale, draft && draftOriginal ? draft.start - draftOriginal.start : 0);
-  return <AnimatedPressable disabled={disabled} onPress={onSelect} accessibilityRole="button" accessibilityLabel={`Selecionar take ${segment.index + 1}, ${formatStudioEditorTime(displayTake.end - displayTake.start)}`} accessibilityState={{ selected, disabled }}
+  const displayGeometry = studioLiveSegment(segment.start, segment.end, segment.index, draftIndex, draftOriginal?.start ?? 0, draftOriginal?.end ?? 0, draft?.start ?? 0, draft?.end ?? 0, scale, draft && draftOriginal ? (draft.start - draftOriginal.start) / (draftOriginal.playbackRate ?? 1) : 0, draftOriginal?.playbackRate ?? 1);
+  return <AnimatedPressable disabled={disabled} onPress={onSelect} accessibilityRole="button" accessibilityLabel={`Selecionar take ${segment.index + 1}, ${formatStudioEditorTime(studioTakeDuration(displayTake))}`} accessibilityState={{ selected, disabled }}
     style={[styles.clip, { top, height }, selected && styles.selected, style]}>
     <ClipFrames take={displayTake} audio={audio} canvasX={displayGeometry.x} visibleStart={visibleStart} visibleEnd={visibleEnd} scale={scale} />
     <View pointerEvents="none" style={styles.shade} />
   </AnimatedPressable>;
 }
 function ClipFrames({ take, audio, canvasX, visibleStart, visibleEnd, scale }: { take: StudioTake; audio: boolean; canvasX: number; visibleStart: number; visibleEnd: number; scale: number }) {
-  const width = (take.end - take.start) * scale;
+  const width = studioTakeDuration(take) * scale;
   const first = Math.max(0, Math.floor((visibleStart - canvasX) / tileWidth));
   const last = Math.min(Math.ceil(width / tileWidth) - 1, Math.ceil((visibleEnd - canvasX) / tileWidth));
   const samples = useMemo(() => {
     const result: { key: string; seconds: number }[] = [];
-    for (let index = first; index <= last; index++) result.push({ key: String(index), seconds: Math.min(take.end - 0.01, take.start + (index + 0.5) * tileWidth / scale) });
+    for (let index = first; index <= last; index++) result.push({ key: String(index), seconds: Math.min(take.end - 0.01, take.start + (index + 0.5) * tileWidth / scale * (take.playbackRate ?? 1)) });
     return result;
-  }, [first, last, take.start, take.end, scale]);
+  }, [first, last, take.start, take.end, take.playbackRate, scale]);
   const frames = useStudioFilmstrip(take, samples, !audio);
   if (audio) return <View pointerEvents="none" style={styles.audio}>{width >= 32 ? <Mic size={18} color={colors.muted} strokeWidth={1.4} /> : null}</View>;
   return <>{samples.map(sample => {
@@ -882,19 +883,19 @@ function TrimHandle({ edge, take, index, startSeconds, endSeconds, motion: m, ho
   onBegin: (edge: Edge, accessible?: boolean, expected?: number) => void; onCommit: (start: number, end: number, expected: number) => void; onCancel: (expected?: number) => void; onAccessibleChange: (edge: Edge, delta: number) => void;
 }) {
   const style = useAnimatedStyle(() => {
-    const geometry = studioLiveSegment(startSeconds, endSeconds, index, m.trimIndex.value, m.originalStart.value, m.originalEnd.value, m.start.value, m.end.value, m.scale.value, m.leading.value);
+    const geometry = studioLiveSegment(startSeconds, endSeconds, index, m.trimIndex.value, m.originalStart.value, m.originalEnd.value, m.start.value, m.end.value, m.scale.value, m.leading.value, m.playbackRate.value);
     const layout = trimHandleLayout(geometry.width, edge);
     return { left: m.viewport.value / 2 + geometry.x + (edge === 'end' ? geometry.width - (handleTouchWidth - layout.outside) : -layout.outside) };
   });
   const visualStyle = useAnimatedStyle(() => {
-    const geometry = studioLiveSegment(startSeconds, endSeconds, index, m.trimIndex.value, m.originalStart.value, m.originalEnd.value, m.start.value, m.end.value, m.scale.value, m.leading.value);
+    const geometry = studioLiveSegment(startSeconds, endSeconds, index, m.trimIndex.value, m.originalStart.value, m.originalEnd.value, m.start.value, m.end.value, m.scale.value, m.leading.value, m.playbackRate.value);
     const layout = trimHandleLayout(geometry.width, edge);
     return { width: layout.visualWidth, transform: [{ translateX: layout.visualOffset }] };
   });
   const pan = useMemo(() => Gesture.Pan().enabled(!disabled).maxPointers(1).minDistance(1).shouldCancelWhenOutside(false).blocksExternalGesture(nativeGesture)
     .onStart(event => {
       if (m.phase.value >= 3 && m.phase.value !== 6) return;
-      m.trimIndex.value = index; m.edge.value = edge === 'start' ? 0 : 1; m.originalStart.value = take.start; m.originalEnd.value = take.end; m.sourceDuration.value = take.duration;
+      m.trimIndex.value = index; m.edge.value = edge === 'start' ? 0 : 1; m.originalStart.value = take.start; m.originalEnd.value = take.end; m.sourceDuration.value = take.duration; m.playbackRate.value = take.playbackRate ?? 1;
       m.start.value = take.start; m.end.value = take.end; m.leading.value = 0; m.virtual.value = 0; m.translation.value = 0; m.initialOffset.value = m.offset.value; m.epoch.value += 1;
       m.mainTimelineStart.value = startSeconds; m.mainTimelineEnd.value = endSeconds;
       m.mainSnapPoints.value = studioTimelineSnapTargets(m.snapPoints.value, `main:${take.id}:`); m.snap.value = null;
@@ -904,17 +905,17 @@ function TrimHandle({ edge, take, index, startSeconds, endSeconds, motion: m, ho
       if (m.phase.value !== 3) return;
       m.translation.value = event.translationX;
       m.finger.value = event.absoluteX - (measure(host)?.pageX ?? 0);
-      const range = studioTrimDragValues(edge, take.start, take.end, take.duration, event.translationX, m.offset.value - m.initialOffset.value + m.virtual.value, m.scale.value);
+      const range = studioTrimDragValues(edge, take.start, take.end, take.duration, event.translationX, m.offset.value - m.initialOffset.value + m.virtual.value, m.scale.value, take.playbackRate ?? 1);
       applyMainSnap(m, range);
     }).onEnd((event, success) => {
       if (m.phase.value !== 3) return;
       if (success === false) { m.trimIndex.value = -1; m.leading.value = 0; m.virtual.value = 0; m.snap.value = null; m.phase.value = 0; runOnJS(onCancel)(m.epoch.value); return; }
-      if (Number.isFinite(event?.translationX)) applyMainSnap(m, studioTrimDragValues(edge, take.start, take.end, take.duration, event.translationX, m.offset.value - m.initialOffset.value + m.virtual.value, m.scale.value));
+      if (Number.isFinite(event?.translationX)) applyMainSnap(m, studioTrimDragValues(edge, take.start, take.end, take.duration, event.translationX, m.offset.value - m.initialOffset.value + m.virtual.value, m.scale.value, take.playbackRate ?? 1));
       m.snap.value = null;
       m.phase.value = 5; runOnJS(onCommit)(m.start.value, m.end.value, m.epoch.value);
     }).onFinalize((_, success) => {
       if (!success && m.phase.value === 3) { m.trimIndex.value = -1; m.leading.value = 0; m.virtual.value = 0; m.snap.value = null; m.phase.value = 0; runOnJS(onCancel)(m.epoch.value); }
-    }), [disabled, take.id, take.uri, take.start, take.end, take.duration, index, startSeconds, endSeconds, edge, nativeGesture, onBegin, onCommit, onCancel]);
+    }), [disabled, take.id, take.uri, take.start, take.end, take.duration, take.playbackRate, index, startSeconds, endSeconds, edge, nativeGesture, onBegin, onCommit, onCancel]);
   return <GestureDetector gesture={pan}><Animated.View accessible accessibilityRole="adjustable" accessibilityLabel={edge === 'start' ? 'Início do take' : 'Fim do take'} accessibilityState={{ disabled }} accessibilityValue={{ min: 0, max: take.duration, now: take[edge], text: formatStudioEditorTime(take[edge]) }} accessibilityActions={[{ name: 'increment', label: 'Avançar um décimo de segundo' }, { name: 'decrement', label: 'Voltar um décimo de segundo' }]} onAccessibilityAction={event => { if (!disabled) onAccessibleChange(edge, event.nativeEvent.actionName === 'increment' ? 0.1 : -0.1); }}
     style={[styles.handleTouch, { top: top - 4, height: height + 8 }, style]}><Animated.View pointerEvents="none" style={[styles.handle, disabled && { opacity: 0.45 }, visualStyle]}>{edge === 'start' ? <ChevronLeft size={16} strokeWidth={3} color="#0B0E11" /> : <ChevronRight size={16} strokeWidth={3} color="#0B0E11" />}</Animated.View></Animated.View></GestureDetector>;
 }

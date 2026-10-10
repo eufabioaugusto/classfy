@@ -12,7 +12,7 @@ ffmpeg -hide_banner -loglevel error -f lavfi -i color=c=green:s=120x90 -frames:v
 ffmpeg -hide_banner -loglevel error -f lavfi -i color=c=red:s=320x180:r=24:d=2 -f lavfi -i sine=frequency=440:duration=2 -c:v libx264 -pix_fmt yuv420p -c:a aac "$studio_interaction_directory/red24.mp4"
 xcrun swiftc -swift-version 5 -suppress-warnings -parse-as-library \
   "$studio_interaction_root/ios/StudioEffectRenderer.swift" "$studio_interaction_root/ios/StudioVideoCompositor.swift" \
-  "$studio_interaction_root/ios/StudioRecipeEngine.swift" "$studio_interaction_root/ios/StudioCompositionInteraction.swift" \
+  "$studio_interaction_root/ios/StudioRecipeVisualEffects.swift" "$studio_interaction_root/ios/StudioRecipeEngine.swift" "$studio_interaction_root/ios/StudioCompositionInteraction.swift" \
   "$studio_interaction_root/ios/StudioCompositionView.swift" \
   "$studio_interaction_root/tests/StudioCompositionInteraction.tests.swift" -o "$studio_interaction_directory/verify-interaction"
 "$studio_interaction_directory/verify-interaction" "$studio_interaction_directory/red.mp4" "$studio_interaction_directory/blue.mp4" "$studio_interaction_directory/green.png" "$studio_interaction_directory/red24.mp4"

@@ -4,7 +4,7 @@ import { useFocusEffect } from 'expo-router';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import { Mic, RotateCcw, Video } from 'lucide-react-native';
 import { colors } from '@/theme/colors';
-import { timelineDuration, type StudioKind, type StudioTake } from './model';
+import { studioPlaybackRate, studioTakeDuration, timelineDuration, type StudioKind, type StudioTake } from './model';
 import { locateStudioTime, studioPreviewBoundedSourceTime, studioPreviewSourceTime } from './timeline';
 import { studioSourceFrame, type StudioSourceFrame } from './editorInteraction';
 import { replaceStudioPreviewSource } from './videoSourceReady';
@@ -46,6 +46,15 @@ export const StudioPreview = forwardRef<StudioPreviewHandle, {
     instance.staysActiveInBackground = false;
   });
   useEffect(() => { try { player.muted = muted; } catch { /* Player was released. */ } }, [player, muted]);
+  const applyPlaybackRate = useCallback((rate: number) => {
+    // Expo Video's iOS setter writes AVPlayer.rate, even while paused. Restore
+    // pause immediately and avoid assigning unchanged rates on React renders.
+    if (player.playbackRate === rate) return;
+    const resume = player.playing && intendedPlayback.current && !live.current.paused && !sourceFrame.current && !moving.current;
+    player.playbackRate = rate;
+    if (!resume) player.pause();
+  }, [player]);
+  useEffect(() => { try { applyPlaybackRate(studioPlaybackRate(displayTake?.playbackRate)); } catch { /* Released player or invalid project. */ } }, [applyPlaybackRate, displayTake?.playbackRate]);
   const publish = useCallback((sourceSeconds?: number) => {
     if (sourceFrame.current) return;
     const current = live.current;
@@ -53,7 +62,7 @@ export const StudioPreview = forwardRef<StudioPreviewHandle, {
     const source = sourceSeconds ?? (pending?.takeId === current.take?.id && pending?.uri === current.take?.uri ? pending?.target : undefined) ?? player.currentTime;
     const index = current.takes.findIndex(item => item.id === current.take?.id);
     const before = timelineDuration(current.takes.slice(0, Math.max(0, index)));
-    const local = current.take ? Math.max(0, Math.min(current.take.end - current.take.start, source - current.take.start)) : 0;
+    const local = current.take ? Math.max(0, Math.min(studioTakeDuration(current.take), (source - current.take.start) / studioPlaybackRate(current.take.playbackRate))) : 0;
     current.onPlaybackState?.({ position: before + local, sourcePosition: source, takeId: current.take?.id,
       playing: player.playing, loading: moving.current });
   }, [player]);
@@ -137,6 +146,7 @@ export const StudioPreview = forwardRef<StudioPreviewHandle, {
     if (!frameMode) publish(studioPreviewSourceTime(take, pendingSeek.current));
     replacements.current = replacements.current.catch(() => undefined).then(async () => {
       if (!isCurrentSource()) return;
+      applyPlaybackRate(studioPlaybackRate(live.current.takes.find(item => item.id === id)?.playbackRate));
       if (loadedUri.current !== (uri || null) || player.status !== 'readyToPlay') {
         loadedUri.current = null;
         const loadingSource = replaceStudioPreviewSource(player, uri || null, isCurrentSource);
@@ -170,7 +180,7 @@ export const StudioPreview = forwardRef<StudioPreviewHandle, {
       if (active && request === generation.current) { moving.current = false; failure.current = true; setLoading(false); setFailed(true); publish(); }
     });
     return () => { active = false; cancelLoad?.(); };
-  }, [player, displayTake?.id, displayTake?.uri, !!frameSource, sourceRequest, retry, publish]);
+  }, [player, displayTake?.id, displayTake?.uri, !!frameSource, sourceRequest, retry, publish, applyPlaybackRate]);
   useEffect(() => {
     if (!take || moving.current || sourceFrame.current) return;
     const pending = seeking.current;

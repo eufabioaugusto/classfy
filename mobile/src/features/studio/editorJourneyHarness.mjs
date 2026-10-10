@@ -89,7 +89,7 @@ export const journeyCanvas = options => existingRuntime('./canvasInteraction.tes
 export const journeyTimeline = options => existingRuntime('./timelineInteraction.test.mjs', {
   assert, readFileSync, createRequire, dirname, join, fileURLToPath, transformFileSync, ts, model, layout, motionHelpers, snapHelpers, playbackHelpers, actualFilmstrip,
 }, source => {
-  const old = "'./useStudioFilmstrip': { useStudioFilmstrip: () => ({}) }";
+  const old = "'./useStudioFilmstrip': { useStudioFilmstrip: (take, samples) => { filmstripRequests.push({ take, samples }); return {}; } }";
   assert.ok(source.includes(old), 'Update journey runtime integration when the thumbnail boundary changes');
   return source.replace(old, "'./useStudioFilmstrip': actualFilmstrip(hooks)");
 })(options);

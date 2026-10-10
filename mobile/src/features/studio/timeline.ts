@@ -17,8 +17,9 @@ function requireTake(takes: readonly StudioTake[], id: string) {
   return { take: takes[index], index };
 }
 function clipDuration(take: StudioTake) {
-  const duration = take.end - take.start;
-  if (![take.duration, take.start, take.end].every(Number.isFinite) || take.start < 0 || take.end > take.duration + 0.05 || duration < minimumStudioClipSeconds - epsilon) {
+  const rate = take.playbackRate ?? 1;
+  const duration = Math.round((take.end - take.start) * 120000 / rate) / 120000;
+  if (![take.duration, take.start, take.end, rate].every(Number.isFinite) || rate < .25 || rate > 4 || take.start < 0 || take.end > take.duration + 0.05 || duration < minimumStudioClipSeconds - epsilon) {
     throw new Error('Revise os limites deste take antes de editar.');
   }
   return duration;
@@ -27,18 +28,31 @@ function requireNewIds(takes: readonly StudioTake[], ids: string[]) {
   if (ids.some(id => !id || takes.some(take => take.id === id)) || new Set(ids).size !== ids.length) throw new Error('Os novos takes precisam de identificações diferentes.');
 }
 
+function studioSplitLocation(takes: readonly StudioTake[], takeId: string, sourceSeconds: number) {
+  const { take, index } = requireTake(takes, takeId);
+  const durationTicks = Math.round(clipDuration(take) * 120000), rate = take.playbackRate ?? 1;
+  const minimum = take.start + minimumStudioClipSeconds * rate, maximum = take.end - minimumStudioClipSeconds * rate;
+  if (!Number.isFinite(sourceSeconds) || minimum > maximum + epsilon || sourceSeconds < minimum - epsilon || sourceSeconds > maximum + epsilon) throw new Error('Divida mais longe das bordas. Cada trecho precisa ter pelo menos 0,1 segundo.');
+  const point = Math.max(minimum, Math.min(maximum, sourceSeconds)), localTicks = Math.round((point - take.start) * 120000 / rate);
+  if (localTicks < (take.fadeInTicks ?? 0) || localTicks > durationTicks - (take.fadeOutTicks ?? 0)) throw new Error('Não é possível dividir dentro de uma entrada ou saída suave.');
+  return { take, index, point, localTicks, durationTicks };
+}
+export function canSplitStudioTake(takes: readonly StudioTake[], takeId: string, sourceSeconds: number): boolean {
+  try { studioSplitLocation(takes, takeId, sourceSeconds); return true; } catch { return false; }
+}
+
 // Keep the source file immutable. The exporter composes these two ranges from
 // the same original; splitting never copies or deletes the underlying media.
 export function splitStudioTake(takes: readonly StudioTake[], takeId: string, sourceSeconds: number, leftId: string, rightId: string): StudioTake[] {
-  const { take, index } = requireTake(takes, takeId);
-  clipDuration(take);
   requireNewIds(takes, [leftId, rightId]);
-  const minimum = take.start + minimumStudioClipSeconds;
-  const maximum = take.end - minimumStudioClipSeconds;
-  if (!Number.isFinite(sourceSeconds) || minimum > maximum + epsilon || sourceSeconds < minimum - epsilon || sourceSeconds > maximum + epsilon) throw new Error('Divida mais longe das bordas. Cada trecho precisa ter pelo menos 0,1 segundo.');
-  const point = Math.max(minimum, Math.min(maximum, sourceSeconds));
+  const { take, index, point, localTicks, durationTicks } = studioSplitLocation(takes, takeId, sourceSeconds);
   const result = [...takes];
-  result.splice(index, 1, { ...take, id: leftId, end: point }, { ...take, id: rightId, start: point });
+  const fade = (take.fadeInTicks ?? 0) > 0 || (take.fadeOutTicks ?? 0) > 0;
+  const motion = take.motion && take.motion !== 'none';
+  result.splice(index, 1, { ...take, id: leftId, end: point, ...(fade ? { fadeOutTicks: 0 } : {}),
+    ...(motion ? { motionDurationTicks: take.motionDurationTicks ?? durationTicks } : {}) },
+    { ...take, id: rightId, start: point, ...(fade ? { fadeInTicks: 0 } : {}),
+      ...(motion ? { motionOffsetTicks: (take.motionOffsetTicks ?? 0) + localTicks, motionDurationTicks: take.motionDurationTicks ?? durationTicks } : {}) });
   return result;
 }
 
@@ -93,7 +107,7 @@ export function locateStudioTime(takes: readonly StudioTake[], timelineSeconds: 
     if (target < end || index === takes.length - 1) {
       const take = takes[index];
       const localSeconds = Math.max(0, Math.min(duration, target - cursor));
-      return { take, takeId: take.id, index, sourceSeconds: take.start + localSeconds, localSeconds,
+      return { take, takeId: take.id, index, sourceSeconds: Math.min(take.end, take.start + localSeconds * (take.playbackRate ?? 1)), localSeconds,
         timelineSeconds: target, timelineStartSeconds: cursor, duration };
     }
     cursor = end;

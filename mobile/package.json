@@ -82,6 +82,7 @@
     "test:studio:transcription": "bash modules/classfy-studio-media/tests/verify-transcription.sh",
     "test:studio:compositor": "bash modules/classfy-studio-media/tests/verify-compositor.sh",
     "test:studio:initial-frame": "bash modules/classfy-studio-media/tests/verify-composition-initialization.sh",
+    "test:studio:tools": "bash modules/classfy-studio-media/tests/verify-editor-tools.sh",
     "test:studio:interaction": "bash modules/classfy-studio-media/tests/verify-interaction.sh",
     "test:live": "node --experimental-strip-types --test src/features/live/*.test.mjs",
     "test:live:transport": "node --experimental-strip-types --test src/features/live/transport.test.mjs"

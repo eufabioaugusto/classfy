@@ -1,4 +1,4 @@
-import { compileStudioRecipe, patchStudioLayerItem, studioSeconds, studioTicks,
+import { compileStudioRecipe, patchStudioLayerItem, studioClipDurationTicks, studioPlaybackRate, studioSeconds, studioTicks,
   type StudioEditing, type StudioLayerPatch } from './model';
 
 export type StudioLayerTimelineRange = { startSeconds: number; endSeconds: number };
@@ -8,6 +8,7 @@ export type StudioLayerTimelineSnapshot = {
   minimumStart: number; maximumEnd: number; moveMinimum: number; moveMaximum: number;
   independentMoveMinimum?: number; independentMoveMaximum?: number;
   sourceStartSeconds: number; sourceEndSeconds: number; temporal: boolean;
+  playbackRate?: number; animationOffsetTicks?: number; motionOffsetTicks?: number; motionDurationTicks?: number;
 };
 
 /** Vertical intent is a final canonical lane position, never a media merge. */
@@ -40,12 +41,15 @@ export function freezeStudioLayerTimeline(editing: StudioEditing, id: string): S
   const temporal = item.kind === 'video' || item.kind === 'audio';
   if (temporal && (!asset || asset.durationTicks <= 0)) throw new Error('O original deste elemento precisa de recuperação.');
   const sourceStartSeconds = studioSeconds(clip.sourceStartTicks), sourceEndSeconds = studioSeconds(clip.sourceEndTicks);
-  const minimumStart = Math.max(moveMinimum, temporal ? startSeconds - sourceStartSeconds : 0);
+  const rate = studioPlaybackRate(item.playbackRate);
+  const minimumStart = Math.max(moveMinimum, temporal ? startSeconds - sourceStartSeconds / rate : 0);
   const maximumEnd = Math.max(endSeconds, Math.min(moveMaximum,
-    temporal ? endSeconds + studioSeconds(asset!.durationTicks) - sourceEndSeconds : moveMaximum));
+    temporal ? endSeconds + (studioSeconds(asset!.durationTicks) - sourceEndSeconds) / rate : moveMaximum));
   return { id, startSeconds, endSeconds, minimumStart, maximumEnd, moveMinimum, moveMaximum,
     independentMoveMinimum: 0, independentMoveMaximum: Math.max(mainEnd, endSeconds),
-    minimumDuration: Math.min(0.1, endSeconds - startSeconds), sourceStartSeconds, sourceEndSeconds, temporal,
+    minimumDuration: Math.min(0.1, endSeconds - startSeconds), sourceStartSeconds, sourceEndSeconds, temporal, playbackRate: rate,
+    ...(clip.animationOffsetTicks !== undefined ? { animationOffsetTicks: clip.animationOffsetTicks } : {}),
+    ...(clip.motionOffsetTicks !== undefined ? { motionOffsetTicks: clip.motionOffsetTicks, motionDurationTicks: clip.motionDurationTicks } : {}),
     signature: JSON.stringify([track.id, item, editing.main, editing.assets.map(value => [value.id, value.uri, value.durationTicks, value.kind]),
       siblings.map(value => [value.id, value.startTicks, value.durationTicks]), mainEnd]) };
 }
@@ -87,20 +91,25 @@ export function studioLayerTimelinePatch(editing: StudioEditing, id: string, ran
   }
   const item = editing.layers.flatMap(layer => layer.items).find(value => value.id === id)!;
   const durationTicks = end - start;
-  const sourceStartTicks = frozen.temporal ? studioTicks(frozen.sourceStartSeconds) + (mode === 'move' ? 0 : start - studioTicks(frozen.startSeconds)) : 0;
-  const sourceEndTicks = frozen.temporal ? sourceStartTicks + durationTicks : 0;
+  const rate = frozen.playbackRate ?? 1, excluded = start - studioTicks(frozen.startSeconds);
+  const sourceStartTicks = frozen.temporal ? studioTicks(frozen.sourceStartSeconds) + (mode === 'move' ? 0 : Math.round(excluded * rate)) : 0;
+  const sourceEndTicks = frozen.temporal ? sourceStartTicks + Math.round(durationTicks * rate) : 0;
   const patch: StudioLayerPatch = { atTicks: start, durationTicks, sourceStartTicks, sourceEndTicks,
     fadeInTicks: Math.min(item.fadeInTicks ?? 0, durationTicks),
-    fadeOutTicks: Math.min(item.fadeOutTicks ?? 0, Math.max(0, durationTicks - Math.min(item.fadeInTicks ?? 0, durationTicks))) };
+    fadeOutTicks: Math.min(item.fadeOutTicks ?? 0, Math.max(0, durationTicks - Math.min(item.fadeInTicks ?? 0, durationTicks))),
+    ...(mode === 'trim' && item.text?.animation && item.text.animation !== 'none'
+      ? { animationOffsetTicks: Math.max(0, (frozen.animationOffsetTicks ?? item.animationOffsetTicks ?? 0) + excluded) } : {}),
+    ...(mode === 'trim' && item.motion && item.motion !== 'none'
+      ? { motionOffsetTicks: Math.max(0, (frozen.motionOffsetTicks ?? item.motionOffsetTicks ?? 0) + excluded), motionDurationTicks: frozen.motionDurationTicks ?? item.motionDurationTicks ?? item.durationTicks } : {}) };
   if (item.anchor) {
     const assets = new Map(editing.assets.map(value => [value.id, value]));
     let hostStart = 0;
     for (const main of editing.main) {
-      const length = assets.get(main.assetId)?.kind === 'image' ? main.durationTicks ?? 0 : main.sourceEndTicks - main.sourceStartTicks;
+      const length = studioClipDurationTicks(main, assets.get(main.assetId)), mainRate = studioPlaybackRate(main.playbackRate);
       if (main.id === item.anchor.clipId) {
         if (start >= hostStart && end <= hostStart + length) {
           patch.anchor = item.anchor.sourceStartTicks !== undefined
-            ? { clipId: main.id, sourceStartTicks: main.sourceStartTicks + start - hostStart, sourceEndTicks: main.sourceStartTicks + end - hostStart }
+            ? { clipId: main.id, sourceStartTicks: main.sourceStartTicks + Math.round((start - hostStart) * mainRate), sourceEndTicks: main.sourceStartTicks + Math.round((end - hostStart) * mainRate) }
             : { clipId: main.id, offsetTicks: start - hostStart };
         } else patch.anchor = undefined; // Explicit drag beyond host becomes global.
         break;

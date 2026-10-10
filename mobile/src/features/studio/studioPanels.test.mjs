@@ -1,3 +1,6 @@
+import { filterCatalogHarness } from './studioLibraryTestSupport.mjs';
+const { studioFilterPresets, studioSelectedFilter } = filterCatalogHarness();
+import { libraryHarness } from './studioLibraryTestSupport.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -5,7 +8,7 @@ import ts from 'typescript';
 import * as model from './model.ts';
 
 const dependenciesEqual = (a, b) => a?.length === b?.length && a.every((value, index) => Object.is(value, b[index]));
-function harness(file, exportName, initialProps) {
+function harness(file, exportName, initialProps, dependencyOverrides = {}) {
   const slots = [], pendingEffects = [], frames = new Map(), timers = new Map();
   let cursor = 0, dirty = false, tree, props = initialProps, frameId = 0, timerId = 0, focusCount = 0, now = 1000, refs = new Set();
   const hooks = {
@@ -28,7 +31,8 @@ function harness(file, exportName, initialProps) {
     'react-native': { Pressable: 'button', ScrollView: 'scroll', Text: 'text', TextInput: 'input', View: 'view', ActivityIndicator: 'spinner', StyleSheet: { create: value => value } },
     'lucide-react-native': new Proxy({}, { get: (_, key) => `icon:${String(key)}` }),
     '@/theme/colors': { colors: { surface: '#141414', surfaceAlt: '#1F1F1F', surfaceMuted: '#262626', text: '#FAFAFA', muted: '#A3A3A3', accent: '#E11D48' } },
-    './model': model, './StudioControlSlider': { StudioControlSlider: 'slider' },
+    './textLibrary': libraryHarness(), './filterCatalog': { studioFilterPresets, studioSelectedFilter }, './filterPreviews': { prepareStudioFilterPreviews: () => () => {} }, '@/components/LoadingImage': { LoadingImage: 'image' }, './model': model, './StudioControlSlider': { StudioControlSlider: 'slider' },
+    ...dependencyOverrides,
   };
   const source = readFileSync(new URL(file, import.meta.url), 'utf8');
   const compiled = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX } }).outputText;
@@ -86,7 +90,7 @@ function editingFixture(kind = 'text') {
 }
 function layer(options = {}) {
   const fixture = editingFixture(options.kind), previews = [], applied = [], removed = [], closed = [], consumed = [];
-  const view = harness('./StudioLayerPanel.tsx', 'StudioLayerPanel', { ...fixture, onPreview: value => previews.push(value), onApply: async value => { applied.push(value); }, onClose: () => closed.push(true), onRemove: () => removed.push(true), onTextEditConsumed: value => consumed.push(value), ...options.props });
+  const view = harness('./StudioLayerPanel.tsx', 'StudioLayerPanel', { ...fixture, onPreview: value => previews.push(value), onApply: async value => { applied.push(value); }, onClose: () => closed.push(true), onRemove: () => removed.push(true), onTextEditConsumed: value => consumed.push(value), ...options.props }, options.dependencies);
   const latestItem = () => previews.at(-1)?.layers.flatMap(value => value.items).find(value => value.id === fixture.item.id);
   return { view, ...fixture, previews, applied, removed, closed, consumed, latestItem };
 }
@@ -205,4 +209,142 @@ test('accessible slider increment is bounded and unsupported action does nothing
 test('expanded text panel reports its reserved layout and clears it on close/unmount', () => {
   const changes = []; const { view } = layer({ props: { onEditingChange: expanded => changes.push(expanded) } }); assert.deepEqual(changes, [false]);
   view.press('Editar texto'); assert.equal(changes.at(-1), true); view.press('Voltar às ferramentas da camada'); assert.equal(changes.at(-1), false); view.press('Opacidade'); assert.equal(changes.at(-1), true); view.unmount(); assert.equal(changes.at(-1), false);
+});
+
+test('texto combina animação, efeito, contorno e degradê sem perder conteúdo ou gravar antes de concluir', async () => {
+  const { view, latestItem, applied, closed } = layer({ props: { toolsEnabled: true } });
+  view.press('Editar texto'); view.press('Animação do texto'); view.press('Máquina de escrever');
+  view.press('Efeitos do texto'); view.press('Neon'); view.press('Contorno e fundo do texto'); view.press('Contorno');
+  view.press('Cor do texto'); view.press('Degradê do texto'); view.press('Cor secundária do texto'); view.press('Cor #EF154A');
+  const value = latestItem(); assert.equal(value.text.content, 'Original'); assert.equal(value.text.animation, 'typewriter'); assert.equal(value.text.visualEffect, 'neon'); assert.equal(value.text.decoration, 'outline'); assert.deepEqual(value.text.gradientColors, ['#FFFFFF', '#EF154A']);
+  assert.equal(applied.length, 0); view.press('Voltar às ferramentas da camada'); view.press('Cancelar edição da camada'); assert.equal(applied.length, 0); assert.equal(closed.length, 1);
+  view.press('Aplicar edição da camada'); await view.pump(); assert.equal(applied.length, 1); assert.deepEqual(applied[0].layers.flatMap(lane => lane.items)[0].text, value.text);
+});
+test('biblioteca de fontes filtra por busca e favoritas, com retorno visual após salvar', async () => {
+  const { view } = layer({ props: { ownerId: 'owner' } }); await view.pump();
+  view.press('Editar texto'); view.press('Fontes do texto'); view.input().onChangeText('Baskerville'); view.draw();
+  assert.equal(view.hasButton('Fonte Padrão'), false); assert.equal(view.hasButton('Fonte Baskerville'), true);
+  view.press('Salvar fonte Baskerville'); await view.pump(); assert.equal(view.hasButton('Ver fontes salvas'), true);
+  view.press('Ver fontes salvas'); assert.equal(view.hasButton('Fonte Baskerville'), true); assert.equal(view.hasButton('Fonte Avenir'), false);
+});
+test('aplicar estilo à faixa preserva conteúdo, tempos e outras faixas', async () => {
+  const fixture = editingFixture(); fixture.editing.layers[0].items.push({ ...fixture.item, id: 'second', atTicks: model.studioTicks(3), text: { ...fixture.item.text, content: 'Outra frase' } });
+  fixture.editing = model.addStudioLayerItem(fixture.editing, { ...fixture.item, id: 'other', text: { ...fixture.item.text, content: 'Outra faixa' } }, 'other-lane');
+  const applied = [], view = harness('./StudioLayerPanel.tsx', 'StudioLayerPanel', { ...fixture, toolsEnabled: true, onPreview() {}, onApply: async value => applied.push(value), onClose() {}, onRemove() {} });
+  view.press('Editar texto'); view.press('Aplicar estilo à faixa de texto'); view.press('Efeitos do texto'); view.press('Sombra forte'); view.press('Aplicar edição da camada'); await view.pump();
+  assert.equal(applied[0].layers[0].items[1].text.content, 'Outra frase'); assert.equal(applied[0].layers[0].items[1].text.visualEffect, 'shadow-strong'); assert.equal(applied[0].layers[0].items[1].atTicks, model.studioTicks(3)); assert.equal(applied[0].layers[1].items[0].text.visualEffect, undefined);
+});
+function clipPanel(mode, extra = {}) {
+  const { editing } = editingFixture(), previews = [], applied = [], closed = [];
+  editing.main.push({ ...editing.main[0], id: 'shorter', sourceEndTicks: model.studioTicks(1) });
+  const view = harness('./StudioClipPanel.tsx', 'StudioClipPanel', { editing, targetId: 'main', mode, toolsEnabled: true, onPreview: value => previews.push(value), onApply: async value => applied.push(value), onClose: () => closed.push(true), ...extra });
+  return { view, editing, previews, applied, closed };
+}
+test('volume em todos os clips aplica uma única montagem e limita fades em originais curtos', async () => {
+  const { view, previews, applied } = clipPanel('volume');
+  view.slider('Volume do clip').onChange(0.5); view.draw(); view.slider('Entrada suave').onChange(1.5); view.draw(); view.slider('Saída suave').onChange(1); view.draw();
+  view.press('Aplicar volume e fades a todos os clips'); assert.equal(applied.length, 0); assert.equal(previews.at(-1).main[1].gain, undefined);
+  view.press('Aplicar ajuste do clip'); await view.pump(); assert.equal(applied.length, 1);
+  assert.equal(applied[0].main[1].gain, 0.5); assert.equal(applied[0].main[1].fadeInTicks, model.studioTicks(0.5)); assert.equal(applied[0].main[1].fadeOutTicks, model.studioTicks(0.5));
+});
+test('velocidade preserva fonte e mostra duração real; cancelar não grava e callback antigo não muda ferramenta nova', () => {
+  const { view, editing, previews, applied, closed } = clipPanel('speed');
+  const old = view.slider('Velocidade do clip'); old.onChange(2); view.draw();
+  assert.equal(previews.at(-1).main[0].sourceEndTicks, editing.main[0].sourceEndTicks); assert.equal(previews.at(-1).main[0].playbackRate, 2); assert.equal(model.studioSeconds(model.studioClipDurationTicks(previews.at(-1).main[0])), 4);
+  view.update({ mode: 'mirror' }); const count = previews.length; old.onChange(3); view.draw(); assert.equal(previews.length, count);
+  view.press('Virar horizontalmente'); assert.equal(previews.at(-1).main[0].flipHorizontal, true);
+  view.press('Cancelar ajuste do clip'); assert.equal(applied.length, 0); assert.equal(closed.length, 1);
+});
+test('catálogo de efeitos de vídeo usa a receita real e binário antigo conserva o editor básico', () => {
+  const current = clipPanel('motion'); current.view.press('Efeito Pulsação'); assert.equal(current.previews.at(-1).main[0].motion, 'pulse');
+  const old = clipPanel('motion', { toolsEnabled: false }); assert.equal(old.view.hasButton('Efeito Pulsação'), false);
+  const basic = clipPanel('volume', { toolsEnabled: false }); assert.equal(basic.view.slider('Entrada suave'), undefined); basic.view.slider('Volume do clip').onChange(0); assert.equal(basic.previews.at(-1).main[0].gain, 0);
+});
+
+test('velocidade de takes curtos respeita mínimo de 0,1 segundo sem perder original', () => {
+  for (const seconds of [0.1, 0.2, 0.35]) {
+    const { editing } = editingFixture(); editing.main[0].sourceEndTicks = model.studioTicks(seconds);
+    const { view, previews } = clipPanel('speed', { editing });
+    const control = view.slider('Velocidade do clip');
+    assert.equal(control.max, seconds * 10);
+    control.onChange(control.max); view.draw();
+    const next = previews.at(-1);
+    assert.equal(model.studioClipDurationTicks(next.main[0]), model.studioTicks(0.1));
+    assert.equal(next.main[0].sourceEndTicks, editing.main[0].sourceEndTicks);
+    assert.deepEqual(model.validateStudioEditing(next, 'aula'), []);
+  }
+});
+
+test('callback de velocidade inválida mostra erro e conserva draft; callback antigo é ignorado antes de validar', () => {
+  const { editing } = editingFixture(); editing.main[0].sourceEndTicks = model.studioTicks(0.1);
+  const { view, previews } = clipPanel('speed', { editing });
+  const old = view.slider('Velocidade do clip');
+  assert.doesNotThrow(() => old.onChange(2)); view.draw();
+  assert.equal(previews.length, 0); assert.ok(view.labels().includes('Revise os cortes dos takes.'));
+  view.update({ mode: 'mirror' });
+  assert.doesNotThrow(() => old.onChange(4)); view.draw();
+  assert.equal(previews.length, 0); assert.ok(!view.labels().includes('Revise os cortes dos takes.'));
+  view.press('Virar horizontalmente'); assert.equal(previews.at(-1).main[0].flipHorizontal, true);
+});
+
+test('biblioteca lenta preserva favoritos existentes; escolher fonte aplica estilo sem gravar antes da hidratação', async () => {
+  const key = 'classfy:studio:text-library:v1:owner', original = { favorites: ['Georgia'], recent: ['Menlo-Regular'] };
+  const storage = new Map([[key, JSON.stringify(original)]]), writes = [];
+  let complete;
+  const read = new Promise(resolve => { complete = resolve; });
+  const library = libraryHarness(storage, { getItem: () => read, setItem: async (key, value) => { writes.push(key); storage.set(key, value); } });
+  const { view, latestItem } = layer({ props: { ownerId: 'owner' }, dependencies: { './textLibrary': library } });
+  try {
+    await view.pump(); view.press('Editar texto'); view.press('Fontes do texto');
+    assert.equal(view.button('Salvar fonte Baskerville').disabled, true);
+    view.button('Salvar fonte Baskerville').onPress();
+    view.press('Fonte Baskerville'); await view.pump();
+    assert.equal(latestItem().text.fontFamily, 'Baskerville'); assert.deepEqual(writes, []);
+    assert.deepEqual(JSON.parse(storage.get(key)), original);
+    complete(JSON.stringify(original)); await view.pump();
+    assert.equal(view.button('Salvar fonte Baskerville').disabled, false);
+    view.press('Salvar fonte Baskerville'); await view.pump();
+    assert.deepEqual(JSON.parse(storage.get(key)), { favorites: ['Georgia', 'Baskerville'], recent: ['Menlo-Regular'] });
+    view.press('Fonte Avenir'); await view.pump();
+    assert.deepEqual(JSON.parse(storage.get(key)), { favorites: ['Georgia', 'Baskerville'], recent: ['AvenirNext-Regular', 'Menlo-Regular'] });
+  } finally { view.unmount(); }
+});
+
+test('falha ao ler fontes não autoriza substituir biblioteca existente', async () => {
+  const key = 'classfy:studio:text-library:v1:owner', original = { favorites: ['Georgia'], recent: ['Menlo-Regular'] };
+  const storage = new Map([[key, JSON.stringify(original)]]), writes = [];
+  const library = libraryHarness(storage, { getItem: async () => { throw new Error('Armazenamento indisponível'); }, setItem: async (key, value) => { writes.push(key); storage.set(key, value); } });
+  const { view, latestItem } = layer({ props: { ownerId: 'owner' }, dependencies: { './textLibrary': library } });
+  try {
+    await view.pump(); view.press('Editar texto'); view.press('Fontes do texto');
+    assert.equal(view.button('Salvar fonte Baskerville').disabled, true);
+    view.button('Salvar fonte Baskerville').onPress(); view.press('Fonte Baskerville'); await view.pump();
+    assert.equal(latestItem().text.fontFamily, 'Baskerville'); assert.deepEqual(writes, []);
+    assert.deepEqual(JSON.parse(storage.get(key)), original);
+    assert.ok(view.labels().includes('Não foi possível abrir suas fontes salvas.'));
+  } finally { view.unmount(); }
+});
+
+test('hidratação e callbacks de conta anterior não mudam biblioteca nem estilo da conta atual', async () => {
+  const keyA = 'classfy:studio:text-library:v1:ana', keyB = 'classfy:studio:text-library:v1:bia';
+  const values = { [keyA]: { favorites: ['Georgia'], recent: [] }, [keyB]: { favorites: ['Verdana'], recent: [] } };
+  const storage = new Map(Object.entries(values).map(([key, value]) => [key, JSON.stringify(value)])), reads = [], writes = [];
+  const library = libraryHarness(storage, { getItem: key => new Promise(resolve => reads.push({ key, resolve })), setItem: async (key, value) => { writes.push(key); storage.set(key, value); } });
+  const { view, previews } = layer({ props: { ownerId: 'ana' }, dependencies: { './textLibrary': library } });
+  try {
+    await view.pump(); view.press('Editar texto'); view.press('Fontes do texto');
+    const oldFavorite = view.button('Salvar fonte Baskerville').onPress, oldFont = view.button('Fonte Baskerville').onPress;
+    view.update({ ownerId: 'bia' }); await view.pump();
+    reads.find(read => read.key === keyB).resolve(JSON.stringify(values[keyB])); await view.pump();
+    reads.find(read => read.key === keyA).resolve(JSON.stringify(values[keyA])); await view.pump();
+    assert.equal(view.hasButton('Remover fonte Texto'), true); assert.equal(view.hasButton('Remover fonte Clássica'), false);
+    oldFavorite(); oldFont(); await view.pump(); assert.equal(previews.length, 0); assert.deepEqual(writes, []);
+    view.update({ ownerId: 'ana' }); await view.pump();
+    reads.filter(read => read.key === keyA)[1].resolve(JSON.stringify(values[keyA])); await view.pump();
+    oldFavorite(); oldFont(); await view.pump(); assert.equal(previews.length, 0); assert.deepEqual(writes, [], 'returning to the same account must not revive an earlier callback');
+    view.press('Salvar fonte Baskerville'); await view.pump();
+    assert.deepEqual(JSON.parse(storage.get(keyA)), { favorites: ['Georgia', 'Baskerville'], recent: [] });
+    assert.deepEqual(JSON.parse(storage.get(keyB)), values[keyB]);
+    const late = view.button('Fonte Avenir').onPress; view.unmount(); late(); await view.pump(); assert.deepEqual(writes, [keyA]);
+  } finally { view.unmount(); }
 });

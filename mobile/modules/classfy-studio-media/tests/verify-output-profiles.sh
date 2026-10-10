@@ -15,7 +15,7 @@ ffmpeg -hide_banner -loglevel error -f lavfi -i color=c=blue:s=64x36:r=30:d=0.3 
   -color_primaries bt2020 -color_trc arib-std-b67 -colorspace bt2020nc -tag:v hvc1 -movflags +write_colr "$studio_output_directory/tagged-hlg.mp4"
 xcrun swiftc -swift-version 5 -suppress-warnings -parse-as-library \
   "$studio_output_root/ios/StudioEffectRenderer.swift" "$studio_output_root/ios/StudioVideoCompositor.swift" \
-  "$studio_output_root/ios/StudioRecipeEngine.swift" "$studio_output_root/ios/StudioExportIdleLease.swift" "$studio_output_root/ios/StudioMediaEngine.swift" \
+  "$studio_output_root/ios/StudioRecipeVisualEffects.swift" "$studio_output_root/ios/StudioRecipeEngine.swift" "$studio_output_root/ios/StudioExportIdleLease.swift" "$studio_output_root/ios/StudioMediaEngine.swift" \
   "$studio_output_root/tests/StudioOutputProfiles.tests.swift" -o "$studio_output_directory/verify-output-profiles"
 studio_output_args=("$studio_output_directory")
 if [[ -n "${STUDIO_OUTPUT_REPORT:-}" ]]; then studio_output_args+=("$STUDIO_OUTPUT_REPORT"); fi

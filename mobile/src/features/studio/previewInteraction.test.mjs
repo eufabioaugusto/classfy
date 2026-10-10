@@ -82,6 +82,10 @@ function harness(takes) {
     tick(seconds) { nativeTime = seconds; emit('timeUpdate', { currentTime: seconds }); },
     end() { emit('playToEnd', {}); },
   };
+  let rate = 1;
+  Object.defineProperty(player, 'playbackRate', { get: () => rate, set: value => {
+    rate = value; player.playing = true; emit('playingChange', { isPlaying: true });
+  } });
   const component = compile('./StudioPreview.tsx', {
     react: hooks,
     'react/jsx-runtime': { jsx: (type, props) => ({ type, props }), jsxs: (type, props) => ({ type, props }) },
@@ -264,5 +268,24 @@ test('mute/unmute durante Play e rerender dos mesmos takes preservam player, fon
       assert.equal(view.player.writes.length, writes); assert.equal(view.player.pauses, pauses); assert.equal(view.player.plays, plays);
       assert.equal(view.published.at(-1).position, 3); assert.equal(view.published.at(-1).loading, false);
     }
+  } finally { await view.dispose(); }
+});
+
+
+test('prévia 2x aplica taxa real sem autoplay ao carregar e seek/tick convertem fonte para timeline', async () => {
+  const takes = [{ ...take('a'), playbackRate: 2 }, { ...take('b'), playbackRate: .5 }], view = harness(takes);
+  try {
+    await view.load(); assert.equal(view.player.playbackRate, 2); assert.equal(view.player.playing, false);
+    view.ref.current.seek(1.5); await view.pump(); assert.equal(view.player.writes.at(-1).seconds, 5);
+    view.player.tick(5); assert.equal(view.published.at(-1).position, 1.5);
+    view.ref.current.togglePlayback(); await view.pump(); assert.equal(view.player.playing, true);
+    view.player.tick(8); await view.load(); assert.equal(view.player.uri, 'file:///b.mp4');
+    assert.equal(view.player.playbackRate, .5); assert.equal(view.player.playing, true);
+    view.player.tick(2); view.player.tick(4); assert.equal(view.published.at(-1).position, 7);
+    view.ref.current.pause(); view.update({ takes: [{ ...take('a'), playbackRate: 2 }, { ...take('b'), playbackRate: 2 }] });
+    await view.pump(); assert.equal(view.player.playbackRate, 2); assert.equal(view.player.playing, false);
+    const pauses = view.player.pauses;
+    view.update({ takes: [{ ...take('a'), playbackRate: 2 }, { ...take('b'), playbackRate: 2 }] }); await view.pump();
+    assert.equal(view.player.pauses, pauses, 'unchanged rate is not reassigned because Expo setter starts playback');
   } finally { await view.dispose(); }
 });

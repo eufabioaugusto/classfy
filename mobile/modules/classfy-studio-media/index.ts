@@ -1,5 +1,5 @@
 import { requireOptionalNativeModule, type NativeModule } from 'expo-modules-core';
-import type { StudioGrade } from '../../src/features/studio/model';
+import type { StudioGrade, StudioRenderRecipe } from '../../src/features/studio/model';
 
 export type StudioMediaInfo = {
   duration: number;
@@ -61,6 +61,8 @@ export type StudioExportCapabilities = {
 };
 type StudioMediaEvents = { onExportProgress: (event: { requestId: string; progress: number }) => void; onTranscriptionProgress: (event: { requestId: string; stage: string; progress: number }) => void };
 declare class StudioMediaModule extends NativeModule<StudioMediaEvents> {
+  getStudioEditorCapabilitiesAsync?(): Promise<{ version: number; available: boolean }>;
+  renderStudioRecipeThumbnailAsync?(recipeJSON: string, outputUri: string, seconds: number): Promise<{ uri: string; width: number; height: number; seconds: number }>;
   getStudioExportCapabilitiesAsync?(): Promise<StudioExportCapabilities>;
   getStudioInteractiveCompositionVersionAsync?(): Promise<{ version: number; available: boolean }>;
   performStudioSelectionFeedbackAsync?(): Promise<boolean>;
@@ -137,6 +139,22 @@ export async function cancelExportAsync(requestId: string) { await native?.cance
 // A stale development binary may run new JavaScript. Gate the entire native
 // composition rather than silently exporting a sequential file without layers.
 export function isStudioCompositionAvailable() { return !!native && typeof native.exportRecipeAsync === 'function' && typeof native.seekStudioCompositionAsync === 'function'; }
+export function isStudioEditorToolsAvailable() { return isStudioCompositionAvailable() && typeof native?.getStudioEditorCapabilitiesAsync === 'function'; }
+export function isStudioFilterPreviewAvailable() { return isStudioEditorToolsAvailable() && typeof native?.renderStudioRecipeThumbnailAsync === 'function'; }
+export async function renderStudioRecipeThumbnailAsync(recipeJSON: string, outputUri: string, seconds: number) {
+  if (!isStudioFilterPreviewAvailable()) throw new Error('Atualize o Classfy Dev para visualizar as miniaturas dos filtros.');
+  return native!.renderStudioRecipeThumbnailAsync!(recipeJSON, outputUri, seconds);
+}
+export function studioRecipeNeedsEditorTools(recipe: StudioRenderRecipe) {
+  return recipe.clips.some(clip => clip.kind === 'audio' && recipe.assets?.some(asset => asset.id === clip.assetId && asset.kind === 'video') || clip.zIndex === 0 && (clip.fadeInTicks > 0 || clip.fadeOutTicks > 0 || clip.opacity !== 1) || (clip.playbackRate ?? 1) !== 1 || clip.flipHorizontal || clip.flipVertical || clip.motion && clip.motion !== 'none'
+    || clip.text && (clip.text.decoration && clip.text.decoration !== 'none' || clip.text.visualEffect && clip.text.visualEffect !== 'none'
+      || clip.text.animation && clip.text.animation !== 'none' || clip.text.gradientColors));
+}
+export async function getStudioEditorCapabilitiesAsync() {
+  if (!isStudioEditorToolsAvailable()) return { version: 0, available: false };
+  try { const value = await native!.getStudioEditorCapabilitiesAsync!(); return { version: value.version, available: value.version === 1 && value.available === true }; }
+  catch { return { version: 0, available: false }; }
+}
 export async function getStudioExportCapabilitiesAsync(): Promise<StudioExportCapabilities> {
   const fallback: StudioExportCapabilities = { version: 1, available: isStudioCompositionAvailable(), colorSpace: 'rec709',
     minimumDimension: 1080, maximumDimension: 1920, maximumShortDimension: 1080, maximumPixels: 1920 * 1080,
@@ -198,6 +216,7 @@ export function previewStudioCompositionSourceAsync(tag: number, clipId: string,
 export function restoreStudioCompositionAsync(tag: number, token: number) { return compositionModule().restoreStudioCompositionAsync(tag, token); }
 export async function exportRecipeAsync(options: { requestId: string; recipeJSON: string; outputUri: string }, onProgress?: (value: number) => void) {
   const module = compositionModule();
+  if (studioRecipeNeedsEditorTools(JSON.parse(options.recipeJSON) as StudioRenderRecipe) && !(await getStudioEditorCapabilitiesAsync()).available) throw new Error('Instale o Classfy Dev atualizado para exportar os efeitos, o espelhamento e a velocidade desta montagem.');
   const listener = onProgress ? module.addListener('onExportProgress', event => { if (event.requestId === options.requestId) onProgress(Math.max(0, Math.min(1, event.progress))); }) : undefined;
   try { return await module.exportRecipeAsync(options); } finally { listener?.remove(); }
 }

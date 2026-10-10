@@ -18,6 +18,11 @@ export type StudioTake = {
   colorSpace?: string;
   /** Reversible clip treatment; the original asset always remains unprocessed. */
   grade?: StudioGrade;
+  playbackRate?: number;
+  flipHorizontal?: boolean; flipVertical?: boolean;
+  gain?: number; opacity?: number; fadeInTicks?: number; fadeOutTicks?: number;
+  motion?: StudioClipMotion; motionOffsetTicks?: number; motionDurationTicks?: number;
+  hasAudio?: boolean;
   /** Still images use presentation duration in the takes adapter. */
   kind?: 'video' | 'image' | 'audio';
 };
@@ -67,13 +72,18 @@ export const studioFormats = [
   { kind: 'podcast', title: 'Podcast', detail: 'Dê voz ao seu conhecimento.', ratio: 'Áudio' },
 ] as const;
 export function timelineDuration(takes: readonly StudioTake[]) {
-  return takes.reduce((sum, take) => sum + Math.max(0, take.end - take.start), 0);
+  return takes.reduce((sum, take) => sum + studioTakeDuration(take), 0);
+}
+export function studioTakeDuration(take: Pick<StudioTake, 'start' | 'end' | 'playbackRate'>) {
+  return studioSeconds(Math.round(studioTicks(Math.max(0, take.end - take.start)) / studioPlaybackRate(take.playbackRate)));
 }
 // Project schema and renderer are independent. Legacy artifacts are adopted only
 // when their old signature proves the unchanged sequential render.
 export const STUDIO_RENDER_VERSION = 3;
 export function timelineSignature(project: Pick<StudioProject, 'kind' | 'takes'> & Partial<StudioProject>) {
-  if (!project.editing && !project.takes.some(take => normalizeStudioCaptureGrade(take.grade))) return legacyTimelineSignature(project);
+  if (!project.editing && !project.takes.some(take => normalizeStudioCaptureGrade(take.grade)
+    || (take.playbackRate ?? 1) !== 1 || take.flipHorizontal || take.flipVertical || (take.gain ?? 1) !== 1
+    || (take.opacity ?? 1) !== 1 || take.fadeInTicks || take.fadeOutTicks || take.motion && take.motion !== 'none')) return legacyTimelineSignature(project);
   const recipe = compileStudioRecipe(project);
   return JSON.stringify([STUDIO_RENDER_VERSION, recipe, recipe.assets.map(asset => asset.id)], (key, value) => key === 'uri' || key === 'thumbnailUri' ? undefined : value);
 }
@@ -94,8 +104,9 @@ export function publicationIssues(project: StudioProject) {
   if (project.kind !== 'short' && !project.description.trim()) issues.push('Conte o que o aluno vai aprender.');
   if (!project.takes.length) issues.push('Grave ou importe seu conteúdo.');
   if (project.pendingTakes?.length) issues.push('Recupere ou retire os arquivos pendentes antes de enviar.');
-  if (project.takes.some(t => !Number.isFinite(t.duration) || !Number.isFinite(t.start) || !Number.isFinite(t.end) || t.start < 0 || t.end > t.duration + 0.05 || t.end - t.start < 0.1 - 1e-6)) issues.push('Revise os cortes dos takes.');
-  let duration = timelineDuration(project.takes);
+  if (project.takes.some(t => !Number.isFinite(t.duration) || !Number.isFinite(t.start) || !Number.isFinite(t.end) || t.start < 0 || t.end > t.duration + 0.05
+    || !validStudioPlaybackRate(t.playbackRate) || (t.end - t.start) / (t.playbackRate ?? 1) < 0.1 - 1e-6)) issues.push('Revise os cortes dos takes.');
+  let duration = project.takes.reduce((sum, take) => sum + Math.max(0, take.end - take.start) / (validStudioPlaybackRate(take.playbackRate) ? take.playbackRate ?? 1 : 1), 0);
   if (project.editing) {
     try { const recipe = compileStudioRecipe(project); duration = studioSeconds(recipe.durationTicks); issues.push(...validateStudioEditing(project.editing, project.kind)); }
     catch { issues.push('Revise os cortes e os originais da montagem.'); }
@@ -146,11 +157,18 @@ export type StudioPendingTake = {
   imageSize?: { width: number; height: number };
 };
 export type StudioRect = { x: number; y: number; width: number; height: number };
-export type StudioTextStyle = { content: string; fontFamily: string; fontSize: number; color: string; backgroundColor: string; alignment: 'left' | 'center' | 'right' };
+export type StudioTextDecoration = 'none' | 'outline' | 'outline-inverse' | 'background' | 'background-inverse';
+export type StudioTextVisualEffect = 'none' | 'shadow-soft' | 'shadow-strong' | 'block' | 'neon' | 'glow' | 'halo';
+export type StudioTextAnimation = 'none' | 'typewriter' | 'pop' | 'bounce' | 'fade' | 'zoom' | 'slide-right';
+export type StudioClipMotion = 'none' | 'fade-in' | 'fade-out' | 'zoom-in' | 'pulse' | 'blink';
+export type StudioTextStyle = { content: string; fontFamily: string; fontSize: number; color: string; backgroundColor: string; alignment: 'left' | 'center' | 'right';
+  decoration?: StudioTextDecoration; visualEffect?: StudioTextVisualEffect; animation?: StudioTextAnimation;
+  secondaryColor?: string; gradientColors?: [string, string]; animationDurationTicks?: number };
 export type StudioAsset = {
   id: string; kind: StudioAssetKind; uri: string; name: string; durationTicks: number;
   width?: number; height?: number; frameRate?: number; thumbnailUri?: string;
   sourceKind?: 'standard' | 'cinematic'; sourceStage?: StudioSourceStage; colorSpace?: string;
+  hasAudio?: boolean;
 };
 export type StudioMainClip = {
   id: string; assetId: string; name?: string; sourceStartTicks: number; sourceEndTicks: number;
@@ -158,6 +176,9 @@ export type StudioMainClip = {
   durationTicks?: number; effect?: StudioEffect; grade?: StudioGrade; gain?: number;
   /** Reversible framing of the original within the lesson canvas. */
   rect?: StudioRect; fit?: 'contain' | 'cover'; rotationDegrees?: number;
+  playbackRate?: number; flipHorizontal?: boolean; flipVertical?: boolean; opacity?: number;
+  fadeInTicks?: number; fadeOutTicks?: number; motion?: StudioClipMotion;
+  motionOffsetTicks?: number; motionDurationTicks?: number;
 };
 export type StudioLayerKind = StudioAssetKind | 'text' | 'caption';
 export type StudioLayerAnchor = { clipId: string; offsetTicks?: number; sourceStartTicks?: number; sourceEndTicks?: number };
@@ -166,6 +187,9 @@ export type StudioLayerItem = {
   sourceStartTicks?: number; sourceEndTicks?: number; anchor?: StudioLayerAnchor;
   rect?: StudioRect; rotationDegrees?: number; fit?: 'contain' | 'cover'; opacity?: number;
   gain?: number; fadeInTicks?: number; fadeOutTicks?: number; effect?: StudioEffect; grade?: StudioGrade; text?: StudioTextStyle;
+  playbackRate?: number; flipHorizontal?: boolean; flipVertical?: boolean; motion?: StudioClipMotion;
+  /** Elapsed animation/motion time before the visible range; never a source time. */
+  animationOffsetTicks?: number; motionOffsetTicks?: number; motionDurationTicks?: number;
 };
 export type StudioLayer = {
   id: string; kind: StudioLayerKind; items: StudioLayerItem[];
@@ -197,6 +221,8 @@ export type StudioRecipeClip = {
   sourceStartTicks: number; sourceEndTicks: number; zIndex: number; rect: StudioRect;
   rotationDegrees: number; fit: 'contain' | 'cover'; opacity: number; gain: number;
   fadeInTicks: number; fadeOutTicks: number; effect: StudioEffect; grade?: StudioGrade; text?: StudioTextStyle;
+  playbackRate?: number; flipHorizontal?: boolean; flipVertical?: boolean; motion?: StudioClipMotion;
+  animationOffsetTicks?: number; motionOffsetTicks?: number; motionDurationTicks?: number;
 };
 export type StudioRenderRecipe = {
   version: 2; timebase: typeof STUDIO_TIMEBASE; durationTicks: number; mediaType: 'video' | 'audio';
@@ -241,8 +267,23 @@ function stableStudioPath(uri: string) {
   return at >= 0 ? uri.slice(at) : uri;
 }
 function sourceIdentity(take: StudioTake) { return stableStudioPath(take.uri); }
-function mainDuration(clip: StudioMainClip, asset?: StudioAsset) {
-  return asset?.kind === 'image' ? clip.durationTicks ?? 0 : clip.sourceEndTicks - clip.sourceStartTicks;
+export function validStudioPlaybackRate(value?: number) { return value === undefined || Number.isFinite(value) && value >= 0.25 && value <= 4; }
+export function studioPlaybackRate(value?: number) {
+  if (!validStudioPlaybackRate(value)) throw new Error('Escolha uma velocidade entre 0,25× e 4×.');
+  return value ?? 1;
+}
+export function studioClipDurationTicks(clip: Pick<Partial<StudioMainClip>, 'sourceStartTicks' | 'sourceEndTicks' | 'durationTicks' | 'playbackRate'> & { kind?: StudioLayerKind }, asset?: StudioAsset) {
+  if (asset?.kind === 'image' || clip.kind === 'image' || clip.kind === 'text' || clip.kind === 'caption') return clip.durationTicks ?? 0;
+  const rate = studioPlaybackRate(clip.playbackRate), start = clip.sourceStartTicks ?? 0;
+  return Math.round(((clip.sourceEndTicks ?? start + Math.round((clip.durationTicks ?? 0) * rate)) - start) / rate);
+}
+const mainDuration = studioClipDurationTicks;
+const studioPropertyKeys = ['playbackRate', 'flipHorizontal', 'flipVertical', 'gain', 'opacity', 'fadeInTicks', 'fadeOutTicks',
+  'motion', 'motionOffsetTicks', 'motionDurationTicks'] as const;
+function studioClipProperties(clip: Partial<StudioMainClip>) {
+  const result: Partial<StudioMainClip> = {};
+  for (const key of studioPropertyKeys) if (clip[key] !== undefined) Object.assign(result, { [key]: clip[key] });
+  return result;
 }
 export function deriveStudioTakes(editing: StudioEditing): StudioTake[] {
   const assets = new Map(editing.assets.map(asset => [asset.id, asset]));
@@ -255,7 +296,8 @@ export function deriveStudioTakes(editing: StudioEditing): StudioTake[] {
       start: studioSeconds(image ? 0 : clip.sourceStartTicks), end: studioSeconds(image ? clip.durationTicks ?? 0 : clip.sourceEndTicks),
       width: asset.width, height: asset.height, thumbnailUri: asset.thumbnailUri, kind: asset.kind,
       sourceKind: asset.sourceKind, sourceStage: asset.sourceStage, frameRate: asset.frameRate, colorSpace: asset.colorSpace,
-      grade: clip.grade ? { ...clip.grade } : undefined };
+      grade: clip.grade ? { ...clip.grade } : undefined, hasAudio: asset.hasAudio,
+      ...studioClipProperties(clip) };
   });
 }
 function freezeStudioValue<T>(value: T): T {
@@ -292,7 +334,8 @@ export function reconcileStudioTakes(project: Pick<StudioProject, 'kind'> & Part
       if (byAsset.has(assetId)) throw new Error('A identificação de um original precisa de recuperação.');
       asset = { id: assetId, uri: take.uri, name: take.name, kind: take.kind ?? (project.kind === 'podcast' ? 'audio' : 'video'),
         durationTicks: take.kind === 'image' ? 0 : studioTicks(take.duration), width: take.width, height: take.height,
-        thumbnailUri: take.thumbnailUri, frameRate: take.frameRate, sourceKind: take.sourceKind, sourceStage: take.sourceStage, colorSpace: take.colorSpace };
+        thumbnailUri: take.thumbnailUri, frameRate: take.frameRate, sourceKind: take.sourceKind, sourceStage: take.sourceStage, colorSpace: take.colorSpace,
+        ...(take.hasAudio !== undefined ? { hasAudio: take.hasAudio } : {}) };
       assets.push(asset); byAsset.set(asset.id, asset);
     } else if (asset.kind !== 'image' && studioTicks(take.duration) !== asset.durationTicks
       || take.width !== undefined && asset.width !== take.width || take.height !== undefined && asset.height !== take.height) {
@@ -308,8 +351,17 @@ export function reconcileStudioTakes(project: Pick<StudioProject, 'kind'> & Part
     // field; neither path writes treatment into the immutable original asset.
     const pending = !sameClip ? project.pendingTakes?.find(item => !item.layerItem && item.id === take.id && item.uri === take.uri) : undefined;
     const grade = !sameClip ? normalizeStudioCaptureGrade(pending?.grade ?? take.grade) : undefined;
-    return { ...(origin ?? {}), id: take.id, assetId: asset.id, name: take.name,
+    const properties = studioClipProperties(take);
+    const excluded = origin ? Math.round((start - origin.sourceStartTicks) / studioPlaybackRate(origin.playbackRate)) : 0;
+    const duration = asset.kind === 'image' ? studioTicks(take.end - take.start) : Math.round((end - start) / studioPlaybackRate(take.playbackRate ?? origin?.playbackRate));
+    return { ...(origin ?? {}), ...properties, id: take.id, assetId: asset.id, name: take.name,
       ...(grade ? { grade } : {}),
+      ...(origin?.motion && origin.motion !== 'none' ? { motionOffsetTicks: properties.motionOffsetTicks !== undefined && properties.motionOffsetTicks !== origin.motionOffsetTicks
+        ? properties.motionOffsetTicks : Math.max(0, (origin.motionOffsetTicks ?? 0) + excluded),
+        motionDurationTicks: properties.motionDurationTicks ?? origin.motionDurationTicks ?? mainDuration(origin, asset) } : {}),
+      ...(origin?.fadeInTicks !== undefined || take.fadeInTicks !== undefined ? { fadeInTicks: Math.min(properties.fadeInTicks ?? origin?.fadeInTicks ?? 0, duration) } : {}),
+      ...(origin?.fadeOutTicks !== undefined || take.fadeOutTicks !== undefined ? { fadeOutTicks: Math.min(properties.fadeOutTicks ?? origin?.fadeOutTicks ?? 0,
+        Math.max(0, duration - Math.min(properties.fadeInTicks ?? origin?.fadeInTicks ?? 0, duration))) } : {}),
       sourceStartTicks: start, sourceEndTicks: end, ...(asset.kind === 'image' ? { durationTicks: studioTicks(take.end - take.start) } : {}) } as StudioMainClip;
   });
   const layers = previous.layers.map(layer => ({ ...layer, items: layer.items.flatMap(item => {
@@ -320,19 +372,25 @@ export function reconcileStudioTakes(project: Pick<StudioProject, 'kind'> & Part
     return targets.flatMap(clip => {
       if (clip.id === old.id) return [{ ...item, anchor: { ...item.anchor! } }];
       const sourceBased = item.anchor!.sourceStartTicks !== undefined;
-      const sourceStart = sourceBased ? item.anchor!.sourceStartTicks! : old.sourceStartTicks + (item.anchor!.offsetTicks ?? 0);
-      const sourceEnd = sourceBased ? item.anchor!.sourceEndTicks! : sourceStart + item.durationTicks;
+      const oldRate = studioPlaybackRate(old.playbackRate), rate = studioPlaybackRate(clip.playbackRate);
+      const sourceStart = sourceBased ? item.anchor!.sourceStartTicks! : old.sourceStartTicks + Math.round((item.anchor!.offsetTicks ?? 0) * oldRate);
+      const sourceEnd = sourceBased ? item.anchor!.sourceEndTicks! : sourceStart + Math.round(item.durationTicks * oldRate);
       const image = byAsset.get(old.assetId)?.kind === 'image';
       const start = image ? sourceStart : Math.max(sourceStart, clip.sourceStartTicks);
       const end = image ? Math.min(sourceEnd, mainDuration(clip, byAsset.get(clip.assetId))) : Math.min(sourceEnd, clip.sourceEndTicks);
       if (end <= start) return [];
       const media = item.assetId ? byAsset.get(item.assetId) : undefined;
-      const shiftedSource = media && media.kind !== 'image' ? (item.sourceStartTicks ?? 0) + start - sourceStart : undefined;
-      return [{ ...item, id: `${item.id}~${clip.id}`, durationTicks: end - start,
-        ...(shiftedSource !== undefined ? { sourceStartTicks: shiftedSource, sourceEndTicks: shiftedSource + end - start } : {}),
-        fadeInTicks: Math.min(item.fadeInTicks ?? 0, end - start),
-        fadeOutTicks: Math.min(item.fadeOutTicks ?? 0, Math.max(0, end - start - Math.min(item.fadeInTicks ?? 0, end - start))),
-        anchor: sourceBased ? { clipId: clip.id, sourceStartTicks: start, sourceEndTicks: end } : { clipId: clip.id, offsetTicks: start - clip.sourceStartTicks } }];
+      const duration = Math.round((end - start) / rate), excluded = Math.round((start - sourceStart) / oldRate), itemRate = studioPlaybackRate(item.playbackRate);
+      const shiftedSource = media && media.kind !== 'image' ? (item.sourceStartTicks ?? 0) + Math.round(excluded * itemRate) : undefined;
+      return [{ ...item, id: `${item.id}~${clip.id}`, durationTicks: duration,
+        ...(shiftedSource !== undefined ? { sourceStartTicks: shiftedSource, sourceEndTicks: shiftedSource + Math.round(duration * itemRate) } : {}),
+        ...(item.text?.animation && item.text.animation !== 'none' ? { animationOffsetTicks: (item.animationOffsetTicks ?? 0) + excluded } : {}),
+        ...(item.motion && item.motion !== 'none' ? { motionOffsetTicks: (item.motionOffsetTicks ?? 0) + excluded,
+          motionDurationTicks: item.motionDurationTicks ?? item.durationTicks } : {}),
+        fadeInTicks: Math.min(item.fadeInTicks ?? 0, duration),
+        fadeOutTicks: Math.min(item.fadeOutTicks ?? 0, Math.max(0, duration - Math.min(item.fadeInTicks ?? 0, duration))),
+        anchor: sourceBased ? { clipId: clip.id, sourceStartTicks: start, sourceEndTicks: end }
+          : { clipId: clip.id, offsetTicks: Math.round((start - clip.sourceStartTicks) / rate) } }];
     });
   }) }));
   return { ...previous, assets, main, layers };
@@ -345,7 +403,7 @@ export function migrateStudioProject(project: StudioProject): StudioProject {
   const signature = timelineSignature(migrated);
   // Sequential legacy signatures never described a capture treatment. Do not
   // certify an untreated artifact as a render of the newly restored recipe.
-  const treatment = migrated.editing!.main.some(clip => clip.grade);
+  const treatment = migrated.editing!.main.some(clip => clip.grade || (clip.gain ?? 1) !== 1) || requiresStudioEditorTools(migrated.editing!);
   if (!treatment && project.exportedSignature === oldSignature) migrated.exportedSignature = signature;
   if (!treatment && project.uploadSignature === oldSignature) migrated.uploadSignature = signature;
   return migrated;
@@ -367,33 +425,47 @@ export function compileStudioRecipe(project: Pick<StudioProject, 'kind' | 'takes
     const duration = mainDuration(clip, asset);
     mainStarts.set(clip.id, { clip, start: cursor, duration });
     clips.push({ ...baseRecipeClip(clip.id, asset.kind, cursor, duration), assetId: clip.assetId,
-      sourceStartTicks: clip.sourceStartTicks, sourceEndTicks: clip.sourceEndTicks, effect: clip.effect ?? 'natural', grade: clip.grade, gain: editing.mainMuted === true ? 0 : clip.gain ?? 1,
-      rect: clip.rect ?? { x: 0, y: 0, width: 1, height: 1 }, fit: clip.fit ?? 'contain', rotationDegrees: clip.rotationDegrees ?? 0 });
+      sourceStartTicks: clip.sourceStartTicks, sourceEndTicks: clip.sourceEndTicks, effect: clip.effect ?? 'natural', grade: clip.grade,
+      rect: clip.rect ?? { x: 0, y: 0, width: 1, height: 1 }, fit: clip.fit ?? 'contain', rotationDegrees: clip.rotationDegrees ?? 0,
+      ...studioClipProperties(clip), gain: editing.mainMuted === true ? 0 : clip.gain ?? 1, opacity: clip.opacity ?? 1,
+      fadeInTicks: Math.min(clip.fadeInTicks ?? 0, duration), fadeOutTicks: Math.min(clip.fadeOutTicks ?? 0, Math.max(0, duration - Math.min(clip.fadeInTicks ?? 0, duration))) });
     cursor += duration;
   }
   for (let layerIndex = 0; layerIndex < editing.layers.length; layerIndex++) {
     const layer = editing.layers[layerIndex];
     for (const item of layer.items) {
       let start = item.atTicks, duration = item.durationTicks;
+      const rate = studioPlaybackRate(item.playbackRate);
       let sourceStart = item.sourceStartTicks ?? 0;
-      let sourceEnd = item.sourceEndTicks ?? (item.assetId && assets.get(item.assetId)?.kind !== 'image' ? sourceStart + duration : 0);
+      let sourceEnd = item.sourceEndTicks ?? (item.assetId && assets.get(item.assetId)?.kind !== 'image' ? sourceStart + Math.round(duration * rate) : 0);
+      let excluded = 0;
       if (item.anchor) {
         const host = mainStarts.get(item.anchor.clipId);
         if (!host) continue;
         const sourceAnchor = item.anchor.sourceStartTicks !== undefined;
-        const offset = sourceAnchor ? item.anchor.sourceStartTicks! - host.clip.sourceStartTicks : item.anchor.offsetTicks ?? 0;
-        const anchoredDuration = sourceAnchor ? item.anchor.sourceEndTicks! - item.anchor.sourceStartTicks! : duration;
+        const hostRate = studioPlaybackRate(host.clip.playbackRate);
+        const offset = sourceAnchor ? Math.round((item.anchor.sourceStartTicks! - host.clip.sourceStartTicks) / hostRate) : item.anchor.offsetTicks ?? 0;
+        const anchoredDuration = sourceAnchor ? Math.round((item.anchor.sourceEndTicks! - item.anchor.sourceStartTicks!) / hostRate) : duration;
         const visibleStart = Math.max(0, offset), visibleEnd = Math.min(host.duration, offset + anchoredDuration);
         if (visibleEnd <= visibleStart) continue;
         start = host.start + visibleStart; duration = visibleEnd - visibleStart;
-        const excluded = visibleStart - offset;
-        if (item.assetId && assets.get(item.assetId)?.kind !== 'image') { sourceStart += excluded; sourceEnd = sourceStart + duration; }
+        excluded = visibleStart - offset;
+        if (item.assetId && assets.get(item.assetId)?.kind !== 'image') {
+          sourceStart += Math.round(excluded * rate);
+          duration = Math.min(duration, Math.max(0, Math.round((sourceEnd - sourceStart) / rate)));
+          if (duration <= 0) continue;
+          sourceEnd = sourceStart + Math.round(duration * rate);
+        }
       }
       clips.push({ ...baseRecipeClip(item.id, item.kind, start, duration), assetId: item.assetId,
         sourceStartTicks: sourceStart, sourceEndTicks: sourceEnd, zIndex: layerIndex + 1,
         rect: item.rect ?? { x: 0, y: 0, width: 1, height: 1 }, rotationDegrees: item.rotationDegrees ?? 0, fit: item.fit ?? 'contain',
-        opacity: layer.hidden === true ? 0 : item.opacity ?? 1, gain: layer.muted === true ? 0 : item.gain ?? 1, fadeInTicks: Math.min(item.fadeInTicks ?? 0, duration), fadeOutTicks: Math.min(item.fadeOutTicks ?? 0, Math.max(0, duration - Math.min(item.fadeInTicks ?? 0, duration))),
-        effect: item.effect ?? 'natural', grade: item.grade, text: item.text });
+        effect: item.effect ?? 'natural', grade: item.grade, text: item.text,
+        ...studioClipProperties(item), opacity: layer.hidden === true ? 0 : item.opacity ?? 1, gain: layer.muted === true ? 0 : item.gain ?? 1,
+        fadeInTicks: Math.min(item.fadeInTicks ?? 0, duration), fadeOutTicks: Math.min(item.fadeOutTicks ?? 0, Math.max(0, duration - Math.min(item.fadeInTicks ?? 0, duration))),
+        ...(item.text?.animation && item.text.animation !== 'none' ? { animationOffsetTicks: (item.animationOffsetTicks ?? 0) + excluded } : {}),
+        ...(item.motion && item.motion !== 'none' ? { motionOffsetTicks: (item.motionOffsetTicks ?? 0) + excluded,
+          motionDurationTicks: item.motionDurationTicks ?? item.durationTicks } : {}) });
     }
   }
   const referenced = new Set(clips.map(clip => clip.assetId).filter(Boolean));
@@ -405,6 +477,10 @@ export function compileStudioRecipe(project: Pick<StudioProject, 'kind' | 'takes
 }
 function isTicks(value: number) { return Number.isSafeInteger(value) && value >= 0; }
 const effects: StudioEffect[] = ['natural', 'studio', 'cinematic'];
+const textDecorations: StudioTextDecoration[] = ['none', 'outline', 'outline-inverse', 'background', 'background-inverse'];
+const textVisualEffects: StudioTextVisualEffect[] = ['none', 'shadow-soft', 'shadow-strong', 'block', 'neon', 'glow', 'halo'];
+const textAnimations: StudioTextAnimation[] = ['none', 'typewriter', 'pop', 'bounce', 'fade', 'zoom', 'slide-right'];
+const clipMotions: StudioClipMotion[] = ['none', 'fade-in', 'fade-out', 'zoom-in', 'pulse', 'blink'];
 const studioColor = (value: string) => typeof value === 'string' && /^#[0-9a-f]{6}([0-9a-f]{2})?$/i.test(value);
 export function validateStudioRecipe(recipe: StudioRenderRecipe): string[] {
   const issues: string[] = [];
@@ -418,6 +494,7 @@ export function validateStudioRecipe(recipe: StudioRenderRecipe): string[] {
       || [asset.width, asset.height].some(value => value !== undefined && (!Number.isFinite(value) || (asset.kind === 'audio' ? value < 0 : value <= 0)))
       || asset.frameRate !== undefined && (!Number.isFinite(asset.frameRate) || asset.frameRate < 0)
       || asset.sourceKind !== undefined && !['standard', 'cinematic'].includes(asset.sourceKind)
+      || asset.hasAudio !== undefined && typeof asset.hasAudio !== 'boolean'
       || asset.sourceStage !== undefined && !['standard', 'cinematicRaw', 'cinematicRendered'].includes(asset.sourceStage)) push('Revise os arquivos originais da montagem.');
     assets.set(asset.id, asset);
     if (asset.sourceStage === 'cinematicRaw') push('Este vídeo cinematográfico precisa ser renderizado antes de editar.');
@@ -429,8 +506,9 @@ export function validateStudioRecipe(recipe: StudioRenderRecipe): string[] {
       || !isTicks(clip.sourceStartTicks) || !isTicks(clip.sourceEndTicks)) push('Revise os cortes e a identificação da montagem.');
     ids.add(clip.id);
     const asset = clip.assetId ? assets.get(clip.assetId) : undefined;
-    if (['video', 'image', 'audio'].includes(clip.kind) && (!asset || asset.kind !== clip.kind)) push('Um original da montagem precisa de recuperação.');
-    if (asset && asset.kind !== 'image' && (clip.sourceEndTicks - clip.sourceStartTicks !== clip.durationTicks
+    if (['video', 'image', 'audio'].includes(clip.kind) && (!asset || asset.kind !== clip.kind && !(clip.kind === 'audio' && asset.kind === 'video' && asset.hasAudio === true))) push('Um original da montagem precisa de recuperação.');
+    if (!validStudioPlaybackRate(clip.playbackRate) || clip.playbackRate !== undefined && !['video', 'audio'].includes(clip.kind)) push('Escolha uma velocidade entre 0,25× e 4× para vídeo ou áudio.');
+    if (asset && asset.kind !== 'image' && (!validStudioPlaybackRate(clip.playbackRate) || Math.round((clip.sourceEndTicks - clip.sourceStartTicks) / (clip.playbackRate ?? 1)) !== clip.durationTicks
       || clip.sourceEndTicks > asset.durationTicks + studioTicks(0.05))) push('Revise os cortes dos takes.');
     if (clip.kind === 'video') { edges.push({ tick: clip.startTicks, delta: 1 }, { tick: clip.startTicks + clip.durationTicks, delta: -1 }); }
     const { rect } = clip;
@@ -438,11 +516,22 @@ export function validateStudioRecipe(recipe: StudioRenderRecipe): string[] {
       || rect.width <= 0 || rect.height <= 0 || rect.width > 10 || rect.height > 10 || Math.abs(rect.x) > 10 || Math.abs(rect.y) > 10
       || clip.opacity < 0 || clip.opacity > 1 || clip.gain < 0 || clip.gain > 4 || !['contain', 'cover'].includes(clip.fit)) push('Revise o enquadramento e o volume das camadas.');
     if (!isTicks(clip.fadeInTicks) || !isTicks(clip.fadeOutTicks) || clip.fadeInTicks + clip.fadeOutTicks > clip.durationTicks) push('Revise os fades de áudio.');
+    if ([clip.flipHorizontal, clip.flipVertical].some(value => value !== undefined && typeof value !== 'boolean')
+      || clip.motion !== undefined && !clipMotions.includes(clip.motion)
+      || [clip.animationOffsetTicks, clip.motionOffsetTicks].some(value => value !== undefined && !isTicks(value))
+      || clip.motionDurationTicks !== undefined && (!isTicks(clip.motionDurationTicks) || clip.motionDurationTicks <= 0)) push('Revise os efeitos e o espelhamento do clip.');
     if (!effects.includes(clip.effect)) push('O efeito deste clip não é suportado.');
     if (clip.grade !== undefined && validateStudioGrade(clip.grade).length) push('Revise os ajustes de cor do clip.');
     if (['text', 'caption'].includes(clip.kind) && (!clip.text || !clip.text.content.trim() || !Number.isFinite(clip.text.fontSize)
       || clip.text.fontSize <= 0 || clip.text.fontSize > 1 || typeof clip.text.fontFamily !== 'string' || !clip.text.fontFamily.trim()
       || !studioColor(clip.text.color) || !studioColor(clip.text.backgroundColor) || !['left', 'center', 'right'].includes(clip.text.alignment))) push('Revise os textos e as legendas.');
+    const text = clip.text;
+    if (text && (text.decoration !== undefined && !textDecorations.includes(text.decoration)
+      || text.visualEffect !== undefined && !textVisualEffects.includes(text.visualEffect)
+      || text.animation !== undefined && !textAnimations.includes(text.animation)
+      || text.secondaryColor !== undefined && !studioColor(text.secondaryColor)
+      || text.gradientColors !== undefined && (!Array.isArray(text.gradientColors) || text.gradientColors.length !== 2 || !text.gradientColors.every(studioColor))
+      || text.animationDurationTicks !== undefined && (!isTicks(text.animationDurationTicks) || text.animationDurationTicks <= 0))) push('Revise o estilo e a animação do texto.');
   }
   let streams = 0;
   for (const edge of edges.sort((a, b) => a.tick - b.tick || a.delta - b.delta)) { streams += edge.delta; if (streams > 2) push('A montagem pode usar até dois vídeos ao mesmo tempo.'); }
@@ -468,10 +557,12 @@ export function validateStudioEditing(editing: StudioEditing, kind: StudioKind):
   const assets = new Map(editing.assets.map(asset => [asset.id, asset]));
   for (const clip of editing.main) {
     const asset = assets.get(clip.assetId);
-    if (!asset || !isTicks(clip.sourceStartTicks) || !isTicks(clip.sourceEndTicks) || mainDuration(clip, asset) < STUDIO_TIMEBASE / 10
+    if (!asset || !validStudioPlaybackRate(clip.playbackRate) || !isTicks(clip.sourceStartTicks) || !isTicks(clip.sourceEndTicks) || validStudioPlaybackRate(clip.playbackRate) && mainDuration(clip, asset) < STUDIO_TIMEBASE / 10
       || asset.kind === 'image' && (clip.sourceStartTicks !== 0 || clip.sourceEndTicks !== 0 || !isTicks(clip.durationTicks!))) issues.push('Revise os cortes dos takes.');
     // A track mute must not mask corrupt gain stored on an original clip.
     if (clip.gain !== undefined && (!Number.isFinite(clip.gain) || clip.gain < 0 || clip.gain > 4)) issues.push('Revise o enquadramento e o volume das camadas.');
+    if ([clip.fadeInTicks, clip.fadeOutTicks].some(value => value !== undefined && !isTicks(value))
+      || (clip.fadeInTicks ?? 0) + (clip.fadeOutTicks ?? 0) > (asset && validStudioPlaybackRate(clip.playbackRate) ? mainDuration(clip, asset) : 0)) issues.push('Revise os fades de áudio.');
   }
   const originals: StudioRecipeClip[] = [];
   for (const layer of editing.layers) for (const item of layer.items) {
@@ -485,11 +576,12 @@ export function validateStudioEditing(editing: StudioEditing, kind: StudioKind):
     // Validate the stored element too: a trim can hide it entirely in the render
     // recipe, but hidden invalid data must never become valid merely by saving.
     const sourceStart = item.sourceStartTicks ?? 0;
-    const sourceEnd = item.sourceEndTicks ?? (item.assetId && assets.get(item.assetId)?.kind !== 'image' ? sourceStart + item.durationTicks : 0);
+    const sourceEnd = item.sourceEndTicks ?? (item.assetId && assets.get(item.assetId)?.kind !== 'image' ? sourceStart + Math.round(item.durationTicks * (validStudioPlaybackRate(item.playbackRate) ? item.playbackRate ?? 1 : 1)) : 0);
     originals.push({ ...baseRecipeClip(item.id, item.kind, item.atTicks, item.durationTicks), assetId: item.assetId,
       sourceStartTicks: sourceStart, sourceEndTicks: sourceEnd, rect: item.rect ?? { x: 0, y: 0, width: 1, height: 1 },
       rotationDegrees: item.rotationDegrees ?? 0, fit: item.fit ?? 'contain', opacity: item.opacity ?? 1, gain: item.gain ?? 1,
-      fadeInTicks: item.fadeInTicks ?? 0, fadeOutTicks: item.fadeOutTicks ?? 0, effect: item.effect ?? 'natural', grade: item.grade, text: item.text });
+      fadeInTicks: item.fadeInTicks ?? 0, fadeOutTicks: item.fadeOutTicks ?? 0, effect: item.effect ?? 'natural', grade: item.grade, text: item.text,
+      ...studioClipProperties(item), animationOffsetTicks: item.animationOffsetTicks });
   }
   try {
     const recipe = compileStudioRecipe({ kind, takes: [], editing });
@@ -686,6 +778,81 @@ export function patchStudioClipGrade(editing: StudioEditing, id: string, patch: 
   return patchStudioLayerItem(editing, id, { grade: { ...studioGrade(item.effect), ...item.grade, ...patch } });
 }
 
+export type StudioClipPropertiesPatch = Partial<Pick<StudioMainClip,
+  'playbackRate' | 'flipHorizontal' | 'flipVertical' | 'opacity' | 'gain' | 'fadeInTicks' | 'fadeOutTicks' | 'motion' | 'fit' | 'rotationDegrees'>>;
+function validatedStudioEdit(editing: StudioEditing) {
+  const issues = validateStudioEditing(editing, 'aula');
+  if (issues.length) throw new Error(issues[0]);
+  return editing;
+}
+/** Source ranges stay immutable; speed changes the main ripple or one layer's extent. */
+export function setStudioClipPlaybackRate(editing: StudioEditing, id: string, playbackRate: number): StudioEditing {
+  studioPlaybackRate(playbackRate);
+  const main = editing.main.find(clip => clip.id === id), item = editing.layers.flatMap(layer => layer.items).find(clip => clip.id === id);
+  const target = main ?? item;
+  if (!target) throw new Error('Este clip não está mais na montagem.');
+  const asset = editing.assets.find(value => value.id === target.assetId);
+  if (!asset || !['video', 'audio'].includes(asset.kind) || item && !['video', 'audio'].includes(item.kind)) throw new Error('A velocidade só pode ser alterada em vídeo ou áudio.');
+  const previousRate = studioPlaybackRate(target.playbackRate);
+  if (previousRate === playbackRate) return editing;
+  const normalized = playbackRate === 1 ? undefined : playbackRate;
+  if (main) {
+    const duration = Math.round((main.sourceEndTicks - main.sourceStartTicks) / playbackRate);
+    const updated = { ...main, playbackRate: normalized, fadeInTicks: Math.min(main.fadeInTicks ?? 0, duration),
+      fadeOutTicks: Math.min(main.fadeOutTicks ?? 0, Math.max(0, duration - Math.min(main.fadeInTicks ?? 0, duration))) };
+    if (updated.playbackRate === undefined) delete updated.playbackRate;
+    // Turn older timeline-offset links into source anchors before changing the
+    // host's rate. Existing source-anchored subtitles remain on the same frames.
+    const layers = editing.layers.map(layer => ({ ...layer, items: layer.items.map(value => value.anchor?.clipId === id && value.anchor.sourceStartTicks === undefined
+      ? { ...value, anchor: { clipId: id, sourceStartTicks: main.sourceStartTicks + Math.round((value.anchor.offsetTicks ?? 0) * previousRate),
+        sourceEndTicks: main.sourceStartTicks + Math.round(((value.anchor.offsetTicks ?? 0) + value.durationTicks) * previousRate) } } : value) }));
+    return validatedStudioEdit({ ...editing, main: editing.main.map(clip => clip.id === id ? updated : clip), layers });
+  }
+  const original = item!, sourceStartTicks = original.sourceStartTicks ?? 0;
+  const sourceEndTicks = original.sourceEndTicks ?? sourceStartTicks + Math.round(original.durationTicks * previousRate);
+  const durationTicks = Math.round((sourceEndTicks - sourceStartTicks) / playbackRate);
+  let anchor = original.anchor;
+  if (anchor?.sourceStartTicks !== undefined) {
+    const host = editing.main.find(clip => clip.id === anchor!.clipId)!;
+    anchor = { ...anchor, sourceEndTicks: anchor.sourceStartTicks + Math.round(durationTicks * studioPlaybackRate(host.playbackRate)) };
+  }
+  return validatedStudioEdit(patchStudioLayerItem(editing, id, { playbackRate: normalized, durationTicks, sourceStartTicks, sourceEndTicks, anchor,
+    fadeInTicks: Math.min(original.fadeInTicks ?? 0, durationTicks),
+    fadeOutTicks: Math.min(original.fadeOutTicks ?? 0, Math.max(0, durationTicks - Math.min(original.fadeInTicks ?? 0, durationTicks))) }));
+}
+/** One targeted patch; it cannot replace sources, other items or metadata. */
+export function patchStudioClipProperties(editing: StudioEditing, id: string, patch: StudioClipPropertiesPatch): StudioEditing {
+  const allowed = [...studioPropertyKeys, 'fit', 'rotationDegrees'];
+  if (Object.keys(patch).some(key => !allowed.includes(key))) throw new Error('Esta propriedade não pode alterar o clip.');
+  let next = patch.playbackRate !== undefined ? setStudioClipPlaybackRate(editing, id, patch.playbackRate) : editing;
+  const { playbackRate: _rate, ...properties } = patch;
+  const clip = next.main.find(value => value.id === id);
+  if (clip) {
+    const updated = { ...clip, ...properties };
+    if (properties.motion !== undefined && properties.motion !== clip.motion) {
+      updated.motionOffsetTicks = 0;
+      updated.motionDurationTicks = mainDuration(clip, next.assets.find(asset => asset.id === clip.assetId));
+    }
+    next = { ...next, main: next.main.map(value => value.id === id ? updated : value) };
+  } else {
+    const item = next.layers.flatMap(layer => layer.items).find(value => value.id === id);
+    if (!item) throw new Error('Este elemento não está mais na montagem.');
+    next = patchStudioLayerItem(next, id, { ...properties, ...(properties.motion !== undefined && properties.motion !== item.motion
+      ? { motionOffsetTicks: 0, motionDurationTicks: item.durationTicks } : {}) });
+  }
+  return JSON.stringify(next) === JSON.stringify(editing) ? editing : validatedStudioEdit(next);
+}
+/** Binary feature gate, separate from persisted/export profile selection. */
+export function requiresStudioEditorTools(value: StudioEditing | StudioRenderRecipe): boolean {
+  const clips = 'clips' in value ? value.clips : compileStudioRecipe({ kind: 'aula', takes: [], editing: value }).clips;
+  const assets = new Map(value.assets.map(asset => [asset.id, asset]));
+  return clips.some(clip => clip.kind === 'audio' && assets.get(clip.assetId!)?.kind === 'video' || (clip.playbackRate ?? 1) !== 1 || clip.flipHorizontal === true || clip.flipVertical === true
+    || !!clip.motion && clip.motion !== 'none' || clip.zIndex === 0 && ((clip.fadeInTicks ?? 0) > 0 || (clip.fadeOutTicks ?? 0) > 0 || clip.opacity !== 1)
+    || !!clip.text && (clip.text.decoration !== undefined && clip.text.decoration !== 'none'
+      || clip.text.visualEffect !== undefined && clip.text.visualEffect !== 'none' || clip.text.animation !== undefined && clip.text.animation !== 'none'
+      || clip.text.gradientColors !== undefined));
+}
+
 /** A pending destination is recovery data, never a command to reinterpret a layer as main media. */
 export function validateStudioPendingTakes(pending: StudioProject['pendingTakes']): string[] {
   if (pending === undefined) return [];
@@ -707,7 +874,11 @@ export function validateStudioPendingTakes(pending: StudioProject['pendingTakes'
       if (entry.grade !== undefined || item.grade !== undefined && validateStudioGrade(item.grade).length
         || !item.id || !['video', 'image', 'audio'].includes(item.kind) || item.assetId !== entry.id
         || entry.kind !== undefined && entry.kind !== item.kind || !isTicks(item.atTicks) || !isTicks(item.durationTicks)
-        || [item.sourceStartTicks, item.sourceEndTicks, item.fadeInTicks, item.fadeOutTicks].some(value => value !== undefined && !isTicks(value))
+        || [item.sourceStartTicks, item.sourceEndTicks, item.fadeInTicks, item.fadeOutTicks, item.animationOffsetTicks, item.motionOffsetTicks].some(value => value !== undefined && !isTicks(value))
+        || !validStudioPlaybackRate(item.playbackRate) || item.playbackRate !== undefined && !['video', 'audio'].includes(item.kind)
+        || [item.flipHorizontal, item.flipVertical].some(value => value !== undefined && typeof value !== 'boolean')
+        || item.motion !== undefined && !clipMotions.includes(item.motion)
+        || item.motionDurationTicks !== undefined && (!isTicks(item.motionDurationTicks) || item.motionDurationTicks <= 0)
         || item.anchor && (!item.anchor.clipId || item.anchor.offsetTicks !== undefined && !isTicks(item.anchor.offsetTicks)
           || item.anchor.sourceStartTicks !== undefined && (!isTicks(item.anchor.sourceStartTicks) || !isTicks(item.anchor.sourceEndTicks!)))
         || [item.opacity, item.gain, item.rotationDegrees].some(value => value !== undefined && !Number.isFinite(value))

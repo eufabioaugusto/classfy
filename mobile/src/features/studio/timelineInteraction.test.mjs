@@ -61,6 +61,7 @@ function harness(options = {}) {
   const cancellations = [];
   const scrolls = [];
   const feedbacks = [];
+  const filmstripRequests = [];
   const appStateListeners = new Set();
   const context = key => {
     if (!contexts.has(key)) contexts.set(key, { slots: [], cursor: 0, effects: [], dirty: true, reactions: [], frames: [] });
@@ -136,7 +137,7 @@ function harness(options = {}) {
     'react-native-gesture-handler': { GestureDetector: 'gesture-detector', Gesture: { Native: () => gesture('native'), Pinch: () => gesture('pinch'), Pan: () => gesture('pan'), Tap: () => gesture('tap'), Race: (...gestures) => ({ kind: 'race', gestures }) } },
     'lucide-react-native': { ChevronDown: 'chevron-down', ChevronLeft: 'chevron-left', ChevronRight: 'chevron-right', ChevronUp: 'chevron-up', Eye: 'eye', EyeOff: 'eye-off', Film: 'film', Mic: 'mic', Minus: 'minus', Plus: 'plus', Volume2: 'volume', VolumeX: 'volume-off' },
     '@/theme/colors': { colors: {} }, './model': model, './timelineLayout': layout, './timelineMotion': motionHelpers,
-    './useStudioFilmstrip': { useStudioFilmstrip: () => ({}) }, './layerTimelineInteraction': layerModule.exports, './timelineSnap': snapHelpers, './timelinePlayback': playbackHelpers,
+    './useStudioFilmstrip': { useStudioFilmstrip: (take, samples) => { filmstripRequests.push({ take, samples }); return {}; } }, './layerTimelineInteraction': layerModule.exports, './timelineSnap': snapHelpers, './timelinePlayback': playbackHelpers,
     './snapFeedback': { performStudioSnapFeedback: () => feedbacks.push(now) },
   };
   const compiled = options.nativeWorklets ? compileNative() : ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX } }).outputText;
@@ -245,7 +246,7 @@ function harness(options = {}) {
   all(context('timeline').tree, node => node.type === 'animated-view' && node.props?.onLayout)[0].props.onLayout({ nativeEvent: { layout: { width: 300 } } });
   renderParent(); flushUI();
   scroll().onScroll({ contentOffset: { x: 60 } }); flushJS(); animate(); flushJS(); scrolls.length = 0;
-  return { scroll, scrollProps, pinch, m, pan, childHandle, childClip, clipImages, childLayer, snapGuide, nodes, control, railNode, railGeometry, laneScroll, laneScrollProps, laneAxis, laneWindow, seeks, selections, previews, commits, cancellations, scrolls, feedbacks, jsQueue, uiQueue,
+  return { scroll, scrollProps, pinch, m, pan, childHandle, childClip, clipImages, childLayer, snapGuide, nodes, control, railNode, railGeometry, laneScroll, laneScrollProps, laneAxis, laneWindow, seeks, selections, previews, commits, cancellations, scrolls, feedbacks, filmstripRequests, jsQueue, uiQueue,
     animate, reactions, frame, flushJS, flushUI, stepJS, pump,
     timelineHeight: () => resolveStyle(context('timeline').tree.props.children.props.style).height,
     playerPosition: () => context('timeline').reactions.find(reaction => reaction.prepare()?.viewport !== undefined).prepare().position,
@@ -1218,7 +1219,7 @@ for (const width of [6, 8, 36]) {
         pan.onUpdate({ absoluteX: absoluteX + translationX, translationX }); view.reactions(); view.flushJS(); view.flushUI();
         pan.onEnd({ absoluteX: absoluteX + translationX, translationX }, true); await view.pump();
         assert.equal(saves.length, 1); assert.equal(saves[0].takeId, 'a');
-        assert.equal(saves[0][edge], edge === 'start' ? 1.8 : Math.round((short.end + .2) * 1000) / 1000);
+        assert.equal(saves[0][edge], edge === 'start' ? 1.8 : Math.round((short.end + .2) * 120000) / 120000);
         assert.deepEqual(view.seeks, []); assert.equal(view.playerPosition(), 0);
       } finally { view.dispose(); }
     });
@@ -2048,3 +2049,32 @@ for (const release of ['drag', 'momentum']) {
     } finally { view.dispose(); preview.dispose(); preview.flushUI(); }
   });
 }
+
+
+for (const rate of [.25, 2, 4]) test(`callback nativo/Babel corta principal${rate}x em tempo da timeline, sem mover cursor`, async () => {
+  const first = { ...take('a'), playbackRate: rate }, second = take('b'), saves = [];
+  const view = harness({ nativeSharedValues: true, nativeWorklets: true, takes: [first, second],
+    onTrimCommit: async range => saves.push(range) });
+  try {
+    const handle = view.pan('start');
+    handle.onStart({ absoluteX: 150 }); view.flushJS(); view.flushUI();
+    handle.onUpdate({ absoluteX: 180, translationX: 30 }); view.reactions(); view.flushJS(); view.flushUI();
+    const width = resolveStyle(view.childClip('a').props.style).width;
+    assert.ok(Math.abs(width - (6 / rate - .5) * 60) < 1e-6);
+    assert.equal(view.m().playbackRate.value, rate); assert.equal(view.m().leading.value, .5);
+    assert.equal(view.previews.at(-1).start, 2 + .5 * rate);
+    handle.onEnd({ absoluteX: 180, translationX: 30 }, true); await view.pump(); view.flushUI();
+    assert.equal(saves.length, 1); assert.equal(saves[0].start, 2 + .5 * rate);
+    assert.equal(view.m().phase.value, 0); assert.deepEqual(view.seeks, []); assert.equal(view.playerPosition(), 1);
+  } finally { view.dispose(); }
+});
+
+test('filmstrip usa taxa da fonte nas amostras e largura da montagem, inclusive após corte', () => {
+  const view = harness({ takes: [{ ...take('a'), playbackRate: 2 }, take('b')] });
+  try {
+    view.clipImages('a');
+    const frames = view.filmstripRequests.at(-1);
+    assert.equal(frames.take.playbackRate, 2); assert.equal(frames.samples[0].seconds, 2.8);
+    assert.equal(resolveStyle(view.childClip('a').props.style).width, 180);
+  } finally { view.dispose(); }
+});

@@ -28,7 +28,7 @@ Texto, legendas, imagens e vídeo sobreposto podem acompanhar um take. Cortes, d
 ## Recursos desta entrega
 
 O contrato completo dos gestos e a matriz de paridade com referências oficiais
-estão em [STUDIO_EDITOR_INTERACTIONS.md](STUDIO_EDITOR_INTERACTIONS.md).
+estão em [STUDIO_EDITOR_INTERACTIONS.md](STUDIO_EDITOR_INTERACTIONS.md). A expansão de ferramentas de 10/10 e as pendências dos 27 prints estão em [STUDIO_EDITS_REFERENCES.md](STUDIO_EDITS_REFERENCES.md), sem declaração de aceite físico.
 
 Vídeo principal, vídeo sobreposto, imagem, texto e legenda usam seleção, arraste,
 pinça e alças na prévia; duplo toque abre a edição contextual. As bordas de cada
@@ -54,7 +54,7 @@ Há um limite de dois decoders de vídeo simultâneos (principal + um vídeo sob
 
 O preset Cinematic desta versão é um tratamento de cor; não cria profundidade. O modo Cinema por hardware continua bloqueado até câmera, metadados, prévia e exportação preservarem a profundidade na mesma cadeia. Cenários virtuais também dependem de um pipeline de máscara com bordas, cabelo, movimento, estabilidade temporal e integração de luz aprovados visualmente.
 
-Ainda não estão entregues EQ, dinâmica e normalização de voz, animações por keyframe, transições e velocidade por camada. Gain e fades já são reais no audioMix. O reconhecimento local foi validado no Mac com voz sintetizada em português, palavras temporizadas, cancelamento e retomada; isso verifica a integração, sem provar precisão em fala humana, ruído ou aulas longas. O custo da detecção de rosto e a fluidez contínua da composição precisam ser medidos no iPhone; os resultados de teste no Mac não substituem essa avaliação.
+Velocidade constante 0,25×–4×, espelhamento, animações predefinidas de texto e motion por clip foram acrescentados no código da rodada de 10/10. Ainda não estão entregues EQ, dinâmica e normalização de voz, animações por keyframe, curvas de velocidade e transições entre clips. Gain e fades já são reais no audioMix. O reconhecimento local foi validado no Mac com voz sintetizada em português, palavras temporizadas, cancelamento e retomada; isso verifica a integração, sem provar precisão em fala humana, ruído ou aulas longas. O custo da detecção de rosto e a fluidez contínua da composição precisam ser medidos no iPhone; os resultados de teste no Mac não substituem essa avaliação.
 
 O fallback Android mantém a experiência anterior; estes novos motores são iOS primeiro. Nenhuma dependência paga, assinatura de SDK ou processamento em nuvem foi adicionada.
 
@@ -79,7 +79,7 @@ Os testes Swift usam o Xcode em `/Applications/Xcode.app`; os testes de composi�
 
 `test:studio:export-recovery` executa encoding AVFoundation real com fontes sintéticas. Cancela durante progresso efetivo, provoca falha I/O e colisão de destino, tenta novamente com o mesmo request ID e verifica originais/temporários. O motor valida uma saída temporária exclusiva antes de confirmar o destino; 100% só é emitido após o arquivo confirmado. Os temporários desse teste são removidos ao terminar.
 
-`editorJourney.test.mjs`, incluído em `test:studio`, acopla media/model/history/store/Canvas/Timeline/CompositionPreview de produção em Aula e Short. Separa filas UI/JS, inclui 12 camadas e reabre armazenamento/runtime depois de editar, cortar e desfazer/refazer. Os adaptadores de sistema, decode e encoding são substituídos; a rota/painéis e a sensação física continuam com validação própria. Conferir a receita entregue ao exportador não equivale a codificar essas mesmas jornadas. O programa e as lacunas estão em [STUDIO_EDITOR_INTERACTIONS.md](STUDIO_EDITOR_INTERACTIONS.md).
+`editorJourney.test.mjs`, incluído em `test:studio`, acopla media/model/history/store/Canvas/Timeline/CompositionPreview de produção em Aula e Short. Separa filas UI/JS, inclui 12 camadas e reabre armazenamento/runtime depois de editar, cortar e desfazer/refazer. Os adaptadores de sistema, decode e encoding são substituídos; a rota/painéis e a sensação física continuam com validação própria. Conferir a receita entregue ao exportador não equivale a codificar essas mesmas jornadas. O programa e as lacunas estão em [STUDIO_EDITOR_INTERACTIONS.md](STUDIO_EDITOR_INTERACTIONS.md). A expansão de ferramentas de 10/10 e as pendências dos 27 prints estão em [STUDIO_EDITS_REFERENCES.md](STUDIO_EDITS_REFERENCES.md), sem declaração de aceite físico.
 
 O runner headless não interage com a tela nem precisa do iPhone: reúne TypeScript, Studio, navegação, captura, composição, exportação e contratos de transcrição. Salva logs e `report.json` com resultados, tempos, revisão e hash dos fontes; invalida a evidência se os fontes mudarem durante a execução. `--build-ios` também compila para simulador e iPhone, sem conectar um aparelho. Para essa opção, use a variante `CLASSFY_IOS_PERSONAL_TEAM=1` no ambiente local.
 

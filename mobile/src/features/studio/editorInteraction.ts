@@ -12,8 +12,8 @@ export function captureStudioPlaybackAnchor(takes: readonly StudioTake[], playba
   if (take && Number.isFinite(playback.sourcePosition)) {
     const sourceSeconds = studioPreviewBoundedSourceTime(take, playback.sourcePosition, null);
     const index = takes.indexOf(take);
-    const before = takes.slice(0, index).reduce((sum, item) => sum + item.end - item.start, 0);
-    return { takeId: take.id, uri: take.uri, sourceSeconds, globalSeconds: before + sourceSeconds - take.start };
+    const before = takes.slice(0, index).reduce((sum, item) => sum + Math.round((item.end - item.start) * 120000 / (item.playbackRate ?? 1)) / 120000, 0);
+    return { takeId: take.id, uri: take.uri, sourceSeconds, globalSeconds: before + (sourceSeconds - take.start) / (take.playbackRate ?? 1) };
   }
   const location = locateStudioTime(takes, Number.isFinite(playback.position) ? playback.position : 0);
   return location ? { takeId: location.takeId, uri: location.take.uri, sourceSeconds: location.sourceSeconds, globalSeconds: location.timelineSeconds } : null;
@@ -25,8 +25,8 @@ export function restoreStudioPlaybackAnchor(takes: readonly StudioTake[], anchor
   const take = takes[index];
   if (take && Number.isFinite(anchor.sourceSeconds)) {
     const seconds = studioPreviewBoundedSourceTime(take, anchor.sourceSeconds, null);
-    const before = takes.slice(0, index).reduce((sum, item) => sum + item.end - item.start, 0);
-    return { position: before + seconds - take.start, source: { takeId: take.id, uri: take.uri, seconds } };
+    const before = takes.slice(0, index).reduce((sum, item) => sum + Math.round((item.end - item.start) * 120000 / (item.playbackRate ?? 1)) / 120000, 0);
+    return { position: before + (seconds - take.start) / (take.playbackRate ?? 1), source: { takeId: take.id, uri: take.uri, seconds } };
   }
   // A split removes the old ID; a deleted/replaced source cannot be reused.
   // Preserve its global point and let the new montage determine the source.

@@ -37,14 +37,14 @@ test('sem corte ativo preserva segmentos, duração e posição', () => {
   assert.deepEqual(studioLiveSegment(0, 2, 0, 0, 1, 3, 0, 3, 60, -1), { x: -60, width: 180 });
 });
 
-test('rolagem acumulada entra no delta da fonte e o gesto mantém precisão em ms', () => {
+test('rolagem acumulada entra no delta da fonte e o gesto mantém precisão no timebase de 120000 ticks', () => {
   assert.deepEqual(studioTrimDragValues('start', 0, 4, 5, 80, 20, 100), { start: 1, end: 4, leadingSeconds: 1 });
   assert.deepEqual(studioTrimDragValues('end', 1, 4, 5, 80, 20, 100), { start: 1, end: 5, leadingSeconds: 0 });
   assert.deepEqual(studioTrimDragValues('start', 1, 4, 5, 100, -100, 100), { start: 1, end: 4, leadingSeconds: 0 });
   const precise = studioTrimDragValues('start', 0, 1.3333333, 2, 33.333333, 0, 100);
-  assert.equal(precise.start, 0.333);
+  assert.equal(precise.start, 40000 / 120000);
   assert.equal(precise.end, 1.3333333);
-  assert.equal(precise.leadingSeconds, 0.333);
+  assert.equal(precise.leadingSeconds, 40000 / 120000);
 });
 
 test('bordas respeitam fonte e intervalo mínimo inclusive primeiro e último clip', () => {

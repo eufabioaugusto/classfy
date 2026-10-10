@@ -1,3 +1,6 @@
+import { filterCatalogHarness } from './studioLibraryTestSupport.mjs';
+const { studioFilterPresets, studioSelectedFilter } = filterCatalogHarness();
+import { libraryHarness } from './studioLibraryTestSupport.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -141,10 +144,14 @@ function harness(takes = [take('a'), take('b')], options = {}) {
     '@/features/studio/canvasTransformChannel': canvasTransformChannel,
     '@/features/studio/layerTimelineInteraction': layerTimeline,
     '@/features/studio/layerActions': layerActions,
+    '@/features/studio/StudioVoiceoverPanel': { StudioVoiceoverPanel: 'voiceoverPanel' },
+    '@/features/studio/StudioClipPanel': { StudioClipPanel: 'clipPanel' },
     '@/features/studio/StudioLayerPanel': { StudioLayerPanel: 'layerPanel' },
     '@/features/studio/StudioTreatmentPanel': { StudioTreatmentPanel: 'treatmentPanel' },
     '@/features/studio/captions': captions,
     '../../modules/classfy-studio-media': { isStudioCompositionAvailable: () => !!options.advanced,
+      isStudioEditorToolsAvailable: () => !!options.editorTools, isStudioFilterPreviewAvailable: () => false,
+      getMediaInfoAsync: options.mediaInfo || (async () => ({ hasAudio: true })),
       getStudioExportCapabilitiesAsync: options.outputCapabilities || (async () => outputCapabilities),
       getStudioTranscriptionCapabilitiesAsync: options.capabilities,
       installStudioTranscriptionModelAsync: options.installModel,
@@ -194,6 +201,8 @@ function harness(takes = [take('a'), take('b')], options = {}) {
     hasTimeline: () => { try { find(node => node.type === 'timeline'); return true; } catch { return false; } },
     writes: () => ({ attempted: attemptedWrites, completed: completedWrites }),
     layerProps: () => find(node => node.type === 'layerPanel').props,
+    voiceoverProps: () => find(node => node.type === 'voiceoverPanel').props,
+    clipProps: () => find(node => node.type === 'clipPanel').props,
     treatmentProps: () => find(node => node.type === 'treatmentPanel').props,
     button: label => find(node => node.props?.accessibilityLabel === label).props,
     hasLayerPanel: () => { try { find(node => node.type === 'layerPanel'); return true; } catch { return false; } },
@@ -310,7 +319,7 @@ function renderLayerPanel(initialProps) {
   };
   const Panel = compile(readFileSync(new URL('./StudioLayerPanel.tsx', import.meta.url), 'utf8'), {
     react, 'react/jsx-runtime': { jsx, jsxs: jsx }, 'react-native': { ActivityIndicator: 'spinner', Pressable: 'button', ScrollView: 'scroll', Text: 'text', TextInput: 'input', View: 'view', StyleSheet: { create: value => value } },
-    'lucide-react-native': Object.fromEntries('AlignCenter AlignLeft AlignRight ArrowLeft Bold Check Copy Italic Pencil Scissors SlidersHorizontal Trash2 Type Volume2 Blend'.split(' ').map(name => [name, name])), '@/theme/colors': { colors: {} }, './model': model, './StudioControlSlider': { StudioControlSlider: 'slider' },
+    'lucide-react-native': Object.fromEntries('AlignCenter AlignLeft AlignRight ArrowLeft Bold Check Copy Italic Pencil Scissors SlidersHorizontal Trash2 Type Volume2 Blend Bookmark Search Sparkles Gauge FlipHorizontal2'.split(' ').map(name => [name, name])), '@/theme/colors': { colors: {} }, './textLibrary': libraryHarness(), './filterCatalog': { studioFilterPresets, studioSelectedFilter }, './filterPreviews': { prepareStudioFilterPreviews: () => () => {} }, '@/components/LoadingImage': { LoadingImage: 'image' }, './model': model, './StudioControlSlider': { StudioControlSlider: 'slider' },
   }, { requestAnimationFrame: callback => { frames.set(++frameId, callback); return frameId; }, cancelAnimationFrame: id => frames.delete(id) }).StudioLayerPanel;
   const render = () => {
     for (let pass = 0; pass < 8; pass += 1) {
@@ -524,7 +533,7 @@ function renderTreatmentPanel(initialProps) {
   };
   const Panel = compile(readFileSync(new URL('./StudioTreatmentPanel.tsx', import.meta.url), 'utf8'), {
     react, 'react/jsx-runtime': { jsx, jsxs: jsx }, 'react-native': { ActivityIndicator: 'spinner', Pressable: 'button', ScrollView: 'scroll', Text: 'text', View: 'view', StyleSheet: { create: value => value } },
-    'lucide-react-native': Object.fromEntries('ArrowLeft Check Eye Sparkles Sun Contrast Droplets Thermometer Ban'.split(' ').map(name => [name, name])), '@/theme/colors': { colors: {} }, './model': model, './StudioControlSlider': { StudioControlSlider: 'slider' },
+    'lucide-react-native': Object.fromEntries('ArrowLeft Check Eye Sparkles Sun Contrast Droplets Thermometer Ban'.split(' ').map(name => [name, name])), '@/theme/colors': { colors: {} }, './textLibrary': libraryHarness(), './filterCatalog': { studioFilterPresets, studioSelectedFilter }, './filterPreviews': { prepareStudioFilterPreviews: () => () => {} }, '@/components/LoadingImage': { LoadingImage: 'image' }, './model': model, './StudioControlSlider': { StudioControlSlider: 'slider' },
   }).StudioTreatmentPanel;
   const render = () => {
     for (let pass = 0; pass < 8; pass += 1) {
@@ -1405,4 +1414,134 @@ test('tap/double tap aceitos antes do blur não deixam pedido de teclado ou sele
     assert.equal(panel.focusCount(), 0); assert.equal(view.canvasProps().selectedLayerId, 'caption');
     assert.equal(view.preview.seeks.length, 0); assert.deepEqual(view.writes(), { attempted: 0, completed: 0 });
   } finally { panel?.dispose(); view.dispose(); }
+});
+
+test('velocidade confirmada preserva frame do cursor e undo restaura âncoras dos textos', async () => {
+  const initial = editingWithCaptions(), view = harness(undefined, { initialEditing: initial, advanced: true, editorTools: true });
+  try {
+    await view.pump(); view.publish({ position: 3, sourcePosition: 5, takeId: 'a', playing: false, loading: false }); await view.pump();
+    view.timelineProps().onSelect(view.project().takes[0]); await view.pump(); view.tool('Velocidade').onPress(); await view.pump();
+    const draft = model.setStudioClipPlaybackRate(initial, 'a', 2); void view.clipProps().onApply(draft); await view.pump(); view.finishSave(); await view.pump();
+    assert.equal(view.project().editing.main[0].playbackRate, 2); assert.equal(view.timelineProps().position, 1.5);
+    assert.equal(view.preview.seeks.at(-1).frame.seconds, 5);
+    view.button('Desfazer edição').onPress(); await view.pump(); view.finishSave(); await view.pump();
+    assert.deepEqual(portable(view.project().editing), portable(initial)); assert.equal(view.timelineProps().position, 3);
+  } finally { view.dispose(); }
+});
+
+test('narração mantém cursor, bloqueia saída e invalida gravação antiga após blur/refocus', async () => {
+  const view = harness(undefined, { initialEditing: outputMontage(), advanced: true });
+  try {
+    await view.pump(); view.publish({ position: 3, sourcePosition: 5, takeId: 'a', playing: false, loading: false }); await view.pump();
+    view.tool('Voz').onPress(); await view.pump(); const panel = view.voiceoverProps();
+    assert.equal(panel.positionSeconds, 3); assert.equal(panel.canCommit(), true); assert.equal(view.hasTimeline(), false);
+    assert.equal(view.button('Revisar publicação').disabled, true); view.back(); await view.pump(); assert.equal(view.navigationEvents.length, 0);
+    panel.onRecordingChange(true, 3); await view.pump(); assert.equal(view.preview.toggles, 1); assert.equal(view.previewProps().paused, false);
+    panel.onRecordingChange(false, 3); await view.pump(); assert.equal(view.previewProps().paused, true);
+    view.focus(false); await view.pump(); view.focus(true); await view.pump(); assert.equal(panel.canCommit(), false);
+    panel.onClose(); await view.pump(); assert.equal(view.hasTimeline(), true); assert.deepEqual(view.writes(), { attempted: 0, completed: 0 });
+  } finally { view.dispose(); }
+});
+
+for (const audio of [true, false]) test(`extrair áudio ${audio ? 'confirma metadado legado sem mudar original e permite undo' : 'recusa vídeo sem faixa real'}`, async () => {
+  const initial = outputMontage(), view = harness(undefined, { initialEditing: initial, advanced: true, editorTools: true, mediaInfo: async () => ({ hasAudio: audio }) });
+  try {
+    await view.pump(); view.timelineProps().onSelect(view.project().takes[0]); await view.pump(); view.tool('Extrair áudio').onPress(); await view.pump();
+    if (!audio) { assert.deepEqual(view.writes(), { attempted: 0, completed: 0 }); assert.match(view.alerts.at(-1)[1], /não tem uma faixa de áudio/); return; }
+    view.finishSave(); await view.pump(); const actual = view.project().editing;
+    assert.deepEqual(portable(actual.assets[0]), portable(initial.assets[0])); assert.equal(actual.main[0].gain, 0);
+    const item = actual.layers.flatMap(lane => lane.items)[0]; assert.equal(item.kind, 'audio'); assert.notEqual(item.assetId, initial.assets[0].id);
+    assert.equal(view.layerProps().item.id, item.id); view.layerProps().onClose(); await view.pump();
+    view.button('Desfazer edição').onPress(); await view.pump(); view.finishSave(); await view.pump();
+    assert.equal(view.project().editing.layers.length, 0); assert.equal(view.project().editing.main[0].gain, initial.main[0].gain);
+  } finally { view.dispose(); }
+});
+
+test('metadado de extração que volta depois de blur não cria áudio ou altera seleção', async () => {
+  let complete; const pending = new Promise(resolve => { complete = resolve; });
+  const view = harness(undefined, { initialEditing: outputMontage(), advanced: true, editorTools: true, mediaInfo: () => pending });
+  try {
+    await view.pump(); view.timelineProps().onSelect(view.project().takes[0]); await view.pump(); view.tool('Extrair áudio').onPress(); await view.pump();
+    view.focus(false); await view.pump(); view.focus(true); await view.pump(); complete({ hasAudio: true }); await view.pump();
+    assert.deepEqual(view.writes(), { attempted: 0, completed: 0 }); assert.equal(view.project().editing.layers.length, 0);
+  } finally { view.dispose(); }
+});
+
+for (const retry of [false, true]) test(`volume de um clip preserva atualização externa do irmão${retry ? ' após falha e retry' : ''}`, async () => {
+  const initial = editingWithCaptions(), view = harness(undefined, { initialEditing: initial, advanced: true, editorTools: true });
+  try {
+    await view.pump(); view.timelineProps().onSelect(view.project().takes[0]); await view.pump();
+    view.tool('Volume').onPress(); await view.pump();
+    const draft = model.patchStudioClipProperties(initial, 'a', { gain: 0.5 });
+    view.clipProps().onPreview(draft); await view.pump();
+    if (retry) {
+      view.failNextMutation('Disco indisponível');
+      await assert.rejects(view.clipProps().onApply(draft), /Disco indisponível/); await view.pump();
+    }
+    view.externalEditing(model.patchStudioClipProperties(view.project().editing, 'b', { gain: 0.8, flipHorizontal: true })); await view.pump();
+    const saving = view.clipProps().onApply(draft); await view.pump(); view.finishSave(); await saving; await view.pump();
+    assert.equal(view.project().editing.main[0].gain, 0.5);
+    assert.equal(view.project().editing.main[1].gain, 0.8, 'no apply-all command was accepted');
+    assert.equal(view.project().editing.main[1].flipHorizontal, true);
+    view.button('Desfazer edição').onPress(); await view.pump(); view.finishSave(); await view.pump();
+    assert.equal(view.project().editing.main[0].gain, initial.main[0].gain);
+    assert.equal(view.project().editing.main[1].gain, 0.8, 'undo restores the accepted edit, preserving its latest baseline');
+  } finally { view.dispose(); }
+});
+
+test('volume aplicado a todos os clips altera só o mix solicitado e preserva mudanças externas de imagem', async () => {
+  const initial = editingWithCaptions(), view = harness(undefined, { initialEditing: initial, advanced: true, editorTools: true });
+  try {
+    await view.pump(); view.timelineProps().onSelect(view.project().takes[0]); await view.pump(); view.tool('Volume').onPress(); await view.pump();
+    let draft = initial;
+    for (const clip of initial.main) draft = model.patchStudioClipProperties(draft, clip.id, { gain: 0.5, fadeInTicks: model.studioTicks(0.2), fadeOutTicks: 0 });
+    view.externalEditing(model.patchStudioClipProperties(view.project().editing, 'b', { gain: 0.8, flipHorizontal: true })); await view.pump();
+    const saving = view.clipProps().onApply(draft); await view.pump(); view.finishSave(); await saving; await view.pump();
+    assert.deepEqual(view.project().editing.main.map(clip => clip.gain), [0.5, 0.5]);
+    assert.equal(view.project().editing.main[1].flipHorizontal, true);
+    assert.equal(view.project().editing.main[1].fadeInTicks, model.studioTicks(0.2));
+  } finally { view.dispose(); }
+});
+
+for (const bulk of [false, true]) test(`texto ${bulk ? 'aplicado à faixa preserva conteúdo externo do irmão' : 'individual preserva estilo externo do irmão'}`, async () => {
+  let initial = editingWithCaptions();
+  const lane = initial.layers.find(layer => layer.items.some(item => item.id === 'caption'));
+  const caption = lane.items.find(item => item.id === 'caption');
+  initial = model.addStudioLayerItem(initial, { ...caption, id: 'sibling', text: { ...caption.text, content: 'Outro trecho' } }, lane.id);
+  const view = harness(undefined, { initialEditing: initial, advanced: true, editorTools: true });
+  try {
+    await view.pump(); view.timelineProps().onSelectLayer('caption'); await view.pump();
+    let draft = model.patchStudioLayerItem(initial, 'caption', { text: { content: 'Somente este trecho', ...(bulk ? { visualEffect: 'neon' } : {}) } });
+    if (bulk) draft = model.patchStudioLayerItem(draft, 'sibling', { text: { visualEffect: 'neon' } });
+    view.layerProps().onPreview(draft); await view.pump();
+    view.externalEditing(model.patchStudioLayerItem(view.project().editing, 'sibling', { text: { color: '#F43F5E', content: 'Trecho atualizado externamente' } })); await view.pump();
+    const saving = view.layerProps().onApply(draft); await view.pump(); view.finishSave(); await saving; await view.pump();
+    const sibling = view.project().editing.layers.flatMap(layer => layer.items).find(item => item.id === 'sibling');
+    assert.equal(sibling.text.content, 'Trecho atualizado externamente');
+    assert.equal(sibling.text.color, bulk ? '#FFFFFF' : '#F43F5E');
+    assert.equal(sibling.text.visualEffect, bulk ? 'neon' : undefined);
+  } finally { view.dispose(); }
+});
+
+test('velocidade da camada resolve host e faixa atuais, preserva fonte inteira e undo mantém atualização externa', async () => {
+  let initial = editingWithCaptions();
+  initial = { ...initial, assets: [...initial.assets, { id: 'pip-source', kind: 'video', uri: 'file:///pip.mp4', name: 'PiP', durationTicks: model.studioTicks(4) }] };
+  initial = model.addStudioLayerItem(initial, { id: 'pip', kind: 'video', assetId: 'pip-source', atTicks: 0, durationTicks: model.studioTicks(4),
+    sourceStartTicks: 0, sourceEndTicks: model.studioTicks(4), anchor: { clipId: 'a', sourceStartTicks: model.studioTicks(3), sourceEndTicks: model.studioTicks(7) } });
+  const view = harness(undefined, { initialEditing: initial, advanced: true, editorTools: true });
+  try {
+    await view.pump(); view.timelineProps().onSelectLayer('pip'); await view.pump(); view.layerProps().onClipTool('speed'); await view.pump();
+    const draft = model.setStudioClipPlaybackRate(initial, 'pip', 2); view.clipProps().onPreview(draft); await view.pump();
+    let latest = model.setStudioClipPlaybackRate(view.project().editing, 'a', 2);
+    latest = model.patchStudioClipProperties(latest, 'pip', { gain: 0.7, flipHorizontal: true });
+    latest = model.moveStudioLayerItemToLane(latest, 'pip', 1); view.externalEditing(latest); await view.pump();
+    const expected = model.setStudioClipPlaybackRate(latest, 'pip', 2);
+    const saving = view.clipProps().onApply(draft); await view.pump(); view.finishSave(); await saving; await view.pump();
+    assert.deepEqual(portable(view.project().editing), portable(expected));
+    const clip = model.compileStudioRecipe(view.project()).clips.find(value => value.id === 'pip');
+    assert.equal(clip.durationTicks, model.studioTicks(2)); assert.equal(clip.sourceEndTicks, model.studioTicks(4));
+    assert.equal(clip.zIndex, 1); assert.equal(clip.gain, 0.7); assert.equal(clip.flipHorizontal, true);
+    view.button('Desfazer edição').onPress(); await view.pump(); view.finishSave(); await view.pump();
+    assert.deepEqual(portable(view.project().editing), portable(latest));
+  } finally { view.dispose(); }
 });

@@ -43,7 +43,7 @@ function graded(value) {
 // Execute the production wrapper and NativePreview hooks, imperative handle,
 // native event handlers and promise continuations. AVPlayer's async command
 // completion is stubbed independently from periodic events and React renders.
-function harness({ available = true, initialProject = project(), playbackChannel, nativeRuntime = false, interactive = false, capability = { version: 1, available: true } } = {}) {
+function harness({ available = true, initialProject = project(), playbackChannel, nativeRuntime = false, interactive = false, editorTools = false, capability = { version: 1, available: true } } = {}) {
   const slots = []; let cursor = 0, dirty = true, effects = [], tree, nativeProps;
   const published = [], selected = [], calls = [];
   const uiQueue = [], jsQueue = [], registrations = new Map();
@@ -151,7 +151,8 @@ function harness({ available = true, initialProject = project(), playbackChannel
     'react-native': { View: 'view', Text: 'text', findNodeHandle: value => value?.tag,
       StyleSheet: { create: styles => styles, absoluteFill: {}, absoluteFillObject: {} } },
     'expo-modules-core': { requireNativeViewManager: () => 'native-canvas' },
-    '../../../modules/classfy-studio-media': { isStudioCompositionAvailable: () => available,
+    '../../../modules/classfy-studio-media': { isStudioCompositionAvailable: () => available, isStudioEditorToolsAvailable: () => editorTools,
+      studioRecipeNeedsEditorTools: recipe => recipe.clips.some(clip => clip.kind === 'audio' && recipe.assets.some(asset => asset.id === clip.assetId && asset.kind === 'video') || clip.zIndex === 0 && (clip.fadeInTicks > 0 || clip.fadeOutTicks > 0 || clip.opacity !== 1) || (clip.playbackRate ?? 1) !== 1 || clip.flipHorizontal || clip.flipVertical || clip.motion && clip.motion !== 'none' || clip.text && (clip.text.animation && clip.text.animation !== 'none' || clip.text.visualEffect && clip.text.visualEffect !== 'none' || clip.text.decoration && clip.text.decoration !== 'none' || clip.text.gradientColors)),
       isStudioInteractiveCompositionAvailable: () => interactive,
       getStudioInteractiveCompositionVersionAsync: () => Promise.resolve(capability),
       seekStudioCompositionAsync: (...args) => command('seek', args),
@@ -944,4 +945,16 @@ test('binário sem compositor aplica mainMuted ao vídeo simples por Expo sem fa
   const unsupported = harness({ available: false, initialProject: layered }); await unsupported.pump();
   try { assert.notEqual(unsupported.tree().type, 'legacy-preview', 'layer flags and per-lane mix remain native requirements'); }
   finally { unsupported.dispose(); }
+});
+
+test('binário antigo recusa prévia com efeitos novos em vez de ignorar o tratamento', async () => {
+  const value = project();
+  const editing = model.patchStudioClipProperties(value.editing, 'a', { flipHorizontal: true });
+  const treated = model.withStudioTakes({ ...value, editing });
+  const old = harness({ available: true, editorTools: false, initialProject: treated }); await old.pump();
+  try { assert.notEqual(old.tree().type, 'legacy-preview'); assert.equal(old.calls.length, 0); }
+  finally { old.dispose(); }
+  const modern = harness({ available: true, editorTools: true, initialProject: treated }); await modern.pump();
+  try { assert.equal(JSON.parse(modern.canvas().recipeJSON).clips[0].flipHorizontal, true); }
+  finally { modern.dispose(); }
 });

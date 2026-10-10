@@ -584,10 +584,12 @@ final class StudioCompositionView: ExpoView {
       paused = true; player.pause(); publish(); return
     }
     do {
-      // AVCaptureSession does not restore the shared audio session when capture
-      // ends. Select movie playback only when the user actually starts playing.
+      // Expo's active voiceover recorder owns playAndRecord. Changing that
+      // category here stops its microphone; activating the same session lets
+      // preview audio and recording coexist. After capture, movie playback
+      // restores the category only when no recorder currently owns it.
       let audio = AVAudioSession.sharedInstance()
-      if audio.category != .playback || audio.mode != .moviePlayback || !audio.categoryOptions.isEmpty {
+      if audio.category != .playAndRecord && (audio.category != .playback || audio.mode != .moviePlayback || !audio.categoryOptions.isEmpty) {
         try audio.setCategory(.playback, mode: .moviePlayback, options: [])
       }
       try audio.setActive(true)
@@ -676,7 +678,8 @@ final class StudioCompositionView: ExpoView {
     let base = Double(prepared.recipe.timebase)
     let clipStart = Double(inspected.clip.startTicks) / base
     let clipEnd = Double(inspected.clip.endTicks) / base
-    let contextual = clipStart + sourceSeconds - Double(inspected.clip.sourceStartTicks) / base
+    let contextual = clipStart + (sourceSeconds - Double(inspected.clip.sourceStartTicks) / base)
+      / inspected.clip.sourceSecondsPerTimelineSecond
     let at = max(clipStart, min(contextual, clipEnd - min(0.001, (clipEnd - clipStart) / 2)))
     let engine = self.engine
     let task = Task.detached(priority: .userInitiated) {

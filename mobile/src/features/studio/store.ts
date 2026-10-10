@@ -134,6 +134,21 @@ export function createStudioProject(owner: string, kind: StudioKind, options: Cr
 export function updateStudioProject(owner: string, id: string, patch: Partial<StudioProject>): Promise<StudioProject> {
   return mutateStudioProject(owner, id, () => patch);
 }
+/** A completed workspace copy enters the index once, after all its files exist. */
+export function saveStudioProjectDuplicate(owner: string, sourceId: string, project: StudioProject, isCurrent: () => boolean): Promise<StudioProject> {
+  return serialized(owner, async () => {
+    await loadStudioProjects(owner);
+    if (studioSnapshot(owner).error) throw new Error(studioSnapshot(owner).error!);
+    if (!isCurrent()) throw new Error('A ação foi cancelada porque a sessão mudou.');
+    const source = getStudioProject(owner, sourceId);
+    if (!source || source.ownerId !== owner || project.ownerId !== owner || project.id === sourceId || getStudioProject(owner, project.id)) throw new Error('Este projeto não pertence à sessão atual.');
+    if (source.pendingTakes?.length || ['preparing', 'uploading', 'processing'].includes(source.state)) throw new Error('Conclua a recuperação ou interrompa o envio antes de duplicar o projeto.');
+    const issues = validateStudioEditing(project.editing!, project.kind).filter(issue => !issue.includes('cinematográfico'));
+    if (issues.length) throw new Error(issues[0]);
+    await persist(owner, [project, ...studioSnapshot(owner).projects]);
+    return project;
+  });
+}
 export function mutateStudioProject(owner: string, id: string, change: (project: StudioProject) => Partial<StudioProject>): Promise<StudioProject> {
   return serialized(owner, async () => {
     await loadStudioProjects(owner);
@@ -186,10 +201,11 @@ export function mutateStudioProject(owner: string, id: string, change: (project:
     return updated;
   });
 }
-export function removeStudioProject(owner: string, id: string): Promise<void> {
+export function removeStudioProject(owner: string, id: string, isCurrent?: () => boolean): Promise<void> {
   return serialized(owner, async () => {
     await loadStudioProjects(owner);
     if (studioSnapshot(owner).error) throw new Error(studioSnapshot(owner).error!);
+    if (isCurrent && !isCurrent()) throw new Error('A ação foi cancelada porque a sessão mudou.');
     const project = getStudioProject(owner, id);
     if (mediaWrites.get(mediaKey(owner, id))) throw new Error('Aguarde seus arquivos serem salvos antes de remover o projeto.');
     if (project && ['uploading', 'preparing', 'processing'].includes(project.state)) throw new Error('Interrompa o envio antes de remover o projeto.');

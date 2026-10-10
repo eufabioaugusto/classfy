@@ -114,6 +114,13 @@ public final class ClassfyStudioMediaModule: Module {
     AsyncFunction("getStudioExportCapabilitiesAsync") { () async -> [String: Any] in
       await Task.detached(priority: .userInitiated) { StudioRecipeOutputSupport.capabilities() }.value
     }
+    AsyncFunction("getStudioEditorCapabilitiesAsync") { () -> [String: Any] in
+      ["version": 1, "available": true, "textEffects": true, "playbackRate": true,
+       "mirror": true, "motion": true, "gradient": true, "audioExtraction": true]
+    }
+    AsyncFunction("renderStudioRecipeThumbnailAsync") { (recipeJSON: String, outputUri: String, seconds: Double) async throws -> [String: Any] in
+      try await self.recipeEngine.thumbnail(recipeJSON: recipeJSON, outputUri: outputUri, seconds: seconds)
+    }
     AsyncFunction("exportRecipeAsync") { (options: StudioRecipeExportRecord) async throws -> [String: Any] in
       try await self.withExportAwake { try await self.recipeEngine.export(requestId: options.requestId, recipeJSON: options.recipeJSON, outputUri: options.outputUri,
         progress: { [weak self] value in self?.sendEvent("onExportProgress", ["requestId": options.requestId, "progress": value]) }) }

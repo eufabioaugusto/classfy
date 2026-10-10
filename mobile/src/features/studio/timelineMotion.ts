@@ -11,7 +11,7 @@ function clamp(value: number, lower: number, upper: number) {
 export function studioLiveSegment(
   startSeconds: number, endSeconds: number, index: number, trimIndex: number,
   originalStart: number, originalEnd: number, draftStart: number, draftEnd: number,
-  scale: number, leadingSeconds = 0,
+  scale: number, leadingSeconds = 0, playbackRate = 1,
 ) {
   'worklet';
   const pixelsPerSecond = Math.max(0, finite(scale));
@@ -19,8 +19,9 @@ export function studioLiveSegment(
   const length = Math.max(0, finite(endSeconds, start) - start);
   const sourceStart = finite(originalStart);
   const sourceEnd = finite(originalEnd, sourceStart);
-  const originalLength = Math.max(0, sourceEnd - sourceStart);
-  const draftLength = Math.max(0, finite(draftEnd, sourceEnd) - finite(draftStart, sourceStart));
+  const rate = clamp(finite(playbackRate, 1), .25, 4);
+  const originalLength = Math.max(0, sourceEnd - sourceStart) / rate;
+  const draftLength = Math.max(0, finite(draftEnd, sourceEnd) - finite(draftStart, sourceStart)) / rate;
   const delta = draftLength - originalLength;
   const trimming = Number.isFinite(trimIndex) && trimIndex >= 0;
   const liveStart = start + (trimming && index > trimIndex ? delta : 0) + finite(leadingSeconds);
@@ -30,20 +31,21 @@ export function studioLiveSegment(
 
 export function studioTrimDragValues(
   edge: 'start' | 'end', originalStart: number, originalEnd: number,
-  sourceDuration: number, translationX: number, scrollDeltaPixels: number, scale: number,
+  sourceDuration: number, translationX: number, scrollDeltaPixels: number, scale: number, playbackRate = 1,
 ) {
   'worklet';
   const duration = Math.max(0, finite(sourceDuration));
-  const minimum = Math.min(0.1, duration);
+  const rate = clamp(finite(playbackRate, 1), .25, 4);
+  const minimum = Math.min(0.1 * rate, duration);
   const sourceStart = clamp(finite(originalStart), 0, duration - minimum);
   const sourceEnd = clamp(finite(originalEnd, duration), sourceStart + minimum, duration);
-  const delta = Number.isFinite(scale) && scale > 0 ? finite((finite(translationX) + finite(scrollDeltaPixels)) / scale) : 0;
-  const value = Math.round(((edge === 'start' ? sourceStart : sourceEnd) + delta) * 1000) / 1000;
+  const delta = Number.isFinite(scale) && scale > 0 ? finite((finite(translationX) + finite(scrollDeltaPixels)) / scale * rate) : 0;
+  const value = Math.round(((edge === 'start' ? sourceStart : sourceEnd) + delta) * 120000) / 120000;
   const start = edge === 'start' ? clamp(value, 0, sourceEnd - minimum) : sourceStart;
   const end = edge === 'end' ? clamp(value, sourceStart + minimum, duration) : sourceEnd;
   // Moving the left boundary translates the whole continuous strip. Its
   // opposite boundary stays in place while neighbors remain joined to it.
-  return { start, end, leadingSeconds: edge === 'start' ? start - sourceStart : 0 };
+  return { start, end, leadingSeconds: edge === 'start' ? (start - sourceStart) / rate : 0 };
 }
 
 export function studioTimelineAutoScrollVelocity(fingerX: number, viewport: number, zone = 40, max = 240) {
@@ -58,7 +60,7 @@ export function studioTimelineAutoScrollVelocity(fingerX: number, viewport: numb
 export function studioTrimAutoscrollStep(
   edge: 'start' | 'end', originalStart: number, originalEnd: number,
   duration: number, translationX: number, initialOffset: number, nativeOffset: number,
-  virtualOffset: number, scale: number, requestedDelta: number, maxOffset: number,
+  virtualOffset: number, scale: number, requestedDelta: number, maxOffset: number, playbackRate = 1,
 ) {
   'worklet';
   const native = Math.max(0, finite(nativeOffset));
@@ -69,11 +71,12 @@ export function studioTrimAutoscrollStep(
   // virtual so a first clip can reveal its earlier source without negative
   // native offsets or detaching its handle from the finger.
   const proposedVirtual = finite(virtualOffset) + finite(requestedDelta) - (offset - native);
-  const range = studioTrimDragValues(edge, originalStart, originalEnd, duration, translation, offset - initial + proposedVirtual, scale);
+  const rate = clamp(finite(playbackRate, 1), .25, 4);
+  const range = studioTrimDragValues(edge, originalStart, originalEnd, duration, translation, offset - initial + proposedVirtual, scale, rate);
   const original = edge === 'start' ? finite(originalStart) : finite(originalEnd, Math.max(0, finite(duration)));
   const pixelsPerSecond = Math.max(0, finite(scale));
   // Accept only movement representable by the clamped source range. Repeating
   // frames at source start/end cannot accumulate an unbounded virtual offset.
-  const acceptedVirtual = finite((range[edge] - original) * pixelsPerSecond - translation - (offset - initial));
+  const acceptedVirtual = finite((range[edge] - original) / rate * pixelsPerSecond - translation - (offset - initial));
   return { ...range, offset, virtualOffset: acceptedVirtual };
 }

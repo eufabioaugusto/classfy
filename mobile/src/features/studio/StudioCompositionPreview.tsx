@@ -2,7 +2,7 @@ import { forwardRef, useEffect, useImperativeHandle, useLayoutEffect, useMemo, u
 import { findNodeHandle, StyleSheet, Text, View } from 'react-native';
 import Animated, { runOnJS, runOnUI, useAnimatedProps, useEvent, useSharedValue, type SharedValue } from 'react-native-reanimated';
 import { requireNativeViewManager } from 'expo-modules-core';
-import { getStudioInteractiveCompositionVersionAsync, isStudioCompositionAvailable, isStudioInteractiveCompositionAvailable, previewStudioCompositionSourceAsync, seekStudioCompositionAsync, type StudioNativePlayback } from '../../../modules/classfy-studio-media';
+import { getStudioInteractiveCompositionVersionAsync, isStudioCompositionAvailable, isStudioEditorToolsAvailable, studioRecipeNeedsEditorTools, isStudioInteractiveCompositionAvailable, previewStudioCompositionSourceAsync, seekStudioCompositionAsync, type StudioNativePlayback } from '../../../modules/classfy-studio-media';
 import { compileStudioRecipe, type StudioProject, type StudioRenderRecipe } from './model';
 import { StudioPreview, type StudioPlaybackState, type StudioPreviewHandle } from './StudioPreview';
 import type { StudioTimelinePlaybackChannelRef } from './timelinePlaybackChannel';
@@ -69,7 +69,8 @@ function receivePlaybackOnUI(value: StudioNativePlayback, controls: SharedValue<
 
 export const StudioCompositionPreview = forwardRef<StudioPreviewHandle, Props>(function StudioCompositionPreview(props, ref) {
   const editing = props.project.editing;
-  const native = !!NativeCanvas && editing?.output.profile === 'standard' && props.project.kind !== 'podcast';
+  const missingTools = !!editing && studioRecipeNeedsEditorTools(props.recipe || compileStudioRecipe(props.project)) && !isStudioEditorToolsAvailable();
+  const native = !!NativeCanvas && editing?.output.profile === 'standard' && props.project.kind !== 'podcast' && !missingTools;
   useLayoutEffect(() => {
     const channel = props.playbackChannel;
     if (!native && channel) runOnUI(() => {
@@ -79,7 +80,7 @@ export const StudioCompositionPreview = forwardRef<StudioPreviewHandle, Props>(f
   // Master mute is supported by the existing Expo player's real audio control.
   // Per-layer mixes, geometry and effects still require the native compositor.
   const enhanced = !!editing && (editing.layers.some(layer => layer.items.length) || editing.main.some(clip => clip.rect || clip.rotationDegrees || clip.fit === 'cover' || clip.grade || clip.effect && clip.effect !== 'natural' || clip.gain !== undefined && clip.gain !== 1) || editing.canvas.backgroundColor !== '#000000' || editing.canvas.aspectRatio !== (props.project.kind === 'short' ? 'portrait' : 'landscape'));
-  if (enhanced && (!NativeCanvas || editing?.output.profile !== 'standard' || props.project.kind === 'podcast')) return <UnavailablePreview ref={ref} />;
+  if (missingTools || enhanced && (!NativeCanvas || editing?.output.profile !== 'standard' || props.project.kind === 'podcast')) return <UnavailablePreview ref={ref} />;
   if (!NativeCanvas || editing?.output.profile !== 'standard' || props.project.kind === 'podcast') return <StudioPreview ref={ref} takes={props.project.takes} kind={props.project.kind} activeTakeId={props.activeTakeId} paused={props.paused} muted={editing?.mainMuted === true} onActiveTakeChange={props.onActiveTakeChange} onPlaybackState={props.onPlaybackState} onCanvasPress={props.onCanvasPress} canvasLabel={props.canvasLabel} />;
   return <NativePreview {...props} ref={ref} />;
 });

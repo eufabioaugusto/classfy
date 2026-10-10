@@ -16,9 +16,9 @@ ffmpeg -hide_banner -loglevel error -display_rotation:v:0 90 -i "$studio_recipe_
 if [[ -n "${STUDIO_ROTATION_FIXTURE:-}" ]]; then
   ffmpeg -hide_banner -loglevel error -display_rotation:v:0 90 -i "$STUDIO_ROTATION_FIXTURE" -t 8 -c copy "$studio_recipe_directory/rotated-real.mov"
 fi
-xcrun swiftc -swift-version 5 -suppress-warnings -parse-as-library "$studio_recipe_root/ios/StudioEffectRenderer.swift" "$studio_recipe_root/ios/StudioVideoCompositor.swift" "$studio_recipe_root/ios/StudioRecipeEngine.swift" "$studio_recipe_root/tests/StudioRecipeEngine.tests.swift" -o "$studio_recipe_directory/verify-recipe"
+xcrun swiftc -swift-version 5 -suppress-warnings -parse-as-library "$studio_recipe_root/ios/StudioEffectRenderer.swift" "$studio_recipe_root/ios/StudioVideoCompositor.swift" "$studio_recipe_root/ios/StudioRecipeVisualEffects.swift" "$studio_recipe_root/ios/StudioRecipeEngine.swift" "$studio_recipe_root/tests/StudioRecipeEngine.tests.swift" -o "$studio_recipe_directory/verify-recipe"
 studio_recipe_args=("$studio_recipe_directory/red.mp4" "$studio_recipe_directory/blue.mp4" "$studio_recipe_directory/green.png" "$studio_recipe_directory/voice.m4a" "$studio_recipe_directory")
 if [[ -n "${STUDIO_FACE_FIXTURE:-}" ]]; then studio_recipe_args+=("$STUDIO_FACE_FIXTURE"); fi
 "$studio_recipe_directory/verify-recipe" "${studio_recipe_args[@]}"
-xcrun swiftc -swift-version 5 -suppress-warnings -parse-as-library "$studio_recipe_root/ios/StudioEffectRenderer.swift" "$studio_recipe_root/ios/StudioVideoCompositor.swift" "$studio_recipe_root/ios/StudioRecipeEngine.swift" "$studio_recipe_root/tests/StudioVisualUpdate.tests.swift" -o "$studio_recipe_directory/verify-visual-update"
+xcrun swiftc -swift-version 5 -suppress-warnings -parse-as-library "$studio_recipe_root/ios/StudioEffectRenderer.swift" "$studio_recipe_root/ios/StudioVideoCompositor.swift" "$studio_recipe_root/ios/StudioRecipeVisualEffects.swift" "$studio_recipe_root/ios/StudioRecipeEngine.swift" "$studio_recipe_root/tests/StudioVisualUpdate.tests.swift" -o "$studio_recipe_directory/verify-visual-update"
 "$studio_recipe_directory/verify-visual-update" "$studio_recipe_directory/red.mp4" "$studio_recipe_directory/blue.mp4" "$studio_recipe_directory/green.png" "$studio_recipe_directory/main-marker.mp4" "$studio_recipe_directory" "$studio_recipe_directory/red-audio.mp4"

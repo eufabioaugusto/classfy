@@ -6,7 +6,7 @@ import { randomUUID } from 'expo-crypto';
 import { Alert } from 'react-native';
 import { supabase } from '@/lib/supabase';
 import { cancelExportAsync, exportRecipeAsync, getStudioExportCapabilitiesAsync, isStudioCompositionAvailable, exportTimelineAsync, generateThumbnailAsync, getMediaInfoAsync, isStudioMediaAvailable } from '../../../modules/classfy-studio-media';
-import { addStudioLayerItem, compileStudioRecipe, normalizeStudioCaptureGrade, studioEditing, studioOutputSupported, studioTicks, timelineSignature, validateStudioRecipe, type StudioProject, type StudioTake, type StudioAsset, type StudioLayerItem, type StudioPendingTake } from './model';
+import { addStudioLayerItem, compileStudioRecipe, normalizeStudioCaptureGrade, studioEditing, studioOutputSupported, studioTicks, timelineSignature, validateStudioRecipe, type StudioProject, type StudioTake, type StudioAsset, type StudioLayerItem, type StudioPendingTake, type StudioEditing } from './model';
 import { getStudioProject, mutateStudioProject, retainStudioProjectMedia, updateStudioProject } from './store';
 
 export async function assertStudioOwner(project: StudioProject) {
@@ -57,7 +57,7 @@ async function readStudioTake(project: StudioProject, pending: StudioPendingTake
   await assertStudioOwner(project);
   return { id, uri, name, duration: info.duration,
     sourceKind: pending.sourceKind, sourceStage: pending.sourceStage, frameRate: Number.isFinite(info.frameRate) && info.frameRate! > 0 ? info.frameRate : pending.frameRate, colorSpace: info.colorSpace ?? pending.colorSpace,
-    start: 0, end: info.duration, width: info.width, height: info.height, thumbnailUri,
+    start: 0, end: info.duration, width: info.width, height: info.height, thumbnailUri, hasAudio: info.hasAudio,
     ...(pending.grade ? { grade: normalizeStudioCaptureGrade(pending.grade) } : {}) };
 }
 async function appendStudioTake(project: StudioProject, take: StudioTake) {
@@ -188,8 +188,16 @@ export async function exportStudioProject(project: StudioProject, onProgress?: (
 }
 export async function cancelStudioExport(project: StudioProject) { await cancelExportAsync(project.id); }
 
-async function finishStudioLayerImport(project: StudioProject, pending: NonNullable<StudioProject['pendingTakes']>[number]) {
+export type StudioVoiceoverPersistScope = {
+  isCurrent: () => boolean;
+  onBeforePersist?: (latest: StudioProject, next: StudioEditing) => void;
+  onPersisted?: (saved: StudioProject) => void;
+  onPersistError?: () => void;
+};
+async function finishStudioLayerImport(project: StudioProject, pending: NonNullable<StudioProject['pendingTakes']>[number], scope?: StudioVoiceoverPersistScope) {
   await assertStudioOwner(project);
+  const check = () => { if (scope && !scope.isCurrent()) throw new Error('A narração está preservada no projeto. Recupere o arquivo ao voltar.'); };
+  check();
   if (!pending.layerItem || !pending.kind) throw new Error('O destino da camada precisa de recuperação.');
   let asset: StudioAsset;
   if (pending.kind === 'image') {
@@ -198,7 +206,7 @@ async function finishStudioLayerImport(project: StudioProject, pending: NonNulla
   } else {
     const info = await getMediaInfoAsync(pending.uri);
     if (!Number.isFinite(info.duration) || info.duration < 0.1 || pending.kind === 'video' && !info.hasVideo || pending.kind === 'audio' && !info.hasAudio) throw new Error('Este arquivo não contém a mídia selecionada.');
-    asset = { id: pending.id, kind: pending.kind, uri: pending.uri, name: pending.name, durationTicks: studioTicks(info.duration), width: info.width, height: info.height, frameRate: info.frameRate, colorSpace: info.colorSpace, sourceStage: pending.sourceStage, sourceKind: pending.sourceKind };
+    asset = { id: pending.id, kind: pending.kind, uri: pending.uri, name: pending.name, durationTicks: studioTicks(info.duration), width: info.width, height: info.height, frameRate: info.frameRate, colorSpace: info.colorSpace, sourceStage: pending.sourceStage, sourceKind: pending.sourceKind, hasAudio: info.hasAudio };
   }
   const item = { ...pending.layerItem };
   if (asset.kind !== 'image') {
@@ -208,12 +216,54 @@ async function finishStudioLayerImport(project: StudioProject, pending: NonNulla
     item.fadeOutTicks = Math.min(item.fadeOutTicks || 0, Math.floor(item.durationTicks / 2));
   }
   await assertStudioOwner(project);
-  const saved = await mutateStudioProject(project.ownerId, project.id, latest => {
-    const editing = studioEditing(latest);
-    if (editing.layers.some(layer => layer.items.some(existing => existing.id === item.id))) return {};
-    return { editing: addStudioLayerItem({ ...editing, assets: [...editing.assets.filter(original => original.id !== asset.id), asset] }, item, pending.layerId) };
-  });
+  check();
+  let began = false;
+  let saved: StudioProject;
+  try {
+    saved = await mutateStudioProject(project.ownerId, project.id, latest => {
+      check();
+      const editing = studioEditing(latest);
+      if (editing.layers.some(layer => layer.items.some(existing => existing.id === item.id))) return {};
+      const next = addStudioLayerItem({ ...editing, assets: [...editing.assets.filter(original => original.id !== asset.id), asset] }, item, pending.layerId);
+      began = true;
+      scope?.onBeforePersist?.(latest, next);
+      return { editing: next };
+    });
+  } catch (cause) {
+    if (began) scope?.onPersistError?.();
+    throw cause;
+  }
+  if (began) scope?.onPersisted?.(saved);
   return saved;
+}
+/** Recorder cache is copied and journaled before resolving a usable audio lane. */
+export async function persistStudioVoiceover(project: StudioProject, source: { uri: string; duration: number; name?: string }, positionSeconds: number, scope: StudioVoiceoverPersistScope): Promise<{ project: StudioProject; itemId: string }> {
+  const check = () => { if (!scope.isCurrent()) throw new Error('A gravação foi cancelada porque a tela ou a sessão mudou.'); };
+  check(); await assertStudioOwner(project); check();
+  if (!isStudioCompositionAvailable()) throw new Error('Atualize o Classfy Dev para adicionar sua narração.');
+  const latest = getStudioProject(project.ownerId, project.id);
+  if (!latest || studioEditing(latest).output.profile !== 'standard') throw new Error('Selecione o perfil de composição antes de adicionar uma narração.');
+  const duration = Math.min(source.duration, Math.max(0, compileStudioRecipe(latest).durationTicks / 120_000 - positionSeconds));
+  if (!source.uri.startsWith('file://') || !Number.isFinite(positionSeconds) || positionSeconds < 0 || !Number.isFinite(duration) || duration < 0.1) throw new Error('Posicione o cursor antes do fim do vídeo para adicionar uma narração.');
+  const release = retainStudioProjectMedia(project.ownerId, project.id);
+  try {
+    const recoverable = latest.pendingTakes?.find(pending => pending.sourceUri === source.uri && pending.kind === 'audio' && pending.layerItem?.kind === 'audio');
+    if (recoverable) {
+      const saved = await finishStudioLayerImport(project, recoverable, scope);
+      return { project: saved, itemId: recoverable.layerItem!.id };
+    }
+    const id = randomUUID(), itemId = randomUUID();
+    const uri = `${await studioProjectDirectory(project)}${id}.m4a`; check();
+    await FileSystem.copyAsync({ from: source.uri, to: uri });
+    await assertStudioOwner(project);
+    const pending: StudioPendingTake = { id, uri, name: source.name || 'Narração.m4a', sourceUri: source.uri, kind: 'audio', layerId: `layer:item:${itemId}`,
+      layerItem: { id: itemId, kind: 'audio', assetId: id, atTicks: studioTicks(positionSeconds), durationTicks: studioTicks(duration), sourceStartTicks: 0, sourceEndTicks: studioTicks(duration), gain: 1 } };
+    // Keep this commitment after a blur: the original has already been copied.
+    await mutateStudioProject(project.ownerId, project.id, current => ({ pendingTakes: [...(current.pendingTakes || []), pending] }));
+    check();
+    const saved = await finishStudioLayerImport(project, pending, scope);
+    return { project: saved, itemId };
+  } finally { release(); }
 }
 function studioImageSize(value?: { width: number; height: number }) {
   return value && [value.width, value.height].every(dimension => Number.isFinite(dimension) && dimension > 0)

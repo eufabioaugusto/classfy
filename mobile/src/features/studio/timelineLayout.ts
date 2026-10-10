@@ -3,8 +3,8 @@ import type { StudioTake } from './model';
 export type StudioTimelineTrim = { takeId: string; start: number; end: number; previewSourceSeconds?: number };
 export type StudioTimelineSegment = { take: StudioTake; index: number; start: number; end: number; x: number; width: number };
 export type StudioTrimGesture = {
-  takeId: string; uri: string; duration: number; start: number; end: number;
-  preceding: { id: string; uri: string; start: number; end: number }[];
+  takeId: string; uri: string; duration: number; start: number; end: number; playbackRate?: number;
+  preceding: { id: string; uri: string; start: number; end: number; playbackRate?: number }[];
 };
 export type StudioTimelineTouchState = { count: number; distance: number };
 
@@ -48,10 +48,12 @@ export function studioTimelineZoomAnchor(offset: number, previousScale: number, 
   return { seconds, offset: seconds * clampStudioTimelineScale(nextScale) };
 }
 function clipSeconds(take: StudioTake) {
-  if (![take.duration, take.start, take.end].every(Number.isFinite) || take.start < 0 || take.end > take.duration + 0.05 || take.end - take.start < minimum - 1e-6) {
+  const rate = take.playbackRate ?? 1;
+  const duration = Math.round((take.end - take.start) * 120000 / rate) / 120000;
+  if (![take.duration, take.start, take.end, rate].every(Number.isFinite) || rate < .25 || rate > 4 || take.start < 0 || take.end > take.duration + 0.05 || duration < minimum - 1e-6) {
     throw new Error('Revise os limites dos takes.');
   }
-  return take.end - take.start;
+  return duration;
 }
 export function studioTimelineLayout(takes: readonly StudioTake[], pixelsPerSecond: number) {
   if (!Number.isFinite(pixelsPerSecond) || pixelsPerSecond <= 0) throw new Error('A escala da montagem não é válida.');
@@ -92,23 +94,26 @@ export function freezeStudioTrim(takes: readonly StudioTake[], takeId: string): 
   studioTimelineLayout(takes, 1);
   const take = takes[index];
   return { takeId, uri: take.uri, duration: take.duration, start: take.start, end: take.end,
-    preceding: takes.slice(0, index).map(item => ({ id: item.id, uri: item.uri, start: item.start, end: item.end })) };
+    ...(take.playbackRate !== undefined ? { playbackRate: take.playbackRate } : {}),
+    preceding: takes.slice(0, index).map(item => ({ id: item.id, uri: item.uri, start: item.start, end: item.end,
+      ...(item.playbackRate !== undefined ? { playbackRate: item.playbackRate } : {}) })) };
 }
 export function canContinueStudioTrim(gesture: StudioTrimGesture, takes: readonly StudioTake[], activeTakeId?: string) {
   if (activeTakeId !== gesture.takeId) return false;
   const index = takes.findIndex(take => take.id === gesture.takeId);
   const take = takes[index];
-  if (!take || index !== gesture.preceding.length || take.uri !== gesture.uri || take.duration !== gesture.duration || take.start !== gesture.start || take.end !== gesture.end) return false;
+  if (!take || index !== gesture.preceding.length || take.uri !== gesture.uri || take.duration !== gesture.duration || take.start !== gesture.start || take.end !== gesture.end || (take.playbackRate ?? 1) !== (gesture.playbackRate ?? 1)) return false;
   return gesture.preceding.every((previous, i) => {
     const current = takes[i];
-    return current.id === previous.id && current.uri === previous.uri && current.start === previous.start && current.end === previous.end;
+    return current.id === previous.id && current.uri === previous.uri && current.start === previous.start && current.end === previous.end && (current.playbackRate ?? 1) === (previous.playbackRate ?? 1);
   });
 }
 export function studioTrimRange(gesture: StudioTrimGesture, edge: 'start' | 'end', deltaSeconds: number): StudioTimelineTrim {
   if (!Number.isFinite(deltaSeconds)) throw new Error('A posição do corte não é válida.');
-  const value = Math.round((gesture[edge] + deltaSeconds) * 1000) / 1000;
-  const start = edge === 'start' ? Math.max(0, Math.min(gesture.end - minimum, value)) : gesture.start;
-  const end = edge === 'end' ? Math.min(gesture.duration, Math.max(gesture.start + minimum, value)) : gesture.end;
+  const rate = gesture.playbackRate ?? 1;
+  const value = Math.round((gesture[edge] + deltaSeconds * rate) * 120000) / 120000;
+  const start = edge === 'start' ? Math.max(0, Math.min(gesture.end - minimum * rate, value)) : gesture.start;
+  const end = edge === 'end' ? Math.min(gesture.duration, Math.max(gesture.start + minimum * rate, value)) : gesture.end;
   return { takeId: gesture.takeId, start, end, previewSourceSeconds: edge === 'start' ? start : Math.max(start, end - 0.01) };
 }
 export function studioTrimTimelinePosition(gesture: StudioTrimGesture, range: StudioTimelineTrim) {
@@ -116,8 +121,8 @@ export function studioTrimTimelinePosition(gesture: StudioTrimGesture, range: St
   const preview = range.previewSourceSeconds ?? range.start;
   if (![range.start, range.end, preview].every(Number.isFinite)) throw new Error('A posição do corte não é válida.');
   const source = Math.max(range.start, Math.min(range.end, preview));
-  const preceding = gesture.preceding.reduce((sum, take) => sum + take.end - take.start, 0);
+  const preceding = gesture.preceding.reduce((sum, take) => sum + Math.round((take.end - take.start) * 120000 / (take.playbackRate ?? 1)) / 120000, 0);
   // Draft playback has a new start; the timeline still displays the frozen
   // original range until commit. Expansion may legitimately map below zero.
-  return preceding + source - gesture.start;
+  return preceding + (source - gesture.start) / (gesture.playbackRate ?? 1);
 }

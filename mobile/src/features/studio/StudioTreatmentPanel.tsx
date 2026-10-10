@@ -4,19 +4,17 @@ import { ArrowLeft, Check, Contrast, Droplets, Eye, Sun, Thermometer } from 'luc
 import { colors } from '@/theme/colors';
 import { patchStudioClipGrade, studioGrade, type StudioEditing, type StudioGrade, type StudioEffect } from './model';
 import { StudioControlSlider } from './StudioControlSlider';
+import { LoadingImage } from '@/components/LoadingImage';
+import { prepareStudioFilterPreviews } from './filterPreviews';
+import { studioFilterPresets as presets, studioSelectedFilter } from './filterCatalog';
 
 type Props = {
-  editing: StudioEditing; targetId: string; disabled?: boolean; initialTab?: 'filters' | 'adjust';
+  editing: StudioEditing; targetId: string; disabled?: boolean; initialTab?: 'filters' | 'adjust'; previewsEnabled?: boolean; positionSeconds?: number;
   onPreview: (editing: StudioEditing | undefined) => void;
   onApply: (editing: StudioEditing) => Promise<void>;
   onClose: () => void; onBefore?: (original: boolean) => void;
 };
 type Parameter = Exclude<keyof StudioGrade, 'preset' | 'intensity'>;
-const presets: { id: StudioEffect; title: string; shades: [string, string, string] }[] = [
-  { id: 'natural', title: 'Natural', shades: ['#7D8271', '#C8B7A7', '#9E725B'] },
-  { id: 'studio', title: 'Studio', shades: ['#666B62', '#DAC0AA', '#A45E4E'] },
-  { id: 'cinematic', title: 'Cinema', shades: ['#354C55', '#BFA889', '#705E5A'] },
-];
 const parameters: { id: Parameter; title: string; min: number; max: number; step: number; Icon: typeof Sun }[] = [
   { id: 'exposure', title: 'Exposição', min: -2, max: 2, step: 0.1, Icon: Sun },
   { id: 'contrast', title: 'Contraste', min: -1, max: 1, step: 0.05, Icon: Contrast },
@@ -29,7 +27,13 @@ function gradeFor(editing: StudioEditing, targetId: string): StudioGrade {
 }
 
 /** Local edits preview immediately; only Apply writes a history entry. */
-export function StudioTreatmentPanel({ editing, targetId, disabled = false, initialTab = 'filters', onPreview, onApply, onClose, onBefore }: Props) {
+export function StudioTreatmentPanel({ editing, targetId, disabled = false, initialTab = 'filters', previewsEnabled = false, positionSeconds = 0, onPreview, onApply, onClose, onBefore }: Props) {
+  const [previews, setPreviews] = useState<Partial<Record<string, string>>>({});
+  useEffect(() => {
+    setPreviews({});
+    if (!previewsEnabled) return;
+    return prepareStudioFilterPreviews(editing, targetId, positionSeconds, (id, uri) => setPreviews(previous => ({ ...previous, [id]: uri })));
+  }, [editing, targetId, previewsEnabled]);
   const [draft, setDraft] = useState(() => gradeFor(editing, targetId));
   const [tab, setTab] = useState<'filters' | 'adjust'>(initialTab), [parameter, setParameter] = useState<Parameter>('exposure');
   const [saving, setSaving] = useState(false), [error, setError] = useState<string>();
@@ -85,10 +89,10 @@ export function StudioTreatmentPanel({ editing, targetId, disabled = false, init
       <Pressable accessibilityRole="button" accessibilityLabel="Aplicar tratamento" accessibilityState={{ busy: saving, disabled: blocked }} disabled={blocked} onPress={() => { void apply(); }} style={s.icon}>{saving ? <ActivityIndicator size="small" color={colors.accent} /> : <Check size={24} color={colors.accent} strokeWidth={1.8} />}</Pressable>
     </View>
     {tab === 'filters' ? <>
-      <View style={s.presets}>{presets.map(preset => <Pressable key={preset.id} accessibilityRole="button" accessibilityLabel={`Filtro ${preset.title}`} accessibilityState={{ selected: draft.preset === preset.id, disabled: blocked }} disabled={blocked} onPress={() => update({ preset: preset.id })} style={[s.preset, draft.preset === preset.id && s.selectedPreset]}>
-        <View pointerEvents="none" style={s.presetArt}>{preset.shades.map((shade, index) => <View key={shade} style={[s.presetShade, { backgroundColor: shade, flex: index === 1 ? 1.3 : 1 }]} />)}</View>
-        <Text style={[s.presetLabel, draft.preset === preset.id && s.selectedLabel]}>{preset.title}</Text>
-      </Pressable>)}</View>
+      <ScrollView style={{ maxHeight: 218, flexShrink: 1 }} contentContainerStyle={s.presets} showsVerticalScrollIndicator={false}>{presets.map(preset => <Pressable key={preset.id} accessibilityRole="button" accessibilityLabel={`Filtro ${preset.title}`} accessibilityState={{ selected: studioSelectedFilter(draft) === preset.id, disabled: blocked }} disabled={blocked} onPress={() => update(preset.preserveAdjustments ? { preset: preset.grade.preset } : { ...preset.grade, intensity: draftRef.current.intensity })} style={[s.preset, studioSelectedFilter(draft) === preset.id && s.selectedPreset]}>
+        <View pointerEvents="none" style={s.presetArt}>{previews[preset.id] ? <LoadingImage source={{ uri: previews[preset.id] }} contentFit="cover" style={StyleSheet.absoluteFillObject} /> : preset.shades.map((shade, index) => <View key={shade} style={[s.presetShade, { backgroundColor: shade, flex: index === 1 ? 1.3 : 1 }]} />)}</View>
+        <Text style={[s.presetLabel, studioSelectedFilter(draft) === preset.id && s.selectedLabel]}>{preset.title}</Text>
+      </Pressable>)}</ScrollView>
       <StudioControlSlider label="Intensidade" value={draft.intensity} min={0} max={1} step={0.05} disabled={blocked} formatValue={value => `${Math.round(value * 100)}%`} onChange={intensity => update({ intensity })} onInteractionEnd={publishPreview} />
     </> : <>
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.adjustments}>{parameters.map(({ id, title, Icon }) => <Pressable key={id} accessibilityRole="button" accessibilityLabel={`Ajustar ${title}`} accessibilityState={{ selected: parameter === id, disabled: blocked }} disabled={blocked} onPress={() => setParameter(id)} style={[s.adjustment, parameter === id && s.selectedAdjustment]}><Icon size={23} color={parameter === id ? colors.text : colors.muted} strokeWidth={1.5} /><Text style={[s.adjustmentLabel, parameter === id && s.selectedLabel]}>{title}</Text></Pressable>)}</ScrollView>
@@ -101,7 +105,7 @@ const s = StyleSheet.create({
   panel: { backgroundColor: colors.surface, borderTopWidth: 1, borderTopColor: colors.borderSubtle, paddingBottom: 4 },
   header: { height: 44, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 5 }, icon: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center', borderRadius: 10 }, pressed: { backgroundColor: colors.surfaceMuted },
   tabs: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4 }, tab: { minHeight: 44, paddingHorizontal: 13, alignItems: 'center', justifyContent: 'center', borderRadius: 9 }, selectedTab: { backgroundColor: colors.surfaceMuted }, tabLabel: { color: colors.muted, fontSize: 11, fontWeight: '600' }, selectedLabel: { color: colors.text },
-  presets: { flexDirection: 'row', paddingHorizontal: 12, gap: 10, paddingTop: 6 }, preset: { flex: 1, padding: 4, borderRadius: 12, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: 'transparent' }, selectedPreset: { borderColor: colors.text },
+  presets: { flexDirection: 'row', flexWrap: 'wrap', paddingHorizontal: 12, gap: 10, paddingTop: 6, paddingBottom: 6 }, preset: { width: '30%', padding: 4, borderRadius: 12, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: 'transparent' }, selectedPreset: { borderColor: colors.text },
   presetArt: { height: 88, borderRadius: 7, overflow: 'hidden', flexDirection: 'row' }, presetShade: { flex: 1 }, presetLabel: { color: colors.muted, fontSize: 12, fontWeight: '500', textAlign: 'center', paddingTop: 8, paddingBottom: 6 },
   adjustments: { paddingHorizontal: 10, paddingTop: 6, gap: 5 }, adjustment: { width: 83, height: 65, alignItems: 'center', justifyContent: 'center', gap: 7, borderRadius: 12 }, selectedAdjustment: { backgroundColor: colors.surfaceAlt }, adjustmentLabel: { color: colors.muted, fontSize: 11 },
   error: { color: colors.accent, fontSize: 11, paddingHorizontal: 14, paddingBottom: 6 },

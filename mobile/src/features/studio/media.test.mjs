@@ -14,7 +14,7 @@ function compile(file, dependencies) {
 }
 function harness(options = {}) {
   const disk = new Map(options.disk); let sequence = 0, repair = false, nativeExports = 0, sessionCheck, copyCheck;
-  let sessionOwner = 'owner', pickerCanceled = false;
+  let sessionOwner = 'owner', pickerCanceled = false, writeCheck;
   const crypto = { randomUUID: () => `id-${++sequence}` };
   const fileSystem = { documentDirectory: 'file:///current/Documents/',
     makeDirectoryAsync: async () => {}, copyAsync: async ({from, to}) => { disk.set(to, { bad: from.includes('broken') }); await copyCheck?.(); },
@@ -23,7 +23,7 @@ function harness(options = {}) {
   const data = new Map(options.data);
   const model = compile('./model.ts', {});
   const store = compile('./store.ts', { '@react-native-async-storage/async-storage': {
-    getItem: async key => data.get(key) || null, setItem: async (key, value) => { data.set(key, value); },
+    getItem: async key => data.get(key) || null, setItem: async (key, value) => { await writeCheck?.(key, value); data.set(key, value); },
   }, 'expo-file-system/legacy': fileSystem, 'expo-crypto': crypto, './model': model });
   const nativeCalls = [];
   const imageCalls = [];
@@ -62,7 +62,7 @@ function harness(options = {}) {
     } } } }, '../../../modules/classfy-studio-media': native, './model': model, './store': store,
   });
   return { media, store, model, nativeCalls, imageCalls, copies, disk, data, repair: () => { repair = true; }, nativeExports: () => nativeExports,
-    sessionCheck: fn => { sessionCheck = fn; }, copyCheck: fn => { copyCheck = fn; }, owner: id => { sessionOwner = id; }, cancelPicker: () => { pickerCanceled = true; } };
+    sessionCheck: fn => { sessionCheck = fn; }, copyCheck: fn => { copyCheck = fn; }, writeCheck: fn => { writeCheck = fn; }, owner: id => { sessionOwner = id; }, cancelPicker: () => { pickerCanceled = true; } };
 }
 test('lote parcialmente ilegível preserva take pronto e journal do arquivo pendente', async () => {
   const h = harness(); const p = await h.store.createStudioProject('owner', 'aula');
@@ -524,4 +524,81 @@ test('faixa independente silenciada intencionalmente aceita saída sem áudio e 
   assert.equal(saved.exportedUri,result.uri); assert.equal(saved.exportedSignature,h.model.timelineSignature(saved));
   assert.equal(saved.editing.layers[0].items[0].gain,0.7);
   await h.media.exportStudioProject(saved); assert.equal(h.nativeExports(),1,'cache intencionalmente silencioso permanece válido');
+});
+
+test('narração é copiada para faixa própria no cursor, cortada no fim e não altera o vídeo original', async () => {
+  const h = harness({ pickerAssets: [{ uri: 'file:///video.mp4', fileName: 'Vídeo.mp4' }] });
+  let p = await h.store.createStudioProject('owner', 'aula'); await h.media.importStudioMedia(p); p = h.store.getStudioProject('owner', p.id);
+  const originalUri = p.takes[0].uri;
+  const result = await h.media.persistStudioVoiceover(p, { uri: 'file:///cache/voice.m4a', duration: 1.7 }, .5, { isCurrent: () => true });
+  const saved = result.project, item = saved.editing.layers[0].items[0], asset = saved.editing.assets.find(asset => asset.id === item.assetId);
+  assert.equal(item.id, result.itemId); assert.equal(item.atTicks, h.model.studioTicks(.5)); assert.equal(item.durationTicks, h.model.studioTicks(1.5));
+  assert.equal(asset.kind, 'audio'); assert.equal(asset.hasAudio, true); assert.ok(asset.uri.includes(`/owner/${p.id}/`));
+  assert.notEqual(asset.uri, 'file:///cache/voice.m4a'); assert.equal(saved.takes[0].uri, originalUri); assert.equal(saved.pendingTakes.length, 0);
+  assert.equal(h.nativeExports(), 0); assert.equal(h.model.validateStudioEditing(saved.editing, 'aula').length, 0);
+});
+test('blur após copiar narração mantém journal recuperável e não devolve uma faixa fictícia', async () => {
+  const h = harness({ pickerAssets: [{ uri: 'file:///video.mp4', fileName: 'Vídeo.mp4' }] });
+  let p = await h.store.createStudioProject('owner', 'aula'); await h.media.importStudioMedia(p); p = h.store.getStudioProject('owner', p.id);
+  let current = true; h.copyCheck(async () => { current = false; });
+  await assert.rejects(h.media.persistStudioVoiceover(p, { uri: 'file:///cache/voice.m4a', duration: 1 }, .2, { isCurrent: () => current }), /cancelada/);
+  const interrupted = h.store.getStudioProject('owner', p.id); assert.equal(interrupted.editing.layers.length, 0); assert.equal(interrupted.pendingTakes.length, 1);
+  assert.equal(interrupted.pendingTakes[0].kind, 'audio'); assert.ok(h.disk.has(interrupted.pendingTakes[0].uri));
+  h.copyCheck(undefined); const recovered = await h.media.recoverPendingStudioTakes(interrupted);
+  assert.equal(recovered.recovered, 1); assert.equal(h.store.getStudioProject('owner', p.id).editing.layers.length, 1);
+});
+test('retry da narração reutiliza original e journal em vez de criar cópias e faixas duplicadas', async () => {
+  const h = harness({ pickerAssets: [{ uri: 'file:///video.mp4', fileName: 'Vídeo.mp4' }] });
+  let p = await h.store.createStudioProject('owner', 'aula'); await h.media.importStudioMedia(p); p = h.store.getStudioProject('owner', p.id);
+  const source = { uri: 'file:///broken-voice.m4a', duration: 1 };
+  await assert.rejects(h.media.persistStudioVoiceover(p, source, .2, { isCurrent: () => true }), /ilegível/);
+  const pendingId = h.store.getStudioProject('owner', p.id).pendingTakes[0].id, copies = h.copies.length;
+  h.repair(); const result = await h.media.persistStudioVoiceover(p, source, .2, { isCurrent: () => true });
+  assert.equal(h.copies.length, copies); assert.equal(result.project.editing.layers.length, 1); assert.equal(result.project.editing.layers[0].items[0].assetId, pendingId);
+});
+test('narração fora da montagem ou callback cancelado não copia arquivo', async () => {
+  const h = harness(), p = await h.store.createStudioProject('owner', 'aula');
+  await assert.rejects(h.media.persistStudioVoiceover(p, { uri: 'file:///cache/voice.m4a', duration: 1 }, 0, { isCurrent: () => true }), /antes do fim/);
+  await assert.rejects(h.media.persistStudioVoiceover(p, { uri: 'file:///cache/voice.m4a', duration: 1 }, 0, { isCurrent: () => false }), /cancelada/);
+  assert.equal(h.copies.length, 0);
+});
+test('metadata real propaga vídeo sem áudio; projetos legados mantêm capacidade desconhecida', async () => {
+  const h = harness({ pickerAssets: [{ uri: 'file:///silent.mp4', fileName: 'Sem som.mp4' }], mediaInfo: () => ({ duration: 2, width: 320, height: 180, hasVideo: true, hasAudio: false }) });
+  const p = await h.store.createStudioProject('owner', 'aula'); const takes = await h.media.importStudioMedia(p);
+  assert.equal(takes[0].hasAudio, false); assert.equal(h.store.getStudioProject('owner', p.id).editing.assets[0].hasAudio, false);
+  const unknown = h.model.migrateStudioProject({ version: 1, kind: 'aula', takes: [{ id: 'old', uri: 'file:///old.mp4', name: 'Antigo', duration: 2, start: 0, end: 2 }] });
+  assert.equal(unknown.editing.assets[0].hasAudio, undefined);
+});
+
+test('narração inicia histórico na mutação mais recente e confirma só depois de persistir a faixa', async () => {
+  const h = harness({ pickerAssets: [{ uri: 'file:///video.mp4', fileName: 'Vídeo.mp4' }] });
+  let p = await h.store.createStudioProject('owner', 'aula'); await h.media.importStudioMedia(p); p = h.store.getStudioProject('owner', p.id);
+  const originalAssets = plain(p.editing.assets), order = [];
+  h.copyCheck(async () => { h.copyCheck(undefined); await h.store.updateStudioProject('owner', p.id, { title: 'Nome mais recente' }); });
+  const result = await h.media.persistStudioVoiceover(p, { uri: 'file:///cache/voice.m4a', duration: 1 }, .2, { isCurrent: () => true,
+    onBeforePersist: (latest, next) => { order.push('before'); assert.equal(latest.title, 'Nome mais recente'); assert.equal(latest.editing.layers.length, 0); assert.equal(next.layers.length, 1); assert.deepEqual(plain(next.assets.slice(0, originalAssets.length)), originalAssets); assert.equal(h.store.getStudioProject('owner', p.id).editing.layers.length, 0); },
+    onPersisted: saved => { order.push('persisted'); assert.equal(h.store.getStudioProject('owner', p.id), saved); assert.equal(saved.pendingTakes.length, 0); },
+    onPersistError: () => order.push('error') });
+  assert.deepEqual(order, ['before', 'persisted']); assert.equal(result.project.title, 'Nome mais recente');
+});
+test('falha na escrita aborta histórico e mantém journal para um retry sem cópia duplicada', async () => {
+  const h = harness({ pickerAssets: [{ uri: 'file:///video.mp4', fileName: 'Vídeo.mp4' }] });
+  let p = await h.store.createStudioProject('owner', 'aula'); await h.media.importStudioMedia(p); p = h.store.getStudioProject('owner', p.id);
+  const order = [], source = { uri: 'file:///cache/voice.m4a', duration: 1 };
+  await assert.rejects(h.media.persistStudioVoiceover(p, source, .2, { isCurrent: () => true,
+    onBeforePersist: () => { order.push('before'); h.writeCheck(() => { throw new Error('Disco cheio'); }); },
+    onPersisted: () => order.push('persisted'), onPersistError: () => order.push('error') }), /Disco cheio/);
+  assert.deepEqual(order, ['before', 'error']); const pending = h.store.getStudioProject('owner', p.id); assert.equal(pending.editing.layers.length, 0); assert.equal(pending.pendingTakes.length, 1);
+  const copied = h.copies.length; h.writeCheck(undefined);
+  await h.media.persistStudioVoiceover(p, source, .2, { isCurrent: () => true, onBeforePersist: () => order.push('retry-before'), onPersisted: () => order.push('retry-persisted') });
+  assert.equal(h.copies.length, copied); assert.equal(h.store.getStudioProject('owner', p.id).editing.layers.length, 1); assert.deepEqual(order, ['before', 'error', 'retry-before', 'retry-persisted']);
+});
+test('blur durante escrita já iniciada confirma compromisso durável e não simula rollback do áudio', async () => {
+  const h = harness({ pickerAssets: [{ uri: 'file:///video.mp4', fileName: 'Vídeo.mp4' }] });
+  let p = await h.store.createStudioProject('owner', 'aula'); await h.media.importStudioMedia(p); p = h.store.getStudioProject('owner', p.id);
+  let current = true; const order = [];
+  const saved = await h.media.persistStudioVoiceover(p, { uri: 'file:///cache/voice.m4a', duration: 1 }, .2, { isCurrent: () => current,
+    onBeforePersist: () => { order.push('before'); h.writeCheck(() => { current = false; h.writeCheck(undefined); }); },
+    onPersisted: () => order.push('persisted'), onPersistError: () => order.push('error') });
+  assert.deepEqual(order, ['before', 'persisted']); assert.equal(saved.project.editing.layers.length, 1); assert.equal(saved.project.pendingTakes.length, 0);
 });
