@@ -71,6 +71,8 @@ export default function StudioCaptureScreen() {
   const [importing, setImporting] = useState(false);
   const [removingTake, setRemovingTake] = useState(false);
   const [cancelingAudio, setCancelingAudio] = useState(false);
+  const [leaving, setLeaving] = useState(false);
+  const [allowRemoval, setAllowRemoval] = useState(false);
   const [audioMonitorHeight, setAudioMonitorHeight] = useState(78);
   const [foreground, setForeground] = useState(AppState.currentState === 'active');
   const [showScript, setShowScript] = useState(true);
@@ -83,6 +85,13 @@ export default function StudioCaptureScreen() {
   const captureGradeRef = useRef(captureGrade); captureGradeRef.current = captureGrade;
   const effectBusyRef = useRef(false), effectSequence = useRef(0);
   const captureContext = useRef({ id, focused, foreground, recovery }); captureContext.current = { id, focused, foreground, recovery };
+  const exitScope = useRef({ id, owner: user?.id, focused, foreground, canPublish, roleLoading });
+  const exitEpoch = useRef(0);
+  if (exitScope.current.id !== id || exitScope.current.owner !== user?.id || exitScope.current.focused !== focused
+    || exitScope.current.foreground !== foreground || exitScope.current.canPublish !== canPublish || exitScope.current.roleLoading !== roleLoading) exitEpoch.current++;
+  exitScope.current = { id, owner: user?.id, focused, foreground, canPublish, roleLoading };
+  const exitOperation = useRef<symbol | null>(null);
+  const exitIntent = useRef<{ operation: symbol; epoch: number; perform: () => void; handoff: boolean } | null>(null);
   const audio = useRef<Audio.Recording | null>(null);
   const videoOperation = useRef<ReturnType<typeof createStudioVideoStopOperation> | null>(null);
   const scriptScroll = useRef<ScrollView>(null);
@@ -103,7 +112,7 @@ export default function StudioCaptureScreen() {
   const audioPreparation = useRef<number | null>(null);
   const isAudio = project?.kind === 'podcast';
   const permitted = !!project && project.ownerId === user?.id && canPublish && !roleLoading;
-  const { orientationReady, orientationError } = useStudioOrientation(project?.kind, permitted);
+  const { orientationReady, orientationError, prepareForExit } = useStudioOrientation(project?.kind, permitted);
   const busyProject = !!project && ['preparing', 'uploading', 'processing', 'submitted'].includes(project.state);
   const microphoneGranted = !!microphonePermission?.granted;
   const permissionGranted = microphoneGranted && (isAudio || !!cameraPermission?.granted);
@@ -113,7 +122,7 @@ export default function StudioCaptureScreen() {
   const sensorMatches = isAudio || sensorOrientation === null || (project?.kind === 'aula' ? sensorLandscape : !sensorLandscape);
   const screenMatches = isAudio || (project?.kind === 'aula' ? landscape : !landscape);
   const cameraMounted = !isAudio && Device.isDevice && permitted && !busyProject && permissionGranted
-    && focused && foreground && orientationReady && screenMatches;
+    && focused && foreground && !leaving && orientationReady && screenMatches;
   const nativeCamera = Platform.OS === 'ios' && isStudioNativeCameraAvailable();
   const nativeEffects = !isAudio && nativeCamera && isStudioNativeCameraEffectsAvailable();
   const cameraControls = useStudioCaptureCamera(camera, facing, cameraMounted, { native: nativeCamera, orientation: project?.kind === 'aula' ? 'landscape' : 'portrait' });
@@ -123,6 +132,34 @@ export default function StudioCaptureScreen() {
   const captureReadiness = useRef({ sensorMatches, screenMatches, ready, orientationReady });
   captureReadiness.current = { sensorMatches, screenMatches, ready, orientationReady };
 
+  async function leaveCapture(perform: () => void, handoff = false) {
+    const context = captureContext.current;
+    if (!mounted.current || exitOperation.current || handedOff.current || !context.focused || !context.foreground
+      || phaseRef.current !== 'idle' || context.recovery) return;
+    const operation = Symbol('capture-exit'), epoch = exitEpoch.current;
+    const current = () => mounted.current && exitOperation.current === operation && exitEpoch.current === epoch
+      && captureContext.current.focused && captureContext.current.foreground;
+    exitOperation.current = operation;
+    setLeaving(true); setPanel(null); setReady(false); setNotice(null); setFailure(null);
+    try {
+      const confirmed = await prepareForExit();
+      if (!current()) return;
+      if (!confirmed) {
+        setFailure('Não foi possível concluir a mudança de tela. Seus takes continuam salvos. Tente novamente.');
+        return;
+      }
+      exitIntent.current = { operation, epoch, perform, handoff };
+      // Commit the removal guard before dispatching the original action.
+      setAllowRemoval(true);
+    } catch (cause) {
+      if (current()) setFailure(cause instanceof Error ? cause.message : 'Não foi possível sair da câmera. Seus takes continuam salvos. Tente novamente.');
+    } finally {
+      if (exitOperation.current === operation && !exitIntent.current) {
+        exitOperation.current = null;
+        if (mounted.current) setLeaving(false);
+      }
+    }
+  }
   function finishCapture() {
     const context = captureContext.current, account = session.current;
     if (phaseRef.current !== 'idle' || context.recovery || !context.focused || !context.foreground || context.id !== id
@@ -130,15 +167,48 @@ export default function StudioCaptureScreen() {
     const latest = getStudioProject(account.owner, id);
     if (!latest) return;
     if (latest.pendingTakes?.length) { setFailure('Recupere os takes pendentes antes de avançar.'); return; }
-    handedOff.current = true;
-    if (params.from === 'projects') router.replace({ pathname: '/studio/[id]', params: { id } });
-    else if (router.canGoBack()) router.back();
-    else router.replace({ pathname: '/studio/[id]', params: { id } });
+    void leaveCapture(() => {
+      if (params.from === 'projects') router.replace({ pathname: '/studio/[id]', params: { id } });
+      else if (router.canGoBack()) router.back();
+      else router.replace({ pathname: '/studio/[id]', params: { id } });
+    }, true);
   }
   function closeCapture() {
-    if (router.canGoBack()) router.back();
-    else router.replace('/studio');
+    if (exitOperation.current) return;
+    const perform = () => {
+      if (router.canGoBack()) router.back();
+      else router.replace('/studio');
+    };
+    // Let the removal guard offer Save/Discard before preparing orientation.
+    if (phaseRef.current !== 'idle' || captureContext.current.recovery) perform();
+    else void leaveCapture(perform);
   }
+  useEffect(() => {
+    if (!allowRemoval || !exitIntent.current) return;
+    const intent = exitIntent.current;
+    exitIntent.current = null;
+    if (exitOperation.current !== intent.operation || exitEpoch.current !== intent.epoch
+      || !mounted.current || !captureContext.current.focused || !captureContext.current.foreground) {
+      exitOperation.current = null; setAllowRemoval(false); setLeaving(false);
+      return;
+    }
+    handedOff.current = intent.handoff;
+    try { intent.perform(); }
+    catch {
+      handedOff.current = false; exitOperation.current = null;
+      setAllowRemoval(false); setLeaving(false);
+      setFailure('Não foi possível abrir a próxima tela. Seus takes continuam salvos. Tente novamente.');
+    }
+  }, [allowRemoval]);
+  useEffect(() => {
+    // A blurred capture can stay mounted under the editor. A later return is
+    // a new session and must not inherit the previous exit's removal bypass.
+    if (!focused || !foreground) {
+      exitOperation.current = null; exitIntent.current = null;
+      setAllowRemoval(false); setLeaving(false);
+    }
+    if (focused) handedOff.current = false;
+  }, [focused, foreground]);
   async function removeCaptureTake(takeId: string) {
     if (!project || !captureScopeCurrent(project) || phaseRef.current !== 'idle' || captureContext.current.recovery || busyProject) return;
     const target = project;
@@ -186,7 +256,7 @@ export default function StudioCaptureScreen() {
     return () => ScreenOrientation.removeOrientationChangeListener(listener);
   }, [nativeCamera, cameraMounted, facing]);
   function changeZoom(value: number) {
-    if (phaseRef.current !== 'idle' || cameraControls.isBusy()) return;
+    if (exitOperation.current || phaseRef.current !== 'idle' || cameraControls.isBusy()) return;
     const next = Math.max(0, Math.min(1, Number.isFinite(value) ? value : 0));
     setZoom(next);
     if (cameraControls.available) cameraControls.setZoom(next);
@@ -204,7 +274,7 @@ export default function StudioCaptureScreen() {
   }
   function captureScopeCurrent(target: StudioProject) {
     const context = captureContext.current, account = session.current;
-    return mounted.current && context.id === target.id && context.focused && context.foreground
+    return mounted.current && !exitOperation.current && context.id === target.id && context.focused && context.foreground
       && account.owner === target.ownerId && account.canPublish && !account.roleLoading;
   }
   function assertCaptureSession(target: StudioProject) {
@@ -379,7 +449,12 @@ export default function StudioCaptureScreen() {
   }
   stopRef.current = stopRecording;
 
-  usePreventRemove(phase !== 'idle' || !!recovery, ({ data }) => {
+  usePreventRemove(!allowRemoval, ({ data }) => {
+    if (exitOperation.current) return;
+    if (phaseRef.current === 'idle' && !recovery) {
+      void leaveCapture(() => navigation.dispatch(data.action));
+      return;
+    }
     if (phaseRef.current === 'idle' && recovery) {
       Alert.alert('Este take ainda não foi salvo',
         'A gravação continua em um arquivo temporário. Tente salvar antes de sair. Se sair sem salvar, o take não aparecerá no seu projeto.', [
@@ -413,7 +488,7 @@ export default function StudioCaptureScreen() {
     if (phase === 'idle' && !recovery && pendingNavigation.current) {
       const action = pendingNavigation.current;
       pendingNavigation.current = null;
-      navigation.dispatch(action);
+      void leaveCapture(() => navigation.dispatch(action));
     }
   }, [phase, recovery, navigation]);
   useEffect(() => {
@@ -445,6 +520,8 @@ export default function StudioCaptureScreen() {
   }, [phase, showScript, followScript, scriptSpeed]);
   useEffect(() => {
     const listener = AppState.addEventListener('change', state => {
+      if (captureContext.current.foreground !== (state === 'active')) exitEpoch.current++;
+      captureContext.current.foreground = state === 'active';
       if (state !== 'active') {
         // Stop before removing the preview. A resolved video promise still saves its original.
         if (phaseRef.current === 'recording' || phaseRef.current === 'countdown') {
@@ -471,6 +548,7 @@ export default function StudioCaptureScreen() {
       void stopRef.current();
       videoOperation.current?.dispose();
       mounted.current = false;
+      exitEpoch.current++;
     };
   }, []);
 
@@ -632,7 +710,7 @@ export default function StudioCaptureScreen() {
   const idle = phase === 'idle';
   const immersive = phase === 'recording';
   const captureAvailable = permitted && !loading && !busyProject;
-  const toolsDisabled = !idle || !!recovery || !captureAvailable;
+  const toolsDisabled = leaving || !idle || !!recovery || !captureAvailable;
   const recordDisabled = phase === 'saving' || cancelingAudio || idle && (!!recovery || busyProject || !permitted || !Device.isDevice
     || !permissionGranted || !orientationReady || !isAudio && (!ready || !screenMatches || !sensorMatches || cameraControls.busy || effectBusy
       || !!normalizeStudioCaptureGrade(captureGrade) && (!effectSupported || !!effectError) || cameraControls.available && !cameraControls.state));
@@ -646,7 +724,7 @@ export default function StudioCaptureScreen() {
     : cameraControls.available ? 'Zoom indisponível' : `Zoom ${Math.round(zoom * 100)}%`;
   const showTorch = !isAudio && Device.isDevice && facing === 'back' && !!cameraState?.supportsTorch;
   function chooseQuality(quality: '720p' | '1080p' | '2160p') {
-    if (phaseRef.current !== 'idle' || recovery || cameraControls.isBusy()) return;
+    if (exitOperation.current || phaseRef.current !== 'idle' || recovery || cameraControls.isBusy()) return;
     if (cameraControls.available) { void cameraControls.configure(quality); }
     else if (quality !== '2160p' && quality !== videoQuality) { setReady(false); setSensorOrientation(null); setVideoQuality(quality); }
   }
@@ -655,7 +733,7 @@ export default function StudioCaptureScreen() {
     if (next) chooseQuality(next);
   }
   function cycleFPS() {
-    if (!cameraState?.quality || phaseRef.current !== 'idle' || recovery) return;
+    if (exitOperation.current || !cameraState?.quality || phaseRef.current !== 'idle' || recovery) return;
     const next = frameRates[(frameRates.findIndex(rate => Math.abs(rate - (cameraState.fps || 0)) < 0.5) + 1) % frameRates.length];
     if (next) void cameraControls.configure(cameraState.quality, next);
   }
@@ -717,6 +795,11 @@ export default function StudioCaptureScreen() {
       : phase === 'countdown' ? <Square size={26} color={colors.text} strokeWidth={1.8} /> : <View style={styles.recordInner} />}
   </Pressable>;
 
+  if (leaving) return <View style={[styles.screen, { alignItems: 'center', justifyContent: 'center', gap: 12 }]}>
+    <StatusBar hidden={focused} style="light" />
+    <ActivityIndicator color={colors.text} />
+    <Text style={{ color: colors.text, fontSize: 14 }}>Ajustando a tela…</Text>
+  </View>;
   return <View style={styles.screen}>
     <StatusBar hidden={focused} style="light" animated />
     {cameraMounted && <StudioCaptureFrame key={`${project!.id}:${facing}:${nativeCamera ? 'studio-native' : cameraControls.available ? 'expo-bridge' : videoQuality}`}

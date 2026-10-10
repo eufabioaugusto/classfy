@@ -91,6 +91,8 @@ export default function RootLayout() {
                   }}
                 >
                   <Stack.Screen name="(tabs)" />
+                  <Stack.Screen name="studio/capture" options={{ animation: 'none', gestureEnabled: false }} />
+                  <Stack.Screen name="studio/[id]" options={{ animation: 'none' }} />
                   <Stack.Screen
                     name="watch/[id]"
                     options={{

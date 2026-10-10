@@ -25,16 +25,24 @@ function load(file, dependencies, globals = {}) {
 // boundaries are controlled; this does not exercise UIKit recognizers or optics.
 async function harness(options = {}) {
   const runtime = createJourneyRuntime({ owner: 'owner' });
-  let project = await runtime.store.createStudioProject('owner', 'aula', { transient: true });
+  let project = await runtime.store.createStudioProject('owner', options.projectKind || 'aula', { transient: true });
   if (options.seed) {
     const uri = runtime.fixture('seed.mov', { duration: 2 });
     const take = await runtime.media.persistStudioTake(project, { uri, name: 'Take inicial' });
     project = await runtime.store.updateStudioProject('owner', project.id, { takes: [take] });
   }
   let id = project.id, owner = 'owner', focused = true, now = 0, timerId = 0;
-  let currentContext, dirty = true, effects = [], tree, nativeRecord, zoomRequest;
+  let currentContext, dirty = true, effects = [], tree, nativeRecord, zoomRequest, removal;
+  let windowDimensions = options.projectKind === 'short' || options.projectKind === 'podcast'
+    ? { width: 393, height: 852 } : { width: 844, height: 390 };
   const contexts = new Map(), timers = new Map(), appListeners = new Set(), orientationListeners = new Set();
-  const navigation = [], calls = [], alerts = [], scrolls = [];
+  const navigation = [], calls = [], alerts = [], scrolls = [], exits = [], screenOptions = [];
+  const prepareForExit = () => {
+    const request = { owner, id, focused, foreground: appState.currentState };
+    exits.push(request);
+    if (!options.deferExit) return Promise.resolve(true);
+    return new Promise((resolve, reject) => Object.assign(request, { resolve, reject }));
+  };
   const appState = { currentState: 'active', addEventListener: (_, callback) => {
     appListeners.add(callback); return { remove: () => appListeners.delete(callback) };
   } };
@@ -87,7 +95,7 @@ async function harness(options = {}) {
     Pressable: 'button', ScrollView: 'scroll', Text: 'text', View: 'view',
     StyleSheet: { create: styles => styles, absoluteFillObject: {}, absoluteFill: {} },
     findNodeHandle: view => view?.tag ?? null,
-    useWindowDimensions: () => ({ width: 844, height: 390 }),
+    useWindowDimensions: () => windowDimensions,
   };
   let state = {
     deviceId: 'qa-camera', position: 'front', qualities: [
@@ -176,22 +184,32 @@ async function harness(options = {}) {
   });
   const videoStop = load('./StudioCaptureRecording.ts', {}, globals);
   const navigate = (kind, destination) => navigation.push({ kind, destination, project: runtime.store.getStudioProject(owner, id) });
+  const guardedNavigate = (kind, destination, action) => {
+    if (removal?.enabled) removal.callback({ data: { action } });
+    else navigate(kind, destination);
+  };
+  const nativeNavigation = {
+    dispatch: action => guardedNavigate('dispatch', action, action), setOptions: value => screenOptions.push(value),
+  };
   const screen = load('../../../app/studio/capture.tsx', {
     react: hooks, 'react/jsx-runtime': jsxRuntime, 'react-native': native,
     'expo-av': { Audio: { setAudioModeAsync: async () => {}, Recording: class {} } },
     'expo-camera': { CameraView: 'expo-camera-view', useCameraPermissions: () => [{ granted: true }, async () => ({ granted: true })], useMicrophonePermissions: () => [{ granted: true }, async () => ({ granted: true })] },
     'expo-device': { isDevice: true }, 'expo-screen-orientation': orientation,
     'expo-linear-gradient': { LinearGradient: 'gradient' }, 'expo-status-bar': { StatusBar: 'status' },
-    'expo-router': { useLocalSearchParams: () => ({ id, from: 'projects' }), useNavigation: () => ({ dispatch: action => navigate('dispatch', action) }),
-      useRouter: () => ({ canGoBack: () => true, back: () => navigate('back'), replace: destination => navigate('replace', destination) }) },
-    '@react-navigation/native': { useIsFocused: () => focused, usePreventRemove: () => {} },
+    'expo-router': { useLocalSearchParams: () => ({ id, from: options.from === null ? undefined : options.from || 'projects' }), useNavigation: () => nativeNavigation,
+      useRouter: () => ({ canGoBack: () => options.canGoBack !== false,
+        back: () => guardedNavigate('back', undefined, { type: 'GO_BACK' }),
+        replace: destination => guardedNavigate('replace', destination, { type: 'REPLACE', payload: destination }),
+      }) },
+    '@react-navigation/native': { useIsFocused: () => focused, usePreventRemove: (enabled, callback) => { removal = { enabled, callback }; } },
     'lucide-react-native': icons, 'react-native-safe-area-context': { useSafeAreaInsets: () => ({ top: 0, bottom: 21, left: 47, right: 0 }) },
     '@/components/SheetModal': { SheetCloseButton: 'sheet-close', SheetModal: props => props.visible ? props.children : null, sheetStyles: {} },
     '@/contexts/PrimaryActionContext': { usePrimaryAction: () => ({ canPublish: true, roleLoading: false }) },
     '@/features/auth/authContext': auth, '@/features/studio/media': runtime.media, '@/features/studio/model': model,
     '../../modules/classfy-studio-media': bridge, '@/features/studio/store': runtime.store,
     '@/features/studio/useStudioProjects': projectHook,
-    '@/features/studio/useStudioOrientation': { useStudioOrientation: () => ({ orientationReady: true }) },
+    '@/features/studio/useStudioOrientation': { useStudioOrientation: () => ({ orientationReady: true, prepareForExit }) },
     '@/features/studio/StudioCaptureCamera': controls,
     '@/features/studio/StudioCaptureZoom': { StudioCaptureFrame: 'camera-frame', StudioCaptureZoom: 'zoom-control' },
     '@/features/studio/StudioCaptureTakes': takes,
@@ -273,7 +291,7 @@ async function harness(options = {}) {
   }
   const current = () => runtime.store.getStudioProject('owner', id);
   return {
-    runtime, calls, alerts, navigation, pump, ready, advance, nodes, find, current,
+    runtime, calls, alerts, navigation, exits, screenOptions, pump, ready, advance, nodes, find, current,
     button: label => {
       const button = nodes(node => node.type === 'button' && node.props.accessibilityLabel === label)[0];
       assert.ok(button, `Expected ${label}; present buttons: ${nodes(node => node.type === 'button').map(node => node.props.accessibilityLabel).join(', ')}`);
@@ -285,6 +303,13 @@ async function harness(options = {}) {
     focus(value) { focused = value; dirty = true; },
     owner(value) { owner = value; runtime.setOwner(value); dirty = true; },
     project(value) { id = value; dirty = true; },
+    dimensions(value) { windowDimensions = value; dirty = true; },
+    async confirmExit(result = true) { assert.equal(typeof exits.at(-1)?.resolve, 'function'); exits.at(-1).resolve(result); await pump(); },
+    async rejectExit() { assert.equal(typeof exits.at(-1)?.reject, 'function'); exits.at(-1).reject(Error('A orientação não foi confirmada.')); await pump(); },
+    requestRemoval(action = { type: 'GO_BACK' }) {
+      assert.ok(removal, 'The real route must register its removal policy');
+      guardedNavigate('dispatch', action, action);
+    },
     background(value) { appState.currentState = value; for (const callback of appListeners) callback(value); dirty = true; },
     async audioEvent(patch = {}) {
       const host = find(node => node.type === 'native-camera-view');
@@ -580,4 +605,203 @@ test('monitor de microfone usa evento nativo na prévia e no REC sem adicionar c
     const host = legacy.find(node => node.type === 'native-camera-view');
     assert.equal(host.props.onAudioMonitor, undefined);
   } finally { await legacy.dispose(); }
+});
+
+test('Avançar reserva uma única saída, desmonta a câmera e conserva takes até confirmar retrato', async () => {
+  const h = await harness({ seed: true, deferExit: true });
+  try {
+    await h.ready();
+    const project = h.current(), beforeTakes = structuredClone(project.takes), writes = h.runtime.writes.length;
+    const continueBeforeRender = h.button('Avançar para editar 1 take').onPress;
+    const recordBeforeRender = h.button('Começar gravação').onPress;
+    const removeBeforeRender = h.button('Excluir take 1').onPress;
+    continueBeforeRender(); continueBeforeRender(); removeBeforeRender(); recordBeforeRender();
+    await h.pump();
+    assert.equal(h.exits.length, 1, 'Double taps must share one pending orientation/navigation handoff');
+    assert.deepEqual(h.navigation, []);
+    assert.equal(h.nodes(node => node.type === 'native-camera-view').length, 0, 'Rotation must not resize a live outgoing camera');
+    assert.equal(h.nodes(node => node.type === 'button').length, 0, 'No outgoing controls may launch REC, deletion or another navigation');
+    assert.equal(h.calls.filter(value => value.kind === 'record').length, 0);
+    assert.deepEqual(h.current().takes, beforeTakes); assert.equal(h.runtime.writes.length, writes);
+
+    // Geometry can update independently from the async confirmation. Neither
+    // a new portrait layout nor a stale button is sufficient to leave.
+    h.dimensions({ width: 393, height: 852 }); await h.pump();
+    continueBeforeRender(); await h.pump(); assert.deepEqual(h.navigation, []);
+    await h.confirmExit();
+    assert.equal(h.navigation.length, 1);
+    assert.deepEqual(h.navigation[0].destination, { pathname: '/studio/[id]', params: { id: project.id } });
+    assert.deepEqual(h.navigation[0].project.takes, beforeTakes);
+    continueBeforeRender(); await h.pump(); assert.equal(h.navigation.length, 1);
+    assert.equal(h.runtime.disk.has(beforeTakes[0].uri), true);
+  } finally { await h.dispose(); }
+});
+
+test('REC capturado antes de Avançar não inicia contagem na reserva, mesmo antes do primeiro render', async () => {
+  const h = await harness({ seed: true, deferExit: true });
+  try {
+    await h.ready();
+    const oldRecord = h.button('Começar gravação').onPress;
+    h.button('Avançar para editar 1 take').onPress(); oldRecord(); await h.pump();
+    assert.equal(h.exits.length, 1); assert.deepEqual(h.navigation, []);
+    await h.confirmExit(false); await h.ready();
+    assert.equal(h.button('Começar gravação').disabled, false, 'A failed handoff must return idle, not expose a secretly started countdown');
+    assert.equal(h.nodes(node => node.props?.accessibilityLabel === 'Cancelar contagem').length, 0);
+    await h.advance(4000); assert.equal(h.calls.filter(value => value.kind === 'record').length, 0);
+    assert.equal(h.current().takes.length, 1);
+  } finally { await h.dispose(); }
+});
+
+for (const failure of ['false', 'reject']) test(`falha de orientação (${failure}) não navega nem perde take e permite tentar Avançar outra vez`, async () => {
+  const h = await harness({ seed: true, deferExit: true });
+  try {
+    await h.ready();
+    const before = structuredClone(h.current().takes), writes = h.runtime.writes.length;
+    h.button('Avançar para editar 1 take').onPress(); await h.pump();
+    if (failure === 'false') await h.confirmExit(false); else await h.rejectExit();
+    assert.deepEqual(h.navigation, []); assert.deepEqual(h.current().takes, before);
+    assert.equal(h.runtime.writes.length, writes);
+    await h.ready();
+    assert.equal(h.button('Avançar para editar 1 take').disabled, false);
+    assert.equal(h.button('Começar gravação').disabled, false);
+    h.button('Avançar para editar 1 take').onPress(); await h.pump();
+    assert.equal(h.exits.length, 2); assert.deepEqual(h.navigation, []);
+    await h.confirmExit(); assert.equal(h.navigation.length, 1);
+    assert.deepEqual(h.navigation[0].project.takes, before);
+  } finally { await h.dispose(); }
+});
+
+for (const interruption of ['blur-refocus', 'background-foreground', 'owner-return', 'project-change']) test(`saída aguardando orientação ignora confirmação antiga após ${interruption}`, async () => {
+  const h = await harness({ seed: true, deferExit: true });
+  try {
+    await h.ready(); const original = h.current(), before = structuredClone(original.takes);
+    h.button('Avançar para editar 1 take').onPress(); await h.pump();
+    if (interruption === 'blur-refocus') { h.focus(false); await h.pump(); h.focus(true); await h.pump(); }
+    if (interruption === 'background-foreground') { h.background('background'); await h.pump(); h.background('active'); await h.pump(); }
+    if (interruption === 'owner-return') { h.owner('other'); await h.pump(); h.owner('owner'); await h.pump(); }
+    if (interruption === 'project-change') {
+      const another = await h.runtime.store.createStudioProject('owner', 'aula', { transient: true });
+      h.project(another.id); await h.pump();
+    }
+    await h.confirmExit();
+    assert.deepEqual(h.navigation, [], 'Returning to the same owner/focus must not revive an obsolete handoff');
+    assert.deepEqual(h.runtime.store.getStudioProject('owner', original.id).takes, before);
+    assert.equal(h.calls.filter(value => value.kind === 'record').length, 0);
+    if (interruption !== 'project-change') {
+      await h.ready(); h.button('Avançar para editar 1 take').onPress(); await h.pump();
+      assert.equal(h.exits.length, 2); await h.confirmExit(); assert.equal(h.navigation.length, 1);
+    }
+  } finally { await h.dispose(); }
+});
+
+for (const entry of [{ from: 'projects', canGoBack: true, kind: 'replace' }, { from: null, canGoBack: true, kind: 'back' }, { from: null, canGoBack: false, kind: 'replace' }]) test(`Avançar confirma retrato antes do ${entry.kind} vindo de ${entry.from || 'editor'} (back=${entry.canGoBack})`, async () => {
+  const h = await harness({ seed: true, deferExit: true, ...entry });
+  try {
+    await h.ready(); const id = h.current().id;
+    h.button('Avançar para editar 1 take').onPress(); await h.pump(); assert.deepEqual(h.navigation, []);
+    await h.confirmExit(); assert.equal(h.navigation.length, 1); assert.equal(h.navigation[0].kind, entry.kind);
+    if (entry.kind === 'replace') assert.deepEqual(h.navigation[0].destination, { pathname: '/studio/[id]', params: { id } });
+    assert.equal(h.navigation[0].project.id, id); assert.equal(h.navigation[0].project.takes.length, 1);
+  } finally { await h.dispose(); }
+});
+
+for (const canGoBack of [true, false]) test(`Fechar câmera aguarda orientação e mantém o projeto salvo (back=${canGoBack})`, async () => {
+  const h = await harness({ seed: true, deferExit: true, canGoBack });
+  try {
+    await h.ready(); const before = structuredClone(h.current().takes);
+    const close = h.button('Fechar captura').onPress;
+    close(); close(); await h.pump();
+    assert.equal(h.exits.length, 1); assert.deepEqual(h.navigation, []);
+    assert.equal(h.nodes(node => node.type === 'native-camera-view').length, 0);
+    await h.confirmExit(); assert.equal(h.navigation.length, 1);
+    assert.equal(h.navigation[0].kind, canGoBack ? 'back' : 'replace');
+    if (!canGoBack) assert.equal(h.navigation[0].destination, '/studio');
+    assert.deepEqual(h.current().takes, before);
+  } finally { await h.dispose(); }
+});
+
+test('remoção nativa da captura idle também espera orientação e redispara somente a ação original', async () => {
+  const h = await harness({ seed: true, deferExit: true });
+  try {
+    await h.ready(); const before = structuredClone(h.current().takes);
+    const action = { type: 'GO_BACK', source: 'camera-screen', target: 'studio-stack' };
+    h.requestRemoval(action); h.requestRemoval(action); await h.pump();
+    assert.equal(h.exits.length, 1); assert.deepEqual(h.navigation, []);
+    await h.confirmExit();
+    assert.equal(h.navigation.length, 1); assert.equal(h.navigation[0].kind, 'dispatch');
+    assert.deepEqual(h.navigation[0].destination, action); assert.deepEqual(h.current().takes, before);
+  } finally { await h.dispose(); }
+});
+
+test('Salvar e sair durante REC persiste original antes de aguardar retrato e liberar a remoção nativa', async () => {
+  const h = await harness({ seed: true, deferExit: true });
+  try {
+    await h.ready(); h.button('Começar gravação').onPress(); await h.advance(3000);
+    const action = { type: 'GO_BACK', source: 'camera-recording', target: 'studio-stack' };
+    h.requestRemoval(action); await h.pump();
+    const dialog = h.alerts.find(value => value[0] === 'Encerrar este take?');
+    assert.ok(dialog); assert.deepEqual(h.navigation, []); assert.equal(h.exits.length, 0);
+    const blocked = h.runtime.deferWrite();
+    dialog[2].find(value => value.text === 'Salvar e sair').onPress(); await h.pump(); await blocked.entered;
+    assert.equal(h.exits.length, 0, 'A pending native orientation cannot authorize losing an unsaved original');
+    blocked.resolve(); await h.pump();
+    assert.equal(h.current().takes.length, 2); assert.equal(h.current().pendingTakes.length, 0);
+    assert.equal(h.exits.length, 1); assert.deepEqual(h.navigation, []);
+    await h.confirmExit(); assert.equal(h.navigation.length, 1); assert.deepEqual(h.navigation[0].destination, action);
+    assert.equal(h.navigation[0].project.takes.length, 2);
+    for (const take of h.current().takes) assert.equal(h.runtime.disk.has(take.uri), true);
+  } finally { await h.dispose(); }
+});
+
+test('X durante contagem cancela REC pelo guard antes de preparar retrato e preserva o take anterior', async () => {
+  const h = await harness({ seed: true, deferExit: true });
+  try {
+    await h.ready(); const before = structuredClone(h.current().takes);
+    h.button('Começar gravação').onPress(); await h.advance(1000);
+    assert.equal(h.button('Cancelar contagem').disabled, false);
+    h.button('Fechar captura').onPress(); await h.pump();
+    assert.deepEqual(h.navigation, []); assert.equal(h.exits.length, 1);
+    await h.advance(4000); assert.equal(h.calls.filter(value => value.kind === 'record').length, 0);
+    assert.deepEqual(h.current().takes, before); await h.confirmExit();
+    assert.equal(h.navigation.length, 1); assert.equal(h.navigation[0].kind, 'dispatch');
+    assert.deepEqual(h.navigation[0].destination, { type: 'GO_BACK' });
+  } finally { await h.dispose(); }
+});
+
+test('X durante recuperação mostra Salvar/Ficar; salvar conserva o arquivo antes da orientação e da saída', async () => {
+  const h = await harness({ seed: true, deferExit: true });
+  try {
+    await h.ready(); const previous = structuredClone(h.current().takes);
+    h.button('Começar gravação').onPress(); await h.advance(3000);
+    h.runtime.failMetadata(); h.button('Encerrar e salvar take').onPress(); await h.pump();
+    assert.equal(h.current().takes.length, 1); assert.equal(h.button('Avançar para editar 1 take').disabled, true);
+    h.button('Fechar captura').onPress(); await h.pump();
+    const dialog = h.alerts.find(value => value[0] === 'Este take ainda não foi salvo');
+    assert.ok(dialog, 'X must reach the native removal guard, not silently ignore recovery');
+    assert.deepEqual(h.navigation, []); assert.equal(h.exits.length, 0);
+    assert.deepEqual(dialog[2].map(value => value.text), ['Ficar aqui', 'Salvar e sair', 'Sair sem salvar']);
+    const blocked = h.runtime.deferWrite();
+    dialog[2].find(value => value.text === 'Salvar e sair').onPress(); await h.pump(); await blocked.entered;
+    assert.deepEqual(h.navigation, []); assert.equal(h.exits.length, 0);
+    blocked.resolve(); await h.pump();
+    assert.equal(h.current().takes.length, 2); assert.equal(h.exits.length, 1);
+    assert.deepEqual(h.navigation, []); await h.confirmExit();
+    assert.equal(h.navigation.length, 1); assert.deepEqual(h.navigation[0].destination, { type: 'GO_BACK' });
+    assert.deepEqual(h.current().takes[0], previous[0]);
+    for (const take of h.current().takes) assert.equal(h.runtime.disk.has(take.uri), true);
+  } finally { await h.dispose(); }
+});
+
+test('gate de outra conta permite Voltar com orientação confirmada, sem mudar o projeto da conta original', async () => {
+  const h = await harness({ seed: true, deferExit: true });
+  try {
+    await h.ready(); const original = h.current(), before = structuredClone(original.takes);
+    h.owner('other'); await h.pump();
+    const back = h.find(node => node.type === 'button' && Array.isArray(node.props.children)
+      && node.props.children.some(child => child?.type === 'text' && child.props.children === 'Voltar'));
+    back.props.onPress(); await h.pump();
+    assert.deepEqual(h.navigation, []); assert.equal(h.exits.length, 1);
+    await h.confirmExit(); assert.equal(h.navigation.length, 1);
+    assert.deepEqual(h.runtime.store.getStudioProject('owner', original.id).takes, before);
+  } finally { await h.dispose(); }
 });

@@ -170,6 +170,7 @@ A geometria do toque usa o canvas realmente exibido, incluindo margens de aspect
 - O ID e a geometria inicial do item ficam fixos durante o gesto. Troca de projeto, remoção do item, nova receita incompatível, navegação ou background encerram o gesto com segurança. Falha ao salvar mantém a edição recuperável e informa o erro.
 - Overlays transparentes e controles decorativos não capturam toques indevidos (`pointerEvents`). Safe area/notch, header, teclado e sheets devem preservar acesso aos controles; evitar padding duplicado e alturas negativas.
 - Editor e revisão usam retrato; a prévia respeita o formato do projeto. A orientação de captura pode mudar conforme o formato, mas deve ser restaurada ao retornar. Câmera, teclado ou modal não podem deixar gestos/áudio/reprodução presos ao modo anterior.
+- Ao sair da captura, desmontar a câmera e confirmar orientação de interface e dimensões compatíveis com retrato antes de navegar, inclusive com o bloqueio de rotação do iPhone ligado. O recibo de `lockAsync` sozinho não confirma a geometria da tela. Captura e editor usam transição sem animação para evitar rotação concorrente com a animação da pilha nativa. A confirmação tem prazo de 4 s; falha conserva os takes, informa o problema e permite tentar novamente. Mudança de conta/projeto, blur ou background invalida a saída pendente. Fechar durante REC, contagem ou recuperação conserva os diálogos e a persistência anteriores.
 
 ## Captura: gravar, conferir takes e avançar
 
@@ -198,6 +199,7 @@ Registrar aparelho, build, formato, passos e evidência. Não marcar como aprova
 - [ ] Corte nas duas bordas, restauração e deslocamento respeitam origem e duração; undo/redo desfaz/refaz cada gesto inteiro.
 - [ ] Interrupção no meio do gesto, troca de projeto e background não deixam transformações parciais ou callbacks tardios.
 - [ ] iPhone com notch, teclado aberto, retorno da câmera e sheets: controles acessíveis, orientação correta e áreas de toque sem bloqueio.
+- [ ] iPhone com bloqueio de rotação ligado: Aula → REC/STOP → Avançar abre editor em retrato sem deformação ou congelamento; repetir após voltar à captura e após abrir/fechar a prévia em tela inteira.
 - [ ] Aula horizontal e Short vertical, clips curtos e aula longa: gestos contínuos por toque real, sem salto de quadro, faixa ou seleção.
 
 **Estado deste contrato:** os cenários acima exigem validação por toque real e comparação de exportação. Testes headless de composição/estado comprovam seus próprios contratos; não comprovam pinça, pressão longa, alças ou fluidez física. Pendências devem permanecer explícitas até o teste correspondente passar.
