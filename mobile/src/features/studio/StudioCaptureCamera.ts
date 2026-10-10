@@ -16,15 +16,18 @@ import { isStudioNativeCameraHandle, type StudioCaptureCameraHandle } from './St
 type Quality = '720p' | '1080p' | '2160p';
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
 export function studioZoomFactor(normalized: number, state: Pick<StudioCameraState, 'minZoom' | 'maxZoom'>) {
-  const min = Math.max(0.01, state.minZoom);
-  const max = Math.max(min, state.maxZoom);
-  return min * Math.pow(max / min, clamp(normalized, 0, 1));
+  const min = Number.isFinite(state.minZoom) && state.minZoom > 0 ? state.minZoom : 1;
+  const max = Number.isFinite(state.maxZoom) ? Math.max(min, state.maxZoom) : min;
+  return min * Math.pow(max / min, Number.isFinite(normalized) ? clamp(normalized, 0, 1) : 0);
 }
 export function studioNormalizedZoom(factor: number, state: Pick<StudioCameraState, 'minZoom' | 'maxZoom'>) {
-  const min = Math.max(0.01, state.minZoom);
-  const max = Math.max(min, state.maxZoom);
-  return max === min ? 0 : clamp(Math.log(Math.max(min, factor) / min) / Math.log(max / min), 0, 1);
+  const min = studioZoomFactor(0, state), max = studioZoomFactor(1, state);
+  return max === min || !Number.isFinite(factor) ? 0 : clamp(Math.log(Math.max(min, factor) / min) / Math.log(max / min), 0, 1);
 }
+const hasZoom = (state: StudioCameraState | null) => !!state && Number.isFinite(state.minZoom) && Number.isFinite(state.maxZoom) && state.minZoom > 0 && state.maxZoom > state.minZoom;
+const sameProfile = (a: StudioCameraState, b: StudioCameraState) => a.deviceId === b.deviceId && a.position === b.position && a.quality === b.quality && a.width === b.width && a.height === b.height
+  && (a.fps === b.fps || a.fps !== null && b.fps !== null && Math.abs(a.fps - b.fps) < 0.01)
+  && (a.generation === undefined || b.generation === undefined || a.generation === b.generation);
 
 // Every control operates the exact mounted Expo Camera view. Serialize hardware
 // changes and coalesce gesture targets, so a fast wheel never builds a backlog.
@@ -40,6 +43,9 @@ export function useStudioCaptureCamera(camera: RefObject<StudioCaptureCameraHand
   const [state, setState] = useState<StudioCameraState | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [zoomPending, setZoomPending] = useState(false);
+  const [zoomConfirmation, setZoomConfirmation] = useState(0);
+  const zoomReceipt = useRef(0);
   const stateRef = useRef<StudioCameraState | null>(null);
   const enabledRef = useRef(enabled); enabledRef.current = enabled;
   const mounted = useRef(true);
@@ -51,25 +57,35 @@ export function useStudioCaptureCamera(camera: RefObject<StudioCaptureCameraHand
   const pendingExposure = useRef<number | null>(null);
   const zoomTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const zoomSequence = useRef(0);
+  const zoomFlight = useRef<Promise<boolean> | null>(null);
   const exposurePump = useRef(false);
 
   useEffect(() => {
     generation.current++; tag.current = null; stateRef.current = null;
     pendingZoom.current = null; pendingExposure.current = null;
+    zoomFlight.current = null;
     zoomSequence.current++; if (zoomTimer.current) clearTimeout(zoomTimer.current); zoomTimer.current = null;
+    settleZoom();
     busyRef.current = false; setBusy(false); setState(null); setError(null);
   }, [enabled, facing, native, options?.orientation]);
   useEffect(() => { mounted.current = true; return () => {
     mounted.current = false; generation.current++;
     pendingZoom.current = null; pendingExposure.current = null;
+    zoomFlight.current = null;
     if (zoomTimer.current) clearTimeout(zoomTimer.current);
   }; }, []);
 
   function current(token: number, targetTag: number | null) {
     return mounted.current && enabledRef.current && generation.current === token && tag.current === targetTag;
   }
+  function settleZoom() {
+    if (!mounted.current) return;
+    setZoomPending(false); setZoomConfirmation(++zoomReceipt.current);
+  }
   function apply(next: StudioCameraState, token: number, targetTag: number) {
     if (!current(token, targetTag)) return;
+    const previous = stateRef.current;
+    if (previous?.generation !== undefined && next.generation !== undefined && (next.generation < previous.generation || next.generation === previous.generation && next.revision !== undefined && previous.revision !== undefined && next.revision < previous.revision)) return;
     stateRef.current = next; setState(next); setError(null);
   }
   function fail(cause: unknown, token: number, targetTag: number | null) {
@@ -112,6 +128,7 @@ export function useStudioCaptureCamera(camera: RefObject<StudioCaptureCameraHand
       const configured = await enqueue(token, targetTag, () => configureCamera(targetTag, preferred.quality, initialFPS));
       if (!configured || !current(token, targetTag)) return undefined;
       apply(configured, token, targetTag);
+      settleZoom();
       return true;
     } catch (cause) { fail(cause, token, targetTag); return false; }
     finally { if (current(token, targetTag)) { busyRef.current = false; setBusy(false); } }
@@ -126,32 +143,43 @@ export function useStudioCaptureCamera(camera: RefObject<StudioCaptureCameraHand
     if (!selectedFps) return;
     busyRef.current = true; setBusy(true); setError(null);
     zoomSequence.current++; pendingZoom.current = null;
+    settleZoom();
     if (zoomTimer.current) clearTimeout(zoomTimer.current); zoomTimer.current = null;
     try {
       const next = await enqueue(token, targetTag, () => configureCamera(targetTag, quality, selectedFps));
-      if (next) apply(next, token, targetTag);
+      if (next) { apply(next, token, targetTag); if (current(token, targetTag)) { zoomFlight.current = null; settleZoom(); } }
     } catch (cause) { fail(cause, token, targetTag); }
     finally { if (current(token, targetTag)) { busyRef.current = false; setBusy(false); } }
   }
-  function dispatchZoom() {
+  function dispatchZoom(allowBusy = false): Promise<boolean> | null {
     zoomTimer.current = null;
     const factor = pendingZoom.current; pendingZoom.current = null;
     const targetTag = tag.current; const token = generation.current; const sequence = zoomSequence.current;
-    if (factor === null || !targetTag || !current(token, targetTag)) return;
+    const profile = stateRef.current;
+    if (factor === null || !targetTag || !profile || !current(token, targetTag) || busyRef.current && !allowBusy) return null;
     // Native zoom ramps deliberately allow a newer gesture target to cancel
     // an older ramp. Awaiting each ramp would add seconds of gesture latency.
-    void zoomCamera(targetTag, factor).then(next => {
-      if (sequence !== zoomSequence.current || !current(token, targetTag) || !stateRef.current) return;
-      const confirmed = { ...stateRef.current, zoom: next.zoom, minZoom: next.minZoom, maxZoom: next.maxZoom };
+    const flight = zoomCamera(targetTag, factor).then(next => {
+      if (sequence !== zoomSequence.current || !current(token, targetTag)) return false;
+      if (!stateRef.current || !sameProfile(next, profile) || !sameProfile(next, stateRef.current)) { settleZoom(); return false; }
+      if (!Number.isFinite(next.zoom) || !Number.isFinite(next.minZoom) || !Number.isFinite(next.maxZoom) || next.minZoom <= 0 || next.maxZoom < next.minZoom) throw new Error('A câmera não confirmou um zoom válido. Tente novamente.');
+      const confirmed = { ...stateRef.current, zoom: clamp(next.zoom, next.minZoom, next.maxZoom), minZoom: next.minZoom, maxZoom: next.maxZoom,
+        ...(next.revision !== undefined ? { revision: next.revision } : {}) };
       stateRef.current = confirmed; setState(confirmed); setError(null);
-    }).catch(cause => { if (sequence === zoomSequence.current) fail(cause, token, targetTag); });
+      settleZoom();
+      return true;
+    }).catch(cause => { if (sequence === zoomSequence.current && current(token, targetTag)) { fail(cause, token, targetTag); settleZoom(); } return false; });
+    zoomFlight.current = flight;
+    void flight.finally(() => { if (zoomFlight.current === flight) zoomFlight.current = null; });
+    return flight;
   }
   function setZoom(normalized: number) {
     const snapshot = stateRef.current;
-    if (!available || !snapshot || !tag.current) return;
+    if (!available || !hasZoom(snapshot) || !snapshot || !tag.current || busyRef.current || !enabledRef.current || !Number.isFinite(normalized)) return;
     zoomSequence.current++;
+    setZoomPending(true);
     pendingZoom.current = studioZoomFactor(normalized, snapshot);
-    if (!zoomTimer.current) zoomTimer.current = setTimeout(dispatchZoom, 30);
+    if (!zoomTimer.current) zoomTimer.current = setTimeout(() => { void dispatchZoom(); }, 30);
   }
   async function drainExposure() {
     if (exposurePump.current) return;
@@ -191,11 +219,18 @@ export function useStudioCaptureCamera(camera: RefObject<StudioCaptureCameraHand
     } catch (cause) { fail(cause, token, targetTag); }
   }
   async function prepareRecording(): Promise<boolean> {
-    if (!native) return !available || !!stateRef.current && !busyRef.current;
+    if (!enabledRef.current) return false;
+    if (!available) return true;
     const targetTag = tag.current; const token = generation.current; const snapshot = stateRef.current;
     if (!targetTag || !snapshot?.quality || busyRef.current) return false;
     busyRef.current = true; setBusy(true);
     try {
+      // Finish the last wheel target before REC hides the controls. A queued
+      // target must not start an unnoticed ramp after MovieFileOutput begins.
+      if (zoomTimer.current) clearTimeout(zoomTimer.current); zoomTimer.current = null;
+      const pending = pendingZoom.current !== null ? dispatchZoom(true) : zoomFlight.current;
+      if (pending && !await pending || !current(token, targetTag)) return false;
+      if (!native) return true;
       // Freeze the actual interface orientation before MovieFileOutput starts.
       // Rotating the UI alone must never produce a sideways original.
       const orientation = await nativeOrientation();
@@ -218,7 +253,7 @@ export function useStudioCaptureCamera(camera: RefObject<StudioCaptureCameraHand
       return current(token, targetTag) ? snapshot.isRecording : undefined;
     };
   }
-  return { available, native, state, busy, error, initialize, configure, setZoom, setExposure, focus, setTorch, prepareRecording,
+  return { available, native, state, busy, error, zoomAvailable: hasZoom(state), zoomPending, zoomConfirmation, initialize, configure, setZoom, setExposure, focus, setTorch, prepareRecording,
     isBusy: () => busyRef.current,
     isReady: () => enabledRef.current && (!available || !!tag.current && !!stateRef.current && !busyRef.current),
     recordingProbe,

@@ -171,6 +171,17 @@ A geometria do toque usa o canvas realmente exibido, incluindo margens de aspect
 - Overlays transparentes e controles decorativos não capturam toques indevidos (`pointerEvents`). Safe area/notch, header, teclado e sheets devem preservar acesso aos controles; evitar padding duplicado e alturas negativas.
 - Editor e revisão usam retrato; a prévia respeita o formato do projeto. A orientação de captura pode mudar conforme o formato, mas deve ser restaurada ao retornar. Câmera, teclado ou modal não podem deixar gestos/áudio/reprodução presos ao modo anterior.
 
+## Captura: gravar, conferir takes e avançar
+
+- Durante o REC, a câmera mantém apenas o botão de parar e o temporizador. Qualidade, ferramentas, roteiro, zoom, fechar e faixa de takes saem da tela; ao parar, os controles reaparecem e aguardam a confirmação do salvamento. Cancelar a contagem não adiciona take.
+- Galeria e câmera são escolhas no passo anterior. A captura não repete o atalho de galeria no dock; o simulador conserva uma alternativa explícita de importação porque não dispõe da câmera física.
+- A régua de zoom responde a arraste contínuo e respeita os limites reais da câmera e do formato ativos. O indicador em × usa o valor confirmado pelo aparelho; a roda aguarda o último ajuste e reconcilia sua posição até quando a câmera devolve o mesmo fator após atingir um limite. Sem a bridge, a interface informa o percentual suportado pelo Expo. Trocar lente, formato ou FPS invalida respostas de ajuste antigas, sem reduzir artificialmente uma faixa maior disponível em 4K.
+- A luz aparece somente quando a câmera ativa confirma suporte. A frontal não exibe um botão apagado para um recurso ausente.
+- Takes salvos aparecem em uma faixa de miniaturas com número e duração; o mais recente fica visível, e um botão branco de Avançar leva ao editor. Novo REC conserva os takes anteriores. Falha de salvamento mantém a recuperação e bloqueia o avanço; a faixa não apresenta um arquivo temporário como take concluído.
+- Toques antigos de REC e Avançar não operam depois de mudar projeto, conta, foco ou estado de gravação. Um take efetivamente gravado continua sendo salvo após interrupção; essa preservação é distinta de autorizar outra gravação.
+
+O simulador permite revisar miniaturas, navegação e enquadramento da interface. Fluidez do zoom, limite óptico/digital, luz e gravação física exigem confirmação no iPhone; não declarar esses comportamentos aprovados apenas por screenshots ou testes com fronteira nativa simulada.
+
 ## Aceite por cenário
 
 Registrar aparelho, build, formato, passos e evidência. Não marcar como aprovado por compilação, screenshot estático ou clique de mouse.

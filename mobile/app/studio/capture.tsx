@@ -6,7 +6,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { StatusBar } from 'expo-status-bar';
 import { useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
 import { useIsFocused, usePreventRemove, type NavigationAction } from '@react-navigation/native';
-import { Camera, Check, ChevronRight, FileText, Images, Mic, Minus, Palette, Pause, Play, Plus, SlidersHorizontal, Square, SwitchCamera, Timer, X, Zap, ZapOff } from 'lucide-react-native';
+import { Camera, Check, ChevronRight, FileText, Mic, Minus, Palette, Pause, Play, Plus, SlidersHorizontal, Square, SwitchCamera, Timer, X, Zap, ZapOff } from 'lucide-react-native';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { ActivityIndicator, Alert, AppState, KeyboardAvoidingView, Linking, Platform, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -20,8 +20,9 @@ import { getStudioExportCapabilitiesAsync } from '../../modules/classfy-studio-m
 import { discardTransientStudioProject, getStudioProject, mutateStudioProject } from '@/features/studio/store';
 import { useStudioProject } from '@/features/studio/useStudioProjects';
 import { useStudioOrientation } from '@/features/studio/useStudioOrientation';
-import { studioNormalizedZoom, studioZoomFactor, useStudioCaptureCamera } from '@/features/studio/StudioCaptureCamera';
+import { studioNormalizedZoom, useStudioCaptureCamera } from '@/features/studio/StudioCaptureCamera';
 import { StudioCaptureFrame, StudioCaptureZoom } from '@/features/studio/StudioCaptureZoom';
+import { StudioCaptureTakes } from '@/features/studio/StudioCaptureTakes';
 import { StudioCaptureScriptPanel } from '@/features/studio/StudioCaptureScriptPanel';
 import { createStudioVideoStopOperation } from '@/features/studio/StudioCaptureRecording';
 import { StudioNativeCamera, StudioNativeRecordingError, isStudioNativeCameraHandle, type StudioCaptureCameraHandle, type StudioCaptureRecording, type StudioNativeCameraHandle } from '@/features/studio/StudioNativeCamera';
@@ -66,7 +67,6 @@ export default function StudioCaptureScreen() {
   const [panel, setPanel] = useState<CapturePanel | null>(null);
   const [importing, setImporting] = useState(false);
   const [cancelingAudio, setCancelingAudio] = useState(false);
-  const [meters, setMeters] = useState<number[]>([]);
   const [foreground, setForeground] = useState(AppState.currentState === 'active');
   const [showScript, setShowScript] = useState(true);
   const [followScript, setFollowScript] = useState(true);
@@ -77,7 +77,7 @@ export default function StudioCaptureScreen() {
   const camera = useRef<StudioCaptureCameraHandle>(null);
   const captureGradeRef = useRef(captureGrade); captureGradeRef.current = captureGrade;
   const effectBusyRef = useRef(false), effectSequence = useRef(0);
-  const captureContext = useRef({ id, focused }); captureContext.current = { id, focused };
+  const captureContext = useRef({ id, focused, foreground, recovery }); captureContext.current = { id, focused, foreground, recovery };
   const audio = useRef<Audio.Recording | null>(null);
   const videoOperation = useRef<ReturnType<typeof createStudioVideoStopOperation> | null>(null);
   const scriptScroll = useRef<ScrollView>(null);
@@ -116,6 +116,12 @@ export default function StudioCaptureScreen() {
   captureReadiness.current = { sensorMatches, screenMatches, ready, orientationReady };
 
   function finishCapture() {
+    const context = captureContext.current, account = session.current;
+    if (phaseRef.current !== 'idle' || context.recovery || !context.focused || !context.foreground || context.id !== id
+      || !account.owner || !account.canPublish || account.roleLoading || account.owner !== project?.ownerId) return;
+    const latest = getStudioProject(account.owner, id);
+    if (!latest) return;
+    if (latest.pendingTakes?.length) { setFailure('Recupere os takes pendentes antes de avançar.'); return; }
     handedOff.current = true;
     if (params.from === 'projects') router.replace({ pathname: '/studio/[id]', params: { id } });
     else if (router.canGoBack()) router.back();
@@ -133,7 +139,9 @@ export default function StudioCaptureScreen() {
   useEffect(() => {
     const state = cameraControls.state;
     if (state) setZoom(studioNormalizedZoom(state.zoom, state));
-  }, [cameraControls.state?.zoom, cameraControls.state?.minZoom, cameraControls.state?.maxZoom]);
+  }, [cameraControls.state?.zoom, cameraControls.state?.minZoom, cameraControls.state?.maxZoom,
+    cameraControls.state?.deviceId, cameraControls.state?.quality, cameraControls.state?.fps, cameraControls.state?.generation,
+    cameraControls.error, cameraControls.zoomConfirmation]);
   useEffect(() => {
     if (nativeCamera && cameraControls.state) setTorch(cameraControls.state.torchEnabled);
   }, [nativeCamera, cameraControls.state?.torchEnabled]);
@@ -145,9 +153,10 @@ export default function StudioCaptureScreen() {
     return () => ScreenOrientation.removeOrientationChangeListener(listener);
   }, [nativeCamera, cameraMounted, facing]);
   function changeZoom(value: number) {
-    if (phaseRef.current === 'saving' || cameraControls.isBusy()) return;
-    setZoom(value);
-    if (cameraControls.available) cameraControls.setZoom(value);
+    if (phaseRef.current !== 'idle' || cameraControls.isBusy()) return;
+    const next = Math.max(0, Math.min(1, Number.isFinite(value) ? value : 0));
+    setZoom(next);
+    if (cameraControls.available) cameraControls.setZoom(next);
   }
 
   function transition(next: Phase) {
@@ -159,6 +168,15 @@ export default function StudioCaptureScreen() {
     if (current.owner !== target.ownerId || !current.canPublish || current.roleLoading) {
       throw new Error('Sua sessão mudou. Abra o Studio na conta que iniciou esta gravação.');
     }
+  }
+  function captureScopeCurrent(target: StudioProject) {
+    const context = captureContext.current, account = session.current;
+    return mounted.current && context.id === target.id && context.focused && context.foreground
+      && account.owner === target.ownerId && account.canPublish && !account.roleLoading;
+  }
+  function assertCaptureSession(target: StudioProject) {
+    assertSession(target);
+    if (!captureScopeCurrent(target)) throw new Error('A captura mudou. Abra novamente a câmera deste projeto.');
   }
   async function confirmCaptureGrade(next: StudioGrade): Promise<boolean> {
     const ownedCamera = camera.current;
@@ -261,12 +279,14 @@ export default function StudioCaptureScreen() {
         };
       });
       if (mounted.current) {
+        captureContext.current.recovery = null;
         setRecovery(null); setFailure(null);
         setNotice(`Take ${saved.takes.findIndex(existing => existing.id === take.id) + 1} salvo. Pronto para o próximo.`);
       }
     } catch (cause) {
       pendingNavigation.current = null;
       if (mounted.current) {
+        captureContext.current.recovery = recoverable;
         setRecovery(recoverable);
         setFailure(cause instanceof Error ? cause.message : 'Não foi possível salvar o take. Tente novamente.');
       }
@@ -430,15 +450,15 @@ export default function StudioCaptureScreen() {
     } catch { setFailure('Não foi possível abrir as permissões. Confira os Ajustes do iPhone.'); }
   }
   async function beginRecording() {
-    if (!project || phaseRef.current !== 'idle' || recovery || busyProject || effectBusyRef.current) return;
+    if (!project || !captureScopeCurrent(project) || phaseRef.current !== 'idle' || captureContext.current.recovery || busyProject || effectBusyRef.current) return;
     let operationToken: number | null = null;
     let ownedRecording: Audio.Recording | null = null;
     try {
-      assertSession(project);
+      assertCaptureSession(project);
       if (!permissionGranted) { await enablePermissions(); return; }
       const prepared = captureReadiness.current;
       if (!Device.isDevice || !prepared.orientationReady || !isAudio && (!prepared.ready || !prepared.screenMatches || !prepared.sensorMatches || !cameraControls.isReady())) return;
-      setFailure(null); setNotice(null); setElapsed(0); setMeters([]); setPanel(null); setCancelingAudio(false);
+      setFailure(null); setNotice(null); setElapsed(0); setPanel(null); setCancelingAudio(false);
       activeProject.current = project;
       transition('countdown');
       const token = ++countdownToken.current;
@@ -448,7 +468,7 @@ export default function StudioCaptureScreen() {
         await new Promise(resolve => setTimeout(resolve, 1000));
         if (token !== countdownToken.current || !mounted.current) return;
       }
-      assertSession(project);
+      assertCaptureSession(project);
       const positioned = captureReadiness.current;
       if (!isAudio && (!positioned.sensorMatches || !positioned.screenMatches || !positioned.orientationReady)) {
         throw new Error(project.kind === 'aula' ? 'Vire o iPhone na horizontal para gravar sua aula.' : 'Mantenha o iPhone na vertical para gravar seu Short.');
@@ -459,22 +479,24 @@ export default function StudioCaptureScreen() {
       if (!isAudio) {
         const positionedCamera = await cameraControls.prepareRecording();
         if (token !== countdownToken.current || !mounted.current || AppState.currentState !== 'active') return;
+        assertCaptureSession(project);
         if (!positionedCamera) throw new Error('A câmera não confirmou o enquadramento. Aguarde a imagem e tente novamente.');
         if (nativeEffects) {
           const treatmentReady = await confirmCaptureGrade(captureGradeRef.current);
           if (token !== countdownToken.current || !mounted.current || AppState.currentState !== 'active') return;
+          assertCaptureSession(project);
           if (!treatmentReady) throw new Error('A câmera não confirmou o tratamento. Use Natural ou escolha o ajuste novamente.');
         }
       }
       if (token !== countdownToken.current || !mounted.current || AppState.currentState !== 'active') return;
-      assertSession(project);
+      assertCaptureSession(project);
       setCountdown(0);
       scriptOffset.current = 0;
       scriptScroll.current?.scrollTo({ y: 0, animated: false });
       if (isAudio) {
         audioPreparation.current = token;
         await Audio.setAudioModeAsync({ allowsRecordingIOS: true, playsInSilentModeIOS: true });
-        if (token !== countdownToken.current || !mounted.current || AppState.currentState !== 'active') {
+        if (token !== countdownToken.current || !captureScopeCurrent(project) || AppState.currentState !== 'active') {
           await Audio.setAudioModeAsync({ allowsRecordingIOS: false });
           activeProject.current = null; transition('idle'); return;
         }
@@ -482,7 +504,7 @@ export default function StudioCaptureScreen() {
         ownedRecording = recording;
         audio.current = recording;
         await recording.prepareToRecordAsync({ ...Audio.RecordingOptionsPresets.HIGH_QUALITY, isMeteringEnabled: true });
-        if (token !== countdownToken.current || !mounted.current || AppState.currentState !== 'active') {
+        if (token !== countdownToken.current || !captureScopeCurrent(project) || AppState.currentState !== 'active') {
           await recording.stopAndUnloadAsync(); if (audio.current === recording) audio.current = null;
           await Audio.setAudioModeAsync({ allowsRecordingIOS: false });
           activeProject.current = null; transition('idle'); return;
@@ -490,14 +512,11 @@ export default function StudioCaptureScreen() {
         recording.setOnRecordingStatusUpdate(status => {
           if (audio.current !== recording) return;
           if (mounted.current && status.canRecord) setElapsed(status.durationMillis / 1000);
-          if (mounted.current && status.isRecording && typeof status.metering === 'number') {
-            setMeters(previous => [...previous.slice(-35), Math.max(0, Math.min(1, (status.metering! + 60) / 60))]);
-          }
           if (status.isDoneRecording && phaseRef.current === 'recording') void stopRef.current();
         });
         recording.setProgressUpdateInterval(120);
         await recording.startAsync();
-        if (token !== countdownToken.current || !mounted.current || AppState.currentState !== 'active') {
+        if (token !== countdownToken.current || !captureScopeCurrent(project) || AppState.currentState !== 'active') {
           await recording.stopAndUnloadAsync(); if (audio.current === recording) audio.current = null;
           await Audio.setAudioModeAsync({ allowsRecordingIOS: false });
           activeProject.current = null; transition('idle'); return;
@@ -578,6 +597,7 @@ export default function StudioCaptureScreen() {
   }
 
   const idle = phase === 'idle';
+  const immersive = phase === 'recording';
   const captureAvailable = permitted && !loading && !busyProject;
   const toolsDisabled = !idle || !!recovery || !captureAvailable;
   const recordDisabled = phase === 'saving' || cancelingAudio || idle && (!!recovery || busyProject || !permitted || !Device.isDevice
@@ -588,8 +608,10 @@ export default function StudioCaptureScreen() {
   const confirmedQuality = cameraState?.quality || videoQuality;
   const frameRates = cameraState?.qualities.find(item => item.quality === confirmedQuality)?.fps || [];
   const qualityLabel = confirmedQuality === '2160p' ? '4K' : confirmedQuality === '1080p' ? 'HD' : '720p';
-  const zoomDisabled = phase === 'saving' || cameraControls.busy || cameraControls.available && !cameraState;
-  const zoomLabel = cameraState ? `${studioZoomFactor(zoom, cameraState).toFixed(1)}×` : `Zoom ${Math.round(zoom * 100)}%`;
+  const zoomDisabled = !idle || !!recovery || cameraControls.busy || cameraControls.available && !cameraControls.zoomAvailable;
+  const zoomLabel = cameraState && Number.isFinite(cameraState.zoom) ? `${cameraState.zoom.toFixed(1)}×`
+    : cameraControls.available ? 'Zoom indisponível' : `Zoom ${Math.round(zoom * 100)}%`;
+  const showTorch = !isAudio && Device.isDevice && facing === 'back' && !!cameraState?.supportsTorch;
   function chooseQuality(quality: '720p' | '1080p' | '2160p') {
     if (phaseRef.current !== 'idle' || recovery || cameraControls.isBusy()) return;
     if (cameraControls.available) { void cameraControls.configure(quality); }
@@ -648,14 +670,6 @@ export default function StudioCaptureScreen() {
   const flipButton = !isAudio && <CaptureTool label="Alternar câmera" disabled={toolsDisabled || !Device.isDevice} onPress={() => {
     setReady(false); setSensorOrientation(null); setFacing(previous => previous === 'front' ? 'back' : 'front'); setTorch(false); setZoom(0);
   }}><SwitchCamera size={26} color={colors.text} strokeWidth={1.45} /><Text style={styles.cameraToolLabel}>Câmera</Text></CaptureTool>;
-  const galleryButton = <CaptureTool label={isAudio ? 'Importar áudio' : 'Importar vídeos da galeria'} disabled={toolsDisabled} onPress={() => void addMedia()}>
-    <Images size={24} color={colors.text} strokeWidth={1.5} />
-  </CaptureTool>;
-  const completeButton = <Pressable accessibilityRole="button" accessibilityLabel="Concluir gravação e editar projeto"
-    disabled={toolsDisabled || !project?.takes.length} onPress={finishCapture}
-    style={({ pressed }) => [styles.complete, (toolsDisabled || !project?.takes.length) && styles.disabled, pressed && styles.pressed]}>
-    <Check size={19} color={colors.text} strokeWidth={1.9} /><Text style={styles.completeText}>Concluir</Text>
-  </Pressable>;
   const recordButton = <Pressable accessibilityRole="button"
     accessibilityLabel={phase === 'recording' ? 'Encerrar e salvar take' : phase === 'countdown' ? 'Cancelar contagem' : 'Começar gravação'}
     accessibilityState={{ disabled: recordDisabled, busy: phase === 'saving' }} disabled={recordDisabled}
@@ -669,7 +683,7 @@ export default function StudioCaptureScreen() {
     <StatusBar hidden={focused} style="light" animated />
     {cameraMounted && <StudioCaptureFrame key={`${project!.id}:${facing}:${nativeCamera ? 'studio-native' : cameraControls.available ? 'expo-bridge' : videoQuality}`}
       frame={{ width: cameraWidth, height: cameraHeight, left: (dimensions.width - cameraWidth) / 2, top: (dimensions.height - cameraHeight) / 2 }}
-      zoom={zoom} onZoom={changeZoom} disabled={zoomDisabled}
+      zoom={zoom} onZoom={changeZoom} disabled={zoomDisabled || immersive}
       onFocus={cameraState?.supportsFocus ? point => { void cameraControls.focus(point); } : undefined} canLockFocus={cameraState?.supportsFocusLock}>
       {nativeCamera ? <StudioNativeCamera ref={camera as React.Ref<StudioNativeCameraHandle>} style={StyleSheet.absoluteFill}
         onCameraReady={() => { void cameraControls.initialize().then(result => { if (result !== undefined && mounted.current) setReady(result); }); }}
@@ -684,26 +698,26 @@ export default function StudioCaptureScreen() {
         onMountError={event => { if (mounted.current) { setReady(false); setFailure(event.message); } }} />
       : <CameraView ref={camera as React.Ref<CameraView>} style={StyleSheet.absoluteFill}
         facing={facing} mode="video" videoQuality={cameraControls.available ? '1080p' : videoQuality} videoStabilizationMode="auto" autofocus="on"
-        zoom={cameraControls.available ? 0 : zoom} enableTorch={torch && facing === 'back'} mirror={false} responsiveOrientationWhenOrientationLocked
+        zoom={cameraControls.available ? undefined : zoom} enableTorch={torch && facing === 'back'} mirror={false} responsiveOrientationWhenOrientationLocked
         onResponsiveOrientationChanged={event => setSensorOrientation(event.orientation)}
         onCameraReady={() => { void cameraControls.initialize().then(result => { if (result !== undefined && mounted.current) setReady(result); }); }}
         onMountError={() => { setReady(false); setFailure('Não foi possível iniciar a câmera. Confira as permissões ou importe um vídeo.'); }} />}
     </StudioCaptureFrame>}
     {(isAudio || !!gate) && <LinearGradient colors={['#16141D', '#070708', '#000000']} locations={[0, 0.6, 1]} style={StyleSheet.absoluteFill} />}
-    <LinearGradient pointerEvents="none" colors={['rgba(0,0,0,0.55)', 'transparent']} style={[styles.topShade, { height: safeTop + 130 }]} />
-    <LinearGradient pointerEvents="none" colors={['transparent', 'rgba(0,0,0,0.72)']} style={[styles.bottomShade, landscape ? { height: 110 } : { height: safeBottom + 210 }]} />
-    {landscape && <LinearGradient pointerEvents="none" colors={['transparent', 'rgba(0,0,0,0.72)']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={[styles.rightShade, { width: safeRight + 120 }]} />}
+    {!immersive && <LinearGradient pointerEvents="none" colors={['rgba(0,0,0,0.55)', 'transparent']} style={[styles.topShade, { height: safeTop + 130 }]} />}
+    {!immersive && <LinearGradient pointerEvents="none" colors={['transparent', 'rgba(0,0,0,0.72)']} style={[styles.bottomShade, landscape ? { height: 110 } : { height: safeBottom + 210 }]} />}
+    {!immersive && landscape && <LinearGradient pointerEvents="none" colors={['transparent', 'rgba(0,0,0,0.72)']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={[styles.rightShade, { width: safeRight + 120 }]} />}
 
     <View style={[styles.topControls, { top: safeTop, left: safeLeft, right: safeRight }]}>
-      <View style={styles.topActionSlot}>{closeButton}</View>
+      {!immersive && <View style={styles.topActionSlot}>{closeButton}</View>}
       <View pointerEvents="none" style={styles.captureIdentity}>
         <View style={[styles.timerPill, phase === 'recording' && styles.timerPillActive]}>
           {phase === 'recording' && <View style={styles.recordDot} />}
           <Text style={styles.timer}>{formatStudioDuration(elapsed)}</Text>
         </View>
-        <Text style={styles.takeLabel}>{kindLabel.toUpperCase()} · TAKE {String((project?.takes.length || 0) + 1).padStart(2, '0')}</Text>
+        {!immersive && <Text style={styles.takeLabel}>{kindLabel.toUpperCase()} · TAKE {String((project?.takes.length || 0) + 1).padStart(2, '0')}</Text>}
       </View>
-      <View style={styles.qualityCluster}>
+      {!immersive && <View style={styles.qualityCluster}>
         <Pressable accessibilityRole="button" accessibilityLabel={isAudio ? 'Gravação de áudio em M4A' : `Qualidade ${qualityLabel}. Toque para alternar, segure para os ajustes`}
           disabled={isAudio || toolsDisabled || cameraControls.busy || cameraControls.available && !cameraState}
           onPress={cycleQuality} onLongPress={() => setPanel('quality')} style={({ pressed }) => [styles.qualityPill, pressed && styles.pressed]}>
@@ -712,27 +726,24 @@ export default function StudioCaptureScreen() {
         {!isAudio && !!cameraState && !!frameRates.length && <Pressable accessibilityRole="button" accessibilityLabel={`${cameraState.fps ? Math.round(cameraState.fps) : 'Auto'} quadros por segundo. Toque para alternar`}
           disabled={toolsDisabled || cameraControls.busy} onPress={cycleFPS} onLongPress={() => setPanel('quality')}
           style={({ pressed }) => [styles.fpsPill, pressed && styles.pressed]}><Text style={styles.qualityText}>{cameraState.fps ? Math.round(cameraState.fps) : 'Auto'}</Text></Pressable>}
-      </View>
+      </View>}
     </View>
 
-    {gate ? <View pointerEvents="box-none" style={[styles.gate, landscape && { paddingHorizontal: safeLeft + 90, paddingVertical: 80 }]}>{gate}</View> : isAudio ?
+    {gate ? <View pointerEvents="box-none" style={[styles.gate, landscape && { paddingHorizontal: safeLeft + 90, paddingVertical: 80 }]}>{gate}</View> : isAudio && !immersive ?
       <View pointerEvents="box-none" style={[styles.podcastCenter, { paddingHorizontal: safeLeft + 12 }, scriptPresent && showScript && { justifyContent: 'flex-end', paddingTop: 0, paddingBottom: safeBottom + 192 }]}>
-        {!(scriptPresent && showScript) && <><View style={[styles.micCircle, phase === 'recording' && styles.micCircleActive]}><Mic color={phase === 'recording' ? colors.accent : colors.textSecondary} size={42} strokeWidth={1.15} /></View>
+        {!(scriptPresent && showScript) && <><View style={styles.micCircle}><Mic color={colors.textSecondary} size={42} strokeWidth={1.15} /></View>
           <Text style={styles.podcastTitle}>{project!.title.trim() || 'Dê voz ao seu conhecimento'}</Text></>}
-        <Text style={styles.podcastCaption}>{phase === 'recording' ? 'Gravando sua voz' : 'Seu microfone, seu próximo aprendizado'}</Text>
-        <View accessible accessibilityLabel={phase === 'recording' ? 'Nível real do microfone' : 'Microfone em espera'} style={styles.meterRow}>
-          {Array.from({ length: 36 }, (_, index) => <View key={index} style={[styles.meterBar, {
-            height: phase === 'recording' ? 3 + (meters[index - (36 - meters.length)] || 0) * 68 : 3,
-            backgroundColor: phase === 'recording' ? colors.accent : '#635C6D',
-          }]} />)}
+        <Text style={styles.podcastCaption}>Seu microfone, seu próximo aprendizado</Text>
+        <View accessible accessibilityLabel="Microfone em espera" style={styles.meterRow}>
+          {Array.from({ length: 36 }, (_, index) => <View key={index} style={styles.meterBar} />)}
         </View>
       </View> : null}
 
-    {captureAvailable && <View style={[styles.tools, landscape
+    {captureAvailable && !immersive && <View style={[styles.tools, landscape
       ? { top: safeTop + 76, left: safeLeft }
       : { top: safeTop + 95, right: safeRight }]}>
-      {!isAudio && <CaptureTool label={torch ? 'Desligar luz' : facing === 'front' ? 'Luz disponível na câmera traseira' : 'Ligar luz'}
-        disabled={toolsDisabled || facing !== 'back' || !Device.isDevice || cameraControls.available && !cameraState?.supportsTorch}
+      {showTorch && <CaptureTool label={torch ? 'Desligar luz' : 'Ligar luz'}
+        disabled={toolsDisabled}
         selected={torch} onPress={() => { if (nativeCamera) void cameraControls.setTorch(!torch); else setTorch(previous => !previous); }}>
         {torch ? <Zap size={21} color={colors.amber} strokeWidth={1.5} /> : <ZapOff size={21} color={colors.text} strokeWidth={1.5} />}
       </CaptureTool>}
@@ -752,7 +763,7 @@ export default function StudioCaptureScreen() {
       </CaptureTool>
     </View>}
 
-    {!gate && scriptPresent && showScript && <View style={[styles.prompter, landscape
+    {!immersive && !gate && scriptPresent && showScript && <View style={[styles.prompter, landscape
       ? { top: safeTop + 78, left: safeLeft + 66, right: safeRight + 114 }
       : { top: safeTop + 102, left: safeLeft, right: safeRight + 60 }]}>
       <View style={styles.prompterHeader}>
@@ -771,10 +782,12 @@ export default function StudioCaptureScreen() {
       </ScrollView>
     </View>}
 
-    {!isAudio && captureAvailable && !gate && <View pointerEvents="box-none" style={[styles.zoomAnchor, landscape
-      ? { bottom: Math.max(insets.bottom, 16) + 15, left: (dimensions.width - 210) / 2 }
-      : { bottom: safeBottom + 176, alignSelf: 'center' }]}>
-      <StudioCaptureZoom value={zoom} onChange={changeZoom} label={zoomLabel} disabled={zoomDisabled} style={{ position: 'relative' }} />
+    {!immersive && !isAudio && captureAvailable && !gate && (!cameraControls.available || cameraControls.zoomAvailable) && <View pointerEvents="box-none" style={[styles.zoomAnchor, landscape
+      ? { bottom: Math.max(insets.bottom, 16) + (project?.takes.length ? 85 : 15), left: (dimensions.width - 210) / 2 }
+      : { bottom: safeBottom + (project?.takes.length ? 206 : 140), alignSelf: 'center' }]}>
+      <StudioCaptureZoom value={zoom} onChange={changeZoom} label={zoomLabel} disabled={zoomDisabled}
+        confirmedValue={cameraState ? studioNormalizedZoom(cameraState.zoom, cameraState) : undefined}
+        pending={cameraControls.zoomPending} confirmation={cameraControls.zoomConfirmation} style={{ position: 'relative' }} />
     </View>}
 
     {phase === 'countdown' && <View pointerEvents="none" style={styles.countdownOverlay}>
@@ -782,9 +795,9 @@ export default function StudioCaptureScreen() {
       <Text style={styles.countdownLabel}>{cancelingAudio ? 'Cancelando a preparação…' : countdown > 0 ? 'Respire. Sua ideia vem primeiro.' : 'Preparando a gravação…'}</Text>
     </View>}
 
-    {(!!notice || !!failure || !!recovery || !!orientationError || !!cameraControls.error) && <View accessibilityLiveRegion="polite" style={[styles.statusToast, landscape
-      ? { bottom: Math.max(insets.bottom, 16) + 60, left: safeLeft + 64, right: safeRight + 124 }
-      : { bottom: safeBottom + 228, left: safeLeft, right: safeRight }]}>
+    {!immersive && (!!notice || !!failure || !!recovery || !!orientationError || !!cameraControls.error) && <View accessibilityLiveRegion="polite" style={[styles.statusToast, landscape
+      ? { bottom: Math.max(insets.bottom, 16) + (project?.takes.length ? 160 : 60), left: safeLeft + 64, right: safeRight + 124 }
+      : { bottom: safeBottom + (project?.takes.length ? 278 : 228), left: safeLeft, right: safeRight }]}>
       <View style={styles.statusRow}>{!failure && !orientationError && !cameraControls.error && <Check size={16} color={colors.free} />}<Text style={[styles.statusText, (!!failure || !!orientationError || !!cameraControls.error) && styles.failure]}>{failure || orientationError || cameraControls.error || notice}</Text></View>
       {!!recovery && <Pressable accessibilityRole="button" disabled={!idle} onPress={() => void saveTake(recovery.project, recovery.uri, recovery.duration, recovery.metadata)} style={styles.recoveryButton}>
         <Text style={styles.recoveryLabel}>Salvar este take</Text><ChevronRight size={17} color={colors.text} />
@@ -793,16 +806,21 @@ export default function StudioCaptureScreen() {
 
     {captureAvailable && <View style={landscape
       ? [styles.landscapeDock, { top: safeTop + 64, bottom: Math.max(insets.bottom, 14), right: safeRight }]
-      : [styles.portraitDock, { bottom: safeBottom, left: safeLeft, right: safeRight }]}>
+      : [styles.portraitDock, { bottom: safeBottom + (project?.takes.length ? 82 : 0), left: safeLeft, right: safeRight }]}>
       {landscape ? <>
-        <View style={styles.landscapeRecord}>{recordButton}<Text style={styles.recordCaption}>{phase === 'recording' ? 'Encerrar' : phase === 'saving' ? 'Salvando' : phase === 'countdown' ? 'Cancelar' : 'Gravar'}</Text></View>
-        <View style={styles.landscapeSecondary}>{galleryButton}{flipButton}</View>
-        {completeButton}
+        <View style={styles.landscapeRecord}>{recordButton}{!immersive && <Text style={styles.recordCaption}>{phase === 'saving' ? 'Salvando' : phase === 'countdown' ? 'Cancelar' : 'Gravar'}</Text>}</View>
+        <View style={styles.landscapeSecondary}>{!immersive && flipButton}</View>
       </> : <>
-        <Text pointerEvents="none" style={styles.guidance}>{stateHint}</Text>
-        <View style={styles.portraitRecordRow}><View style={styles.dockSide}>{galleryButton}</View>{recordButton}<View style={styles.dockSide}>{flipButton || <View style={{ width: 46 }} />}</View></View>
-        <View style={styles.portraitFinish}>{project!.takes.length > 0 ? completeButton : <Text style={styles.firstTakeLabel}>Faça uma ideia por take</Text>}</View>
+        {!immersive && <Text pointerEvents="none" style={styles.guidance}>{stateHint}</Text>}
+        <View style={styles.portraitRecordRow}><View style={styles.dockSide} />{recordButton}<View style={styles.dockSide}>{!immersive && flipButton}</View></View>
+        {!immersive && !project!.takes.length && <View style={styles.portraitFinish}><Text style={styles.firstTakeLabel}>Faça uma ideia por take</Text></View>}
       </>}
+    </View>}
+
+    {!immersive && captureAvailable && !!project?.takes.length && <View style={[styles.takesDock, landscape
+      ? { bottom: safeBottom, left: safeLeft + 64, right: safeRight + 124 }
+      : { bottom: safeBottom, left: safeLeft, right: safeRight }]}>
+      <StudioCaptureTakes takes={project.takes} disabled={toolsDisabled} onContinue={finishCapture} compact={landscape} />
     </View>}
 
     <SheetModal visible={!!panel} onRequestClose={() => setPanel(null)}>
@@ -868,7 +886,7 @@ export default function StudioCaptureScreen() {
                   <StudioCaptureZoom controlName="exposição" value={(cameraState.exposure - cameraState.minExposure) / (cameraState.maxExposure - cameraState.minExposure)}
                     onChange={value => cameraControls.setExposure(cameraState.minExposure + value * (cameraState.maxExposure - cameraState.minExposure))}
                     label={cameraState.exposure >= 0 ? `+${cameraState.exposure.toFixed(1)} EV` : `${cameraState.exposure.toFixed(1)} EV`}
-                    disabled={phase === 'saving' || cameraControls.busy || cameraState.exposureLocked} style={{ position: 'relative', alignSelf: 'center', width: '100%' }} />
+                    disabled={!idle || cameraControls.busy || cameraState.exposureLocked} style={{ position: 'relative', alignSelf: 'center', width: '100%' }} />
                   <Text style={styles.cameraHint}>{cameraState.exposureLocked ? 'A exposição acompanha o bloqueio de foco. Toque no quadro para liberar.' : 'Deslize para clarear ou escurecer a imagem.'}</Text>
                 </View>}
                 {cameraState.aperture !== null && <View style={styles.settingRow}><Text style={styles.settingLabel}>Abertura da lente</Text>
@@ -957,9 +975,6 @@ const styles = StyleSheet.create({
   scriptScroll: { flexShrink: 1 },
   scriptText: { color: '#FFFFFF', fontSize: 22, lineHeight: 32, fontWeight: '500', paddingBottom: 32 },
   zoomAnchor: { position: 'absolute', width: 210, alignItems: 'center', justifyContent: 'flex-end' },
-  zoomPill: { position: 'absolute', width: 148, height: 38, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: 'rgba(0,0,0,0.52)', borderRadius: 24, borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)' },
-  zoomAction: { width: 38, height: 38, alignItems: 'center', justifyContent: 'center', borderRadius: 19 },
-  zoomText: { color: colors.text, fontSize: 10, fontWeight: '600', fontVariant: ['tabular-nums'] },
   countdownOverlay: { ...StyleSheet.absoluteFillObject, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(0,0,0,0.26)' },
   countdownNumber: { color: '#FFFFFF', fontSize: 110, fontWeight: '300', fontVariant: ['tabular-nums'] },
   countdownLabel: { color: colors.textSecondary, fontSize: 12, marginTop: 8 },
@@ -972,14 +987,13 @@ const styles = StyleSheet.create({
   landscapeDock: { position: 'absolute', width: 100, justifyContent: 'flex-end', alignItems: 'center', gap: 10 },
   landscapeRecord: { flex: 1, minHeight: 90, alignItems: 'center', justifyContent: 'center', gap: 9 },
   recordCaption: { color: colors.text, fontSize: 10, fontWeight: '600' },
-  landscapeSecondary: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  landscapeSecondary: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', minHeight: 46 },
+  takesDock: { position: 'absolute' },
   recordButton: { width: 86, height: 86, borderRadius: 43, borderWidth: 3, borderColor: '#FFFFFF', alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(0,0,0,0.12)' },
   recordButtonActive: { borderColor: 'rgba(255,255,255,0.82)' },
   recordInner: { width: 70, height: 70, borderRadius: 35, backgroundColor: '#E11D48' },
   recordStop: { width: 32, height: 32, borderRadius: 7, backgroundColor: '#E11D48' },
   recordPressed: { transform: [{ scale: 0.95 }] },
-  complete: { flexDirection: 'row', alignItems: 'center', gap: 6, minHeight: 30, paddingHorizontal: 10, borderRadius: 16, backgroundColor: 'rgba(0,0,0,0.42)' },
-  completeText: { color: colors.text, fontSize: 11, fontWeight: '600' },
   statusToast: { position: 'absolute', padding: 12, borderRadius: 14, borderWidth: 1, borderColor: 'rgba(255,255,255,0.09)', backgroundColor: 'rgba(9,9,9,0.9)', gap: 10 },
   statusRow: { flexDirection: 'row', alignItems: 'center', gap: 7 },
   statusText: { color: colors.textSecondary, fontSize: 11, lineHeight: 17, flexShrink: 1 },
@@ -988,11 +1002,10 @@ const styles = StyleSheet.create({
   recoveryLabel: { color: colors.text, fontSize: 12, fontWeight: '600' },
   podcastCenter: { ...StyleSheet.absoluteFillObject, alignItems: 'center', justifyContent: 'center', gap: 18, paddingTop: 75, paddingBottom: 190 },
   micCircle: { width: 116, height: 116, borderRadius: 58, backgroundColor: 'rgba(255,255,255,0.04)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.12)', alignItems: 'center', justifyContent: 'center', marginBottom: 6 },
-  micCircleActive: { borderColor: 'rgba(225,29,72,0.36)', backgroundColor: 'rgba(225,29,72,0.07)' },
   podcastTitle: { color: colors.text, fontSize: 25, lineHeight: 32, fontWeight: '600', textAlign: 'center', letterSpacing: -0.8 },
   podcastCaption: { color: colors.muted, fontSize: 12, textAlign: 'center' },
   meterRow: { height: 78, flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 8 },
-  meterBar: { width: 3, borderRadius: 2 },
+  meterBar: { width: 3, height: 3, borderRadius: 2, backgroundColor: '#635C6D' },
   panelSurface: { alignSelf: 'center' },
   cameraValue: { color: colors.text, fontSize: 13, fontWeight: '600', fontVariant: ['tabular-nums'] },
   cameraHint: { color: colors.muted, fontSize: 11, lineHeight: 18 },

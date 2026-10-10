@@ -1,72 +1,101 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { PanResponder, Pressable, StyleSheet, Text, View, type GestureResponderEvent, type ViewStyle } from 'react-native';
-import { Minus, Plus } from 'lucide-react-native';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { PanResponder, StyleSheet, Text, View, type GestureResponderEvent, type ViewStyle } from 'react-native';
+import { Gesture, GestureDetector } from 'react-native-gesture-handler';
+import Animated, { runOnJS, runOnUI, useAnimatedStyle, useSharedValue } from 'react-native-reanimated';
 import { colors } from '@/theme/colors';
-const clamp = (value: number) => Math.max(0, Math.min(1, value));
+const clamp = (value: number) => Number.isFinite(value) ? Math.max(0, Math.min(1, value)) : 0;
 
-export function StudioCaptureZoom({ value, onChange, label, disabled, style, controlName = 'zoom' }: {
+/** A continuous wheel; geometry moves on UI while hardware targets are coalesced. */
+export function StudioCaptureZoom({ value, onChange, label, disabled, style, controlName = 'zoom', confirmedValue, pending, confirmation }: {
   value: number; onChange: (value: number) => void; label: string; disabled?: boolean; style?: ViewStyle; controlName?: string;
+  /** Hardware receipt; optional so exposure/intensity keep their controlled API. */
+  confirmedValue?: number; pending?: boolean; confirmation?: number;
 }) {
-  const [expanded, setExpanded] = useState(false);
-  const valueRef = useRef(value); valueRef.current = value;
-  const onChangeRef = useRef(onChange); onChangeRef.current = onChange;
-  const disabledRef = useRef(disabled); disabledRef.current = disabled;
-  const base = useRef(0);
-  const collapse = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const hold = useRef<ReturnType<typeof setInterval> | null>(null);
-  const holding = useRef(false);
-  function stopHold() { if (hold.current) clearInterval(hold.current); hold.current = null; }
-  function keepOpen() { if (collapse.current) clearTimeout(collapse.current); collapse.current = null; setExpanded(true); }
-  function scheduleClose() {
-    if (collapse.current) clearTimeout(collapse.current);
-    collapse.current = setTimeout(() => setExpanded(false), 2200);
-  }
-  function nudge(direction: number) { if (!disabledRef.current) onChangeRef.current(clamp(valueRef.current + direction * 0.025)); }
-  function startHold(direction: number) {
-    holding.current = true; keepOpen(); nudge(direction);
-    hold.current = setInterval(() => nudge(direction), 85);
-  }
-  const pan = useMemo(() => PanResponder.create({
-    onStartShouldSetPanResponder: () => false,
-    onStartShouldSetPanResponderCapture: () => false,
-    onMoveShouldSetPanResponder: (_, gesture) => !disabledRef.current && Math.abs(gesture.dx) > 3,
-    onMoveShouldSetPanResponderCapture: (_, gesture) => !disabledRef.current && Math.abs(gesture.dx) > 3,
-    onPanResponderGrant: () => { base.current = valueRef.current; keepOpen(); },
-    onPanResponderMove: (_, gesture) => onChangeRef.current(clamp(base.current + gesture.dx / 400)),
-    onPanResponderRelease: scheduleClose,
-    onPanResponderTerminate: scheduleClose,
-    onPanResponderTerminationRequest: () => true,
-  }), []);
-  useEffect(() => () => { stopHold(); if (collapse.current) clearTimeout(collapse.current); }, []);
-  useEffect(() => { if (disabled) { stopHold(); setExpanded(false); } }, [disabled]);
-  return <View style={[zoomStyles.container, expanded && zoomStyles.expanded, style]}>
-    {expanded && <View pointerEvents="none" style={zoomStyles.dial}>
-      <View style={[zoomStyles.ticks, { transform: [{ translateX: -value * 400 }] }]}>
-        {Array.from({ length: 41 }, (_, index) => <View key={index} style={zoomStyles.tickCell}>
-          <View style={[zoomStyles.tick, index % 5 === 0 && zoomStyles.tickMajor]} />
-        </View>)}
-      </View><View style={zoomStyles.needle} />
+  const live = useRef({ onChange, disabled: !!disabled, mounted: true, epoch: 0 });
+  if (live.current.disabled !== !!disabled) live.current.epoch++;
+  live.current.onChange = onChange; live.current.disabled = !!disabled;
+  const progress = useSharedValue(Number.isFinite(value) ? clamp(value) : 0);
+  const base = useSharedValue(0), dragging = useSharedValue(false), lastSent = useSharedValue(0);
+  const controls = useSharedValue({ disabled: !!disabled, epoch: live.current.epoch });
+  const gestureEpoch = useSharedValue(0);
+  const receipt = useSharedValue({ value: clamp(confirmedValue ?? value), confirmation: confirmation ?? 0, explicit: confirmedValue !== undefined || pending !== undefined || confirmation !== undefined });
+  const awaiting = useSharedValue(!!pending), requestedConfirmation = useSharedValue(confirmation ?? 0);
+  const receivedDuringDrag = useSharedValue(false);
+  const deliver = useCallback((next: number, epoch: number) => {
+    if (live.current.mounted && !live.current.disabled && live.current.epoch === epoch && Number.isFinite(next)) live.current.onChange(clamp(next));
+  }, []);
+  useEffect(() => {
+    runOnUI((blocked: boolean, epoch: number) => {
+      'worklet';
+      controls.value = { disabled: blocked, epoch }; dragging.value = false;
+      if (blocked) { awaiting.value = false; progress.value = receipt.value.value; }
+    })(!!disabled, live.current.epoch);
+  }, [disabled]);
+  useEffect(() => {
+    runOnUI((next: number, inFlight: boolean, version: number, explicit: boolean) => {
+      'worklet';
+      receipt.value = { value: Number.isFinite(next) ? Math.max(0, Math.min(1, next)) : 0, confirmation: version, explicit };
+      if (explicit) {
+        if (inFlight) awaiting.value = true;
+        else if (!awaiting.value || version !== requestedConfirmation.value) awaiting.value = false;
+        if (!dragging.value && !awaiting.value) progress.value = receipt.value.value;
+      } else if (dragging.value) receivedDuringDrag.value = true;
+      else progress.value = receipt.value.value;
+    })(confirmedValue ?? value, !!pending, confirmation ?? 0, confirmedValue !== undefined || pending !== undefined || confirmation !== undefined);
+  }, [value, confirmedValue, pending, confirmation]);
+  useEffect(() => { live.current.mounted = true; return () => { live.current.mounted = false; live.current.epoch++; }; }, []);
+  const pan = useMemo(() => Gesture.Pan().maxPointers(1).activeOffsetX([-2, 2]).failOffsetY([-14, 14])
+    .onStart(() => {
+      'worklet';
+      if (controls.value.disabled) return;
+      gestureEpoch.value = controls.value.epoch; base.value = progress.value; dragging.value = true; lastSent.value = 0; receivedDuringDrag.value = false;
+    })
+    .onUpdate(event => {
+      'worklet';
+      if (!dragging.value || controls.value.disabled || gestureEpoch.value !== controls.value.epoch || !Number.isFinite(event.translationX)) return;
+      progress.value = Math.max(0, Math.min(1, base.value + event.translationX / 360));
+      const now = Date.now();
+      if (now - lastSent.value >= 30) {
+        lastSent.value = now;
+        if (receipt.value.explicit) { awaiting.value = true; requestedConfirmation.value = receipt.value.confirmation; }
+        runOnJS(deliver)(progress.value, gestureEpoch.value);
+      }
+    })
+    .onEnd((event, success) => {
+      'worklet';
+      if (!success || !dragging.value || controls.value.disabled || gestureEpoch.value !== controls.value.epoch) return;
+      if (Number.isFinite(event.translationX)) progress.value = Math.max(0, Math.min(1, base.value + event.translationX / 360));
+      // JS may still be blocked when FINALIZE runs. Reserve this request on UI
+      // first, so the dial cannot jump to the preceding hardware receipt.
+      if (receipt.value.explicit) { awaiting.value = true; requestedConfirmation.value = receipt.value.confirmation; }
+      runOnJS(deliver)(progress.value, gestureEpoch.value);
+    })
+    .onFinalize(() => {
+      'worklet'; dragging.value = false;
+      if (receipt.value.explicit ? !awaiting.value : receivedDuringDrag.value) progress.value = receipt.value.value;
+    }), []);
+  const ticks = useAnimatedStyle(() => ({ transform: [{ translateX: -progress.value * 360 }] }));
+  const adjust = (direction: number) => {
+    runOnUI((delta: number) => {
+      'worklet';
+      if (controls.value.disabled) return;
+      progress.value = Math.max(0, Math.min(1, progress.value + delta * 0.025));
+      if (receipt.value.explicit) { awaiting.value = true; requestedConfirmation.value = receipt.value.confirmation; }
+      runOnJS(deliver)(progress.value, controls.value.epoch);
+    })(direction);
+  };
+  return <GestureDetector gesture={pan}><Animated.View accessible accessibilityRole="adjustable" accessibilityLabel={`${controlName} da câmera`}
+    accessibilityState={{ disabled: !!disabled }} accessibilityValue={{ min: 0, max: 100, now: Math.round(clamp(value) * 100), text: label }}
+    accessibilityActions={[{ name: 'increment', label: `Aumentar ${controlName}` }, { name: 'decrement', label: `Diminuir ${controlName}` }]}
+    onAccessibilityAction={event => { if (event.nativeEvent.actionName === 'increment') adjust(1); else if (event.nativeEvent.actionName === 'decrement') adjust(-1); }}
+    style={[zoomStyles.container, disabled && zoomStyles.disabled, style]}>
+    <Text pointerEvents="none" style={zoomStyles.label}>{label}</Text>
+    {!disabled && <View pointerEvents="none" style={zoomStyles.dial}>
+      <Animated.View style={[zoomStyles.ticks, ticks]}>
+        {Array.from({ length: 41 }, (_, index) => <View key={index} style={zoomStyles.tickCell}><View style={[zoomStyles.tick, index % 5 === 0 && zoomStyles.tickMajor]} /></View>)}
+      </Animated.View><View style={zoomStyles.needle} />
     </View>}
-    <View style={zoomStyles.controls}>
-      {([-1, 1] as const).map((direction, index) => <View key={direction} style={index === 1 ? { flexDirection: 'row', alignItems: 'center' } : undefined}>
-        {index === 1 && <Pressable {...pan.panHandlers} accessibilityRole="adjustable" accessibilityLabel={`${controlName} da câmera`}
-          accessibilityValue={{ min: 0, max: 100, now: Math.round(value * 100), text: label }}
-          accessibilityActions={[{ name: 'increment', label: `Aumentar ${controlName}` }, { name: 'decrement', label: `Diminuir ${controlName}` }]}
-          onAccessibilityAction={event => nudge(event.nativeEvent.actionName === 'increment' ? 1 : -1)}
-          disabled={disabled} onPress={() => { if (expanded) setExpanded(false); else { keepOpen(); scheduleClose(); } }} onLongPress={keepOpen}
-          style={zoomStyles.labelButton}><Text style={zoomStyles.label}>{label}</Text></Pressable>}
-        <Pressable accessibilityRole="button" accessibilityLabel={direction > 0 ? `Aumentar ${controlName}: segure para ajustar` : `Diminuir ${controlName}: segure para ajustar`}
-          disabled={disabled || (direction < 0 ? value <= 0 : value >= 1)} delayLongPress={260}
-          onPressIn={() => { holding.current = false; }} onLongPress={() => startHold(direction)}
-          onPressOut={() => { stopHold(); if (holding.current) scheduleClose(); }}
-          onPress={() => { if (!holding.current) nudge(direction); }}
-          style={({ pressed }) => [zoomStyles.nudge, pressed && { backgroundColor: 'rgba(255,255,255,0.08)' }]}>
-          {direction < 0 ? <Minus size={16} color={colors.text} /> : <Plus size={16} color={colors.text} />}
-        </Pressable>
-      </View>)}
-    </View>
-    {expanded && <Text pointerEvents="none" style={zoomStyles.hint}>Deslize para ajustar</Text>}
-  </View>;
+  </Animated.View></GestureDetector>;
 }
 
 const distance = (event: GestureResponderEvent) => {
@@ -97,8 +126,9 @@ export function StudioCaptureFrame({ children, frame, zoom, onZoom, disabled, on
     onStartShouldSetPanResponderCapture: () => false,
     onMoveShouldSetPanResponder: event => !live.current.disabled && event.nativeEvent.touches.length >= 2,
     onMoveShouldSetPanResponderCapture: event => !live.current.disabled && event.nativeEvent.touches.length >= 2,
-    onPanResponderGrant: event => { clearLongPress(); tap.current.pinched = true; pinch.current = { distance: distance(event), zoom: live.current.zoom }; },
+    onPanResponderGrant: event => { clearLongPress(); if (live.current.disabled) return; tap.current.pinched = true; pinch.current = { distance: distance(event), zoom: live.current.zoom }; },
     onPanResponderMove: event => {
+      if (live.current.disabled) { pinch.current.distance = 0; return; }
       const next = distance(event);
       if (next > 0 && pinch.current.distance > 0) live.current.onZoom(clamp(pinch.current.zoom + Math.log(next / pinch.current.distance) * 0.22));
     },
@@ -106,6 +136,11 @@ export function StudioCaptureFrame({ children, frame, zoom, onZoom, disabled, on
     onPanResponderTerminate: () => { pinch.current.distance = 0; clearLongPress(); },
   }), []);
   useEffect(() => () => { clearLongPress(); if (hide.current) clearTimeout(hide.current); }, []);
+  useEffect(() => {
+    if (!disabled) return;
+    clearLongPress(); pinch.current.distance = 0; tap.current.pinched = true;
+    if (hide.current) clearTimeout(hide.current); hide.current = null; setFocusPoint(null);
+  }, [disabled]);
   return <View {...pan.panHandlers} style={[frameStyles.frame, frame]} onTouchStart={event => {
     clearLongPress();
     if (event.nativeEvent.touches.length !== 1) { tap.current.pinched = true; return; }
@@ -130,20 +165,17 @@ export function StudioCaptureFrame({ children, frame, zoom, onZoom, disabled, on
   </View>;
 }
 const zoomStyles = StyleSheet.create({
-  container: { position: 'absolute', width: 160, backgroundColor: 'rgba(0,0,0,0.66)', borderRadius: 23, borderWidth: 1, borderColor: 'rgba(255,255,255,0.15)', overflow: 'hidden' },
-  expanded: { width: 204, borderRadius: 18 },
-  controls: { height: 40, flexDirection: 'row', alignItems: 'center', justifyContent: 'center' },
-  labelButton: { minWidth: 76, height: 40, alignItems: 'center', justifyContent: 'center' },
-  label: { color: colors.text, fontSize: 12, fontWeight: '600', fontVariant: ['tabular-nums'] },
-  nudge: { width: 38, height: 40, alignItems: 'center', justifyContent: 'center' },
-  dial: { height: 31, marginTop: 8, overflow: 'hidden' },
-  ticks: { position: 'absolute', left: '50%', width: 410, flexDirection: 'row', alignItems: 'flex-end', height: 25 },
-  tickCell: { width: 10, height: 25, alignItems: 'center', justifyContent: 'flex-end' },
-  tick: { width: 1, height: 8, backgroundColor: '#777777' },
-  tickMajor: { height: 17, backgroundColor: '#C7C7C7' },
-  needle: { position: 'absolute', width: 2, height: 25, left: '50%', backgroundColor: '#FFFFFF', top: 0 },
-  hint: { fontSize: 9, color: '#AEAEAE', textAlign: 'center', paddingBottom: 9 },
+  container: { position: 'absolute', width: 194, minHeight: 62, backgroundColor: 'rgba(0,0,0,0.62)', borderRadius: 14, borderWidth: 1, borderColor: 'rgba(255,255,255,0.13)', overflow: 'hidden', paddingTop: 7, paddingBottom: 5 },
+  disabled: { minHeight: 44, justifyContent: 'center', opacity: 0.45 },
+  label: { color: colors.text, textAlign: 'center', fontSize: 13, fontWeight: '600', fontVariant: ['tabular-nums'] },
+  dial: { height: 25, marginTop: 4, overflow: 'hidden' },
+  ticks: { position: 'absolute', left: '50%', marginLeft: -4.5, width: 369, flexDirection: 'row', alignItems: 'flex-end', height: 23 },
+  tickCell: { width: 9, height: 23, alignItems: 'center', justifyContent: 'flex-end' },
+  tick: { width: 1, height: 7, backgroundColor: 'rgba(255,255,255,0.46)' },
+  tickMajor: { height: 15, backgroundColor: 'rgba(255,255,255,0.9)' },
+  needle: { position: 'absolute', width: 2, height: 21, left: '50%', marginLeft: -1, backgroundColor: '#FFDB00', top: 1 },
 });
+
 const frameStyles = StyleSheet.create({
   frame: { position: 'absolute', overflow: 'hidden', backgroundColor: '#000000' },
   focus: { position: 'absolute', width: 48, height: 48, borderWidth: 1.5, borderColor: '#FFD456', borderRadius: 7 },
