@@ -822,13 +822,14 @@ export default function StudioCaptureScreen() {
       <Text style={styles.countdownLabel}>{cancelingAudio ? 'Cancelando a preparação…' : countdown > 0 ? 'Respire. Sua ideia vem primeiro.' : 'Preparando a gravação…'}</Text>
     </View>}
 
-    {!immersive && (!!notice || !!failure || !!recovery || !!orientationError || !!cameraControls.error) && <View accessibilityLiveRegion="polite" style={[styles.statusToast, landscape
-      ? { bottom: Math.max(insets.bottom, 16) + (project?.takes.length ? 160 : 60), left: safeLeft + 64, right: safeRight + 124 }
-      : { bottom: safeBottom + (project?.takes.length ? 278 : 228), left: safeLeft, right: safeRight }]}>
-      <View style={styles.statusRow}>{!failure && !orientationError && !cameraControls.error && <Check size={16} color={colors.free} />}<Text style={[styles.statusText, (!!failure || !!orientationError || !!cameraControls.error) && styles.failure]}>{failure || orientationError || cameraControls.error || notice}</Text></View>
-      {!!recovery && <Pressable accessibilityRole="button" disabled={!idle} onPress={() => void saveTake(recovery.project, recovery.uri, recovery.duration, recovery.metadata)} style={styles.recoveryButton}>
-        <Text style={styles.recoveryLabel}>Salvar este take</Text><ChevronRight size={17} color={colors.text} />
-      </Pressable>}
+    {!immersive && (!!notice || !!failure || !!recovery || !!orientationError || !!cameraControls.error) && <View pointerEvents="box-none" style={styles.statusOverlay}>
+      <View pointerEvents={recovery ? 'auto' : 'none'} accessibilityLiveRegion="polite" style={[styles.statusToast,
+        { maxWidth: Math.max(0, Math.min(440, cameraWidth - 32, dimensions.width - 2 * Math.max(safeLeft, safeRight) - 24)) }]}>
+        <View style={styles.statusRow}>{!failure && !orientationError && !cameraControls.error && <Check size={14} color={colors.free} />}<Text style={[styles.statusText, (!!failure || !!orientationError || !!cameraControls.error) && styles.failure]}>{failure || orientationError || cameraControls.error || notice}</Text></View>
+        {!!recovery && <Pressable accessibilityRole="button" disabled={!idle} onPress={() => void saveTake(recovery.project, recovery.uri, recovery.duration, recovery.metadata)} style={styles.recoveryButton}>
+          <Text style={styles.recoveryLabel}>Salvar este take</Text><ChevronRight size={17} color={colors.text} />
+        </Pressable>}
+      </View>
     </View>}
 
     {captureAvailable && <View style={landscape
@@ -1021,11 +1022,12 @@ const styles = StyleSheet.create({
   recordInner: { width: 70, height: 70, borderRadius: 35, backgroundColor: '#E11D48' },
   recordStop: { width: 32, height: 32, borderRadius: 7, backgroundColor: '#E11D48' },
   recordPressed: { transform: [{ scale: 0.95 }] },
-  statusToast: { position: 'absolute', padding: 12, borderRadius: 14, borderWidth: 1, borderColor: 'rgba(255,255,255,0.09)', backgroundColor: 'rgba(9,9,9,0.9)', gap: 10 },
-  statusRow: { flexDirection: 'row', alignItems: 'center', gap: 7 },
-  statusText: { color: colors.textSecondary, fontSize: 11, lineHeight: 17, flexShrink: 1 },
+  statusOverlay: { ...StyleSheet.absoluteFillObject, alignItems: 'center', justifyContent: 'center' },
+  statusToast: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 12, backgroundColor: 'rgba(0,0,0,0.58)', gap: 8 },
+  statusRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 },
+  statusText: { color: colors.text, fontSize: 11, lineHeight: 16, textAlign: 'center', minWidth: 0, flexShrink: 1 },
   failure: { color: '#F6B6C4' },
-  recoveryButton: { minHeight: 38, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', borderRadius: 10, gap: 8, backgroundColor: '#282828' },
+  recoveryButton: { minHeight: 44, paddingHorizontal: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', borderRadius: 10, gap: 8, backgroundColor: '#282828' },
   recoveryLabel: { color: colors.text, fontSize: 12, fontWeight: '600' },
   podcastCenter: { ...StyleSheet.absoluteFillObject, alignItems: 'center', justifyContent: 'center', gap: 18, paddingTop: 75, paddingBottom: 190 },
   micCircle: { width: 116, height: 116, borderRadius: 58, backgroundColor: 'rgba(255,255,255,0.04)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.12)', alignItems: 'center', justifyContent: 'center', marginBottom: 6 },
