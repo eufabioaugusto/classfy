@@ -4,7 +4,7 @@ import {
   mergeEconomySettings,
   normalizePlan,
 } from "../_shared/economy.ts";
-import { excludesEconomicRewards } from "../_shared/reward-contract.ts";
+import { excludesEconomicRewards, meetsLessonRewardThreshold } from "../_shared/reward-contract.ts";
 import { getVerifiedUserId } from "../_shared/auth.ts";
 
 const corsHeaders = {
@@ -22,7 +22,9 @@ interface RewardPayload {
 
 interface RewardTarget {
   id: string;
-  kind: "content" | "course";
+  kind: "content" | "course" | "lesson";
+  courseId?: string;
+  isPreview?: boolean;
   creatorId: string;
   title: string;
   status: string;
@@ -90,16 +92,32 @@ async function resolveRewardTarget(
     .select("id,creator_id,title,status,visibility")
     .eq("id", targetId).maybeSingle();
   if (courseError) throw courseError;
-  return course
-    ? {
+  if (course) return {
       id: course.id,
       kind: "course",
       creatorId: course.creator_id,
       title: course.title,
       status: course.status,
       visibility: course.visibility,
-    }
-    : null;
+    };
+
+  const { data: lesson, error: lessonError } = await supabase.from("course_lessons")
+    .select("id,course_id,title,is_preview").eq("id", targetId).maybeSingle();
+  if (lessonError) throw lessonError;
+  if (!lesson) return null;
+  const { data: parent, error: parentError } = await supabase.from("courses")
+    .select("creator_id,title,status,visibility").eq("id", lesson.course_id).maybeSingle();
+  if (parentError) throw parentError;
+  return parent ? {
+    id: lesson.id,
+    kind: "lesson",
+    courseId: lesson.course_id,
+    isPreview: lesson.is_preview === true,
+    creatorId: parent.creator_id,
+    title: `${parent.title} · ${lesson.title}`,
+    status: parent.status,
+    visibility: parent.visibility,
+  } : null;
 }
 
 async function hasTargetAccess(
@@ -108,6 +126,7 @@ async function hasTargetAccess(
   target: RewardTarget,
 ) {
   if (target.status !== "approved") return false;
+  if (target.kind === "lesson" && target.isPreview) return true;
   if (target.creatorId === userId) return true;
 
   const [{ data: adminRole }, { data: profile }] = await Promise.all([
@@ -124,15 +143,23 @@ async function hasTargetAccess(
   }
   if (target.visibility !== "paid") return false;
 
-  if (target.kind === "course") {
+  if (target.kind === "course" || target.kind === "lesson") {
     const { data } = await supabase.from("course_enrollments").select("id")
-      .eq("user_id", userId).eq("course_id", target.id).maybeSingle();
+      .eq("user_id", userId).eq("course_id", target.courseId || target.id).maybeSingle();
     return !!data;
   }
   const { data } = await supabase.from("purchased_contents").select("id")
     .eq("user_id", userId).eq("content_id", target.id)
     .in("status", ["confirmed", "legacy_confirmed"]).maybeSingle();
   return !!data;
+}
+
+async function hasLessonRewardEvidence(supabase: any, actionKey: string, userId: string, lessonId: string) {
+  const { data, error } = await supabase.from("course_lesson_progress")
+    .select("watched_seconds,progress_percent,completed")
+    .eq("user_id", userId).eq("lesson_id", lessonId).maybeSingle();
+  if (error) throw error;
+  return meetsLessonRewardThreshold(actionKey, data);
 }
 
 async function hasRewardEvidence(
@@ -284,6 +311,9 @@ Deno.serve(async (req) => {
     if (contentId && !rewardTarget) {
       return json({ error: "Reward target not found" }, 404);
     }
+    if (rewardTarget?.kind === "lesson" && !["VIEW_15S", "WATCH_50", "WATCH_100"].includes(actionKey)) {
+      return json({ error: "Unsupported lesson reward action" }, 400);
+    }
 
     // Shorts sao superficie publica de descoberta. Engajamento continua sendo
     // persistido, mas nenhuma acao ligada a um Short entra no ledger economico.
@@ -327,13 +357,15 @@ Deno.serve(async (req) => {
         streakState = data as Record<string, unknown>;
       }
       if (
-        !await hasRewardEvidence(
+        !(rewardTarget?.kind === "lesson"
+          ? await hasLessonRewardEvidence(supabase, actionKey, userId, rewardTarget.id)
+          : await hasRewardEvidence(
           supabase,
           actionKey,
           userId,
           contentId,
           metadata,
-        )
+        ))
       ) {
         return json(
           { error: "Reward action is not backed by server evidence" },
@@ -358,9 +390,9 @@ Deno.serve(async (req) => {
       resolvedContentId = rewardTarget.kind === "content"
         ? rewardTarget.id
         : null;
-      resolvedCourseId = rewardTarget.kind === "course"
-        ? rewardTarget.id
-        : null;
+      resolvedCourseId = rewardTarget.kind === "lesson"
+        ? rewardTarget.courseId!
+        : rewardTarget.kind === "course" ? rewardTarget.id : null;
       creatorId = rewardTarget.creatorId;
       title = rewardTarget.title;
     }
@@ -440,6 +472,7 @@ Deno.serve(async (req) => {
       economy_version: 1,
       canonical_name: config.canonical_name,
       course_id: resolvedCourseId,
+      lesson_id: rewardTarget?.kind === "lesson" ? rewardTarget.id : null,
       title,
     };
 

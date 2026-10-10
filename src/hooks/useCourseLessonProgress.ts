@@ -15,12 +15,14 @@ interface CourseProgressResult {
   accepted_watched_delta?: number;
   course_completed?: boolean;
   course_progress_percent?: number;
+  lesson_progress_percent?: number;
+  lesson_completed?: boolean;
 }
 
 /**
  * Registra progresso real de uma aula de curso. Cursos possuem contrato proprio:
- * as aulas alimentam course_enrollments e somente a conclusao integral gera a
- * recompensa COMPLETE_COURSE.
+ * As aulas geram marcos proprios e alimentam course_enrollments; a conclusao
+ * integral gera o bonus COMPLETE_COURSE, separado dos ganhos por aula.
  */
 export function useCourseLessonProgress({
   courseId,
@@ -36,12 +38,16 @@ export function useCourseLessonProgress({
   const lastPersistedSecondRef = useRef(0);
   const persistPromiseRef = useRef<Promise<void> | null>(null);
   const completionRequestedRef = useRef(false);
+  const awardedMilestonesRef = useRef(new Set<string>());
+  const generationRef = useRef(0);
 
   const persist = useCallback(async () => {
     if (!enabled || !user || !courseId || !lessonId || duration <= 0) return;
     if (!persistPromiseRef.current) {
+      const generation = generationRef.current;
       persistPromiseRef.current = (async () => {
         while (true) {
+          if (generation !== generationRef.current) break;
           const watchedFloor = Math.floor(accumulatedRef.current);
           const watchedDelta = watchedFloor - lastPersistedSecondRef.current;
           if (watchedDelta <= 0) break;
@@ -55,18 +61,35 @@ export function useCourseLessonProgress({
               p_progress_percent: 0,
             });
             if (error) throw error;
+            if (generation !== generationRef.current) break;
 
             const result = data as CourseProgressResult | null;
             const acceptedDelta = Math.max(0, Number(result?.accepted_watched_delta || 0));
             lastPersistedSecondRef.current += acceptedDelta;
+            const milestones = [
+              ...(Math.floor(accumulatedRef.current) >= 15 ? ["VIEW_15S"] : []),
+              ...(Number(result?.lesson_progress_percent || 0) >= 50 ? ["WATCH_50"] : []),
+              ...(result?.lesson_completed ? ["WATCH_100"] : []),
+            ];
+            for (const actionKey of milestones) {
+              if (generation !== generationRef.current) break;
+              if (awardedMilestonesRef.current.has(actionKey)) continue;
+              const reward = await processReward({ actionKey, userId: user.id, contentId: lessonId });
+              if (generation === generationRef.current && (reward?.success || reward?.alreadyTracked || reward?.selfInteractionBlocked)) {
+                awardedMilestonesRef.current.add(actionKey);
+              }
+            }
+            if (generation !== generationRef.current) break;
             if (result?.course_completed && !completionRequestedRef.current) {
-              completionRequestedRef.current = true;
-              await processReward({
+              const reward = await processReward({
                 actionKey: "COMPLETE_COURSE",
                 userId: user.id,
                 contentId: courseId,
                 metadata: { source: "course_lesson_progress_v1" },
               });
+              if (generation === generationRef.current) {
+                completionRequestedRef.current = Boolean(reward?.success || reward?.alreadyTracked || reward?.selfInteractionBlocked);
+              }
             }
             onMilestone?.();
 
@@ -79,7 +102,7 @@ export function useCourseLessonProgress({
           }
         }
       })().finally(() => {
-        persistPromiseRef.current = null;
+        if (generation === generationRef.current) persistPromiseRef.current = null;
       });
     }
 
@@ -104,11 +127,13 @@ export function useCourseLessonProgress({
   }, [persist]);
 
   const reset = useCallback(() => {
+    generationRef.current += 1;
     accumulatedRef.current = 0;
     previousTimeRef.current = 0;
     lastPersistedSecondRef.current = 0;
     persistPromiseRef.current = null;
     completionRequestedRef.current = false;
+    awardedMilestonesRef.current.clear();
   }, []);
 
   const persistCurrent = useCallback(() => persist(), [persist]);

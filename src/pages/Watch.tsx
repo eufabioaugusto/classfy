@@ -45,6 +45,7 @@ import { MobileNotesSheet } from "@/components/watch/MobileNotesSheet";
 import { MobileWatchOverlay } from "@/components/watch/MobileWatchOverlay";
 import { MobileCurriculumSheet } from "@/components/watch/MobileCurriculumSheet";
 import { ContentRewardProgress } from "@/components/watch/ContentRewardProgress";
+import { CourseRewardProgress } from "@/components/watch/CourseRewardProgress";
 import {
   evaluateContentEntitlement,
   type ContentEntitlement,
@@ -1326,6 +1327,13 @@ function WatchContent() {
           </Sheet>
 
           <div className="pb-20">
+            {user && isCourse && currentLesson && (hasAccess || currentLesson.is_preview) && (
+              <div className="mx-3 mt-3">
+                <CourseRewardProgress key={`${content.id}-${currentLesson.id}`} courseId={content.id} creatorId={content.creator_id}
+                  lessonId={currentLesson.id} lessonIds={courseModules.flatMap((module) => module.lessons.map((lesson) => lesson.id))}
+                  hasAccess={hasAccess} refreshTrigger={rewardRefreshTrigger} />
+              </div>
+            )}
             {hasAccess && user && !isCourse && (
               <div className="mx-3 mt-3">
                 <ContentRewardProgress
@@ -1542,6 +1550,11 @@ function WatchContent() {
                 ) : null}
 
                 {/* Reward progress bar */}
+                {user && isCourse && currentLesson && (hasAccess || currentLesson.is_preview) && (
+                  <CourseRewardProgress key={`${content.id}-${currentLesson.id}`} courseId={content.id} creatorId={content.creator_id}
+                    lessonId={currentLesson.id} lessonIds={courseModules.flatMap((module) => module.lessons.map((lesson) => lesson.id))}
+                    hasAccess={hasAccess} refreshTrigger={rewardRefreshTrigger} />
+                )}
                 {hasAccess && user && !isCourse && (
                   <ContentRewardProgress
                     contentId={content.id}

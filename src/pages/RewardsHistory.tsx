@@ -70,6 +70,8 @@ const rewardOriginLabels: Record<string, string> = {
 
 const getRewardOrigin = (event: RewardEvent) =>
   event.contents?.title ||
+  (event.metadata && typeof event.metadata === "object" && !Array.isArray(event.metadata)
+    && typeof event.metadata.title === "string" ? event.metadata.title : null) ||
   (event.metadata &&
   typeof event.metadata === "object" &&
   !Array.isArray(event.metadata) &&
@@ -84,6 +86,7 @@ const metadataLabels: Record<string, string> = {
   plan: "Plano",
   title: "Título",
   course_id: "Curso",
+  lesson_id: "Aula do curso",
   content_id: "Conteúdo",
   tracking_key: "Identificador do registro",
   canonical_name: "Nome da regra",
