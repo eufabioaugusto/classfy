@@ -1,9 +1,13 @@
 {
   "name": "classfy-mobile",
-  "main": "expo-router/entry",
+  "main": "./index.js",
   "version": "1.0.0",
   "dependencies": {
+    "@config-plugins/react-native-webrtc": "13.0.0",
     "@expo/vector-icons": "^15.0.3",
+    "@livekit/react-native": "3.0.0",
+    "@livekit/react-native-expo-plugin": "1.0.3",
+    "@livekit/react-native-webrtc": "144.2.0",
     "@react-native-async-storage/async-storage": "2.2.0",
     "@react-native-voice/voice": "^3.2.4",
     "@supabase/supabase-js": "^2.108.2",
@@ -22,6 +26,7 @@
     "expo-image": "~3.0.11",
     "expo-image-manipulator": "~14.0.8",
     "expo-image-picker": "~17.0.11",
+    "expo-keep-awake": "~15.0.8",
     "expo-linear-gradient": "~15.0.8",
     "expo-notifications": "~0.32.17",
     "expo-router": "~6.0.0",
@@ -31,6 +36,7 @@
     "expo-status-bar": "~3.0.0",
     "expo-video": "~3.0.16",
     "expo-web-browser": "~15.0.11",
+    "livekit-client": "2.22.4",
     "lucide-react-native": "^1.21.0",
     "react": "19.1.0",
     "react-dom": "19.1.0",
@@ -76,7 +82,9 @@
     "test:studio:transcription": "bash modules/classfy-studio-media/tests/verify-transcription.sh",
     "test:studio:compositor": "bash modules/classfy-studio-media/tests/verify-compositor.sh",
     "test:studio:initial-frame": "bash modules/classfy-studio-media/tests/verify-composition-initialization.sh",
-    "test:studio:interaction": "bash modules/classfy-studio-media/tests/verify-interaction.sh"
+    "test:studio:interaction": "bash modules/classfy-studio-media/tests/verify-interaction.sh",
+    "test:live": "node --experimental-strip-types --test src/features/live/*.test.mjs",
+    "test:live:transport": "node --experimental-strip-types --test src/features/live/transport.test.mjs"
   },
   "private": true
 }

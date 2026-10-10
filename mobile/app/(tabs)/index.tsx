@@ -212,10 +212,8 @@ export default function HomeScreen() {
                     style={styles.live}
                     onPress={() =>
                       user
-                        ? Linking.openURL(
-                            `https://classfy.com.br/live/${live.id}`,
-                          )
-                        : router.push('/auth/sign-in')
+                        ? router.push({ pathname: '/live/[id]', params: { id: live.id } })
+                        : router.push({ pathname: '/auth/sign-in', params: { liveId: live.id } })
                     }
                   >
                     <Image

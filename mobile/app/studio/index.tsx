@@ -3,7 +3,7 @@ import { ActivityIndicator, Alert, Keyboard, Platform, Pressable, ScrollView, St
 import { useRouter } from 'expo-router';
 import { useIsFocused } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { ArrowDownWideNarrow, ArrowUpRight, Camera, Check, ChevronRight, Clock3, Film, FolderOpen, Images, Mic, MoreHorizontal, Plus, Search, Trash2, Video, X } from 'lucide-react-native';
+import { ArrowDownWideNarrow, ArrowUpRight, Camera, Check, ChevronRight, Clock3, Film, FolderOpen, Images, Mic, MoreHorizontal, Plus, Radio, Search, Trash2, Video, X } from 'lucide-react-native';
 import { AppScreen } from '@/components/AppScreen';
 import { NavigationHeader } from '@/components/NavigationHeader';
 import { LoadingImage } from '@/components/LoadingImage';
@@ -18,11 +18,13 @@ import { discardTransient, getStudioProject } from '@/features/studio/store';
 import { importStudioMedia } from '@/features/studio/media';
 import { compileStudioRecipe, formatStudioDuration, studioFormats, studioSeconds, studioStateLabel, type StudioKind, type StudioProject } from '@/features/studio/model';
 import { StudioAccess, studioStyles } from '@/features/studio/StudioUI';
+import { isStudioMediaAvailable } from '../../modules/classfy-studio-media';
 
-const formatIcons = { aula: Video, short: Film, podcast: Mic };
+const formatIcons = { aula: Video, short: Film, podcast: Mic, live: Radio };
+type WorkspaceFormat = StudioKind | 'live';
 type WorkspaceFilter = 'draft' | 'submitted';
 type WorkspaceOrder = 'recent' | 'oldest';
-type CreateRequest = { kind: StudioKind; source: 'camera' | 'gallery'; owner: string };
+type CreateRequest = { kind: StudioKind; source: 'camera' | 'gallery'; owner: string } | { kind: 'live'; source: 'live' | 'lives'; owner: string };
 const normalizeSearch = (value: string) => value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLocaleLowerCase('pt-BR').trim();
 const projectTitle = (project: StudioProject) => project.title.trim() || `${studioFormats.find(format => format.kind === project.kind)?.title} sem título`;
 function projectDate(iso: string) {
@@ -42,7 +44,7 @@ export default function StudioScreen() {
   const isFocused = useIsFocused();
   const { projects, loading, error, create, remove, recover } = useStudioProjects();
   const [newProject, setNewProject] = useState(false);
-  const [format, setFormat] = useState<StudioKind>('aula');
+  const [format, setFormat] = useState<WorkspaceFormat>('aula');
   const [selected, setSelected] = useState<StudioProject | null>(null);
   const [filter, setFilter] = useState<WorkspaceFilter>('draft');
   const [order, setOrder] = useState<WorkspaceOrder>('recent');
@@ -80,7 +82,12 @@ export default function StudioScreen() {
     const request = pending.current;
     if (!request || launchingRef.current || recoveringRef.current) return;
     pending.current = null;
-    if (!mounted.current || !context.current.canPublish || context.current.owner !== request.owner) { if (mounted.current) setLaunching(false); return; }
+    if (!mounted.current || !context.current.focused || !context.current.canPublish || context.current.owner !== request.owner) { if (mounted.current) setLaunching(false); return; }
+    if (request.kind === 'live') {
+      setLaunching(false);
+      router.push(request.source === 'live' ? '/studio/live/new' : '/studio/live');
+      return;
+    }
     launchingRef.current = true; setLaunching(true); Keyboard.dismiss();
     let created: StudioProject | null = null;
     let handedOff = false;
@@ -117,7 +124,14 @@ export default function StudioScreen() {
   useEffect(() => { if (!newProject && Platform.OS !== 'ios') void launchPending(); }, [newProject, launchPending]);
   const startProject = (source: CreateRequest['source']) => {
     if (launchingRef.current || recoveringRef.current || pending.current || !user?.id || !canPublish) return;
-    pending.current = { kind: format, source, owner: user.id }; setLaunching(true); setNewProject(false);
+    if (format === 'live') {
+      if (source !== 'live' && source !== 'lives') return;
+      pending.current = { kind: 'live', source, owner: user.id };
+    } else {
+      if (source !== 'camera' && source !== 'gallery') return;
+      pending.current = { kind: format, source, owner: user.id };
+    }
+    setLaunching(true); setNewProject(false);
   };
   const deleteProject = (project: StudioProject) => {
     setSelected(null);
@@ -181,6 +195,11 @@ export default function StudioScreen() {
       <Pressable accessibilityRole="button" accessibilityLabel={`Opções de ${projectTitle(project)}`} disabled={launching || removing} onPress={() => setSelected(project)} style={({ pressed }) => [styles.projectOptions, pressed && { opacity: 0.65 }]}><View style={styles.optionsCircle}><MoreHorizontal size={18} color={colors.text} strokeWidth={1.6} /></View></Pressable>
     </View>;
   };
+  if (canPublish && !isStudioMediaAvailable()) return <AppScreen header={<NavigationHeader title="Studio" back />}>
+    <Pressable accessibilityRole="button" accessibilityLabel="Minhas lives" onPress={() => router.push('/studio/live')} style={({ pressed }) => [styles.liveEntryFallback, pressed && { opacity: 0.7 }]}>
+      <Radio size={24} color={colors.accent} strokeWidth={1.6} /><View style={{ flex: 1, gap: 5 }}><Text style={styles.sourceTitle}>Lives</Text><Text style={studioStyles.hint}>Preparar e gerenciar transmissões</Text></View><ChevronRight size={18} color={colors.muted} />
+    </Pressable><Text style={studioStyles.hint}>Atualize o aplicativo para gravar e editar projetos neste aparelho.</Text>
+  </AppScreen>;
   return <StudioAccess><AppScreen scroll={false} edgeToEdge header={<NavigationHeader title="Studio" back right={<View style={{ flexDirection: 'row', gap: 2 }}>
     <Pressable accessibilityRole="button" accessibilityLabel={searchVisible ? 'Fechar busca de projetos' : 'Buscar projetos'} disabled={launching} onPress={() => { if (searchVisible) { setQuery(''); Keyboard.dismiss(); } setSearchVisible(value => !value); }} style={({ pressed }) => [studioStyles.iconButton, pressed && { backgroundColor: colors.surface }]}>{searchVisible ? <X size={22} color={colors.text} strokeWidth={1.6} /> : <Search size={22} color={colors.text} strokeWidth={1.6} />}</Pressable>
     <Pressable accessibilityRole="button" accessibilityLabel="Ordenar projetos" disabled={launching} onPress={() => { Keyboard.dismiss(); setSortVisible(true); }} style={({ pressed }) => [studioStyles.iconButton, pressed && { backgroundColor: colors.surface }]}><ArrowDownWideNarrow size={22} color={colors.text} strokeWidth={1.6} /></Pressable>
@@ -189,7 +208,9 @@ export default function StudioScreen() {
       {searchVisible ? <View style={styles.search}><Search size={17} color={colors.muted} strokeWidth={1.6} /><TextInput autoFocus accessibilityLabel="Buscar projetos" value={query} onChangeText={setQuery} placeholder="Buscar projetos" placeholderTextColor={colors.mutedDim} style={styles.searchInput} returnKeyType="search" autoCorrect={false} onSubmitEditing={Keyboard.dismiss} />{!!query && <Pressable accessibilityRole="button" accessibilityLabel="Limpar busca de projetos" onPress={() => setQuery('')} style={styles.clearSearch}><X size={17} color={colors.muted} /></Pressable>}</View> : null}
       <View style={styles.toolbar}><View style={styles.filters}>{([
         ['draft', 'Rascunhos'], ['submitted', 'Enviados'],
-      ] as const).map(([key, title]) => <Pressable accessibilityRole="tab" accessibilityLabel={`${title}, ${counts[key]} projetos`} accessibilityState={{ selected: filter === key }} key={key} onPress={() => setFilter(key)} style={({ pressed }) => [styles.filter, filter === key && styles.filterSelected, pressed && { opacity: 0.75 }]}><Text style={[styles.filterLabel, filter === key && { color: colors.text }]}>{title}</Text>{counts[key] > 0 ? <Text style={[styles.filterCount, filter === key && { color: colors.textSecondary }]}>{counts[key]}</Text> : null}</Pressable>)}</View></View>
+      ] as const).map(([key, title]) => <Pressable accessibilityRole="tab" accessibilityLabel={`${title}, ${counts[key]} projetos`} accessibilityState={{ selected: filter === key }} key={key} onPress={() => setFilter(key)} style={({ pressed }) => [styles.filter, filter === key && styles.filterSelected, pressed && { opacity: 0.75 }]}><Text style={[styles.filterLabel, filter === key && { color: colors.text }]}>{title}</Text>{counts[key] > 0 ? <Text style={[styles.filterCount, filter === key && { color: colors.textSecondary }]}>{counts[key]}</Text> : null}</Pressable>)}</View>
+        <Pressable accessibilityRole="button" accessibilityLabel="Minhas lives" disabled={launching || recovering} onPress={() => router.push('/studio/live')} style={({ pressed }) => [styles.liveEntry, pressed && { opacity: 0.7 }]}><Radio size={16} color={colors.accent} strokeWidth={1.65} /><Text style={styles.filterLabel}>Lives</Text><ChevronRight size={13} color={colors.muted} /></Pressable>
+      </View>
       <View style={styles.gridCaption}><Text style={styles.caption}>{filtered.length} {filtered.length === 1 ? 'projeto' : 'projetos'}</Text><Text style={styles.caption}>{order === 'recent' ? 'Mais recentes' : 'Mais antigos'}</Text></View>
       {error ? <View style={styles.error}><Text style={[studioStyles.hint, { color: colors.textSecondary }]}>{error}</Text>
         <Pressable accessibilityRole="button" accessibilityLabel="Recuperar rascunhos do backup" accessibilityState={{ disabled: recovering || launching, busy: recovering }} disabled={recovering || launching} onPress={recoverDrafts} style={({ pressed }) => [styles.recoverButton, pressed && { opacity: 0.7 }]}>
@@ -205,9 +226,12 @@ export default function StudioScreen() {
       <Pressable accessibilityRole="button" accessibilityLabel="Novo projeto" accessibilityState={{ disabled: loading || launching || recovering || !!error, busy: launching }} disabled={loading || launching || recovering || !!error} onPress={() => { Keyboard.dismiss(); setNewProject(true); }} style={({ pressed }) => [styles.fab, { bottom: Math.max(insets.bottom, 16) + 16, right: 20 }, (loading || launching || recovering || !!error) && { opacity: 0.55 }, pressed && { backgroundColor: colors.accentPressed }]}>{launching ? <ActivityIndicator color={colors.text} /> : <Plus size={29} color={colors.text} strokeWidth={1.6} />}</Pressable>
     </View>
     <WorkspaceSheet visible={newProject} title="Novo projeto" onClose={() => setNewProject(false)} onDismiss={() => { void launchPending(); }}>
-      <View style={{ gap: 22 }}><View style={styles.formats}>{studioFormats.map(item => { const Icon = formatIcons[item.kind]; return <Pressable accessibilityRole="radio" accessibilityLabel={`Formato ${item.title}`} accessibilityState={{ selected: format === item.kind }} key={item.kind} onPress={() => setFormat(item.kind)} style={({ pressed }) => [styles.format, format === item.kind && styles.formatSelected, pressed && { opacity: 0.75 }]}><Icon size={21} color={format === item.kind ? colors.text : colors.muted} strokeWidth={1.55} /><Text style={[styles.formatTitle, format === item.kind && { color: colors.text }]}>{item.title}</Text></Pressable>; })}</View>
-        <View style={styles.sources}><Pressable accessibilityRole="button" accessibilityLabel={format === 'podcast' ? 'Gravar podcast' : 'Gravar com a câmera'} onPress={() => startProject('camera')} style={({ pressed }) => [styles.source, pressed && { backgroundColor: colors.surfaceAlt }]}>{format === 'podcast' ? <Mic size={28} color={colors.text} strokeWidth={1.4} /> : <Camera size={28} color={colors.text} strokeWidth={1.4} />}<Text style={styles.sourceTitle}>{format === 'podcast' ? 'Gravar áudio' : 'Câmera'}</Text><Text style={styles.sourceDetail}>{format === 'podcast' ? 'Começar uma gravação' : 'Gravar um novo take'}</Text></Pressable>
-          <Pressable accessibilityRole="button" accessibilityLabel={format === 'podcast' ? 'Importar arquivo de áudio' : 'Importar vídeos da galeria'} onPress={() => startProject('gallery')} style={({ pressed }) => [styles.source, pressed && { backgroundColor: colors.surfaceAlt }]}>{format === 'podcast' ? <FolderOpen size={28} color={colors.text} strokeWidth={1.4} /> : <Images size={28} color={colors.text} strokeWidth={1.4} />}<Text style={styles.sourceTitle}>{format === 'podcast' ? 'Arquivos' : 'Galeria'}</Text><Text style={styles.sourceDetail}>{format === 'podcast' ? 'Trazer seu áudio' : 'Trazer vídeos prontos'}</Text></Pressable></View>
+      <View style={{ gap: 22 }}><View style={styles.formats}>{[...studioFormats, { kind: 'live' as const, title: 'Live' }].map(item => { const Icon = formatIcons[item.kind]; return <Pressable accessibilityRole="radio" accessibilityLabel={`Formato ${item.title}`} accessibilityState={{ selected: format === item.kind }} key={item.kind} onPress={() => setFormat(item.kind)} style={({ pressed }) => [styles.format, format === item.kind && styles.formatSelected, pressed && { opacity: 0.75 }]}><Icon size={21} color={format === item.kind ? colors.text : colors.muted} strokeWidth={1.55} /><Text style={[styles.formatTitle, format === item.kind && { color: colors.text }]}>{item.title}</Text></Pressable>; })}</View>
+        {format === 'live' ? <View style={styles.sources}>
+          <Pressable accessibilityRole="button" accessibilityLabel="Preparar live" onPress={() => startProject('live')} style={({ pressed }) => [styles.source, pressed && { backgroundColor: colors.surfaceAlt }]}><Radio size={28} color={colors.accent} strokeWidth={1.4} /><Text style={styles.sourceTitle}>Preparar live</Text><Text style={styles.sourceDetail}>Título, capa e prévia privada</Text></Pressable>
+          <Pressable accessibilityRole="button" accessibilityLabel="Ver minhas lives" onPress={() => startProject('lives')} style={({ pressed }) => [styles.source, pressed && { backgroundColor: colors.surfaceAlt }]}><Clock3 size={28} color={colors.text} strokeWidth={1.4} /><Text style={styles.sourceTitle}>Minhas lives</Text><Text style={styles.sourceDetail}>Retomar e ver gravações</Text></Pressable>
+        </View> : <View style={styles.sources}><Pressable accessibilityRole="button" accessibilityLabel={format === 'podcast' ? 'Gravar podcast' : 'Gravar com a câmera'} onPress={() => startProject('camera')} style={({ pressed }) => [styles.source, pressed && { backgroundColor: colors.surfaceAlt }]}>{format === 'podcast' ? <Mic size={28} color={colors.text} strokeWidth={1.4} /> : <Camera size={28} color={colors.text} strokeWidth={1.4} />}<Text style={styles.sourceTitle}>{format === 'podcast' ? 'Gravar áudio' : 'Câmera'}</Text><Text style={styles.sourceDetail}>{format === 'podcast' ? 'Começar uma gravação' : 'Gravar um novo take'}</Text></Pressable>
+          <Pressable accessibilityRole="button" accessibilityLabel={format === 'podcast' ? 'Importar arquivo de áudio' : 'Importar vídeos da galeria'} onPress={() => startProject('gallery')} style={({ pressed }) => [styles.source, pressed && { backgroundColor: colors.surfaceAlt }]}>{format === 'podcast' ? <FolderOpen size={28} color={colors.text} strokeWidth={1.4} /> : <Images size={28} color={colors.text} strokeWidth={1.4} />}<Text style={styles.sourceTitle}>{format === 'podcast' ? 'Arquivos' : 'Galeria'}</Text><Text style={styles.sourceDetail}>{format === 'podcast' ? 'Trazer seu áudio' : 'Trazer vídeos prontos'}</Text></Pressable></View>}
       </View>
     </WorkspaceSheet>
     <WorkspaceSheet visible={sortVisible} title="Ordenar projetos" onClose={() => setSortVisible(false)}>{([
@@ -234,7 +258,9 @@ function WorkspaceSheet({ visible, title, onClose, onDismiss, children }: PropsW
 
 const styles = StyleSheet.create({
   workspace: { flex: 1, width: '100%', alignSelf: 'center' },
-  toolbar: { paddingHorizontal: 20, paddingTop: 7, paddingBottom: 10, flexDirection: 'row', alignItems: 'center' },
+  toolbar: { paddingHorizontal: 20, paddingTop: 7, paddingBottom: 10, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' },
+  liveEntry: { minHeight: 44, flexDirection: 'row', gap: 6, alignItems: 'center', paddingHorizontal: 5 },
+  liveEntryFallback: { minHeight: 100, padding: 16, flexDirection: 'row', alignItems: 'center', gap: 14, backgroundColor: colors.surface, borderRadius: controls.buttonRadius, marginBottom: 16 },
   filters: { flexDirection: 'row', padding: 3, borderRadius: controls.buttonRadius, backgroundColor: colors.backgroundElevated, borderWidth: 1, borderColor: colors.borderSubtle },
   filter: { minHeight: 38, borderRadius: 9, paddingHorizontal: 13, flexDirection: 'row', gap: 7, justifyContent: 'center', alignItems: 'center' },
   filterSelected: { backgroundColor: colors.surfaceAlt },

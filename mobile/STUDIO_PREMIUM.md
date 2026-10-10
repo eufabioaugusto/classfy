@@ -1,5 +1,8 @@
 # Studio: motor nativo e edição em camadas
 
+O formato Live tem transmissão e gerenciamento próprios, descritos em
+[STUDIO_LIVE.md](STUDIO_LIVE.md). Este documento descreve gravação e edição.
+
 ## Arquitetura
 
 A interface é React Native com TypeScript. Os gestos da timeline rodam na UI thread com Reanimated e Gesture Handler. O processamento de vídeo no iOS é Swift, AVFoundation, Core Image, Metal, Vision e CoreText. Não há WebView, renderização de vídeo em JavaScript ou envio de gravações a serviços externos para tratar a imagem.

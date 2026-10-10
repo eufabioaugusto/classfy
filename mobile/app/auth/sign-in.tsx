@@ -9,7 +9,7 @@ import { isSupabaseConfigured, supabase } from '@/lib/supabase';
 import { colors, radius, spacing, type } from '@/theme/tokens';
 
 export default function SignInScreen() {
-  const { contentId } = useLocalSearchParams<{ contentId?: string }>();
+  const { contentId, liveId } = useLocalSearchParams<{ contentId?: string; liveId?: string }>();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
@@ -29,7 +29,9 @@ export default function SignInScreen() {
       return;
     }
 
-    if (typeof contentId === 'string' && /^[0-9a-f-]{36}$/i.test(contentId)) {
+    if (typeof liveId === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(liveId)) {
+      router.replace({ pathname: '/live/[id]', params: { id: liveId } });
+    } else if (typeof contentId === 'string' && /^[0-9a-f-]{36}$/i.test(contentId)) {
       router.replace({ pathname: '/watch/[id]', params: { id: contentId } });
     } else {
       router.replace('/(tabs)');

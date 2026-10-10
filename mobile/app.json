@@ -50,10 +50,24 @@
       ],
       "expo-video",
       [
+        "@livekit/react-native-expo-plugin",
+        {
+          "android": { "audioType": "communication", "enableScreenShareService": false },
+          "ios": { "enableMultitaskingCameraAccess": false }
+        }
+      ],
+      [
+        "@config-plugins/react-native-webrtc",
+        {
+          "cameraPermission": "A Classfy usa a câmera para gravar aulas e transmitir suas lives.",
+          "microphonePermission": "A Classfy usa o microfone para gravar aulas, podcasts e transmitir suas lives."
+        }
+      ],
+      [
         "expo-camera",
         {
-          "cameraPermission": "A Classfy usa a câmera para gravar suas aulas no Studio.",
-          "microphonePermission": "A Classfy usa o microfone para gravar o áudio das suas aulas e podcasts.",
+          "cameraPermission": "A Classfy usa a câmera para gravar aulas e transmitir suas lives.",
+          "microphonePermission": "A Classfy usa o microfone para gravar aulas, podcasts e transmitir suas lives.",
           "recordAudioAndroid": true
         }
       ],
