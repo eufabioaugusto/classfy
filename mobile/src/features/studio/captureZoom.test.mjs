@@ -56,6 +56,30 @@ test('dial move no UI mesmo com JS bloqueado e entrega último deslocamento no r
   h.time(1); handlers.onUpdate({ translationX: 72 }); near(h.tickX(), -144); handlers.onEnd({ translationX: 90 }, true); handlers.onFinalize({}, true);
   h.flushJS(); near(h.changes.at(-1), .45); assert.equal(h.changes.length, 2); h.unmount();
 });
+test('zoom invertido: esquerda aumenta, direita diminui e a régua acompanha o dedo incluindo release final', () => {
+  const h = harness(); h.update({ value: .5, reversed: true }); h.flushUI(); const handlers = h.gesture().handlers;
+  handlers.onStart(); handlers.onUpdate({ translationX: -36 }); near(h.tickX(), -216); assert.deepEqual(h.changes, []);
+  handlers.onEnd({ translationX: -72 }, true); handlers.onFinalize({}, true); h.flushJS(); near(h.changes.at(-1), .7); near(h.tickX(), -252);
+  handlers.onStart(); h.time(31); handlers.onUpdate({ translationX: 36 }); near(h.tickX(), -216);
+  handlers.onEnd({ translationX: 72 }, true); handlers.onFinalize({}, true); h.flushJS(); near(h.changes.at(-1), .5); near(h.tickX(), -180); h.unmount();
+});
+test('zoom invertido mantém ACK/clamp e AX incrementar aumentando, sem inverter exposição/intensidade', () => {
+  const h = harness(); h.update({ value: .2, confirmedValue: .2, confirmation: 1, pending: false, reversed: true }); h.flushUI(); const handlers = h.gesture().handlers;
+  handlers.onStart(); handlers.onEnd({ translationX: -90 }, true); handlers.onFinalize({}, true); h.flushJS(); near(h.changes.at(-1), .45); near(h.tickX(), -162);
+  h.update({ pending: true }); h.flushUI(); h.update({ confirmedValue: .25, value: .25, confirmation: 2, pending: false }); h.flushUI(); near(h.tickX(), -90);
+  h.control().onAccessibilityAction({ nativeEvent: { actionName: 'increment' } }); h.flushUI(); h.flushJS(); near(h.changes.at(-1), .275);
+  h.control().onAccessibilityAction({ nativeEvent: { actionName: 'decrement' } }); h.flushUI(); h.flushJS(); near(h.changes.at(-1), .25); h.unmount();
+  for (const controlName of ['exposição', 'intensidade do tratamento']) {
+    const simple = harness(); simple.update({ value: .5, controlName }); simple.flushUI(); const pan = simple.gesture().handlers;
+    pan.onStart(); pan.onEnd({ translationX: 36 }, true); pan.onFinalize({}, true); simple.flushJS(); near(simple.changes.at(-1), .6);
+    pan.onStart(); pan.onEnd({ translationX: -36 }, true); pan.onFinalize({}, true); simple.flushJS(); near(simple.changes.at(-1), .5); simple.unmount();
+  }
+});
+test('troca de direção invalida entrega antiga sem recriar recognizer nem alterar ação AX', () => {
+  const h = harness(), gesture = h.gesture(); gesture.handlers.onStart(); gesture.handlers.onUpdate({ translationX: 36 });
+  h.update({ reversed: true }); h.flushUI(); h.flushJS(); assert.deepEqual(h.changes, []); assert.equal(h.gesture(), gesture);
+  gesture.handlers.onEnd({ translationX: 72 }, true); gesture.handlers.onFinalize({}, true); h.flushJS(); assert.deepEqual(h.changes, []); h.unmount();
+});
 test('clamp da roda alcança somente 0..1, inclusive final sem update e nova operação', () => {
   const h = harness(), handlers = h.gesture().handlers; handlers.onStart(); handlers.onEnd({ translationX: 10000 }, true); handlers.onFinalize({}, true); h.flushJS(); assert.equal(h.changes.at(-1), 1);
   handlers.onStart(); h.time(31); handlers.onUpdate({ translationX: -10000 }); handlers.onEnd({ translationX: -10000 }, true); handlers.onFinalize({}, true); h.flushJS(); assert.equal(h.changes.at(-1), 0); h.unmount();

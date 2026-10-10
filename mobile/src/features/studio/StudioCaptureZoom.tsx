@@ -6,17 +6,19 @@ import { colors } from '@/theme/colors';
 const clamp = (value: number) => Number.isFinite(value) ? Math.max(0, Math.min(1, value)) : 0;
 
 /** A continuous wheel; geometry moves on UI while hardware targets are coalesced. */
-export function StudioCaptureZoom({ value, onChange, label, disabled, style, controlName = 'zoom', confirmedValue, pending, confirmation }: {
+export function StudioCaptureZoom({ value, onChange, label, disabled, style, controlName = 'zoom', confirmedValue, pending, confirmation, reversed = false }: {
   value: number; onChange: (value: number) => void; label: string; disabled?: boolean; style?: ViewStyle; controlName?: string;
+  /** Camera wheel increases to the left; other controls preserve their direction. */
+  reversed?: boolean;
   /** Hardware receipt; optional so exposure/intensity keep their controlled API. */
   confirmedValue?: number; pending?: boolean; confirmation?: number;
 }) {
-  const live = useRef({ onChange, disabled: !!disabled, mounted: true, epoch: 0 });
-  if (live.current.disabled !== !!disabled) live.current.epoch++;
-  live.current.onChange = onChange; live.current.disabled = !!disabled;
+  const live = useRef({ onChange, disabled: !!disabled, reversed, mounted: true, epoch: 0 });
+  if (live.current.disabled !== !!disabled || live.current.reversed !== reversed) live.current.epoch++;
+  live.current.onChange = onChange; live.current.disabled = !!disabled; live.current.reversed = reversed;
   const progress = useSharedValue(Number.isFinite(value) ? clamp(value) : 0);
   const base = useSharedValue(0), dragging = useSharedValue(false), lastSent = useSharedValue(0);
-  const controls = useSharedValue({ disabled: !!disabled, epoch: live.current.epoch });
+  const controls = useSharedValue({ disabled: !!disabled, reversed, epoch: live.current.epoch });
   const gestureEpoch = useSharedValue(0);
   const receipt = useSharedValue({ value: clamp(confirmedValue ?? value), confirmation: confirmation ?? 0, explicit: confirmedValue !== undefined || pending !== undefined || confirmation !== undefined });
   const awaiting = useSharedValue(!!pending), requestedConfirmation = useSharedValue(confirmation ?? 0);
@@ -25,12 +27,12 @@ export function StudioCaptureZoom({ value, onChange, label, disabled, style, con
     if (live.current.mounted && !live.current.disabled && live.current.epoch === epoch && Number.isFinite(next)) live.current.onChange(clamp(next));
   }, []);
   useEffect(() => {
-    runOnUI((blocked: boolean, epoch: number) => {
+    runOnUI((blocked: boolean, reverse: boolean, epoch: number) => {
       'worklet';
-      controls.value = { disabled: blocked, epoch }; dragging.value = false;
+      controls.value = { disabled: blocked, reversed: reverse, epoch }; dragging.value = false;
       if (blocked) { awaiting.value = false; progress.value = receipt.value.value; }
-    })(!!disabled, live.current.epoch);
-  }, [disabled]);
+    })(!!disabled, reversed, live.current.epoch);
+  }, [disabled, reversed]);
   useEffect(() => {
     runOnUI((next: number, inFlight: boolean, version: number, explicit: boolean) => {
       'worklet';
@@ -53,7 +55,7 @@ export function StudioCaptureZoom({ value, onChange, label, disabled, style, con
     .onUpdate(event => {
       'worklet';
       if (!dragging.value || controls.value.disabled || gestureEpoch.value !== controls.value.epoch || !Number.isFinite(event.translationX)) return;
-      progress.value = Math.max(0, Math.min(1, base.value + event.translationX / 360));
+      progress.value = Math.max(0, Math.min(1, base.value + event.translationX / 360 * (controls.value.reversed ? -1 : 1)));
       const now = Date.now();
       if (now - lastSent.value >= 30) {
         lastSent.value = now;
@@ -64,7 +66,7 @@ export function StudioCaptureZoom({ value, onChange, label, disabled, style, con
     .onEnd((event, success) => {
       'worklet';
       if (!success || !dragging.value || controls.value.disabled || gestureEpoch.value !== controls.value.epoch) return;
-      if (Number.isFinite(event.translationX)) progress.value = Math.max(0, Math.min(1, base.value + event.translationX / 360));
+      if (Number.isFinite(event.translationX)) progress.value = Math.max(0, Math.min(1, base.value + event.translationX / 360 * (controls.value.reversed ? -1 : 1)));
       // JS may still be blocked when FINALIZE runs. Reserve this request on UI
       // first, so the dial cannot jump to the preceding hardware receipt.
       if (receipt.value.explicit) { awaiting.value = true; requestedConfirmation.value = receipt.value.confirmation; }

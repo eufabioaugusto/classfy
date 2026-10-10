@@ -18,6 +18,7 @@ import { formatStudioDuration, normalizeStudioCaptureGrade, studioEditing, studi
 import { studioEffectiveOutput, studioOutputSupported, studioOutputWarnings, withStudioOutputSelection } from '@/features/studio/model';
 import { getStudioExportCapabilitiesAsync } from '../../modules/classfy-studio-media';
 import { discardTransientStudioProject, getStudioProject, mutateStudioProject } from '@/features/studio/store';
+import { removeStudioTake } from '@/features/studio/timeline';
 import { useStudioProject } from '@/features/studio/useStudioProjects';
 import { useStudioOrientation } from '@/features/studio/useStudioOrientation';
 import { studioNormalizedZoom, useStudioCaptureCamera } from '@/features/studio/StudioCaptureCamera';
@@ -66,6 +67,7 @@ export default function StudioCaptureScreen() {
   const [countdownSeconds, setCountdownSeconds] = useState(3);
   const [panel, setPanel] = useState<CapturePanel | null>(null);
   const [importing, setImporting] = useState(false);
+  const [removingTake, setRemovingTake] = useState(false);
   const [cancelingAudio, setCancelingAudio] = useState(false);
   const [foreground, setForeground] = useState(AppState.currentState === 'active');
   const [showScript, setShowScript] = useState(true);
@@ -130,6 +132,31 @@ export default function StudioCaptureScreen() {
   function closeCapture() {
     if (router.canGoBack()) router.back();
     else router.replace('/studio');
+  }
+  async function removeCaptureTake(takeId: string) {
+    if (!project || !captureScopeCurrent(project) || phaseRef.current !== 'idle' || captureContext.current.recovery || busyProject) return;
+    const target = project;
+    const latest = getStudioProject(target.ownerId, target.id);
+    if (!latest?.takes.some(take => take.id === takeId)) return;
+    if (latest.pendingTakes?.length) { setFailure('Recupere os takes pendentes antes de excluir.'); return; }
+    transition('saving'); setRemovingTake(true); setNotice(null); setFailure(null);
+    try {
+      await mutateStudioProject(target.ownerId, target.id, current => {
+        assertCaptureSession(target);
+        if (captureContext.current.recovery || current.pendingTakes?.length
+          || ['preparing', 'uploading', 'processing', 'submitted'].includes(current.state)) throw new Error('Aguarde o projeto antes de excluir este take.');
+        const removed = current.takes.find(take => take.id === takeId);
+        const takes = removeStudioTake(current.takes, takeId);
+        return { takes, ...(!current.coverUrl && removed?.thumbnailUri && current.coverUri === removed.thumbnailUri
+          ? { coverUri: takes.find(take => take.thumbnailUri)?.thumbnailUri } : {}) };
+      });
+      if (captureScopeCurrent(target)) { setElapsed(0); setNotice('Take excluído.'); }
+    } catch (cause) {
+      if (captureScopeCurrent(target)) setFailure(cause instanceof Error ? cause.message : 'Não foi possível excluir este take. Tente novamente.');
+    } finally {
+      if (mounted.current) setRemovingTake(false);
+      transition('idle');
+    }
   }
   useEffect(() => {
     if (!project) return;
@@ -363,7 +390,7 @@ export default function StudioCaptureScreen() {
       return;
     }
     if (phaseRef.current === 'saving') {
-      Alert.alert(importing ? 'Importando seus arquivos' : 'Salvando seu take', 'Aguarde seus arquivos serem salvos antes de sair.');
+      Alert.alert(removingTake ? 'Excluindo este take' : importing ? 'Importando seus arquivos' : 'Salvando seu take', 'Aguarde a conclusão antes de sair.');
       return;
     }
     if (phaseRef.current === 'countdown') {
@@ -637,7 +664,7 @@ export default function StudioCaptureScreen() {
   const scriptPresent = !!project?.script.trim();
   const panelTitle = panel === 'timer' ? 'Temporizador' : panel === 'quality' ? cameraState ? 'Câmera Pro' : 'Qualidade do vídeo' : panel === 'treatment' ? 'Tratamento' : 'Teleprompter';
   const readyHint = isAudio ? 'Uma conversa. Uma ideia por take.' : project?.kind === 'aula' ? 'Seu conhecimento em uma aula.' : 'Uma ideia que merece ser compartilhada.';
-  const stateHint = phase === 'saving' ? importing ? 'Importando seus originais…' : 'Salvando seu take…'
+  const stateHint = phase === 'saving' ? removingTake ? 'Excluindo take…' : importing ? 'Importando seus originais…' : 'Salvando seu take…'
     : phase === 'recording' ? 'Toque para encerrar o take' : phase === 'countdown' ? 'Toque para cancelar'
     : !orientationReady ? 'Preparando o enquadramento…'
     : !isAudio && (!sensorMatches || !screenMatches) ? project?.kind === 'aula' ? 'Vire o iPhone na horizontal' : 'Mantenha o iPhone na vertical'
@@ -785,7 +812,7 @@ export default function StudioCaptureScreen() {
     {!immersive && !isAudio && captureAvailable && !gate && (!cameraControls.available || cameraControls.zoomAvailable) && <View pointerEvents="box-none" style={[styles.zoomAnchor, landscape
       ? { bottom: Math.max(insets.bottom, 16) + (project?.takes.length ? 85 : 15), left: (dimensions.width - 210) / 2 }
       : { bottom: safeBottom + (project?.takes.length ? 206 : 140), alignSelf: 'center' }]}>
-      <StudioCaptureZoom value={zoom} onChange={changeZoom} label={zoomLabel} disabled={zoomDisabled}
+      <StudioCaptureZoom reversed value={zoom} onChange={changeZoom} label={zoomLabel} disabled={zoomDisabled}
         confirmedValue={cameraState ? studioNormalizedZoom(cameraState.zoom, cameraState) : undefined}
         pending={cameraControls.zoomPending} confirmation={cameraControls.zoomConfirmation} style={{ position: 'relative' }} />
     </View>}
@@ -808,7 +835,7 @@ export default function StudioCaptureScreen() {
       ? [styles.landscapeDock, { top: safeTop + 64, bottom: Math.max(insets.bottom, 14), right: safeRight }]
       : [styles.portraitDock, { bottom: safeBottom + (project?.takes.length ? 82 : 0), left: safeLeft, right: safeRight }]}>
       {landscape ? <>
-        <View style={styles.landscapeRecord}>{recordButton}{!immersive && <Text style={styles.recordCaption}>{phase === 'saving' ? 'Salvando' : phase === 'countdown' ? 'Cancelar' : 'Gravar'}</Text>}</View>
+        <View style={styles.landscapeRecord}>{recordButton}{!immersive && <Text style={styles.recordCaption}>{phase === 'saving' ? removingTake ? 'Excluindo' : 'Salvando' : phase === 'countdown' ? 'Cancelar' : 'Gravar'}</Text>}</View>
         <View style={styles.landscapeSecondary}>{!immersive && flipButton}</View>
       </> : <>
         {!immersive && <Text pointerEvents="none" style={styles.guidance}>{stateHint}</Text>}
@@ -820,7 +847,7 @@ export default function StudioCaptureScreen() {
     {!immersive && captureAvailable && !!project?.takes.length && <View style={[styles.takesDock, landscape
       ? { bottom: safeBottom, left: safeLeft + 64, right: safeRight + 124 }
       : { bottom: safeBottom, left: safeLeft, right: safeRight }]}>
-      <StudioCaptureTakes takes={project.takes} disabled={toolsDisabled} onContinue={finishCapture} compact={landscape} />
+      <StudioCaptureTakes takes={project.takes} disabled={toolsDisabled} onContinue={finishCapture} onRemove={takeId => { void removeCaptureTake(takeId); }} compact={landscape} />
     </View>}
 
     <SheetModal visible={!!panel} onRequestClose={() => setPanel(null)}>

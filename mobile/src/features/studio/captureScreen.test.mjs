@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs';
 import ts from 'typescript';
 import { createJourneyRuntime } from './editorJourneyHarness.mjs';
 import * as model from './model.ts';
+import * as timeline from './timeline.ts';
 
 function load(file, dependencies, globals = {}) {
   const source = readFileSync(new URL(file, import.meta.url), 'utf8');
@@ -194,6 +195,7 @@ async function harness(options = {}) {
     '@/features/studio/StudioCaptureTakes': takes,
     '@/features/studio/StudioCaptureScriptPanel': { StudioCaptureScriptPanel: 'script-panel' },
     '@/features/studio/StudioCaptureRecording': videoStop, '@/features/studio/StudioNativeCamera': cameraModule,
+    '@/features/studio/timeline': timeline,
     '@/theme/colors': theme, '@/theme/controls': { controls: {} },
   }, globals).default;
 
@@ -423,5 +425,120 @@ test('Avançar capturado antes do REC aguarda save; callback REC antigo não cri
     assert.equal(h.takeStrip().takes.length, 2); assert.equal(h.takeStrip().disabled, false);
     h.button('Avançar para editar 2 takes').onPress(); await h.pump();
     assert.equal(h.navigation.length, 1); assert.equal(h.navigation[0].project.takes.length, 2);
+  } finally { await h.dispose(); }
+});
+
+test('remover take por ID reconcilia duração/vínculos sem apagar originais nem capa manual', async () => {
+  const h = await harness({ seed: true });
+  try {
+    const first = h.current().takes[0];
+    const source = h.runtime.fixture('second.mov', { duration: 4 });
+    const second = await h.runtime.media.persistStudioTake(h.current(), { uri: source, name: 'Outro take' });
+    await h.runtime.store.updateStudioProject('owner', h.current().id, { takes: [...h.current().takes, second] });
+    let editing = model.studioEditing(h.current());
+    editing = model.setStudioClipPlaybackRate(editing, second.id, 2);
+    editing = model.addStudioLayerItem(editing, model.createStudioTextItem({ id: 'first-title', content: 'Sai com o primeiro', clipId: first.id, durationTicks: model.studioTicks(1) }), 'first-title-lane');
+    editing = model.addStudioLayerItem(editing, model.createStudioTextItem({ id: 'second-title', content: 'Permanece no segundo', clipId: second.id, durationTicks: model.studioTicks(1) }), 'second-title-lane');
+    editing = model.addStudioLayerItem(editing, model.createStudioTextItem({ id: 'absolute-title', content: 'Tempo absoluto', atTicks: model.studioTicks(1), durationTicks: model.studioTicks(1) }), 'absolute-lane');
+    const manualCover = h.runtime.fixture('manual-cover.jpg', { duration: 0, hasVideo: false, hasAudio: false });
+    await h.runtime.store.updateStudioProject('owner', h.current().id, { editing, coverUri: manualCover, exportedUri: 'file:///previous-export.mp4', exportedSignature: model.timelineSignature(h.current()) });
+    const beforeAssets = structuredClone(h.current().editing.assets);
+    await h.ready();
+    assert.equal(model.studioSeconds(model.compileStudioRecipe(h.current()).durationTicks), 4);
+    h.button('Excluir take 1').onPress(); await h.pump();
+
+    assert.deepEqual(h.current().takes.map(value => value.id), [second.id]);
+    assert.equal(h.current().takes[0].playbackRate, 2); assert.equal(h.current().takes[0].end, 4);
+    assert.deepEqual(h.current().editing.assets, beforeAssets);
+    assert.equal(h.current().coverUri, manualCover);
+    assert.equal(h.current().exportedUri, undefined);
+    assert.equal(h.current().exportedSignature, undefined);
+    const recipe = model.compileStudioRecipe(h.current());
+    assert.equal(model.studioSeconds(recipe.durationTicks), 2);
+    assert.equal(recipe.clips.some(value => value.id === 'first-title'), false);
+    assert.equal(recipe.clips.find(value => value.id === 'second-title').startTicks, 0);
+    assert.equal(recipe.clips.find(value => value.id === 'absolute-title').startTicks, model.studioTicks(1));
+    assert.deepEqual(h.takeStrip().takes.map(value => value.id), [second.id]);
+    assert.equal(h.runtime.disk.has(first.uri), true); assert.equal(h.runtime.disk.has(first.thumbnailUri), true);
+    assert.deepEqual(model.validateStudioEditing(h.current().editing, 'aula'), []);
+  } finally { await h.dispose(); }
+});
+
+test('remoção aguarda disco, bloqueia REC/Avançar e falha preserva take para retry; último take some da barra', async () => {
+  const h = await harness({ seed: true });
+  try {
+    const automaticCover = h.current().takes[0].thumbnailUri;
+    await h.runtime.store.updateStudioProject('owner', h.current().id, { coverUri: automaticCover });
+    await h.ready();
+    const original = h.current().takes[0], originalId = original.id;
+    const staleRecord = h.button('Começar gravação').onPress;
+    const staleContinue = h.button('Avançar para editar 1 take').onPress;
+    const remove = h.takeStrip().onRemove;
+    const blocked = h.runtime.deferWrite();
+    remove(originalId); await h.pump(); await blocked.entered;
+    assert.deepEqual(h.current().takes.map(value => value.id), [originalId]);
+    assert.equal(h.button('Começar gravação').disabled, true); assert.equal(h.takeStrip().disabled, true);
+    staleRecord(); staleContinue(); remove(originalId); await h.pump();
+    assert.equal(h.calls.filter(value => value.kind === 'record').length, 0); assert.equal(h.navigation.length, 0);
+    blocked.reject(Error('Armazenamento indisponível')); await h.pump();
+    assert.deepEqual(h.current().takes.map(value => value.id), [originalId]);
+    assert.equal(h.current().coverUri, automaticCover);
+    assert.equal(h.takeStrip().disabled, false); assert.equal(h.button('Começar gravação').disabled, false);
+    assert.ok(h.nodes(node => node.type === 'text' && node.props.children === 'Armazenamento indisponível').length);
+    assert.equal(h.runtime.disk.has(original.uri), true);
+
+    h.takeStrip().onRemove(originalId); await h.pump();
+    assert.equal(h.current().takes.length, 0);
+    assert.equal(h.current().coverUri, undefined);
+    assert.equal(h.nodes(node => node.props?.accessibilityLabel === 'Takes gravados').length, 0);
+    assert.equal(h.nodes(node => /Avançar para editar/.test(node.props?.accessibilityLabel ?? '')).length, 0);
+    assert.equal(h.button('Começar gravação').disabled, false);
+    assert.equal(h.runtime.store.studioSnapshot('owner').projects.some(value => value.id === h.current().id), true);
+    assert.equal(h.runtime.disk.has(original.uri), true); assert.equal(h.runtime.disk.has(original.thumbnailUri), true);
+  } finally { await h.dispose(); }
+});
+
+test('remoção capturada antes de foco/conta/projeto mudar não escreve outro rascunho', async () => {
+  const h = await harness({ seed: true });
+  try {
+    await h.ready();
+    const firstProject = h.current(), remove = h.takeStrip().onRemove;
+    const firstId = firstProject.takes[0].id;
+    const writes = h.runtime.writes.length;
+    h.focus(false); await h.pump(); remove(firstId); await h.pump();
+    assert.equal(h.runtime.writes.length, writes);
+    assert.deepEqual(h.current().takes.map(value => value.id), [firstId]);
+    h.focus(true); await h.ready();
+    const other = await h.runtime.store.createStudioProject('owner', 'aula', { transient: true });
+    h.project(other.id); await h.ready();
+    const beforeProjectChange = h.runtime.writes.length;
+    remove(firstId); await h.pump();
+    assert.equal(h.runtime.writes.length, beforeProjectChange);
+    assert.equal(h.current().takes.length, 0);
+    assert.equal(h.runtime.store.getStudioProject('owner', firstProject.id).takes.length, 1);
+    h.owner('another-owner'); await h.pump(); remove(firstId); await h.pump();
+    assert.equal(h.runtime.writes.length, beforeProjectChange);
+    assert.equal(h.runtime.store.getStudioProject('owner', firstProject.id).takes.length, 1);
+  } finally { await h.dispose(); }
+});
+
+test('remoção reservada revalida foco quando alcança a fila do store, antes da escrita', async () => {
+  const h = await harness({ seed: true });
+  try {
+    await h.ready();
+    const project = h.current(), takeId = project.takes[0].id;
+    const blocked = h.runtime.deferWrite();
+    const priorSave = h.runtime.store.updateStudioProject('owner', project.id, { title: 'Metadados antes da remoção' });
+    await blocked.entered;
+    const writes = h.runtime.writes.length;
+    h.button('Excluir take 1').onPress(); await h.pump();
+    assert.equal(h.button('Começar gravação').disabled, true);
+    h.focus(false); await h.pump();
+    blocked.resolve(); await priorSave; await h.pump();
+    assert.equal(h.current().title, 'Metadados antes da remoção');
+    assert.deepEqual(h.current().takes.map(value => value.id), [takeId]);
+    assert.equal(h.runtime.writes.length, writes + 1, 'Only the already-started metadata write is durable; queued stale removal must not write');
+    h.focus(true); await h.ready();
+    assert.equal(h.button('Começar gravação').disabled, false); assert.equal(h.takeStrip().disabled, false);
   } finally { await h.dispose(); }
 });

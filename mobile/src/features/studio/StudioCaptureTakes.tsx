@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { ChevronRight, Mic, Video } from 'lucide-react-native';
+import { ChevronRight, Mic, Video, X } from 'lucide-react-native';
 import { LoadingImage } from '@/components/LoadingImage';
 import { colors } from '@/theme/colors';
 import { formatStudioDuration, studioTakeDuration, type StudioTake } from './model';
@@ -9,6 +9,7 @@ type Props = {
   takes: StudioTake[];
   disabled: boolean;
   onContinue: () => void;
+  onRemove: (takeId: string) => void;
   compact?: boolean;
 };
 
@@ -49,13 +50,22 @@ export function StudioCaptureTakes(props: Props) {
       {props.takes.map((take, index) => {
         const duration = formatStudioDuration(studioTakeDuration(take));
         const Fallback = take.kind === 'audio' ? Mic : Video;
-        return <View key={take.id} accessible accessibilityLabel={`Take ${index + 1}, ${duration}`}
-          style={styles.take}>
-          <View style={styles.fallback}><Fallback color={colors.muted} size={21} strokeWidth={1.5} /></View>
-          {take.thumbnailUri && <LoadingImage source={{ uri: take.thumbnailUri }} style={styles.thumbnail}
-            contentFit="cover" transition={0} accessible={false} />}
-          <View pointerEvents="none" style={styles.number}><Text style={styles.numberText}>{index + 1}</Text></View>
-          <View pointerEvents="none" style={styles.duration}><Text style={styles.durationText}>{duration}</Text></View>
+        return <View key={take.id} style={styles.take}>
+          <View accessible accessibilityLabel={`Take ${index + 1}, ${duration}`} style={styles.takeContent}>
+            <View style={styles.fallback}><Fallback color={colors.muted} size={21} strokeWidth={1.5} /></View>
+            {take.thumbnailUri && <LoadingImage source={{ uri: take.thumbnailUri }} style={styles.thumbnail}
+              contentFit="cover" transition={0} accessible={false} />}
+            <View pointerEvents="none" style={styles.number}><Text style={styles.numberText}>{index + 1}</Text></View>
+            <View pointerEvents="none" style={styles.duration}><Text style={styles.durationText}>{duration}</Text></View>
+          </View>
+          <Pressable accessibilityRole="button" accessibilityLabel={`Excluir take ${index + 1}`}
+            accessibilityState={{ disabled: props.disabled }} disabled={props.disabled}
+            onPress={() => {
+              const current = latest.current;
+              if (mounted.current && !current.disabled && current.takes.some(item => item.id === take.id)) current.onRemove(take.id);
+            }} style={({ pressed }) => [styles.remove, props.disabled && styles.disabled, pressed && styles.pressed]}>
+            <View style={styles.removeCircle}><X color="#FFFFFF" size={13} strokeWidth={1.8} /></View>
+          </Pressable>
         </View>;
       })}
     </ScrollView>
@@ -81,6 +91,7 @@ const styles = StyleSheet.create({
   takes: { alignItems: 'center', gap: 7 },
   take: { width: 52, height: 62, borderRadius: 8, overflow: 'hidden', backgroundColor: colors.surfaceAlt,
     borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)' },
+  takeContent: { width: '100%', height: '100%' },
   fallback: { ...StyleSheet.absoluteFillObject, alignItems: 'center', justifyContent: 'center' },
   thumbnail: { width: '100%', height: '100%' },
   number: { position: 'absolute', left: 3, top: 3, minWidth: 16, height: 16, paddingHorizontal: 3,
@@ -89,6 +100,8 @@ const styles = StyleSheet.create({
   duration: { position: 'absolute', bottom: 0, left: 0, right: 0, alignItems: 'center', paddingVertical: 3,
     backgroundColor: 'rgba(0,0,0,0.64)' },
   durationText: { color: '#FFFFFF', fontSize: 10, fontWeight: '500', fontVariant: ['tabular-nums'] },
+  remove: { position: 'absolute', right: 0, top: 0, width: 44, height: 44, alignItems: 'flex-end', paddingTop: 3, paddingRight: 3 },
+  removeCircle: { width: 20, height: 20, borderRadius: 10, backgroundColor: 'rgba(0,0,0,0.78)', alignItems: 'center', justifyContent: 'center' },
   continue: { width: 58, height: 64, alignItems: 'center', justifyContent: 'center', gap: 3 },
   continueCircle: { width: 48, height: 48, borderRadius: 24, backgroundColor: '#FFFFFF', alignItems: 'center', justifyContent: 'center' },
   continueText: { color: '#FFFFFF', fontSize: 11, lineHeight: 12, fontWeight: '600' },

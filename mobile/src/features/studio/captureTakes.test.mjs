@@ -8,9 +8,9 @@ const code = ts.transpileModule(readFileSync(new URL('./StudioCaptureTakes.tsx',
   compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX },
 }).outputText;
 function harness(initial = {}) {
-  const slots = [], scrollCalls = [], continued = [];
+  const slots = [], scrollCalls = [], continued = [], removed = [];
   let cursor = 0, effects = [], tree;
-  let props = { takes: [], disabled: false, onContinue: () => continued.push('first'), ...initial };
+  let props = { takes: [], disabled: false, onContinue: () => continued.push('first'), onRemove: id => removed.push(id), ...initial };
   const same = (a, b) => a && b && a.length === b.length && a.every((value, index) => Object.is(value, b[index]));
   const jsx = (type, props) => ({ type, props });
   const dependencies = {
@@ -20,7 +20,7 @@ function harness(initial = {}) {
     },
     'react/jsx-runtime': { jsx, jsxs: jsx },
     'react-native': { Pressable: 'button', ScrollView: 'scroll', Text: 'text', View: 'view', StyleSheet: { create: value => value, absoluteFillObject: {} } },
-    'lucide-react-native': { ChevronRight: 'chevron', Mic: 'mic', Video: 'video' },
+    'lucide-react-native': { ChevronRight: 'chevron', Mic: 'mic', Video: 'video', X: 'close' },
     '@/components/LoadingImage': { LoadingImage: 'thumbnail' }, '@/theme/colors': { colors: {} }, './model': model,
   };
   const module = { exports: {} };
@@ -41,8 +41,9 @@ function harness(initial = {}) {
   };
   render();
   return {
-    all, scrollCalls, continued, tree: () => tree,
-    button: () => all(node => node.type === 'button')[0]?.props,
+    all, scrollCalls, continued, removed, tree: () => tree,
+    button: () => all(node => node.type === 'button' && node.props.accessibilityLabel.startsWith('Avançar'))[0]?.props,
+    remove: number => all(node => node.type === 'button' && node.props.accessibilityLabel === `Excluir take ${number}`)[0]?.props,
     scroll: () => all(node => node.type === 'scroll')[0]?.props,
     update: patch => { props = { ...props, ...patch }; render(); },
     dispose: () => { slots.forEach(slot => slot?.cleanup?.()); },
@@ -81,4 +82,22 @@ test('ação usa props atuais e rejeita callback antigo depois de disabled, take
   h.update({ takes: [] }); oldPress(); assert.equal(h.continued.length, 2);
   h.update({ takes: [take('b')] }); const lateContent = h.scroll().onContentSizeChange;
   h.dispose(); oldPress(); lateContent(52, 62); assert.equal(h.continued.length, 2); assert.deepEqual(h.scrollCalls, []);
+});
+test('X solicita somente o ID estável, permanece acessível fora do agrupamento da miniatura e não navega', () => {
+  const originals = [take('a'), take('b')], before = JSON.stringify(originals), h = harness({ takes: originals });
+  const removeB = h.remove(2).onPress;
+  const summary = h.all(node => node.props?.accessibilityLabel === 'Take 2, 0:08')[0];
+  assert.ok(summary); assert.equal(Array.isArray(summary.props.children) && summary.props.children.some(node => node?.type === 'button'), false);
+  h.update({ takes: [originals[1], originals[0]] }); removeB();
+  assert.deepEqual(h.removed, ['b']); assert.deepEqual(h.continued, []); assert.equal(JSON.stringify(originals), before);
+  h.dispose();
+});
+test('X antigo respeita callback atual e recusa disabled, take removido e desmontagem', () => {
+  const a = take('a'), b = take('b'), h = harness({ takes: [a, b] });
+  const stale = h.remove(2).onPress;
+  h.update({ disabled: true }); assert.equal(h.remove(2).disabled, true); assert.equal(h.remove(2).accessibilityState.disabled, true);
+  stale(); assert.deepEqual(h.removed, []);
+  h.update({ disabled: false, onRemove: id => h.removed.push(`latest:${id}`) }); stale(); assert.deepEqual(h.removed, ['latest:b']);
+  h.update({ takes: [a] }); stale(); assert.deepEqual(h.removed, ['latest:b']);
+  h.update({ takes: [a, b] }); h.dispose(); stale(); assert.deepEqual(h.removed, ['latest:b']); assert.deepEqual(h.continued, []);
 });
