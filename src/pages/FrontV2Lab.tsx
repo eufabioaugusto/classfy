@@ -54,7 +54,7 @@ const themeTokens = [
   { name: "Elevated", dark: "#181B20", light: "#F3F3F3" },
   { name: "Ink", dark: "#F5F6F7", light: "#17181B" },
   { name: "Muted", dark: "#969CA6", light: "#686C73" },
-  { name: "Classfy", dark: "#F04F64", light: "#D93E55" },
+  { name: "Classfy", dark: "#EF5066", light: "#EF5066" },
   { name: "Premium", dark: "#D9B878", light: "#A77A2F" },
 ];
 

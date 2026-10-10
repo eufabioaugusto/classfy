@@ -1056,7 +1056,7 @@ export function UnifiedVideoPlayer({
                       onChange={(e) => changeVolume(parseFloat(e.target.value))}
                       className="w-full h-1 appearance-none cursor-pointer rounded-full [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-red-500 [&::-webkit-slider-thumb]:border-0 [&::-webkit-slider-thumb]:cursor-pointer [&::-moz-range-thumb]:w-3 [&::-moz-range-thumb]:h-3 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-red-500 [&::-moz-range-thumb]:border-0"
                       style={{
-                        background: `linear-gradient(to right, rgb(239 68 68) 0%, rgb(239 68 68) ${(isMuted ? 0 : volume) * 100}%, rgba(255,255,255,0.3) ${(isMuted ? 0 : volume) * 100}%, rgba(255,255,255,0.3) 100%)`
+                        background: `linear-gradient(to right, rgb(var(--brand-red-rgb) / 1) 0%, rgb(var(--brand-red-rgb) / 1) ${(isMuted ? 0 : volume) * 100}%, rgba(255,255,255,0.3) ${(isMuted ? 0 : volume) * 100}%, rgba(255,255,255,0.3) 100%)`
                       }}
                     />
                   </div>

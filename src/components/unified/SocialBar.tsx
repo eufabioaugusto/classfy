@@ -70,7 +70,7 @@ export function SocialBar({
   const navigate = useNavigate();
   const [showDMModal, setShowDMModal] = useState(false);
   const activeActionClass =
-    "bg-red-500/15 text-red-500 ring-1 ring-inset ring-red-500/35 shadow-[0_0_16px_rgba(239,68,68,0.10)] hover:bg-red-500/20 hover:text-red-500 dark:bg-white dark:text-zinc-950 dark:ring-white/25 dark:shadow-[0_8px_24px_rgba(0,0,0,0.18)] dark:hover:bg-zinc-100 dark:hover:text-zinc-950";
+    "bg-red-500/15 text-red-500 ring-1 ring-inset ring-red-500/35 shadow-[0_0_16px_rgb(var(--brand-red-rgb)_/_0.10)] hover:bg-red-500/20 hover:text-red-500 dark:bg-white dark:text-zinc-950 dark:ring-white/25 dark:shadow-[0_8px_24px_rgba(0,0,0,0.18)] dark:hover:bg-zinc-100 dark:hover:text-zinc-950";
 
   const recordDirectShare = async () => {
     if (!user) return;

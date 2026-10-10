@@ -943,7 +943,7 @@
 .cfv2-content-card:hover .cfv2-content-thumb > img { transform: scale(1.025); }
 .cfv2-thumb-shade { position: absolute; inset: 0; background: linear-gradient(0deg, rgba(5, 6, 8, 0.5), transparent 55%); }
 .cfv2-content-thumb .cfv2-badge { position: absolute; top: 10px; left: 10px; color: #f4f4f3; border-color: rgba(255, 255, 255, 0.2); background: rgba(8, 9, 11, 0.55); }
-.cfv2-content-thumb .cfv2-badge-accent { color: #ff8998; border-color: rgba(240, 79, 100, 0.36); background: rgba(80, 15, 25, 0.68); }
+.cfv2-content-thumb .cfv2-badge-accent { color: var(--brand-red); border-color: rgb(var(--brand-red-rgb) / 0.36); background: rgb(var(--brand-red-rgb) / 0.68); }
 .cfv2-content-thumb .cfv2-badge-premium { color: #efd59f; border-color: rgba(217, 184, 120, 0.38); background: rgba(46, 35, 15, 0.72); }
 .cfv2-play { position: absolute; top: 50%; left: 50%; display: grid; width: 42px; height: 42px; padding: 0; place-items: center; border: 1px solid rgba(255, 255, 255, 0.22); border-radius: 50%; color: #17181b !important; background: rgba(255, 255, 255, 0.9); opacity: 0; transform: translate(-50%, -43%) scale(.92); cursor: pointer; backdrop-filter: blur(12px); transition: 180ms ease; }
 .cfv2-content-card:hover .cfv2-play, .cfv2-content-card.is-featured .cfv2-play { opacity: 1; transform: translate(-50%, -50%) scale(1); }

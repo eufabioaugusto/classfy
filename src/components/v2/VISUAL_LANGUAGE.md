@@ -28,6 +28,10 @@ Esta especificação é a referência oficial para qualquer evolução visual da
 
 As implementações desses contratos vivem em `src/styles/classfy-v2.css`, `src/components/v2` e nos primitives Radix já adotados.
 
+### Vermelho oficial
+
+O vermelho único da interface é **#EF5066**, definido em `src/index.css` por `--brand-red`, `--brand-red-rgb` e `--brand-red-hsl`. Accent, cinematic, navegação, Premium e estados vermelhos devem derivar desses tokens. Usar `text-brand`, `bg-brand` e opacidade para superfícies suaves. As paletas Tailwind red/rose/pink são aliases de compatibilidade, não cores independentes. A cor permanece igual nos dois temas; transparência e mistura com branco criam fundos suaves. Não introduzir um novo HEX para hover, foco, sombra ou borda. Cores presentes em fotos e na ilustração do pôster de vídeo são conteúdo, não tokens de interface.
+
 ## 2. Camada variável por experiência
 
 Podem variar, desde que usem os contratos transversais: shell, presença ou ausência de Sidebar/Header, largura, gutter, densidade, grid, quantidade de colunas, hero, proporção de mídia, ordem da composição, navegação contextual e nível de imersividade.

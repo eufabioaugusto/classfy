@@ -1,6 +1,24 @@
 import type { Config } from "tailwindcss";
 import tailwindcssAnimate from "tailwindcss-animate";
 
+// Compatibility aliases for existing red/rose/pink utilities. Solid accents
+// share the brand colour; pale surfaces only vary its opacity.
+const brandRed = "rgb(var(--brand-red-rgb) / <alpha-value>)";
+const brandRedPalette = {
+  DEFAULT: brandRed,
+  50: "rgb(var(--brand-red-rgb) / calc(<alpha-value> * 0.05))",
+  100: "rgb(var(--brand-red-rgb) / calc(<alpha-value> * 0.1))",
+  200: "rgb(var(--brand-red-rgb) / calc(<alpha-value> * 0.2))",
+  300: "rgb(var(--brand-red-rgb) / calc(<alpha-value> * 0.35))",
+  400: brandRed,
+  500: brandRed,
+  600: brandRed,
+  700: brandRed,
+  800: brandRed,
+  900: brandRed,
+  950: brandRed,
+};
+
 export default {
   darkMode: ["class"],
   content: ["./pages/**/*.{ts,tsx}", "./components/**/*.{ts,tsx}", "./app/**/*.{ts,tsx}", "./src/**/*.{ts,tsx}"],
@@ -15,6 +33,10 @@ export default {
     },
     extend: {
       colors: {
+        brand: brandRed,
+        red: brandRedPalette,
+        rose: brandRedPalette,
+        pink: brandRedPalette,
         border: "hsl(var(--border))",
         input: "hsl(var(--input))",
         ring: "hsl(var(--ring))",

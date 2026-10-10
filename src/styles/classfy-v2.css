@@ -42,10 +42,10 @@
   --cf2-duration-base: 220ms;
 
   /* Brand and state colors stay stable across themes. */
-  --cf2-accent: #f04f64;
-  --cf2-accent-hover: #e4475c;
-  --cf2-accent-contrast: #fff8f9;
-  --cf2-accent-soft: rgba(240, 79, 100, 0.13);
+  --cf2-accent: var(--brand-red);
+  --cf2-accent-hover: var(--brand-red);
+  --cf2-accent-contrast: color-mix(in srgb, var(--brand-red) 4%, white);
+  --cf2-accent-soft: rgb(var(--brand-red-rgb) / 0.13);
   --cf2-premium: #d9b878;
   --cf2-premium-soft: rgba(217, 184, 120, 0.13);
   --cf2-plan-free: #63c79b;
@@ -58,8 +58,8 @@
   --cf2-success-soft: rgba(99, 199, 155, 0.12);
   --cf2-warning: #e2ae63;
   --cf2-warning-soft: rgba(226, 174, 99, 0.12);
-  --cf2-danger: #ef6574;
-  --cf2-danger-soft: rgba(239, 101, 116, 0.12);
+  --cf2-danger: var(--brand-red);
+  --cf2-danger-soft: rgb(var(--brand-red-rgb) / 0.12);
 
   /* Dark is the canonical Classfy media experience. */
   --cf2-canvas: #08090b;
@@ -74,7 +74,7 @@
   --cf2-border: rgba(255, 255, 255, 0.1);
   --cf2-border-strong: rgba(255, 255, 255, 0.16);
   --cf2-overlay: rgba(3, 4, 5, 0.72);
-  --cf2-focus: 0 0 0 3px rgba(240, 79, 100, 0.19);
+  --cf2-focus: 0 0 0 3px rgb(var(--brand-red-rgb) / 0.19);
   --cf2-shadow-soft: 0 14px 38px rgba(0, 0, 0, 0.2);
   --cf2-shadow-panel: 0 24px 70px rgba(0, 0, 0, 0.34);
   --cf2-media-shade: linear-gradient(0deg, rgba(5, 6, 8, 0.92), rgba(5, 6, 8, 0.34) 52%, transparent 78%);
@@ -84,9 +84,9 @@
 .light .cf-v2,
 .cf-v2[data-theme="light"],
 .cfv2-lab[data-theme="light"] {
-  --cf2-accent: #d93e55;
-  --cf2-accent-hover: #c9364c;
-  --cf2-accent-soft: rgba(217, 62, 85, 0.1);
+  --cf2-accent: var(--brand-red);
+  --cf2-accent-hover: var(--brand-red);
+  --cf2-accent-soft: rgb(var(--brand-red-rgb) / 0.1);
   --cf2-premium: #a77a2f;
   --cf2-premium-soft: rgba(167, 122, 47, 0.11);
   --cf2-plan-free: #238a62;
@@ -99,8 +99,8 @@
   --cf2-success-soft: rgba(35, 138, 98, 0.1);
   --cf2-warning: #9b681e;
   --cf2-warning-soft: rgba(155, 104, 30, 0.1);
-  --cf2-danger: #c63d50;
-  --cf2-danger-soft: rgba(198, 61, 80, 0.1);
+  --cf2-danger: var(--brand-red);
+  --cf2-danger-soft: rgb(var(--brand-red-rgb) / 0.1);
   --cf2-canvas: #ffffff;
   --cf2-canvas-soft: #fafafa;
   --cf2-surface: #ffffff;
@@ -113,7 +113,7 @@
   --cf2-border: rgba(23, 24, 27, 0.11);
   --cf2-border-strong: rgba(23, 24, 27, 0.18);
   --cf2-overlay: rgba(18, 18, 18, 0.58);
-  --cf2-focus: 0 0 0 3px rgba(217, 62, 85, 0.16);
+  --cf2-focus: 0 0 0 3px rgb(var(--brand-red-rgb) / 0.16);
   --cf2-shadow-soft: 0 12px 34px rgba(0, 0, 0, 0.07);
   --cf2-shadow-panel: 0 24px 70px rgba(0, 0, 0, 0.11);
   color-scheme: light;
@@ -437,9 +437,9 @@ textarea.cf2-input { min-height: 7rem; padding-top: var(--cf2-space-3); resize: 
 .cf2-reward-avatar { position: relative; display: inline-grid; width: 2rem; height: 2rem; flex: 0 0 auto; place-items: center; isolation: isolate; }
 .cf2-reward-avatar__image { position: relative; z-index: 1; border: 2px solid var(--cf2-surface); }
 .cf2-reward-avatar__image--active { animation: cf2-avatar-notice 1.5s ease-out both; }
-.cf2-reward-avatar__ring { position: absolute; z-index: 0; inset: -3px; border-radius: 50%; background: conic-gradient(from 0deg, transparent 0deg, var(--cf2-accent) 105deg, #f54f8e 220deg, #ffc668 320deg, transparent 360deg); animation: cf2-reward-orbit 1.15s cubic-bezier(.62, .04, .95, .52) both; }
+.cf2-reward-avatar__ring { position: absolute; z-index: 0; inset: -3px; border-radius: 50%; background: conic-gradient(from 0deg, transparent 0deg, var(--cf2-accent) 105deg, var(--brand-red) 220deg, #ffc668 320deg, transparent 360deg); animation: cf2-reward-orbit 1.15s cubic-bezier(.62, .04, .95, .52) both; }
 .cf2-reward-avatar__ring[data-type="creator"] { background: conic-gradient(from 0deg, transparent 0deg, #f7bd55 100deg, #ffdc89 220deg, #f28c54 320deg, transparent 360deg); }
-.cf2-reward-avatar__ring[data-type="notification"] { background: conic-gradient(from 0deg, transparent 0deg, #d1d5db 90deg, var(--cf2-accent) 210deg, #f54f8e 320deg, transparent 360deg); }
+.cf2-reward-avatar__ring[data-type="notification"] { background: conic-gradient(from 0deg, transparent 0deg, #d1d5db 90deg, var(--cf2-accent) 210deg, var(--brand-red) 320deg, transparent 360deg); }
 .cf2-reward-avatar__gain { position: absolute; z-index: 3; left: 2.2rem; top: -0.55rem; display: inline-flex; align-items: center; gap: 0.25rem; padding: 0.24rem 0.4rem; border: 1px solid color-mix(in srgb, var(--cf2-accent) 48%, var(--cf2-border)); border-radius: 0.55rem; background: var(--cf2-surface-raised); box-shadow: 0 5px 16px rgba(0, 0, 0, .24); color: var(--cf2-accent); font-size: 0.73rem; font-weight: 800; font-variant-numeric: tabular-nums; line-height: 1; white-space: nowrap; pointer-events: none; animation: cf2-reward-gain 1.65s ease-out both; }
 .cf2-reward-avatar__gain[data-type="creator"] { border-color: #d99b51; color: #d98e2f; }
 .cf2-reward-avatar__gain small { font-size: 0.58rem; font-weight: 700; }

@@ -24,7 +24,7 @@ Não esticar, inclinar, adicionar contorno, sombras ou alterar isoladamente as a
 
 | Uso | HEX | RGB |
 | --- | --- | --- |
-| Vermelho da marca | #EF5065 | 239, 80, 101 |
+| Vermelho da marca | #EF5066 | 239, 80, 102 |
 | Fundo escuro | #0B0D0E | 11, 13, 14 |
 | Preto monocromático | #000000 | 0, 0, 0 |
 | Branco | #FFFFFF | 255, 255, 255 |
@@ -54,3 +54,7 @@ A combinação asa/play já aparece em acervos comerciais. Duas referências loc
 Esses resultados demonstram proximidade temática; não demonstram identidade gráfica, exclusividade da Classfy, titularidade nas classes de interesse ou registrabilidade. Não foi concluída comparação visual exaustiva nem busca de anterioridade figurativa no INPI. A decisão de registro continua pendente dessa análise. [Portal oficial de marcas e busca do INPI](https://www.gov.br/inpi/pt-br/servicos/marcas).
 
 Fonte tipográfica: [Inter, página oficial](https://rsms.me/inter/); arquivo obtido do repositório Google Fonts, pasta `ofl/inter`, com licença incluída.
+
+## Revisão de cor — 10/10/2026
+
+Fabio definiu #EF5066 como vermelho oficial na padronização da interface. Esta revisão substitui #EF5065 da primeira entrega, inclusive nos SVGs e PNGs do pacote.

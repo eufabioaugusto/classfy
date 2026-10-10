@@ -58,7 +58,7 @@
 .live-studio-cover-editor .studio-image-cropper__preview > span { position: absolute; top: .8rem; left: .8rem; padding: .4rem .65rem; border-radius: 1rem; color: #fff; background: rgb(0 0 0 / .7); font-size: .72rem; }
 .live-studio-cover-editor .studio-image-cropper__position { display: flex; align-items: center; gap: 1rem; padding: 1rem; color: rgb(255 255 255 / .72); font-size: .75rem; }
 .live-studio-cover-editor .studio-image-cropper__position input { flex: 1; accent-color: var(--cf2-accent); }
-.live-studio-cover-editor .studio-image-cropper__error { padding: 0 1rem 1rem; color: #ff8f9e; }
+.live-studio-cover-editor .studio-image-cropper__error { padding: 0 1rem 1rem; color: var(--brand-red); }
 .live-studio-open { display: grid; justify-items: start; gap: 1rem; }
 .live-studio-open > strong { max-width: 100%; color: var(--cf2-ink); font-size: 1.25rem; font-weight: 640; overflow-wrap: anywhere; }
 .live-studio-history__body { padding: 0 1.5rem; }

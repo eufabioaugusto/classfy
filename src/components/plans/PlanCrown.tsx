@@ -3,7 +3,7 @@ import type { PaidPlan } from "@/config/planOffers";
 
 const PLAN_CROWN_COLORS: Record<PaidPlan, string> = {
   pro: "#e5aa25",
-  premium: "#df3153",
+  premium: "var(--brand-red)",
 };
 
 type PlanCrownProps = Omit<LucideProps, "color"> & { plan: PaidPlan };

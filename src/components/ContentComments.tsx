@@ -424,7 +424,7 @@ export function ContentComments({ contentId }: ContentCommentsProps) {
                   onClick={handleSubmit}
                   disabled={isSubmitting || !newComment.trim()}
                   size="sm"
-                  className="gap-2 rounded-full bg-red-500 px-4 text-white shadow-[0_8px_24px_rgba(239,68,68,0.20)] hover:bg-red-500/90"
+                  className="gap-2 rounded-full bg-red-500 px-4 text-white shadow-[0_8px_24px_rgb(var(--brand-red-rgb)_/_0.20)] hover:bg-red-500/90"
                 >
                   <Send className="h-4 w-4" />
                   {isSubmitting ? "Publicando..." : "Comentar"}

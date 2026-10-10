@@ -2,9 +2,9 @@
 @tailwind components;
 @tailwind utilities;
 
-.cf-mobile-player-seek { accent-color: var(--cf2-accent, #df3153); touch-action: pan-x; }
-.cf-mobile-player-seek::-webkit-slider-thumb { -webkit-appearance: none; width: 14px; height: 14px; border: 0; border-radius: 50%; background: var(--cf2-accent, #df3153); }
-.cf-mobile-player-seek::-moz-range-thumb { width: 14px; height: 14px; border: 0; border-radius: 50%; background: var(--cf2-accent, #df3153); }
+.cf-mobile-player-seek { accent-color: var(--cf2-accent, var(--brand-red)); touch-action: pan-x; }
+.cf-mobile-player-seek::-webkit-slider-thumb { -webkit-appearance: none; width: 14px; height: 14px; border: 0; border-radius: 50%; background: var(--cf2-accent, var(--brand-red)); }
+.cf-mobile-player-seek::-moz-range-thumb { width: 14px; height: 14px; border: 0; border-radius: 50%; background: var(--cf2-accent, var(--brand-red)); }
 .cf-mobile-player-seek::-moz-range-track { background: transparent; }
 
 /* Scrollbar hide utility */
@@ -33,6 +33,10 @@ All colors MUST be HSL.
 
 @layer base {
   :root {
+    /* Official brand red; shared by legacy, V2 and status styles. */
+    --brand-red: #EF5066;
+    --brand-red-rgb: 239 80 102;
+    --brand-red-hsl: 351.6981132075472 83.2460732984293% 62.54901960784314%;
     /* Light mode - cinematic minimalist */
     --background: 0 0% 100%;
     --foreground: 0 0% 5%;
@@ -52,10 +56,10 @@ All colors MUST be HSL.
     --muted: 0 0% 96%;
     --muted-foreground: 0 0% 45%;
     
-    --accent: 347 77% 50%;
+    --accent: var(--brand-red-hsl);
     --accent-foreground: 0 0% 100%;
     
-    --destructive: 0 84.2% 60.2%;
+    --destructive: var(--brand-red-hsl);
     --destructive-foreground: 0 0% 98%;
     
     --border: 0 0% 90%;
@@ -69,7 +73,7 @@ All colors MUST be HSL.
     --cinematic-darker: 0 0% 96%;
     --cinematic-dark: 0 0% 92%;
     --cinematic-light: 0 0% 98%;
-    --cinematic-accent: 347 77% 50%;
+    --cinematic-accent: var(--brand-red-hsl);
     
     /* Badge colors */
     --badge-new: 0 0% 100%;
@@ -81,12 +85,12 @@ All colors MUST be HSL.
     /* Official navigation surface tokens. */
     --sidebar-background: 0 0% 98%;
     --sidebar-foreground: 225 8% 19%;
-    --sidebar-primary: 347 77% 50%;
+    --sidebar-primary: var(--brand-red-hsl);
     --sidebar-primary-foreground: 0 0% 100%;
     --sidebar-accent: 0 0% 95%;
     --sidebar-accent-foreground: 225 8% 13%;
     --sidebar-border: 0 0% 90%;
-    --sidebar-ring: 347 77% 50%;
+    --sidebar-ring: var(--brand-red-hsl);
 
     /* Plans are semantic states, not decorative colors. */
     --plan-free: 155 48% 34%;
@@ -114,10 +118,10 @@ All colors MUST be HSL.
     --muted: 0 0% 15%;
     --muted-foreground: 0 0% 65%;
     
-    --accent: 347 77% 50%;
+    --accent: var(--brand-red-hsl);
     --accent-foreground: 0 0% 100%;
     
-    --destructive: 0 62.8% 30.6%;
+    --destructive: var(--brand-red-hsl);
     --destructive-foreground: 0 0% 98%;
     
     --border: 0 0% 15%;
@@ -129,7 +133,7 @@ All colors MUST be HSL.
     --cinematic-darker: 0 0% 3%;
     --cinematic-dark: 0 0% 8%;
     --cinematic-light: 0 0% 98%;
-    --cinematic-accent: 347 77% 50%;
+    --cinematic-accent: var(--brand-red-hsl);
     
     /* Badge colors */
     --badge-new: 0 0% 100%;
@@ -140,12 +144,12 @@ All colors MUST be HSL.
 
     --sidebar-background: 225 12% 6%;
     --sidebar-foreground: 220 9% 92%;
-    --sidebar-primary: 352 84% 63%;
+    --sidebar-primary: var(--brand-red-hsl);
     --sidebar-primary-foreground: 0 0% 100%;
     --sidebar-accent: 220 9% 13%;
     --sidebar-accent-foreground: 220 9% 96%;
     --sidebar-border: 220 8% 18%;
-    --sidebar-ring: 352 84% 63%;
+    --sidebar-ring: var(--brand-red-hsl);
 
     --plan-free: 155 46% 58%;
     --plan-pro: 224 69% 75%;
@@ -247,4 +251,4 @@ All colors MUST be HSL.
 }
 .cf-mobile-watch-actions button span { font-size: 12px; }
 .cf-mobile-watch-actions button { min-height: 40px; }
-.cf-mobile-watch-details a:focus-visible { outline: 2px solid var(--cf2-accent, #df3153); outline-offset: 3px; border-radius: 8px; }
+.cf-mobile-watch-details a:focus-visible { outline: 2px solid var(--cf2-accent, var(--brand-red)); outline-offset: 3px; border-radius: 8px; }

@@ -341,13 +341,13 @@ export default function LiveBroadcast() {
     <AlertDialog open={endConfirmOpen} onOpenChange={(open) => { if (!ending) setEndConfirmOpen(open); }}>
       <AlertDialogContent className="w-[calc(100%-2rem)] max-w-md rounded-2xl border-white/15 bg-[#15171e] p-7 text-white shadow-2xl" overlayClassName="bg-black/65 backdrop-blur-sm">
         <AlertDialogHeader className="text-left">
-          <span className="mb-2 inline-flex w-fit items-center gap-2 rounded-full border border-[#e74660]/30 bg-[#e74660]/10 px-3 py-1 text-xs font-semibold text-[#ff8395]"><Radio className="h-3.5 w-3.5" /> CLASSFY LIVE</span>
+          <span className="mb-2 inline-flex w-fit items-center gap-2 rounded-full border border-brand/30 bg-brand/10 px-3 py-1 text-xs font-semibold text-brand"><Radio className="h-3.5 w-3.5" /> CLASSFY LIVE</span>
           <AlertDialogTitle className="text-2xl tracking-tight text-white">Encerrar transmissão?</AlertDialogTitle>
           <AlertDialogDescription className="text-sm leading-relaxed text-white/60">A live terminará para todos. A gravação ficará disponível no Studio após o processamento.</AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter className="mt-4 gap-2 sm:gap-0">
           <AlertDialogCancel disabled={ending} className="rounded-full border-white/15 bg-white/5 text-white hover:bg-white/10 hover:text-white">Continuar ao vivo</AlertDialogCancel>
-          <AlertDialogAction disabled={ending} onClick={(event) => { event.preventDefault(); void end(); }} className="rounded-full bg-[#e74660] text-white hover:bg-[#f45c72]">{ending ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Encerrando...</> : "Encerrar live"}</AlertDialogAction>
+          <AlertDialogAction disabled={ending} onClick={(event) => { event.preventDefault(); void end(); }} className="rounded-full bg-brand text-white hover:bg-brand/90">{ending ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Encerrando...</> : "Encerrar live"}</AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>

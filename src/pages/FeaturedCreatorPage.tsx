@@ -313,7 +313,7 @@ const FeaturedCreatorPage = () => {
               <Button
                 onClick={handleSubscribe}
                 size="lg"
-                className="w-full bg-[#e21d48] hover:bg-[#c91a40] text-white font-semibold"
+                className="w-full bg-brand hover:bg-brand/90 text-white font-semibold"
               >
                 Assinar Agora
               </Button>
@@ -424,7 +424,7 @@ const FeaturedCreatorPage = () => {
                 <Button
                   onClick={handleSubscribe}
                   size="lg"
-                  className="w-full bg-[#e21d48] hover:bg-[#c91a40] text-white font-semibold"
+                  className="w-full bg-brand hover:bg-brand/90 text-white font-semibold"
                 >
                   Assinar Agora
                 </Button>
@@ -497,7 +497,7 @@ const FeaturedCreatorPage = () => {
                 <Button
                   onClick={() => navigate(`/@${creator.creator_name}`)}
                   size="lg"
-                  className="bg-[#e21d48] hover:bg-[#c91a40] text-white font-semibold px-8"
+                  className="bg-brand hover:bg-brand/90 text-white font-semibold px-8"
                 >
                   Ver todos os conteúdos
                 </Button>
@@ -518,7 +518,7 @@ const FeaturedCreatorPage = () => {
           <Button
             onClick={handleSubscribe}
             size="lg"
-            className="bg-[#e21d48] hover:bg-[#c91a40] text-white font-semibold text-lg px-12 py-6"
+            className="bg-brand hover:bg-brand/90 text-white font-semibold text-lg px-12 py-6"
           >
             Começar Agora
           </Button>

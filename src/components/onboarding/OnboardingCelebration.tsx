@@ -21,7 +21,7 @@ export function OnboardingCelebration() {
           ticks: 220,
           scalar: 1.1,
           shapes: ["square", "circle"],
-          colors: ["#ed174c", "#ffba38", "#ffdf8f", "#ff799e", "#ffffff"],
+          colors: ["#EF5066", "#ffba38", "#ffdf8f", "#EF5066", "#ffffff"],
           disableForReducedMotion: true,
           zIndex: 90,
         });

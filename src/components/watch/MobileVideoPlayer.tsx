@@ -416,7 +416,7 @@ export function MobileVideoPlayer({
             aria-label="Posição do vídeo"
             className="cf-mobile-player-seek w-full h-1 rounded-full appearance-none cursor-pointer"
             style={{
-              background: `linear-gradient(to right, var(--cf2-accent, #df3153) 0%, var(--cf2-accent, #df3153) ${progressPercent}%, rgba(255,255,255,0.3) ${progressPercent}%, rgba(255,255,255,0.3) 100%)`
+              background: `linear-gradient(to right, var(--cf2-accent, #EF5066) 0%, var(--cf2-accent, #EF5066) ${progressPercent}%, rgba(255,255,255,0.3) ${progressPercent}%, rgba(255,255,255,0.3) 100%)`
             }}
           />
         </div>
