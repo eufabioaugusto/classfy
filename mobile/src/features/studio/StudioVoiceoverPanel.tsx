@@ -6,7 +6,7 @@ import { useAuth } from '@/features/auth/authContext';
 import { colors } from '@/theme/colors';
 import { compileStudioRecipe, formatStudioEditorTime, studioSeconds, type StudioProject } from './model';
 import { persistStudioVoiceover, type StudioVoiceoverPersistScope } from './media';
-import { prepareStudioVoiceoverRecording, type StudioVoiceoverAudio, type StudioVoiceoverRecording } from './voiceoverRecording';
+import { prepareStudioVoiceoverRecording, StudioVoiceoverReadError, type StudioVoiceoverAudio, type StudioVoiceoverRecording } from './voiceoverRecording';
 
 type Props = {
   project: StudioProject; positionSeconds: number; disabled?: boolean; canCommit?: () => boolean;
@@ -16,7 +16,7 @@ type Props = {
   onPersisted?: StudioVoiceoverPersistScope['onPersisted'];
   onPersistError?: StudioVoiceoverPersistScope['onPersistError'];
 };
-type Phase = 'idle' | 'preparing' | 'countdown' | 'recording' | 'stopping' | 'ready' | 'saving';
+type Phase = 'idle' | 'preparing' | 'countdown' | 'recording' | 'stopping' | 'recovering' | 'ready' | 'saving';
 export function StudioVoiceoverPanel({ project, positionSeconds, disabled = false, canCommit, onClose, onSaved, onActivityChange, onRecordingChange, onBeforePersist, onPersisted, onPersistError }: Props) {
   const { user } = useAuth();
   const focused = useIsFocused();
@@ -28,6 +28,7 @@ export function StudioVoiceoverPanel({ project, positionSeconds, disabled = fals
   current.current = { owner: user?.id, project, positionSeconds, disabled, focused, canCommit, onClose, onSaved, onActivityChange, onRecordingChange, onBeforePersist, onPersisted, onPersistError };
   const session = useRef<StudioVoiceoverRecording | undefined>(undefined), preparing = useRef<Promise<StudioVoiceoverRecording> | undefined>(undefined);
   const recording = useRef<StudioVoiceoverAudio | undefined>(undefined), savingTask = useRef<Promise<unknown> | undefined>(undefined), timer = useRef<ReturnType<typeof setInterval> | undefined>(undefined);
+  const interruptionNotice = useRef<string | undefined>(undefined);
   const writing = useRef(false), closing = useRef(false), phaseRef = useRef<Phase>(phase), recordLimit = useRef(0), recordAt = useRef(positionSeconds), savedItem = useRef<string | undefined>(undefined);
   phaseRef.current = phase;
   const clearTimer = () => { if (timer.current !== undefined) clearInterval(timer.current); timer.current = undefined; };
@@ -45,7 +46,8 @@ export function StudioVoiceoverPanel({ project, positionSeconds, disabled = fals
     closing.current = true; clearTimer(); if (mounted.current) setPhase('stopping');
     try {
       await cleanup();
-      if (mounted.current) { setPhase('idle'); setDuration(0); setMetering(undefined); }
+      interruptionNotice.current = undefined;
+      if (mounted.current) { setPhase('idle'); setDuration(0); setMetering(undefined); setError(undefined); }
       if (leave && mounted.current) current.current.onClose();
     } catch (cause) { if (mounted.current) { setPhase('idle'); setError(cause instanceof Error ? cause.message : 'Não foi possível encerrar a gravação. Tente novamente.'); } }
     finally { closing.current = false; writing.current = false; }
@@ -67,27 +69,36 @@ export function StudioVoiceoverPanel({ project, positionSeconds, disabled = fals
   useEffect(() => { onActivityChange?.(phase !== 'idle'); }, [phase, onActivityChange]);
   useEffect(() => { current.current.onRecordingChange?.(phase === 'recording', recordAt.current); }, [phase]);
   const stop = async () => {
-    if (!canAct() || writing.current || !session.current || phaseRef.current !== 'recording') return;
+    if (!canAct() || writing.current || !session.current || !['recording', 'recovering'].includes(phaseRef.current)) return;
     writing.current = true; clearTimer(); setPhase('stopping'); phaseRef.current = 'stopping';
     const token = operation.current, generation = epoch.current, isCurrent = scopeFor(token, generation);
     try {
       const audio = await session.current.finish();
       if (!isCurrent()) return;
-      recording.current = audio; setDuration(Math.min(audio.duration, recordLimit.current)); setPhase('ready'); phaseRef.current = 'ready';
+      recording.current = audio; setDuration(Math.min(audio.duration, recordLimit.current)); setError(interruptionNotice.current); setPhase('ready'); phaseRef.current = 'ready';
     } catch (cause) {
-      if (isCurrent()) { setError(cause instanceof Error ? cause.message : 'Não foi possível gravar. Tente novamente.'); setPhase('idle'); phaseRef.current = 'idle'; }
+      if (isCurrent()) { const next = cause instanceof StudioVoiceoverReadError ? 'recovering' : 'idle'; setError(cause instanceof Error ? cause.message : 'Não foi possível gravar. Tente novamente.'); setPhase(next); phaseRef.current = next; }
     } finally { writing.current = false; }
   };
   const begin = async () => {
     if (!canAct() || writing.current || closing.current || phaseRef.current !== 'idle') return;
     const remaining = studioSeconds(compileStudioRecipe(current.current.project).durationTicks) - current.current.positionSeconds;
     if (!Number.isFinite(remaining) || remaining < .1) { setError('Posicione o cursor antes do fim do vídeo.'); return; }
-    recordLimit.current = remaining; recordAt.current = current.current.positionSeconds; savedItem.current = undefined; writing.current = true; setError(undefined); setPhase('preparing'); phaseRef.current = 'preparing';
+    recordLimit.current = remaining; recordAt.current = current.current.positionSeconds; savedItem.current = undefined; interruptionNotice.current = undefined; writing.current = true; setError(undefined); setPhase('preparing'); phaseRef.current = 'preparing';
     const token = ++operation.current, generation = epoch.current, isCurrent = scopeFor(token, generation);
     try {
+      // A previous failed validation can still own a temporary original. A
+      // deliberate new recording releases it before replacing the session.
+      if (session.current) { await session.current.cancel(); session.current = undefined; recording.current = undefined; }
+      if (!isCurrent()) return;
       const pending = prepareStudioVoiceoverRecording({ isCurrent, onStatus: status => {
         if (!isCurrent()) return;
         setDuration(Math.min(status.duration, recordLimit.current)); setMetering(status.metering);
+        if (status.interrupted && phaseRef.current === 'recording') {
+          interruptionNotice.current = 'O microfone foi interrompido. Confira o trecho gravado antes de usar.';
+          setError(interruptionNotice.current);
+          void stop(); return;
+        }
         if (status.recording && status.duration >= recordLimit.current) void stop();
       } });
       preparing.current = pending;
@@ -108,7 +119,7 @@ export function StudioVoiceoverPanel({ project, positionSeconds, disabled = fals
   };
   const save = async () => {
     if (!canAct() || writing.current || phaseRef.current !== 'ready' || !recording.current) return;
-    writing.current = true; setPhase('saving'); phaseRef.current = 'saving'; setError(undefined);
+    interruptionNotice.current = undefined; writing.current = true; setPhase('saving'); phaseRef.current = 'saving'; setError(undefined);
     const token = operation.current, generation = epoch.current, isCurrent = scopeFor(token, generation), ownerProject = current.current.project;
     try {
       if (!savedItem.current) {
@@ -133,7 +144,10 @@ export function StudioVoiceoverPanel({ project, positionSeconds, disabled = fals
     {scriptVisible && <ScrollView style={s.script} showsVerticalScrollIndicator={false}><Text style={s.scriptText}>{project.script}</Text></ScrollView>}
     <View style={s.body}>
       <View style={s.time}><Text accessibilityLiveRegion="polite" style={s.timer}>{phase === 'countdown' ? countdown : formatStudioEditorTime(duration)}</Text><Text style={s.caption}>{phase === 'countdown' ? 'Prepare-se' : phase === 'recording' ? 'Gravando' : phase === 'ready' ? 'Narração pronta' : phase === 'saving' ? 'Salvando áudio…' : phase === 'preparing' ? 'Preparando microfone…' : phase === 'stopping' ? 'Encerrando microfone…' : 'Grave sua voz sobre o vídeo'}</Text></View>
-      {waiting ? <ActivityIndicator accessibilityLabel="Aguarde a narração" color={colors.accent} /> : phase === 'ready' ? <View style={s.actions}>
+      {waiting ? <ActivityIndicator accessibilityLabel="Aguarde a narração" color={colors.accent} /> : phase === 'recovering' ? <View style={s.actions}>
+        <Pressable accessibilityRole="button" accessibilityLabel="Descartar narração" disabled={disabled} onPress={() => { void cancel(false); }} style={s.icon}><Trash2 size={20} color={colors.muted} strokeWidth={1.6} /></Pressable>
+        <Pressable accessibilityRole="button" accessibilityLabel="Recuperar narração" disabled={disabled} onPress={() => { void stop(); }} style={s.use}><Check size={19} color={colors.text} /><Text style={s.useLabel}>Recuperar</Text></Pressable>
+      </View> : phase === 'ready' && savedItem.current ? <Pressable accessibilityRole="button" accessibilityLabel="Concluir narração" disabled={disabled} onPress={() => { void save(); }} style={s.use}><Check size={19} color={colors.text} /><Text style={s.useLabel}>Concluir</Text></Pressable> : phase === 'ready' ? <View style={s.actions}>
         <Pressable accessibilityRole="button" accessibilityLabel="Descartar narração" disabled={disabled} onPress={() => { void cancel(false); }} style={s.icon}><Trash2 size={20} color={colors.muted} strokeWidth={1.6} /></Pressable>
         <Pressable accessibilityRole="button" accessibilityLabel="Usar narração" disabled={disabled} onPress={() => { void save(); }} style={s.use}><Check size={19} color={colors.text} /><Text style={s.useLabel}>Usar narração</Text></Pressable>
       </View> : <Pressable accessibilityRole="button" accessibilityLabel={phase === 'recording' ? 'Parar narração' : phase === 'countdown' ? 'Cancelar contagem' : 'Gravar narração'} disabled={disabled} onPress={() => { if (phase === 'recording') void stop(); else if (phase === 'countdown') void cancel(false); else void begin(); }} style={({ pressed }) => [s.record, pressed && { opacity: .7 }, disabled && { opacity: .4 }]}>{phase === 'recording' || phase === 'countdown' ? <Square size={19} fill={colors.text} color={colors.text} /> : <Mic size={23} color={colors.text} strokeWidth={1.7} />}</Pressable>}

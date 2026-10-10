@@ -659,8 +659,10 @@ function ProjectEditor({ project, update }: { project: StudioProject; update: (i
     if (!active) preview.current?.pause();
   }, []);
   useEffect(() => {
-    if (voiceoverRecording && canSaveVoiceover() && !playbackRef.current.playing) preview.current?.togglePlayback();
-  }, [voiceoverRecording, canSaveVoiceover]);
+    // The editor-capability API shipped with recorder-safe native playback.
+    // Earlier binaries switch to playback at Play and interrupt the microphone.
+    if (toolsEnabled && voiceoverRecording && canSaveVoiceover() && !playbackRef.current.playing) preview.current?.togglePlayback();
+  }, [toolsEnabled, voiceoverRecording, canSaveVoiceover]);
   const closeVoiceover = () => { voiceoverScope.current = undefined; setVoiceover(false); };
   const openClipTool = async (mode: StudioClipPanelMode) => {
     const target = selectedLayerId || selectedTakeId || activeTake?.id;
@@ -909,7 +911,7 @@ function ProjectEditor({ project, update }: { project: StudioProject; update: (i
     <View style={fullscreen ? StyleSheet.absoluteFillObject : styles.previewStage} onLayout={event => { setStageSize(event.nativeEvent.layout); }}>
       <View style={fullscreen ? StyleSheet.absoluteFillObject : [styles.previewFrame, { width: previewWidth, height: previewHeight }]}>
         <StudioCompositionPreview ref={preview} project={previewProject} recipe={recipe} playbackChannel={playbackChannel} canvasTransformChannel={canvasTransformChannel} before={before} activeTakeId={activeTakeId} onActiveTakeChange={setActiveTakeId} onPlaybackState={receivePlayback}
-          paused={(voiceover && !voiceoverRecording) || !focused || !!pendingRestore.current || !!panel || busy || !!trimDraft || canvasInteracting || layerInteracting || treating || !!clipTool || (!fullscreen && (layerPanelExpanded || keyboardVisible))} onCanvasPress={pressEmptyCanvas} canvasLabel={playback.playing ? 'Pausar prévia' : 'Reproduzir prévia'} />
+          paused={(voiceover && (!voiceoverRecording || !toolsEnabled)) || !focused || !!pendingRestore.current || !!panel || busy || !!trimDraft || canvasInteracting || layerInteracting || treating || !!clipTool || (!fullscreen && (layerPanelExpanded || keyboardVisible))} onCanvasPress={pressEmptyCanvas} canvasLabel={playback.playing ? 'Pausar prévia' : 'Reproduzir prévia'} />
         {!fullscreen && advanced && <StudioCanvasEditor editing={visibleEditing} recipe={recipe} canvasTransformChannel={canvasTransformChannel} positionSeconds={playback.position} selectedLayerId={selectedLayerId} selectedMainClipId={selectedTakeId}
           disabled={voiceover || !focused || busy || locked || !!panel || !!trimDraft || layerInteracting || treating || !!clipTool}
           onSelectLayer={selectLayer} onSelectMainClip={selectMainCanvas} onCanvasPress={pressEmptyCanvas} onPreviewRect={previewCanvas} onCommitRect={commitCanvas} onEditText={editCanvasElement}

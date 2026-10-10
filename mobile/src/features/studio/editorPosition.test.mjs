@@ -1429,14 +1429,14 @@ test('velocidade confirmada preserva frame do cursor e undo restaura âncoras do
   } finally { view.dispose(); }
 });
 
-test('narração mantém cursor, bloqueia saída e invalida gravação antiga após blur/refocus', async () => {
-  const view = harness(undefined, { initialEditing: outputMontage(), advanced: true });
+for (const editorTools of [false, true]) test(`narração ${editorTools ? 'atual acompanha prévia' : 'legada preserva microfone sem Play'}, mantém cursor e invalida sessão após blur/refocus`, async () => {
+  const view = harness(undefined, { initialEditing: outputMontage(), advanced: true, editorTools });
   try {
     await view.pump(); view.publish({ position: 3, sourcePosition: 5, takeId: 'a', playing: false, loading: false }); await view.pump();
     view.tool('Voz').onPress(); await view.pump(); const panel = view.voiceoverProps();
     assert.equal(panel.positionSeconds, 3); assert.equal(panel.canCommit(), true); assert.equal(view.hasTimeline(), false);
     assert.equal(view.button('Revisar publicação').disabled, true); view.back(); await view.pump(); assert.equal(view.navigationEvents.length, 0);
-    panel.onRecordingChange(true, 3); await view.pump(); assert.equal(view.preview.toggles, 1); assert.equal(view.previewProps().paused, false);
+    panel.onRecordingChange(true, 3); await view.pump(); assert.equal(view.preview.toggles, editorTools ? 1 : 0); assert.equal(view.previewProps().paused, !editorTools);
     panel.onRecordingChange(false, 3); await view.pump(); assert.equal(view.previewProps().paused, true);
     view.focus(false); await view.pump(); view.focus(true); await view.pump(); assert.equal(panel.canCommit(), false);
     panel.onClose(); await view.pump(); assert.equal(view.hasTimeline(), true); assert.deepEqual(view.writes(), { attempted: 0, completed: 0 });
