@@ -1726,6 +1726,7 @@ function WatchContent() {
                     />
 
                     <CourseCurriculum
+                      key={content.id}
                       modules={courseModules}
                       currentLesson={currentLesson}
                       onLessonSelect={setCurrentLesson}

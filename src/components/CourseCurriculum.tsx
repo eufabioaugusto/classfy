@@ -21,7 +21,7 @@ export const CourseCurriculum = ({ modules, currentLesson, onLessonSelect, hasAc
     <Card className="p-4">
       <h3 className="text-lg font-bold mb-4">Conteúdo do Curso</h3>
 
-      <Accordion type="single" collapsible className="w-full">
+      <Accordion type="single" collapsible defaultValue="module-0" className="w-full">
         {modules.map((module, idx) => (
           <AccordionItem key={module.id} value={`module-${idx}`}>
             <AccordionTrigger className="hover:no-underline">
